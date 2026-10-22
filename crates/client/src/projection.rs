@@ -245,6 +245,9 @@ impl Projection {
                             snapshot.terminals.sort_by_key(|terminal| terminal.id);
                         }
                     }
+                    Event::PowerSettingsChanged { revision } => {
+                        snapshot.power_settings_revision = revision;
+                    }
                     Event::TerminalSettingsChanged { revision } => {
                         snapshot.terminal_settings_revision = revision;
                     }

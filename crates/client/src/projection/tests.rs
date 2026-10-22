@@ -19,6 +19,7 @@ fn snapshot(cursor: u64) -> Snapshot {
         sessions: vec![],
         terminals: vec![],
         terminal_settings_revision: 0,
+        power_settings_revision: 0,
         sandbox_settings_revision: 0,
         search_settings_revision: 0,
         media_settings: Default::default(),
@@ -299,4 +300,35 @@ fn invalidates_credentials_on_revision_and_recovery() {
     let reconnect = projection.credential_cursor();
     assert_eq!(projection.apply(1, event(3)).unwrap(), Apply::Ignored);
     assert_eq!(projection.credential_cursor(), reconnect);
+}
+
+#[test]
+fn power_policy_revision_follows_authority() {
+    let mut projection = Projection::new(NodeId([1; 32]), 1);
+    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+    projection
+        .apply(
+            1,
+            Update::Event(EventEnvelope {
+                node: NodeId([1; 32]),
+                cursor: 1,
+                event: Event::PowerSettingsChanged { revision: 3 },
+            }),
+        )
+        .unwrap();
+    assert_eq!(projection.snapshot().unwrap().power_settings_revision, 3);
+    assert_eq!(
+        projection
+            .apply(
+                1,
+                Update::Event(EventEnvelope {
+                    node: NodeId([1; 32]),
+                    cursor: 1,
+                    event: Event::PowerSettingsChanged { revision: 1 }
+                })
+            )
+            .unwrap(),
+        Apply::Ignored
+    );
+    assert_eq!(projection.snapshot().unwrap().power_settings_revision, 3);
 }

@@ -27,6 +27,7 @@ mod notifications;
 mod outcomes;
 mod plugins;
 mod ports;
+mod power;
 mod processes;
 mod projects;
 mod providers;
@@ -61,6 +62,7 @@ use database::Database;
 const CAPACITY: usize = 128;
 
 enum Job {
+    PowerFailed(i64),
     #[cfg(test)]
     Barrier {
         entered: mpsc::UnboundedSender<()>,
@@ -325,6 +327,7 @@ enum Job {
 #[derive(Clone)]
 pub(crate) struct Ingress {
     pub(crate) node: NodeId,
+    pub(crate) power: Arc<crate::power::Service>,
     profile: Option<PathBuf>,
     backup_resources: Arc<tokio::sync::RwLock<()>>,
     host: Arc<crate::host::Host>,
@@ -459,7 +462,16 @@ impl Store {
         let local_models =
             crate::models::registry::Registry::new(profile.clone(), closed.child_token());
         let ocr = crate::ocr::Service::new(local_models.clone());
+        let failures = sender.clone();
+        let power_runtime = tokio::runtime::Handle::current();
+        let power = crate::power::Service::new(move |code| {
+            let failures = failures.clone();
+            power_runtime.spawn(async move {
+                let _ = failures.send(Job::PowerFailed(code)).await;
+            });
+        });
         let ingress = Arc::new(Ingress {
+            power: power.clone(),
             node,
             profile: profile.clone(),
             backup_resources: Arc::default(),
@@ -488,7 +500,7 @@ impl Store {
             local_models,
             knowledge: Arc::new(OnceLock::new()),
             terminals: terminals.clone(),
-            commands: Arc::default(),
+            commands: Arc::new(crate::process::background::Commands::new(power.clone())),
             environment: environment.clone(),
             login_service: authorization.clone(),
             sender,
@@ -583,6 +595,10 @@ impl Store {
                         return Ok(());
                     }
                 };
+                match power::read(&database.connection) {
+                    Ok(settings) => power.apply_settings(settings),
+                    Err(error) => { let _ = ready.send(Err(crate::Error::from(error))); return Ok(()); }
+                }
                 database.feeds = feeds;
                 database.model_clients = model_clients;
                 if let Err(error) = database.models(installing.local_models.clone()) {
@@ -793,6 +809,12 @@ impl Store {
                         _ => false,
                     };
                     match job {
+                        Job::PowerFailed(code) => {
+                            eprintln!("native idle-sleep request failed: {code}; status: {:?}", power.status());
+                            if let Err(error) = power::failed(&mut database, code, &events) {
+                                eprintln!("power failure notification persistence failed: {error}");
+                            }
+                        }
                         #[cfg(test)]
                         Job::Barrier { entered, release } => {
                             entered.send(()).unwrap();
@@ -1201,6 +1223,10 @@ impl Store {
                             } else {
                                 (reply, None)
                             };
+                            let (reply, power_completion) = if matches!(request.command, sailry_protocol::Command::SavePowerSettings(_)) {
+                                let (complete, response) = oneshot::channel();
+                                (complete, Some((reply, response)))
+                            } else { (reply, None) };
                             let code_settings = code::configures(&request.command);
                             let (reply, code_completion) = if code_settings {
                                 let (complete, response) = oneshot::channel();
@@ -1343,6 +1369,17 @@ impl Store {
                                 let result = completion.blocking_recv().unwrap_or_else(|_| Err(unavailable()));
                                 if result.is_ok() {
                                     code::refresh(&database.connection,&code_pool,&cleanup_runtime);
+                                }
+                                let _ = reply.send(result);
+                            }
+                            if let Some((reply, completion)) = power_completion {
+                                let mut result = completion.blocking_recv().unwrap_or_else(|_| Err(unavailable()));
+                                if result.is_ok() {
+                                    // Durable replay may contain an old saved value. Apply only current storage.
+                                    match power::read(&database.connection) {
+                                        Ok(settings) => power.apply_settings(settings),
+                                        Err(error) => result = Err(error),
+                                    }
                                 }
                                 let _ = reply.send(result);
                             }
@@ -1492,12 +1529,14 @@ impl Store {
         })
         .await
         .map_err(|error| Error::Worker(error.to_string()))??;
+        self.ingress.power.close();
         browsers.map_err(|error| Error::Worker(error.to_string()))
     }
 }
 
 impl Drop for Store {
     fn drop(&mut self) {
+        self.ingress.power.close();
         self.stop_admission();
         self.ingress.closing.store(true, Ordering::Release);
         // A full queue already wakes the worker, which observes the admission flag.

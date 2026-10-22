@@ -6,6 +6,23 @@ use sailry_protocol::{
     notification::{Cause, Details, Diagnostic, Draft, Kind, Task, Terminal},
 };
 
+pub(in crate::store) fn power(db: &Connection, code: i64) -> Result<Event, Fault> {
+    let notice = insert(
+        db,
+        String::new(),
+        Draft {
+            title: String::new(),
+            message: String::new(),
+            kind: Kind::Error,
+            session: None,
+            presentation: None,
+            details: Some(Details::Power { code }),
+        },
+        chrono::Utc::now().timestamp_millis(),
+    )?;
+    Ok(Event::NotificationChanged(notice))
+}
+
 pub(in crate::store) fn compaction(
     db: &Connection,
     session: SessionId,

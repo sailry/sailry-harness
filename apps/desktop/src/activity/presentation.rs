@@ -13,6 +13,9 @@ use sailry_protocol::{
 };
 
 pub(super) fn heading(notice: &Notice) -> SharedString {
+    if matches!(notice.details, Some(Details::Power { .. })) {
+        return tr("power_request_failed");
+    }
     if let Some(Details::Diagnostic(diagnostic)) = &notice.details {
         return match &diagnostic.cause {
             Cause::Compaction(failure) => tr(if failure.source == Source::Automatic {

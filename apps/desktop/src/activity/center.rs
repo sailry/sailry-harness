@@ -262,6 +262,11 @@ impl Shell {
                     ));
                 }
             }
+            Some(Details::Power { code }) => {
+                body = body
+                    .child(tr("power_tasks_continue"))
+                    .child(code.to_string());
+            }
             Some(Details::Text { body: text }) => body = body.child(text.clone()),
             None => {}
         }

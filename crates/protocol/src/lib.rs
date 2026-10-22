@@ -31,6 +31,7 @@ pub mod notification;
 pub mod office;
 pub mod permissions;
 pub mod plugin;
+pub mod power;
 pub mod process;
 pub mod projects;
 pub mod python;

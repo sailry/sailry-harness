@@ -201,6 +201,8 @@ pub(super) fn execute(
                 changed.map(Event::PluginChanged),
             ))
         }
+        Command::ReadPowerSettings => Ok((Output::PowerSettings(super::power::read(db)?), None)),
+        Command::SavePowerSettings(settings) => super::power::save(db, settings),
         Command::ReadTerminalSettings => Ok((
             Output::TerminalSettings(super::terminals::settings::read(db)?),
             None,
@@ -1221,6 +1223,7 @@ fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         node,
         worktrees: super::worktrees::list(db)?,
         terminals: super::terminals::list(db)?,
+        power_settings_revision: super::power::read(db)?.revision,
         terminal_settings_revision: super::terminals::settings::read(db)?.revision,
         sandbox_settings_revision: super::sandbox::read(db)?.revision,
         search_settings_revision: super::search::read(db)?.revision,

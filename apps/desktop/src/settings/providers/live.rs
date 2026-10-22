@@ -25,6 +25,7 @@ pub(in crate::settings) struct Binding {
 
 pub(in crate::settings) struct Live {
     pub terminal_revision: u64,
+    pub power_revision: u64,
     pub sandbox_revision: u64,
     pub search_revision: u64,
     pub binding: Binding,
@@ -164,6 +165,7 @@ impl Workspace {
         });
         self.provider_link = Some(Live {
             terminal_revision: 0,
+            power_revision: 0,
             sandbox_revision: 0,
             search_revision: 0,
             binding,
@@ -220,6 +222,7 @@ impl Workspace {
         if let Some(snapshot) = view.snapshot.as_ref() {
             self.extensions.retain(&snapshot.plugins, cx);
             live.terminal_revision = snapshot.terminal_settings_revision;
+            live.power_revision = snapshot.power_settings_revision;
             live.sandbox_revision = snapshot.sandbox_settings_revision;
             live.search_revision = snapshot.search_settings_revision;
             if snapshot.model_catalog.revision > live.catalog.status.revision {

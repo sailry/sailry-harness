@@ -15,7 +15,7 @@ use crate::tr;
 impl Workspace {
     pub(super) fn preferences(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let preferences = crate::preferences::data(cx);
@@ -25,6 +25,7 @@ impl Workspace {
                 .child(
                     Group::new("settings_general")
                         .heading(false)
+                        .child(self.power(window, cx))
                         .child(Row::new(
                             "settings_language",
                             div()

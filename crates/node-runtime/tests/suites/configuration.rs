@@ -35,3 +35,6 @@ mod search;
 
 #[path = "../backup.rs"]
 mod backup;
+
+#[path = "../power.rs"]
+mod power;

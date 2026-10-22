@@ -35,6 +35,7 @@ mod roles;
 mod runtime;
 pub(crate) use roles::Role;
 pub(crate) mod extensions;
+mod power;
 mod shortcuts;
 mod skills;
 mod terminal;
@@ -234,6 +235,7 @@ pub struct Workspace {
     provider_link: Option<providers::Live>,
     provider_contributions: Option<providers::contributions::State>,
     terminal: terminal::State,
+    power: power::State,
     models: models::State,
     runtime: runtime::State,
     backup: backup::State,
@@ -335,6 +337,7 @@ impl Workspace {
             provider_link: None,
             provider_contributions: None,
             terminal,
+            power: power::State::default(),
             models: models::State::default(),
             runtime: runtime::State::default(),
             backup: backup::State::default(),

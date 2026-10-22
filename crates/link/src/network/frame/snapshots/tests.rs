@@ -14,6 +14,7 @@ fn snapshot() -> Snapshot {
         sessions: vec![],
         terminals: vec![],
         terminal_settings_revision: 0,
+        power_settings_revision: 0,
         sandbox_settings_revision: 0,
         search_settings_revision: 0,
         media_settings: Default::default(),

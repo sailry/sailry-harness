@@ -718,6 +718,7 @@ pub(super) fn execute(
             if let Err(error) = result {
                 eprintln!("background completion persistence failed: {error}");
             }
+            let _ = completed.completed.send(());
         }
         Operation::ConsumeCommand {
             parent,

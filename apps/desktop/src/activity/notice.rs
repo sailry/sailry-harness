@@ -97,7 +97,10 @@ impl Shell {
             && !notice.title.is_empty();
         let heading = if matches!(
             notice.details,
-            Some(sailry_protocol::notification::Details::Diagnostic(_))
+            Some(
+                sailry_protocol::notification::Details::Diagnostic(_)
+                    | sailry_protocol::notification::Details::Power { .. }
+            )
         ) {
             presentation::heading(notice)
         } else {
@@ -133,6 +136,11 @@ impl Shell {
         let id = notice.id;
         let key = format!("{id:?}");
         let message = if matches!(
+            notice.details,
+            Some(sailry_protocol::notification::Details::Power { .. })
+        ) {
+            tr("power_tasks_continue")
+        } else if matches!(
             notice.details,
             Some(sailry_protocol::notification::Details::Diagnostic(_))
         ) {

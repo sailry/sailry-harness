@@ -25,6 +25,7 @@ mod ocr;
 mod office;
 mod plugins;
 mod ports;
+mod power;
 mod process;
 mod profile;
 mod providers;
@@ -115,7 +116,15 @@ struct Bootstrap {
     network_roots: Option<sailry_link::CaTlsConfig>,
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub use power::Status as PowerStatus;
+
 impl Node {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn power_status(&self) -> PowerStatus {
+        self.ingress.power.status()
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn indexed_knowledge_inputs(&self) -> u64 {
         self.ingress

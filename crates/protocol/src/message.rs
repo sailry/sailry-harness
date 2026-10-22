@@ -843,6 +843,7 @@ pub enum Command {
         paused: bool,
     },
     ReadTerminalSettings,
+    ReadPowerSettings,
     ReadNetworkSettings,
     SaveNetworkSettings {
         expected_revision: u64,
@@ -906,6 +907,7 @@ pub enum Command {
     },
     ListShells,
     SaveTerminalSettings(crate::terminal::Settings),
+    SavePowerSettings(crate::power::Settings),
     ListMediaModels,
     ReadMediaSettings,
     SaveMediaSettings(crate::media::Settings),
@@ -1593,6 +1595,7 @@ impl Command {
                 | Self::ListCommands { .. }
                 | Self::ReadCommand { .. }
                 | Self::ReadTerminalSettings
+                | Self::ReadPowerSettings
                 | Self::ReadNetworkSettings
                 | Self::ReadSandboxSettings
                 | Self::ReadSearchSettings
@@ -1718,6 +1721,7 @@ pub struct Snapshot {
     pub sessions: Vec<Session>,
     pub terminals: Vec<crate::terminal::Info>,
     pub terminal_settings_revision: u64,
+    pub power_settings_revision: u64,
     pub sandbox_settings_revision: u64,
     pub search_settings_revision: u64,
     pub media_settings: crate::media::Settings,
@@ -1901,6 +1905,7 @@ pub enum Output {
     QueuedMessage(crate::conversation::QueuedMessage),
     Terminal(crate::terminal::Info),
     TerminalSettings(crate::terminal::Settings),
+    PowerSettings(crate::power::Settings),
     NetworkSettings(crate::network::Settings),
     SandboxSettings(crate::sandbox::Settings),
     SearchSettings(crate::search::Settings),
@@ -2068,6 +2073,9 @@ pub enum Event {
         packages: Vec<String>,
     },
     MediaSettingsChanged(crate::media::Settings),
+    PowerSettingsChanged {
+        revision: u64,
+    },
     TerminalSettingsChanged {
         revision: u64,
     },

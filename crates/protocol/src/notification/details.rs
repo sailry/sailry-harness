@@ -9,6 +9,7 @@ pub enum Details {
     Task(Task),
     Terminal(Terminal),
     Text { body: String },
+    Power { code: i64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
