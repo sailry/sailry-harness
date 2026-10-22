@@ -761,3 +761,70 @@ async fn preserves_user_dominated_windows() {
         Some(original.as_str())
     );
 }
+
+mod commentary {
+    use super::*;
+
+    fn message(status: &str) -> LlmResponse {
+        LlmResponse {
+            partial: status == "in_progress",
+            content: Some(Content {
+                role: "model".into(),
+                parts: vec![Part::ServerToolCall {
+                    server_tool_call: json!({
+                        "type":"message", "role":"assistant", "phase":"commentary",
+                        "id":"msg_summary", "status":status,
+                        "content":[{"type":"output_text", "text":"Preparing the handoff", "annotations":[]}]
+                    }),
+                }],
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn accepts_only_final_summary_text() {
+        for mode in [SummaryMode::Automatic, SummaryMode::Manual] {
+            let (summarizer, _) = summarizer(
+                vec![
+                    message("in_progress"),
+                    message("completed"),
+                    complete("Concise final summary"),
+                ],
+                false,
+            );
+            let summary = summarizer
+                .summarize_with(&history(), mode)
+                .await
+                .unwrap()
+                .unwrap();
+            let text = summary.actions.compaction.unwrap().compacted_content.parts[0]
+                .text()
+                .unwrap()
+                .to_owned();
+            assert!(text.starts_with("Concise final summary"));
+            assert!(!text.contains("Preparing the handoff"));
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_tools_and_incomplete_messages() {
+        for mode in [SummaryMode::Automatic, SummaryMode::Manual] {
+            let mut tool = message("completed");
+            let Part::ServerToolCall { server_tool_call } =
+                &mut tool.content.as_mut().unwrap().parts[0]
+            else {
+                unreachable!()
+            };
+            server_tool_call["type"] = json!("web_search_call");
+            for responses in [
+                vec![message("completed")],
+                vec![message("incomplete"), complete("Summary")],
+                vec![tool, complete("Summary")],
+            ] {
+                let (summarizer, _) = summarizer(responses, false);
+                assert!(summarizer.summarize_with(&history(), mode).await.is_err());
+            }
+        }
+    }
+}

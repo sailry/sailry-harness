@@ -2,6 +2,7 @@
 pub mod assets;
 pub mod background;
 pub mod catalog;
+pub mod compaction;
 pub mod connection;
 pub mod consent;
 pub mod discovery;

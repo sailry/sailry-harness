@@ -18,6 +18,7 @@ pub(super) struct Context {
     summarizer: Summarizer,
     preamble: Content,
     applied: AtomicBool,
+    manual_applied: AtomicBool,
     retention: AtomicUsize,
     attempted: Mutex<Option<Attempt>>,
     checkpoint: Mutex<Option<Arc<Checkpoint>>>,
@@ -51,6 +52,7 @@ impl Context {
             summarizer,
             preamble: Content::new("system").with_text(instruction),
             applied: AtomicBool::new(false),
+            manual_applied: AtomicBool::new(false),
             retention: AtomicUsize::new(1),
             attempted: Mutex::new(None),
             checkpoint: Mutex::new(None),
@@ -219,8 +221,27 @@ impl Context {
     pub(super) async fn before(
         &self,
         _invocation: &str,
-        mut request: LlmRequest,
+        request: LlmRequest,
     ) -> adk_core::Result<BeforeModelResult> {
+        let result = self.before_inner(request).await;
+        if let Err(error) = &result
+            && !self.summarizer.stop.is_cancelled()
+        {
+            self.notice(
+                error,
+                if self.manual_applied.load(Ordering::Relaxed) {
+                    SummaryMode::Manual
+                } else {
+                    SummaryMode::Automatic
+                },
+                false,
+            )
+            .await?;
+        }
+        result
+    }
+
+    async fn before_inner(&self, mut request: LlmRequest) -> adk_core::Result<BeforeModelResult> {
         if self.summarizer.stop.is_cancelled() {
             return Err(invalid("context compaction was cancelled"));
         }
@@ -277,9 +298,20 @@ impl Context {
         if !compact {
             return Ok(BeforeModelResult::Continue(request));
         }
+        self.manual_applied.store(false, Ordering::Relaxed);
         let history = self.history().await?;
         let keep = self.retention.load(Ordering::Relaxed);
         let Some(cut) = self.cut(&history, &request, keep)? else {
+            let candidates = self.candidates(&history, keep);
+            let mismatch = !candidates.is_empty()
+                && !candidates
+                    .iter()
+                    .any(|cut| tail(&request, &history.events[*cut..], &self.preamble).is_some());
+            if full && mismatch {
+                return Err(invalid(
+                    "model context does not match the persisted summary",
+                ));
+            }
             if full {
                 return Err(invalid(
                     "context exceeds the model limit and no complete prefix fits the summary budget",
@@ -322,7 +354,16 @@ impl Context {
                     warn
                 };
                 if warn {
-                    self.warning().await?;
+                    self.notice(
+                        &invalid(if mismatch {
+                            "model context does not match the persisted summary"
+                        } else {
+                            "no complete prefix fits the context summary budget"
+                        }),
+                        SummaryMode::Automatic,
+                        true,
+                    )
+                    .await?;
                 }
             }
             return Ok(BeforeModelResult::Continue(request));
@@ -385,28 +426,45 @@ impl Context {
                 invalid("context exceeds the model limit and no summary was applied")
             }));
         }
-        if failure.is_some() {
-            self.warning().await?;
+        if let Some(error) = failure {
+            self.notice(&error, SummaryMode::Automatic, true).await?;
         }
         Ok(BeforeModelResult::Continue(request))
     }
 
-    async fn warning(&self) -> adk_core::Result<()> {
-        let mut event = Event::new(self.summarizer.turn.to_string());
-        event.author = "system".into();
-        event.provider_metadata.insert(
-            "sailry_operation_warning".into(),
-            "context_summary_failed".into(),
-        );
-        self.service
-            .append_event(&self.session.to_string(), event)
-            .await
+    async fn notice(
+        &self,
+        error: &adk_core::AdkError,
+        mode: SummaryMode,
+        continued: bool,
+    ) -> adk_core::Result<()> {
+        failure::record(
+            self.service.as_ref(),
+            &self.session.to_string(),
+            self.summarizer.turn,
+            mode,
+            error,
+            continued,
+        )
+        .await
     }
 }
 
 #[async_trait]
 impl BaseEventsSummarizer for Context {
     async fn summarize_events(&self, window: &[Event]) -> adk_core::Result<Option<Event>> {
+        let result = self.after(window).await;
+        if let Err(error) = &result
+            && !self.summarizer.stop.is_cancelled()
+        {
+            self.notice(error, SummaryMode::Automatic, true).await?;
+        }
+        result
+    }
+}
+
+impl Context {
+    async fn after(&self, window: &[Event]) -> adk_core::Result<Option<Event>> {
         let usage = self.usage().await?;
         let tokens = usage.as_ref().map(Self::projected);
         if !self.summarizer.needs_compaction(tokens) || self.summarizer.stop.is_cancelled() {
@@ -454,14 +512,14 @@ impl BaseEventsSummarizer for Context {
                     Err(error) => {
                         self.summarizer
                             .failure(SummaryMode::Automatic, "persistence", &error);
-                        self.warning().await?;
+                        self.notice(&error, SummaryMode::Automatic, true).await?;
                     }
                 }
                 // The event is already persisted; do not ask Runner to append it twice.
                 Ok(None)
             }
-            Err(_) => {
-                self.warning().await?;
+            Err(error) => {
+                self.notice(&error, SummaryMode::Automatic, true).await?;
                 Ok(None)
             }
             _ => Ok(None),

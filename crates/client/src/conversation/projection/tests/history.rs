@@ -259,3 +259,77 @@ fn rejects_invalid_boundaries() {
     duplicate.entries.push(duplicate.entries[0].clone());
     assert!(validate_page(&duplicate).is_err());
 }
+
+#[test]
+fn recovers_compaction_failures_without_duplicates() {
+    use conversation::compaction::{Failure, Reason, Source, Stage};
+    for source in [Source::Automatic, Source::Manual] {
+        let (mut projection, snapshot, run, _) = fixture();
+        projection
+            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .unwrap();
+        let mut failure = entry(&run, 41);
+        failure.author = "system".into();
+        failure.parts = vec![Part::Resource(
+            Failure {
+                source,
+                stage: Stage::Request,
+                reason: Reason::RateLimited,
+                continued: source == Source::Automatic,
+                status: Some(429),
+            }
+            .resource(),
+        )];
+        let update = frame(&snapshot, 11, Change::Entry(failure.clone()));
+        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
+        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Ignored);
+        let saved = projection.snapshot().unwrap().clone();
+        projection.reconnect(2).unwrap();
+        assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
+        projection
+            .apply(2, Update::ConversationSnapshot(saved))
+            .unwrap();
+        assert_eq!(projection.snapshot().unwrap().page.entries, vec![failure]);
+    }
+}
+
+#[test]
+fn keeps_failures_visible_after_guidance() {
+    use conversation::compaction::{Failure, Reason, Source, Stage};
+    let (_, mut snapshot, mut run, _) = fixture();
+    run.status = Status::Continued;
+    run.continuation = Some(conversation::Continuation {
+        package: sailry_protocol::plugin::Reference {
+            name: "fixture".into(),
+            digest: "fixture".into(),
+            settings_revision: 1,
+        },
+        marker: None,
+    });
+    let mut entry = entry(&run, 41);
+    entry.author = "system".into();
+    entry.parts = vec![Part::Resource(
+        Failure {
+            source: Source::Automatic,
+            stage: Stage::History,
+            reason: Reason::HistoryMismatch,
+            continued: true,
+            status: None,
+        }
+        .resource(),
+    )];
+    Arc::make_mut(&mut snapshot.page).entries.push(entry);
+    assert!(crate::conversation::turns::visible(
+        &run,
+        &snapshot.page,
+        &[]
+    ));
+    Arc::make_mut(&mut snapshot.page).entries[0].parts = vec![Part::Resource(
+        serde_json::json!({"type":"provider_context"}),
+    )];
+    assert!(!crate::conversation::turns::visible(
+        &run,
+        &snapshot.page,
+        &[]
+    ));
+}

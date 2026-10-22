@@ -228,7 +228,27 @@ async fn preserves_failed_context() {
         .await;
         let (request, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(page.entries, before.entries);
+        assert_eq!(&page.entries[..before.entries.len()], before.entries);
+        let failure = page.entries.last().unwrap();
+        assert_eq!(failure.turn, turn.id);
+        let Part::Resource(value) = &failure.parts[0] else {
+            panic!("failure expected")
+        };
+        assert_eq!(value["type"], "compaction_failure");
+        assert_eq!(value["failure"]["source"], "manual");
+        assert_eq!(value["failure"]["stage"], "request");
+        assert_eq!(value["failure"]["reason"], "service_rejected");
+        assert_eq!(value["failure"]["continued"], false);
+        let mut stream = fixture
+            .client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        let Update::ConversationSnapshot(snapshot) = stream.next().await.unwrap() else {
+            panic!("snapshot expected")
+        };
+        assert_eq!(snapshot.page.entries, page.entries);
+        drop(stream);
         let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
         assert_eq!(run.status, Status::Failed);
         assert!(run.error.is_some());
@@ -238,6 +258,7 @@ async fn preserves_failed_context() {
         let current = server.requests.lock().unwrap().last().unwrap().clone();
         assert!(messages(&current).contains("Keep original requirement"));
         assert!(messages(&current).contains("Keep evidence"));
+        assert!(!messages(&current).contains("compaction_failure"));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -471,7 +492,12 @@ async fn preserves_unfittable_original_input() {
                 .message
                 .contains("no complete prefix fits")
         );
-        assert_eq!(after.entries, before.entries);
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        let Part::Resource(value) = &after.entries.last().unwrap().parts[0] else {
+            panic!("failure expected")
+        };
+        assert_eq!(value["failure"]["reason"], "no_fitting_prefix");
+        assert_eq!(value["failure"]["source"], "manual");
         assert!(
             after
                 .entries

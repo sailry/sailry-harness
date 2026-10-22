@@ -428,6 +428,9 @@ impl View {
                     self.child_summary(turn, &children, continuing_tools && index == last_block, cx)
                 }
                 Block::Compaction(key, text) => self.compaction(turn, key, text, cx),
+                Block::CompactionFailure(key, failure) => {
+                    self.compaction_failure(turn, key, &failure, cx)
+                }
                 Block::Question(call) => {
                     self.question_history(call, &self.history.snapshot.as_ref().unwrap().page, cx)
                 }

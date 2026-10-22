@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 mod chronology;
 mod compact;
+mod failure;
 mod progress;
 
 #[test]

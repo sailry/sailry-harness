@@ -18,6 +18,7 @@ async fn retains_complete_exchanges() {
             "Compact loop evidence".into(),
         )
         .await;
+        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Thinking(text) if text.contains("Inspect the next evidence source"))));
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 6);
         assert!(agent_support::compaction::is_summary(&requests[4]));

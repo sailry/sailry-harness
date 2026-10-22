@@ -1,0 +1,29 @@
+compact_auto_failed: Automatic compaction failed
+compact_stage_history: Stage · History matching
+compact_stage_budget: Stage · Context budget
+compact_stage_request: Stage · Model request
+compact_stage_summary: Stage · Summary validation
+compact_stage_persistence: Stage · Saving summary
+compact_reason_history: The model context could not be matched to saved history
+compact_reason_budget: No complete history prefix fits the summary budget
+compact_reason_request: The summary model request failed
+compact_reason_incomplete: The model did not finish the summary response
+compact_reason_output: The summary contained unsupported output
+compact_reason_size: The summary exceeded its size limit
+compact_reason_reduction: The summary did not reduce the context
+compact_reason_persistence: The summary could not be saved or applied
+compact_task_continued: The task was allowed to continue with its existing context
+compact_task_stopped: This operation stopped without continuing the task
+compact_suggest_report: Retry after the task stops; report this issue if it repeats
+compact_suggest_context: Try a model with a larger context window or start a new session
+compact_suggest_retry: Check the model connection, then retry
+compact_reason_timeout: The summary request timed out
+compact_reason_rate: The model service rate limit was reached
+compact_reason_auth: The model service rejected authorization
+compact_reason_rejected: The model service rejected the summary request
+compact_reason_empty: The model returned an empty summary
+compact_suggest_wait: Wait before retrying
+compact_suggest_auth: Check the model account or API key before retrying
+compact_task_completed: The task subsequently completed
+compact_stage_unknown: "Stage · Not recorded"
+compact_reason_unknown: "No further details were recorded for this failure"

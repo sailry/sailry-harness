@@ -559,7 +559,7 @@ async fn continues_nonfull_unfittable_context() {
             .flat_map(|entry| &entry.parts)
             .filter_map(|part| {
                 if let Part::Resource(value) = part
-                    && value["type"] == "operation_warning"
+                    && value["type"] == "compaction_failure"
                 {
                     Some(value)
                 } else {
@@ -568,8 +568,9 @@ async fn continues_nonfull_unfittable_context() {
             })
             .collect::<Vec<_>>();
         assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0]["code"], "context_summary_failed");
-        assert_eq!(warnings[0]["turn"], serde_json::to_value(second).unwrap());
+        assert_eq!(warnings[0]["failure"]["stage"], "budget");
+        assert_eq!(warnings[0]["failure"]["reason"], "no_fitting_prefix");
+        assert_eq!(warnings[0]["failure"]["continued"], true);
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 2);
@@ -579,7 +580,7 @@ async fn continues_nonfull_unfittable_context() {
                     .all(|request| !agent_support::compaction::is_summary(request))
             );
             assert!(messages(&requests[1]).contains(&original));
-            assert!(!messages(&requests[1]).contains("context_summary_failed"));
+            assert!(!messages(&requests[1]).contains("compaction_failure"));
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

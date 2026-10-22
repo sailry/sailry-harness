@@ -1,0 +1,29 @@
+compact_auto_failed: 自动压缩失败
+compact_stage_history: 阶段 · 历史匹配
+compact_stage_budget: 阶段 · 上下文预算
+compact_stage_request: 阶段 · 模型请求
+compact_stage_summary: 阶段 · 摘要校验
+compact_stage_persistence: 阶段 · 保存摘要
+compact_reason_history: 模型上下文与已保存历史不匹配
+compact_reason_budget: 没有完整历史片段符合摘要预算
+compact_reason_request: 摘要模型请求失败
+compact_reason_incomplete: 模型未完整返回摘要
+compact_reason_output: 摘要包含不支持的输出
+compact_reason_size: 摘要超过大小限制
+compact_reason_reduction: 摘要未能缩减上下文
+compact_reason_persistence: 摘要未能保存或应用
+compact_task_continued: 任务已获准使用原上下文继续
+compact_task_stopped: 本次操作已停止，未继续执行任务
+compact_suggest_report: 任务停止后重试，若再次失败请反馈此问题
+compact_suggest_context: 可改用更大上下文的模型，或新建会话
+compact_suggest_retry: 检查模型连接后重试
+compact_reason_timeout: 摘要请求超时
+compact_reason_rate: 模型服务触发限流
+compact_reason_auth: 模型服务拒绝授权
+compact_reason_rejected: 模型服务拒绝摘要请求
+compact_reason_empty: 模型返回空摘要
+compact_suggest_wait: 稍后重试
+compact_suggest_auth: 检查模型账号或 API 密钥后重试
+compact_task_completed: 任务随后已完成
+compact_stage_unknown: "阶段 · 未记录"
+compact_reason_unknown: "此次失败未记录具体原因"

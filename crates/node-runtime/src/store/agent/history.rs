@@ -396,11 +396,19 @@ pub(crate) fn project(
                 let name = value["name"].as_str().ok_or_else(|| sailry_protocol::Fault::invalid("invalid tool start name"))?;
                 Ok(Part::Resource(serde_json::json!({"type": "tool_started", "id": value["id"], "name": name})))
             }))
+            .chain(event.provider_metadata.get("sailry_compaction_failure").map(|value| {
+                if event.author != "system" {
+                    return Err(sailry_protocol::Fault::invalid("invalid compaction failure author"));
+                }
+                let failure: sailry_protocol::conversation::compaction::Failure = serde_json::from_str(value).map_err(storage_error)?;
+                Ok(Part::Resource(failure.resource()))
+            }))
             .chain(event.provider_metadata.get("sailry_operation_warning").map(|code| {
                 if event.author != "system" || code != "context_summary_failed" {
                     return Err(sailry_protocol::Fault::invalid("invalid operation warning metadata"));
                 }
-                Ok(Part::Resource(serde_json::json!({"type":"operation_warning","code":code,"turn":turn})))
+                use sailry_protocol::conversation::compaction::{Failure, Reason, Source, Stage};
+                Ok(Part::Resource(Failure { source: Source::Automatic, stage: Stage::Unknown, reason: Reason::Unknown, continued: true, status: None }.resource()))
             }))
             .chain(event.provider_metadata.get("sailry_retry").map(|value| {
                 let value: Value = serde_json::from_str(value).map_err(storage_error)?;

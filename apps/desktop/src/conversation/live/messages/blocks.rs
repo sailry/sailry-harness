@@ -11,6 +11,7 @@ pub(super) enum Block<'a> {
     Images(Vec<&'a sailry_protocol::conversation::Image>),
     Thinking(String, Cow<'a, str>),
     Compaction(String, &'a str),
+    CompactionFailure(String, sailry_protocol::conversation::compaction::Failure),
     Tools(Vec<&'a Call>),
     Question(&'a Call),
     Children(Vec<&'a Child>),
@@ -131,6 +132,13 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                 }
             }
             Part::Compaction(text) => blocks.push(Block::Compaction(key, text)),
+            Part::Resource(value) if value["type"] == "compaction_failure" => {
+                if let Some(failure) =
+                    sailry_protocol::conversation::compaction::Failure::from_resource(value)
+                {
+                    blocks.push(Block::CompactionFailure(key, failure));
+                }
+            }
             Part::Resource(value)
                 if value["type"] == "provider_context"
                     || value["type"] == "tool_started"

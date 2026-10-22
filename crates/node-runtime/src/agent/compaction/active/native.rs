@@ -37,6 +37,19 @@ impl Tool for Context {
         if !arguments.as_object().is_some_and(serde_json::Map::is_empty) {
             return Err(AdkError::tool("context compaction accepts an empty object"));
         }
+        let result = self.compact(context.clone()).await;
+        if let Err(error) = &result
+            && !self.summarizer.stop.is_cancelled()
+            && !context.is_cancelled()
+        {
+            self.notice(error, SummaryMode::Manual, true).await?;
+        }
+        result
+    }
+}
+
+impl Context {
+    async fn compact(&self, context: Arc<dyn ToolContext>) -> adk_core::Result<Value> {
         let history = self.history().await?;
         let events = &history.events;
         let Some(cut) = self
@@ -79,6 +92,7 @@ impl Tool for Context {
             .map_err(|_| invalid("context attempt state is unavailable"))? = None;
         // Later automatic callbacks must retain the exchanges protected here.
         self.retention.store(2, Ordering::Relaxed);
+        self.manual_applied.store(true, Ordering::Relaxed);
         self.applied.store(true, Ordering::Relaxed);
         Ok(json!({"status":"compacted", "summary_id":id}))
     }

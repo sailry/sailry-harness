@@ -53,12 +53,29 @@ pub(super) fn tail(request: &LlmRequest, events: &[Event], preamble: &Content) -
     if !preamble_matches(request, preamble) {
         return None;
     }
-    let retained = events.iter().filter_map(Event::content).collect::<Vec<_>>();
+    // Match the same projection LlmAgent passes to before_model, before the
+    // provider boundary unwraps ownership. Never discard opaque reasoning.
+    let retained = events.iter().filter_map(project).collect::<Vec<_>>();
     if retained.is_empty() {
         return None;
     }
     let index = request.contents.len().checked_sub(retained.len())?;
-    (index > 0 && matches_refs(&request.contents[index..], &retained)).then_some(index)
+    (index > 0 && matches(&request.contents[index..], &retained)).then_some(index)
+}
+
+fn project(event: &Event) -> Option<Content> {
+    let original = event.content()?;
+    let mut content = adk_core::history::with_provider_parts(
+        original,
+        event.llm_response.provider_metadata.as_ref(),
+    );
+    content.role = match (event.author.as_str(), original.role.as_str()) {
+        ("user", _) => "user",
+        (_, "function" | "tool") => original.role.as_str(),
+        _ => "model",
+    }
+    .into();
+    Some(content)
 }
 
 fn response(content: &Content) -> Option<(&str, &str)> {
@@ -73,6 +90,10 @@ fn response(content: &Content) -> Option<(&str, &str)> {
 }
 
 fn same(actual: &Content, stored: &Content) -> bool {
+    let mut actual = actual.clone();
+    let mut stored = stored.clone();
+    actual.strip_generated_call_ids();
+    stored.strip_generated_call_ids();
     actual.role == stored.role && actual.parts.starts_with(&stored.parts)
 }
 
@@ -100,6 +121,16 @@ fn matches_refs(actual: &[Content], stored: &[&Content]) -> bool {
                 .iter()
                 .take_while(|content| response(content).is_some())
                 .count();
+        if stored[index..end]
+            .iter()
+            .any(|content| response(content).is_some_and(|(id, _)| id.starts_with("adk-call-")))
+        {
+            if !generated(&actual[index..end], &stored[index..end], &stored[..index]) {
+                return false;
+            }
+            index = end;
+            continue;
+        }
         let mut available = std::collections::HashMap::new();
         for content in &actual[index..end] {
             let Some(key) = response(content) else {
@@ -121,6 +152,44 @@ fn matches_refs(actual: &[Content], stored: &[&Content]) -> bool {
         index = end;
     }
     true
+}
+
+// ADK strips its synthetic IDs before this callback. Persisted results retain
+// completion order, while the live loop assembles them in call order. Accept
+// those two projections only, comparing complete parts and preserving provider IDs.
+fn generated(actual: &[Content], stored: &[&Content], prefix: &[&Content]) -> bool {
+    let mut identities = std::collections::HashSet::new();
+    if stored
+        .iter()
+        .any(|content| !identities.insert(response(content).unwrap()))
+    {
+        return false;
+    }
+    let ordered = |expected: &[&Content]| actual.iter().zip(expected).all(|(a, b)| same(a, b));
+    if ordered(stored) {
+        return true;
+    }
+    let calls = prefix
+        .iter()
+        .flat_map(|content| &content.parts)
+        .filter_map(|part| match part.provider_part() {
+            Part::FunctionCall {
+                id: Some(id), name, ..
+            } => Some((id.as_str(), name.as_str())),
+            _ => None,
+        })
+        .enumerate()
+        .map(|(index, key)| (key, index))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut sorted = stored.to_vec();
+    if sorted
+        .iter()
+        .any(|content| !calls.contains_key(&response(content).unwrap()))
+    {
+        return false;
+    }
+    sorted.sort_by_key(|content| calls[&response(content).unwrap()]);
+    ordered(&sorted)
 }
 
 #[cfg(test)]
@@ -147,6 +216,7 @@ mod tests {
         let mut events = Vec::new();
         for content in [&first, &second] {
             let mut event = Event::new("synthetic");
+            event.author = "user".into();
             event.set_content(content.clone());
             events.push(event);
         }
@@ -200,6 +270,114 @@ mod tests {
             &[duplicate.clone(), duplicate.clone()],
             &[duplicate.clone(), duplicate]
         ));
+    }
+
+    #[test]
+    fn preserves_owned_projection_and_generated_ids() {
+        let preamble = Content::new("system").with_text("Instructions");
+        let mut call = Event::new("invocation");
+        call.author = "assistant".into();
+        call.set_content(Content {
+            role: "assistant".into(),
+            parts: vec![
+                Part::Thinking {
+                    thinking: "Reasoning".into(),
+                    signature: Some("signature".into()),
+                },
+                Part::FunctionCall {
+                    name: "read_file".into(),
+                    args: json!({"path":"a"}),
+                    id: Some("adk-call-generated".into()),
+                    thought_signature: Some("call-signature".into()),
+                },
+            ],
+        });
+        call.llm_response.provider_metadata = Some(json!({
+            "provider_origin":{"provider":"responses","model":"fixture","scope":"owner"},
+            "conversation_history_parts":[{"server_tool_call":{"type":"message","phase":"commentary","content":[]}},
+                {"server_tool_call":{"type":"reasoning","encrypted_content":"opaque"}}]
+        }));
+        let mut result = Event::new("invocation");
+        result.author = "assistant".into();
+        result.set_content(Content {
+            role: "function".into(),
+            parts: vec![Part::FunctionResponse {
+                id: Some("adk-call-generated".into()),
+                function_response: FunctionResponseData::new(
+                    "read_file",
+                    json!({"text":"evidence"}),
+                ),
+                annotations: None,
+            }],
+        });
+        let events = vec![call, result];
+        let canonical = events.clone();
+        let mut contents = vec![
+            preamble.clone(),
+            Content::new("user").with_text("Prior history"),
+        ];
+        contents.extend(events.iter().map(|event| {
+            let mut content = adk_core::history::with_provider_parts(
+                event.content().unwrap(),
+                event.llm_response.provider_metadata.as_ref(),
+            );
+            if content.role == "assistant" {
+                content.role = "model".into();
+            }
+            content.strip_generated_call_ids();
+            content
+        }));
+        let mut request = LlmRequest::new("fixture", contents);
+        assert_eq!(tail(&request, &events, &preamble), Some(2));
+        assert_eq!(
+            serde_json::to_value(&events).unwrap(),
+            serde_json::to_value(&canonical).unwrap()
+        );
+        request.contents[2].parts.remove(0);
+        assert_eq!(tail(&request, &events, &preamble), None);
+    }
+
+    #[test]
+    fn matches_generated_results_in_call_order() {
+        let calls = Content {
+            role: "model".into(),
+            parts: (1..=3)
+                .map(|index| Part::FunctionCall {
+                    id: Some(format!("adk-call-{index}")),
+                    name: "read_file".into(),
+                    args: json!({"path":index}),
+                    thought_signature: None,
+                })
+                .collect(),
+        };
+        let results = (1..=3)
+            .map(|index| result(&format!("adk-call-{index}"), &format!("evidence-{index}")))
+            .collect::<Vec<_>>();
+        let stored = vec![
+            calls.clone(),
+            results[2].clone(),
+            results[0].clone(),
+            results[1].clone(),
+        ];
+        let mut actual = vec![
+            calls,
+            results[0].clone(),
+            results[1].clone(),
+            results[2].clone(),
+        ];
+        actual
+            .iter_mut()
+            .for_each(Content::strip_generated_call_ids);
+        assert!(matches(&actual, &stored));
+        actual.swap(1, 2);
+        assert!(!matches(&actual, &stored));
+        let mut replay = stored.clone();
+        replay
+            .iter_mut()
+            .for_each(Content::strip_generated_call_ids);
+        assert!(matches(&replay, &stored));
+        replay[1].parts[0] = result("provider-id", "evidence-3").parts.remove(0);
+        assert!(!matches(&replay, &stored));
     }
 
     #[test]

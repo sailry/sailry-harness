@@ -18,6 +18,7 @@ async fn resumes_without_replay() {
             "Verify all six files and preserve evidence".into(),
         )
         .await;
+        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Thinking(text) if text.contains("Inspect the next evidence source"))));
         let requests = server.requests.lock().unwrap().clone();
         let summaries: Vec<_> = requests
             .iter()
@@ -178,13 +179,13 @@ async fn preserves_context_on_failure() {
                         sailry_protocol::conversation::Change::Entry(entry) => {
                             for part in &entry.parts {
                                 if let Part::Resource(value) = part
-                                    && value["type"] == "operation_warning"
+                                    && value["type"] == "compaction_failure"
                                 {
-                                    assert_eq!(value["code"], "context_summary_failed");
-                                    assert_eq!(
-                                        value["turn"],
-                                        serde_json::to_value(entry.turn).unwrap()
-                                    );
+                                    assert_eq!(value["failure"]["source"], "automatic");
+                                    assert_eq!(value["failure"]["stage"], "request");
+                                    assert_eq!(value["failure"]["reason"], "service_rejected");
+                                    assert_eq!(value["failure"]["status"], 501);
+
                                     warnings.push(entry.id.clone());
                                 }
                             }
@@ -249,9 +250,9 @@ async fn preserves_context_on_failure() {
             .filter(|request| agent_support::compaction::is_summary(request))
             .collect();
         assert_eq!(summaries.len(), 4);
-        assert_eq!(page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| matches!(part, Part::Resource(value) if value["type"] == "operation_warning")).count(), 4);
+        assert_eq!(page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")).count(), 4);
         let content = messages(requests.last().unwrap());
-        assert!(!content.contains("context_summary_failed"));
+        assert!(!content.contains("compaction_failure"));
         for index in 1..=6 {
             assert!(content.contains(&format!("Evidence {index}")));
         }

@@ -67,7 +67,10 @@ pub fn visible(run: &Run, page: &Page, drafts: &[Draft]) -> bool {
             )
             .any(|part| match part {
                 Part::Text(text) | Part::Thinking(text) => !text.trim().is_empty(),
-                Part::Resource(_) => false,
+                Part::Resource(value) => {
+                    sailry_protocol::conversation::compaction::Failure::from_resource(value)
+                        .is_some()
+                }
                 _ => true,
             })
 }

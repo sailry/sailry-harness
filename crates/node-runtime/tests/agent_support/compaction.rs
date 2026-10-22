@@ -210,6 +210,12 @@ async fn reply_usage(
             b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
         )
         .await?;
+    // Exercise the same ownership envelope as Responses reasoning in the
+    // automatic and native compaction loops, through the real model adapter.
+    let mut delta = delta;
+    if read {
+        delta["reasoning_content"] = json!("Inspect the next evidence source");
+    }
     let chunk = json!({"id":"context-fixture","object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
     let usage = input_tokens.map(
         |input| json!({"prompt_tokens":input,"completion_tokens":10,"total_tokens":input + 10}),
