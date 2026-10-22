@@ -15,6 +15,9 @@ fn draft() -> Draft {
             locales: std::collections::BTreeMap::from([("zh-CN".into(), "提醒".into())]),
             persistent: true,
         }),
+        details: Some(sailry_protocol::notification::Details::Text {
+            body: "Workflow result".into(),
+        }),
     }
 }
 
@@ -87,7 +90,13 @@ async fn durable_delivery_read_and_clear() {
             notice.content.presentation
         );
         assert!(!view.notifications[0].read);
-        execute(&client, Command::MarkNotificationRead { id: notice.id }).await;
+        execute(
+            &client,
+            Command::MarkNotificationsRead {
+                ids: vec![notice.id],
+            },
+        )
+        .await;
         tokio::time::timeout(Duration::from_secs(10), async {
             while !receiver.borrow().notifications[0].read {
                 receiver.changed().await.unwrap();
@@ -98,7 +107,7 @@ async fn durable_delivery_read_and_clear() {
         assert!(notices(&client).await[0].read);
         execute(
             &client,
-            Command::DismissNotifications {
+            Command::DismissReadNotifications {
                 ids: vec![notice.id],
             },
         )
@@ -177,6 +186,20 @@ async fn publishing_respects_plugin_permissions_and_scope() {
             client.execute(request).await.unwrap_err().code,
             ErrorCode::PermissionDenied
         );
+        for command in [
+            Command::MarkNotificationsRead {
+                ids: vec![NotificationId::new()],
+            },
+            Command::DismissReadNotifications {
+                ids: vec![NotificationId::new()],
+            },
+        ] {
+            let request = client.prepare(command).with_plugin(context.clone());
+            assert_eq!(
+                client.execute(request).await.unwrap_err().code,
+                ErrorCode::PermissionDenied
+            );
+        }
         let mut package = context.package.clone();
         package.name = "another".into();
         let request = client

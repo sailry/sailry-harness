@@ -5,6 +5,15 @@ use sailry_protocol::Command;
 
 impl Shell {
     pub(super) fn read_notice(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .activity
+            .inbox
+            .notices()
+            .iter()
+            .any(|notice| notice.id == id && notice.read)
+        {
+            return;
+        }
         if let Target::Notification(notification) = id.target {
             self.notification_command(
                 id.node,
@@ -17,16 +26,119 @@ impl Shell {
         }
     }
 
-    pub(super) fn clear_notices(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn update_notices(
+        &mut self,
+        remove: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.activity.pending {
+            return;
+        }
         let mut nodes = BTreeMap::<NodeId, Vec<sailry_protocol::NotificationId>>::new();
         for notice in self.activity.inbox.notices() {
-            if let Target::Notification(id) = notice.id.target {
+            if notice.read == remove
+                && let Target::Notification(id) = notice.id.target
+            {
                 nodes.entry(notice.id.node).or_default().push(id);
             }
         }
-        self.activity.inbox.clear_local();
+        if nodes.is_empty() {
+            return;
+        }
+        let mut requests = Vec::new();
+        let mut unavailable = false;
         for (node, ids) in nodes {
-            self.notification_command(node, Command::DismissNotifications { ids }, window, cx);
+            let client = self.live.as_ref().and_then(|live| {
+                live.transport_for(node)
+                    .map(|transport| live.client_for(transport))
+            });
+            if let Some(client) = client {
+                let request = client.prepare(if remove {
+                    Command::DismissReadNotifications { ids }
+                } else {
+                    Command::MarkNotificationsRead { ids }
+                });
+                requests.push((client, request));
+            } else {
+                unavailable = true;
+            }
+        }
+        self.activity.pending = true;
+        let job = cx
+            .global::<crate::backend::Services>()
+            .runtime
+            .spawn(async move {
+                let mut completed = 0;
+                let mut failed = unavailable;
+                let mut unknown = false;
+                for (client, request) in requests {
+                    match client.execute(request).await {
+                        Ok(sailry_protocol::Output::NotificationsUpdated) => completed += 1,
+                        Err(error) => {
+                            failed = true;
+                            unknown |= error.code == sailry_protocol::ErrorCode::OutcomeUnknown;
+                        }
+                        _ => failed = true,
+                    }
+                }
+                (completed, failed, unknown)
+            });
+        cx.spawn_in(window, async move |shell, cx| {
+            let result = job.await;
+            let _ = shell.update_in(cx, |shell, window, cx| {
+                shell.activity.pending = false;
+                let (completed, failed, unknown) = result.unwrap_or((0, true, true));
+                let key = if unknown {
+                    "notification_update_unknown"
+                } else if failed && completed > 0 {
+                    "notification_update_partial"
+                } else if failed {
+                    "notification_update_failed"
+                } else if remove {
+                    "notification_deleted_read"
+                } else {
+                    "notifications_read_all"
+                };
+                let text = tr(key);
+                let toast = if failed {
+                    gpui_kit::component::notification::Notification::error(text.clone())
+                } else {
+                    gpui_kit::component::notification::Notification::success(text.clone())
+                };
+                crate::feedback::toast(window, text, toast, cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn read_session_notices(
+        &mut self,
+        node: NodeId,
+        session: sailry_protocol::SessionId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ids: Vec<_> = self
+            .activity
+            .inbox
+            .notices()
+            .iter()
+            .filter(|notice| {
+                !notice.read
+                    && notice.id.node == node
+                    && notice.target() == Target::Session(session)
+                    && matches!(
+                        notice.kind,
+                        sailry_client::activity::Kind::Completed
+                            | sailry_client::activity::Kind::Failed
+                    )
+            })
+            .map(|notice| notice.id)
+            .collect();
+        for id in ids {
+            self.read_notice(id, window, cx);
         }
     }
 
@@ -41,7 +153,17 @@ impl Shell {
             live.transport_for(node)
                 .map(|transport| live.client_for(transport))
         });
-        let Some(client) = client else { return };
+        let Some(client) = client else {
+            crate::feedback::toast(
+                window,
+                tr("notification_update_failed"),
+                gpui_kit::component::notification::Notification::error(tr(
+                    "notification_update_failed",
+                )),
+                cx,
+            );
+            return;
+        };
         let request = client.prepare(command);
         let job = cx
             .global::<crate::backend::Services>()
@@ -80,6 +202,12 @@ impl Shell {
         else {
             return;
         };
+        if let Some(sailry_protocol::notification::Details::Terminal(terminal)) =
+            &notice.content.details
+        {
+            self.open_activity(node, Target::Terminal(terminal.id), window, cx);
+            return;
+        }
         if let Some(session) = notice.content.session {
             self.open_activity(node, Target::Session(session), window, cx);
             return;

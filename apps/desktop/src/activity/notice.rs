@@ -32,14 +32,29 @@ impl Shell {
                 .insert(notice.id, std::time::Instant::now());
             self.publish_notice(&notice, window, cx);
             if matches!(notice.kind, Kind::Completed | Kind::Failed)
-                && let Target::Session(session) = notice.id.target
+                && let Target::Session(session) = notice.target()
                 && self.current_session_is_visible(node, session, window)
             {
                 self.activity.read_session(node, session);
+                self.read_notice(notice.id, window, cx);
                 self.set_session_read(node, session, true, window, cx);
             }
         }
         self.activity.received.retain(|id, _| {
+            self.activity
+                .inbox
+                .notices()
+                .iter()
+                .any(|notice| notice.id == *id)
+        });
+        self.activity.expanded.retain(|id| {
+            self.activity
+                .inbox
+                .notices()
+                .iter()
+                .any(|notice| notice.id == *id)
+        });
+        self.activity.technical.retain(|id| {
             self.activity
                 .inbox
                 .notices()
@@ -80,25 +95,32 @@ impl Shell {
         let use_title = matches!(notice.kind, Kind::Notification(_))
             && notice.presentation.is_none()
             && !notice.title.is_empty();
-        let heading = notice
-            .presentation
-            .as_ref()
-            .map(|presentation| {
-                let locale = rust_i18n::locale();
-                presentation
-                    .locales
-                    .get(&*locale)
-                    .unwrap_or(&presentation.heading)
-                    .clone()
-                    .into()
-            })
-            .unwrap_or_else(|| {
-                if use_title {
-                    notice.title.clone().into()
-                } else {
-                    tr(label)
-                }
-            });
+        let heading = if matches!(
+            notice.details,
+            Some(sailry_protocol::notification::Details::Diagnostic(_))
+        ) {
+            presentation::heading(notice)
+        } else {
+            notice
+                .presentation
+                .as_ref()
+                .map(|presentation| {
+                    let locale = rust_i18n::locale();
+                    presentation
+                        .locales
+                        .get(&*locale)
+                        .unwrap_or(&presentation.heading)
+                        .clone()
+                        .into()
+                })
+                .unwrap_or_else(|| {
+                    if use_title {
+                        notice.title.clone().into()
+                    } else {
+                        tr(label)
+                    }
+                })
+        };
         let delivery = if preferences.notifications[0] && !window.is_window_active() {
             if persistent {
                 NotificationDelivery::InAppAndSystem
@@ -110,7 +132,12 @@ impl Shell {
         };
         let id = notice.id;
         let key = format!("{id:?}");
-        let message = if let Some(error) = &notice.error {
+        let message = if matches!(
+            notice.details,
+            Some(sailry_protocol::notification::Details::Diagnostic(_))
+        ) {
+            SharedString::default()
+        } else if let Some(error) = &notice.error {
             tr(crate::conversation::live::failure_key(error))
         } else if use_title {
             notice.message.clone().into()
@@ -127,6 +154,7 @@ impl Shell {
                 format!("{}\n{}", notice.title, notice.message).into()
             }
         };
+        let owner = cx.entity().downgrade();
         window.push_notification(
             Notification::new()
                 .id1::<NoticeView>(key.clone())
@@ -139,26 +167,26 @@ impl Shell {
                 .with_type(kind)
                 .delivery(delivery)
                 .autohide(false)
-                .when_some(notice.error.clone(), |notification, error| {
-                    notification.action(move |_, _, _| {
-                        let error = error.clone();
-                        Button::new("notification-details")
-                            .ghost()
-                            .icon(IconName::Info)
-                            .tooltip(tr("notification_details"))
-                            .accessibility_label(tr("notification_details"))
-                            .debug_selector(|| "notification-details".into())
-                            .on_click(move |_, window, cx| {
-                                cx.stop_propagation();
-                                crate::feedback::error(
-                                    &tr("notification_details"),
-                                    &error.to_string(),
-                                    window,
-                                    cx,
-                                );
-                            })
-                    })
-                })
+                .when(
+                    notice.details.is_some() || notice.error.is_some(),
+                    |notification| {
+                        notification.action(move |_, _, _| {
+                            let owner = owner.clone();
+                            Button::new("notification-details")
+                                .ghost()
+                                .icon(IconName::Info)
+                                .tooltip(tr("notification_details"))
+                                .accessibility_label(tr("notification_details"))
+                                .debug_selector(|| "notification-details".into())
+                                .on_click(move |_, window, cx| {
+                                    cx.stop_propagation();
+                                    let _ = owner.update(cx, |shell, cx| {
+                                        shell.open_notification_center(Some(id), window, cx)
+                                    });
+                                })
+                        })
+                    },
+                )
                 .on_click(cx.listener(move |shell, _, window, cx| {
                     shell.read_notice(id, window, cx);
                     shell.open_activity(id.node, id.target, window, cx);

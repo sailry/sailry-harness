@@ -135,6 +135,12 @@ pub enum Command {
     MarkNotificationRead {
         id: NotificationId,
     },
+    MarkNotificationsRead {
+        ids: Vec<NotificationId>,
+    },
+    DismissReadNotifications {
+        ids: Vec<NotificationId>,
+    },
     DismissNotifications {
         ids: Vec<NotificationId>,
     },
@@ -1786,6 +1792,7 @@ pub enum Output {
     },
     Notification(crate::notification::Notice),
     NotificationsDismissed,
+    NotificationsUpdated,
     Dispatch(crate::dispatch::Output),
     BrowserCompleted,
     Browser(serde_json::Value),
@@ -2051,6 +2058,9 @@ pub enum Event {
         turn: QueuedTurn,
     },
     NotificationChanged(crate::notification::Notice),
+    NotificationsRead {
+        ids: Vec<NotificationId>,
+    },
     NotificationsDismissed {
         ids: Vec<NotificationId>,
     },

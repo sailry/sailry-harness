@@ -1,4 +1,7 @@
-//! The persistent source for plugin notices, reduced by the shared Client feed.
+//! The persistent source for notices, reduced by the shared Client feed.
+pub(super) mod system;
+#[cfg(test)]
+mod tests;
 use super::database::{encode, storage_error};
 use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
@@ -57,22 +60,24 @@ pub(super) fn execute(
             if let Some(session) = content.session {
                 super::commands::session(db, session)?;
             }
-            let mut notice = Notice {
-                id: NotificationId::new(),
-                sequence: 0,
-                package: package.name.clone(),
-                content: content.clone(),
-                timestamp_ms: chrono::Utc::now().timestamp_millis(),
-                read: false,
-            };
-            db.execute(
-                "INSERT INTO notifications(id,body) VALUES(?1,?2)",
-                params![notice.id.to_string(), encode(&notice)?],
-            )
-            .map_err(storage_error)?;
-            notice.sequence = db.last_insert_rowid() as u64;
-            put(db, &notice)?;
-            db.execute("DELETE FROM notifications WHERE sequence NOT IN (SELECT sequence FROM notifications ORDER BY sequence DESC LIMIT ?1)", [LIMIT as i64]).map_err(storage_error)?;
+            if content
+                .details
+                .as_ref()
+                .is_some_and(|details| match details {
+                    sailry_protocol::notification::Details::Text { body } => {
+                        body.trim().is_empty() || body.len() > 8192
+                    }
+                    _ => true,
+                })
+            {
+                return Err(Fault::invalid("notification details must be bounded text"));
+            }
+            let notice = insert(
+                db,
+                package.name.clone(),
+                content.clone(),
+                chrono::Utc::now().timestamp_millis(),
+            )?;
             Ok((
                 Output::Notification(notice.clone()),
                 Some(Event::NotificationChanged(notice)),
@@ -89,6 +94,42 @@ pub(super) fn execute(
             Ok((
                 Output::Notification(notice.clone()),
                 Some(Event::NotificationChanged(notice)),
+            ))
+        }
+        Command::MarkNotificationsRead { ids } => {
+            if ids.len() > LIMIT {
+                return Err(Fault::invalid("too many notifications"));
+            }
+            let mut changed = Vec::new();
+            for id in ids {
+                if let Some(mut notice) = read(db, *id)?
+                    && !notice.read
+                {
+                    notice.read = true;
+                    put(db, &notice)?;
+                    changed.push(*id);
+                }
+            }
+            Ok((
+                Output::NotificationsUpdated,
+                (!changed.is_empty()).then_some(Event::NotificationsRead { ids: changed }),
+            ))
+        }
+        Command::DismissReadNotifications { ids } => {
+            if ids.len() > LIMIT {
+                return Err(Fault::invalid("too many notifications"));
+            }
+            let mut removed = Vec::new();
+            for id in ids {
+                if read(db, *id)?.is_some_and(|notice| notice.read) {
+                    db.execute("DELETE FROM notifications WHERE id=?1", [id.to_string()])
+                        .map_err(storage_error)?;
+                    removed.push(*id);
+                }
+            }
+            Ok((
+                Output::NotificationsUpdated,
+                (!removed.is_empty()).then_some(Event::NotificationsDismissed { ids: removed }),
             ))
         }
         Command::DismissNotifications { ids } => {
@@ -109,6 +150,31 @@ pub(super) fn execute(
             "notification command expected",
         )),
     }
+}
+
+fn insert(
+    db: &Connection,
+    package: String,
+    content: sailry_protocol::notification::Draft,
+    timestamp_ms: i64,
+) -> Result<Notice, Fault> {
+    let mut notice = Notice {
+        id: NotificationId::new(),
+        sequence: 0,
+        package,
+        content,
+        timestamp_ms,
+        read: false,
+    };
+    db.execute(
+        "INSERT INTO notifications(id,body) VALUES(?1,?2)",
+        params![notice.id.to_string(), encode(&notice)?],
+    )
+    .map_err(storage_error)?;
+    notice.sequence = db.last_insert_rowid() as u64;
+    put(db, &notice)?;
+    db.execute("DELETE FROM notifications WHERE sequence NOT IN (SELECT sequence FROM notifications ORDER BY sequence DESC LIMIT ?1)", [LIMIT as i64]).map_err(storage_error)?;
+    Ok(notice)
 }
 
 fn put(db: &Connection, notice: &Notice) -> Result<(), Fault> {

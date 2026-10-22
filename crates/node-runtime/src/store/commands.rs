@@ -102,6 +102,8 @@ pub(super) fn execute(
         }
         Command::PublishNotification { .. }
         | Command::MarkNotificationRead { .. }
+        | Command::MarkNotificationsRead { .. }
+        | Command::DismissReadNotifications { .. }
         | Command::DismissNotifications { .. } => {
             let admitted = request
                 .plugin

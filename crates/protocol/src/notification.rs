@@ -1,4 +1,8 @@
-//! Durable plugin notices owned by the execution Node.
+//! Durable notices owned by the execution Node.
+mod details;
+pub use details::*;
+#[cfg(test)]
+mod tests;
 use crate::{NotificationId, SessionId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -25,6 +29,8 @@ pub struct Draft {
     pub session: Option<SessionId>,
     #[serde(default)]
     pub presentation: Option<Presentation>,
+    #[serde(default)]
+    pub details: Option<Details>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -548,6 +548,9 @@ pub(super) fn finish_with(
             scheduled.push(turn);
         }
     }
+    let notice = super::super::notifications::system::run(&transaction, &run)?;
+    let notices =
+        super::super::database::record(&transaction, database.node, notice.into_iter().collect())?;
     transaction.commit().map_err(storage_error)?;
     let mut diagnostic = crate::logging::Entry::new(
         crate::logging::Area::Run,
@@ -574,6 +577,9 @@ pub(super) fn finish_with(
         .map(|(start, end)| end.saturating_sub(start).max(0) as u64 * 1000);
     diagnostic.emit();
     let _ = events.send(envelope);
+    for notice in notices {
+        let _ = events.send(notice);
+    }
     database
         .approvals
         .retain(|_, (owner, _, _, _)| *owner != turn);
@@ -641,6 +647,8 @@ pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {
             "execution was interrupted; model and tool calls were not replayed",
         ));
         put(db, &run)?;
+        // Startup has no subscribers yet; the persisted notice joins its first snapshot.
+        super::super::notifications::system::run(db, &run)?;
     }
     super::background::recover(db)?;
     super::queue::recover(db)

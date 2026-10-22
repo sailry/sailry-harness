@@ -177,6 +177,13 @@ impl Projection {
                             .notifications
                             .truncate(sailry_protocol::notification::LIMIT);
                     }
+                    Event::NotificationsRead { ids } => {
+                        for notice in &mut snapshot.notifications {
+                            if ids.contains(&notice.id) {
+                                notice.read = true;
+                            }
+                        }
+                    }
                     Event::NotificationsDismissed { ids } => {
                         snapshot
                             .notifications

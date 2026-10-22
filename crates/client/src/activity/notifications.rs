@@ -1,6 +1,6 @@
 use sailry_protocol::{
     NodeId, NotificationId, ProjectId, SessionId, Snapshot, TerminalId, WorktreeId,
-    activity::Summary, conversation::Status, terminal,
+    activity::Summary, conversation::Status, notification::Details,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -41,9 +41,25 @@ pub struct Notice {
     pub presentation: Option<sailry_protocol::notification::Presentation>,
     pub kind: Kind,
     pub read: bool,
+    pub package: String,
+    pub session: Option<SessionId>,
+    pub timestamp_ms: Option<i64>,
+    pub details: Option<Details>,
 }
 
-/// Controller projection and session read state. Plugin read/dismiss state is
+impl Notice {
+    pub fn target(&self) -> Target {
+        if let Some(session) = self.session {
+            Target::Session(session)
+        } else if let Some(Details::Terminal(terminal)) = &self.details {
+            Target::Terminal(terminal.id)
+        } else {
+            self.id.target
+        }
+    }
+}
+
+/// Controller projection and transient attention state. Durable read/dismiss state is
 /// authoritative on Node and reconciled from the durable notification snapshot.
 #[derive(Default)]
 pub struct Inbox {
@@ -93,7 +109,7 @@ impl Inbox {
                 .and_modify(|cursor| *cursor = (*cursor).max(notice.id.cursor))
                 .or_insert(notice.id.cursor);
         }
-        self.notices.truncate(LIMIT);
+        retain_attention(&mut self.notices);
         added
     }
 
@@ -116,11 +132,23 @@ impl Inbox {
     }
 }
 
+// Durable history is bounded by each Node's store, not by the aggregate inbox.
+fn retain_attention(notices: &mut Vec<Notice>) {
+    let mut attention = 0;
+    notices.retain(|notice| {
+        if matches!(notice.id.target, Target::Notification(_)) {
+            true
+        } else {
+            attention += 1;
+            attention <= LIMIT
+        }
+    });
+}
+
 #[derive(Default)]
 pub(crate) struct Feed {
     primed: bool,
     sessions: BTreeMap<SessionId, Summary>,
-    terminals: BTreeMap<TerminalId, terminal::Status>,
     pub notices: Vec<Notice>,
 }
 
@@ -141,18 +169,66 @@ impl Feed {
             if let Some(notice) = self.notices.iter_mut().find(|notice| notice.id == id) {
                 notice.read = entry.read;
             } else {
+                let session = entry
+                    .content
+                    .session
+                    .and_then(|id| snapshot.sessions.iter().find(|session| session.id == id));
+                let terminal = match &entry.content.details {
+                    Some(Details::Terminal(details)) => snapshot
+                        .terminals
+                        .iter()
+                        .find(|terminal| terminal.id == details.id),
+                    _ => None,
+                };
+                let worktree = session
+                    .map(|session| session.worktree)
+                    .or_else(|| terminal.and_then(|terminal| terminal.worktree));
+                let project = session.and_then(|session| session.project).or_else(|| {
+                    snapshot
+                        .worktrees
+                        .iter()
+                        .find(|tree| Some(tree.id) == worktree)
+                        .and_then(|tree| tree.project)
+                });
+                let kind = match &entry.content.details {
+                    Some(Details::Task(task)) => {
+                        if task.status == Status::Completed {
+                            Kind::Completed
+                        } else {
+                            Kind::Failed
+                        }
+                    }
+                    Some(Details::Terminal(terminal)) => {
+                        if terminal.failed {
+                            Kind::Failed
+                        } else {
+                            Kind::Completed
+                        }
+                    }
+                    _ => Kind::Notification(entry.content.kind),
+                };
+                let error = match &entry.content.details {
+                    Some(Details::Task(task)) => {
+                        task.error.map(|code| sailry_protocol::Fault::new(code, ""))
+                    }
+                    _ => None,
+                };
                 self.notices.insert(
                     0,
                     Notice {
                         id,
-                        project: None,
-                        worktree: None,
+                        project,
+                        worktree,
                         title: entry.content.title.clone(),
                         message: entry.content.message.clone(),
-                        error: None,
+                        error,
                         presentation: entry.content.presentation.clone(),
-                        kind: Kind::Notification(entry.content.kind),
+                        kind,
                         read: entry.read,
+                        package: entry.package.clone(),
+                        session: entry.content.session,
+                        timestamp_ms: Some(entry.timestamp_ms),
+                        details: entry.content.details.clone(),
                     },
                 );
             }
@@ -184,8 +260,6 @@ impl Feed {
             }
             let kind = match run.status {
                 Status::Running => activity.waiting.map(super::attention),
-                Status::Completed => Some(Kind::Completed),
-                Status::Failed | Status::Interrupted => Some(Kind::Failed),
                 _ => None,
             };
             if let Some(kind) = kind {
@@ -200,65 +274,22 @@ impl Feed {
                         project: session.project,
                         worktree: Some(session.worktree),
                         title: activity.title.clone(),
-                        message: if matches!(kind, Kind::Failed) {
-                            run.error
-                                .as_ref()
-                                .map(|error| error.message.clone())
-                                .unwrap_or_default()
-                        } else {
-                            String::new()
-                        },
-                        error: matches!(kind, Kind::Failed)
-                            .then(|| run.error.clone())
-                            .flatten(),
+                        message: String::new(),
+                        error: None,
                         presentation: None,
                         kind,
                         read: false,
+                        package: String::new(),
+                        session: Some(session.id),
+                        timestamp_ms: None,
+                        details: None,
                     },
                 );
             }
         }
-        for info in &snapshot.terminals {
-            let prior = self.terminals.insert(info.id, info.status.clone());
-            if !self.primed || prior != Some(terminal::Status::Running) {
-                continue;
-            }
-            let kind = match &info.status {
-                terminal::Status::Exited { code: 0 } => Kind::Completed,
-                terminal::Status::Exited { .. } | terminal::Status::Failed { .. } => Kind::Failed,
-                _ => continue,
-            };
-            let Some(tree) = snapshot
-                .worktrees
-                .iter()
-                .find(|tree| Some(tree.id) == info.worktree)
-            else {
-                continue;
-            };
-            self.notices.insert(
-                0,
-                Notice {
-                    id: Id {
-                        node: snapshot.node,
-                        cursor: snapshot.cursor,
-                        target: Target::Terminal(info.id),
-                    },
-                    project: tree.project,
-                    worktree: Some(tree.id),
-                    title: String::new(),
-                    message: String::new(),
-                    error: None,
-                    presentation: None,
-                    kind,
-                    read: false,
-                },
-            );
-        }
         self.sessions
             .retain(|id, _| snapshot.sessions.iter().any(|s| s.id == *id));
-        self.terminals
-            .retain(|id, _| snapshot.terminals.iter().any(|t| t.id == *id));
-        self.notices.truncate(LIMIT);
+        retain_attention(&mut self.notices);
         self.primed = true;
     }
 }
@@ -284,6 +315,10 @@ mod inbox_tests {
             presentation: None,
             kind: Kind::Completed,
             read: false,
+            package: String::new(),
+            session: None,
+            timestamp_ms: None,
+            details: None,
         };
         let mut inbox = Inbox::default();
         assert_eq!(inbox.merge(node, &[notice.clone()]).len(), 1);

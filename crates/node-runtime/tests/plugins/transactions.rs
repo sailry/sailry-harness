@@ -20,6 +20,7 @@ fn notice(title: &str) -> Operation {
         kind: notification::Kind::Info,
         session: None,
         presentation: None,
+        details: None,
     })
 }
 

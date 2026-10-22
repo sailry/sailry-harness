@@ -958,6 +958,17 @@ renders static HTML and bounded PNG tiles on macOS and Windows. Export captures
 Node/session identity, supports cancellation and preserves changed destination files.
 HTML and images include Sailry branding and the static website QR code.
 
+The execution Node persists plugin notices, context-maintenance failures, and
+session or terminal completion outcomes in one notification store. System notices
+are committed with their source transition; diagnostics reference canonical event
+and turn identities and contain safe classifications, not model content or provider
+response bodies. Client reduces the same ordered notification events for local and
+remote connections. Read and delete-read commands target each notice's execution
+Node and do not change the underlying session, task, or terminal. Desktop exposes
+durable history through the bell popover's notification-center entry, with optional
+typed details and source navigation. Live approval and input reminders retain their
+existing transient attention behavior in the popover.
+
 ## Security and quality constraints
 
 Authenticated Node/resource access, path confinement, Node-owned credentials,

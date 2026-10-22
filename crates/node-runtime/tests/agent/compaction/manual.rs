@@ -239,6 +239,20 @@ async fn preserves_failed_context() {
         assert_eq!(value["failure"]["stage"], "request");
         assert_eq!(value["failure"]["reason"], "service_rejected");
         assert_eq!(value["failure"]["continued"], false);
+        let snapshot = super::super::configuration::snapshot(&fixture.client).await;
+        let notices: Vec<_> = snapshot.notifications.iter().filter(|notice| {
+            matches!(&notice.content.details, Some(sailry_protocol::notification::Details::Diagnostic(details)) if details.turn == turn.id)
+        }).collect();
+        assert_eq!(notices.len(), 1);
+        let Some(sailry_protocol::notification::Details::Diagnostic(details)) =
+            &notices[0].content.details
+        else {
+            unreachable!()
+        };
+        assert_eq!(details.event, failure.id);
+        assert_eq!(details.sequence, failure.sequence);
+        assert_eq!(notices[0].content.session, Some(fixture.session.id));
+        assert!(!snapshot.notifications.iter().any(|notice| matches!(&notice.content.details, Some(sailry_protocol::notification::Details::Task(task)) if task.turn == turn.id)));
         let mut stream = fixture
             .client
             .subscribe_conversation(fixture.session.id)

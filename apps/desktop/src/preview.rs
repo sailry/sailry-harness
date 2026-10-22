@@ -13,6 +13,7 @@ pub enum Page {
     Host,
     Project,
     Plugin,
+    Notifications,
 }
 
 impl Page {
@@ -32,6 +33,7 @@ impl Page {
         match self {
             Self::Conversation => "conversation",
             Self::Activity => "activity",
+            Self::Notifications => "notification_center",
             Self::Files => "files",
             Self::Git => "git",
             Self::Terminal => "terminal",
@@ -54,6 +56,7 @@ impl Page {
         match self {
             Self::Conversation => IconName::Plus,
             Self::Activity => IconName::LayoutDashboard,
+            Self::Notifications => IconName::Bell,
             Self::Files => IconName::Folder,
             Self::Git => IconName::Network,
             Self::Terminal => IconName::SquareTerminal,

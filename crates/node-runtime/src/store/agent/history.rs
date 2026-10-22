@@ -21,6 +21,8 @@ pub(super) fn append(
         let Some(entry) = insert(&transaction, session, turn, event)? else {
             return Ok(());
         };
+        let notice =
+            super::super::notifications::system::compaction(&transaction, session, &entry)?;
         let background = super::background::list(&transaction, session)?;
         let statistics = super::statistics::read(&transaction, session)?;
         let parents = super::statistics::parents(&transaction, turn)?
@@ -30,8 +32,16 @@ pub(super) fn append(
             })
             .collect::<Result<Vec<_>, _>>()?;
         let envelope = changed(&transaction, database.node, session)?;
+        let notices = super::super::database::record(
+            &transaction,
+            database.node,
+            notice.into_iter().collect(),
+        )?;
         transaction.commit().map_err(storage_error)?;
         let _ = events.send(envelope);
+        for notice in notices {
+            let _ = events.send(notice);
+        }
         database
             .feeds
             .publish(database.node, session, Change::Entry(entry));

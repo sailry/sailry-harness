@@ -41,6 +41,10 @@ impl Database {
 }
 
 pub(super) fn required(db: &Connection, id: TerminalId) -> Result<Info, Fault> {
+    read(db, id)?.ok_or_else(|| Fault::new(ErrorCode::NotFound, "terminal does not exist"))
+}
+
+fn read(db: &Connection, id: TerminalId) -> Result<Option<Info>, Fault> {
     let body: Option<Vec<u8>> = db
         .query_row(
             "SELECT body FROM terminals WHERE id=?1",
@@ -49,10 +53,8 @@ pub(super) fn required(db: &Connection, id: TerminalId) -> Result<Info, Fault> {
         )
         .optional()
         .map_err(storage_error)?;
-    serde_json::from_slice(
-        &body.ok_or_else(|| Fault::new(ErrorCode::NotFound, "terminal does not exist"))?,
-    )
-    .map_err(storage_error)
+    body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()
 }
 
 impl Ingress {
@@ -170,6 +172,7 @@ impl Database {
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Result<(), Fault> {
         let transaction = self.connection.transaction().map_err(storage_error)?;
+        let previous = read(&transaction, info.id)?;
         let envelope = if let Some(event) = record_update(&transaction, &info, true)? {
             transaction
                 .execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
@@ -182,9 +185,25 @@ impl Database {
         } else {
             None
         };
+        let notice = if envelope.is_some() {
+            previous
+                .as_ref()
+                .map(|previous| {
+                    super::notifications::system::terminal(&transaction, previous, &info)
+                })
+                .transpose()?
+                .flatten()
+        } else {
+            None
+        };
+        let notices =
+            super::database::record(&transaction, self.node, notice.into_iter().collect())?;
         transaction.commit().map_err(storage_error)?;
         if let Some(event) = envelope {
             let _ = events.send(event);
+        }
+        for notice in notices {
+            let _ = events.send(notice);
         }
         Ok(())
     }

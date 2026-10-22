@@ -5,6 +5,9 @@ use crate::{preview::Page, shell::Shell, tr};
 
 impl Shell {
     pub fn page_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.page == Page::Notifications {
+            return self.notification_center(cx);
+        }
         if matches!(self.page, Page::Settings | Page::Plugins)
             && let Some(live) = &self.live
         {

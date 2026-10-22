@@ -218,6 +218,23 @@ async fn preserves_context_on_failure() {
             .unwrap()
             .unwrap();
         assert_eq!(live.len(), 4);
+        let notices = super::super::configuration::snapshot(&fixture.client)
+            .await
+            .notifications;
+        let diagnostics: Vec<_> = notices
+            .iter()
+            .filter_map(|notice| match &notice.content.details {
+                Some(sailry_protocol::notification::Details::Diagnostic(details)) => Some(details),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(diagnostics.len(), live.len());
+        assert!(
+            diagnostics
+                .iter()
+                .all(|details| live.contains(&details.event))
+        );
+
         assert_eq!(
             live.iter().collect::<std::collections::BTreeSet<_>>().len(),
             4

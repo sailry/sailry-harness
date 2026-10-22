@@ -8,6 +8,63 @@ mod fixture;
 mod startup;
 
 #[test]
+fn completion_notice_follows_one_metadata_transition() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut database = Database::open(
+        &directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("node.sqlite3"),
+        NodeId([8; 32]),
+        None,
+    )
+    .unwrap();
+    let (Output::Project(project), _) = super::super::projects::register(
+        &database.connection,
+        "Notification fixture",
+        directory.path().to_str().unwrap(),
+        Default::default(),
+    )
+    .unwrap() else {
+        panic!("project expected")
+    };
+    let worktree = super::super::worktrees::select(&database.connection, project.id, None).unwrap();
+    let mut info = Info {
+        id: TerminalId::new(),
+        worktree: Some(worktree),
+        ssh: None,
+        tool: None,
+        access: None,
+        status: Status::Running,
+        activity: None,
+        title: Some("Fixture".into()),
+        directory: None,
+        owner: None,
+        revision: 1,
+    };
+    record(&database.connection, &info).unwrap();
+    let (events, mut receiver) = broadcast::channel(16);
+    info.status = Status::Exited { code: 7 };
+    database.terminal_changed(info.clone(), &events).unwrap();
+    database.terminal_changed(info, &events).unwrap();
+    let notices = super::super::notifications::list(&database.connection).unwrap();
+    assert_eq!(notices.len(), 1);
+    assert!(
+        matches!(&notices[0].content.details, Some(notification::Details::Terminal(details)) if details.code == Some(7) && details.failed)
+    );
+    assert!(matches!(
+        receiver.try_recv().unwrap().event,
+        Event::TerminalChanged(_)
+    ));
+    assert!(matches!(
+        receiver.try_recv().unwrap().event,
+        Event::NotificationChanged(_)
+    ));
+    assert!(receiver.try_recv().is_err());
+}
+
+#[test]
 fn ignores_stale_metadata() {
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch(

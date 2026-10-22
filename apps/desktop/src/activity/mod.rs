@@ -1,7 +1,9 @@
 //! Shared notifications and resource navigation; packages own activity pages.
+mod center;
 mod delivery;
 mod icons;
 mod notice;
+mod presentation;
 mod sessions;
 pub(crate) use icons::indicator;
 pub(crate) use sessions::{status_with_lane, title};
@@ -28,6 +30,10 @@ pub(crate) struct State {
     observers: BTreeMap<NodeId, Observer>,
     open: bool,
     received: BTreeMap<sailry_client::activity::Id, std::time::Instant>,
+    expanded: BTreeSet<sailry_client::activity::Id>,
+    technical: BTreeSet<sailry_client::activity::Id>,
+    unread_only: bool,
+    pending: bool,
 }
 
 impl State {
@@ -36,7 +42,7 @@ impl State {
             .notices()
             .iter()
             .filter(|notice| !notice.read && notice.id.node == node)
-            .filter_map(|notice| match notice.id.target {
+            .filter_map(|notice| match notice.target() {
                 Target::Terminal(id) => Some(id),
                 _ => None,
             })
@@ -110,6 +116,21 @@ impl Shell {
         }
         self.activity.open = false;
         self.activity.read_target(node, target);
+        if matches!(target, Target::Terminal(_)) {
+            let ids: Vec<_> = self
+                .activity
+                .inbox
+                .notices()
+                .iter()
+                .filter(|notice| {
+                    !notice.read && notice.id.node == node && notice.target() == target
+                })
+                .map(|notice| notice.id)
+                .collect();
+            for id in ids {
+                self.read_notice(id, window, cx);
+            }
+        }
         match target {
             Target::Notification(id) => self.open_notification(node, id, window, cx),
             Target::Session(id) => {

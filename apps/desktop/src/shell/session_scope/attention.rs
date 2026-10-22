@@ -49,6 +49,7 @@ impl Shell {
     ) {
         self.set_session_read(node, id, true, window, cx);
         self.activity.read_session(node, id);
+        self.read_session_notices(node, id, window, cx);
     }
 
     pub(crate) fn set_session_read(

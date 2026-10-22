@@ -65,11 +65,35 @@ fn retains_canonical_failure_details() {
     run.finished_ms = Some(61000);
     state.cursor = 1;
     feed.observe(&state);
+    assert!(
+        feed.notices.is_empty(),
+        "outcomes are authored by the execution Node"
+    );
+    let mut durable = notice(1, false);
+    durable.content.session = Some(state.sessions[0].id);
+    durable.content.title = "Original conversation title".into();
+    durable.content.kind = notification::Kind::Error;
+    durable.content.details = Some(notification::Details::Task(notification::Task {
+        turn: state.sessions[0].activity.run.as_ref().unwrap().turn,
+        status: Status::Failed,
+        started_ms: Some(1000),
+        finished_ms: Some(61000),
+        error: Some(fault.code),
+    }));
+    state.notifications.push(durable);
+    feed.observe(&state);
     assert_eq!(feed.notices.len(), 1);
     let notice = feed.notices[0].clone();
     assert_eq!(notice.kind, Kind::Failed);
-    assert_eq!(notice.message, fault.message);
-    assert_eq!(notice.error.as_ref(), Some(&fault));
+    assert_eq!(
+        notice.error.as_ref().map(|error| error.code),
+        Some(fault.code)
+    );
+    assert_eq!(notice.target(), Target::Session(state.sessions[0].id));
+    assert!(matches!(
+        notice.details,
+        Some(notification::Details::Task(_))
+    ));
     assert_eq!(notice.title, "Original conversation title");
 
     let mut inbox = Inbox::default();
@@ -85,9 +109,10 @@ fn retains_canonical_failure_details() {
     feed.observe(&state);
     inbox.merge(state.node, &feed.notices);
     assert!(
-        inbox.notices().iter().any(|retained| {
-            retained.id == notice.id && retained.error.as_ref() == Some(&fault)
-        })
+        inbox
+            .notices()
+            .iter()
+            .any(|retained| { retained.id == notice.id && retained.details == notice.details })
     );
 }
 
@@ -102,6 +127,7 @@ fn notice(sequence: u64, read: bool) -> notification::Notice {
             kind: notification::Kind::Info,
             session: None,
             presentation: None,
+            details: None,
         },
         timestamp_ms: 1000,
         read,
@@ -184,6 +210,10 @@ fn plugin_and_activity_sequences_remain_independent() {
         presentation: None,
         kind: Kind::Completed,
         read: false,
+        package: String::new(),
+        session: None,
+        timestamp_ms: None,
+        details: None,
     };
     assert_eq!(
         inbox
@@ -201,4 +231,41 @@ fn plugin_and_activity_sequences_remain_independent() {
         inbox.notices()[0].id.target,
         Target::Notification(_)
     ));
+}
+
+#[test]
+fn keeps_durable_history_across_nodes() {
+    let mut inbox = Inbox::default();
+    for node in [NodeId([2; 32]), NodeId([3; 32])] {
+        let mut state = snapshot(900);
+        state.node = node;
+        state.notifications = (1..=notification::LIMIT as u64)
+            .rev()
+            .map(|sequence| notice(sequence, false))
+            .collect();
+        let mut feed = Feed::default();
+        feed.observe(&state);
+        let mut attention = feed.notices[0].clone();
+        attention.id.target = Target::Session(SessionId::new());
+        attention.id.cursor = 900;
+        attention.kind = Kind::Input;
+        feed.notices.insert(0, attention);
+        feed.observe(&state);
+        assert_eq!(feed.notices.len(), notification::LIMIT + 1);
+        inbox.merge(node, &feed.notices);
+        assert!(inbox.merge(node, &feed.notices).is_empty());
+    }
+    assert_eq!(inbox.notices().len(), 2 * (notification::LIMIT + 1));
+    for node in [NodeId([2; 32]), NodeId([3; 32])] {
+        assert_eq!(
+            inbox
+                .notices()
+                .iter()
+                .filter(|notice| {
+                    notice.id.node == node && matches!(notice.id.target, Target::Notification(_))
+                })
+                .count(),
+            notification::LIMIT
+        );
+    }
 }

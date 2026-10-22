@@ -121,7 +121,12 @@ async fn projects_activity_lifecycle() {
                     .run
                     .as_ref()
                     .is_some_and(|r| r.turn == queued.id && r.status == Status::Completed)
-            })
+            }) && view
+                .notifications
+                .iter()
+                .filter(|notice| notice.kind == Kind::Completed)
+                .count()
+                == 2
         })
         .await;
         assert_eq!(
@@ -144,6 +149,25 @@ async fn projects_activity_lifecycle() {
                 .title,
             "Write the requested file"
         );
+        let ids = current
+            .notifications
+            .iter()
+            .filter_map(|notice| match notice.id.target {
+                sailry_client::activity::Target::Notification(id) => Some(id),
+                _ => None,
+            })
+            .collect();
+        client
+            .execute(client.prepare(Command::MarkNotificationsRead { ids }))
+            .await
+            .unwrap();
+        let current = observed(&mut receiver, |view| {
+            view.notifications
+                .iter()
+                .filter(|notice| notice.kind == Kind::Completed)
+                .all(|notice| notice.read)
+        })
+        .await;
         let mut inbox = Inbox::default();
         inbox.merge(node.id(), &current.notifications);
         inbox.mark_all_read();
@@ -222,10 +246,18 @@ async fn projects_activity_lifecycle() {
             async move { client.watch(sender, stop).await }
         });
         let restored = observed(&mut receiver, |view| view.connected).await;
-        assert!(
-            restored.notifications.is_empty(),
-            "historical completions do not notify on attach"
+        assert_eq!(
+            restored.notifications.len(),
+            2,
+            "durable outcomes recover without transient attention reminders"
         );
+        assert!(restored.notifications.iter().all(|notice| notice.read));
+        assert!(restored.notifications.iter().all(|notice| {
+            current
+                .notifications
+                .iter()
+                .any(|prior| prior.id == notice.id)
+        }));
         stop.cancel();
         observer.await.unwrap().unwrap();
         node.shutdown().await.unwrap();

@@ -17,6 +17,12 @@ impl Shell {
     ) -> impl IntoElement {
         let unread = self.activity.inbox.unread();
         let empty = self.activity.inbox.notices().is_empty();
+        let read = self
+            .activity
+            .inbox
+            .notices()
+            .iter()
+            .any(|notice| notice.read && matches!(notice.id.target, Target::Notification(_)));
         let mut items = Vec::new();
         for (index, notice) in self.activity.inbox.notices().iter().enumerate() {
             let received = self
@@ -25,11 +31,22 @@ impl Shell {
                 .get(&notice.id)
                 .copied()
                 .unwrap_or_else(std::time::Instant::now);
-            let age = self
-                .activity
-                .received
-                .get(&notice.id)
-                .map(|received| elapsed(received.elapsed()));
+            let age = notice
+                .timestamp_ms
+                .map(|timestamp| {
+                    elapsed(Duration::from_millis(
+                        chrono::Utc::now()
+                            .timestamp_millis()
+                            .saturating_sub(timestamp)
+                            .max(0) as u64,
+                    ))
+                })
+                .or_else(|| {
+                    self.activity
+                        .received
+                        .get(&notice.id)
+                        .map(|received| elapsed(received.elapsed()))
+                });
             items.push((received, self.notice(index, notice, age, cx)));
         }
         items.sort_by_key(|(received, _)| std::cmp::Reverse(*received));
@@ -79,11 +96,16 @@ impl Shell {
                             .px_2()
                             .gap_1()
                             .child(
-                                div()
+                                Button::new("notification-center-open")
+                                    .ghost()
+                                    .small()
                                     .flex_1()
-                                    .text_sm()
-                                    .font_semibold()
-                                    .child(tr("notifications")),
+                                    .justify_start()
+                                    .label(tr("notification_center"))
+                                    .icon(IconName::ArrowRight)
+                                    .on_click(cx.listener(|shell, _, window, cx| {
+                                        shell.open_notification_center(None, window, cx)
+                                    })),
                             )
                             .child(
                                 Button::new("notifications-read-all")
@@ -115,11 +137,11 @@ impl Shell {
                                     .ghost()
                                     .small()
                                     .icon(gpui_kit::assets::IconName::Trash)
-                                    .tooltip(tr("notifications_clear"))
-                                    .accessibility_label(tr("notifications_clear"))
-                                    .disabled(empty)
+                                    .tooltip(tr("notification_delete_read"))
+                                    .accessibility_label(tr("notification_delete_read"))
+                                    .disabled(!read || self.activity.pending)
                                     .on_click(cx.listener(|shell, _, window, cx| {
-                                        shell.clear_notices(window, cx);
+                                        shell.update_notices(true, window, cx);
                                         shell.activity.received.retain(|id, _| {
                                             shell
                                                 .activity
@@ -166,15 +188,7 @@ impl Shell {
             Kind::Approval => "activity_approval",
             Kind::Input => "activity_input",
         };
-        let title = if notice.title.is_empty() {
-            match id.target {
-                Target::Notification(_) => tr("notifications"),
-                Target::Session(_) => tr("conversation"),
-                Target::Terminal(_) => tr("terminal"),
-            }
-        } else {
-            notice.title.clone().into()
-        };
+        let title = presentation::heading(notice);
         let host = self
             .live
             .as_ref()
@@ -317,7 +331,7 @@ fn entry(
         )
 }
 
-fn glyph(kind: Kind, cx: &App) -> Icon {
+pub(super) fn glyph(kind: Kind, cx: &App) -> Icon {
     use gpui_kit::assets::IconName;
     use sailry_protocol::notification::Kind as NotificationKind;
     let (icon, color) = match kind {
