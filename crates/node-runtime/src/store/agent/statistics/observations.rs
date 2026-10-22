@@ -20,16 +20,18 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
     ).map_err(storage_error)?;
     let mut rows = query.query([session.to_string()]).map_err(storage_error)?;
     while let Some(row) = rows.next().map_err(storage_error)? {
-        let sequence = row.get::<_, u64>(0).map_err(storage_error)?;
+        let sequence =
+            u64::try_from(row.get::<_, i64>(0).map_err(storage_error)?).map_err(storage_error)?;
         let encoded = row.get::<_, String>(1).map_err(storage_error)?;
         let mut request: Request = serde_json::from_str(&encoded).map_err(storage_error)?;
         request.context_limit = row.get(2).map_err(storage_error)?;
         calls.insert(request.id.clone(), (sequence, request));
     }
     let scalar = |expression: &str| -> Result<u64, Fault> {
-        db.query_row(&format!(
+        let value: i64 = db.query_row(&format!(
             "SELECT {expression} FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1"),
-            [session.to_string()], |row| row.get(0)).map_err(storage_error)
+            [session.to_string()], |row| row.get(0)).map_err(storage_error)?;
+        u64::try_from(value).map_err(storage_error)
     };
     result.compactions =
         scalar("count(CASE WHEN json_type(e.body,'$.actions.compaction')='object' THEN 1 END)")?;
@@ -37,10 +39,11 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
         "count(DISTINCT CASE WHEN json_extract(e.body,'$.content.role')='model' AND EXISTS (SELECT 1 FROM json_each(e.body,'$.content.parts') p WHERE length(json_extract(p.value,'$.text'))>0) THEN e.turn END)",
     )?;
     let usage_field = |field: &str| -> Result<Option<u64>, Fault> {
-        db.query_row(&format!(
+        let value: Option<i64> = db.query_row(&format!(
             "SELECT CASE WHEN count(*)>0 AND count(*)=count(json_extract(e.body,'$.usage_metadata.{field}')) THEN sum(max(0,json_extract(e.body,'$.usage_metadata.{field}'))) END
              FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1 AND json_type(e.body,'$.usage_metadata')='object'"),
-            [session.to_string()], |row| row.get(0)).map_err(storage_error)
+            [session.to_string()], |row| row.get(0)).map_err(storage_error)?;
+        value.map(u64::try_from).transpose().map_err(storage_error)
     };
     result.cache_read = usage_field("cache_read_input_token_count")?;
     result.reasoning = usage_field("thinking_token_count")?;
@@ -51,10 +54,15 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
          GROUP BY json_extract(p.value,'$.name')"
     ).map_err(storage_error)?;
     result.tools = tools
-        .query_map([session.to_string()], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map([session.to_string()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
         .map_err(storage_error)?
-        .collect::<Result<_, _>>()
-        .map_err(storage_error)?;
+        .map(|row| {
+            let (name, count) = row.map_err(storage_error)?;
+            Ok((name, u64::try_from(count).map_err(storage_error)?))
+        })
+        .collect::<Result<_, Fault>>()?;
     let mut phases = db.prepare(
         "SELECT json_extract(e.body,'$.event_metadata.sailry_execution_phases') FROM conversation_turns h
          JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1
@@ -84,17 +92,18 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
         }
         recorded += 1;
     }
-    let missing: u64 = db.query_row(
+    let missing: i64 = db.query_row(
         "SELECT count(*) FROM conversation_turns h JOIN agent_runs r ON r.turn=h.turn WHERE h.session=?1 AND json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn AND json_type(e.body,'$.event_metadata.sailry_execution_phases')='text')",
         [session.to_string()], |row| row.get(0)).map_err(storage_error)?;
-    if missing > 0 {
+    if u64::try_from(missing).map_err(storage_error)? > 0 {
         result.phases = Default::default();
     }
     result.calls = calls.len() as u64;
-    result.children = db.query_row(
+    let children: i64 = db.query_row(
         "SELECT count(DISTINCT d.turn) FROM agent_delegations d JOIN conversation_turns h ON h.turn=d.parent_turn WHERE h.session=?1",
         [session.to_string()], |row| row.get(0)
     ).map_err(storage_error)?;
+    result.children = u64::try_from(children).map_err(storage_error)?;
     let mut calls = calls.into_values().collect::<Vec<_>>();
     calls.sort_by_key(|(sequence, _)| *sequence);
     for (_, call) in &calls {

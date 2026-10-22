@@ -116,8 +116,11 @@ pub(super) fn insert(
             db.query_row(
                 "SELECT max(sequence) FROM conversation_events WHERE session=?1",
                 [session.to_string()],
-                |row| row.get(0),
+                |row| row.get::<_, Option<i64>>(0),
             )
+            .map_err(storage_error)?
+            .map(u64::try_from)
+            .transpose()
             .map_err(storage_error)?
         };
         event.provider_metadata.insert(

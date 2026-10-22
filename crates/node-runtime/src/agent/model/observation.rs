@@ -191,7 +191,7 @@ impl Capture {
 
     pub(in crate::agent) async fn persist(
         capture: &Arc<Mutex<Self>>,
-        ingress: &Ingress,
+        ingress: &Arc<Ingress>,
         session: SessionId,
     ) -> adk_core::Result<()> {
         let request = capture
