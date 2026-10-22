@@ -47,6 +47,7 @@ impl From<Arc<dyn Tool>> for Registration {
 }
 
 pub(super) struct Catalog {
+    timeline: Option<Arc<super::observation::Timeline>>,
     session: String,
     stop: CancellationToken,
     presentations: BTreeMap<String, Presentation>,
@@ -55,8 +56,13 @@ pub(super) struct Catalog {
 }
 
 impl Catalog {
-    pub fn new(session: String, stop: CancellationToken) -> Self {
+    pub fn new(
+        session: String,
+        stop: CancellationToken,
+        timeline: Option<Arc<super::observation::Timeline>>,
+    ) -> Self {
         Self {
+            timeline,
             session,
             stop,
             presentations: BTreeMap::new(),
@@ -69,10 +75,11 @@ impl Catalog {
         if self.presentations.contains_key(registration.tool.name()) {
             return Err(Fault::invalid("tool registration has a duplicate name"));
         }
-        let tool = arguments::Validated::bind(
+        let tool = arguments::Validated::observed(
             registration.tool.clone(),
             self.session.clone(),
             self.stop.clone(),
+            self.timeline.clone(),
         )?;
         self.groupings
             .insert(registration.tool.name().into(), registration.grouping);

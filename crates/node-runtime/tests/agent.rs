@@ -106,6 +106,8 @@ mod tools;
 #[cfg(target_os = "macos")]
 #[path = "support/trash.rs"]
 mod trash_fixture;
+#[path = "agent/observations.rs"]
+mod observations;
 #[path = "agent/usage.rs"]
 mod usage;
 #[path = "agent/web.rs"]

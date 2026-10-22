@@ -55,6 +55,41 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
         .map_err(storage_error)?
         .collect::<Result<_, _>>()
         .map_err(storage_error)?;
+    let mut phases = db.prepare(
+        "SELECT json_extract(e.body,'$.event_metadata.sailry_execution_phases') FROM conversation_turns h
+         JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1
+         AND e.sequence=(SELECT max(latest.sequence) FROM agent_events latest WHERE latest.turn=e.turn
+         AND json_type(latest.body,'$.event_metadata.sailry_execution_phases')='text')"
+    ).map_err(storage_error)?;
+    let mut rows = phases.query([session.to_string()]).map_err(storage_error)?;
+    let mut recorded = 0u64;
+    while let Some(row) = rows.next().map_err(storage_error)? {
+        let value: sailry_protocol::conversation::observation::Phases =
+            serde_json::from_str(&row.get::<_, String>(0).map_err(storage_error)?)
+                .map_err(storage_error)?;
+        if recorded == 0 {
+            result.phases = value;
+        } else {
+            for (sum, next) in [
+                (&mut result.phases.active_us, value.active_us),
+                (&mut result.phases.waiting_us, value.waiting_us),
+                (&mut result.phases.output_us, value.output_us),
+                (&mut result.phases.tools_us, value.tools_us),
+                (&mut result.phases.other_us, value.other_us),
+            ] {
+                *sum = sum
+                    .zip(next)
+                    .map(|(left, right)| left.saturating_add(right));
+            }
+        }
+        recorded += 1;
+    }
+    let missing: u64 = db.query_row(
+        "SELECT count(*) FROM conversation_turns h JOIN agent_runs r ON r.turn=h.turn WHERE h.session=?1 AND json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn AND json_type(e.body,'$.event_metadata.sailry_execution_phases')='text')",
+        [session.to_string()], |row| row.get(0)).map_err(storage_error)?;
+    if missing > 0 {
+        result.phases = Default::default();
+    }
     result.calls = calls.len() as u64;
     result.children = db.query_row(
         "SELECT count(DISTINCT d.turn) FROM agent_delegations d JOIN conversation_turns h ON h.turn=d.parent_turn WHERE h.session=?1",
@@ -67,15 +102,16 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
             result.model_us = result
                 .model_us
                 .saturating_add(attempt.elapsed_us.unwrap_or_default());
-            if let Some((elapsed, first)) = attempt.elapsed_us.zip(attempt.first_text_us) {
-                result.output_us = result
-                    .output_us
-                    .saturating_add(elapsed.saturating_sub(first));
-                if let Some(usage) = &attempt.usage {
-                    result.output_tokens = result
-                        .output_tokens
-                        .saturating_add(usage.output.saturating_sub(usage.reasoning));
-                }
+            if attempt.reasoning_reported
+                && let Some(usage) = &attempt.usage
+                && let Some((elapsed, first)) = attempt.elapsed_us.zip(attempt.first_text_us)
+                && elapsed > first
+            {
+                result.output_us = result.output_us.saturating_add(elapsed - first);
+                result.output_tokens = result
+                    .output_tokens
+                    .saturating_add(usage.output.saturating_sub(usage.reasoning));
+                result.output_samples += 1;
             }
             for row in &attempt.categories {
                 let total = composition.entry(row.kind).or_insert_with(|| Category {

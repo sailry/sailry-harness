@@ -175,6 +175,14 @@ async fn publishes_admitted_retries() {
                                 })
                                 .collect();
                             assert_eq!(attempts, [1, 2, 3, 4, 5]);
+                            let observations = &snapshot.statistics.observations;
+                            assert_eq!(observations.calls, 1);
+                            let attempts = &observations.recent.last().unwrap().attempts;
+                            assert_eq!(attempts.len(), 6);
+                            assert!(attempts.iter().all(|attempt| attempt.status == Some(status)
+                                && attempt.outcome == conversation::observation::Outcome::Failed
+                                && attempt.elapsed_us.is_some()));
+
                             break;
                         }
                         observed.changed().await.unwrap();

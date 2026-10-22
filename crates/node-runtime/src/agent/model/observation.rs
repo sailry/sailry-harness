@@ -10,15 +10,29 @@ mod categories;
 
 pub(super) const KEY: &str = "sailry_model_observation";
 
-pub(super) struct Capture {
+pub(in crate::agent) struct Capture {
     request: Request,
     active: Option<u64>,
     starts: BTreeMap<u64, Instant>,
     offset: u64,
+    persisted: Option<String>,
+    timeline: Option<Arc<crate::agent::observation::Timeline>>,
+    sources: Arc<Mutex<Vec<Source>>>,
+}
+
+#[derive(Clone)]
+pub(in crate::agent) struct Source {
+    pub kind: sailry_protocol::conversation::observation::CategoryKind,
+    pub text: String,
 }
 
 impl Capture {
-    pub(super) fn new(turn: TurnId, model: String) -> Arc<Mutex<Self>> {
+    pub(super) fn new(
+        turn: TurnId,
+        model: String,
+        timeline: Option<Arc<crate::agent::observation::Timeline>>,
+        sources: Arc<Mutex<Vec<Source>>>,
+    ) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             request: Request {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -32,6 +46,9 @@ impl Capture {
             active: None,
             starts: BTreeMap::new(),
             offset: 0,
+            persisted: None,
+            timeline,
+            sources,
         }))
     }
 
@@ -94,7 +111,7 @@ impl Capture {
                     && body
                         .get("previous_interaction_id")
                         .is_none_or(serde_json::Value::is_null);
-                attempt.categories = categories::estimate(&body);
+                attempt.categories = categories::estimate(&body, &self.sources.lock().unwrap());
             }
             wire::Kind::Connection { reused } => attempt.reused = Some(reused),
             wire::Kind::Headers {
@@ -107,6 +124,20 @@ impl Capture {
                 attempt.reused = reused;
             }
             wire::Kind::Finished { elapsed, outcome } => {
+                if let Some(timeline) = &self.timeline
+                    && let Some(start) = self.starts.get(&index)
+                {
+                    use crate::agent::observation::Phase;
+                    let waiting = attempt
+                        .first_text_us
+                        .map(std::time::Duration::from_micros)
+                        .unwrap_or(elapsed)
+                        .min(elapsed);
+                    timeline.record(*start, waiting, Phase::Waiting);
+                    if waiting < elapsed {
+                        timeline.record(*start + waiting, elapsed - waiting, Phase::Output);
+                    }
+                }
                 attempt.elapsed_us = Some(micros(elapsed));
                 attempt.outcome = match outcome {
                     wire::Outcome::Succeeded => Outcome::Succeeded,
@@ -158,7 +189,7 @@ impl Capture {
         }
     }
 
-    pub(super) async fn persist(
+    pub(in crate::agent) async fn persist(
         capture: &Arc<Mutex<Self>>,
         ingress: &Ingress,
         session: SessionId,
@@ -168,16 +199,28 @@ impl Capture {
             .unwrap_or_else(|poison| poison.into_inner())
             .request
             .clone();
+        let snapshot = serde_json::to_string(&request).expect("request observation serializes");
+        if capture
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .persisted
+            .as_ref()
+            == Some(&snapshot)
+        {
+            return Ok(());
+        }
         let mut event = adk_core::Event::new(request.turn.to_string());
         event.author = "system".into();
-        event.provider_metadata.insert(
-            KEY.into(),
-            serde_json::to_string(&request).expect("request observation serializes"),
-        );
+        event.provider_metadata.insert(KEY.into(), snapshot.clone());
         ingress
             .sessions(request.turn)
             .append_event(&session.to_string(), event)
-            .await
+            .await?;
+        capture
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .persisted = Some(snapshot);
+        Ok(())
     }
 }
 

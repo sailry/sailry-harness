@@ -51,6 +51,10 @@ impl Ingress {
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
         let pending = waiting::Pending::new(self, turn, &request)?;
+        let _waiting = self
+            .agents
+            .timeline(turn)
+            .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
@@ -79,6 +83,10 @@ impl Ingress {
         self.code.validate(&startup, &root).await?;
         let (reply, response) = oneshot::channel();
         let pending = waiting::Pending::new(self, turn, &request)?;
+        let _waiting = self
+            .agents
+            .timeline(turn)
+            .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
@@ -106,6 +114,10 @@ impl Ingress {
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
         let pending = waiting::Pending::new(self, turn, &request)?;
+        let _waiting = self
+            .agents
+            .timeline(turn)
+            .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,

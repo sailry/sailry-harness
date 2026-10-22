@@ -18,6 +18,8 @@ fn recovers_totals_across_generations() {
         }),
         ..Default::default()
     };
+    snapshot.statistics.observations.calls = 7;
+    snapshot.statistics.observations.phases.active_us = Some(5_000);
     snapshot.statistics.context_model = Some("observed-model".into());
     snapshot.statistics.context_timestamp_ms = Some(1_000);
     snapshot.statistics.budget = Some(conversation::compaction::Budget {
@@ -42,6 +44,8 @@ fn recovers_totals_across_generations() {
         .unwrap();
     let mut updated = snapshot.statistics.clone();
     updated.responses += 1;
+    updated.observations.calls += 1;
+    updated.observations.phases.active_us = Some(6_000);
     updated.context_tokens = Some(26);
     updated.context_limit = Some(2_048);
     updated.first_token_us = None;

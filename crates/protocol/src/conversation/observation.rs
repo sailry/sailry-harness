@@ -10,6 +10,8 @@ pub const RECENT_LIMIT: usize = 64;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
     pub recent: Vec<Request>,
+    #[serde(default)]
+    pub phases: Phases,
     pub calls: u64,
     pub replies: u64,
     pub compactions: u64,
@@ -22,6 +24,7 @@ pub struct Summary {
     pub model_us: u64,
     pub output_us: u64,
     pub output_tokens: u64,
+    pub output_samples: u64,
     /// Cumulative estimates count each actual request once, separately from usage.
     pub composition: Vec<Category>,
 }
@@ -84,4 +87,14 @@ pub enum CategoryKind {
     Injected,
     Assistant,
     Results,
+}
+
+/// Disjoint wall-clock intervals; missing historical observations remain unknown.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Phases {
+    pub active_us: Option<u64>,
+    pub waiting_us: Option<u64>,
+    pub output_us: Option<u64>,
+    pub tools_us: Option<u64>,
+    pub other_us: Option<u64>,
 }
