@@ -20,7 +20,8 @@ mod track;
 
 /// Width caps for the composer model chip.
 const CHIP_WIDTH: f32 = 260.;
-const SIDEBAR_CHIP_WIDTH: f32 = 220.;
+const COMPACT_CHIP_WIDTH: f32 = 220.;
+const NARROW_CHIP_WIDTH: f32 = 140.;
 
 impl View {
     fn model_label(&self) -> SharedString {
@@ -132,19 +133,6 @@ impl View {
         available
     }
 
-    pub(super) fn model_settings(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.sync_model_controls(cx) {
-            return self.model_controls.clone().into_any_element();
-        }
-        Button::new("composer-select-model")
-            .ghost()
-            .w_full()
-            .label(tr("composer_select_model"))
-            .disabled(self.configuration_blocked() || !self.can_pick_model())
-            .on_click(cx.listener(|view, _, _, cx| cx.emit(Event::Settings(view.settings_node()))))
-            .into_any_element()
-    }
-
     pub(super) fn model_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         let available = self.sync_model_controls(cx);
         let model = self.model_label();
@@ -163,12 +151,14 @@ impl View {
         });
         let fit = self.model_controls.read(cx).fit.clone();
         let view = cx.entity_id();
-        let cap = px(if self.sidebar {
-            SIDEBAR_CHIP_WIDTH
+        let cap = px(if self.icon_context {
+            NARROW_CHIP_WIDTH
+        } else if self.sidebar || self.compact_composer {
+            COMPACT_CHIP_WIDTH
         } else {
             CHIP_WIDTH
         });
-        let compact = fit.compact(cap);
+        let compact = self.icon_context || fit.compact(cap);
         let effort = self
             .config
             .as_ref()
@@ -185,7 +175,8 @@ impl View {
             .custom(crate::theme::subtle_button(cx))
             .rounded_full()
             .max_w(cap)
-            .when(self.sidebar, |button| button.min_w_0())
+            .min_w_0()
+            .flex_shrink_1()
             .debug_selector(|| "live-chat-model".into())
             .accessibility_label(tr("composer_model_settings"))
             .child(
@@ -194,26 +185,29 @@ impl View {
                     .gap_2()
                     .text_sm()
                     .line_height(px(20.))
-                    .when_some(provider, |row, (badge, name)| {
-                        row.child(
-                            div()
-                                .id("live-chat-channel")
-                                .flex_shrink_0()
-                                .tooltip(move |window, cx| {
-                                    Tooltip::new(name.clone()).build(window, cx)
-                                })
-                                .child(
-                                    Tag::primary()
-                                        .small()
-                                        .text_xs()
-                                        .rounded_full()
-                                        .border_0()
-                                        .bg(cx.theme().primary.opacity(0.12))
-                                        .text_color(cx.theme().primary)
-                                        .child(badge),
-                                ),
-                        )
-                    })
+                    .when_some(
+                        provider.filter(|_| !self.icon_context),
+                        |row, (badge, name)| {
+                            row.child(
+                                div()
+                                    .id("live-chat-channel")
+                                    .flex_shrink_0()
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(name.clone()).build(window, cx)
+                                    })
+                                    .child(
+                                        Tag::primary()
+                                            .small()
+                                            .text_xs()
+                                            .rounded_full()
+                                            .border_0()
+                                            .bg(cx.theme().primary.opacity(0.12))
+                                            .text_color(cx.theme().primary)
+                                            .child(badge),
+                                    ),
+                            )
+                        },
+                    )
                     .child(
                         div()
                             .relative()
@@ -261,6 +255,7 @@ impl View {
                                 .unwrap_or_default(),
                         )
                         .into_iter()
+                        .filter(|_| !self.icon_context)
                         .map(|label| {
                             div()
                                 .flex_shrink_0()
@@ -268,13 +263,14 @@ impl View {
                                 .child(label)
                         }),
                     )
-                    .children(segments),
+                    .children(segments.into_iter().filter(|_| !self.icon_context)),
             )
             .disabled(self.configuration_blocked() || !self.can_pick_model());
-        let chip = div()
-            .relative()
-            .min_w_0()
-            .child(fit.probe(fit::Part::Chip, None, view));
+        let chip = div().relative().min_w_0().flex_shrink_1().child(fit.probe(
+            fit::Part::Chip,
+            None,
+            view,
+        ));
         if !available {
             return chip
                 .child(button.on_click(

@@ -49,9 +49,9 @@ impl View {
                                 })),
                         )
                         .when(self.compact_composer, |bar| {
-                            bar.child(self.composer_settings())
+                            bar.child(self.composer_settings(cx))
                         })
-                        .when(!self.compact_composer, |bar| {
+                        .map(|bar| {
                             bar.children(self.registered_controls(
                                 Slot::Composer,
                                 Align::Start,
@@ -67,7 +67,7 @@ impl View {
                     .when(self.sidebar, |bar| bar.w_full().min_w_0())
                     .when(!self.sidebar, |bar| bar.ml_auto().flex_wrap().justify_end())
                     .when(self.sidebar && self.compact_composer, |bar| {
-                        bar.child(self.composer_settings())
+                        bar.child(self.composer_settings(cx))
                     })
                     .when(self.sidebar && !self.compact_composer, |bar| {
                         bar.children(self.registered_controls(
@@ -82,14 +82,16 @@ impl View {
                             Form::Icons,
                             cx,
                         ))
-                        .children(self.registered_controls(
+                    })
+                    .when(self.sidebar, |bar| {
+                        bar.children(self.registered_controls(
                             Slot::Composer,
                             Align::Start,
                             Form::Toolbar,
                             cx,
                         ))
                     })
-                    .when(!self.compact_composer, |bar| {
+                    .map(|bar| {
                         bar.children(self.registered_controls(
                             Slot::Composer,
                             Align::End,
@@ -97,6 +99,7 @@ impl View {
                             cx,
                         ))
                     })
+                    .child(self.model_menu(cx))
                     .when(self.sidebar, |bar| bar.child(self.model_spacer(cx)))
                     .child(self.dictation_controls(cx))
                     // An executing turn keeps its Stop action during dictation.

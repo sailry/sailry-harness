@@ -492,10 +492,10 @@ impl Registry {
             if let Some(source) = &self.providers {
                 bridge.scopes(scopes(&source.read(cx).read(&package)));
             }
-            let content_sized = bridge
-                .declarations
-                .iter()
-                .any(|entry| entry.kind == ui::Kind::Popover);
+            let content_sized = bridge.declarations.iter().any(|entry| {
+                entry.kind == ui::Kind::Popover
+                    || entry.kind == ui::Kind::Indicator && entry.handler.is_some()
+            });
             let panel = cx.new(|cx| {
                 let mut panel = Panel::contributions(
                     binding.clone(),

@@ -9,6 +9,7 @@ use gpui_kit::{
     prelude::FluentBuilder as _,
 };
 use ui::{EventKind, Kind};
+mod indicator;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Form {
@@ -101,44 +102,7 @@ impl Registry {
         let enabled = entry.state.enabled;
         let selected = entry.state.value.as_bool().unwrap_or(false);
         if entry.declaration.kind == Kind::Indicator {
-            let indicator = serde_json::from_value::<ui::Indicator>(entry.state.value.clone()).ok();
-            let hint: SharedString = indicator
-                .as_ref()
-                .map(|value| value.hint.clone())
-                .unwrap_or_else(|| label(&entry.declaration.label).to_string())
-                .into();
-            let color = match indicator.as_ref().map(|value| value.tone) {
-                Some(ui::Tone::Warning) => cx.theme().warning,
-                Some(ui::Tone::Danger) => cx.theme().danger,
-                _ => cx.theme().muted_foreground,
-            };
-            return div()
-                .id(SharedString::from(selector.clone()))
-                .debug_selector(move || selector.clone())
-                .flex_shrink_0()
-                .px_1()
-                .tooltip({
-                    let hint = hint.clone();
-                    move |window, cx| tooltip::Tooltip::new(hint.clone()).build(window, cx)
-                })
-                .child(
-                    progress::ProgressCircle::new(SharedString::from(format!(
-                        "indicator-{}",
-                        entry.key.id
-                    )))
-                    .value(
-                        indicator
-                            .as_ref()
-                            .and_then(|value| value.percent)
-                            .unwrap_or(0.)
-                            .min(100.) as f32,
-                    )
-                    .loading(indicator.as_ref().is_some_and(|value| value.loading))
-                    .with_size(px(20.))
-                    .color(color)
-                    .accessibility_label(hint),
-                )
-                .into_any_element();
+            return self.indicator(entry, cx);
         }
 
         if entry.declaration.kind == Kind::Toggle && form == Form::Menu {

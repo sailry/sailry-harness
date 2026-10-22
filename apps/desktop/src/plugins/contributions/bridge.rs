@@ -189,7 +189,9 @@ impl Bridge {
                         && serde_json::to_vec(&value)
                             .is_ok_and(|value| value.len() <= ui::MAX_STATE_BYTES)
             }
-            (ui::Kind::Toggle | ui::Kind::Popover, EventKind::Change) => value.is_boolean(),
+            (ui::Kind::Toggle | ui::Kind::Popover | ui::Kind::Indicator, EventKind::Change) => {
+                value.is_boolean()
+            }
             (ui::Kind::Select | ui::Kind::Menu | ui::Kind::Picker, EventKind::Change) => choices
                 .iter()
                 .any(|choice| choice.enabled && value.as_str() == Some(&choice.id)),

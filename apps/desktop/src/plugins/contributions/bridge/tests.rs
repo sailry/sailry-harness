@@ -400,3 +400,47 @@ fn fences_replaced_provider_scopes() {
             .any(|state| state.scope.is_some())
     );
 }
+
+#[tokio::test]
+async fn indicator_uses_controlled_boolean_interactions() {
+    let bridge = Bridge::new(vec![
+        serde_json::from_value(json!({
+            "id":"progress", "slot":"composer", "kind":"indicator",
+            "label":{"label":"Progress"}, "handler":"details"
+        }))
+        .unwrap(),
+    ]);
+    bridge
+        .publish(vec![state(
+            json!({"id":"progress", "value":{"percent":25,"tone":"muted","hint":"Progress"}}),
+        )])
+        .unwrap();
+    assert!(
+        bridge
+            .invoke("progress", EventKind::Change, json!("open"))
+            .is_err()
+    );
+    assert!(
+        bridge
+            .invoke("progress", EventKind::Invoke, Value::Null)
+            .is_err()
+    );
+    bridge
+        .invoke("progress", EventKind::Change, json!(true))
+        .unwrap();
+    let event = bridge.next().await.unwrap();
+    assert_eq!(event.handler, "details");
+    assert_eq!(event.value, json!(true));
+    assert!(!bridge.state("progress").unwrap().enabled);
+    bridge
+        .publish(vec![state(
+            json!({"id":"progress", "reply_to":event.sequence,
+        "value":{"percent":25,"open":true,"tone":"muted","hint":"Progress"}}),
+        )])
+        .unwrap();
+    assert!(bridge.state("progress").unwrap().enabled);
+    bridge
+        .invoke("progress", EventKind::Change, json!(false))
+        .unwrap();
+    assert_eq!(bridge.next().await.unwrap().value, json!(false));
+}

@@ -276,7 +276,9 @@ impl Contribution {
                     && self.handler.is_none()
                     && self.choices.is_empty()
             } else if self.kind == Kind::Indicator {
-                self.slot == Slot::Composer && self.handler.is_none() && self.choices.is_empty()
+                self.slot == Slot::Composer
+                    && self.handler.as_deref().is_none_or(identifier)
+                    && self.choices.is_empty()
             } else {
                 !matches!(self.slot, Slot::Statistics | Slot::Footer | Slot::Provider)
                     && self.handler.as_ref().is_some_and(|name| identifier(name))
@@ -291,7 +293,10 @@ pub fn valid(entries: &[Contribution]) -> bool {
     entries.len() <= MAX_ENTRIES
         && entries
             .iter()
-            .filter(|entry| entry.kind == Kind::Popover)
+            .filter(|entry| {
+                entry.kind == Kind::Popover
+                    || entry.kind == Kind::Indicator && entry.handler.is_some()
+            })
             .count()
             <= 1
         && entries.iter().enumerate().all(|(index, entry)| {
@@ -375,8 +380,9 @@ impl State {
             && !self.value.is_array()
             && (if entry.kind == Kind::Indicator {
                 self.value.is_null()
-                    || serde_json::from_value::<Indicator>(self.value.clone())
-                        .is_ok_and(|value| value.valid())
+                    || serde_json::from_value::<Indicator>(self.value.clone()).is_ok_and(|value| {
+                        value.valid() && (!value.open || entry.handler.is_some())
+                    })
             } else {
                 !self.value.is_object()
             })
@@ -395,6 +401,9 @@ impl State {
 #[serde(deny_unknown_fields)]
 pub struct Indicator {
     pub percent: Option<f64>,
+    /// An interactive indicator uses its package panel as a controlled popover.
+    #[serde(default)]
+    pub open: bool,
     #[serde(default)]
     pub loading: bool,
     pub tone: Tone,

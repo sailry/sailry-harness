@@ -7,6 +7,7 @@ mod render;
 mod results;
 mod reveal;
 use results::Results;
+pub(crate) use reveal::Target;
 
 pub(super) enum Event {
     Reveal(Match),

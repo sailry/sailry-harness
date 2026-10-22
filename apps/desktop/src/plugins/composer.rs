@@ -138,13 +138,15 @@ pub(super) fn extend(
     let model_change = model_read.clone();
     let read = state.clone().filter(|_| scope.read);
     let change = read.clone();
+    let reveal = read.clone();
+    let reveal_host = host.clone();
     let write = state.clone().filter(|_| scope.control);
     let read_host = host.clone();
     let change_host = host.clone();
     let model_host = host.clone();
     let model_change_host = host.clone();
     let declarations = format!(
-        "{}\nexport interface ComposerState {{cursor:string;command:{{name:string;arguments:string;package:import('sailry/sdk').Json}}|null;mode:'plan'|'code';session:string|null;connected:boolean;busy:boolean;configuring:boolean;model_tools:boolean;operations:string[];options:Record<string,unknown>;readonly:boolean;statistics:Record<string,unknown>|null;context_limit:number|null;compacting:boolean;has_messages:boolean;sidebar:boolean}}\nexport function readComposer():ComposerState;\nexport function nextComposerChange(cursor:string):Promise<ComposerState>;\nexport function setComposerOption(cursor:string,key:'command'|'mode'|'plugin',value:unknown):Promise<ComposerState>;",
+        "{}\nexport interface ComposerState {{cursor:string;command:{{name:string;arguments:string;package:import('sailry/sdk').Json}}|null;mode:'plan'|'code';session:string|null;connected:boolean;busy:boolean;configuring:boolean;model_tools:boolean;operations:string[];options:Record<string,unknown>;readonly:boolean;statistics:Record<string,unknown>|null;context_limit:number|null;compacting:boolean;has_messages:boolean;sidebar:boolean}}\nexport function revealComposerEntry(target:{{turn:string;turn_sequence:string;entry:string}}):void;\nexport function readComposer():ComposerState;\nexport function nextComposerChange(cursor:string):Promise<ComposerState>;\nexport function setComposerOption(cursor:string,key:'command'|'mode'|'plugin',value:unknown):Promise<ComposerState>;",
         module.declared().unwrap_or_default()
     );
     let declarations = format!(
@@ -156,6 +158,9 @@ pub(super) fn extend(
         })
         .async_function("nextModelContext", move |args| {
             changes(args, &model_change_host, &model_change, Projection::Model)
+        })
+        .function("revealComposerEntry", move |args| {
+            reveal_entry(args, &reveal_host, &reveal)
         })
         .function("readComposer", move |_| {
             read_state(&read_host, &read, Projection::Composer)
@@ -210,6 +215,37 @@ fn read_state(
             }
             state.refresh(cx);
             encode(projection.changes(state).borrow().clone())
+        })
+    })
+    .ok_or_else(|| HostError::new("composer requires an active view"))?
+}
+
+fn reveal_entry(
+    args: &HostArguments,
+    host: &Arc<Host>,
+    read: &Option<Entity<State>>,
+) -> HostResult {
+    host.check()?;
+    let target = crate::conversation::live::search::Target::decode(decode(args.value(0)?)?)
+        .map_err(HostError::new)?;
+    let state = read
+        .as_ref()
+        .ok_or_else(|| HostError::new("composer read is unavailable"))?;
+    gpui_shell::with_current_app(|cx| {
+        state.update(cx, |state, cx| {
+            if !state.matches(host, cx) || state.session.is_none() {
+                return Err(HostError::new("composer scope is unavailable"));
+            }
+            state
+                .source
+                .update(cx, |source, cx| {
+                    if !source.connected() {
+                        return Err(HostError::new("composer is disconnected"));
+                    }
+                    source.reveal_entry(target, cx);
+                    encode(Value::Null)
+                })
+                .map_err(|_| HostError::new("composer is closed"))?
         })
     })
     .ok_or_else(|| HostError::new("composer requires an active view"))?

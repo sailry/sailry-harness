@@ -111,9 +111,9 @@ fn project_menu_accepts_native_actions() {
 }
 
 #[test]
-fn indicators_accept_only_finite_passive_composer_state() {
+fn indicators_bound_progress_and_optional_interaction() {
     let mut entry = contribution(Slot::Composer, Kind::Indicator);
-    assert!(!entry.valid());
+    assert!(entry.valid());
     entry.handler = None;
     assert!(entry.valid());
     let mut state = State::pending(&entry);
@@ -121,6 +121,12 @@ fn indicators_accept_only_finite_passive_composer_state() {
         state.value = json!({"percent":percent,"loading":true,"tone":"warning","hint":"Context"});
         assert!(state.valid(&entry));
     }
+    state.value["open"] = true.into();
+    assert!(!state.valid(&entry));
+    entry.handler = Some("context".into());
+    assert!(state.valid(&entry));
+    let other = contribution(Slot::Context, Kind::Popover);
+    assert!(!valid(&[entry.clone(), other]));
     state.value["percent"] = json!(-1);
     assert!(!state.valid(&entry));
     state.value = json!({"percent":0,"tone":"danger","hint":"Context","command":"run"});

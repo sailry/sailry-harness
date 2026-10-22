@@ -1,7 +1,7 @@
 use super::*;
 use crate::conversation::{mode, permission};
+use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement;
-use gpui_kit::component::{popover::Popover, separator::Separator};
 
 impl View {
     pub(in crate::conversation::live) fn mode_entry(&self, _cx: &mut Context<Self>) -> AnyElement {
@@ -64,10 +64,23 @@ impl View {
             .into_any_element()
     }
 
-    pub(super) fn composer_settings(&self) -> AnyElement {
+    pub(super) fn composer_settings(&self, cx: &App) -> AnyElement {
         let panel = self.composer_settings.clone();
         let opening = panel.clone();
-        let model = self.model_controls.clone();
+        let current = self
+            .config
+            .as_ref()
+            .map(|config| config.permission)
+            .or(self.draft_permission)
+            .unwrap_or(sailry_protocol::Permission::Ask);
+        let full = current == sailry_protocol::Permission::Full;
+        let mode = self.current_mode();
+        let hint = format!(
+            "{} · {} · {}",
+            tr("composer_settings"),
+            tr(mode::label(mode)),
+            tr(permission::label(current))
+        );
         Popover::new("composer-settings-popover")
             .anchor(Anchor::BottomLeft)
             .bottom_2()
@@ -76,14 +89,25 @@ impl View {
                 Button::new("composer-settings")
                     .ghost()
                     .rounded_full()
-                    .icon(IconName::Settings2)
-                    .tooltip(tr("composer_settings"))
-                    .accessibility_label(tr("composer_settings"))
+                    .icon(if full {
+                        permission::icon(current)
+                    } else {
+                        mode::icon(mode)
+                    })
+                    .when(full, |button| button.text_color(cx.theme().danger))
+                    .when(!self.icon_context, |button| {
+                        button.label(tr(if full {
+                            permission::label(current)
+                        } else {
+                            mode::label(mode)
+                        }))
+                    })
+                    .tooltip(hint.clone())
+                    .accessibility_label(hint)
                     .debug_selector(|| "composer-settings".into()),
             )
             .on_open_change(move |open, window, cx| {
                 if *open {
-                    model.update(cx, |panel, cx| panel.back(window, cx));
                     opening.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
                 }
             })
@@ -260,12 +284,6 @@ impl Render for Panel {
                         crate::plugins::contributions::Form::Menu,
                         cx,
                     ))
-                    .child(
-                        div()
-                            .py_2()
-                            .debug_selector(|| "composer-settings-separator".into())
-                            .child(Separator::horizontal()),
-                    )
                     .children(view.registered_controls(
                         sailry_protocol::plugin::ui::Slot::Composer,
                         sailry_protocol::plugin::ui::Align::Start,

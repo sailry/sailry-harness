@@ -163,7 +163,7 @@ pub(crate) struct View {
     search: Entity<search::Search>,
     assets: Entity<assets::Assets>,
     controls: Entity<controls::Controls>,
-    reveal: Option<sailry_protocol::conversation::search::Match>,
+    reveal: Option<search::Target>,
     provider_ids: BTreeMap<(NodeId, sailry_protocol::ProviderId), usize>,
     dictation: dictation::State,
     pending: bool,

@@ -3,6 +3,7 @@ use super::*;
 use crate::plugins::contributions::{Entry, Form};
 use sailry_protocol::plugin::ui::{self, Align, Contribution, Slot};
 mod native;
+mod placement;
 
 struct Native {
     declaration: Contribution,
@@ -135,9 +136,17 @@ impl View {
         form: Form,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
+        let layout = placement::Layout {
+            compact: self.compact_composer,
+            narrow: self.icon_context,
+            sidebar: self.sidebar,
+        };
         let mut entries = Vec::new();
         for native in native::controls() {
-            if native.declaration.slot == slot && native.declaration.align == align {
+            if native.declaration.slot == slot
+                && native.declaration.align == align
+                && layout.includes(&native.declaration, form)
+            {
                 entries.push((
                     native.declaration.order,
                     native.declaration.id.clone(),
@@ -149,18 +158,7 @@ impl View {
             if entry.declaration.align == align
                 // The location chooser already owns these two worktree actions.
                 && !location_action(&entry.declaration)
-                && match form {
-                    Form::Menu => {
-                        entry.declaration.kind != ui::Kind::Indicator
-                            && (slot == Slot::Composer
-                                || self.sidebar
-                                || entry.declaration.overflow == ui::Overflow::Menu)
-                    }
-                    Form::Toolbar | Form::Icons => {
-                        !self.compact_composer || entry.declaration.overflow != ui::Overflow::Menu
-                    }
-                    Form::Project | Form::Model => false,
-                }
+                && layout.includes(&entry.declaration, form)
             {
                 entries.push((
                     entry.declaration.order,

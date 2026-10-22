@@ -13,37 +13,30 @@ pub(in crate::conversation) fn render(groups: Vec<Group>, cx: &App) -> AnyElemen
         .map(|metric| metric.value.clone())
         .unwrap_or_else(|| tr("composer_metric_unknown"));
     let groups = Rc::new(groups);
-    h_flex()
-        .id("composer-stats-tooltip")
-        .flex_shrink_0()
-        .hoverable_tooltip(move |window, cx| {
-            let groups = groups.clone();
-            Tooltip::element(move |window, cx| {
-                v_flex()
-                    .w((window.viewport_size().width - px(56.))
-                        .min(px(POPOVER_WIDTH - 2. * POPOVER_INSET.1)))
-                    .max_h((window.viewport_size().height - px(80.)).min(px(560.)))
-                    .debug_selector(|| "composer-statistics-panel".into())
-                    .child(
-                        v_flex().flex_1().overflow_hidden().child(
-                            v_flex()
-                                .id("composer-statistics-scroll")
-                                .size_full()
-                                .children(groups.iter().enumerate().map(|(index, group)| {
-                                    v_flex()
-                                        .gap_1p5()
-                                        .when(index > 0, |body| body.child(Separator::horizontal()))
-                                        .child((group.summary)(cx))
-                                }))
-                                .overflow_y_scrollbar(),
-                        ),
-                    )
-            })
-            .py(px(POPOVER_INSET.0))
-            .px(px(POPOVER_INSET.1))
-            .build(window, cx)
+    popover::Popover::new("composer-stats-popover")
+        .anchor(Anchor::BottomRight)
+        .content(move |_, window, cx| {
+            v_flex()
+                .w((window.viewport_size().width - px(56.))
+                    .min(px(POPOVER_WIDTH - 2. * POPOVER_INSET.1)))
+                .max_h((window.viewport_size().height - px(80.)).min(px(560.)))
+                .debug_selector(|| "composer-statistics-panel".into())
+                .child(
+                    v_flex().flex_1().overflow_hidden().child(
+                        v_flex()
+                            .id("composer-statistics-scroll")
+                            .size_full()
+                            .children(groups.iter().enumerate().map(|(index, group)| {
+                                v_flex()
+                                    .gap_1p5()
+                                    .when(index > 0, |body| body.child(Separator::horizontal()))
+                                    .child((group.summary)(cx))
+                            }))
+                            .overflow_y_scrollbar(),
+                    ),
+                )
         })
-        .child(
+        .trigger(
             Button::new("composer-stats")
                 .custom(crate::theme::subtle_button(cx).foreground(cx.theme().muted_foreground))
                 .small()
