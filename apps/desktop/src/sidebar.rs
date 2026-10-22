@@ -557,16 +557,12 @@ impl Shell {
     fn sidebar_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let live = self.live.is_some();
         let metrics = crate::preferences::data(cx).sidebar_metrics;
-        let account = (self.page == Page::Conversation
-            && matches!(
-                self.session_scope.active,
-                crate::shell::session_scope::Key::Session(..)
-            ))
-        .then(|| {
-            self.current_chat()
-                .and_then(|chat| chat.read(cx).account_usage(cx))
-        })
-        .flatten();
+        let account = (self.page == Page::Conversation)
+            .then(|| {
+                self.current_chat()
+                    .and_then(|chat| chat.read(cx).account_usage(cx))
+            })
+            .flatten();
         let visible = metrics || account.is_some();
         v_flex()
             .debug_selector(|| "sidebar-footer".into())
