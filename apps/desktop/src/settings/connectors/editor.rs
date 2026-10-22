@@ -1,4 +1,5 @@
 //! The form owns drafts; the Node owns authentication and connection state.
+mod choices;
 mod login;
 use super::*;
 use crate::theme::DialogStyle as _;
@@ -504,55 +505,6 @@ impl Editor {
                                 cx.listener(|this, _, window, cx| this.submit(false, window, cx)),
                             ),
                     ),
-            )
-            .into_any_element()
-    }
-    fn choices(&self, cx: &mut Context<Self>) -> AnyElement {
-        let query = self.query.read(cx).value().to_lowercase();
-        let rows = self
-            .types
-            .iter()
-            .enumerate()
-            .filter(|(_, kind)| {
-                title(&kind.declaration.display)
-                    .to_lowercase()
-                    .contains(&query)
-                    && !self.owner.read(cx).connectors.rows.iter().any(|row| {
-                        row.package.name == kind.package.name
-                            && row.connector == kind.declaration.id
-                    })
-            })
-            .map(|(index, kind)| {
-                Button::new(("connector-type", index))
-                    .outline()
-                    .w_full()
-                    .justify_start()
-                    .label(title(&kind.declaration.display))
-                    .on_click(
-                        cx.listener(move |this, _, window, cx| this.choose(index, window, cx)),
-                    )
-            })
-            .collect::<Vec<_>>();
-        v_flex()
-            .w_full()
-            .gap_4()
-            .child(div().text_lg().font_semibold().child(tr("connector_add")))
-            .child(Input::new(&self.query).cleanable(true))
-            .child(
-                v_flex()
-                    .id("connector-type-list")
-                    .min_h(px(300.))
-                    .max_h(px(420.))
-                    .overflow_y_scroll()
-                    .gap_2()
-                    .when(rows.is_empty(), |element| {
-                        element.child(crate::empty_state::list(
-                            IconName::Network,
-                            "connector_empty",
-                            cx,
-                        ))
-                    })
-                    .children(rows),
             )
             .into_any_element()
     }
