@@ -89,7 +89,7 @@ impl Connections {
                 if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
                 let mut launch = config.launch?;
                 let context=sailry_protocol::plugin::Context{package:config.reference.clone(),worktree:Some(invocation.worktree),session:Some(invocation.turn.session),turn:Some(invocation.turn.id),invocation:None,surface:Default::default()};
-                let reuse = !matches!(&launch, crate::plugins::resources::mcp::Launch::Stdio { .. }) || config.options.reuse;
+                let reuse = config.options.reuse;
                 let exclusive = config.options.exclusive.then(|| ingress.agents.mcp.service(&config.plugin, &config.name));
                 let python = match &launch { crate::plugins::resources::mcp::Launch::Stdio {python,..} => python.clone(), _ => None };
                 let connector = tokio::select! {

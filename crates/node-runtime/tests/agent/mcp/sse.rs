@@ -69,3 +69,55 @@ async fn runs_tools_and_forms() {
         fixture.controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn closes_sessions_between_turns() {
+    for remote in [false, true] {
+        let server = server::Server::url("https://example.invalid/continue", true).await;
+        let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
+        server.package(&fixture.root.join("package"));
+        let path = fixture.root.join("package/mcp.json");
+        let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        config["mcpServers"]["input"]["reuse"] = false.into();
+        fs::write(path, config.to_string()).unwrap();
+        install(&fixture, 0).await;
+        for round in 1..=2 {
+            let (_, turn) = submit(&fixture, false).await;
+            let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+            execute(
+                &fixture.client,
+                Command::ResolveQuestion {
+                    session: fixture.session.id,
+                    question: question.id,
+                    response: Response::Decline,
+                },
+            )
+            .await;
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            let run = page.runs.last().unwrap();
+            assert_eq!(run.status, Status::Completed);
+            assert!(run.error.is_none(), "{:?}", run.error);
+            assert_eq!(
+                results(&page).last().unwrap()["output"]["action"],
+                "decline"
+            );
+            assert_eq!(server.initializations.load(Ordering::SeqCst), round);
+            assert_eq!(server.calls.load(Ordering::SeqCst), round);
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while server.streams.load(Ordering::SeqCst) != 0 {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("non-reused SSE session must close after each turn");
+            fixture
+                .controller
+                .handle()
+                .disconnect(fixture.node.id())
+                .await;
+        }
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}

@@ -456,3 +456,45 @@ async fn isolates_redirect_failures() {
         fixture.node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn closes_sessions_between_turns() {
+    for remote in [false, true] {
+        let http = Http::start(Reply::Normal).await;
+        let model = Server::turn_tools(vec![(
+            alias("remote", "read"),
+            json!({"value":"retained result"}),
+        )])
+        .await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
+        package(
+            &fixture.root,
+            json!({"remote":{"type":"streamable-http","url":http.endpoint,"reuse":false}}),
+            "per-turn",
+        );
+        install(&fixture, 0).await;
+        for round in 1..=2 {
+            let (_, turn) = submit(&fixture, false).await;
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            let run = page.runs.last().unwrap();
+            assert_eq!(run.status, Status::Completed);
+            assert!(run.error.is_none(), "{:?}", run.error);
+            assert_eq!(
+                results(&page).last().unwrap()["output"]["value"],
+                "retained result"
+            );
+            assert_eq!(http.count("initialize"), round);
+            assert_eq!(http.count("tools/call"), round);
+            assert_eq!(http.effects.load(Ordering::SeqCst), round);
+            assert_eq!(http.deletes(), round);
+            fixture
+                .controller
+                .handle()
+                .disconnect(fixture.node.id())
+                .await;
+        }
+        fixture.node.shutdown().await.unwrap();
+        assert_eq!(http.deletes(), 2);
+        fixture.controller.close().await.unwrap();
+    }
+}
