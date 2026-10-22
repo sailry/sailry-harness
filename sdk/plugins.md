@@ -575,8 +575,10 @@ composer. The host validates the current Node/session/package scope and reuses
 Client's history loading. This read-only navigation never changes session
 configuration or starts compression.
 
-The `footer` slot accepts passive `metric` contributions immediately before the
-conversation usage controls, independently of Sailry session statistics. Supply
+The `footer` slot accepts passive `metric` contributions for the current model
+account, independently of Sailry session statistics. Desktop displays them in a
+separate sidebar row above host performance while that conversation is selected.
+Only contributions matching its current provider are shown. Supply
 `value` and localized `details: [{label, value, progress?}]`; optional `progress`
 is a finite percentage from 0 through 100, including decimals. The shared metric
 popover lists rows without `progress` first, then rows with `progress` as labeled

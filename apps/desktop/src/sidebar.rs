@@ -444,9 +444,7 @@ impl Shell {
                         .child(self.recent_sessions(cx)),
                 ),
             )
-            .when(crate::preferences::data(cx).sidebar_metrics, |this| {
-                this.child(self.sidebar_footer(cx))
-            })
+            .child(self.sidebar_footer(cx))
             .into_any_element()
     }
 
@@ -558,65 +556,86 @@ impl Shell {
 
     fn sidebar_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let live = self.live.is_some();
+        let metrics = crate::preferences::data(cx).sidebar_metrics;
+        let account = (self.page == Page::Conversation
+            && matches!(
+                self.session_scope.active,
+                crate::shell::session_scope::Key::Session(..)
+            ))
+        .then(|| {
+            self.current_chat()
+                .and_then(|chat| chat.read(cx).account_usage(cx))
+        })
+        .flatten();
+        let visible = metrics || account.is_some();
         v_flex()
             .debug_selector(|| "sidebar-footer".into())
             .flex_shrink_0()
             .px_3()
-            .child(Separator::horizontal().w_auto().mx_neg_3())
-            .child(
-                h_flex().py_2().w_full().gap_3().children(
-                    [
-                        ("cpu-preview", "metrics_cpu", 55.),
-                        ("memory-preview", "metrics_memory", 41.),
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, (id, label, preview))| {
-                        let value = if live {
-                            self.host_monitor
-                                .as_ref()
-                                .and_then(|monitor| monitor.read(cx).percentages()[index])
-                        } else {
-                            Some(preview)
-                        };
-                        let value = value.map(|value| value.clamp(0., 100.));
-                        let text = value
-                            .map(|value| format!("{value:.0}%"))
-                            .unwrap_or_else(|| "—".into());
-                        let tooltip = format!("{} · {text}", tr(label));
-                        div()
-                            .id(id)
-                            .debug_selector(move || id.into())
-                            .flex_1()
-                            .min_w_0()
-                            .tooltip(move |window, cx| {
-                                Tooltip::new(tooltip.clone()).build(window, cx)
-                            })
-                            .child(
-                                v_flex()
-                                    .gap_1()
-                                    .child(
-                                        h_flex()
-                                            .justify_between()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(tr(label))
-                                            .child(
-                                                div()
-                                                    .debug_selector(move || format!("{id}-value"))
-                                                    .child(text),
-                                            ),
-                                    )
-                                    .child(
-                                        Progress::new((id, 0usize))
-                                            .xsmall()
-                                            .value(value.unwrap_or(0.))
-                                            .accessibility_label(tr(label))
-                                            .color(cx.theme().muted_foreground),
-                                    ),
-                            )
-                    }),
-                ),
-            )
+            .when(visible, |footer| {
+                footer.child(Separator::horizontal().w_auto().mx_neg_3())
+            })
+            .when_some(account, |footer, account| {
+                footer.child(h_flex().py_2().w_full().min_w_0().child(account))
+            })
+            .when(metrics, |footer| {
+                footer.child(
+                    h_flex().py_2().w_full().gap_3().children(
+                        [
+                            ("cpu-preview", "metrics_cpu", 55.),
+                            ("memory-preview", "metrics_memory", 41.),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (id, label, preview))| {
+                            let value = if live {
+                                self.host_monitor
+                                    .as_ref()
+                                    .and_then(|monitor| monitor.read(cx).percentages()[index])
+                            } else {
+                                Some(preview)
+                            };
+                            let value = value.map(|value| value.clamp(0., 100.));
+                            let text = value
+                                .map(|value| format!("{value:.0}%"))
+                                .unwrap_or_else(|| "—".into());
+                            let tooltip = format!("{} · {text}", tr(label));
+                            div()
+                                .id(id)
+                                .debug_selector(move || id.into())
+                                .flex_1()
+                                .min_w_0()
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(tooltip.clone()).build(window, cx)
+                                })
+                                .child(
+                                    v_flex()
+                                        .gap_1()
+                                        .child(
+                                            h_flex()
+                                                .justify_between()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(tr(label))
+                                                .child(
+                                                    div()
+                                                        .debug_selector(move || {
+                                                            format!("{id}-value")
+                                                        })
+                                                        .child(text),
+                                                ),
+                                        )
+                                        .child(
+                                            Progress::new((id, 0usize))
+                                                .xsmall()
+                                                .value(value.unwrap_or(0.))
+                                                .accessibility_label(tr(label))
+                                                .color(cx.theme().muted_foreground),
+                                        ),
+                                )
+                        }),
+                    ),
+                )
+            })
     }
 }
