@@ -87,6 +87,10 @@ impl Capabilities {
         let options = self.fixture.lock().unwrap().clone().unwrap_or_default();
         #[cfg(not(any(test, feature = "test-support")))]
         let options = WsOptions::default();
+        #[cfg(any(test, feature = "test-support"))]
+        if !(options.enabled)() {
+            return None;
+        }
         Some(WsOptions {
             fallback_to_http: false,
             enabled: Arc::new(move || {

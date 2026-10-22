@@ -8,7 +8,17 @@ const DISCARDED: &str = "Discarded draft";
 const RECOVERED: &str = "Recovered answer";
 const FAILURE: &str = "Upstream temporarily unavailable";
 
+fn http(fixture: &Fixture) {
+    fixture
+        .node
+        .set_model_transport_fixture(adk_model::openai::WsOptions {
+            enabled: Arc::new(|| false),
+            ..Default::default()
+        });
+}
+
 async fn session_policy(fixture: &mut Fixture) {
+    http(fixture);
     let mut provider = fixture.provider.clone();
     provider.request_max_retries = Some(0);
     let Output::Provider(provider) = execute(
@@ -819,6 +829,7 @@ async fn separates_raw_http_and_session_recovery() {
         scripts.push(success);
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        http(&fixture);
         let turn = fixture.submit("Recover inside the request layer").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
