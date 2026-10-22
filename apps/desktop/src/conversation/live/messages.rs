@@ -706,6 +706,19 @@ impl View {
 }
 
 pub(crate) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
+    if let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = &error.details {
+        use sailry_protocol::{ErrorCode, notification::DiagnosticReason};
+        if error.code == ErrorCode::OutcomeUnknown {
+            return "chat_execution_unknown";
+        }
+        if report.reason == DiagnosticReason::Cancelled {
+            return "turn_cancelled";
+        }
+        if report.reason == DiagnosticReason::Timeout {
+            return "plugin_response_timeout";
+        }
+        return "plugin_callback_failed";
+    }
     match error.message.as_str() {
         "context summary timed out" => return "chat_compact_timeout",
         "context summary did not reduce the conversation" => return "chat_compact_no_reduction",

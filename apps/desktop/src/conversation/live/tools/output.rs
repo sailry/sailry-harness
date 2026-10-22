@@ -27,6 +27,12 @@ pub(super) fn fault(value: Option<&Value>) -> Option<Fault> {
 
 pub(super) fn failure(_name: &str, value: Option<&Value>) -> Option<String> {
     if let Some(fault) = fault(value) {
+        if matches!(
+            fault.details,
+            Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+        ) {
+            return Some(crate::tr(crate::conversation::live::failure_key(&fault)).to_string());
+        }
         return Some(fault.message);
     }
     let value = value?;

@@ -34,7 +34,24 @@ fn preserves_interrupted_dispatch_outcomes() {
                 Err(outcome.clone())
             },
         );
-        assert_eq!(result, Err(expected));
+        let fault = result.unwrap_err();
+        assert_eq!(fault.code, expected.code);
+        assert_eq!(fault.message, expected.message);
+        let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = fault.details else {
+            panic!("safe callback diagnostic expected");
+        };
+        assert_eq!(report.code, code);
+        assert_eq!(
+            report.source,
+            sailry_protocol::notification::SystemSource::PluginCallback
+        );
+        assert!(report.budget_ms.is_some_and(|budget| budget > 0));
+        assert!(report.elapsed_ms.is_some());
+        assert!(
+            !serde_json::to_string(&report)
+                .unwrap()
+                .contains("original SDK outcome")
+        );
         assert_eq!(*calls.lock().unwrap(), 1);
     }
 }

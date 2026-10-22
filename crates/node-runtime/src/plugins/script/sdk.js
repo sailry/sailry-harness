@@ -6,6 +6,7 @@ function call(operation, value) {
   if (result.Err) {
     const error = new Error(result.Err.message);
     error.code = result.Err.code;
+    if (result.fault_id) error.sailryFault = result.fault_id;
     throw error;
   }
   return result.Ok;

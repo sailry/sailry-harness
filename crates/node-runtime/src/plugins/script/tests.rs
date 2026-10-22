@@ -93,7 +93,7 @@ fn bounds_scripts_and_unresolved_promises() {
             execute(source, CancellationToken::new(), timeout)
                 .unwrap_err()
                 .code,
-            ErrorCode::Cancelled
+            ErrorCode::Expired
         );
     }
     assert!(

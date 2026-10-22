@@ -153,7 +153,7 @@ impl Turn {
                 let result = owner
                     .evaluate(handler, json!({"results":results}))
                     .await
-                    .map_err(|fault| AdkError::tool(fault.message))?;
+                    .map_err(super::error)?;
                 if result.get("stop").and_then(Value::as_bool) == Some(true) {
                     completion.store(true, Ordering::Release);
                     return Ok(BeforeModelResult::Skip(adk_core::LlmResponse {
@@ -205,6 +205,7 @@ impl Turn {
             let caller = owner.caller;
             let deadline = ingress.plugins.script_deadline();
             let stopped = owner.stop.clone();
+            let report_runtime = runtime.clone();
             let result = crate::plugins::script::run_tool(
                 bundle,
                 &handler,
@@ -219,7 +220,10 @@ impl Turn {
                     runtime.block_on(ingress.script_dispatch(caller, request, deadline, &stopped))
                 },
                 state.clone(),
-            )?;
+            )
+            .map_err(|fault| {
+                report_runtime.block_on(owner.ingress.script_failure(caller, fault, &owner.package))
+            })?;
             if let Some(staged) = state
                 .lock()
                 .map_err(|_| sailry_protocol::Fault::invalid("plugin turn state is unavailable"))?

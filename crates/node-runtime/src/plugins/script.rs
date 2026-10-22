@@ -47,6 +47,7 @@ struct Control {
     stop: CancellationToken,
     deadline: Instant,
     failure: std::sync::Arc<std::sync::Mutex<Option<Fault>>>,
+    faults: std::sync::Arc<std::sync::Mutex<BTreeMap<String, Fault>>>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -162,7 +163,33 @@ fn evaluate(
         ..Default::default()
     };
     let mut span = crate::logging::Span::new(entry).cancel_when(environment.stop.clone());
-    let result = evaluate_with(bundle, handler, input, environment, dispatch, execution);
+    let started = Instant::now();
+    let budget = environment.deadline.saturating_duration_since(started);
+    let scope = environment.context.clone();
+    let mut result = evaluate_with(bundle, handler, input, environment, dispatch, execution);
+    if let Err(fault) = &mut result {
+        use sailry_protocol::{
+            FaultDetails, RequestId,
+            notification::{DiagnosticReason, SystemDiagnostic, SystemSource},
+        };
+        if fault.details.is_none() {
+            let mut report =
+                SystemDiagnostic::new(RequestId::new(), SystemSource::PluginCallback, fault.code);
+            report.reason = match fault.code {
+                ErrorCode::Cancelled => DiagnosticReason::Cancelled,
+                ErrorCode::Expired => DiagnosticReason::Timeout,
+                _ => DiagnosticReason::Failure,
+            };
+            fault.details = Some(FaultDetails::SystemDiagnostic(report));
+        }
+        if let Some(FaultDetails::SystemDiagnostic(report)) = &mut fault.details {
+            report.session = scope.session;
+            report.turn = scope.turn;
+            report.worktree = scope.worktree;
+            report.budget_ms = Some(budget.as_millis().min(u64::MAX as u128) as u64);
+            report.elapsed_ms = Some(started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+        }
+    }
     match &result {
         Ok(_) => span.finish(crate::logging::Phase::Completed, None),
         Err(fault) => {
@@ -195,6 +222,7 @@ fn evaluate_with(
         deadline,
     } = environment;
     let failure = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let faults = std::sync::Arc::new(std::sync::Mutex::new(BTreeMap::new()));
     let runtime = Runtime::new().map_err(engine)?;
     runtime.set_memory_limit(MEMORY_BYTES);
     runtime.set_max_stack_size(STACK_BYTES);
@@ -240,13 +268,28 @@ fn evaluate_with(
                 r#"(() => {
             const descriptor = Object.getOwnPropertyDescriptor;
             const own = Object.hasOwn;
+            const prototype = Object.getPrototypeOf;
+            const kinds = [['Error','error'],['TypeError','type_error'],['RangeError','range_error'],
+                ['ReferenceError','reference_error'],['SyntaxError','syntax_error'],['URIError','uri_error'],
+                ['EvalError','eval_error'],['AggregateError','aggregate_error']]
+                .filter(([name]) => typeof globalThis[name] === 'function')
+                .map(([name, kind]) => [globalThis[name].prototype, kind]);
+            const classify = error => {
+                let current = prototype(error);
+                for (let depth=0; current && depth<8; depth++, current=prototype(current)) {
+                    for (let index=0; index<kinds.length; index++) {
+                        if (current === kinds[index][0]) return kinds[index][1];
+                    }
+                }
+                return 'unknown';
+            };
             const field = (error, key, limit) => {
                 const property = descriptor(error, key);
                 return property && own(property, 'value')
                     && typeof property.value === 'string' && property.value.length <= limit
                     ? property.value : null;
             };
-            return error => [field(error, 'message', 1024), field(error, 'code', 32)];
+            return error => [field(error, 'message', 1024), field(error, 'code', 32), field(error, 'sailryFault', 36), classify(error)];
         })()"#,
             )
             .map_err(engine)?;
@@ -259,6 +302,7 @@ fn evaluate_with(
                     stop: stop.clone(),
                     deadline,
                     failure: failure.clone(),
+                    faults: faults.clone(),
                 },
                 dispatch,
                 execution,
@@ -276,7 +320,7 @@ fn evaluate_with(
                 .ok_or(rquickjs::Error::Unknown)?
                 .to_string()
         })();
-        result.map_err(|error| exception(&ctx, &inspect, error))
+        result.map_err(|error| exception(&ctx, &inspect, error, &faults))
     });
     // An interrupted VM must not turn a possibly admitted write into a rejection.
     if let Some(fault) = failure.lock().expect("script result lock is valid").take() {
@@ -290,8 +334,8 @@ fn evaluate_with(
     }
     if Instant::now() >= deadline {
         return Err(Fault::new(
-            ErrorCode::Cancelled,
-            "plugin callback deadline exceeded",
+            ErrorCode::Expired,
+            "plugin callback response timed out",
         ));
     }
     let text = result?;
@@ -309,26 +353,59 @@ fn engine(error: rquickjs::Error) -> Fault {
     Fault::invalid(format!("plugin JavaScript execution failed: {error}"))
 }
 
-fn exception<'js>(ctx: &Ctx<'js>, inspect: &Function<'js>, error: rquickjs::Error) -> Fault {
+fn exception<'js>(
+    ctx: &Ctx<'js>,
+    inspect: &Function<'js>,
+    error: rquickjs::Error,
+    faults: &std::sync::Mutex<BTreeMap<String, Fault>>,
+) -> Fault {
     if !matches!(error, rquickjs::Error::Exception) {
         return engine(error);
     }
     let thrown = ctx.catch();
     if !thrown.is_error() {
-        return engine(error);
+        return classified(
+            engine(error),
+            sailry_protocol::notification::ScriptException::ThrownValue,
+        );
     }
-    let fields: Result<List<(Option<String>, Option<String>)>, _> = inspect.call((thrown,));
-    let Ok(List((Some(message), code))) = fields else {
+    let fields: Result<List<(Option<String>, Option<String>, Option<String>, String)>, _> =
+        inspect.call((thrown,));
+    let Ok(List((message, code, identity, category))) = fields else {
         return engine(error);
     };
+    // A package can copy an opaque token, but cannot forge a host-authored Fault.
+    if let Some(fault) = identity.and_then(|id| faults.lock().ok()?.remove(&id)) {
+        return fault;
+    }
+    let category = serde_json::from_value(serde_json::Value::String(category))
+        .unwrap_or(sailry_protocol::notification::ScriptException::Unknown);
+    let Some(message) = message else {
+        return classified(engine(error), category);
+    };
     if message.is_empty() || message.len() > 1024 {
-        return engine(error);
+        return classified(engine(error), category);
     }
     let code = code
         .and_then(|code| serde_json::from_value(serde_json::Value::String(code)).ok())
         .unwrap_or(ErrorCode::InvalidRequest);
-    Fault::new(
-        code,
-        format!("plugin JavaScript execution failed: {message}"),
+    classified(
+        Fault::new(
+            code,
+            format!("plugin JavaScript execution failed: {message}"),
+        ),
+        category,
     )
+}
+
+fn classified(mut fault: Fault, category: sailry_protocol::notification::ScriptException) -> Fault {
+    use sailry_protocol::{
+        FaultDetails, RequestId,
+        notification::{SystemDiagnostic, SystemSource},
+    };
+    let mut report =
+        SystemDiagnostic::new(RequestId::new(), SystemSource::PluginCallback, fault.code);
+    report.exception = Some(category);
+    fault.details = Some(FaultDetails::SystemDiagnostic(report));
+    fault
 }

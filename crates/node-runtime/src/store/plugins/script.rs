@@ -42,23 +42,95 @@ impl Ingress {
         };
         // Admission can itself wait for I/O. Bound the entire dispatch, not only
         // the completion receiver. Dropping this observer never replays a write.
-        tokio::select! {
+        let mut result = tokio::select! {
             biased;
             result = completion => result,
-            _ = stop.cancelled() => Err(interrupted(durable, id)),
-            _ = tokio::time::sleep_until(deadline.into()) => Err(interrupted(durable, id)),
+            _ = stop.cancelled() => Err(interrupted(durable, id, false)),
+            _ = tokio::time::sleep_until(deadline.into()) => Err(interrupted(durable, id, true)),
+        };
+        if let Err(fault) = &mut result
+            && fault.details.is_none()
+        {
+            use notification::{DiagnosticPhase, DiagnosticReason, SystemDiagnostic, SystemSource};
+            let mut report =
+                SystemDiagnostic::new(RequestId::new(), SystemSource::PluginCallback, fault.code);
+            report.phase = DiagnosticPhase::Sdk;
+            report.request = Some(id);
+            if fault.code == ErrorCode::Cancelled {
+                report.reason = DiagnosticReason::Cancelled;
+            }
+            fault.details = Some(FaultDetails::SystemDiagnostic(report));
         }
+        result
     }
 }
 
-fn interrupted(durable: bool, id: RequestId) -> Fault {
-    if durable {
+fn interrupted(durable: bool, id: RequestId, timeout: bool) -> Fault {
+    use notification::{DiagnosticPhase, DiagnosticReason, SystemDiagnostic, SystemSource};
+    let mut fault = if durable {
         Fault::new(
             ErrorCode::OutcomeUnknown,
-            format!("plugin SDK result is unknown for request {id}"),
+            "plugin SDK completion is unknown",
         )
+    } else if timeout {
+        Fault::new(ErrorCode::Expired, "plugin SDK response timed out")
     } else {
         Fault::new(ErrorCode::Cancelled, "plugin SDK wait stopped")
+    };
+    let mut diagnostic =
+        SystemDiagnostic::new(RequestId::new(), SystemSource::PluginCallback, fault.code);
+    diagnostic.phase = DiagnosticPhase::Sdk;
+    diagnostic.reason = if timeout {
+        DiagnosticReason::Timeout
+    } else {
+        DiagnosticReason::Cancelled
+    };
+    diagnostic.request = Some(id);
+    fault.details = Some(FaultDetails::SystemDiagnostic(diagnostic));
+    fault
+}
+
+impl Ingress {
+    /// Store the safe projection once; never retry the failed callback or its SDK write.
+    pub(crate) async fn script_failure(
+        &self,
+        caller: NodeId,
+        fault: Fault,
+        info: &plugin::Info,
+    ) -> Fault {
+        use notification::{DiagnosticPlugin, DiagnosticReason};
+        let mut fault = fault;
+        if let Some(FaultDetails::SystemDiagnostic(report)) = &mut fault.details {
+            report.plugin = Some(DiagnosticPlugin {
+                name: info.summary.name.clone(),
+                version: info
+                    .summary
+                    .version
+                    .clone()
+                    .unwrap_or_else(|| "unknown".into()),
+            });
+            if fault.code == ErrorCode::OutcomeUnknown
+                || (report.reason != DiagnosticReason::Cancelled
+                    && fault.code != ErrorCode::Cancelled)
+            {
+                let mut request =
+                    Request::new(self.node, Command::ReportDiagnostic(report.clone()));
+                request.id = report.incident;
+                let result = match self.dispatch(caller, request).await {
+                    Ok(admission) => admission.completion.await.unwrap_or_else(|_| {
+                        Err(Fault::new(
+                            ErrorCode::OutcomeUnknown,
+                            "diagnostic completion is unknown",
+                        ))
+                    }),
+                    Err(fault) => Err(fault),
+                };
+                if let Err(error) = result {
+                    tracing::warn!(code = ?error.code, "plugin diagnostic could not be persisted");
+                }
+            }
+        }
+        fault
     }
 }
 
@@ -85,6 +157,8 @@ pub(super) async fn run(
         let target = ingress.node;
         let stopped = stop.clone();
         let deadline = ingress.plugins.script_deadline();
+        let reporter = ingress.clone();
+        let report_runtime = runtime.clone();
         crate::plugins::script::run_callback(
             bundle,
             &handler,
@@ -100,6 +174,7 @@ pub(super) async fn run(
                 runtime.block_on(ingress.script_dispatch(caller, request, deadline, &stopped))
             },
         )
+        .map_err(|fault| report_runtime.block_on(reporter.script_failure(caller, fault, &info)))
         .map(Output::PluginResult)
     })
     .await

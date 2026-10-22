@@ -72,9 +72,9 @@ pub(in crate::store) fn run(db: &Connection, run: &Run) -> Result<Option<Event>,
     if session.delegation.is_some() {
         return Ok(None);
     }
-    // The canonical compaction notice already explains this failed invocation.
-    // A later successful task completion remains a distinct outcome.
-    if run.status != Status::Completed && stopped(db, run.turn)? {
+    // A specific diagnostic already explains this failure. A later success or
+    // a different failure in the same turn remains a distinct outcome.
+    if run.status != Status::Completed && (stopped(db, run.turn)? || reported(db, run)?) {
         return Ok(None);
     }
     let notice = insert(
@@ -102,6 +102,18 @@ pub(in crate::store) fn run(db: &Connection, run: &Run) -> Result<Option<Event>,
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
     )?;
     Ok(Some(Event::NotificationChanged(notice)))
+}
+
+fn reported(db: &Connection, run: &Run) -> Result<bool, Fault> {
+    let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) =
+        run.error.as_ref().and_then(|fault| fault.details.as_ref())
+    else {
+        return Ok(false);
+    };
+    Ok(list(db)?.iter().any(|notice| {
+        matches!(&notice.content.details, Some(Details::System(existing))
+            if existing.incident == report.incident && existing.turn == Some(run.turn))
+    }))
 }
 
 fn stopped(db: &Connection, turn: sailry_protocol::TurnId) -> Result<bool, Fault> {

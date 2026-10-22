@@ -28,7 +28,28 @@ pub(super) fn install(
             ctx.clone(),
             MutFn::new(move |operation: String, body: String| {
                 let result = bridge.call(&operation, &body);
-                serde_json::to_string(&result).expect("JSON bridge values are serializable")
+                let identity = if let Err(fault) = &result {
+                    let mut faults = bridge
+                        .control
+                        .faults
+                        .lock()
+                        .expect("script faults lock is valid");
+                    if faults.len() < 128 {
+                        let identity = sailry_protocol::RequestId::new().to_string();
+                        faults.insert(identity.clone(), fault.clone());
+                        Some(identity)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let mut value =
+                    serde_json::to_value(result).expect("JSON bridge values are serializable");
+                if let Some(identity) = identity {
+                    value["fault_id"] = json!(identity);
+                }
+                value.to_string()
             }),
         )?,
     )
@@ -40,7 +61,7 @@ struct Bridge<F> {
     context: plugin::Context,
     control: Control,
     dispatch: F,
-    drafts: BTreeMap<String, Request>,
+    drafts: BTreeMap<String, (Request, String)>,
     calls: usize,
     writes: u64,
     installations: std::collections::BTreeSet<sailry_protocol::RequestId>,
@@ -48,8 +69,14 @@ struct Bridge<F> {
 
 impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
     fn call(&mut self, operation: &str, body: &str) -> Result<Json, Fault> {
-        if self.control.stop.is_cancelled() || Instant::now() >= self.control.deadline {
+        if self.control.stop.is_cancelled() {
             return Err(Fault::new(ErrorCode::Cancelled, "plugin callback stopped"));
+        }
+        if Instant::now() >= self.control.deadline {
+            return Err(Fault::new(
+                ErrorCode::Expired,
+                "plugin callback response timed out",
+            ));
         }
         if body.len() > plugin::host::MAX_DATA_BYTES || self.calls >= 1024 {
             return Err(sailry_protocol::Fault::invalid(
@@ -172,6 +199,11 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     };
                     *revision = json!(parsed);
                 }
+                let kind = value
+                    .get("kind")
+                    .and_then(Json::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
                 let command: Command = serde_json::from_value(value)
                     .map_err(|_| sailry_protocol::Fault::invalid("invalid SDK command"))?;
                 match &command {
@@ -282,7 +314,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             "SDK reads cannot execute writes",
                         ));
                     }
-                    return self.dispatch(request).map(output);
+                    return self.dispatch(request, kind).map(output);
                 }
                 if self.drafts.len() >= 64 {
                     return Err(Fault::new(
@@ -291,13 +323,13 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     ));
                 }
                 let id = request.id.to_string();
-                self.drafts.insert(id.clone(), request);
+                self.drafts.insert(id.clone(), (request, kind));
                 Ok(json!(id))
             }
             "complete" => {
                 let id: String = serde_json::from_str(body)
                     .map_err(|_| sailry_protocol::Fault::invalid("invalid request ID"))?;
-                let request = self
+                let (request, kind) = self
                     .drafts
                     .get(&id)
                     .ok_or_else(|| {
@@ -316,7 +348,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     }
                     self.installations.insert(request.id);
                 }
-                Ok(match self.dispatch(request) {
+                Ok(match self.dispatch(request, kind) {
                     Ok(result) => json!({"Ok": output(result)}),
                     Err(error) => json!({"Err": error}),
                 })
@@ -333,8 +365,14 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
         }
     }
 
-    fn dispatch(&mut self, request: Request) -> sailry_link::Response {
-        let result = (self.dispatch)(request);
+    fn dispatch(&mut self, request: Request, operation: String) -> sailry_link::Response {
+        let mut result = (self.dispatch)(request);
+        if let Err(fault) = &mut result
+            && let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) =
+                &mut fault.details
+        {
+            report.operation = Some(operation);
+        }
         if (self.control.stop.is_cancelled() || Instant::now() >= self.control.deadline)
             && let Err(fault) = &result
         {

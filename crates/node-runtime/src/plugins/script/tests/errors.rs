@@ -70,3 +70,57 @@ fn retains_pristine_intrinsics_and_bounded_codes() {
         assert_eq!(fault.code, ErrorCode::InvalidRequest);
     }
 }
+
+#[test]
+fn retains_host_faults_through_javascript_errors() {
+    let mut expected = Fault::new(ErrorCode::RevisionConflict, "plugin value changed");
+    expected.details = Some(sailry_protocol::FaultDetails::PluginValueConflict);
+    let native = expected.clone();
+    let actual = run(
+        bundle("import {getValue} from 'sailry/sdk'; export async function run() { return await getValue('counter'); }"),
+        "run", json!(null), context(), NodeId([1; 32]), CancellationToken::new(),
+        move |_| Err(native.clone()),
+    ).unwrap_err();
+    assert_eq!(actual, expected);
+    // Handled native faults do not become terminal callback failures.
+    let value = run(
+        bundle("import {getValue} from 'sailry/sdk'; export async function run() { try { await getValue('counter'); } catch { return 'handled'; } }"),
+        "run", json!(null), context(), NodeId([1; 32]), CancellationToken::new(),
+        |_| Err(Fault::new(ErrorCode::NotFound, "not found")),
+    ).unwrap();
+    assert_eq!(value, json!("handled"));
+}
+
+#[test]
+fn classifies_exceptions_without_authored_properties() {
+    use sailry_protocol::{FaultDetails, notification::ScriptException};
+    for (source, expected) in [
+        (
+            "export function run() { throw new TypeError('PRIVATE_PAYLOAD'); }",
+            ScriptException::TypeError,
+        ),
+        (
+            "export function run() { const e = new RangeError('PRIVATE_PAYLOAD'); Object.defineProperty(e, 'name', {get() { while(true) {} }}); throw e; }",
+            ScriptException::RangeError,
+        ),
+        (
+            "export function run() { const e = new ReferenceError('PRIVATE_PAYLOAD'); Array.prototype[Symbol.iterator] = () => { while(true) {} }; throw e; }",
+            ScriptException::ReferenceError,
+        ),
+        (
+            "export function run() { throw { secret:'PRIVATE_PAYLOAD' }; }",
+            ScriptException::ThrownValue,
+        ),
+    ] {
+        let fault = execute(source, CancellationToken::new(), Duration::from_secs(2)).unwrap_err();
+        let Some(FaultDetails::SystemDiagnostic(report)) = fault.details else {
+            panic!("diagnostic expected");
+        };
+        assert_eq!(report.exception, Some(expected));
+        assert!(
+            !serde_json::to_string(&report)
+                .unwrap()
+                .contains("PRIVATE_PAYLOAD")
+        );
+    }
+}

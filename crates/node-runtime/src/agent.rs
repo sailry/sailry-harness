@@ -187,7 +187,13 @@ async fn run(
     let persisted = {
         let _persistence = diagnostics.span(Phase::FinishRun, None);
         ingress
-            .finish_run_with(turn, status, error.clone(), owner, completion_review)
+            .finish_run_with(
+                turn,
+                status,
+                error.clone().map(plugins::public_failure),
+                owner,
+                completion_review,
+            )
             .await
     };
     if let Err(error) = &persisted {
@@ -480,6 +486,7 @@ async fn execute_with(
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         .model(model.clone())
         .expose_tool_error_messages(true)
+        .on_tool_error(plugins::failure_callback())
         .instruction_provider(Box::new(move |_| {
             let instruction = instruction.clone();
             Box::pin(async move { Ok(instruction) })

@@ -105,11 +105,15 @@ async fn preserves_frozen_transforms_and_known_results() {
             result[0]["output"]["data"]["outcome"],
             json!({"kind":"exited","data":0})
         );
-        // The VM exposes the sanitized message from an ordinary Error.
-        assert_eq!(
-            result[0]["presentation_error"],
-            "tool.internal: plugin JavaScript execution failed: Presentation failed"
-        );
+        let presentation: Fault =
+            serde_json::from_value(result[0]["presentation_error"].clone()).unwrap();
+        assert_eq!(presentation.code, ErrorCode::InvalidRequest);
+        assert_eq!(presentation.message, "plugin callback failed");
+        assert!(matches!(
+            presentation.details,
+            Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+        ));
+        assert!(!result[0].to_string().contains("Presentation failed"));
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),
             "original"

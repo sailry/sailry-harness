@@ -220,15 +220,15 @@ export function broken({step}) {
         );
         assert_eq!(output[3]["revision"], 1);
         assert_eq!(output[3]["value"], "changed");
-        // The VM reports its own failure without evaluating a thrown package object.
-        assert!(
-            output[3]["presentation_error"]
-                .as_str()
-                .unwrap()
-                .contains("plugin JavaScript execution failed"),
-            "{}",
-            output[3]
-        );
+        let presentation: Fault =
+            serde_json::from_value(output[3]["presentation_error"].clone()).unwrap();
+        assert_eq!(presentation.code, ErrorCode::InvalidRequest);
+        assert_eq!(presentation.message, "plugin callback failed");
+        assert!(matches!(
+            presentation.details,
+            Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+        ));
+        assert!(!output[3].to_string().contains("fixture formatter failed"));
         for key in ["conflict", "retry-conflict", "replayed", "undeclared"] {
             assert!(!value(&fixture, &package, key).await.present, "{key}");
         }

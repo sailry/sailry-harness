@@ -1,6 +1,8 @@
 //! Package tools join one execution catalog and lifecycle.
+mod failures;
 use super::catalog::Registration as ToolRegistration;
 use super::*;
+pub(super) use failures::{bind as failure_callback, public as public_failure};
 use std::{collections::BTreeSet, sync::atomic::AtomicBool};
 mod assistants;
 mod management;

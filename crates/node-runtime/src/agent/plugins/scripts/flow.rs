@@ -90,7 +90,7 @@ impl Script {
                     let Some((original,media))=outputs.last() else { return Err(error); };
                     if original.get("isError").and_then(Value::as_bool)==Some(true) { return Ok(original.clone()); }
                     let mut metadata=original.get("data").cloned().unwrap_or_else(|| original.clone());
-                    if let Some(object)=metadata.as_object_mut() { object.insert("presentation_error".into(),error.to_string().into()); }
+                    if let Some(object)=metadata.as_object_mut() { object.insert("presentation_error".into(),super::super::failures::presentation(&error)); }
                     return Ok(media.restore(metadata));
                 }
             };

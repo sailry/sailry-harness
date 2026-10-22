@@ -186,6 +186,31 @@ async fn owns_preconnections_during_preparation() {
                 expected,
                 "remote={remote}, outcome={outcome}, {page:?}"
             );
+            if outcome == "failed" {
+                let fault = page.runs.last().unwrap().error.as_ref().unwrap();
+                let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = &fault.details
+                else {
+                    panic!("safe callback diagnostic expected");
+                };
+                assert_eq!(fault.message, "plugin callback failed");
+                let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await
+                else {
+                    panic!("snapshot expected");
+                };
+                let notices: Vec<_> = snapshot.notifications.iter().filter(|notice| {
+                    matches!(&notice.content.details, Some(sailry_protocol::notification::Details::System(existing))
+                        if existing.incident == report.incident && existing.turn == Some(turn))
+                }).collect();
+                assert_eq!(notices.len(), 1);
+                assert!(!snapshot.notifications.iter().any(|notice| {
+                    matches!(&notice.content.details, Some(sailry_protocol::notification::Details::Task(task)) if task.turn == turn)
+                }));
+                assert!(
+                    !serde_json::to_string(&snapshot.notifications)
+                        .unwrap()
+                        .contains("preparation fixture failed")
+                );
+            }
             if matches!(outcome, "failed" | "cancelled") {
                 // ADK, the socket owner, closes the unused preconnection.
                 tokio::time::timeout(Duration::from_secs(30), async {

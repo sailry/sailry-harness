@@ -346,7 +346,7 @@ impl Tool for Script {
             Ok(result) => Ok(media.restore(result)),
             // The operation has completed. Preserve its result; never replay it to repair formatting.
             Err(error) => {
-                Ok(media.restore(json!({"output":output, "presentation_error":error.to_string()})))
+                Ok(media.restore(json!({"output":output, "presentation_error":super::failures::presentation(&error)})))
             }
         }
     }
@@ -408,7 +408,7 @@ impl Script {
             let bundle = ingress
                 .plugins
                 .read_host(&package, stop.clone())
-                .map_err(|fault| AdkError::tool(fault.message))?;
+                .map_err(error)?;
             let state = Arc::new(Mutex::new(crate::plugins::script::execution::State {
                 call_id: Some(call_id),
                 mode,
@@ -423,6 +423,8 @@ impl Script {
             let parent = card_scope.turn.expect("agent tool has a captured turn");
             let deadline = ingress.plugins.script_deadline();
             let stopped = stop.clone();
+            let reporter = ingress.clone();
+            let report_runtime = runtime.clone();
             let mut result = crate::plugins::script::run_tool(
                 bundle,
                 &handler,
@@ -454,7 +456,11 @@ impl Script {
                 },
                 state.clone(),
             )
-            .map_err(|fault| AdkError::tool(fault.message))?;
+            .map_err(|fault| {
+                let fault =
+                    report_runtime.block_on(reporter.script_failure(caller, fault, &package));
+                error(fault)
+            })?;
             crate::plugins::cards::stamp(&mut result, node, &card_scope, &card_package, call_id);
             if let Some(staged) = state
                 .lock()
@@ -477,12 +483,43 @@ impl Script {
                 for snapshot in snapshots {
                     collect_runtime
                         .block_on(collector.collect_command(parent, snapshot))
-                        .map_err(|fault| AdkError::tool(fault.message))?;
+                        .map_err(|fault| {
+                            AdkError::tool(fault.message.clone()).with_source(fault)
+                        })?;
                 }
             }
             Ok(result)
         })
         .await
         .map_err(|_| AdkError::tool("plugin tool worker failed"))?
+    }
+}
+
+fn error(fault: Fault) -> AdkError {
+    AdkError::tool(fault.message.clone()).with_source(fault)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn sdk_fault_survives_agent_projection() {
+        use sailry_protocol::{
+            FaultDetails, RequestId,
+            notification::{DiagnosticPhase, DiagnosticReason, SystemDiagnostic, SystemSource},
+        };
+        let mut fault = Fault::new(
+            ErrorCode::OutcomeUnknown,
+            "plugin SDK completion is unknown",
+        );
+        let mut diagnostic =
+            SystemDiagnostic::new(RequestId::new(), SystemSource::PluginCallback, fault.code);
+        diagnostic.reason = DiagnosticReason::Timeout;
+        diagnostic.phase = DiagnosticPhase::Sdk;
+        diagnostic.operation = Some("write_plugin_value".into());
+        diagnostic.request = Some(RequestId::new());
+        fault.details = Some(FaultDetails::SystemDiagnostic(diagnostic));
+        let projected = crate::agent::model::error(error(fault.clone()));
+        assert_eq!(projected, fault);
     }
 }
