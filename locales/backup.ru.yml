@@ -1,4 +1,4 @@
-settings_backup: "Управление данными"
+settings_backup: "Данные"
 settings_backup_description: "Управление данными и резервными копиями"
 backup_destination: "Хранилище резервных копий"
 backup_records: "Резервные копии"

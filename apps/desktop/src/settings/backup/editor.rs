@@ -223,7 +223,8 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
             .w((window.viewport_size().width - px(48.)).min(px(600.)))
             .overlay_closable(false)
             .on_cancel(move |_, window, cx| {
-                cancel.update(cx, |editor, cx| editor.finish(window, cx))
+                dismiss(&cancel, window, cx);
+                true
             })
             .child(editor.clone())
             .footer(
@@ -232,13 +233,35 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
                         .debug_selector(|| "backup-editor-close".into())
                         .label(tr("close"))
                         .on_click(move |_, window, cx| {
-                            if close.update(cx, |editor, cx| editor.finish(window, cx)) {
-                                window.close_dialog(cx);
-                            }
+                            dismiss(&close, window, cx);
+                            window.close_dialog(cx);
                         }),
                 ),
             )
     });
+}
+
+fn dismiss(editor: &Entity<Editor>, window: &mut Window, cx: &mut App) {
+    let owner = editor.update(cx, |editor, _| {
+        editor.task = None;
+        editor.error = None;
+        editor.owner.upgrade()
+    });
+    if let Some(owner) = owner {
+        owner.update(cx, |panel, cx| {
+            if panel.editor.as_ref() != Some(editor) {
+                return;
+            }
+            // Discard only the unsubmitted draft. An admitted save still reports
+            // through Panel and updates this replacement from its real result.
+            panel.editor = panel.settings.clone().map(|settings| {
+                let editor = create(cx.weak_entity(), settings, window, cx);
+                cx.observe(&editor, |_, _, cx| cx.notify()).detach();
+                editor
+            });
+            cx.notify();
+        });
+    }
 }
 
 impl Editor {
@@ -360,23 +383,19 @@ impl Editor {
                 .timer(std::time::Duration::from_millis(350))
                 .await;
             _ = owner.update_in(cx, |editor, window, cx| {
-                editor.flush(false, window, cx);
+                editor.flush(window, cx);
             });
         }));
         cx.notify();
     }
-    fn flush(&mut self, report: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    fn flush(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(owner) = self.owner.upgrade() else {
             return false;
         };
-        if !owner.read(cx).active {
-            return false;
-        }
-        if self.conflict {
-            if report {
-                self.error = Some("backup_conflict");
-                cx.notify();
-            }
+        if !owner.read(cx).active
+            || owner.read(cx).editor.as_ref() != Some(&cx.entity())
+            || self.conflict
+        {
             return false;
         }
         if owner.read(cx).locked() {
@@ -384,13 +403,7 @@ impl Editor {
         }
         let update = match self.update(cx) {
             Ok(update) => update,
-            Err(key) => {
-                if report {
-                    self.error = Some(key);
-                    cx.notify();
-                }
-                return false;
-            }
+            Err(_) => return false,
         };
         if !self.dirty(cx)
             || (update.settings == self.settings
@@ -405,32 +418,17 @@ impl Editor {
             panel.submit(Command::SaveBackupSettings(update), window, cx)
         })
     }
-    fn finish(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self
-            .owner
-            .upgrade()
-            .is_none_or(|owner| !owner.read(cx).active)
-        {
-            self.error = Some("backup_target_changed");
-            self.task = None;
-            self.erase(window, cx);
-            cx.notify();
-            return true;
-        }
-        if self.flush(true, window, cx) {
-            self.task = None;
-            self.erase(window, cx);
-            true
-        } else {
-            false
-        }
-    }
     pub(super) fn accept(
         &mut self,
         settings: Settings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.dirty(cx) {
+            // A dismissed editor may have been replaced while this save was
+            // admitted. Rebase its clean fields instead of resubmitting them.
+            self.observe(&settings, false, window, cx);
+        }
         self.settings = settings;
         self.remove_credentials = false;
         self.conflict = false;

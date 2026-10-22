@@ -1,4 +1,4 @@
-settings_backup: "数据管理"
+settings_backup: "数据"
 settings_backup_description: "管理数据与备份"
 backup_destination: "备份存储"
 backup_records: "备份"

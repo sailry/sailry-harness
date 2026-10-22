@@ -1,4 +1,4 @@
-settings_backup: "Gestion des données"
+settings_backup: "Données"
 settings_backup_description: "Gérer les données et les sauvegardes"
 backup_destination: "Stockage des sauvegardes"
 backup_records: "Sauvegardes"

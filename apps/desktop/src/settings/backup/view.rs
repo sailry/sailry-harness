@@ -8,32 +8,6 @@ use gpui_kit::{
     prelude::FluentBuilder as _,
 };
 
-fn storage(settings: Option<&Settings>) -> SharedString {
-    let Some(settings) = settings else {
-        return tr("backup_not_configured");
-    };
-    let mut names = Vec::new();
-    if settings.local.as_ref().is_some_and(|local| local.enabled) {
-        names.push(tr("backup_local").to_string());
-    }
-    if settings.online_enabled
-        && let Some(destination) = &settings.destination
-    {
-        names.push(
-            tr(match destination.kind {
-                sailry_protocol::backup::Kind::Webdav => "backup_webdav",
-                sailry_protocol::backup::Kind::S3 => "backup_s3",
-            })
-            .to_string(),
-        );
-    }
-    if names.is_empty() {
-        tr("backup_not_configured")
-    } else {
-        names.join(" · ").into()
-    }
-}
-
 impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let locked = self.locked();
@@ -53,18 +27,12 @@ impl Render for Panel {
         let delete = cx.entity();
         let removed = sessions::revisions(&self.sessions, true);
         let mut rows = Group::new("settings_backup").heading(false).child(
-            Entry::new("backup-storage-row", tr("backup_destination"))
-                .control(
-                    div()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(storage(self.settings.as_ref())),
-                )
-                .action(
-                    Button::new("backup-configure")
-                        .label(tr("backup_configure"))
-                        .disabled(locked)
-                        .on_click(move |_, window, cx| editor::open(configure.clone(), window, cx)),
-                ),
+            Entry::new("backup-storage-row", tr("backup_destination")).action(
+                Button::new("backup-configure")
+                    .label(tr("backup_configure"))
+                    .disabled(locked)
+                    .on_click(move |_, window, cx| editor::open(configure.clone(), window, cx)),
+            ),
         );
         if let Some(editor) = &self.editor {
             rows = rows.children(editor.update(cx, |editor, cx| editor.automatic(locked, cx)));
