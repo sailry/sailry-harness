@@ -1,6 +1,8 @@
+mod lifecycle;
 use super::{host::Host, metadata::Metadata, runtime::Mounted};
 use crate::conversation::live::{Binding, View as Chat};
 use gpui_kit::*;
+use lifecycle::Initialization;
 use sailry_client::View;
 use sailry_link::CancellationToken;
 use sailry_protocol::plugin::{Context as Scope, Reference, Summary};
@@ -39,9 +41,8 @@ pub(crate) struct Panel {
     pub(super) selected: Option<Reference>,
     pub(super) target: Option<String>,
     pub(super) mounted: Option<Mounted>,
-    pub(super) loading: bool,
+    pub(super) initialization: Initialization,
     prepared: Option<super::preload::Prepared>,
-    reload: bool,
     pub(super) error: Option<&'static str>,
     pub(super) viewport: Option<Size<Pixels>>,
     pub(super) stop: CancellationToken,
@@ -105,7 +106,7 @@ impl Panel {
 
     pub(crate) fn resource_active(&self) -> bool {
         self.connected
-            && !self.loading
+            && !self.initialization.loading()
             && self.mounted.as_ref().is_some_and(Mounted::active)
             && self
                 .selected
@@ -214,6 +215,11 @@ impl Panel {
         panel
     }
 
+    pub(super) fn share_metadata(&mut self, metadata: Entity<Metadata>, cx: &mut Context<Self>) {
+        self._metadata = cx.observe(&metadata, |_, _, cx| cx.notify());
+        self.metadata = metadata;
+    }
+
     pub(super) fn location_source(&self) -> Option<WeakEntity<Chat>> {
         if self.resource.is_some() {
             return None;
@@ -225,9 +231,9 @@ impl Panel {
 
     pub(crate) fn ready_for(&self, package: &Reference, cx: &App) -> bool {
         self.connected
-            && self.selected.is_none()
+            && self.initialization == Initialization::Unloaded
             && self.available(package)
-            && self.metadata.read(cx).settled()
+            && self.metadata.read(cx).ready(package)
     }
 
     pub(crate) fn ready_settings(&self, name: &str, cx: &App) -> Option<Reference> {
@@ -304,9 +310,8 @@ impl Panel {
             selected: None,
             target: None,
             mounted: None,
-            loading: false,
+            initialization: Initialization::Unloaded,
             prepared: None,
-            reload: false,
             error: None,
             viewport: None,
             stop,
@@ -337,10 +342,13 @@ impl Panel {
             // Retained views must stop before a removed worktree reaches observers.
             if self.snapshot.borrow().is_some() {
                 self.close(cx);
-            } else if self.selected.is_some() || self.loading || self.mounted.is_some() {
+            } else if self.selected.is_some()
+                || self.initialization.loading()
+                || self.mounted.is_some()
+            {
                 self.release();
             }
-            self.reload = false;
+            self.initialization = Initialization::Unloaded;
             self.error = None;
             cx.notify();
             return;
@@ -359,7 +367,9 @@ impl Panel {
                     .as_ref()
                     .is_some_and(|mounted| !mounted.active()))
         {
-            self.reload |= self.mounted.is_some() || self.loading;
+            if self.mounted.is_some() || self.initialization.loading() {
+                self.initialization = Initialization::Invalidated;
+            }
             if self
                 .mounted
                 .as_ref()
@@ -369,19 +379,21 @@ impl Panel {
                 return;
             }
             if !self.connected {
+                self.load_stop.cancel();
+                self.load = None;
                 if let Some(mounted) = &self.mounted {
                     // Retain presentation only; the obsolete scope must stop immediately.
                     mounted.close();
                 }
             } else if self.reference_changed()
-                || self.reload
+                || self.initialization == Initialization::Invalidated
                     && self.available(package)
                     && self
                         .mounted
                         .as_ref()
                         .is_some_and(|mounted| !mounted.active())
             {
-                self.reload = true;
+                self.initialization = Initialization::Invalidated;
                 if let Some(mounted) = &self.mounted {
                     mounted.close();
                 }
@@ -395,10 +407,11 @@ impl Panel {
                 });
                 if content_changed {
                     self.release();
+                    self.initialization = Initialization::Invalidated;
                 } else {
                     self.load_stop.cancel();
                     self.load = None;
-                    self.loading = false;
+                    self.initialization = Initialization::Invalidated;
                 }
                 self.error = None;
             } else {
@@ -466,15 +479,16 @@ impl Panel {
             return;
         }
         self.metadata
-            .update(cx, |metadata, cx| metadata.refresh(cx));
+            .update(cx, |metadata, cx| metadata.retry(Some(&package.name), cx));
         if (self
             .mounted
             .as_ref()
             .is_none_or(|mounted| !mounted.active())
             || self.selected.as_ref() != Some(&package))
-            && (!self.loading || self.selected.as_ref() != Some(&package))
+            && (!self.initialization.loading() || self.selected.as_ref() != Some(&package))
             && self.connected
             && self.available(&package)
+            && self.metadata.read(cx).ready(&package)
         {
             self.open(package.clone(), window, cx);
         }
@@ -503,12 +517,13 @@ impl Panel {
 
     pub(super) fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.surface == sailry_protocol::plugin::desktop::Surface::Settings
+            && self.initialization == Initialization::Published
             && self
                 .mounted
                 .as_ref()
                 .is_some_and(|mounted| !mounted.active())
         {
-            self.reload = true;
+            self.initialization = Initialization::Invalidated;
         }
         if let Some(mounted) = &self.mounted
             && mounted.host().retain_settings()
@@ -516,11 +531,11 @@ impl Panel {
             let package = mounted.host().context().package;
             if self.available(&package) {
                 self.selected = Some(package);
-                self.reload = false;
+                self.initialization = Initialization::Published;
             }
             return;
         }
-        if !self.connected || !self.reload || self.loading {
+        if !self.connected || self.initialization != Initialization::Invalidated {
             return;
         }
         let Some(selected) = &self.selected else {
@@ -549,17 +564,79 @@ impl Panel {
         self.load_stop.cancel();
         self.load = None;
         self.mounted = None;
-        self.loading = false;
+        self.initialization = Initialization::Unloaded;
+    }
+
+    fn report_failure(&self, code: sailry_protocol::ErrorCode, stage: &'static str) {
+        use sailry_protocol::notification::{DiagnosticPlugin, SystemDiagnostic, SystemSource};
+        let Some(package) = &self.selected else {
+            return;
+        };
+        let Some(summary) = self
+            .summaries
+            .iter()
+            .find(|summary| summary.reference() == *package)
+        else {
+            return;
+        };
+        let mut report = SystemDiagnostic::new(
+            sailry_protocol::RequestId::new(),
+            SystemSource::PluginInitialization,
+            code,
+        );
+        if let Some(version) = &summary.version {
+            report.plugin = Some(DiagnosticPlugin {
+                name: package.name.clone(),
+                version: version.clone(),
+            });
+        }
+        report.worktree = self.binding.worktree;
+        report.session = self.session;
+        report.operation = Some(stage.into());
+        let mut entry = sailry_node_runtime::logging::Entry::new(
+            sailry_node_runtime::logging::Area::Plugin,
+            sailry_node_runtime::logging::Phase::Failed,
+        );
+        entry.context.node = Some(self.binding.client.target());
+        entry.context.package = Some(package.clone());
+        entry.context.request = Some(report.incident);
+        entry.context.worktree = self.binding.worktree;
+        entry.context.session = self.session;
+        entry.reason = Some(stage);
+        entry.code = Some(code);
+        entry.emit();
+        let client = self.binding.client.clone();
+        self.binding.runtime.spawn(async move {
+            let _ = client.report_diagnostic(report).await;
+        });
+    }
+
+    pub(super) fn disconnect(&mut self, cx: &mut Context<Self>) {
+        if !self.connected && !self.initialization.loading() {
+            return;
+        }
+        self.connected = false;
+        self.load_stop.cancel();
+        self.load = None;
+        if self.mounted.is_some() || self.initialization.loading() {
+            self.initialization = Initialization::Invalidated;
+        }
+        if let Some(mounted) = &self.mounted {
+            mounted.close();
+        }
+        cx.notify();
     }
 
     pub(crate) fn close(&mut self, cx: &mut Context<Self>) {
         self.stop.cancel();
-        self.metadata.update(cx, |metadata, cx| metadata.close(cx));
+        if self.contributions.is_none() {
+            self.metadata.update(cx, |metadata, cx| metadata.close(cx));
+        }
         self.release();
         self.prepared = None;
         self.selected = None;
         self.target = None;
-        self.reload = false;
+        self.initialization = Initialization::Unloaded;
         self.connected = false;
         self.source_error = None;
         self.error = None;
@@ -567,14 +644,14 @@ impl Panel {
     }
 
     pub(crate) fn open(&mut self, package: Reference, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.connected || !self.available(&package) {
+        if !self.connected || !self.available(&package) || !self.metadata.read(cx).ready(&package) {
             return;
         }
         let entry_pending = self
             .entry_pending
             .take()
             .filter(|pending| pending == &package);
-        if self.reload
+        if self.initialization == Initialization::Invalidated
             && let Some(mounted) = self.mounted.as_ref()
             && self.selected.as_ref().is_some_and(|selected| {
                 selected.name == package.name && selected.digest == package.digest
@@ -587,11 +664,14 @@ impl Panel {
             self.release();
         }
         self.entry_pending = entry_pending;
-        self.reload = false;
+        self.initialization = Initialization::Unloaded;
         self.selected = Some(package.clone());
         self.target = Some(package.name.clone());
         self.error = None;
-        self.loading = true;
+        self.initialization = Initialization::Loading;
+        if let Some(bridge) = &self.contributions {
+            bridge.restart();
+        }
         self.load_stop = self.stop.child_token();
         let cancellation = self.load_stop.clone();
         let binding = self.binding.clone();
@@ -628,7 +708,7 @@ impl Panel {
                 if cancellation.is_cancelled() {
                     return;
                 }
-                panel.loading = false;
+                panel.initialization = Initialization::Failed;
                 match result {
                     Ok(Some(Ok(cache))) if panel.connected && panel.available(&package) => {
                         let read_files = panel
@@ -862,23 +942,26 @@ impl Panel {
                                 panel._header =
                                     Some(cx.observe(&mounted.header, |_, _, cx| cx.notify()));
                                 panel.mounted = Some(mounted);
+                                panel.initialization = Initialization::Published;
                             }
                             Err(_) => {
                                 host.close();
-                                let mut entry = sailry_node_runtime::logging::Entry::new(
-                                    sailry_node_runtime::logging::Area::Plugin,
-                                    sailry_node_runtime::logging::Phase::Failed,
-                                );
-                                entry.context.package = Some(package.clone());
-                                entry.reason = Some("view_initialize");
-                                entry.code = Some(sailry_protocol::ErrorCode::Internal);
-                                entry.emit();
                                 panel.error = Some("plugins_view_load_failed");
+                                panel.report_failure(
+                                    sailry_protocol::ErrorCode::Internal,
+                                    "view_initialize",
+                                );
                             }
                         }
                     }
-                    Ok(Some(Err(error))) => panel.error = Some(error),
+                    Ok(Some(Err(error))) => {
+                        panel.error = Some(error.key);
+                        panel.report_failure(error.code, error.stage);
+                    }
                     _ => panel.error = Some("plugins_view_unavailable"),
+                }
+                if panel.initialization.failed() {
+                    panel.mounted = None;
                 }
                 cx.notify();
             });

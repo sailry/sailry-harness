@@ -1,7 +1,7 @@
 use gpui_kit::*;
 use sailry_client::Client;
 use sailry_link::CancellationToken;
-use sailry_protocol::plugin::{Info, Summary};
+use sailry_protocol::plugin::{Info, Reference, Summary};
 use std::{collections::BTreeMap, sync::Arc};
 
 mod loading;
@@ -71,9 +71,21 @@ pub(crate) struct Metadata {
     pub(crate) entries: BTreeMap<String, Info>,
     pub(crate) errors: BTreeMap<String, &'static str>,
     pub(crate) diagnostics: BTreeMap<String, sailry_protocol::Fault>,
-    loading: bool,
+    reads: BTreeMap<String, Read>,
     stop: CancellationToken,
-    task: Option<Task<()>>,
+}
+
+struct Read {
+    expected: Summary,
+    stop: CancellationToken,
+    pending: bool,
+    _task: Option<Task<()>>,
+}
+
+impl Drop for Read {
+    fn drop(&mut self) {
+        self.stop.cancel();
+    }
 }
 
 impl Drop for Metadata {
@@ -85,8 +97,7 @@ impl Drop for Metadata {
 impl Metadata {
     pub(crate) fn close(&mut self, cx: &mut Context<Self>) {
         self.stop.cancel();
-        self.task = None;
-        self.loading = false;
+        self.reads.clear();
         self.errors.clear();
         self.diagnostics.clear();
         cx.notify();
@@ -100,16 +111,27 @@ impl Metadata {
             entries: BTreeMap::new(),
             errors: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
-            loading: false,
+            reads: BTreeMap::new(),
             stop: CancellationToken::new(),
-            task: None,
         }
     }
 
     pub(crate) fn accept(&mut self, expected: &[Summary], cx: &mut Context<Self>) {
-        if self.expected == expected {
-            return;
+        if self.reconcile(expected) {
+            self.reload(cx);
         }
+    }
+
+    fn reconcile(&mut self, expected: &[Summary]) -> bool {
+        if self.expected == expected {
+            return false;
+        }
+        self.reads
+            .retain(|_, read| expected.iter().any(|summary| *summary == read.expected));
+        self.errors.retain(|name, _| {
+            self.expected.iter().find(|summary| summary.name == *name)
+                == expected.iter().find(|summary| summary.name == *name)
+        });
         self.expected = expected.to_vec();
         self.diagnostics
             .retain(|name, _| expected.iter().any(|summary| summary.name == *name));
@@ -132,25 +154,54 @@ impl Metadata {
             // at the current revision instead of relabeling an old origin.
             true
         });
-        self.reload(cx);
+        true
+    }
+
+    pub(crate) fn ready(&self, package: &Reference) -> bool {
+        self.expected
+            .iter()
+            .find(|summary| summary.reference() == *package)
+            .is_some_and(|expected| {
+                self.entries
+                    .get(&package.name)
+                    .is_some_and(|info| info.summary == *expected)
+            })
     }
 
     pub(crate) fn settled(&self) -> bool {
-        !self.loading && self.errors.is_empty()
+        self.reads.values().all(|read| !read.pending)
     }
 
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
-        if !self.loading && !self.errors.is_empty() {
-            self.reload(cx);
+        self.retry(None, cx);
+    }
+
+    pub(super) fn retry(&mut self, name: Option<&str>, cx: &mut Context<Self>) {
+        let retry: Vec<_> = self
+            .errors
+            .keys()
+            .filter(|failed| name.is_none_or(|name| name == failed.as_str()))
+            .cloned()
+            .collect();
+        if retry.is_empty() {
+            return;
         }
+        for name in retry {
+            self.reads.remove(&name);
+            self.errors.remove(&name);
+            self.diagnostics.remove(&name);
+        }
+        self.reload(cx);
     }
 
     fn apply(&mut self, batch: loading::Batch, stop: &CancellationToken) -> bool {
         if stop.is_cancelled() {
             return false;
         }
-        self.loading = batch.retrying;
         for (name, result) in batch.results {
+            if let Some(read) = self.reads.get_mut(&name) {
+                read.pending = batch.retrying;
+            }
             self.diagnostics.remove(&name);
             if let Some(error) = batch.diagnostics.get(&name) {
                 self.diagnostics.insert(name.clone(), error.clone());
@@ -169,70 +220,70 @@ impl Metadata {
     }
 
     fn reload(&mut self, cx: &mut Context<Self>) {
-        self.stop.cancel();
-        self.stop = CancellationToken::new();
-        self.errors.clear();
-        self.diagnostics.clear();
         let missing: Vec<_> = self
             .expected
             .iter()
             .filter(|summary| {
-                self.entries
-                    .get(&summary.name)
-                    .is_none_or(|info| info.summary != **summary)
+                !self.reads.contains_key(&summary.name)
+                    && !self.errors.contains_key(&summary.name)
+                    && self
+                        .entries
+                        .get(&summary.name)
+                        .is_none_or(|info| info.summary != **summary)
             })
             .cloned()
             .collect();
-        self.loading = !missing.is_empty();
-        if missing.is_empty() {
-            self.task = None;
-            cx.notify();
-            return;
-        }
-        let client = self.client.clone();
-        let stop = self.stop.clone();
-        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
-        let job = self
-            .runtime
-            .spawn(loading::load(client, missing, stop, sender));
-        let stop = self.stop.clone();
-        self.task = Some(cx.spawn(async move |metadata, cx| {
-            while let Some(batch) = receiver.recv().await {
-                if stop.is_cancelled() {
-                    return;
-                }
-                if metadata
-                    .update(cx, |metadata, cx| {
-                        if metadata.apply(batch, &stop) {
-                            cx.notify();
-                        }
-                    })
-                    .is_err()
-                {
-                    return;
-                }
-            }
-            if job.await.is_err() {
-                let _ = metadata.update(cx, |metadata, cx| {
-                    if stop.is_cancelled() {
+        for expected in missing {
+            let client = self.client.clone();
+            let stop = self.stop.child_token();
+            let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+            let job = self.runtime.spawn(loading::load(
+                client,
+                vec![expected.clone()],
+                stop.clone(),
+                sender,
+            ));
+            let cancelled = stop.clone();
+            let name = expected.name.clone();
+            let task = cx.spawn(async move |metadata, cx| {
+                while let Some(batch) = receiver.recv().await {
+                    if cancelled.is_cancelled() {
                         return;
                     }
-                    metadata.loading = false;
-                    for expected in &metadata.expected {
-                        if metadata
-                            .entries
-                            .get(&expected.name)
-                            .is_none_or(|info| info.summary != *expected)
-                        {
-                            metadata
-                                .errors
-                                .insert(expected.name.clone(), "plugins_read_failed");
-                        }
+                    if metadata
+                        .update(cx, |metadata, cx| {
+                            if metadata.apply(batch, &cancelled) {
+                                cx.notify();
+                            }
+                        })
+                        .is_err()
+                    {
+                        return;
                     }
-                    cx.notify();
-                });
-            }
-        }));
+                }
+                if job.await.is_err() {
+                    let _ = metadata.update(cx, |metadata, cx| {
+                        if cancelled.is_cancelled() {
+                            return;
+                        }
+                        if let Some(read) = metadata.reads.get_mut(&name) {
+                            read.pending = false;
+                        }
+                        metadata.errors.insert(name, "plugins_read_failed");
+                        cx.notify();
+                    });
+                }
+            });
+            self.reads.insert(
+                expected.name.clone(),
+                Read {
+                    expected,
+                    stop,
+                    pending: true,
+                    _task: Some(task),
+                },
+            );
+        }
         cx.notify();
     }
 }

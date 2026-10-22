@@ -142,7 +142,7 @@ impl Shell {
         cx.subscribe_in(panel, window, |shell, panel, event: &Event, window, cx| {
             if panel.read(cx).selected.as_ref() != Some(&event.package)
                 || !panel.read(cx).connected
-                || panel.read(cx).loading
+                || panel.read(cx).initialization.loading()
                 || !panel.read(cx).available(&event.package)
                 || panel
                     .read(cx)
@@ -305,13 +305,13 @@ impl Shell {
                 .mounted
                 .as_ref()
                 .is_none_or(|mounted| !mounted.active())
-                || state.loading
+                || state.initialization.loading()
                 || !state.connected
                 || state
                     .selected
                     .as_ref()
                     .is_none_or(|package| !state.available(package));
-            let failed = !state.loading
+            let failed = !state.initialization.loading()
                 && (state.error.is_some()
                     || (state.snapshot.borrow().is_some() && !state.connected)
                     || state.selected.as_ref().is_some_and(|package| !state.available(package))
@@ -319,7 +319,7 @@ impl Shell {
             if failed {
                 shell.plugin_panes.closing.remove(&target);
             }
-            if state.selected.is_none() && state.connected && state.metadata.read(cx).settled() {
+            if state.selected.is_none() && state.connected {
                 let package = state.metadata.read(cx).entries.values()
                     .filter(|info| info.summary.enabled)
                     .find(|info| extension.as_ref().map_or_else(|| {
@@ -433,7 +433,7 @@ impl Shell {
         if let Some(panel) = self.plugin_panes.panels.get(&target).filter(|panel| {
             let panel = panel.read(cx);
             panel.connected
-                && !panel.loading
+                && !panel.initialization.loading()
                 && panel
                     .selected
                     .as_ref()
@@ -447,7 +447,7 @@ impl Shell {
         } else if self.plugin_panes.panels.get(&target).is_some_and(|panel| {
             let panel = panel.read(cx);
             panel.snapshot.borrow().is_none()
-                || (panel.connected && (panel.loading || panel.selected.is_none()))
+                || (panel.connected && (panel.initialization.loading() || panel.selected.is_none()))
         }) {
             self.plugin_panes.closing.insert(target);
         } else {

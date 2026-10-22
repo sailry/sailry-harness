@@ -22,7 +22,7 @@ pub(crate) fn request(
                 if (registry.node, registry.worktree, registry.session) != scope {
                     return Some(Err("contribution context changed".to_owned()));
                 }
-                registry.ready(cx).then(|| match &value {
+                registry.intent_ready(&intent, cx).then(|| match &value {
                     Some(value) => registry
                         .invoke_intent(&intent, value.clone(), cx)
                         .map(|_| Value::Bool(true)),

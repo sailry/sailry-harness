@@ -98,14 +98,17 @@ impl Render for Panel {
                     .overflow_hidden()
                     .child(mounted.root.read(cx).content().clone())
                     .when(
-                        self.loading || !self.connected || !mounted.active(),
+                        self.initialization.loading() || !self.connected || !mounted.active(),
                         |view| {
                             view.capture_key_down(|_, _, cx| cx.stop_propagation())
                                 .child(div().absolute().inset_0().occlude())
                         },
                     )
                     .into_any_element()
-            } else if self.target.is_some() || self.selected.is_some() || self.loading {
+            } else if self.target.is_some()
+                || self.selected.is_some()
+                || self.initialization.loading()
+            {
                 let catalog = self.metadata.read(cx);
                 let package = self
                     .target
@@ -113,13 +116,16 @@ impl Render for Panel {
                     .and_then(|name| catalog.entries.get(name))
                     .map(|info| info.summary.reference())
                     .or_else(|| self.selected.clone());
-                let metadata_failed = !catalog.errors.is_empty();
+                let metadata_failed = self
+                    .target
+                    .as_ref()
+                    .is_some_and(|name| catalog.errors.contains_key(name));
                 let unavailable = self.connected
                     && catalog.settled()
                     && package
                         .as_ref()
                         .is_none_or(|package| !self.available(package));
-                let failed = !self.loading
+                let failed = !self.initialization.loading()
                     && (self.error.is_some()
                         || self.source_error.is_some()
                         || metadata_failed

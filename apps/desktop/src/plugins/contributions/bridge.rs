@@ -1,7 +1,7 @@
 use sailry_protocol::plugin::ui::{self, Contribution, Event, EventKind, State};
 use serde_json::Value;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 use tokio::sync::{mpsc, watch};
@@ -19,7 +19,8 @@ pub(crate) struct Bridge {
 
 struct Current {
     sequence: u64,
-    published: bool,
+    published: BTreeSet<String>,
+    retained: BTreeSet<String>,
     scopes: Vec<ui::ProviderScope>,
     interactions: BTreeMap<String, Interaction>,
 }
@@ -44,7 +45,8 @@ impl Bridge {
             receiver: tokio::sync::Mutex::new(receiver),
             current: Mutex::new(Current {
                 sequence: 0,
-                published: false,
+                published: BTreeSet::new(),
+                retained: BTreeSet::new(),
                 scopes: vec![],
                 interactions: BTreeMap::new(),
             }),
@@ -60,7 +62,53 @@ impl Bridge {
     }
 
     pub fn ready(&self) -> bool {
-        self.current.lock().is_ok_and(|current| current.published)
+        self.current
+            .lock()
+            .is_ok_and(|current| !current.published.is_empty())
+    }
+
+    pub(super) fn published(&self, id: &str) -> bool {
+        self.current
+            .lock()
+            .is_ok_and(|current| current.published.contains(id))
+    }
+
+    /// Unpublished declarations are placeholders; explicit plugin visibility wins.
+    pub(super) fn presentation(
+        &self,
+        declaration: &Contribution,
+        active: bool,
+        failed: bool,
+    ) -> Option<State> {
+        let current = self.current.lock().ok()?;
+        let mut state = self.state(&declaration.id)?;
+        if !current.retained.contains(&declaration.id) {
+            state.visible = true;
+            state.enabled = false;
+        }
+        if !current.published.contains(&declaration.id) {
+            state.loading = !failed;
+            state.enabled = false;
+        }
+        state.enabled &= active && !state.loading;
+        state.visible.then_some(state)
+    }
+
+    /// A new script owns interactions; retained labels are presentation only.
+    pub(in crate::plugins) fn restart(&self) {
+        if let Ok(mut current) = self.current.lock() {
+            current.published.clear();
+            current.interactions.clear();
+            if let Ok(mut receiver) = self.receiver.try_lock() {
+                while receiver.try_recv().is_ok() {}
+            }
+            self.updates.send_modify(|states| {
+                for state in states.values_mut() {
+                    state.enabled = false;
+                    state.reply_to = None;
+                }
+            });
+        }
     }
 
     pub fn publish(&self, states: Vec<State>) -> Result<(), &'static str> {
@@ -110,7 +158,7 @@ impl Bridge {
         }) {
             return Err("unknown contribution interaction");
         }
-        current.published |= !states.is_empty();
+
         self.updates.send_modify(|values| {
             for mut state in states {
                 if let Some(interaction) = current.interactions.get_mut(&state.id) {
@@ -125,6 +173,8 @@ impl Bridge {
                     }
                     state.enabled &= !interaction.busy;
                 }
+                current.published.insert(key(&state));
+                current.retained.insert(key(&state));
                 values.insert(key(&state), state);
             }
         });
@@ -174,9 +224,9 @@ impl Bridge {
             .lock()
             .map_err(|_| "contribution state is unavailable")?;
         let states = self.updates.borrow();
-        let state = states
-            .get(id)
-            .filter(|state| (state.visible || intent && entry.intent.is_some()) && state.enabled);
+        let state = states.get(id).filter(|state| {
+            (state.visible || intent && entry.intent.is_some()) && state.enabled && !state.loading
+        });
         let Some(state) = state else {
             return Err("contribution is unavailable");
         };

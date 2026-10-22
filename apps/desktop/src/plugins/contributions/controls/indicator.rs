@@ -23,7 +23,10 @@ impl Registry {
             .child(
                 progress::ProgressCircle::new(SharedString::from(format!("indicator-{}", key.id)))
                     .value(percent.unwrap_or(0.).min(100.) as f32)
-                    .loading(indicator.as_ref().is_some_and(|value| value.loading))
+                    .loading(
+                        entry.state.loading
+                            || indicator.as_ref().is_some_and(|value| value.loading),
+                    )
                     .with_size(px(20.))
                     .color(color)
                     .accessibility_label(hint.clone()),

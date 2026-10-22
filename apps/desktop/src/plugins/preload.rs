@@ -13,7 +13,7 @@ mod tests;
 
 // Bundle validation also bounds each entry's source and image bytes.
 pub(crate) const CAPACITY: usize = 4;
-type Job = Shared<BoxFuture<'static, Option<Result<Arc<Cache>, &'static str>>>>;
+type Job = Shared<BoxFuture<'static, Option<Result<Arc<Cache>, super::cache::Failure>>>>;
 
 #[derive(Clone)]
 pub(crate) struct Prepared {
@@ -22,7 +22,7 @@ pub(crate) struct Prepared {
 }
 
 impl Prepared {
-    pub(super) async fn load(self) -> Option<Result<Arc<Cache>, &'static str>> {
+    pub(super) async fn load(self) -> Option<Result<Arc<Cache>, super::cache::Failure>> {
         self.job.await
     }
 }

@@ -12,6 +12,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Clone, Debug)]
+pub(super) struct Failure {
+    pub key: &'static str,
+    pub code: ErrorCode,
+    pub stage: &'static str,
+}
+
 /// Disposable view resources, not another installation catalog or business store.
 pub(super) struct Cache {
     directory: Option<tempfile::TempDir>,

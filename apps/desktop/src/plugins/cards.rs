@@ -153,7 +153,8 @@ impl Card {
             .ok_or("plugins_view_read_failed")?;
             let cache = super::cache::prepare(client, worker, package, surface, stop)
                 .await
-                .ok_or("plugins_view_read_failed")??;
+                .ok_or("plugins_view_read_failed")?
+                .map_err(|error| error.key)?;
             Ok::<_, &'static str>((cache, declaration))
         });
         self.load = Some(cx.spawn_in(window, async move |owner, cx| {

@@ -182,6 +182,8 @@ pub struct State {
     #[serde(default = "yes")]
     pub enabled: bool,
     #[serde(default)]
+    pub loading: bool,
+    #[serde(default)]
     pub value: Value,
     #[serde(default)]
     pub choices: Option<Vec<Choice>>,
@@ -337,6 +339,7 @@ impl State {
             dropdown: false,
             visible: false,
             enabled: false,
+            loading: false,
             value: Value::Null,
             choices: None,
             details: vec![],

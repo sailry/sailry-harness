@@ -99,6 +99,36 @@ impl Registry {
     pub(crate) fn control(&self, entry: Entry, form: Form, cx: &mut Context<Self>) -> AnyElement {
         let key = entry.key.clone();
         let selector = format!("plugin-control-{}-{}", key.package.name, key.id);
+        if entry.retry {
+            return h_flex()
+                .gap_1()
+                .items_center()
+                .child(
+                    Button::new(SharedString::from(selector))
+                        .small()
+                        .disabled(true)
+                        .label(entry.text())
+                        .icon(icon(entry.declaration.icon.as_deref())),
+                )
+                .child(
+                    crate::feedback::retry(SharedString::from(format!(
+                        "plugin-retry-{}-{}",
+                        key.package.name, key.id
+                    )))
+                    .small()
+                    .disabled(
+                        !self
+                            .current(&key)
+                            .is_some_and(|mounted| mounted.panel.read(cx).connected),
+                    )
+                    .on_click(
+                        cx.listener(move |registry, _, window, cx| {
+                            registry.retry(&key, window, cx)
+                        }),
+                    ),
+                )
+                .into_any_element();
+        }
         let enabled = entry.state.enabled;
         let selected = entry.state.value.as_bool().unwrap_or(false);
         if entry.declaration.kind == Kind::Indicator {
@@ -177,6 +207,7 @@ impl Registry {
                 },
             )
             .disabled(!enabled)
+            .loading(entry.state.loading)
             .when(
                 form != Form::Menu && entry.declaration.slot == Slot::Context,
                 |button| button.small().max_w_48().min_w_0().flex_shrink_1(),

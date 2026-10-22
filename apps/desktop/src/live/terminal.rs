@@ -87,7 +87,7 @@ impl Shell {
             self.terminals.pending.remove(&key);
             return;
         };
-        if registry.read(cx).ready(cx) {
+        if registry.read(cx).creation_ready(ResourceKind::Terminal, cx) {
             registry.update(cx, |registry, cx| {
                 registry.create(ResourceKind::Terminal, window, cx)
             });
@@ -107,7 +107,7 @@ impl Shell {
                             return true;
                         }
                         shell.worktree_plugins(key.1, window, cx);
-                        if registry.read(cx).ready(cx) {
+                        if registry.read(cx).creation_ready(ResourceKind::Terminal, cx) {
                             registry.update(cx, |registry, cx| {
                                 registry.create(ResourceKind::Terminal, window, cx)
                             });

@@ -99,6 +99,7 @@ export type ContributionChoice = {
 /** revision is the opaque providerRevision:credentialRevision context token. */
 export type ProviderScope = {provider:string;revision:string;credential:{node:string;id:string}};
 export type ContributionState = {
+  loading?: boolean;
   id: string; scope?:ProviderScope; enabled?: boolean; visible?: boolean; label?: LocalizedLabel; icon?: string; dropdown?: boolean; value?: string | number | boolean | null;
   choices?: ContributionChoice[];
   /** Shared metric rows; progress is an optional finite percentage from 0 through 100. */

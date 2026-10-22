@@ -444,3 +444,92 @@ async fn indicator_uses_controlled_boolean_interactions() {
         .unwrap();
     assert_eq!(bridge.next().await.unwrap().value, json!(false));
 }
+
+#[test]
+fn distinguishes_pending_from_explicit_hidden() {
+    let bridge = picker();
+    let declaration = &bridge.declarations[0];
+    let pending = bridge.presentation(declaration, false, false).unwrap();
+    assert!(pending.visible && pending.loading && !pending.enabled);
+    let failed = bridge.presentation(declaration, false, true).unwrap();
+    assert!(failed.visible && !failed.loading && !failed.enabled);
+    bridge
+        .publish(vec![state(json!({"id":"resource", "visible":false}))])
+        .unwrap();
+    assert!(bridge.presentation(declaration, true, false).is_none());
+    assert!(bridge.presentation(declaration, false, true).is_none());
+}
+
+#[test]
+fn publishes_each_declaration_independently() {
+    let first = picker().declarations[0].clone();
+    let mut second = first.clone();
+    second.id = "other".into();
+    let bridge = Bridge::new(vec![first.clone(), second.clone()]);
+    bridge
+        .publish(vec![state(json!({"id":"resource", "visible":false}))])
+        .unwrap();
+    assert!(bridge.presentation(&first, true, false).is_none());
+    assert!(bridge.published(&first.id));
+    assert!(!bridge.published(&second.id));
+    assert!(bridge.presentation(&second, false, false).unwrap().loading);
+}
+
+#[test]
+fn retains_disabled_labels_until_replacement() {
+    let bridge = picker();
+    let declaration = &bridge.declarations[0];
+    bridge
+        .publish(vec![state(
+            json!({"id":"resource", "label":{"label":"Selected checkout"}}),
+        )])
+        .unwrap();
+    let disconnected = bridge.presentation(declaration, false, false).unwrap();
+    assert!(!disconnected.enabled);
+    assert_eq!(disconnected.label.unwrap().label, "Selected checkout");
+    bridge.restart();
+    assert!(
+        !bridge
+            .presentation(declaration, true, false)
+            .unwrap()
+            .enabled
+    );
+    bridge
+        .publish(vec![state(
+            json!({"id":"resource", "label":{"label":"Recovered checkout"}}),
+        )])
+        .unwrap();
+    assert!(
+        bridge
+            .presentation(declaration, true, false)
+            .unwrap()
+            .enabled
+    );
+    let replacement = picker();
+    assert!(
+        replacement
+            .presentation(&replacement.declarations[0], false, false)
+            .unwrap()
+            .label
+            .is_none()
+    );
+}
+
+#[test]
+fn rejects_actions_while_loading() {
+    let bridge = picker();
+    bridge
+        .publish(vec![state(json!({"id":"resource", "loading":true}))])
+        .unwrap();
+    assert!(
+        !bridge
+            .presentation(&bridge.declarations[0], true, false)
+            .unwrap()
+            .enabled
+    );
+    assert!(
+        bridge
+            .invoke("resource", EventKind::Search, json!("query"))
+            .is_err()
+    );
+}

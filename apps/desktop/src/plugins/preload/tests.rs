@@ -61,7 +61,7 @@ fn retries_failed_preloads() {
         let fixture = Fixture::new(remote);
         let package = package(&fixture, "media").reference();
         *fixture.transport.view_target.lock().unwrap() = Some(package.clone());
-        fixture.transport.mode.store(18, Ordering::SeqCst);
+        fixture.transport.mode.store(16, Ordering::SeqCst);
         let mut resources = resources(&fixture);
         assert!(
             fixture
@@ -70,6 +70,8 @@ fn retries_failed_preloads() {
                 .unwrap()
                 .is_err()
         );
+        assert_eq!(fixture.transport.views.lock().unwrap().len(), 3);
+        fixture.transport.mode.store(0, Ordering::SeqCst);
         assert!(
             fixture
                 .runtime
@@ -77,7 +79,7 @@ fn retries_failed_preloads() {
                 .unwrap()
                 .is_ok()
         );
-        assert_eq!(fixture.transport.views.lock().unwrap().len(), 2);
+        assert_eq!(fixture.transport.views.lock().unwrap().len(), 4);
         drop(resources);
         fixture.close();
     }
@@ -141,6 +143,27 @@ fn dropping_resources_cancels_pending_reads() {
         });
         drop(resources);
         assert!(fixture.runtime.block_on(pending.load()).is_none());
+        fixture.close();
+    }
+}
+
+#[test]
+fn recovers_transient_reads_without_reopening() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let package = package(&fixture, "media").reference();
+        *fixture.transport.view_target.lock().unwrap() = Some(package.clone());
+        fixture.transport.mode.store(18, Ordering::SeqCst);
+        let mut resources = resources(&fixture);
+        assert!(
+            fixture
+                .runtime
+                .block_on(resources.prepare(package).load())
+                .unwrap()
+                .is_ok()
+        );
+        assert_eq!(fixture.transport.views.lock().unwrap().len(), 2);
+        drop(resources);
         fixture.close();
     }
 }

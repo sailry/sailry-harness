@@ -37,6 +37,7 @@ pub(crate) struct Entry {
     pub key: Key,
     pub declaration: Contribution,
     pub state: State,
+    pub retry: bool,
 }
 
 struct Mounted {
@@ -53,7 +54,7 @@ impl Mounted {
     fn active(&self, cx: &App) -> bool {
         let panel = self.panel.read(cx);
         panel.connected
-            && !panel.loading
+            && !panel.initialization.loading()
             && panel.selected.as_ref() == Some(&self.package)
             && panel.available(&self.package)
             && panel
@@ -243,29 +244,67 @@ impl Registry {
     }
 
     pub fn ready(&self, cx: &App) -> bool {
-        self.settled(cx)
-            && (self.surface != Surface::Project
-                || self
-                    .metadata
-                    .read(cx)
-                    .entries
-                    .values()
-                    .filter(|info| {
-                        info.summary.enabled
-                            && info.extension.as_ref().is_some_and(|extension| {
-                                extension.scope == Scope::Host
-                                    && extension.ui.iter().any(|entry| self.accepts(entry.slot))
-                            })
-                    })
-                    .all(|info| {
-                        self.mounted
-                            .get(&info.summary.name)
-                            .is_some_and(|mounted| mounted.package == info.summary.reference())
-                    }))
-            && self
+        self.catalog_received
+            && (self
                 .mounted
                 .values()
-                .all(|mounted| mounted.active(cx) && mounted.bridge.ready())
+                .any(|mounted| mounted.active(cx) && mounted.bridge.ready())
+                || self.settled(cx))
+    }
+
+    pub(super) fn intent_ready(&self, intent: &str, cx: &App) -> bool {
+        let owners = self
+            .mounted
+            .values()
+            .filter_map(|mounted| {
+                let declaration = mounted
+                    .bridge
+                    .declarations
+                    .iter()
+                    .filter(|entry| entry.intent.as_deref() == Some(intent))
+                    .min_by_key(|entry| !self.accepts(entry.slot))?;
+                Some((mounted, declaration))
+            })
+            .collect::<Vec<_>>();
+        if owners.is_empty() {
+            return self.catalog_received && self.settled(cx);
+        }
+        owners.iter().any(|(mounted, declaration)| {
+            mounted.active(cx) && mounted.bridge.published(&declaration.id)
+                || mounted.panel.read(cx).initialization.failed()
+        })
+    }
+
+    pub(crate) fn creation_ready(
+        &self,
+        resource: sailry_protocol::plugin::desktop::ResourceKind,
+        cx: &App,
+    ) -> bool {
+        let owner = self.metadata.read(cx).entries.values().find_map(|info| {
+            if !info.summary.enabled {
+                return None;
+            }
+            let renderer = info
+                .extension
+                .as_ref()?
+                .desktop
+                .as_ref()?
+                .renderers
+                .iter()
+                .find(|renderer| renderer.resource == resource)?;
+            Some((info.summary.reference(), renderer.create.as_deref()))
+        });
+        let Some((package, id)) = owner else {
+            return self.catalog_received && self.settled(cx);
+        };
+        let Some(id) = id else {
+            return true;
+        };
+        self.mounted.get(&package.name).is_some_and(|mounted| {
+            mounted.package == package
+                && (mounted.panel.read(cx).initialization.failed()
+                    || mounted.active(cx) && mounted.bridge.published(id))
+        })
     }
 
     pub fn creation(
@@ -319,6 +358,7 @@ impl Registry {
                     },
                     declaration: declaration.clone(),
                     state,
+                    retry: false,
                 })
             })
     }
@@ -402,6 +442,7 @@ impl Registry {
         };
         let id = session.map(|session| session.id);
         if self.node != binding.client.target()
+            || self.project != binding.project
             || self.worktree != binding.worktree
             || self.session != id
         {
@@ -420,9 +461,8 @@ impl Registry {
                 source.update(cx, |source, cx| source.accept(&[], &[], &[], false, cx));
             }
             for mounted in self.mounted.values() {
-                mounted.panel.update(cx, |panel, cx| panel.close(cx));
+                mounted.panel.update(cx, |panel, cx| panel.disconnect(cx));
             }
-            self.mounted.clear();
             return;
         };
         self.metadata
@@ -505,6 +545,7 @@ impl Registry {
                     self.composer.clone(),
                     cx,
                 );
+                panel.share_metadata(self.metadata.clone(), cx);
                 panel.providers = self.providers.clone();
                 panel.content_sized = content_sized;
                 panel
@@ -516,7 +557,7 @@ impl Registry {
                     panel.update(cx, |panel, cx| panel.open(expected.clone(), window, cx));
                 } else if panel.read(cx).selected.as_ref() == Some(&expected)
                     && panel.read(cx).available(&expected)
-                    && panel.read(cx).metadata.read(cx).settled()
+                    && panel.read(cx).metadata.read(cx).ready(&expected)
                 {
                     // Retained controllers are not rendered while another scope is visible.
                     panel.update(cx, |panel, cx| panel.restore(window, cx));
@@ -559,6 +600,20 @@ impl Registry {
         }
     }
 
+    pub(super) fn retry(&mut self, key: &Key, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(mounted) = self.current(key) else {
+            return;
+        };
+        if !mounted.panel.read(cx).connected || !mounted.panel.read(cx).initialization.failed() {
+            return;
+        }
+        mounted.bridge.restart();
+        mounted
+            .panel
+            .update(cx, |panel, cx| panel.enter(key.package.clone(), window, cx));
+        cx.notify();
+    }
+
     pub fn entries(&self, slot: Slot, cx: &App) -> Vec<Entry> {
         if !self.accepts(slot) {
             return Vec::new();
@@ -571,15 +626,13 @@ impl Registry {
                 .iter()
                 .filter(|entry| entry.slot == slot)
             {
-                let Some(state) = mounted
-                    .states
-                    .get(&declaration.id)
-                    .filter(|state| state.visible)
-                else {
+                let Some(state) = mounted.bridge.presentation(
+                    declaration,
+                    mounted.active(cx),
+                    mounted.panel.read(cx).initialization.failed(),
+                ) else {
                     continue;
                 };
-                let mut state = state.clone();
-                state.enabled &= mounted.active(cx);
                 entries.push(Entry {
                     key: Key {
                         node: self.node,
@@ -590,6 +643,8 @@ impl Registry {
                     },
                     declaration: declaration.clone(),
                     state,
+                    retry: mounted.panel.read(cx).connected
+                        && mounted.panel.read(cx).initialization.failed(),
                 });
             }
         }
@@ -784,6 +839,7 @@ impl Registry {
                         },
                         declaration: declaration.clone(),
                         state: state.clone(),
+                        retry: false,
                     });
                 }
             }

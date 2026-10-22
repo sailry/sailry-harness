@@ -69,7 +69,7 @@ impl Shell {
             shell.plugin_panes.titles.retain(|_, title| {
                 title.owner != owner
                     || (state.connected
-                        && !state.loading
+                        && !state.initialization.loading()
                         && state
                             .mounted
                             .as_ref()

@@ -859,12 +859,7 @@ impl Shell {
             let expected = entry.package.clone();
             cx.observe_in(&panel, window, move |_, panel, window, cx| {
                 let state = panel.read(cx);
-                if loadable
-                    && state.connected
-                    && state.selected.is_none()
-                    && state.available(&expected)
-                    && state.metadata.read(cx).settled()
-                {
+                if loadable && state.ready_for(&expected, cx) {
                     panel.update(cx, |panel, cx| panel.open(expected.clone(), window, cx));
                 }
                 if panel.read(cx).resource_active() {

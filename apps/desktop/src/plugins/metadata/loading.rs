@@ -1,8 +1,9 @@
-//! Transient metadata reads recover without changing the authoritative inventory.
+//! Independent metadata reads preserve inventory provenance and isolate failures.
+use futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered};
 use sailry_client::Client;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
-    Command, ErrorCode, Output,
+    Command, ErrorCode, Fault, Output,
     plugin::{Info, Summary},
 };
 use std::{sync::Arc, time::Duration};
@@ -11,63 +12,115 @@ use tokio::sync::mpsc;
 pub(super) struct Batch {
     pub results: Vec<(String, Result<Info, &'static str>)>,
     pub retrying: bool,
-    pub diagnostics: std::collections::BTreeMap<String, sailry_protocol::Fault>,
+    pub diagnostics: std::collections::BTreeMap<String, Fault>,
+}
+
+async fn read(
+    client: Arc<Client>,
+    expected: Summary,
+    attempt: u8,
+) -> (Summary, u8, Result<Info, Fault>) {
+    if attempt > 0 {
+        tokio::time::sleep(Duration::from_millis(250 * (1 << (attempt - 1)))).await;
+    }
+    let result = match tokio::time::timeout(
+        Duration::from_secs(10),
+        client.execute(client.prepare(Command::ReadPlugin {
+            name: expected.name.clone(),
+        })),
+    )
+    .await
+    {
+        Ok(Ok(Output::Plugin(info))) if info.summary == expected => Ok(info),
+        Ok(Ok(Output::Plugin(_))) => {
+            Err(Fault::new(ErrorCode::Conflict, "plugin metadata changed"))
+        }
+        Ok(Err(error)) => Err(error),
+        Ok(Ok(_)) => Err(Fault::invalid("unexpected plugin metadata output")),
+        Err(_) => Err(Fault::new(
+            ErrorCode::Unavailable,
+            "plugin metadata read timed out",
+        )),
+    };
+    (expected, attempt, result)
 }
 
 pub(super) async fn load(
     client: Arc<Client>,
-    mut missing: Vec<Summary>,
+    missing: Vec<Summary>,
     stop: CancellationToken,
     sender: mpsc::Sender<Batch>,
 ) {
-    let mut delay = Duration::from_millis(250);
+    let mut pending = FuturesUnordered::new();
+    for expected in missing {
+        pending.push(read(client.clone(), expected, 0).boxed());
+    }
     loop {
-        let mut results = Vec::new();
-        let mut retry = Vec::new();
-        let mut diagnostics = std::collections::BTreeMap::new();
-        for expected in missing {
-            let result = tokio::select! {
-                biased;
-                _ = stop.cancelled() => return,
-                result = client.execute(client.prepare(Command::ReadPlugin { name: expected.name.clone() })) => result,
-            };
-            if result
-                .as_ref()
-                .is_err_and(|error| matches!(error.code, ErrorCode::Busy | ErrorCode::Unavailable))
-            {
-                retry.push(expected.clone());
-            }
-            let result = match result {
-                Ok(Output::Plugin(info)) if info.summary == expected => Ok(info),
-                Ok(Output::Plugin(_)) => Err("plugins_conflict"),
-                Err(error) => {
-                    diagnostics.insert(expected.name.clone(), error);
-                    Err("plugins_read_failed")
-                }
-                _ => Err("plugins_read_failed"),
-            };
-            results.push((expected.name, result));
-        }
-        let retrying = !retry.is_empty();
-        tokio::select! {
+        let Some((expected, attempt, result)) = (tokio::select! {
             biased;
             _ = stop.cancelled() => return,
-            result = sender.send(Batch { results, retrying, diagnostics }) => {
-                if result.is_err() { return; }
-            },
-        }
-        if !retrying {
+            result = pending.next() => result,
+        }) else {
             return;
+        };
+        if result
+            .as_ref()
+            .is_err_and(|error| matches!(error.code, ErrorCode::Busy | ErrorCode::Unavailable))
+            && attempt < 2
+        {
+            pending.push(read(client.clone(), expected.clone(), attempt + 1).boxed());
+            continue;
         }
-        // A saturated or disconnected Node must not permanently hide its menus.
-        // Keep failures visible while this owner performs bounded, cancellable reads.
+        if let Err(error) = &result {
+            use sailry_protocol::notification::{DiagnosticPlugin, SystemDiagnostic, SystemSource};
+            let mut report = SystemDiagnostic::new(
+                sailry_protocol::RequestId::new(),
+                SystemSource::PluginMetadata,
+                error.code,
+            );
+            if let Some(version) = &expected.version {
+                report.plugin = Some(DiagnosticPlugin {
+                    name: expected.name.clone(),
+                    version: version.clone(),
+                });
+            }
+            report.operation = Some("metadata_read".into());
+            let mut entry = sailry_node_runtime::logging::Entry::new(
+                sailry_node_runtime::logging::Area::Plugin,
+                sailry_node_runtime::logging::Phase::Failed,
+            );
+            entry.context.node = Some(client.target());
+            entry.context.package = Some(expected.reference());
+            entry.context.request = Some(report.incident);
+            entry.reason = Some("metadata_read");
+            entry.code = Some(error.code);
+            entry.emit();
+            let reporting = client.clone();
+            let reporting_stop = stop.clone();
+            // Diagnostic delivery cannot hold successful, unrelated metadata reads.
+            tokio::spawn(async move {
+                tokio::select! { biased; _ = reporting_stop.cancelled() => {}, _ = reporting.report_diagnostic(report) => {} }
+            });
+        }
+        let mut diagnostics = std::collections::BTreeMap::new();
+        let result = result.map_err(|error| {
+            let key = if error.code == ErrorCode::Conflict {
+                "plugins_conflict"
+            } else {
+                "plugins_read_failed"
+            };
+            diagnostics.insert(expected.name.clone(), error);
+            key
+        });
+        let batch = Batch {
+            results: vec![(expected.name, result)],
+            retrying: !pending.is_empty(),
+            diagnostics,
+        };
         tokio::select! {
             biased;
             _ = stop.cancelled() => return,
-            _ = sender.closed() => return,
-            _ = tokio::time::sleep(delay) => {},
+            result = sender.send(batch) => if result.is_err() { return; },
         }
-        delay = (delay * 2).min(Duration::from_secs(5));
-        missing = retry;
     }
 }

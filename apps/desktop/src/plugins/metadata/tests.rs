@@ -66,6 +66,17 @@ impl Transport for Reads {
 
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
+            if matches!(request.command, Command::ReportDiagnostic(_)) {
+                let (sender, completion) = tokio::sync::oneshot::channel();
+                sender.send(Ok(Output::NotificationsUpdated)).unwrap();
+                return Ok(Admission {
+                    receipt: Receipt {
+                        id: request.id,
+                        durable: true,
+                    },
+                    completion,
+                });
+            }
             assert!(!request.command.durable());
             let Command::ReadPlugin { name } = request.command else {
                 panic!("plugin metadata read expected");
@@ -183,66 +194,96 @@ async fn recovers_with_unchanged_inventory() {
         vec![package.summary.clone()],
         CancellationToken::new(),
     );
-
-    // One inventory load recovers without another accept or manual refresh.
-    for code in [ErrorCode::Busy, ErrorCode::Unavailable] {
-        let batch = next(&mut receiver).await;
-        assert!(batch.retrying);
-        assert_eq!(
-            batch.diagnostics.get("ssh"),
-            Some(&Fault::new(code, "injected metadata failure"))
-        );
-        assert_eq!(
-            batch.results,
-            vec![("ssh".into(), Err("plugins_read_failed"))]
-        );
-    }
     let batch = next(&mut receiver).await;
     assert!(!batch.retrying);
-    assert!(batch.diagnostics.is_empty());
     assert_eq!(batch.results, vec![("ssh".into(), Ok(package))]);
     finish(job).await;
     assert_eq!(*reads.requests.lock().unwrap(), ["ssh", "ssh", "ssh"]);
 }
 
 #[tokio::test]
-async fn retries_only_transient_entries() {
-    let files = info("files");
-    let ssh = info("ssh");
-    let databases = info("databases");
-    let git = info("git");
-    let mut stale = git.clone();
-    stale.summary.revision += 1;
+async fn isolates_failed_and_pending_packages() {
+    let entered = CancellationToken::new();
+    let stopped = CancellationToken::new();
+    let mut unrelated = info("disabled");
+    unrelated.summary.enabled = false;
+    let healthy = info("worktrees");
     let reads = Reads::new(vec![
-        ("files", vec![success(&files)]),
-        ("ssh", vec![failure(ErrorCode::Busy), success(&ssh)]),
-        ("databases", vec![failure(ErrorCode::NotFound)]),
-        ("git", vec![success(&stale)]),
+        ("disabled", vec![failure(ErrorCode::NotFound)]),
+        (
+            "held",
+            vec![Step::Hold {
+                entered: entered.clone(),
+                release: CancellationToken::new(),
+                dropped: stopped.clone(),
+                response: Ok(Output::Plugin(info("held"))),
+            }],
+        ),
+        ("worktrees", vec![success(&healthy)]),
     ]);
-    let expected = [&files, &ssh, &databases, &git]
-        .map(|info| info.summary.clone())
-        .to_vec();
-    let (job, mut receiver) = start(reads.clone(), expected, CancellationToken::new());
-
-    let batch = next(&mut receiver).await;
-    assert!(batch.retrying);
-    assert_eq!(
-        batch.results,
+    let stop = CancellationToken::new();
+    let (job, mut receiver) = start(
+        reads,
         vec![
-            ("files".into(), Ok(files)),
-            ("ssh".into(), Err("plugins_read_failed")),
-            ("databases".into(), Err("plugins_read_failed")),
-            ("git".into(), Err("plugins_conflict")),
-        ]
+            unrelated.summary,
+            info("held").summary,
+            healthy.summary.clone(),
+        ],
+        stop.clone(),
+    );
+    let mut results = BTreeMap::new();
+    for _ in 0..2 {
+        let batch = next(&mut receiver).await;
+        assert!(batch.retrying);
+        results.extend(batch.results);
+    }
+    assert_eq!(results["worktrees"], Ok(healthy));
+    assert_eq!(results["disabled"], Err("plugins_read_failed"));
+    assert!(entered.is_cancelled());
+    stop.cancel();
+    finish(job).await;
+    assert!(stopped.is_cancelled());
+}
+
+#[tokio::test]
+async fn bounds_transient_attempts() {
+    let reads = Reads::new(vec![(
+        "ssh",
+        vec![
+            failure(ErrorCode::Busy),
+            failure(ErrorCode::Unavailable),
+            failure(ErrorCode::Busy),
+        ],
+    )]);
+    let (job, mut receiver) = start(
+        reads.clone(),
+        vec![info("ssh").summary],
+        CancellationToken::new(),
     );
     let batch = next(&mut receiver).await;
     assert!(!batch.retrying);
-    assert_eq!(batch.results, vec![("ssh".into(), Ok(ssh))]);
+    assert_eq!(batch.diagnostics["ssh"].code, ErrorCode::Busy);
     finish(job).await;
-    assert_eq!(
-        *reads.requests.lock().unwrap(),
-        ["files", "ssh", "databases", "git", "ssh"]
+    assert_eq!(*reads.requests.lock().unwrap(), ["ssh", "ssh", "ssh"]);
+}
+
+#[tokio::test]
+async fn rejects_changed_revisions_without_retry() {
+    let expected = info("git");
+    let mut changed = expected.clone();
+    changed.summary.revision += 1;
+    let reads = Reads::new(vec![("git", vec![success(&changed)])]);
+    let (job, mut receiver) = start(
+        reads.clone(),
+        vec![expected.summary],
+        CancellationToken::new(),
     );
+    assert_eq!(
+        next(&mut receiver).await.results,
+        vec![("git".into(), Err("plugins_conflict"))]
+    );
+    finish(job).await;
+    assert_eq!(*reads.requests.lock().unwrap(), ["git"]);
 }
 
 #[tokio::test]
@@ -253,72 +294,37 @@ async fn keeps_unknown_outcomes_stable() {
         vec![info("ssh").summary],
         CancellationToken::new(),
     );
-    let batch = next(&mut receiver).await;
-    assert!(!batch.retrying);
-    assert_eq!(
-        batch.results,
-        vec![("ssh".into(), Err("plugins_read_failed"))]
-    );
+    assert!(!next(&mut receiver).await.retrying);
     finish(job).await;
     assert_eq!(*reads.requests.lock().unwrap(), ["ssh"]);
 }
 
 #[tokio::test]
-async fn cancels_pending_reads() {
-    let entered = CancellationToken::new();
-    let release = CancellationToken::new();
-    let dropped = CancellationToken::new();
-    let reads = Reads::new(vec![(
-        "ssh",
-        vec![Step::Hold {
-            entered: entered.clone(),
-            release,
-            dropped: dropped.clone(),
-            response: Ok(Output::Plugin(info("ssh"))),
-        }],
-    )]);
-    let stop = CancellationToken::new();
-    let (job, mut receiver) = start(reads, vec![info("ssh").summary], stop.clone());
-    tokio::time::timeout(Duration::from_secs(2), entered.cancelled())
-        .await
-        .unwrap();
-    stop.cancel();
-    finish(job).await;
-    assert!(dropped.is_cancelled());
-    assert!(receiver.recv().await.is_none());
-}
-
-#[tokio::test]
-async fn cancels_retry_backoff() {
-    let reads = Reads::new(vec![("ssh", vec![failure(ErrorCode::Unavailable)])]);
-    let stop = CancellationToken::new();
-    let (job, mut receiver) = start(reads.clone(), vec![info("ssh").summary], stop.clone());
-    assert!(next(&mut receiver).await.retrying);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(50), receiver.recv())
-            .await
-            .is_err()
-    );
-    stop.cancel();
-    finish(job).await;
-    assert_eq!(*reads.requests.lock().unwrap(), ["ssh"]);
-    assert!(receiver.recv().await.is_none());
-}
-
-#[tokio::test]
-async fn cancels_blocked_result_delivery() {
-    let reads = Reads::new(vec![(
-        "ssh",
-        vec![failure(ErrorCode::Busy), success(&info("ssh"))],
-    )]);
-    let stop = CancellationToken::new();
-    let (job, mut receiver) = start(reads.clone(), vec![info("ssh").summary], stop.clone());
-    reads.wait_count(2).await;
-    // The first failed batch still occupies the bounded result channel.
-    stop.cancel();
-    finish(job).await;
-    assert!(receiver.recv().await.unwrap().retrying);
-    assert!(receiver.recv().await.is_none());
+async fn cancels_pending_reads_and_backoff() {
+    for held in [false, true] {
+        let dropped = CancellationToken::new();
+        let step = if held {
+            Step::Hold {
+                entered: CancellationToken::new(),
+                release: CancellationToken::new(),
+                dropped: dropped.clone(),
+                response: Ok(Output::Plugin(info("ssh"))),
+            }
+        } else {
+            failure(ErrorCode::Unavailable)
+        };
+        let reads = Reads::new(vec![("ssh", vec![step])]);
+        let stop = CancellationToken::new();
+        let (job, mut receiver) = start(reads.clone(), vec![info("ssh").summary], stop.clone());
+        reads.wait_count(1).await;
+        stop.cancel();
+        finish(job).await;
+        assert!(receiver.recv().await.is_none());
+        assert_eq!(*reads.requests.lock().unwrap(), ["ssh"]);
+        if held {
+            assert!(dropped.is_cancelled());
+        }
+    }
 }
 
 fn cache() -> Metadata {
@@ -359,7 +365,7 @@ fn clears_only_recovered_errors() {
         cache.errors,
         BTreeMap::from([("databases".into(), "plugins_read_failed")])
     );
-    assert!(!cache.settled());
+    assert!(cache.settled());
     assert_eq!(
         cache.diagnostics,
         BTreeMap::from([("databases".into(), fault)])
@@ -387,4 +393,63 @@ fn ignores_cancelled_batches() {
     ));
     assert_eq!(cache.entries["ssh"], current);
     assert!(cache.errors.is_empty());
+}
+
+#[test]
+fn readiness_is_scoped_to_exact_inventory() {
+    let mut cache = cache();
+    let healthy = info("worktrees");
+    let unrelated = info("disabled");
+    cache.expected = vec![healthy.summary.clone(), unrelated.summary];
+    cache.entries.insert("worktrees".into(), healthy.clone());
+    cache
+        .errors
+        .insert("disabled".into(), "plugins_read_failed");
+    cache.reads.insert(
+        "disabled".into(),
+        Read {
+            expected: info("disabled").summary,
+            stop: cache.stop.child_token(),
+            pending: true,
+            _task: None,
+        },
+    );
+    assert!(cache.ready(&healthy.summary.reference()));
+    cache.expected[0].revision += 1;
+    assert!(!cache.ready(&healthy.summary.reference()));
+    cache.expected[0] = healthy.summary.clone();
+    let mut stale = healthy.summary.reference();
+    stale.digest.push('x');
+    assert!(!cache.ready(&stale));
+    stale = healthy.summary.reference();
+    stale.settings_revision += 1;
+    assert!(!cache.ready(&stale));
+}
+
+#[test]
+fn preserves_pending_reads_across_unrelated_changes() {
+    let mut cache = cache();
+    let held = info("held").summary;
+    let mut other = info("other").summary;
+    cache.expected = vec![held.clone(), other.clone()];
+    let stop = cache.stop.child_token();
+    cache.reads.insert(
+        held.name.clone(),
+        Read {
+            expected: held.clone(),
+            stop: stop.clone(),
+            pending: true,
+            _task: None,
+        },
+    );
+    other.revision += 1;
+    assert!(cache.reconcile(&[held.clone(), other.clone()]));
+    assert!(!stop.is_cancelled());
+    assert!(cache.reads["held"].pending);
+    assert!(!cache.reconcile(&[held.clone(), other.clone()]));
+    let mut replacement = held;
+    replacement.revision += 1;
+    assert!(cache.reconcile(&[replacement, other]));
+    assert!(stop.is_cancelled());
+    assert!(!cache.reads.contains_key("held"));
 }

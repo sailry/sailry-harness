@@ -81,7 +81,7 @@ impl Panel {
         let Some(resource) = &self.document else {
             return;
         };
-        if !self.connected || self.loading || !self.metadata.read(cx).settled() {
+        if !self.connected || self.initialization.loading() {
             return;
         }
         let package = self
