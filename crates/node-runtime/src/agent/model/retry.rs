@@ -149,7 +149,7 @@ impl Llm for Model {
                 ) => result,
             };
             if let Err(error) = result {
-                let _ = output.send(Err(budget.finish(error))).await;
+                let _ = output.send(Err(error)).await;
             }
         };
         // Poll the producer inside its stream so dropping a turn also drops its
