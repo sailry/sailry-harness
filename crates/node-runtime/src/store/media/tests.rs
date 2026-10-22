@@ -3,6 +3,8 @@ use sailry_protocol::conversation::ModelApi;
 
 fn fixture() -> (Provider, SessionConfig) {
     let provider = Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

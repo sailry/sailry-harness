@@ -68,6 +68,14 @@ impl Editor {
             .expect("live editor is bound to a Node");
         self.probe = None;
         let provider = Provider {
+            request_max_retries: self
+                .provider
+                .as_ref()
+                .and_then(|provider| provider.request_max_retries),
+            stream_max_retries: self
+                .provider
+                .as_ref()
+                .and_then(|provider| provider.stream_max_retries),
             preset: self.preset_ref(),
             binding: self
                 .provider

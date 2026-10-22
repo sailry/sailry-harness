@@ -39,6 +39,8 @@ async fn delegates_from_private_workspaces() {
             let Output::Provider(provider) = client
                 .execute(client.prepare(Command::PutProvider {
                     provider: Provider {
+                        request_max_retries: None,
+                        stream_max_retries: None,
                         id: ProviderId::new(),
                         revision: 0,
                         name: "Private workspace fixture".into(),

@@ -60,6 +60,8 @@ async fn session_api(client: &Client, endpoint: &str, root: &Path, api: ModelApi
         .await;
     }
     let provider = Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

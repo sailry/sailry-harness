@@ -271,6 +271,8 @@ impl Ingress {
         }
         if source.api == sailry_protocol::conversation::ModelApi::Plugin {
             let provider = Provider {
+                request_max_retries: None,
+                stream_max_retries: None,
                 id: source.provider,
                 revision: 0,
                 preset: source.preset.clone(),

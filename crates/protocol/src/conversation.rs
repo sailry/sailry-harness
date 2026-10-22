@@ -14,6 +14,7 @@ pub mod progress;
 pub mod question;
 pub mod quota;
 pub mod reasoning;
+pub mod recovery;
 pub mod reference;
 pub mod search;
 use crate::{CredentialRef, Fault, NodeId, ProviderId, SessionId, TurnId};
@@ -96,7 +97,20 @@ pub struct Provider {
     #[serde(default)]
     pub models: Vec<Model>,
     pub default_model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_max_retries: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_max_retries: Option<u64>,
     pub credential: Option<CredentialRef>,
+}
+
+impl Provider {
+    pub fn request_retries(&self) -> u64 {
+        self.request_max_retries.unwrap_or(4).min(100)
+    }
+    pub fn stream_retries(&self) -> u64 {
+        self.stream_max_retries.unwrap_or(5).min(100)
+    }
 }
 
 /// Configured limits and automatic capability summaries; capabilities are not user gates.

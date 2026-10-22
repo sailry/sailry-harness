@@ -3,6 +3,8 @@ use core::prelude::v1::test;
 
 fn provider(api: ModelApi, endpoint: &str) -> Provider {
     Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

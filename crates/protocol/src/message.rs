@@ -41,6 +41,9 @@ pub struct Fault {
 pub enum FaultDetails {
     /// The plugin value owner rejected a key's expected revision before commit.
     PluginValueConflict,
+    ModelRecovery {
+        reason: crate::conversation::recovery::Stop,
+    },
     SystemDiagnostic(crate::notification::SystemDiagnostic),
     VersionMismatch {
         controller: Option<String>,

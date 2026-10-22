@@ -6,6 +6,8 @@ use sailry_protocol::{
 
 fn provider() -> Provider {
     Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

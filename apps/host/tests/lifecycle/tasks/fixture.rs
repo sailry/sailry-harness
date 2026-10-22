@@ -54,6 +54,8 @@ impl Fixture {
             NodeCommand::PutProvider {
                 expected_revision: 0,
                 provider: Provider {
+                    request_max_retries: None,
+                    stream_max_retries: None,
                     preset: None,
                     binding: None,
                     consent: None,

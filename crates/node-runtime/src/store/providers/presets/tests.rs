@@ -28,6 +28,8 @@ fn package(db: &Connection, digest: &str, value: u32) -> plugin::Info {
 
 fn provider() -> Provider {
     Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         id: ProviderId::new(),
         revision: 1,
         name: "Example".into(),

@@ -15,6 +15,8 @@ async fn requires_explicit_models() {
         .await;
         context.worktree = None;
         let provider = Provider {
+            request_max_retries: None,
+            stream_max_retries: None,
             preset: None,
             binding: None,
             consent: None,

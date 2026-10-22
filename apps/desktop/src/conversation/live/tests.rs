@@ -10,6 +10,8 @@ pub(crate) mod fixture;
 
 fn provider(endpoint: &str, name: &str) -> Provider {
     Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

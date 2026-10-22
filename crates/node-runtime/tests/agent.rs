@@ -165,6 +165,8 @@ async fn configured_session(
     root: &std::path::Path,
 ) -> (Session, Provider) {
     let provider = Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

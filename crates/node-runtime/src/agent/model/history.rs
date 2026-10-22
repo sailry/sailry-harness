@@ -171,6 +171,8 @@ mod tests {
 
     fn provider() -> Provider {
         Provider {
+            request_max_retries: None,
+            stream_max_retries: None,
             id: sailry_protocol::ProviderId::new(),
             revision: 1,
             preset: None,

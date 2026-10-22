@@ -289,6 +289,8 @@ enum Job {
             oneshot::Sender<Result<(sailry_protocol::Credential, sailry_protocol::Secret), Fault>>,
     },
     Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         id: sailry_protocol::ProviderId,
         revision: u64,
         reply: oneshot::Sender<Result<sailry_protocol::conversation::Provider, Fault>>,

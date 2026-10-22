@@ -95,6 +95,8 @@ mod tests {
     #[test]
     fn captures_catalog_default() {
         let provider = Provider {
+            request_max_retries: None,
+            stream_max_retries: None,
             preset: None,
             binding: None,
             consent: None,
@@ -143,6 +145,8 @@ mod tests {
     fn preserves_siwc_capture_without_catalog_default() {
         for catalog_version in [None, Some("0.161.0".into())] {
             let mut provider = Provider {
+                request_max_retries: None,
+                stream_max_retries: None,
                 preset: None,
                 binding: None,
                 consent: None,

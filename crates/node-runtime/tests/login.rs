@@ -188,6 +188,8 @@ fn standard(request: &discovery_support::Request) -> Reply {
 
 async fn provider(client: &Client, authentication: Authentication) -> Provider {
     let provider = Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

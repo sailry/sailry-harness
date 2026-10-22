@@ -7,6 +7,8 @@ fn install_provider(fixture: &mut Fixture) -> Provider {
     let session =
         crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
     let provider = Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

@@ -250,6 +250,8 @@ async fn inherits_assistant_and_reuses_frozen_context() {
             &fixture.client,
             Command::PutProvider {
                 provider: Provider {
+                    request_max_retries: None,
+                    stream_max_retries: None,
                     id: ProviderId::new(),
                     revision: 0,
                     name: "Replacement parent provider".into(),

@@ -361,6 +361,8 @@ async fn configure(client: &Client, endpoint: &str) {
             expected_revision: 0,
             secret: Some(Secret::new("isolated-flutter-fixture".into())),
             provider: Provider {
+                request_max_retries: None,
+                stream_max_retries: None,
                 preset: None,
                 binding: None,
                 consent: None,

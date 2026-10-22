@@ -470,6 +470,8 @@ mod tests {
         .unwrap();
         crate::store::plugins::distribution::install(&mut db, &host).unwrap();
         let provider = Provider {
+            request_max_retries: None,
+            stream_max_retries: None,
             id: ProviderId::new(),
             revision: 4,
             name: "Fixture".into(),

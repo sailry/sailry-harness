@@ -32,6 +32,8 @@ async fn saved(fixture: &Fixture, server: &Server) -> Provider {
         &fixture.client,
         Command::SaveProvider {
             provider: Provider {
+                request_max_retries: None,
+                stream_max_retries: None,
                 preset: None,
                 binding: None,
                 consent: None,

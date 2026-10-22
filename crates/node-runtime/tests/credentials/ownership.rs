@@ -23,6 +23,8 @@ async fn retains_replaced_and_removed_configuration() {
             node.local()
         });
         let provider = Provider {
+            request_max_retries: None,
+            stream_max_retries: None,
             preset: None,
             binding: None,
             consent: None,

@@ -29,6 +29,8 @@ async fn session(
     api: ModelApi,
 ) -> (Session, Provider) {
     let provider = Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

@@ -7,6 +7,8 @@ use serde_json::Value;
 
 fn provider() -> Provider {
     Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

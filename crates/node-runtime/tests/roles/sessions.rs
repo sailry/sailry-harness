@@ -20,6 +20,8 @@ async fn provider(client: &Client, secret: Option<&str>) -> Provider {
             expected_revision: 0,
             secret: secret.map(|secret| Secret::new(secret.into())),
             provider: Provider {
+                request_max_retries: None,
+                stream_max_retries: None,
                 preset: None,
                 binding: None,
                 consent: None,

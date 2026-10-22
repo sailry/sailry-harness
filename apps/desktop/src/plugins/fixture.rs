@@ -375,6 +375,8 @@ impl Fixture {
             panic!("project expected");
         };
         let provider = sailry_protocol::conversation::Provider {
+            request_max_retries: None,
+            stream_max_retries: None,
             preset: None,
             binding: None,
             consent: None,

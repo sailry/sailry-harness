@@ -279,6 +279,8 @@ async fn upgrades_resources_on_both_paths() {
             &client,
             Command::SaveProvider {
                 provider: Provider {
+                    request_max_retries: None,
+                    stream_max_retries: None,
                     preset: None,
                     binding: None,
                     consent: None,

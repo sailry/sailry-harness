@@ -64,6 +64,8 @@ fn estimates_custom_endpoints() {
         &fixture.events,
         Command::PutProvider {
             provider: Provider {
+                request_max_retries: None,
+                stream_max_retries: None,
                 preset: None,
                 binding: None,
                 consent: None,
@@ -184,6 +186,8 @@ fn companion_costs() {
     let mut fixture = Fixture::new();
     let provider = ProviderId::new();
     let binding = json!({"provider":Provider {
+        request_max_retries: None,
+        stream_max_retries: None,
         preset: None,
         binding: None,
         consent: None,

@@ -53,6 +53,8 @@ async fn survives_without_projects() {
             .unwrap();
         let server = Server::start(false).await;
         let provider = Provider {
+            request_max_retries: None,
+            stream_max_retries: None,
             preset: None,
             binding: None,
             consent: None,

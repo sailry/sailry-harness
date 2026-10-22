@@ -152,6 +152,8 @@ async fn discovers_without_persistence() {
                 ]
             );
             let provider = Provider {
+                request_max_retries: None,
+                stream_max_retries: None,
                 preset: None,
                 binding: None,
                 consent: None,
