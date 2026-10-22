@@ -60,7 +60,7 @@ impl View {
                 .or(self.assistant.as_ref()),
         );
         json!({"configuring":self.configuration_blocked(),"model_tools":model_tools,"operations":operations,"command":command,"mode":self.current_mode(),"session":self.session(),"connected":self.connected(),
-            "busy":self.busy(),"readonly":self.readonly(),"statistics":statistics,"context_limit":self.context_limit(),
+            "connection":self.node.connection,"model":self.config.as_ref().map(|config| &config.model),"busy":self.busy(),"readonly":self.readonly(),"statistics":statistics,"context_limit":self.context_limit(),
             "compacting":compacting,"sidebar":self.sidebar,"has_messages":!self.rows.is_empty()})
     }
 

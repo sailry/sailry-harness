@@ -1,6 +1,7 @@
 //! Shared state and events for a plugin's declared controller slots.
 pub(crate) mod bridge;
 mod controls;
+pub(crate) mod header;
 pub(crate) mod intents;
 pub(crate) mod native;
 mod options;
@@ -657,6 +658,12 @@ impl Registry {
             ))
         });
         entries
+    }
+
+    pub(crate) fn popover_panel(&self, entry: &Entry, cx: &App) -> Option<Entity<Panel>> {
+        self.current(&entry.key)
+            .filter(|mounted| mounted.active(cx))
+            .map(|mounted| mounted.panel.clone())
     }
 
     pub(crate) fn metric_panel(&self, entry: &Entry, cx: &App) -> Option<Entity<Panel>> {

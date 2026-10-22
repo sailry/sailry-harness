@@ -339,7 +339,9 @@ impl View {
                 cx,
             )
         });
-        let controls = cx.new(|_| controls::Controls::new(search.clone(), assets.clone()));
+        let controls = cx.new(|cx| {
+            controls::Controls::new(search.clone(), assets.clone(), contributions.clone(), cx)
+        });
         cx.subscribe(&search, |view, _, event, cx| match event {
             search::Event::Reveal(target) => view.reveal_match(target.clone(), cx),
             search::Event::Reset => view.reveal = None,
