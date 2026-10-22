@@ -16,6 +16,11 @@ async fn publishes_admitted_retries() {
         let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
+        // This fixture isolates session retries from transport fallback and raw retries.
+        node.set_model_transport_fixture(adk_model::openai::WsOptions {
+            enabled: std::sync::Arc::new(|| false),
+            ..Default::default()
+        });
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -45,7 +50,7 @@ async fn publishes_admitted_retries() {
                 let server =
                     Server::start_with_request(ModelApi::Anthropic, move |_| failed(status)).await;
                 let provider = Provider {
-                    request_max_retries: None,
+                    request_max_retries: Some(0),
                     stream_max_retries: None,
                     preset: None,
                     binding: None,
