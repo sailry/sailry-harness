@@ -19,25 +19,33 @@
 
 ## 为什么选择 Sailry？
 
-- **为每个会话选择模型。** 接入自己的模型服务账号或兼容的 API 地址，
-  [切换模型](docs/models.md)后继续使用同一项目和工具。
-- **扩展整个工作区。** 插件可以通过公开的 [Apache-2.0 SDK](sdk/plugins.md)
+Sailry 将模型、项目、SSH、数据库和插件整合进同一个原生桌面工作区。
+
+对比包含产品官方提供的扩展。通过命令行或让智能体临时编写脚本操作数据库，
+不等同于专门的数据库界面。
+
+| 功能 | **Sailry** | [TRAE 中国版](https://docs.trae.cn/ide_traework-to-traecode-data-migration) | [WorkBuddy](https://www.codebuddy.cn/docs/workbuddy/Overview) | [Codex](https://learn.chatgpt.com/docs/environments/modes) | [Claude Code](https://code.claude.com/docs/en/overview) | [ZCode](https://zcode.z.ai/en/docs/welcome) | [DSH](https://github.com/deepseek-ai/deepseek-harness) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **数据库浏览、SQL 编辑与结果查看** | **✅** | — | — | — | — | — | — |
+| **SSH 连接与远程操作** | **✅** | [✅](https://docs.trae.cn/enterprise_feature-list?lang=zh) | — | [✅](https://learn.chatgpt.com/docs/remote-connections) | [✅](https://code.claude.com/docs/en/desktop) | [✅](https://zcode.z.ai/en/docs/remote-development) | ◐ 执行适配 |
+| **插件扩展工作区界面与设置** | **[✅](sdk/plugins.md)** | [◐ VSIX](https://docs.trae.cn/ide_manage-extensions) | [◐ 应用挂件](https://www.codebuddy.cn/docs/workbuddy/Changelog) | [◐ MCP 界面](https://learn.chatgpt.com/docs/plugins) | [◐ Mods](https://code.claude.com/docs/en/plugins/mods/overview) | [◐ 配置表单](https://zcode.z.ai/en/docs/plugin) | [✅](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/README.md) |
+| **完整桌面应用与执行端源码开放** | **[✅](LICENSE)** | — | — | [◐ CLI／服务端](https://learn.chatgpt.com/docs/open-source) | [❌](https://github.com/anthropics/claude-code/blob/main/LICENSE.md) | — | [✅](https://github.com/deepseek-ai/deepseek-harness) |
+| **主机互联与远程任务** | **✅ 桌面节点配对** | [✅ SSH](https://docs.trae.cn/ide_ssh-remote) | [◐ 手机连接电脑](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅ 设备互联／SSH](https://learn.chatgpt.com/docs/remote-connections) | [✅ SSH／Remote Control](https://code.claude.com/docs/en/desktop) | [✅ SSH／Remote](https://zcode.z.ai/en/docs/remote-development) | [◐ Web 服务](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| **手机查看与控制任务** | **尚未发布** | [✅ App／即时通讯](https://forum.trae.cn/t/topic/15182) | [✅ App／小程序](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅ ChatGPT App](https://learn.chatgpt.com/docs/remote-connections) | [✅ App／浏览器](https://code.claude.com/docs/en/remote-control) | [✅ Remote／机器人](https://zcode.z.ai/en/docs/welcome) | [◐ 浏览器](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| **独立部署自己的执行服务** | **安装包待发布** | — | — | [◐ App Server](https://learn.chatgpt.com/docs/app-server) | [◐ 远程执行](https://code.claude.com/docs/en/desktop) | [◐ 远程执行](https://zcode.z.ai/en/docs/remote-development) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| 自带 API Key／兼容模型网关 | **[✅](docs/models.md)** | [✅](https://docs.trae.cn/ide_models) | [✅](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model) | [✅](https://learn.chatgpt.com/docs/config-file/config-advanced) | ✅ | [✅](https://zcode.z.ai/en/docs/configuration) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/providers) |
+| Git Worktree 工作流 | **[✅](docs/projects.md)** | [✅](https://docs.trae.cn/enterprise_feature-list?lang=zh) | ✅ | ✅ | ✅ | — | [◐ 实验插件](https://github.com/deepseek-ai/deepseek-harness/releases) |
+
+✅ 已确认支持 · ◐ 支持相关能力，范围或成熟度见单元格说明 · ❌ 已确认不支持 ·
+— 尚未确认，不代表不支持。主机连接包含设备配对、SSH、Web 等不同方式；
+手机控制指查看和管理电脑或服务器上的任务。模型接入须符合各产品支持的服务商与协议。
+DSH 指 DeepSeek Harness，ZCode 指 Z.ai 面向 GLM 的开发工作区。
+
+- **工具集中使用。** 在对话旁处理项目、终端、SSH 和数据库任务。
+- **工作区可以扩展。** 插件通过公开的 [Apache-2.0 SDK](sdk/plugins.md)
   添加页面、面板、设置、智能体工具和技能。
-- **自主选择任务运行的位置。** 桌面端自带本地执行能力，独立的
-  [Host](docs/hosts.md) 在自己的机器上使用同一套运行时。
-  控制端断开连接后，已接收的任务仍会继续执行。
-
-这些产品的能力有所重叠，但工作方式和扩展机制各有侧重。表中链接均指向官方文档。
-
-| 产品 | 工作方式 | 自定义与扩展 |
-| --- | --- | --- |
-| **Sailry** | 将会话、项目和工具放在同一个原生桌面工作区 | 自定义模型接口；界面、工具和技能插件；MCP |
-| [TRAE（中国版）](https://docs.trae.cn/ide_traework-to-traecode-data-migration) | 集成 Agent 与 IDE 的软件开发工作区 | [内置及自定义模型](https://docs.trae.cn/ide_models)；技能、MCP 和插件 |
-| [WorkBuddy](https://www.codebuddy.cn/docs/workbuddy/Overview) | 面向办公、编程和内容处理的桌面任务助手 | [自定义模型，包括 Ollama](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model)；技能与 [MCP/CLI 连接器](https://open.workbuddy.cn/docs/connector) |
-| [Codex](https://learn.chatgpt.com/docs/environments/modes) | 在本地项目、工作树和云端环境中编程 | [自定义服务商、模型网关和本地模型](https://learn.chatgpt.com/docs/config-file/config-advanced)；[技能、MCP 和插件](https://learn.chatgpt.com/docs/skills-and-plugins) |
-| [Claude Code](https://code.claude.com/docs/en/overview) | 通过终端、IDE、桌面端或浏览器编程 | 技能、MCP 和插件；受支持的模型服务与网关部署 |
-| [ZCode](https://zcode.z.ai/en/docs/welcome) | 为 GLM 优化的开发工作区 | [第三方模型服务](https://zcode.z.ai/en/docs/configuration)；技能、MCP、钩子和[插件](https://zcode.z.ai/en/docs/plugin) |
-| [DeepSeek Harness（DSH）](https://www.deepseek.com/en/harness/) | 面向编程与日常任务的桌面及网页工作区 | [自定义模型服务](https://deepseek-harness.github.io/deepseek-harness/en/guide/providers)；模型、工具、技能和界面插件 |
+- **模型与执行位置可选择。** 接入自己的模型服务、审阅源码，并配对桌面节点或连接
+  [执行主机](docs/hosts.md)。独立 Host 安装包和手机控制的发布状态见下方。
 
 Sailry 目前处于早期预览阶段：macOS 桌面端已提供，Host 安装包待发布，移动端尚未发布。
 详见[平台支持情况](#安装)。

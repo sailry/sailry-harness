@@ -19,27 +19,38 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 
 ## Why Sailry?
 
-- **Choose models per conversation.** Connect your own provider accounts or
-  compatible API endpoints, and keep the same project and tools when you
-  [switch models](docs/models.md).
-- **Extend the workspace.** Plugins can add pages, panels, settings, agent tools
-  and skills through a public [Apache-2.0 SDK](sdk/plugins.md).
-- **Control where tasks run.** Desktop includes local execution. The standalone
-  [Host](docs/hosts.md) uses the same runtime on your own machine and keeps accepted
-  tasks running when the controller disconnects.
+Sailry brings models, projects, SSH, databases and plugins together in one native
+desktop workspace.
 
-The products below offer overlapping capabilities with different workflows and
-extension options. Links lead to their official documentation.
+The comparison includes official extensions. Running a shell command or asking an
+agent to write a script does not count as a dedicated database interface.
 
-| Product | Workflow | Customization |
-| --- | --- | --- |
-| **Sailry** | Native desktop workspace for conversations, projects and tools | Custom model endpoints; plugins for UI, tools and skills; MCP |
-| [TRAE (China edition)](https://docs.trae.cn/ide_traework-to-traecode-data-migration) | Integrated Agent and IDE for software development | [Built-in and custom models](https://docs.trae.cn/ide_models); skills, MCP and plugins |
-| [WorkBuddy](https://www.codebuddy.cn/docs/workbuddy/Overview) | Desktop tasks across office work, coding and content | [Custom models, including Ollama](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model); skills and [MCP/CLI connectors](https://open.workbuddy.cn/docs/connector) |
-| [Codex](https://learn.chatgpt.com/docs/environments/modes) | Coding across local projects, worktrees and cloud environments | [Custom providers, model gateways and local models](https://learn.chatgpt.com/docs/config-file/config-advanced); [skills, MCP and plugins](https://learn.chatgpt.com/docs/skills-and-plugins) |
-| [Claude Code](https://code.claude.com/docs/en/overview) | Coding from the terminal, IDE, desktop or browser | Skills, MCP and plugins; supported provider and gateway deployments |
-| [ZCode](https://zcode.z.ai/en/docs/welcome) | Development workspace optimized for GLM | [Third-party providers](https://zcode.z.ai/en/docs/configuration); skills, MCP, hooks and [plugins](https://zcode.z.ai/en/docs/plugin) |
-| [DeepSeek Harness (DSH)](https://www.deepseek.com/en/harness/) | Desktop and web workspace for coding and everyday tasks | [Custom providers](https://deepseek-harness.github.io/deepseek-harness/en/guide/providers); plugins for models, tools, skills and UI |
+| Feature | **Sailry** | [TRAE (China)](https://docs.trae.cn/ide_traework-to-traecode-data-migration) | [WorkBuddy](https://www.codebuddy.cn/docs/workbuddy/Overview) | [Codex](https://learn.chatgpt.com/docs/environments/modes) | [Claude Code](https://code.claude.com/docs/en/overview) | [ZCode](https://zcode.z.ai/en/docs/welcome) | [DSH](https://github.com/deepseek-ai/deepseek-harness) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Database browser, SQL editor and results** | **✅** | — | — | — | — | — | — |
+| **SSH connections and remote operations** | **✅** | [✅](https://docs.trae.cn/enterprise_feature-list?lang=zh) | — | [✅](https://learn.chatgpt.com/docs/remote-connections) | [✅](https://code.claude.com/docs/en/desktop) | [✅](https://zcode.z.ai/en/docs/remote-development) | ◐ Execution adapter |
+| **Plugin workspace UI and settings** | **[✅](sdk/plugins.md)** | [◐ VSIX](https://docs.trae.cn/ide_manage-extensions) | [◐ App widgets](https://www.codebuddy.cn/docs/workbuddy/Changelog) | [◐ MCP UI](https://learn.chatgpt.com/docs/plugins) | [◐ Mods](https://code.claude.com/docs/en/plugins/mods/overview) | [◐ Config forms](https://zcode.z.ai/en/docs/plugin) | [✅](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/README.md) |
+| **Full desktop and execution source available** | **[✅](LICENSE)** | — | — | [◐ CLI / server](https://learn.chatgpt.com/docs/open-source) | [❌](https://github.com/anthropics/claude-code/blob/main/LICENSE.md) | — | [✅](https://github.com/deepseek-ai/deepseek-harness) |
+| **Connect hosts and run tasks remotely** | **✅ Paired desktop nodes** | [✅ SSH](https://docs.trae.cn/ide_ssh-remote) | [◐ Mobile-to-desktop](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅ Paired devices / SSH](https://learn.chatgpt.com/docs/remote-connections) | [✅ SSH / Remote Control](https://code.claude.com/docs/en/desktop) | [✅ SSH / Remote](https://zcode.z.ai/en/docs/remote-development) | [◐ Web service](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| **View and control tasks from a phone** | **Unreleased** | [✅ App / messaging](https://forum.trae.cn/t/topic/15182) | [✅ App / mini program](https://www.codebuddy.cn/docs/workbuddyapp/features/Multidevice) | [✅ ChatGPT app](https://learn.chatgpt.com/docs/remote-connections) | [✅ App / browser](https://code.claude.com/docs/en/remote-control) | [✅ Remote / bots](https://zcode.z.ai/en/docs/welcome) | [◐ Browser](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| **Standalone execution service on your own server** | **Packages pending** | — | — | [◐ App Server](https://learn.chatgpt.com/docs/app-server) | [◐ Remote execution](https://code.claude.com/docs/en/desktop) | [◐ Remote execution](https://zcode.z.ai/en/docs/remote-development) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/public-deployments) |
+| Own API key / compatible model gateway | **[✅](docs/models.md)** | [✅](https://docs.trae.cn/ide_models) | [✅](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model) | [✅](https://learn.chatgpt.com/docs/config-file/config-advanced) | ✅ | [✅](https://zcode.z.ai/en/docs/configuration) | [✅](https://deepseek-harness.github.io/deepseek-harness/en/guide/providers) |
+| Git worktree workflow | **[✅](docs/projects.md)** | [✅](https://docs.trae.cn/enterprise_feature-list?lang=zh) | ✅ | ✅ | ✅ | — | [◐ Experimental plugin](https://github.com/deepseek-ai/deepseek-harness/releases) |
+
+✅ Confirmed support · ◐ Related support with the stated scope or maturity limit ·
+❌ Confirmed unavailable · — Unconfirmed, not necessarily unsupported.
+Host connections use different models, including device pairing, SSH and web access.
+Phone control means managing tasks on a computer or server. Model connections must
+use each product's supported providers and protocols.
+DSH means DeepSeek Harness; ZCode is Z.ai's GLM-focused workspace.
+
+- **Keep tools together.** Work with projects, terminals, SSH and databases beside
+  the conversation.
+- **Extend the workspace.** Plugins add pages, panels, settings, agent tools and
+  skills through the public [Apache-2.0 SDK](sdk/plugins.md).
+- **Choose models and execution hosts.** Use your own model services, inspect the
+  source and pair desktop nodes or connect [execution hosts](docs/hosts.md).
+  Standalone Host packages and mobile control follow the release status below.
 
 Sailry is an early preview: macOS Desktop is available, Host packages are awaiting
 release, and Mobile is not yet released. See [platform availability](#install).
