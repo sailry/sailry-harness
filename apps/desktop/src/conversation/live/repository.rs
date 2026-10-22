@@ -1,18 +1,33 @@
 //! Checkout identity is core location metadata; feature UI is supplied by packages.
 use super::*;
+mod inspection;
+use inspection::{Inspection, Kind};
 
 #[derive(Default)]
 pub(super) struct State {
-    scope: Option<(sailry_protocol::NodeId, WorktreeId)>,
+    inspection: Inspection,
     stop: Option<CancellationToken>,
     task: Option<Task<()>>,
 }
 
-impl Drop for State {
-    fn drop(&mut self) {
-        if let Some(stop) = &self.stop {
+impl State {
+    pub(super) fn is_git(&self) -> bool {
+        self.inspection.kind() == Kind::Repository
+    }
+    pub(super) fn kind(&self) -> &'static str {
+        self.inspection.kind().as_str()
+    }
+    fn cancel(&mut self) {
+        if let Some(stop) = self.stop.take() {
             stop.cancel();
         }
+        self.task = None;
+    }
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        self.cancel();
     }
 }
 
@@ -30,37 +45,37 @@ impl View {
             && self.assistant.is_none()
             && self.binding.project.is_some()
             && self.node.snapshot.is_some();
-        if !eligible
-            || self.repository.scope
-                != self
-                    .binding
-                    .worktree
-                    .map(|tree| (self.binding.client.target(), tree))
+        let node = self.binding.client.target();
+        let scope = self
+            .binding
+            .worktree
+            .filter(|_| eligible)
+            .map(|tree| (node, tree));
+        if self
+            .repository
+            .inspection
+            .select(scope, self.node.connected)
         {
-            self.repository = State::default();
+            self.repository.cancel();
         }
-        let Some(worktree) = self.binding.worktree.filter(|_| eligible) else {
+        let Some((_, worktree)) = scope else { return };
+        let Some(generation) = self
+            .repository
+            .inspection
+            .begin(!matches!(event, Refresh::Snapshot))
+        else {
             return;
         };
-        if self.repository.task.is_some()
-            || (matches!(event, Refresh::Snapshot)
-                && self.repository.scope == Some((self.binding.client.target(), worktree)))
-        {
-            return;
-        }
-        let node = self.binding.client.target();
-        self.repository.scope = Some((node, worktree));
-        let stop = self
-            .repository
-            .stop
-            .get_or_insert_with(|| self.stop.child_token())
-            .clone();
+        let stop = self.stop.child_token();
+        self.repository.stop = Some(stop.clone());
         let current = stop.clone();
         let client = self.binding.client.clone();
+        let request = client.prepare(Command::InspectGit { worktree });
+        let request_id = request.id;
         let job = self.binding.runtime.spawn(async move {
             tokio::select! {
                 _ = stop.cancelled() => None,
-                result = client.execute(client.prepare(Command::InspectGit {worktree})) => Some(result),
+                result = client.execute(request) => Some(result),
             }
         });
         self.repository.task = Some(cx.spawn(async move |view, cx| {
@@ -72,16 +87,53 @@ impl View {
                 {
                     return;
                 }
-                view.repository.task = None;
-                if let Ok(Some(Ok(Output::GitStatus(status)))) = result {
-                    view.git = status.kind != sailry_protocol::RepositoryKind::Directory;
-                    view.binding.branch = status
-                        .branch
-                        .or_else(|| status.head.map(|head| head.chars().take(8).collect()))
-                        .unwrap_or_else(|| tr("composer_branch_none").to_string())
-                        .into();
-                    cx.notify();
+                let result = match result {
+                    Ok(Some(Ok(Output::GitStatus(status)))) => Ok(status),
+                    Ok(Some(Err(error))) => Err(error),
+                    Ok(None) => return,
+                    _ => Err(sailry_protocol::Fault::new(
+                        sailry_protocol::ErrorCode::Internal,
+                        "Git inspection returned no status",
+                    )),
+                };
+                if !view
+                    .repository
+                    .inspection
+                    .finish(generation, result.as_ref().ok().map(|status| status.kind))
+                {
+                    return;
                 }
+                view.repository.task = None;
+                match result {
+                    Ok(status) => {
+                        view.binding.branch = status
+                            .branch
+                            .or_else(|| status.head.map(|head| head.chars().take(8).collect()))
+                            .unwrap_or_else(|| tr("composer_branch_none").to_string())
+                            .into();
+                    }
+                    Err(error)
+                        if error.code != sailry_protocol::ErrorCode::Cancelled
+                            && view.repository.inspection.report_failure() =>
+                    {
+                        use sailry_protocol::notification::{SystemDiagnostic, SystemSource};
+                        let mut report = SystemDiagnostic::new(
+                            request_id,
+                            SystemSource::GitInspection,
+                            error.code,
+                        );
+                        report.request = Some(request_id);
+                        report.worktree = Some(worktree);
+                        report.session = view.session.as_ref().map(|session| session.id);
+                        report.operation = Some("InspectGit".into());
+                        let client = view.binding.client.clone();
+                        view.binding.runtime.spawn(async move {
+                            let _ = client.report_diagnostic(report).await;
+                        });
+                    }
+                    Err(_) => {}
+                }
+                cx.notify();
             });
         }));
     }

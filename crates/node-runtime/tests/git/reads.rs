@@ -1,6 +1,51 @@
 use super::*;
 
 #[tokio::test]
+async fn failed_inspections_recover_without_caching_a_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("repository");
+    let repository = Repository::init(&root).unwrap();
+    repository.set_head("refs/heads/main").unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let reads = std::sync::Arc::new(sailry_client::git::Reads::default());
+    let local = Client::new(node.local()).with_git_reads(reads.clone());
+    let worktree = worktree(&local, &root).await;
+    let controller = Link::controller(directory.path().join("client"), NetworkScope::default())
+        .await
+        .unwrap();
+    let peer = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let remote = Client::new(controller.handle().remote(peer)).with_git_reads(reads);
+    let index = repository.path().join("index");
+    for client in [&local, &remote] {
+        std::fs::write(&index, "invalid index fixture").unwrap();
+        assert!(
+            client
+                .execute(client.prepare(Command::InspectGit { worktree }))
+                .await
+                .is_err()
+        );
+        std::fs::remove_file(&index).unwrap();
+        let Output::GitStatus(status) = client
+            .execute(client.prepare(Command::InspectGit { worktree }))
+            .await
+            .unwrap()
+        else {
+            panic!("Git status expected")
+        };
+        assert_eq!(status.kind, RepositoryKind::Unborn);
+        assert_eq!(status.branch.as_deref(), Some("main"));
+    }
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn serves_concurrent_controllers() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("repository");

@@ -102,7 +102,7 @@ impl View {
             if session.project.is_none() {
                 self.binding.project_name = tr("sessions_unassigned");
                 self.binding.branch = SharedString::default();
-                self.git = false;
+                self.repository = Default::default();
             }
             return;
         }
@@ -111,7 +111,7 @@ impl View {
         }
         self.binding.worktree = Some(session.worktree);
         self.binding.branch = tr("worktree_unavailable");
-        self.git = false;
+        self.repository = Default::default();
         self.references.selected.clear();
         self.refresh_repository(repository::Refresh::Location, cx);
         cx.emit(Event::LocationChanged);
@@ -178,7 +178,7 @@ impl View {
     }
 
     pub(super) fn create_worktree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.git {
+        if self.repository.is_git() {
             self.invoke_location(Intent::CreateWorktree, window, cx);
         }
     }
@@ -414,7 +414,7 @@ impl View {
         serde_json::json!({"surface":"composer","node":crate::live::node_key(self.binding.client.target()),"project":self.binding.project,"worktree":self.binding.worktree,
             "session":self.session.as_ref().map(|session|session.id),"revision":self.session.as_ref().map(|session|session.revision.to_string()),
             "main":main,"project_name":self.binding.project_name.as_ref(),"branch":self.binding.branch.as_ref(),
-            "can_move":self.can_move(),"can_retarget":self.can_retarget(),"git":self.git,"connected":self.connected()})
+            "can_move":self.can_move(),"can_retarget":self.can_retarget(),"git":self.repository.is_git(),"git_status":self.repository.kind(),"connected":self.connected()})
     }
 
     pub(crate) fn select_registered_location(

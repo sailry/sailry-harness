@@ -63,7 +63,7 @@ impl View {
                     .unwrap_or(true);
                 let create_disabled = owner
                     .read_with(cx, |view, cx| {
-                        !view.git
+                        !view.repository.is_git()
                             || !view.can_move()
                             || !view.can_invoke_contribution(
                                 sailry_protocol::plugin::ui::Intent::CreateWorktree,

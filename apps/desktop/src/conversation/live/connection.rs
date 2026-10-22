@@ -15,7 +15,7 @@ impl View {
         let mut view = Self::new(binding, session, window, cx);
         view.sidebar = true;
         view.composer_options = options;
-        view.git = false;
+        view.repository = Default::default();
         view
     }
 

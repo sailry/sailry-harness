@@ -100,14 +100,17 @@ impl Reads {
 
 async fn read(transport: &dyn Transport, request: Request) -> Response {
     let mut delay = Duration::from_millis(250);
+    let mut retries = 0;
     loop {
         let result = super::execute(transport, request.clone()).await;
-        if !matches!(&result, Err(error) if matches!(error.code, ErrorCode::Busy | ErrorCode::Unavailable))
+        if retries == 2
+            || !matches!(&result, Err(error) if matches!(error.code, ErrorCode::Busy | ErrorCode::Unavailable))
         {
             return result;
         }
+        retries += 1;
         tokio::time::sleep(delay).await;
-        delay = (delay * 2).min(Duration::from_secs(5));
+        delay *= 2;
     }
 }
 

@@ -99,7 +99,7 @@ impl State {
                 .is_none_or(|tree| tree.main);
             json!({"surface":"project","node":crate::live::node_key(self.binding.client.target()),"project":self.binding.project,"worktree":self.binding.worktree,
                 "session":null,"revision":null,"main":main,"project_name":self.binding.project_name.as_ref(),"branch":self.binding.branch.as_ref(),
-                "can_move":self.connected,"can_retarget":false,"git":false,"connected":self.connected})
+                "can_move":self.connected,"can_retarget":false,"git":false,"git_status":"unknown","connected":self.connected})
         };
         if let Some(snapshot) = &self.snapshot {
             self.known.extend(
@@ -198,7 +198,7 @@ pub(super) fn extend(
     let route_owner = owner.clone();
     let route_host = host.clone();
     let declarations = format!(
-        "{}\nexport type ContributionIntent = 'git_branches'|'worktrees'|'create_worktree'|'fork_worktree';\nexport function invokeContribution(intent:ContributionIntent,value?:unknown):Promise<boolean>;\nexport function canInvokeContribution(intent:ContributionIntent):Promise<boolean>;\nexport function readLocation():{{cursor:string;surface:'composer'|'project';node:string;project:string|null;worktree:string|null;session:string|null;revision:string|null;main:boolean;project_name:string;branch:string;can_move:boolean;can_retarget:boolean;git:boolean;connected:boolean}};\nexport function nextLocationChange(cursor:string):Promise<ReturnType<typeof readLocation>>;\nexport function selectLocation(cursor:string,selection:{{worktree?:string;fork?:boolean;projects?:boolean;overview?:boolean;request?:string}}):Promise<boolean>;\nexport function worktreeHasDrafts(worktree:string,request?:string):Promise<boolean>;\nexport function releaseWorktree(worktree:string,request:string):Promise<void>;",
+        "{}\nexport type ContributionIntent = 'git_branches'|'worktrees'|'create_worktree'|'fork_worktree';\nexport function invokeContribution(intent:ContributionIntent,value?:unknown):Promise<boolean>;\nexport function canInvokeContribution(intent:ContributionIntent):Promise<boolean>;\nexport function readLocation():{{cursor:string;surface:'composer'|'project';node:string;project:string|null;worktree:string|null;session:string|null;revision:string|null;main:boolean;project_name:string;branch:string;can_move:boolean;can_retarget:boolean;git:boolean;git_status:'unknown'|'repository'|'plain_directory';connected:boolean}};\nexport function nextLocationChange(cursor:string):Promise<ReturnType<typeof readLocation>>;\nexport function selectLocation(cursor:string,selection:{{worktree?:string;fork?:boolean;projects?:boolean;overview?:boolean;request?:string}}):Promise<boolean>;\nexport function worktreeHasDrafts(worktree:string,request?:string):Promise<boolean>;\nexport function releaseWorktree(worktree:string,request:string):Promise<void>;",
         module.declared().unwrap_or_default()
     );
     let module = module

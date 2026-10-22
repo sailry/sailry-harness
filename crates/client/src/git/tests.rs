@@ -214,6 +214,33 @@ async fn retries_only_transient_reads() {
 }
 
 #[tokio::test]
+async fn exhausted_reads_allow_a_new_observation() {
+    let backend = Backend::new();
+    let client = backend.client(&Arc::default());
+    backend
+        .errors
+        .lock()
+        .unwrap()
+        .extend([ErrorCode::Unavailable; 3]);
+    backend.release.add_permits(3);
+    let command = Command::InspectGit {
+        worktree: WorktreeId::new(),
+    };
+    assert_eq!(
+        client
+            .execute(client.prepare(command.clone()))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::Unavailable
+    );
+    assert_eq!(backend.calls.lock().unwrap().len(), 3);
+    backend.release.add_permits(1);
+    client.execute(client.prepare(command)).await.unwrap();
+    assert_eq!(backend.calls.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
 async fn shares_read_lifetime() {
     let backend = Backend::new();
     let reads = Arc::default();
