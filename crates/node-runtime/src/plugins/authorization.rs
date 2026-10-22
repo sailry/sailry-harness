@@ -38,23 +38,28 @@ impl Flow {
                 .with_preregistered_client(registered.id)
                 .with_client_secret(registered.secret.expose());
             Some(registered.secret)
-        } else if let Some(previous) = previous {
-            let previous: Credentials =
-                serde_json::from_str(previous.expose()).map_err(unavailable)?;
-            if client_id.is_some_and(|id| id != previous.state.client_id) {
+        } else if let Some(client_id) = client_id {
+            let previous: Option<Credentials> = previous
+                .map(|previous| serde_json::from_str(previous.expose()))
+                .transpose()
+                .map_err(unavailable)?;
+            if previous
+                .as_ref()
+                .is_some_and(|previous| client_id != previous.state.client_id)
+            {
                 return Err(Fault::invalid(
                     "MCP OAuth client ID differs from its saved registration",
                 ));
             }
-            request = request.with_preregistered_client(previous.state.client_id);
-            if let Some(secret) = &previous.client_secret {
+            let secret = previous.and_then(|previous| previous.client_secret);
+            request = request.with_preregistered_client(client_id);
+            if let Some(secret) = &secret {
                 request = request.with_client_secret(secret.expose());
             }
-            previous.client_secret
-        } else if let Some(client_id) = client_id {
-            request = request.with_preregistered_client(client_id);
-            None
+            secret
         } else {
+            // A new controller callback can use a different port. Register its exact
+            // redirect instead of reusing a dynamic client bound to an older one.
             // Capture the SDK registration result before its StoredCredentials drops the secret.
             let scopes = manager.select_scopes(None, &[]);
             let references = scopes.iter().map(String::as_str).collect::<Vec<_>>();

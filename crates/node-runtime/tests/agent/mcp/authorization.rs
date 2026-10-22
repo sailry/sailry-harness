@@ -7,6 +7,7 @@ mod confidential;
 mod expiration;
 mod lifecycle;
 mod migration;
+mod redirects;
 const ORIGIN: &str = "https://mcp.example.com";
 fn configure(fixture: &process::Fixture, endpoint: &str, sse: bool, confidential: bool) {
     fixture.node.set_connector_fixture(ORIGIN, endpoint);

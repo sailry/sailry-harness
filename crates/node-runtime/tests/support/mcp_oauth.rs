@@ -20,6 +20,8 @@ pub struct Server {
     pub exchanges: Arc<AtomicUsize>,
     pub refreshes: Arc<AtomicUsize>,
     pub registrations: Arc<AtomicUsize>,
+    pub registration_status: Arc<AtomicU16>,
+    pub authorization_denied: Arc<AtomicBool>,
     pub status: Arc<AtomicU16>,
     pub denied: Arc<AtomicBool>,
     pub requests: Arc<Mutex<Vec<String>>>,
@@ -91,6 +93,8 @@ impl Server {
         let exchanges = Arc::new(AtomicUsize::new(0));
         let refreshes = Arc::new(AtomicUsize::new(0));
         let registrations = Arc::new(AtomicUsize::new(0));
+        let registration_status = Arc::new(AtomicU16::new(201));
+        let authorization_denied = Arc::new(AtomicBool::new(false));
         let status = Arc::new(AtomicU16::new(200));
         let denied = Arc::new(AtomicBool::new(false));
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -102,6 +106,9 @@ impl Server {
             exchanges: exchanges.clone(),
             refreshes: refreshes.clone(),
             registrations: registrations.clone(),
+            registration_status: registration_status.clone(),
+            authorization_denied: authorization_denied.clone(),
+            redirects: Mutex::new(Vec::new()),
             status: status.clone(),
             denied: denied.clone(),
             requests: requests.clone(),
@@ -134,6 +141,8 @@ impl Server {
             exchanges,
             refreshes,
             registrations,
+            registration_status,
+            authorization_denied,
             status,
             denied,
             requests,
@@ -171,6 +180,9 @@ struct Issuer {
     exchanges: Arc<AtomicUsize>,
     refreshes: Arc<AtomicUsize>,
     registrations: Arc<AtomicUsize>,
+    registration_status: Arc<AtomicU16>,
+    authorization_denied: Arc<AtomicBool>,
+    redirects: Mutex<Vec<String>>,
     status: Arc<AtomicU16>,
     denied: Arc<AtomicBool>,
     requests: Arc<Mutex<Vec<String>>>,
@@ -277,6 +289,16 @@ impl Issuer {
             "/register" => {
                 assert!(!self.registered);
                 self.registrations.fetch_add(1, Ordering::SeqCst);
+                let status = self.registration_status.load(Ordering::SeqCst);
+                if status != 201 {
+                    return reply(
+                        &mut stream,
+                        status,
+                        "",
+                        json!({"error":"temporarily_unavailable"}),
+                    )
+                    .await;
+                }
                 let mut registration: Value = serde_json::from_slice(body).unwrap();
                 if registration["token_endpoint_auth_method"] != auth_method {
                     return reply(
@@ -288,6 +310,8 @@ impl Issuer {
                     .await;
                 }
                 registration["client_id"] = json!("fixture-client");
+                *self.redirects.lock().unwrap() =
+                    serde_json::from_value(registration["redirect_uris"].clone()).unwrap();
                 if let Some(secret) = &self.secret {
                     registration["client_secret"] = json!(*secret.lock().unwrap());
                 }
@@ -298,13 +322,30 @@ impl Issuer {
                 assert_eq!(params["client_id"], "fixture-client");
                 assert_eq!(params["code_challenge_method"], "S256");
                 assert!(!params["code_challenge"].is_empty());
+                if !self.registered
+                    && !self
+                        .redirects
+                        .lock()
+                        .unwrap()
+                        .contains(&params["redirect_uri"])
+                {
+                    return reply(&mut stream, 400, "", json!({"error":"invalid_request","error_description":"Invalid redirect URI"})).await;
+                }
                 let mut callback = url::Url::parse(&params["redirect_uri"]).unwrap();
                 *self.callback.lock().unwrap() = Some(params["redirect_uri"].clone());
                 callback
                     .query_pairs_mut()
-                    .append_pair("code", "fixture-code")
                     .append_pair("state", &params["state"])
                     .append_pair("iss", origin);
+                if self.authorization_denied.load(Ordering::SeqCst) {
+                    callback
+                        .query_pairs_mut()
+                        .append_pair("error", "access_denied");
+                } else {
+                    callback
+                        .query_pairs_mut()
+                        .append_pair("code", "fixture-code");
+                }
                 return reply(
                     &mut stream,
                     302,
