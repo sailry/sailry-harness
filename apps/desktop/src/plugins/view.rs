@@ -175,9 +175,6 @@ impl Render for Panel {
                     .when(!self.content_sized, |view| {
                         view.flex_1().min_h_0().overflow_y_scroll()
                     })
-                    .when(!failed, |view| {
-                        view.child(crate::ui::pending::overlay("plugin-panel-spinner", cx))
-                    })
                     .child(if self.content_sized {
                         body.into_any_element()
                     } else {

@@ -406,19 +406,15 @@ Set `fill: true` for equal-width choices across a modal form; it defaults to
 false so page and toolbar tabs retain their content widths. Selection events
 retain the same `{id, value}` payload.
 
-`Loading.new(id)` from `sailry/ui` is the region loading overlay. It covers its
-parent, blocks input to the content below, and shows a centered spinner. The
-parent must be `relative()` and have real size (`flex_1`, `size_full` or a
-fixed height). The overlay fades in only after 300ms, so a read that finishes
-sooner shows nothing; it appears immediately when the system reduces motion.
-Keep the page heading, toolbar and scroll container mounted while the first
-read is pending. Show the overlay only for a region with nothing to display yet.
-When a region already has content, keep showing it during refresh without the
-overlay. Show an empty state only after a successful read.
+`Loading.new(id)` from `sailry/ui` is a nonvisual pending marker. Reads load
+silently without a spinner or input-blocking overlay. Keep the page heading,
+toolbar and scroll container mounted, and retain existing content during refresh.
+Disable actions that require unavailable data; show an empty state only after a
+successful read.
 
 `CardList` handles these states automatically. Its children are the row-content
 slot: existing children always remain visible; without children, `loaded: false`
-renders a sized `Loading` region and a successful read shows `empty_label`. Omit
+stays empty and a successful read shows `empty_label`. Omit
 the state props to use the original layout-only composition. The plugin still
 owns requests, successful-read state, drafts and error reporting.
 

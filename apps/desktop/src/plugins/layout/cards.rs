@@ -1,8 +1,6 @@
 //! Script access to the shared card composition, without package-specific fields.
 use crate::ui::card_list::{self, Column};
-use gpui_kit::{
-    IntoElement as _, ParentElement as _, SharedString, Styled as _, component::Icon, div,
-};
+use gpui_kit::{IntoElement as _, ParentElement as _, SharedString, component::Icon};
 use gpui_shell::{HostModule, HostValue};
 
 pub(super) fn extend(module: HostModule) -> HostModule {
@@ -10,7 +8,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
         "{}\n{}",
         module.declared().unwrap_or_default(),
         r#"
-            /** Children are rows. Missing first-read data shows a loading overlay; existing rows survive refresh. */
+            /** Children are rows. Missing first-read data stays empty; existing rows survive refresh. */
             export const CardList: { new(id: string, props?: { loaded?: boolean; empty_icon?: string; empty_label?: string }): import("gpui-kit").Element };
             /** Non-selectable Kit card; children are CardColumn elements with their own controls. */
             export const CardRow: { new(id: string, props?: { row_id?: string }): import("gpui-kit").Element };
@@ -24,40 +22,29 @@ pub(super) fn extend(module: HostModule) -> HostModule {
         .component("CardList", |mut args, _, cx| {
             let id = args.id().to_owned();
             let mut children = args.take_children();
-            if children.is_empty() {
-                if args.props().get("loaded").and_then(HostValue::as_bool) == Some(false) {
-                    children.push(
-                        div()
-                            .relative()
-                            .w_full()
-                            .h_24()
-                            .child(crate::ui::pending::overlay(format!("{id}-loading"), cx))
-                            .into_any_element(),
-                    );
-                } else if let Some(label) =
-                    args.props().get("empty_label").and_then(HostValue::as_str)
-                {
-                    let icon = args
-                        .props()
-                        .get("empty_icon")
-                        .and_then(HostValue::as_str)
-                        .unwrap_or("inbox");
-                    let icon = Icon::empty().path(if icon.contains('/') {
-                        icon.to_owned()
-                    } else {
-                        format!("icons/{icon}.svg")
-                    });
-                    let empty_id: SharedString = format!("{id}-empty").into();
-                    let body = crate::empty_state::list_content(
-                        icon,
-                        label.to_owned().into(),
-                        empty_id.clone(),
-                        cx,
-                    );
-                    children.push(
-                        crate::empty_state::card_content(body, empty_id, cx).into_any_element(),
-                    );
-                }
+            if children.is_empty()
+                && args.props().get("loaded").and_then(HostValue::as_bool) != Some(false)
+                && let Some(label) = args.props().get("empty_label").and_then(HostValue::as_str)
+            {
+                let icon = args
+                    .props()
+                    .get("empty_icon")
+                    .and_then(HostValue::as_str)
+                    .unwrap_or("inbox");
+                let icon = Icon::empty().path(if icon.contains('/') {
+                    icon.to_owned()
+                } else {
+                    format!("icons/{icon}.svg")
+                });
+                let empty_id: SharedString = format!("{id}-empty").into();
+                let body = crate::empty_state::list_content(
+                    icon,
+                    label.to_owned().into(),
+                    empty_id.clone(),
+                    cx,
+                );
+                children
+                    .push(crate::empty_state::card_content(body, empty_id, cx).into_any_element());
             }
             card_list::list(id, children).into_any_element()
         })

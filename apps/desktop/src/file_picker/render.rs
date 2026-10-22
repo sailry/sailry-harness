@@ -118,13 +118,7 @@ impl Render for Picker {
                                                     )),
                                             )
                                         },
-                                    )
-                                    .when(self.busy && self.listing.is_none(), |body| {
-                                        body.child(crate::ui::pending::overlay(
-                                            "directory-pending",
-                                            cx,
-                                        ))
-                                    }),
+                                    ),
                             )
                             .child(
                                 div()

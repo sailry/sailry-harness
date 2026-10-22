@@ -100,8 +100,8 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 .children(args.take_children())
                 .into_any_element()
         })
-        .component("Loading", |args, _, cx| {
-            crate::ui::pending::overlay(args.id().to_owned(), cx)
+        .component("Loading", |_, _, _| {
+            div().absolute().size_0().into_any_element()
         })
         .component("EmptyState", |mut args, _, cx| {
             let icon = args

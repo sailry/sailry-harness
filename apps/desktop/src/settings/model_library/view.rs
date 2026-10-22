@@ -69,9 +69,6 @@ impl Render for Library {
                     )
                     .into_any_element()
             });
-            if self.loading {
-                results = results.overlay(crate::ui::pending::overlay("model-library-loading", cx));
-            }
         }
         if !self.items.is_empty() {
             let height = (window.rem_size() * (self.items.len() as f32 * rows::ROW_HEIGHT))
