@@ -1,4 +1,4 @@
-//! Authoritative Node policy; native assertions and execution counts are never stored.
+//! Authoritative Node policy; native assertion handles are never stored.
 use crate::store::database::{encode, storage_error};
 use rusqlite::{Connection, OptionalExtension};
 use sailry_protocol::{power::Settings, *};

@@ -813,6 +813,3 @@ mod live;
 
 #[path = "agent/smoke.rs"]
 mod smoke;
-
-#[path = "agent/power.rs"]
-mod power;

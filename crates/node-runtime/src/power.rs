@@ -1,4 +1,4 @@
-//! One serialized native idle-sleep request shared by executing Node work.
+//! One serialized native idle-sleep request controlled by the Node setting.
 use sailry_protocol::power::Settings;
 use std::sync::{Arc, Mutex};
 
@@ -21,7 +21,6 @@ trait Backend: Send {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Status {
     pub enabled: bool,
-    pub active: usize,
     pub acquired: bool,
     pub supported: bool,
     pub closed: bool,
@@ -39,10 +38,6 @@ pub(crate) struct Service {
     state: Mutex<State>,
     failed: Box<dyn Fn(i64) + Send + Sync>,
 }
-
-/// A single executing operation owns this lease until its cleanup completes.
-/// It deliberately does not implement Clone.
-pub(crate) struct Lease(Arc<Service>);
 
 impl Service {
     pub(crate) fn new(failed: impl Fn(i64) + Send + Sync + 'static) -> Arc<Self> {
@@ -65,7 +60,6 @@ impl Service {
                 settings: Settings::default(),
                 status: Status {
                     enabled: true,
-                    active: 0,
                     acquired: false,
                     supported,
                     closed: false,
@@ -76,11 +70,6 @@ impl Service {
             }),
             failed,
         })
-    }
-
-    pub(crate) fn acquire(self: &Arc<Self>) -> Lease {
-        self.update(|state| state.status.active += 1);
-        Lease(self.clone())
     }
 
     pub(crate) fn apply_settings(&self, settings: Settings) {
@@ -110,7 +99,7 @@ impl Service {
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
             change(&mut state);
             let status = &state.status;
-            let needed = status.enabled && !status.closed && status.active > 0;
+            let needed = status.enabled && !status.closed;
             let result = if !needed && status.acquired && !state.release_failed {
                 let result = state.backend.release();
                 state.release_failed = result.is_err();
@@ -133,12 +122,6 @@ impl Service {
         if let Some(code) = failure {
             (self.failed)(code);
         }
-    }
-}
-
-impl Drop for Lease {
-    fn drop(&mut self) {
-        self.0.update(|state| state.status.active -= 1);
     }
 }
 

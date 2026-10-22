@@ -104,7 +104,6 @@ async fn run(
     token: CancellationToken,
     owner: Option<CancellationToken>,
 ) -> Result<(Status, Option<String>), Fault> {
-    let _power = ingress.power.acquire();
     let controls = &ingress.agents;
     let turn = invocation.turn.id;
     let diagnostics = Diagnostics::new(turn);

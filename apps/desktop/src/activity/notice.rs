@@ -139,7 +139,7 @@ impl Shell {
             notice.details,
             Some(sailry_protocol::notification::Details::Power { .. })
         ) {
-            tr("power_tasks_continue")
+            tr("power_request_unavailable")
         } else if matches!(
             notice.details,
             Some(sailry_protocol::notification::Details::Diagnostic(_))

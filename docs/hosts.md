@@ -3,18 +3,17 @@
 A Host runs tasks on another machine. Disconnecting Desktop does not stop tasks
 already accepted by that Host. Its projects, models and credentials stay there.
 
-## Sleep during tasks
+## Prevent sleep
 
-**Settings → General → Prevent sleep during tasks** controls the selected execution
-Node and is enabled by default. Active tasks, their approval waits, and session-owned
-background commands keep that device awake until execution and cleanup finish.
-Queued work, idle terminals, and persistent language or MCP servers do not.
-Disconnecting a controller does not release a running task’s request.
+**Settings → General → Prevent sleep** controls the selected execution Node and
+is enabled by default. While enabled, that device stays awake even when no task
+is running. Turning it off or shutting down the Node releases the request.
+Disconnecting a controller does not change the Node's setting.
 
 This prevents idle system sleep on macOS and Windows, while allowing the display
 to turn off. It does not prevent locking, lid-close sleep, or explicit sleep.
 Windows Modern Standby can limit requests on battery power. Linux sleep prevention
-is not implemented. If the system rejects a request, tasks continue and Sailry
+is not implemented. If the system rejects a request, Sailry continues running and
 reports the failure once for that Node process.
 
 ## Before connecting

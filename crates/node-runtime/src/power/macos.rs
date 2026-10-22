@@ -11,7 +11,7 @@ impl super::Backend for Native {
     fn acquire(&mut self) -> Result<(), i64> {
         // IOPM's public constant is a CFSTR macro, absent from generated bindings.
         let kind = CFString::from_str("PreventUserIdleSystemSleep");
-        let reason = CFString::from_str("Sailry task execution");
+        let reason = CFString::from_str("Sailry");
         let mut id = 0;
         // SAFETY: Both borrowed strings and the writable ID outlive this call.
         let result = unsafe {

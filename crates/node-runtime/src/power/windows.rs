@@ -20,10 +20,7 @@ impl super::Backend for Native {
         self.active
     }
     fn acquire(&mut self) -> Result<(), i64> {
-        let mut reason = "Sailry task execution"
-            .encode_utf16()
-            .chain(Some(0))
-            .collect::<Vec<_>>();
+        let mut reason = "Sailry".encode_utf16().chain(Some(0)).collect::<Vec<_>>();
         let context = REASON_CONTEXT {
             Version: POWER_REQUEST_CONTEXT_VERSION,
             Flags: POWER_REQUEST_CONTEXT_SIMPLE_STRING,

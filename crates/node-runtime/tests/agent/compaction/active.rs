@@ -133,7 +133,6 @@ async fn cancels_before_next_model_call() {
         assert!(agent_support::compaction::is_summary(
             server.requests.lock().unwrap().last().unwrap()
         ));
-        assert_eq!(fixture.node.power_status().active, 1);
         let before = history(&fixture.client, fixture.session.id).await;
         fixture
             .client

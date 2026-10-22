@@ -17,9 +17,13 @@ async fn authority_survives_replay_and_restart() {
         .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-    let transports: [Arc<dyn Transport>; 2] = [node.local(), controller.handle().remote(address)];
+    let transports: [Arc<dyn Transport>; 2] =
+        [node.local(), controller.handle().remote(address.clone())];
     let mut expected = Settings::default();
-    assert_eq!(node.power_status().active, 0);
+    assert!(node.power_status().enabled);
+    if node.power_status().supported && node.power_status().error.is_none() {
+        assert!(node.power_status().acquired);
+    }
     for transport in transports {
         let client = Client::new(transport);
         assert_eq!(read(&client).await, expected);
@@ -34,6 +38,7 @@ async fn authority_survives_replay_and_restart() {
             panic!("settings expected")
         };
         assert!(!node.power_status().enabled);
+        assert!(!node.power_status().acquired);
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 if let Update::Event(envelope) = updates.next().await.unwrap()
@@ -55,6 +60,9 @@ async fn authority_survives_replay_and_restart() {
             panic!("settings expected")
         };
         assert!(node.power_status().enabled);
+        if node.power_status().supported && node.power_status().error.is_none() {
+            assert!(node.power_status().acquired);
+        }
         // The original completion remains stable without reapplying its old policy.
         assert_eq!(client.execute(old).await.unwrap(), first);
         assert_eq!(read(&client).await, enabled);
@@ -86,6 +94,35 @@ async fn authority_survives_replay_and_restart() {
         };
         expected = saved;
     }
+    let local = Client::new(node.local());
+    expected.prevent_sleep = true;
+    let Output::PowerSettings(enabled) = local
+        .execute(local.prepare(Command::SavePowerSettings(expected)))
+        .await
+        .unwrap()
+    else {
+        panic!("settings expected")
+    };
+    controller.close().await.unwrap();
+    assert!(node.power_status().enabled);
+    if node.power_status().supported && node.power_status().error.is_none() {
+        assert!(node.power_status().acquired);
+    }
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let reconnected = Client::new(controller.handle().remote(address));
+    assert_eq!(read(&reconnected).await, enabled);
+    let mut disabled = enabled;
+    disabled.prevent_sleep = false;
+    let Output::PowerSettings(saved) = reconnected
+        .execute(reconnected.prepare(Command::SavePowerSettings(disabled)))
+        .await
+        .unwrap()
+    else {
+        panic!("settings expected")
+    };
+    expected = saved;
     controller.close().await.unwrap();
     assert!(!node.power_status().enabled);
     assert!(!node.power_status().acquired);
@@ -93,7 +130,6 @@ async fn authority_survives_replay_and_restart() {
     let node = Node::start_empty(&profile).await.unwrap();
     assert_eq!(read(&Client::new(node.local())).await, expected);
     assert!(!node.power_status().enabled);
-    assert_eq!(node.power_status().active, 0);
     node.shutdown().await.unwrap();
 }
 

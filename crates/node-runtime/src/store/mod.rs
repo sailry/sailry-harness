@@ -500,7 +500,7 @@ impl Store {
             local_models,
             knowledge: Arc::new(OnceLock::new()),
             terminals: terminals.clone(),
-            commands: Arc::new(crate::process::background::Commands::new(power.clone())),
+            commands: Arc::default(),
             environment: environment.clone(),
             login_service: authorization.clone(),
             sender,

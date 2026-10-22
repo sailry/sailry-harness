@@ -329,7 +329,6 @@ async fn preserves_cancelled_configuration() {
         };
         let (cancel_request, active) = compact(&fixture.client, fixture.session.id, 1).await;
         slow.wait_count(1).await;
-        assert_eq!(fixture.node.power_status().active, 1);
         let error = fixture
             .client
             .execute(fixture.client.prepare(Command::RunCommand {
@@ -365,7 +364,6 @@ async fn preserves_cancelled_configuration() {
         assert_eq!(queued_message.message, Input::default());
         let current = history(&fixture.client, fixture.session.id).await.queue;
         assert_eq!(current.items.len(), 2);
-        assert_eq!(fixture.node.power_status().active, 1);
         assert!(
             current
                 .items

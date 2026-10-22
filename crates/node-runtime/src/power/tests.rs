@@ -53,59 +53,72 @@ fn service(fail: bool, supported: bool) -> (Arc<Service>, Arc<Counts>) {
 }
 
 #[test]
-fn concurrent_leases_share_one_request() {
+fn enabled_holds_one_request_until_disabled() {
     let (service, counts) = service(false, true);
-    let barrier = Arc::new(std::sync::Barrier::new(9));
-    std::thread::scope(|scope| {
-        for _ in 0..8 {
-            let (service, barrier) = (service.clone(), barrier.clone());
-            scope.spawn(move || {
-                let _lease = service.acquire();
-                barrier.wait();
-                barrier.wait();
-            });
-        }
-        barrier.wait();
-        assert_eq!(service.status().active, 8);
-        assert!(service.status().acquired);
-        assert_eq!(counts.acquired.load(Ordering::SeqCst), 1);
-        barrier.wait();
-    });
-    assert_eq!(service.status().active, 0);
-    assert!(!service.status().acquired);
-    assert_eq!(counts.released.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn toggles_reconcile_active_work() {
-    let (service, counts) = service(false, true);
-    let lease = service.acquire();
+    service.apply_settings(Settings::default());
+    assert!(service.status().enabled);
+    assert!(service.status().acquired);
+    service.apply_settings(Settings::default());
+    assert_eq!(counts.acquired.load(Ordering::SeqCst), 1);
     service.apply_settings(Settings {
         revision: 1,
         prevent_sleep: false,
     });
-    assert_eq!(service.status().active, 1);
+    assert!(!service.status().enabled);
     assert!(!service.status().acquired);
+    assert_eq!(counts.released.load(Ordering::SeqCst), 1);
     service.apply_settings(Settings {
         revision: 2,
         prevent_sleep: true,
     });
     assert!(service.status().acquired);
+    assert_eq!(counts.acquired.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn restored_disabled_setting_never_acquires() {
+    let (service, counts) = service(false, true);
     service.apply_settings(Settings {
-        revision: 1,
+        revision: 4,
         prevent_sleep: false,
     });
+    assert!(!service.status().enabled);
+    assert!(!service.status().acquired);
+    assert_eq!(counts.acquired.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn concurrent_updates_preserve_latest_revision() {
+    let (service, counts) = service(false, true);
+    service.apply_settings(Settings {
+        revision: 8,
+        prevent_sleep: true,
+    });
+    std::thread::scope(|scope| {
+        for revision in 0..8 {
+            let service = service.clone();
+            scope.spawn(move || {
+                service.apply_settings(Settings {
+                    revision,
+                    prevent_sleep: false,
+                })
+            });
+        }
+    });
     assert!(service.status().enabled);
-    drop(lease);
-    assert_eq!(counts.acquired.load(Ordering::SeqCst), 2);
-    assert_eq!(counts.released.load(Ordering::SeqCst), 2);
+    assert!(service.status().acquired);
+    assert_eq!(counts.acquired.load(Ordering::SeqCst), 1);
+    assert_eq!(counts.released.load(Ordering::SeqCst), 0);
 }
 
 #[test]
 fn failure_is_reported_once_without_retries() {
     let (service, counts) = service(true, true);
-    for _ in 0..8 {
-        drop(service.acquire());
+    for revision in 0..8 {
+        service.apply_settings(Settings {
+            revision,
+            prevent_sleep: true,
+        });
     }
     assert_eq!(counts.acquired.load(Ordering::SeqCst), 1);
     assert_eq!(counts.failures.load(Ordering::SeqCst), 1);
@@ -117,17 +130,14 @@ fn failure_is_reported_once_without_retries() {
 #[test]
 fn close_prevents_late_reactivation() {
     let (service, counts) = service(false, true);
-    let lease = service.acquire();
+    service.apply_settings(Settings::default());
     service.close();
-    let late = service.acquire();
     service.apply_settings(Settings {
         revision: 9,
         prevent_sleep: true,
     });
     assert!(service.status().closed);
     assert!(!service.status().acquired);
-    drop((late, lease));
-    assert_eq!(service.status().active, 0);
     assert_eq!(counts.acquired.load(Ordering::SeqCst), 1);
     assert_eq!(counts.released.load(Ordering::SeqCst), 1);
 }
@@ -135,7 +145,7 @@ fn close_prevents_late_reactivation() {
 #[test]
 fn unsupported_never_claims_an_assertion() {
     let (service, counts) = service(false, false);
-    let _lease = service.acquire();
+    service.apply_settings(Settings::default());
     assert!(!service.status().supported);
     assert!(!service.status().acquired);
     service.apply_settings(Settings {
@@ -148,11 +158,20 @@ fn unsupported_never_claims_an_assertion() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn native_assertion_releases() {
+fn native_setting_releases() {
     let service = Service::new(|code| panic!("native assertion failed: {code}"));
-    let lease = service.acquire();
+    service.apply_settings(Settings::default());
     assert!(service.status().acquired);
-    drop(lease);
+    service.apply_settings(Settings {
+        revision: 1,
+        prevent_sleep: false,
+    });
     assert!(!service.status().acquired);
+    service.apply_settings(Settings {
+        revision: 2,
+        prevent_sleep: true,
+    });
+    assert!(service.status().acquired);
     service.close();
+    assert!(!service.status().acquired);
 }

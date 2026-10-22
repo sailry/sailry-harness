@@ -29,27 +29,17 @@ pub(crate) struct Finished {
     pub snapshot: Snapshot,
     pub elapsed_ms: Option<u64>,
     pub explicit: bool,
-    pub completed: tokio::sync::oneshot::Sender<()>,
 }
 
 pub(crate) struct Commands {
-    power: Arc<crate::power::Service>,
     sink: OnceLock<tokio::sync::mpsc::UnboundedSender<Finished>>,
     entries: Mutex<BTreeMap<RequestId, Entry>>,
     changes: watch::Sender<()>,
 }
 
-#[cfg(test)]
 impl Default for Commands {
     fn default() -> Self {
-        Self::new(crate::power::Service::new(|_| {}))
-    }
-}
-
-impl Commands {
-    pub(crate) fn new(power: Arc<crate::power::Service>) -> Self {
         Self {
-            power,
             sink: OnceLock::new(),
             entries: Mutex::default(),
             changes: watch::channel(()).0,
@@ -84,9 +74,7 @@ impl Commands {
             }
         };
         if finished {
-            let power = self.power.clone();
             tokio::spawn(async move {
-                let _power = power.acquire();
                 code.watched(worktree).await;
             });
         }
@@ -159,7 +147,6 @@ impl Commands {
         );
         let owner = self.clone();
         let task = tokio::spawn(async move {
-            let _power = owner.power.acquire();
             use futures::FutureExt;
             let mut output = output;
             let execution = std::panic::AssertUnwindSafe(execute_background(
@@ -198,8 +185,6 @@ impl Commands {
                 Ok(Err(error)) => Status::Failed(error.message),
                 Err(_) => Status::Failed("background command execution failed".into()),
             };
-            let (finished, confirmation) = tokio::sync::oneshot::channel();
-            let mut completion = None;
             let watch = {
                 let mut entries = owner.entries.lock().unwrap();
                 if let Some(entry) = entries.get_mut(&id) {
@@ -207,9 +192,11 @@ impl Commands {
                     entry.input.take();
                     entry.info.services.clear();
                     owner.changes.send_replace(());
-                    if !closed.is_cancelled() && owner.sink.get().is_some() {
+                    if !closed.is_cancelled()
+                        && let Some(sink) = owner.sink.get()
+                    {
                         let (stdout, stderr) = entry.output.borrow().clone();
-                        completion = Some(Finished {
+                        let _ = sink.send(Finished {
                             snapshot: Snapshot {
                                 info: entry.info.clone(),
                                 stdout,
@@ -217,7 +204,6 @@ impl Commands {
                             },
                             elapsed_ms,
                             explicit: entry.explicit,
-                            completed: finished,
                         });
                     }
                     entry.watch.take()
@@ -227,13 +213,6 @@ impl Commands {
             };
             if let Some((worktree, code)) = watch {
                 code.watched(worktree).await;
-            }
-            if let Some(completion) = completion
-                && let Some(sink) = owner.sink.get()
-                && sink.send(completion).is_ok()
-            {
-                // Receiver loss, persistence failure, and shutdown all release this wait.
-                tokio::select! { _ = confirmation => {}, _ = closed.cancelled() => {} }
             }
         });
         entries.get_mut(&id).unwrap().task = Some(task);
@@ -569,63 +548,5 @@ mod tests {
             commands.read(session, running.id).unwrap().info.status,
             Status::Finished(Outcome::Cancelled)
         );
-    }
-    #[tokio::test]
-    #[cfg(unix)]
-    async fn lease_covers_completion_delivery() {
-        for mode in 0..3 {
-            let root = tempfile::tempdir().unwrap();
-            let power = crate::power::Service::new(|_| {});
-            let commands = Arc::new(Commands::new(power.clone()));
-            let (sink, mut completions) = tokio::sync::mpsc::unbounded_channel();
-            commands.set_sink(sink);
-            let closed = CancellationToken::new();
-            commands
-                .start(
-                    RequestId::new(),
-                    SessionId::new(),
-                    TurnId::new(),
-                    Launch {
-                        pty: false,
-                        profile: None,
-                        access: Access::Workspace,
-                        root: root.path().canonicalize().unwrap(),
-                        command: "printf complete".into(),
-                        cwd: String::new(),
-                        timeout_ms: 1,
-                        inputs: None,
-                        scratch: None,
-                        python: None,
-                    },
-                    Arc::new(Environment::ambient()),
-                    closed.clone(),
-                )
-                .unwrap();
-            let completion = tokio::time::timeout(Duration::from_secs(10), completions.recv())
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(power.status().active, 1);
-            assert_eq!(
-                completion.snapshot.info.status,
-                Status::Finished(Outcome::Exited(0))
-            );
-            match mode {
-                0 => {
-                    completion.completed.send(()).unwrap();
-                }
-                1 => {
-                    drop(completion);
-                }
-                _ => {
-                    closed.cancel();
-                }
-            }
-            tokio::time::timeout(Duration::from_secs(10), commands.close())
-                .await
-                .unwrap();
-            assert_eq!(power.status().active, 0);
-            assert!(!power.status().acquired);
-        }
     }
 }
