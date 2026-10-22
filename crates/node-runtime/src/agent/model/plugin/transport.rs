@@ -115,6 +115,7 @@ pub(super) fn public(value: &str, credentials: &Credentials) -> Result<(), Fault
 
 pub(super) fn client() -> Result<Client, Fault> {
     Client::builder()
+        .retry(reqwest::retry::never())
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(30))
         .read_timeout(std::time::Duration::from_secs(300))
