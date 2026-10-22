@@ -168,6 +168,7 @@ pub(super) fn stop_key(reason: Stop) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test;
     use sailry_protocol::{ErrorCode, Fault, FaultDetails};
 
     #[test]
