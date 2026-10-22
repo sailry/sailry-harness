@@ -16,7 +16,7 @@ impl Layout {
                 self.compact
                     && (self.narrow || self.sidebar || entry.overflow == ui::Overflow::Menu)
             }
-            _ => return false,
+            _ => return true,
         };
         match form {
             Form::Menu => settings,
@@ -84,5 +84,36 @@ mod tests {
                 .iter()
                 .all(|entry| entry.declaration.id != "model")
         );
+    }
+
+    #[test]
+    fn other_slots_keep_their_requested_form() {
+        for slot in ["status", "toolbar"] {
+            let entry: Contribution = serde_json::from_value(json!({
+                "id":"sample", "label":{"label":"Sample"}, "slot":slot,
+                "kind":"button", "overflow":"menu"
+            }))
+            .unwrap();
+            for compact in [false, true] {
+                for narrow in [false, true] {
+                    for sidebar in [false, true] {
+                        let layout = Layout {
+                            compact,
+                            narrow,
+                            sidebar,
+                        };
+                        for form in [
+                            Form::Toolbar,
+                            Form::Icons,
+                            Form::Menu,
+                            Form::Project,
+                            Form::Model,
+                        ] {
+                            assert!(layout.includes(&entry, form));
+                        }
+                    }
+                }
+            }
+        }
     }
 }
