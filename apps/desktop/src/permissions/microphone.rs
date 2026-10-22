@@ -31,6 +31,7 @@ pub(super) fn card(initial: Status) -> Card {
         })
     });
     Card {
+        owner: None,
         resource: Resource::Microphone,
         status: initial,
         settings: permission::settings_url(),

@@ -362,7 +362,9 @@ fn output(value: Output) -> Json {
 fn allowed(command: &Command) -> bool {
     matches!(
         command,
-        Command::RequestProviderHttp { .. }
+        Command::ReadComputerPermissions
+            | Command::RequestComputerPermission { .. }
+            | Command::RequestProviderHttp { .. }
             | Command::ListConnectorTypes
             | Command::ListConnections
             | Command::StartConnectorLogin { .. }

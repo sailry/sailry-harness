@@ -16,10 +16,6 @@ pub(super) fn catalog(overrides: Vec<Card>, cx: &App) -> Vec<Card> {
             Resource::Accessibility,
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
         ),
-        native(
-            Resource::Screen,
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-        ),
         microphone::card(Status::Unknown),
     ];
     if !enabled {
@@ -29,10 +25,20 @@ pub(super) fn catalog(overrides: Vec<Card>, cx: &App) -> Vec<Card> {
             card.request = None;
         }
     }
-    for card in overrides {
+    let owner = cx
+        .try_global::<crate::backend::Services>()
+        .map(|services| (services.local.target(), "sailry".to_string()));
+    for card in &mut cards {
+        card.owner = owner.clone();
+    }
+    for mut card in overrides {
+        if card.owner.is_none() {
+            card.owner = owner.clone();
+        }
+
         if let Some(existing) = cards
             .iter_mut()
-            .find(|existing| existing.resource == card.resource)
+            .find(|existing| existing.resource == card.resource && existing.owner == card.owner)
         {
             *existing = card;
         } else {
@@ -40,6 +46,22 @@ pub(super) fn catalog(overrides: Vec<Card>, cx: &App) -> Vec<Card> {
         }
     }
     cards
+}
+
+pub(super) fn standard(resource: Resource) -> Card {
+    match resource {
+        Resource::Microphone => microphone::card(Status::Unknown),
+        Resource::FullDisk => native(resource, DISK_SETTINGS),
+        Resource::Accessibility => native(
+            resource,
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        ),
+        Resource::Screen => native(
+            resource,
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        ),
+        _ => unreachable!("standard permissions only"),
+    }
 }
 
 fn native(resource: Resource, settings: &'static str) -> Card {
@@ -69,6 +91,7 @@ fn native(resource: Resource, settings: &'static str) -> Card {
         })
     });
     Card {
+        owner: None,
         resource,
         status: Status::Unknown,
         settings: Some(settings),

@@ -2660,3 +2660,6 @@ directory_save_title: "儲存檔案"
 provider_access_denied: "頻道存取遭拒"
 provider_not_configured: "頻道設定尚未完成"
 chat_context_summary_failed: "無法壓縮對話脈絡"
+
+permission_partial: "部分授權"
+permission_failed: "權限檢查失敗"

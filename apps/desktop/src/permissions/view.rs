@@ -37,104 +37,86 @@ impl Render for Panel {
                             .debug_selector(|| "permissions-check".into())
                             .on_click(cx.listener(|panel, _, window, cx| panel.check(window, cx))),
                     )
-                    .children(
-                        self.cards
-                            .iter()
-                            .filter(|card| card.resource.is_system())
-                            .map(|card| {
-                                let resource = card.resource;
-                                let status = card.status;
-                                let granted = matches!(status, Status::Granted | Status::NotNeeded);
-                                let opens_settings = resource == Resource::FullDisk
-                                    || matches!(status, Status::Denied | Status::Restricted)
-                                        && card.settings.is_some();
-                                let action = if opens_settings {
-                                    "permission_settings"
-                                } else {
-                                    "permission_request"
-                                };
-                                let pending = self.pending == Some(resource);
-                                let unavailable =
-                                    matches!(status, Status::Remote | Status::Unavailable);
-                                let disabled =
-                                    busy || unavailable || card.request.is_none() || granted;
-                                Row::new(
-                                    resource.key(),
-                                    h_flex()
-                                        .gap_2()
-                                        .flex_wrap()
-                                        .justify_end()
-                                        .debug_selector(move || {
-                                            format!("{}-actions", resource.key())
-                                        })
-                                        .when(
-                                            card.settings.is_some()
-                                                && (resource != Resource::FullDisk || granted)
-                                                && !matches!(
-                                                    status,
-                                                    Status::Denied | Status::Restricted
-                                                ),
-                                            |row| {
-                                                let url = card.settings.unwrap();
-                                                row.child(
-                                                    Button::new(format!(
-                                                        "{}-settings",
-                                                        resource.key()
-                                                    ))
-                                                    .ghost()
-                                                    .small()
-                                                    .icon(IconName::Settings2)
-                                                    .tooltip(tr("permission_settings"))
-                                                    .accessibility_label(tr("permission_settings"))
-                                                    .disabled(busy || unavailable)
-                                                    .debug_selector(move || {
-                                                        format!("{}-settings", resource.key())
-                                                    })
-                                                    .on_click(cx.listener(
-                                                        move |panel, _, window, cx| {
-                                                            if resource == Resource::FullDisk {
-                                                                panel.disk_settings(window, cx);
-                                                            } else {
-                                                                cx.open_url(url);
-                                                            }
-                                                        },
-                                                    )),
-                                                )
-                                            },
-                                        )
-                                        .when(!granted, |row| {
-                                            row.child(
-                                                Button::new(resource.key())
-                                                    .small()
-                                                    .label(tr(action))
-                                                    .loading(pending)
-                                                    .disabled(
-                                                        if resource == Resource::FullDisk
-                                                            || matches!(
-                                                                status,
-                                                                Status::Denied | Status::Restricted
-                                                            )
-                                                        {
-                                                            busy || unavailable
-                                                                || card.settings.is_none()
+                    .children(self.rows().into_iter().map(|card| {
+                        let resource = card.resource;
+                        let status = card.status;
+                        let granted = matches!(status, Status::Granted | Status::NotNeeded);
+                        let opens_settings = resource == Resource::FullDisk
+                            || matches!(status, Status::Denied | Status::Restricted)
+                                && card.settings.is_some();
+                        let action = if opens_settings {
+                            "permission_settings"
+                        } else {
+                            "permission_request"
+                        };
+                        let pending = self.pending == Some(resource);
+                        let unavailable = matches!(status, Status::Remote | Status::Unavailable);
+                        let disabled = busy || unavailable || card.request.is_none() || granted;
+                        Row::new(
+                            resource.key(),
+                            h_flex()
+                                .gap_2()
+                                .flex_wrap()
+                                .justify_end()
+                                .debug_selector(move || format!("{}-actions", resource.key()))
+                                .when(
+                                    card.settings.is_some()
+                                        && (resource != Resource::FullDisk || granted)
+                                        && !matches!(status, Status::Denied | Status::Restricted),
+                                    |row| {
+                                        let url = card.settings.unwrap();
+                                        row.child(
+                                            Button::new(format!("{}-settings", resource.key()))
+                                                .ghost()
+                                                .small()
+                                                .icon(IconName::Settings2)
+                                                .tooltip(tr("permission_settings"))
+                                                .accessibility_label(tr("permission_settings"))
+                                                .disabled(busy || unavailable)
+                                                .debug_selector(move || {
+                                                    format!("{}-settings", resource.key())
+                                                })
+                                                .on_click(cx.listener(
+                                                    move |panel, _, window, cx| {
+                                                        if resource == Resource::FullDisk {
+                                                            panel.disk_settings(window, cx);
                                                         } else {
-                                                            disabled
-                                                        },
-                                                    )
-                                                    .debug_selector(move || {
-                                                        format!("{}-request", resource.key())
-                                                    })
-                                                    .on_click(cx.listener(
-                                                        move |panel, _, window, cx| {
-                                                            panel.request(resource, window, cx)
-                                                        },
-                                                    )),
-                                            )
-                                        }),
+                                                            cx.open_url(url);
+                                                        }
+                                                    },
+                                                )),
+                                        )
+                                    },
                                 )
-                                .description(status.key())
-                            }),
-                    ),
+                                .when(!granted, |row| {
+                                    row.child(
+                                        Button::new(resource.key())
+                                            .small()
+                                            .label(tr(action))
+                                            .loading(pending)
+                                            .disabled(
+                                                if resource == Resource::FullDisk
+                                                    || matches!(
+                                                        status,
+                                                        Status::Denied | Status::Restricted
+                                                    )
+                                                {
+                                                    busy || unavailable || card.settings.is_none()
+                                                } else {
+                                                    disabled
+                                                },
+                                            )
+                                            .debug_selector(move || {
+                                                format!("{}-request", resource.key())
+                                            })
+                                            .on_click(cx.listener(move |panel, _, window, cx| {
+                                                panel.request(resource, window, cx)
+                                            })),
+                                    )
+                                }),
+                        )
+                        .description(status.key())
+                    })),
             )
             .when(
                 self.cards.iter().any(|card| {

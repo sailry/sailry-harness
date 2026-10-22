@@ -2436,8 +2436,8 @@ permission_microphone: 麦克风
 permission_chrome: Chrome 数据
 permission_keychain: Chrome 钥匙串
 permission_unknown: 尚未检查
-permission_required: 需要授权
-permission_granted: 已允许
+permission_required: 未授权
+permission_granted: 已授权
 permission_not_needed: 无需授权
 permission_denied: 已拒绝
 permission_restricted: 系统限制
@@ -2653,3 +2653,6 @@ directory_save_title: "保存文件"
 provider_access_denied: "渠道访问被拒绝"
 provider_not_configured: "渠道配置尚未完成"
 chat_context_summary_failed: "无法压缩会话上下文"
+
+permission_partial: "部分授权"
+permission_failed: "权限检查失败"

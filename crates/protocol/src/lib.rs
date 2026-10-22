@@ -29,6 +29,7 @@ pub mod network;
 pub mod notebook;
 pub mod notification;
 pub mod office;
+pub mod permissions;
 pub mod plugin;
 pub mod process;
 pub mod projects;

@@ -94,7 +94,8 @@ pub(crate) fn run_callback(
                 && (request.command.durable()
                     || matches!(
                         request.command,
-                        sailry_protocol::Command::DismissInstallation { .. }
+                        sailry_protocol::Command::RequestComputerPermission { .. }
+                            | sailry_protocol::Command::DismissInstallation { .. }
                             | sailry_protocol::Command::CancelWebFetch { .. }
                     ))
             {

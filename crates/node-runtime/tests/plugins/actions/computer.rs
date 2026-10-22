@@ -28,10 +28,28 @@ async fn inspect() {
             .await,
         );
         assert!(!package.summary.enabled);
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: "computer".into(),
+                expected_revision: package.summary.revision,
+                enabled: true,
+            },
+        )
+        .await;
+        let package = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "computer".into(),
+                },
+            )
+            .await,
+        );
         let context = Context {
             invocation: None,
             turn: None,
-            surface: plugin::desktop::Surface::Settings,
+            surface: plugin::desktop::Surface::Permissions,
             package: package.summary.reference(),
             worktree: None,
             session: None,
@@ -78,7 +96,7 @@ async fn inspect() {
 }
 
 async fn denied_surface(client: &sailry_client::Client, mut context: Context) {
-    context.surface = Default::default();
+    context.surface = plugin::desktop::Surface::Settings;
     assert_eq!(
         client
             .execute(
@@ -89,7 +107,7 @@ async fn denied_surface(client: &sailry_client::Client, mut context: Context) {
             .await
             .unwrap_err()
             .code,
-        ErrorCode::NotConfigured
+        ErrorCode::PermissionDenied
     );
 }
 
@@ -164,11 +182,29 @@ fn diagnostics_peer() {
                 .await,
             );
             assert!(!package.summary.enabled);
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: "computer".into(),
+                    expected_revision: package.summary.revision,
+                    enabled: true,
+                },
+            )
+            .await;
+            let package = info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "computer".into(),
+                    },
+                )
+                .await,
+            );
             assert!(package.issues.is_empty(), "{:?}", package.issues);
             let context = Context {
                 invocation: None,
                 turn: None,
-                surface: plugin::desktop::Surface::Settings,
+                surface: plugin::desktop::Surface::Permissions,
                 package: package.summary.reference(),
                 worktree: None,
                 session: None,
@@ -232,15 +268,15 @@ fn diagnostics_peer() {
                 assert_eq!(permissions.screen_capture, Some(true));
                 assert_eq!(permissions.accessibility, Some(true));
                 let current = std::fs::read_to_string(root.join("calls")).unwrap();
-                assert_eq!(current.lines().count(), 4);
-                assert!(current.lines().nth(2).unwrap().starts_with("doctor|"));
+                assert_eq!(current.lines().count(), 3);
                 assert!(
                     current
                         .lines()
-                        .nth(3)
+                        .nth(2)
                         .unwrap()
                         .starts_with("doctor --json|")
                 );
+                assert!(!current.lines().any(|line| line.starts_with("doctor|")));
             }
             for mode in ["malformed", "failed"] {
                 std::fs::write(root.join("mode"), mode).unwrap();

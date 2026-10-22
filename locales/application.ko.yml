@@ -2660,3 +2660,6 @@ directory_save_title: "파일 저장"
 provider_access_denied: "채널 접근이 거부됨"
 provider_not_configured: "채널 설정이 완료되지 않음"
 chat_context_summary_failed: "대화 컨텍스트를 압축할 수 없음"
+
+permission_partial: "일부 허용됨"
+permission_failed: "권한 확인 실패"

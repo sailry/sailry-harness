@@ -49,8 +49,21 @@ pub(crate) async fn request(
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = permission;
         let launch = launch.ok_or_else(unconfigured)?;
+        let current = parse(&run(&launch, environment, true, stop, DEADLINE).await?)?;
+        let granted = match permission {
+            Permission::ScreenCapture => current.screen_capture,
+            Permission::Accessibility => current.accessibility,
+        };
+        if granted {
+            return Ok(Permissions {
+                node,
+                platform: std::env::consts::OS.into(),
+                local: true,
+                screen_capture: Some(current.screen_capture),
+                accessibility: Some(current.accessibility),
+            });
+        }
         // This upstream command opens overall onboarding, not one TCC pane.
         run(&launch, environment, false, stop, DEADLINE).await?;
         read(node, caller, Some(launch), environment, stop).await

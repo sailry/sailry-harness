@@ -2660,3 +2660,6 @@ directory_save_title: "Enregistrer le fichier"
 provider_access_denied: "Accès au canal refusé"
 provider_not_configured: "La configuration du canal est incomplète"
 chat_context_summary_failed: "Impossible de condenser la conversation"
+
+permission_partial: "Partiellement autorisé"
+permission_failed: "Échec de la vérification des autorisations"

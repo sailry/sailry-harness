@@ -185,6 +185,7 @@ impl Settings {
                     vec![
                         chrome_card(request),
                         Card {
+                            owner: None,
                             resource: Resource::Keychain,
                             status: Status::Unknown,
                             settings: None,
@@ -299,6 +300,7 @@ fn access_failure(key: &'static str) -> Failure {
 #[cfg(target_os = "macos")]
 fn chrome_card(request: PermissionAction) -> Card {
     Card {
+        owner: None,
         resource: Resource::Chrome,
         status: Status::Unknown,
         settings: None,

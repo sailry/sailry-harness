@@ -9,6 +9,7 @@ use sailry_link::CancellationToken;
 use std::{cell::RefCell, rc::Rc};
 
 mod app;
+mod catalog;
 mod microphone;
 mod view;
 pub(crate) use microphone::open as microphone;
@@ -46,6 +47,7 @@ pub(crate) enum Status {
     Denied,
     Restricted,
     Remote,
+    Partial,
     Unavailable,
 }
 impl Status {
@@ -58,6 +60,7 @@ impl Status {
             Self::Denied => "permission_denied",
             Self::Restricted => "permission_restricted",
             Self::Remote => "permission_remote",
+            Self::Partial => "permission_partial",
             Self::Unavailable => "permission_unavailable",
         }
     }
@@ -70,6 +73,7 @@ pub(crate) type Changes = Vec<(Resource, Status)>;
 pub(crate) type Action = Rc<dyn Fn(&mut App, CancellationToken) -> Task<Result<Changes, Failure>>>;
 #[derive(Clone)]
 pub(crate) struct Card {
+    pub owner: Option<(sailry_protocol::NodeId, String)>,
     pub resource: Resource,
     pub status: Status,
     pub settings: Option<&'static str>,
@@ -108,6 +112,8 @@ impl Controller {
 }
 pub(crate) struct Panel {
     cards: Vec<Card>,
+    sources: Vec<sailry_client::permissions::Entry>,
+    binding: Option<(sailry_protocol::NodeId, bool)>,
     required: Vec<Resource>,
     continuing: bool,
     active: bool,
@@ -146,6 +152,8 @@ pub(crate) fn open(
         let required = cards.iter().map(|card| card.resource).collect();
         Panel {
             cards: app::catalog(cards, cx),
+            sources: Vec::new(),
+            binding: None,
             required,
             continuing: false,
             active: true,
@@ -248,6 +256,8 @@ impl Panel {
         .detach();
         Self {
             cards: app::catalog(Vec::new(), cx),
+            sources: Vec::new(),
+            binding: None,
             required: Vec::new(),
             continuing: false,
             active: false,
@@ -314,6 +324,7 @@ impl Panel {
         };
         self.pending = Some(Resource::FullDisk);
         let stop = self.stop.clone();
+        let identity = card.owner.clone();
         let job = check(cx, stop.clone());
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
@@ -323,7 +334,7 @@ impl Panel {
             let _ = owner.update_in(cx, |panel, _, cx| {
                 panel.pending = None;
                 if let Ok(changes) = result {
-                    panel.apply(changes);
+                    panel.apply(&identity, changes);
                 }
                 cx.open_url(url);
                 cx.notify();
@@ -342,9 +353,13 @@ impl Panel {
             done(granted, window, cx);
         }
     }
-    fn apply(&mut self, changes: Changes) {
+    fn apply(&mut self, owner: &Option<(sailry_protocol::NodeId, String)>, changes: Changes) {
         for (resource, status) in changes {
-            if let Some(card) = self.cards.iter_mut().find(|card| card.resource == resource) {
+            if let Some(card) = self
+                .cards
+                .iter_mut()
+                .find(|card| card.resource == resource && &card.owner == owner)
+            {
                 card.status = status;
             }
         }
@@ -353,10 +368,10 @@ impl Panel {
         if self.completion.is_some()
             && !self.required.is_empty()
             && self.required.iter().all(|resource| {
-                self.cards.iter().any(|card| {
-                    card.resource == *resource
-                        && matches!(card.status, Status::Granted | Status::NotNeeded)
-                })
+                self.cards
+                    .iter()
+                    .filter(|card| card.resource == *resource)
+                    .all(|card| matches!(card.status, Status::Granted | Status::NotNeeded))
             })
         {
             self.finish(true, window, cx);
@@ -367,28 +382,23 @@ impl Panel {
         if self.closed || self.pending.is_some() || self.checking {
             return;
         }
-        if self.remote() {
-            for card in &mut self.cards {
-                if card.resource.is_system() {
-                    card.status = Status::Remote;
-                }
-            }
-            cx.notify();
-            return;
-        }
         let mut checks: Vec<_> = self
             .cards
             .iter()
-            .filter_map(|card| card.check.clone().map(|check| (card.resource, check)))
+            .filter_map(|card| {
+                card.check
+                    .clone()
+                    .map(|check| (card.resource, card.owner.clone(), check))
+            })
             .collect();
-        checks.sort_by_key(|(resource, _)| !self.required.contains(resource));
+        checks.sort_by_key(|(resource, _, _)| !self.required.contains(resource));
         if checks.is_empty() {
             return;
         }
         self.checking = true;
         let stop = self.stop.clone();
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
-            for (resource, check) in checks {
+            for (resource, identity, check) in checks {
                 let task = cx.update(|_, cx| check(cx, stop.clone()));
                 let Ok(task) = task else {
                     return;
@@ -400,21 +410,14 @@ impl Panel {
                 let remote = owner
                     .update_in(cx, |flow, window, cx| {
                         match result {
-                            Ok(changes) => flow.apply(changes),
+                            Ok(changes) => flow.apply(&identity, changes),
                             Err(failure) => {
-                                flow.apply(vec![(resource, failure.status)]);
+                                flow.apply(&identity, vec![(resource, failure.status)]);
                                 crate::feedback::info("", tr(&failure.key).as_ref(), window, cx);
                             }
                         }
-                        if flow.remote() {
-                            for card in &mut flow.cards {
-                                if card.resource.is_system() {
-                                    card.status = Status::Remote;
-                                }
-                            }
-                        }
                         cx.notify();
-                        flow.remote()
+                        false
                     })
                     .unwrap_or(true);
                 if remote {
@@ -433,61 +436,112 @@ impl Panel {
         if self.closed || self.pending.is_some() || self.checking {
             return;
         }
-        let Some(card) = self.cards.iter().find(|card| card.resource == resource) else {
-            return;
-        };
-        if resource == Resource::FullDisk {
-            self.disk_settings(window, cx);
+        let selected: std::collections::BTreeSet<_> =
+            sailry_client::permissions::requests(self.sources.iter().filter(|entry| {
+                self.cards.iter().any(|card| {
+                    card.resource == resource
+                        && card.owner.as_ref()
+                            == Some(&(entry.identity.device, entry.identity.subject.clone()))
+                        && card.resource == Resource::from_kind(entry.identity.kind)
+                        && !matches!(
+                            card.status,
+                            Status::Granted
+                                | Status::NotNeeded
+                                | Status::Remote
+                                | Status::Unavailable
+                        )
+                })
+            }))
+            .into_iter()
+            .map(|entry| (entry.identity.device, entry.identity.subject.clone()))
+            .collect();
+        let requests: Vec<_> = self
+            .cards
+            .iter()
+            .filter(|card| {
+                card.resource == resource
+                    && !matches!(
+                        card.status,
+                        Status::Granted | Status::NotNeeded | Status::Remote | Status::Unavailable
+                    )
+            })
+            .filter(|card| {
+                card.owner.as_ref().is_none_or(|owner| {
+                    !self.sources.iter().any(|entry| {
+                        entry.declaration.check.is_some()
+                            && entry.identity.device == owner.0
+                            && entry.identity.subject == owner.1
+                    }) || selected.contains(owner)
+                })
+            })
+            .cloned()
+            .collect();
+        if requests.is_empty() {
             return;
         }
-        if matches!(card.status, Status::Denied | Status::Restricted)
-            && let Some(settings) = card.settings
-            && resource != Resource::Chrome
+        if requests.len() == 1
+            && requests[0]
+                .owner
+                .as_ref()
+                .is_none_or(|(_, subject)| subject == "sailry")
         {
-            cx.open_url(settings);
-            return;
+            if resource == Resource::FullDisk {
+                self.disk_settings(window, cx);
+                return;
+            }
+            if matches!(requests[0].status, Status::Denied | Status::Restricted)
+                && let Some(settings) = requests[0].settings
+                && resource != Resource::Chrome
+            {
+                cx.open_url(settings);
+                return;
+            }
         }
-        if matches!(
-            card.status,
-            Status::Granted | Status::Remote | Status::Unavailable | Status::Restricted
-        ) {
-            return;
-        }
-        if card.requires.is_some_and(|required| {
-            !self
-                .cards
-                .iter()
-                .any(|card| card.resource == required && card.status == Status::Granted)
-        }) {
-            return;
-        }
-        let Some(action) = card.request.clone() else {
-            return;
-        };
+        let requests: Vec<_> = requests
+            .into_iter()
+            .filter(|card| {
+                card.requires.is_none_or(|required| {
+                    self.cards.iter().any(|other| {
+                        other.resource == required
+                            && other.owner == card.owner
+                            && matches!(other.status, Status::Granted | Status::NotNeeded)
+                    })
+                })
+            })
+            .collect();
         self.pending = Some(resource);
         let stop = self.stop.clone();
-        let job = action(cx, stop.clone());
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
-            let result = job.await;
-            if stop.is_cancelled() {
-                return;
+            let mut advanced = false;
+            for card in requests {
+                let Some(action) = card.request else { continue };
+                let Ok(job) = cx.update(|_, cx| action(cx, stop.clone())) else {
+                    return;
+                };
+                let result = job.await;
+                if stop.is_cancelled() {
+                    return;
+                }
+                let _ = owner.update_in(cx, |flow, window, cx| {
+                    match result {
+                        Ok(changes) => {
+                            advanced |= changes.iter().any(|(changed, status)| {
+                                *changed == resource
+                                    && matches!(status, Status::Granted | Status::NotNeeded)
+                            });
+                            flow.apply(&card.owner, changes);
+                        }
+                        Err(failure) => {
+                            flow.continuing = false;
+                            flow.apply(&card.owner, vec![(resource, failure.status)]);
+                            crate::feedback::info("", tr(&failure.key).as_ref(), window, cx);
+                        }
+                    }
+                    cx.notify();
+                });
             }
             let _ = owner.update_in(cx, |flow, window, cx| {
                 flow.pending = None;
-                let advanced = result.as_ref().is_ok_and(|changes| {
-                    changes.iter().any(|(changed, status)| {
-                        *changed == resource
-                            && matches!(status, Status::Granted | Status::NotNeeded)
-                    })
-                });
-                match result {
-                    Ok(changes) => flow.apply(changes),
-                    Err(failure) => {
-                        flow.continuing = false;
-                        flow.apply(vec![(resource, failure.status)]);
-                        crate::feedback::info("", tr(&failure.key).as_ref(), window, cx);
-                    }
-                }
                 flow.complete(window, cx);
                 if !flow.closed {
                     if flow.continuing && advanced {

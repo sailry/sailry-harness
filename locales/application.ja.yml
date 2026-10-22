@@ -2660,3 +2660,6 @@ directory_save_title: "ファイルを保存"
 provider_access_denied: "チャネルへのアクセスが拒否されました"
 provider_not_configured: "チャネルの設定が完了していません"
 chat_context_summary_failed: "会話のコンテキストを圧縮できませんでした"
+
+permission_partial: "一部許可済み"
+permission_failed: "権限を確認できませんでした"

@@ -221,6 +221,7 @@ pub enum Surface {
     #[default]
     Workspace,
     Settings,
+    Permissions,
     Provider,
     Composer,
     Project,

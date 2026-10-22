@@ -2660,3 +2660,6 @@ directory_save_title: "Сохранить файл"
 provider_access_denied: "Доступ к каналу отклонён"
 provider_not_configured: "Настройка канала не завершена"
 chat_context_summary_failed: "Не удалось сократить контекст беседы"
+
+permission_partial: "Частично разрешено"
+permission_failed: "Не удалось проверить разрешение"

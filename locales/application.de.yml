@@ -2660,3 +2660,6 @@ directory_save_title: "Datei speichern"
 provider_access_denied: "Kanalzugriff verweigert"
 provider_not_configured: "Kanalkonfiguration ist unvollständig"
 chat_context_summary_failed: "Der Gesprächskontext konnte nicht komprimiert werden"
+
+permission_partial: "Teilweise autorisiert"
+permission_failed: "Berechtigungsprüfung fehlgeschlagen"

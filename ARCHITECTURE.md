@@ -794,7 +794,14 @@ and immutable turn capture. Composer contributions select their own behavior;
 initializers receive only the owning package's captured option namespace.
 Retired expanded instructions remain private captured metadata conditioned on
 their exact available tools, without replacing frozen package resources.
-Controller settings actions require a declared settings surface and capability;
+Controller settings actions require a declared settings surface and capability.
+Standard OS permission contributions use a separate declared capability scope and
+package-owned read-only check and explicit request callbacks; they do not require
+a settings page. Settings aggregates one row per permission type while retaining
+the execution device and authorization subject. Only missing subjects are requested,
+with shared onboarding grouped per explicit operation. Core registers permissions
+it actually uses; enabled plugin declarations supply additional subjects and are
+removed from the directory on disablement, uninstall or device switch.
 Agent calls retain their existing tool approvals. An optional `enabled_service`
 binds one installed package's switch to a Node service. The binding is exclusive,
 grants no capabilities, and keeps service shutdown atomic with enablement changes.

@@ -13,6 +13,7 @@ pub mod installation;
 pub mod login;
 pub mod oauth;
 mod outcomes;
+pub mod permissions;
 pub mod ports;
 mod projection;
 pub mod python;

@@ -443,6 +443,33 @@ Use `Workspace.new` from `sailry/ui` to supply main content and an optional deta
 
 Entering settings can preload bounded immutable resources without running scripts or reading business data. Opening a page creates its View on first use and reads current data; later section switches reuse that entity. Leaving the settings area releases preloaded files, while mounted page owners remain with the captured Node until invalidation or window close.
 
+`permissions` contributes standard OS permissions to **Settings → Permissions** without a
+settings page. Each entry declares `kind` (`full_disk`, `accessibility`,
+`screen_recording` or `microphone`) and a stable authorization `subject`, such as
+an application bundle identifier. Entries for the same execution device, subject
+and kind are deduplicated; rows aggregate all subjects of one kind. Disabling or
+removing a package removes its contributions without revoking OS grants.
+
+A declaration with subject `sailry` and no callbacks uses the controller's native
+handler. A different subject declares `check` (a `host.read_only` export), optional
+`request` (a host export), and the SDK `actions` needed by those handlers. The same
+actions must appear in the extension's capability list. `request_group` identifies
+one onboarding flow covering multiple permissions for that subject. Each explicit
+request handles only missing grants and deduplicates that group for the current
+operation; failures and cancellation never imply authorization.
+
+Callbacks receive `{kind, subject}` and return
+`{grants: [{kind, authorized: true | false | null}], can_request: boolean}`.
+Return the current grants, including the requested kind; `null` means detection is
+unavailable. The host binds the result to the captured package, device and subject.
+Permission callbacks use the dedicated `permissions` surface: only declared
+check/request handlers and their declared SDK capabilities are admitted. This
+does not grant a settings page, unrelated callbacks or disabled-package access.
+Read-only checks cannot request OS permissions. The Node SDK exposes
+`readComputerPermissions()` and `requestComputerPermission("accessibility" |
+"screen_capture")` for the captured computer helper; plugins map those service
+results to standard permission kinds and own any onboarding policy.
+
 `settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. Feature pages and workflows belong in the package, including bundled language-service and search settings. The host provides Kit composition and scoped service APIs, never package-specific native page selectors.
 
 String settings may declare a JSON Schema `pattern` alongside length limits. Invalid

@@ -105,6 +105,8 @@ pub struct Extension {
     #[schemars(extend("const" = API_VERSION))]
     pub api_version: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<crate::permissions::Contribution>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub connectors: Vec<connector::Declaration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<Category>,

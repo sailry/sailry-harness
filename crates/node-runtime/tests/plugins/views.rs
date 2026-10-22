@@ -323,13 +323,30 @@ async fn reads_disabled_settings() {
 #[tokio::test]
 async fn settings_only_package_keeps_its_surface() {
     for remote in [false, true] {
-        let (_directory, node, controller, client, _) =
-            crate::plugins::support::packages(remote, &["computer"]).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let root = directory.path().join("source/package");
+        let source = "export default class Settings {}";
+        declare(&root, source.as_bytes());
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
+        let extension = &mut manifest["extensions"]["dev.sailry.platform"];
+        extension["desktop"]
+            .as_object_mut()
+            .unwrap()
+            .remove("entry");
+        extension["settings_page"] = serde_json::json!({
+            "navigation":{"label":"Example settings"},
+            "entry":"dev.sailry.platform/ui/main.js"
+        });
+        fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
+        let package = info(execute(&client, install(worktree, 0)).await);
         let installed = info(
             execute(
                 &client,
-                Command::ReadPlugin {
-                    name: "computer".into(),
+                Command::SetPluginEnabled {
+                    name: package.summary.name.clone(),
+                    expected_revision: package.summary.revision,
+                    enabled: false,
                 },
             )
             .await,
@@ -356,16 +373,13 @@ async fn settings_only_package_keeps_its_surface() {
             )
             .await,
         );
-        assert_eq!(view.entry, "dev.sailry.platform/desktop/settings.js");
-        assert_eq!(
-            view.files[&view.entry],
-            include_str!("../../../../plugins/computer/dev.sailry.platform/desktop/settings.js")
-        );
+        assert_eq!(view.entry, "dev.sailry.platform/ui/main.js");
+        assert_eq!(view.files[&view.entry], source);
         let enabled = info(
             execute(
                 &client,
                 Command::SetPluginEnabled {
-                    name: "computer".into(),
+                    name: installed.summary.name.clone(),
                     expected_revision: installed.summary.revision,
                     enabled: true,
                 },

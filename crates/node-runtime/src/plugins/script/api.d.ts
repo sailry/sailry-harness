@@ -98,3 +98,14 @@ export function readTurn(turn:string,before?:number|null,limit?:number): Promise
 /** Ephemeral policy state shared only by this package's callbacks and tools in one turn. */
 export function readTurnState(): Json;
 export function stageTurnState(value:Json): Json;
+
+export type ComputerPermissions = {
+  node: number[];
+  platform: string;
+  local: boolean;
+  screen_capture: boolean | null;
+  accessibility: boolean | null;
+};
+export function readComputerPermissions(): Promise<ComputerPermissions>;
+/** Explicit local onboarding; the Node rejects remote requests and read-only callbacks. */
+export function requestComputerPermission(permission: "screen_capture" | "accessibility"): Promise<ComputerPermissions>;

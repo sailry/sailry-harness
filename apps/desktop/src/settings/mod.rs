@@ -440,7 +440,33 @@ impl Render for Workspace {
                     .update(cx, |panel, cx| panel.bind(binding, window, cx));
                 self.dictation.clone().into_any_element()
             }
-            Section::Permissions => self.permissions.clone().into_any_element(),
+            Section::Permissions => {
+                if let Some(live) = &self.provider_link {
+                    let packages = self
+                        .plugin_catalog
+                        .metadata
+                        .as_ref()
+                        .map(|metadata| {
+                            metadata
+                                .read(cx)
+                                .entries
+                                .values()
+                                .cloned()
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    self.permissions.update(cx, |panel, cx| {
+                        panel.bind(
+                            live.binding.client.clone(),
+                            live.binding.runtime.clone(),
+                            &packages,
+                            live.connected,
+                            cx,
+                        )
+                    });
+                }
+                self.permissions.clone().into_any_element()
+            }
             Section::Market => self.plugin_page(window, cx),
             Section::Plugins => self.plugins(cx),
             Section::Mcp => self.mcp(cx),

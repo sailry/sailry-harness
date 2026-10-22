@@ -1,5 +1,11 @@
 {
   "$defs": {
+    "Accounts": {
+      "enum": [
+        "single"
+      ],
+      "type": "string"
+    },
     "Action": {
       "oneOf": [
         {
@@ -24,6 +30,7 @@
             "roles.read",
             "roles.write",
             "models.read",
+            "decisions.run",
             "models.provide",
             "models.authenticate",
             "credentials.inspect",
@@ -79,6 +86,181 @@
       "type": "string"
     },
     "Auth": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "authorize": {
+              "type": "string"
+            },
+            "client": {
+              "$ref": "#/$defs/Client"
+            },
+            "device": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "flow": {
+              "$ref": "#/$defs/Flow"
+            },
+            "kind": {
+              "const": "oauth2",
+              "type": "string"
+            },
+            "refresh": {
+              "default": false,
+              "type": "boolean"
+            },
+            "scopes": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "token": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "flow",
+            "authorize",
+            "token",
+            "client"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fields": {
+              "$ref": "#/$defs/ClientFields"
+            },
+            "kind": {
+              "const": "application",
+              "type": "string"
+            },
+            "registration": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Registration"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "token": {
+              "$ref": "#/$defs/Token"
+            }
+          },
+          "required": [
+            "kind",
+            "fields",
+            "token"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fields": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "secret",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "fields"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "client": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Client"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "const": "mcp_oauth",
+              "type": "string"
+            },
+            "server": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "server"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "type": "object"
+            },
+            "kind": {
+              "const": "local_cli",
+              "type": "string"
+            },
+            "max_output": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "$ref": "#/$defs/CliStatus"
+            },
+            "timeout_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "token": {
+              "$ref": "#/$defs/CliToken"
+            }
+          },
+          "required": [
+            "kind",
+            "command",
+            "status",
+            "token",
+            "timeout_ms",
+            "max_output"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Auth2": {
       "oneOf": [
         {
           "properties": {
@@ -204,6 +386,45 @@
       ]
     },
     "Body": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "kind": {
+              "const": "form",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "fields"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "json",
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Body2": {
       "additionalProperties": false,
       "properties": {
         "diff": {
@@ -244,45 +465,6 @@
         "text"
       ],
       "type": "object"
-    },
-    "Body2": {
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "fields": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "type": "object"
-            },
-            "kind": {
-              "const": "form",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind",
-            "fields"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "const": "json",
-              "type": "string"
-            },
-            "value": true
-          },
-          "required": [
-            "kind",
-            "value"
-          ],
-          "type": "object"
-        }
-      ]
     },
     "Bytes": {
       "enum": [
@@ -599,7 +781,83 @@
       ],
       "type": "object"
     },
+    "CliStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "argv",
+        "account"
+      ],
+      "type": "object"
+    },
+    "CliToken": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "parse": {
+          "$ref": "#/$defs/Parse"
+        }
+      },
+      "required": [
+        "argv",
+        "parse"
+      ],
+      "type": "object"
+    },
     "Client": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "bundled": {
+              "$ref": "#/$defs/PublicClient"
+            }
+          },
+          "required": [
+            "bundled"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fields": {
+              "$ref": "#/$defs/ClientFields"
+            }
+          },
+          "required": [
+            "fields"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Client2": {
       "additionalProperties": false,
       "properties": {
         "client_id": {
@@ -621,6 +879,25 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "ClientFields": {
+      "additionalProperties": false,
+      "properties": {
+        "client_id": {
+          "type": "string"
+        },
+        "client_secret": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "client_id"
+      ],
       "type": "object"
     },
     "Command": {
@@ -692,6 +969,23 @@
     "Condition": {
       "additionalProperties": false,
       "properties": {
+        "pointer": {
+          "type": "string"
+        },
+        "values": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "pointer",
+        "values"
+      ],
+      "type": "object"
+    },
+    "Condition2": {
+      "additionalProperties": false,
+      "properties": {
         "all": {
           "default": [],
           "items": {
@@ -709,24 +1003,53 @@
       },
       "type": "object"
     },
-    "Condition2": {
+    "Contribution": {
       "additionalProperties": false,
+      "description": "Standard permissions can use the controller's native handler or package callbacks.",
       "properties": {
-        "pointer": {
-          "type": "string"
-        },
-        "values": {
-          "items": true,
+        "actions": {
+          "default": [],
+          "description": "Exact SDK capabilities the handlers need, also required in extension.actions.",
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
           "type": "array"
+        },
+        "check": {
+          "description": "An explicitly read-only host export. None uses the controller's native handler.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        },
+        "request": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request_group": {
+          "description": "One onboarding operation may cover several permissions for the same subject.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subject": {
+          "description": "Stable authorization subject, such as an application bundle identifier.",
+          "type": "string"
         }
       },
       "required": [
-        "pointer",
-        "values"
+        "kind",
+        "subject"
       ],
       "type": "object"
     },
-    "Contribution": {
+    "Contribution2": {
       "additionalProperties": false,
       "properties": {
         "align": {
@@ -773,7 +1096,7 @@
           ]
         },
         "kind": {
-          "$ref": "#/$defs/Kind"
+          "$ref": "#/$defs/Kind2"
         },
         "label": {
           "$ref": "#/$defs/Navigation"
@@ -811,14 +1134,77 @@
       ],
       "type": "object"
     },
-    "CredentialSource": {
-      "description": "Protected native account sources; never expose plaintext to package scripts.",
-      "enum": [
-        "github_cli"
-      ],
-      "type": "string"
-    },
     "Declaration": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "$ref": "#/$defs/Accounts"
+        },
+        "auth": {
+          "items": {
+            "$ref": "#/$defs/Auth"
+          },
+          "type": "array"
+        },
+        "display": {
+          "$ref": "#/$defs/Navigation"
+        },
+        "fields": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Field"
+          },
+          "type": "array"
+        },
+        "health": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HealthRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "type": "string"
+        },
+        "identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentityRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "inject": {
+          "items": {
+            "$ref": "#/$defs/Injection"
+          },
+          "type": "array"
+        },
+        "origins": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "display",
+        "accounts",
+        "origins",
+        "auth",
+        "inject"
+      ],
+      "type": "object"
+    },
+    "Declaration2": {
       "additionalProperties": false,
       "properties": {
         "context": {
@@ -846,62 +1232,7 @@
       ],
       "type": "object"
     },
-    "Declaration2": {
-      "additionalProperties": false,
-      "properties": {
-        "credentials": {
-          "description": "Existing HTTP credential fields filled by this account's access token.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "provider": {
-          "$ref": "#/$defs/Provider"
-        },
-        "scopes": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "provider",
-        "scopes",
-        "credentials"
-      ],
-      "type": "object"
-    },
     "Declaration3": {
-      "additionalProperties": false,
-      "properties": {
-        "client_id": {
-          "type": "string"
-        },
-        "client_secret": {
-          "type": "string"
-        },
-        "provider": {
-          "$ref": "#/$defs/Provider2"
-        },
-        "tenant_scopes": {
-          "description": "Only these application-identity scopes are requested at provider consent.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "provider",
-        "client_id",
-        "client_secret",
-        "tenant_scopes"
-      ],
-      "type": "object"
-    },
-    "Declaration4": {
       "additionalProperties": false,
       "description": "A plugin can configure only its own named tool; native tools omit the MCP server.",
       "properties": {
@@ -986,7 +1317,7 @@
       ],
       "type": "object"
     },
-    "Declaration5": {
+    "Declaration4": {
       "additionalProperties": false,
       "properties": {
         "capability": {
@@ -1002,7 +1333,7 @@
       ],
       "type": "object"
     },
-    "Declaration6": {
+    "Declaration5": {
       "additionalProperties": false,
       "properties": {
         "authentication": {
@@ -1017,7 +1348,7 @@
           "description": "Stable account kind handled by this flow; private credential formats remain unchanged."
         },
         "client": {
-          "$ref": "#/$defs/Client",
+          "$ref": "#/$defs/Client2",
           "default": {
             "client_id": null,
             "client_id_setting": null,
@@ -1047,7 +1378,7 @@
         "inject": {
           "default": [],
           "items": {
-            "$ref": "#/$defs/Injection"
+            "$ref": "#/$defs/Injection2"
           },
           "type": "array"
         },
@@ -1103,7 +1434,7 @@
       ],
       "type": "object"
     },
-    "Declaration7": {
+    "Declaration6": {
       "additionalProperties": false,
       "properties": {
         "capabilities": {
@@ -1164,7 +1495,7 @@
         "when": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Condition"
+              "$ref": "#/$defs/Condition2"
             },
             {
               "type": "null"
@@ -1238,7 +1569,7 @@
         "body": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Body2"
+              "$ref": "#/$defs/Body"
             },
             {
               "type": "null"
@@ -1286,6 +1617,51 @@
     "Field": {
       "additionalProperties": false,
       "properties": {
+        "default": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "help": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "locales": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "default": false,
+          "type": "boolean"
+        },
+        "secret": {
+          "default": false,
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ],
+      "type": "object"
+    },
+    "Field2": {
+      "additionalProperties": false,
+      "properties": {
         "code": {
           "default": false,
           "type": "boolean"
@@ -1325,28 +1701,11 @@
       "type": "object"
     },
     "Flow": {
-      "additionalProperties": false,
-      "properties": {
-        "message_chars": {
-          "description": "Maximum Unicode scalar values requested from the frozen user message.",
-          "format": "uint",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "operations": {
-          "items": {
-            "$ref": "#/$defs/Operation"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "operations"
+      "enum": [
+        "pkce",
+        "device_code"
       ],
-      "type": "object"
+      "type": "string"
     },
     "Flow2": {
       "oneOf": [
@@ -1421,7 +1780,7 @@
               "type": "string"
             },
             "success": {
-              "$ref": "#/$defs/Condition2"
+              "$ref": "#/$defs/Condition"
             },
             "token": {
               "$ref": "#/$defs/Endpoint"
@@ -1512,6 +1871,30 @@
         }
       ]
     },
+    "Flow3": {
+      "additionalProperties": false,
+      "properties": {
+        "message_chars": {
+          "description": "Maximum Unicode scalar values requested from the frozen user message.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "operations"
+      ],
+      "type": "object"
+    },
     "Format": {
       "enum": [
         "added",
@@ -1541,7 +1924,7 @@
         "flow": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Flow"
+              "$ref": "#/$defs/Flow3"
             },
             {
               "type": "null"
@@ -1583,6 +1966,28 @@
       ],
       "type": "object"
     },
+    "HealthRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "items": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "request": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request",
+        "ok"
+      ],
+      "type": "object"
+    },
     "Icon": {
       "anyOf": [
         {
@@ -1602,7 +2007,73 @@
         }
       ]
     },
+    "IdentityRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request",
+        "name",
+        "id"
+      ],
+      "type": "object"
+    },
     "Injection": {
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "field": {
+          "default": null,
+          "description": "Selects a secret when this method declares more than one protected field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "header": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prefix": {
+          "default": "",
+          "type": "string"
+        },
+        "server": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Injection2": {
       "additionalProperties": false,
       "properties": {
         "header": {
@@ -1624,7 +2095,7 @@
         "content": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Field"
+              "$ref": "#/$defs/Field2"
             },
             {
               "type": "null"
@@ -1634,7 +2105,7 @@
         "context": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Field"
+              "$ref": "#/$defs/Field2"
             },
             {
               "type": "null"
@@ -1644,7 +2115,7 @@
         "summary": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Field"
+              "$ref": "#/$defs/Field2"
             },
             {
               "type": "null"
@@ -1654,7 +2125,7 @@
         "target": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Field"
+              "$ref": "#/$defs/Field2"
             },
             {
               "type": "null"
@@ -1673,6 +2144,15 @@
       "type": "string"
     },
     "Kind": {
+      "enum": [
+        "full_disk",
+        "screen_recording",
+        "accessibility",
+        "microphone"
+      ],
+      "type": "string"
+    },
+    "Kind2": {
       "enum": [
         "button",
         "popover",
@@ -1700,7 +2180,7 @@
           "default": [],
           "description": "Named assistants reuse the host's ordinary session execution and controls.",
           "items": {
-            "$ref": "#/$defs/Declaration"
+            "$ref": "#/$defs/Declaration2"
           },
           "type": "array"
         },
@@ -2007,7 +2487,7 @@
         "when": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Condition"
+              "$ref": "#/$defs/Condition2"
             },
             {
               "type": "null"
@@ -2117,7 +2597,7 @@
         "body": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Body"
+              "$ref": "#/$defs/Body2"
             },
             {
               "type": "null"
@@ -2171,6 +2651,28 @@
       ],
       "type": "string"
     },
+    "Parse": {
+      "oneOf": [
+        {
+          "enum": [
+            "line"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "json": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "json"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Part": {
       "additionalProperties": false,
       "description": "Exactly one of text, value or rows supplies a part. Rows cannot nest.",
@@ -2212,7 +2714,7 @@
         "when": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Condition"
+              "$ref": "#/$defs/Condition2"
             },
             {
               "type": "null"
@@ -2278,7 +2780,7 @@
           ]
         },
         "auth": {
-          "$ref": "#/$defs/Auth",
+          "$ref": "#/$defs/Auth2",
           "default": {
             "data": {
               "header": null,
@@ -2437,7 +2939,7 @@
         "when": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Condition"
+              "$ref": "#/$defs/Condition2"
             },
             {
               "type": "null"
@@ -2465,19 +2967,17 @@
       ],
       "type": "string"
     },
-    "Provider": {
-      "enum": [
-        "google",
-        "microsoft",
-        "dingtalk"
+    "PublicClient": {
+      "additionalProperties": false,
+      "properties": {
+        "client_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_id"
       ],
-      "type": "string"
-    },
-    "Provider2": {
-      "enum": [
-        "feishu"
-      ],
-      "type": "string"
+      "type": "object"
     },
     "Receipt": {
       "additionalProperties": false,
@@ -2552,6 +3052,34 @@
         "global"
       ],
       "type": "string"
+    },
+    "Registration": {
+      "additionalProperties": false,
+      "description": "Registration steps use the same private declarative runner as account login.",
+      "properties": {
+        "flow": {
+          "$ref": "#/$defs/Flow2"
+        },
+        "issues": {
+          "$ref": "#/$defs/ClientFields"
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "token": {
+          "$ref": "#/$defs/Mapping"
+        }
+      },
+      "required": [
+        "flow",
+        "token",
+        "issues"
+      ],
+      "type": "object"
     },
     "Renderer": {
       "additionalProperties": false,
@@ -2737,7 +3265,7 @@
       "type": "object"
     },
     "Service": {
-      "description": "A service binding grants no command capabilities by itself.",
+      "description": "Protected native account sources; never expose plaintext to package scripts.\nA service binding grants no command capabilities by itself.",
       "enum": [
         "language"
       ],
@@ -2931,6 +3459,7 @@
           "enum": [
             "workspace",
             "settings",
+            "permissions",
             "provider",
             "composer",
             "project"
@@ -3009,6 +3538,37 @@
         "gray"
       ],
       "type": "string"
+    },
+    "Token": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "type": "string"
+        },
+        "body": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "expires_in": {
+          "type": "string"
+        },
+        "form": {
+          "default": false,
+          "type": "boolean"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "body",
+        "access",
+        "expires_in"
+      ],
+      "type": "object"
     },
     "Tool": {
       "oneOf": [
@@ -3219,6 +3779,12 @@
         }
       ]
     },
+    "connectors": {
+      "items": {
+        "$ref": "#/$defs/Declaration"
+      },
+      "type": "array"
+    },
     "continuation_marker": {
       "anyOf": [
         {
@@ -3232,17 +3798,6 @@
     },
     "conversation_options": {
       "description": "Public package-owned options frozen with each conversation turn."
-    },
-    "credential_source": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/CredentialSource"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Optional protected account source exposed by the shared settings form."
     },
     "description": {
       "anyOf": [
@@ -3314,14 +3869,14 @@
     "model_adapters": {
       "default": [],
       "items": {
-        "$ref": "#/$defs/Declaration7"
+        "$ref": "#/$defs/Declaration6"
       },
       "type": "array"
     },
     "model_auth": {
       "default": [],
       "items": {
-        "$ref": "#/$defs/Declaration6"
+        "$ref": "#/$defs/Declaration5"
       },
       "type": "array"
     },
@@ -3344,30 +3899,15 @@
       "default": [],
       "description": "Provider-executed capabilities; these are not local function handlers.",
       "items": {
-        "$ref": "#/$defs/Declaration5"
+        "$ref": "#/$defs/Declaration4"
       },
       "type": "array"
     },
-    "oauth": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Declaration2"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "registration": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Declaration3"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Provider-owned application creation without a pre-registered client."
+    "permissions": {
+      "items": {
+        "$ref": "#/$defs/Contribution"
+      },
+      "type": "array"
     },
     "scope": {
       "$ref": "#/$defs/Scope",
@@ -3416,7 +3956,7 @@
       "default": [],
       "description": "Output presentation for tools provided by this package.",
       "items": {
-        "$ref": "#/$defs/Declaration4"
+        "$ref": "#/$defs/Declaration3"
       },
       "type": "array"
     },
@@ -3424,7 +3964,7 @@
       "default": [],
       "description": "Controller-rendered entries with state and named action handlers.",
       "items": {
-        "$ref": "#/$defs/Contribution"
+        "$ref": "#/$defs/Contribution2"
       },
       "type": "array"
     }

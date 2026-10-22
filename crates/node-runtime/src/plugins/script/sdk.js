@@ -105,3 +105,6 @@ export function callId() { return call("id.call", null); }
 // Ephemeral package-owned policy; it never writes session history.
 export function readTurnState() { return call("turn.read", null); }
 export function stageTurnState(value) { return call("turn.stage", value); }
+
+export async function readComputerPermissions() { return read("read_computer_permissions"); }
+export async function requestComputerPermission(permission) { return read("request_computer_permission", {permission}); }

@@ -694,6 +694,42 @@ impl Database {
                 action.as_ref(),
             )?;
         }
+        if context.surface == sailry_protocol::plugin::desktop::Surface::Permissions {
+            let extension = package
+                .extension
+                .as_ref()
+                .ok_or_else(|| denied("plugin has no permission contribution"))?;
+            if !package.summary.enabled
+                || !sailry_protocol::permissions::valid(extension)
+                || extension.permissions.is_empty()
+                || context.turn.is_some()
+                || context.worktree.is_some()
+                || context.session.is_some()
+            {
+                return Err(denied("permission contribution is unavailable"));
+            }
+            let allowed = match &request.command {
+                Command::ReadPluginCallback { handler, .. } => extension
+                    .permissions
+                    .iter()
+                    .any(|entry| entry.check.as_ref() == Some(handler)),
+                Command::CallPlugin { handler, .. } => extension
+                    .permissions
+                    .iter()
+                    .any(|entry| entry.request.as_ref() == Some(handler)),
+                _ => action.as_ref().is_some_and(|action| {
+                    extension
+                        .permissions
+                        .iter()
+                        .any(|entry| entry.actions.contains(action))
+                }),
+            };
+            if !allowed {
+                return Err(denied(
+                    "command is not declared by a permission contribution",
+                ));
+            }
+        }
         let settings_surface =
             context.surface == sailry_protocol::plugin::desktop::Surface::Settings;
         if settings_surface
