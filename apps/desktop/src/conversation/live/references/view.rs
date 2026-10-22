@@ -307,7 +307,7 @@ impl View {
             .when(!state.loading || count > 0 || commands, |body| {
                 body.child(div().h(px(height)).child(List::new(&state.list).h_full()))
             })
-            .when(state.loading, |body| {
+            .when(state.loading && !commands, |body| {
                 body.child(div().p_1().child(Spinner::new().small()))
             })
             .when(state.error || state.next.is_some(), |body| {
