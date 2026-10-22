@@ -547,7 +547,7 @@ impl View {
                                     .overflow_y_scroll()
                                     .child(gpui_kit::base::SelectableText::new(
                                         format!("{turn}-error-text"),
-                                        error.message.clone(),
+                                        diagnostic::display(&error.message),
                                     ))
                                     .into_any_element(),
                                 Vec::<AnyElement>::new(),

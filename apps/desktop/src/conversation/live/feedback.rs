@@ -36,7 +36,8 @@ impl View {
                     .connection_error()
                     .expect("connection error is present");
                 let notice =
-                    crate::feedback::diagnostic(error.message.clone().into()).title(tr(key));
+                    crate::feedback::diagnostic(diagnostic::display(&error.message).into())
+                        .title(tr(key));
                 if retrying(error) {
                     return notice;
                 }

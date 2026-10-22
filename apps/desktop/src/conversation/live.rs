@@ -49,6 +49,7 @@ pub(crate) mod recovery;
 mod repository;
 mod sessions;
 pub(crate) use options::{ComposerOptions, Mentions};
+mod diagnostic;
 mod dictation;
 mod feedback;
 mod questions;
