@@ -17,7 +17,16 @@ pub enum Mode {
     FirstTimeout,
     ErrorOnce,
     InvalidFrame,
-    RefuseAfter { accepted: usize, status: u16 },
+    NativeComplete,
+    Interrupt {
+        failures: usize,
+        partial: bool,
+        after_tool: bool,
+    },
+    RefuseAfter {
+        accepted: usize,
+        status: u16,
+    },
 }
 
 struct Closed(Arc<AtomicUsize>);
@@ -101,6 +110,25 @@ pub(super) async fn respond(
             index
         };
         match mode {
+            Mode::Interrupt {
+                failures,
+                partial,
+                after_tool,
+            } if index >= usize::from(after_tool) && index < usize::from(after_tool) + failures => {
+                let _ = socket.send(Message::Text(json!({"type":"response.created","response":{"id":format!("failed_{index}"),"status":"in_progress"}}).to_string().into())).await;
+                if partial {
+                    let _ = socket
+                        .send(Message::Text(text_delta("FAILED_DRAFT").to_string().into()))
+                        .await;
+                }
+                let _ = socket.close(None).await;
+                return;
+            }
+            Mode::NativeComplete => {
+                let _ = socket.send(Message::Text(json!({"type":"response.output_item.done","sequence_number":0,"output_index":0,"item":{"id":"native-search","type":"web_search_call","status":"completed","action":{"type":"search","query":"fixture"}}}).to_string().into())).await;
+                let _ = socket.close(None).await;
+                return;
+            }
             Mode::MissingContinuation if missing => {
                 let _ = socket
                     .send(Message::Text(
@@ -145,8 +173,7 @@ pub(super) async fn respond(
                     .await;
                 let _ = socket
                     .send(Message::Text(
-                        json!({"type":"error","status":429,
-                    "error":{"code":"rate_limit_exceeded","message":KEY}})
+                        json!({"type":"response.failed", "response":{"error":{"code":"rate_limit_exceeded","message":KEY,"headers":{"retry-after":"0"}}}})
                         .to_string()
                         .into(),
                     ))

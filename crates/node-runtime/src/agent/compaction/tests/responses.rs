@@ -47,7 +47,11 @@ async fn model(events: Vec<serde_json::Value>) -> (Arc<dyn Llm>, tokio::task::Jo
     });
     let config = OpenAIResponsesConfig::new("fixture", "fixture").with_base_url(endpoint);
     (
-        Arc::new(OpenAIResponsesClient::new(config).unwrap()),
+        Arc::new(
+            OpenAIResponsesClient::new(config)
+                .unwrap()
+                .with_response_recovery(true),
+        ),
         server,
     )
 }
@@ -109,7 +113,9 @@ async fn rejects_tools_and_truncated_output() {
     truncated["type"] = json!("response.incomplete");
     truncated["response"]["status"] = json!("incomplete");
     truncated["response"]["incomplete_details"] = json!({"reason":"max_output_tokens"});
-    for event in [tool, truncated] {
+    let mut interrupted = truncated.clone();
+    interrupted["response"]["incomplete_details"] = json!({"reason":"interrupted"});
+    for event in [tool, truncated, interrupted] {
         let (model, server) = model(vec![event]).await;
         let (mut summarizer, _) = summarizer(vec![], false);
         summarizer.model = model;

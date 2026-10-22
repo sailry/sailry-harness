@@ -141,9 +141,11 @@ impl Llm for Model {
                 &credentials,
                 &stop,
                 usize::MAX,
+                self.provider.request_retries(),
             )
             .await
             .map_err(transport::Failure::model)?;
+            let retry_at = transport::deadline(received.headers());
             let status = received.status().as_u16();
             let headers =
                 transport::headers(received.headers(), &credentials).map_err(response::fault)?;
@@ -166,7 +168,15 @@ impl Llm for Model {
                     &mut accumulator,
                 )
                 .await;
-                let result = result.and_then(|()| accumulator.finish(&names));
+                let result =
+                    result
+                        .and_then(|()| accumulator.finish(&names))
+                        .map_err(|mut error| {
+                            if let Some(at) = retry_at {
+                                error = error.with_retry_deadline(at.into_std());
+                            }
+                            error
+                        });
                 let _ = sender.send(result).await;
             });
             let stream: LlmResponseStream = Box::pin(Output { receiver, stop });
@@ -232,6 +242,8 @@ async fn produce(
                     message: String,
                     #[serde(default)]
                     retry_after_ms: Option<u64>,
+                    #[serde(default, flatten)]
+                    diagnostics: wire::Diagnostics,
                 }
                 let classified: Classified = if worker.classifies {
                     worker
@@ -246,13 +258,18 @@ async fn produce(
                         class: response::http_class(status),
                         message: format!("model endpoint returned HTTP {status}"),
                         retry_after_ms: None,
+                        diagnostics: Default::default(),
                     }
                 };
-                return Err(response::classified(
-                    classified.class,
-                    &classified.message,
-                    classified.retry_after_ms,
-                    Some(status),
+                return Err(response::diagnostic(
+                    response::classified(
+                        classified.class,
+                        &classified.message,
+                        classified.retry_after_ms,
+                        Some(status),
+                        &credentials.secrets,
+                    ),
+                    &classified.diagnostics,
                     &credentials.secrets,
                 ));
             }
@@ -554,6 +571,7 @@ async fn read_catalog(
             &credentials,
             stop,
             DISCOVERY_BYTES,
+            0,
         )
         .await.map_err(transport::Failure::fault)?;
         let status = received.status().as_u16();

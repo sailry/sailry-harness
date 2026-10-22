@@ -95,6 +95,23 @@ impl Registry {
         entries.clear();
     }
 
+    pub(crate) fn fallback(&self, session: SessionId) -> bool {
+        let entries = self.entries.lock().unwrap();
+        if !entries
+            .iter()
+            .any(|((owner, _), entry)| *owner == session && entry.responses.is_some())
+            || !self.capabilities.fallback(session)
+        {
+            return false;
+        }
+        for ((owner, _), entry) in entries.iter() {
+            if *owner == session {
+                entry.close();
+            }
+        }
+        true
+    }
+
     pub(crate) fn abandon(&self, session: SessionId) {
         for ((owner, _), entry) in self.entries.lock().unwrap().iter() {
             if *owner == session {

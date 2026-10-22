@@ -142,34 +142,25 @@ fn preserves_native_retry_guidance() {
 }
 
 #[test]
-fn keeps_sharing_failures_terminal() {
-    for (provider_code, category, code) in [
-        (
-            "subscription_sharing_usage_limit_exceeded",
-            ErrorCategory::RateLimited,
-            "model.openai_responses.subscription_sharing_usage_limit_exceeded",
-        ),
-        (
-            "subscription_sharing_usage_unavailable",
-            ErrorCategory::Unavailable,
-            "model.openai_responses.subscription_sharing_usage_unavailable",
-        ),
+fn preserves_provider_codes_without_business_policy() {
+    for code in [
+        "subscription_sharing_usage_limit_exceeded",
+        "subscription_sharing_usage_unavailable",
     ] {
         let mut error = AdkError::new(
             ErrorComponent::Model,
             ErrorCategory::Unavailable,
             "model.openai_responses.response_failed",
-            "OpenAI Responses generation failed",
+            "Upstream generation failed",
         );
         error
             .details
             .metadata
-            .insert("provider_error_code".into(), json!(provider_code));
-        assert!(error.is_retryable());
+            .insert("provider_error_code".into(), json!(code));
         let error = redact(error, &[]);
-        assert_eq!(error.category, category);
-        assert_eq!(error.code, code);
-        assert!(!error.is_retryable());
-        assert_eq!(error.message, "OpenAI Responses generation failed");
+        assert_eq!(error.category, ErrorCategory::Unavailable);
+        assert_eq!(error.code, "model.openai_responses.response_failed");
+        assert_eq!(error.details.metadata["provider_error_code"], code);
+        assert_eq!(error.message, "Upstream generation failed");
     }
 }

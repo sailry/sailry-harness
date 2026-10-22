@@ -36,6 +36,7 @@ pub(super) fn keyed(
                 .map_err(error)?
                 .with_reasoning_effort(reasoning::openai(effort)?)
                 .with_retry_config(RetryConfig::disabled())
+                .with_request_retry(request_retry(provider))
                 .with_timeouts(timeouts())
                 .map_err(error)?,
             )
@@ -44,6 +45,7 @@ pub(super) fn keyed(
             AzureAIClient::new(AzureAIConfig::new(&provider.endpoint, key, model))
                 .map_err(error)?
                 .with_retry_config(RetryConfig::disabled())
+                .with_request_retry(request_retry(provider))
                 .with_timeouts(timeouts())
                 .map_err(error)?,
         ),

@@ -224,7 +224,14 @@ async fn owns_preconnections_during_preparation() {
             } else {
                 assert_eq!(completion::response(&page), server::ANSWER);
                 assert_eq!(server.requests.lock().unwrap().len(), 1);
-                assert!(super::super::retry::attempts(&page).is_empty());
+                assert_eq!(
+                    super::super::retry::attempts(&page),
+                    if outcome == "refused" {
+                        vec![1, 2, 3, 4, 5, 0]
+                    } else {
+                        vec![]
+                    }
+                );
                 assert_eq!(
                     server.requests.lock().unwrap()[0].body["type"] == "response.create",
                     outcome != "refused"
@@ -232,7 +239,13 @@ async fn owns_preconnections_during_preparation() {
             }
             assert_eq!(
                 server.upgrades.lock().unwrap().len(),
-                if outcome == "unused" { 2 } else { 1 }
+                if outcome == "unused" {
+                    2
+                } else if outcome == "refused" {
+                    6
+                } else {
+                    1
+                }
             );
             release.cancel();
             fixture.controller.close().await.unwrap();

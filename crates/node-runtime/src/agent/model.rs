@@ -71,9 +71,11 @@ pub(super) async fn build(
         inner: Arc::new(retry::Model {
             inner,
             ingress: ingress.clone(),
-            turn: invocation.turn.id,
+            turn: Some(invocation.turn.id),
             session: invocation.turn.session,
             stop: stop.clone(),
+            limit: provider.stream_retries(),
+            persistent: matches!(purpose, Purpose::Main),
         }),
         ingress: ingress.clone(),
         turn: invocation.turn.id,
@@ -112,7 +114,7 @@ pub(super) async fn configured(
     delegated: bool,
     stop: &CancellationToken,
 ) -> Result<Arc<dyn Llm>, Fault> {
-    configure(
+    let inner = configure(
         ingress,
         provider,
         config,
@@ -121,7 +123,16 @@ pub(super) async fn configured(
         stop,
         Purpose::Helper,
     )
-    .await
+    .await?;
+    Ok(Arc::new(retry::Model {
+        inner,
+        ingress: ingress.clone(),
+        turn: None,
+        session,
+        stop: stop.clone(),
+        limit: provider.stream_retries(),
+        persistent: false,
+    }))
 }
 
 #[derive(Clone, Copy)]
@@ -255,6 +266,13 @@ async fn configure(
     })
 }
 
+fn request_retry(provider: &Provider) -> adk_model::request_retry::RequestRetryConfig {
+    adk_model::request_retry::RequestRetryConfig {
+        max_retries: u32::try_from(provider.request_retries()).expect("bounded request retries"),
+        ..Default::default()
+    }
+}
+
 fn native(
     provider: &Provider,
     config: &SessionConfig,
@@ -328,6 +346,7 @@ fn native(
             )?)
             .map_err(error)?
             .with_retry_config(RetryConfig::disabled())
+            .with_request_retry(request_retry(provider))
             .with_timeouts(timeouts())
             .map_err(error)?,
         ),
@@ -337,7 +356,8 @@ fn native(
                 reasoning::openai(effort)?,
             )
             .map_err(error)?
-            .with_retry_config(RetryConfig::disabled());
+            .with_retry_config(RetryConfig::disabled())
+            .with_request_retry(request_retry(provider));
             if provider.authentication == Authentication::ApiKey {
                 client = client
                     .with_default_headers(hosted::headers())
@@ -371,7 +391,9 @@ fn native(
             };
             let mut client = client
                 .map_err(error)?
-                .with_retry_config(RetryConfig::disabled());
+                .with_retry_config(RetryConfig::disabled())
+                .with_request_retry(request_retry(provider))
+                .with_response_recovery(true);
             if provider.authentication == Authentication::ApiKey {
                 client = client
                     .with_default_headers(hosted::headers())
@@ -399,7 +421,8 @@ fn native(
             let native = reasoning::anthropic(native, effort)?;
             let mut client = AnthropicClient::new(native)
                 .map_err(error)?
-                .with_retry_config(RetryConfig::disabled());
+                .with_retry_config(RetryConfig::disabled())
+                .with_request_retry(request_retry(provider));
             if provider.authentication == Authentication::ApiKey {
                 client = client.with_default_headers(hosted::headers());
             }
@@ -417,7 +440,9 @@ fn native(
                 timeouts(),
             )
             .map_err(error)?
-            .with_retry_config(RetryConfig::disabled());
+            .with_retry_config(RetryConfig::disabled())
+            .with_request_retry(request_retry(provider))
+            .map_err(error)?;
             if let Some(thinking) = reasoning::gemini(effort)? {
                 native = native.with_thinking_config(thinking);
             }

@@ -1,103 +1,78 @@
 use super::*;
 
-mod retry_diagnostics {
-    use super::*;
-
-    #[test]
-    fn excludes_nonretryable_and_exhausted() {
-        let nonretryable = AdkError::new(
-            adk_core::ErrorComponent::Model,
-            adk_core::ErrorCategory::Internal,
-            "model.fixture.invalid",
-            "fixture",
-        );
-        let retryable = AdkError::new(
-            adk_core::ErrorComponent::Model,
-            adk_core::ErrorCategory::Unavailable,
-            "model.fixture.unavailable",
-            "fixture",
-        );
-        assert!(!scheduled(&nonretryable, false, 1, 5, false));
-        assert!(scheduled(&retryable, false, 5, 5, false));
-        assert!(!scheduled(&retryable, false, 6, 5, false));
-        assert!(!scheduled(&retryable, true, 1, 5, false));
-        assert!(!scheduled(&retryable, false, 1, 5, true));
-    }
-}
-
-#[tokio::test(start_paused = true)]
-async fn bounds_timeout_retries_within_total_budget() {
-    let budget = budget::Budget::default();
-    let mut attempts = 0;
-    let result = execute_with_retry_observer(
-        &RetryConfig::default().with_max_retries(5),
-        retryable,
-        None,
-        &mut || {
-            attempts += 1;
-            let attempt = attempts;
-            let budget = &budget;
-            async move {
-                let mut error = AdkError::new(
-                    adk_core::ErrorComponent::Model,
-                    adk_core::ErrorCategory::Timeout,
-                    "model.fixture.timeout",
-                    "transport idle timeout",
-                );
-                budget.schedule(&mut error, false, attempt, 5, false, false);
-                Err::<(), _>(error)
-            }
-        },
-        |_, _, _| async { Ok(()) },
+#[test]
+fn retains_only_last_cause_and_typed_stop() {
+    let error = AdkError::new(
+        adk_core::ErrorComponent::Model,
+        adk_core::ErrorCategory::Unavailable,
+        "model.fixture.last",
+        "last upstream error",
     )
-    .await;
-    assert_eq!(result.err().unwrap().code, "model.fixture.timeout");
-    assert_eq!(attempts, 3);
+    .with_upstream_status(503);
+    let final_error = super::super::error(terminal(error, Stop::AttemptsExhausted));
+    assert_eq!(
+        final_error.message.matches("last upstream error").count(),
+        1
+    );
+    assert!(matches!(
+        final_error.details,
+        Some(sailry_protocol::FaultDetails::ModelRecovery {
+            reason: Stop::AttemptsExhausted
+        })
+    ));
+    let uncertain = AdkError::new(
+        adk_core::ErrorComponent::Model,
+        adk_core::ErrorCategory::Unavailable,
+        "model.fixture.uncertain",
+        "uncertain",
+    )
+    .with_source(Fault::new(ErrorCode::OutcomeUnknown, "uncertain result"));
+    assert_eq!(
+        super::super::error(terminal(uncertain, Stop::LocalFailure)).code,
+        ErrorCode::OutcomeUnknown
+    );
 }
 
-#[tokio::test(start_paused = true)]
-async fn honors_bounded_server_delays() {
-    for seconds in [2, 60, 61, 86_400] {
-        let budget = budget::Budget::default();
-        let mut attempts = 0;
-        let mut observed = Vec::new();
-        let result = execute_with_retry_observer(
-            &RetryConfig::default()
-                .with_max_retries(5)
-                .with_max_delay(std::time::Duration::from_secs(60)),
-            retryable,
-            None,
-            &mut || {
-                attempts += 1;
-                let mut error = AdkError::new(
-                    adk_core::ErrorComponent::Model,
-                    adk_core::ErrorCategory::RateLimited,
-                    "model.fixture.rate_limit",
-                    "rate limited",
-                );
-                error.retry.retry_after_ms = Some(seconds * 1000);
-                budget.schedule(&mut error, false, attempts, 5, false, false);
-                std::future::ready(if attempts == 1 { Err(error) } else { Ok(()) })
-            },
-            |attempt, limit, delay| {
-                observed.push((attempt, limit, delay));
-                std::future::ready(Ok(()))
-            },
-        )
-        .await;
-        if seconds <= 60 {
-            assert!(result.is_ok());
-            assert_eq!(attempts, 2);
-            assert_eq!(observed, [(1, 5, std::time::Duration::from_secs(seconds))]);
-        } else {
-            let error = result.unwrap_err();
-            assert_eq!(attempts, 1);
-            assert!(observed.is_empty());
-            assert!(
-                super::super::error(error)
-                    .message
-                    .contains(&(seconds * 1000).to_string())
-            );
-        }
-    }
+#[test]
+fn preserves_local_fault_details() {
+    let mut fault = Fault::new(ErrorCode::RevisionConflict, "plugin value changed");
+    fault.details = Some(sailry_protocol::FaultDetails::PluginValueConflict);
+    let error = AdkError::new(
+        adk_core::ErrorComponent::Model,
+        adk_core::ErrorCategory::InvalidInput,
+        "model.plugin.translation",
+        "translation failed",
+    )
+    .with_source(fault.clone());
+    assert_eq!(
+        super::super::error(terminal(error, Stop::LocalFailure)),
+        fault
+    );
+}
+
+#[test]
+fn preserves_completed_provider_tool_boundary() {
+    let mut error = AdkError::new(
+        adk_core::ErrorComponent::Model,
+        adk_core::ErrorCategory::Unavailable,
+        "model.fixture.disconnected",
+        "connection closed",
+    );
+    error
+        .details
+        .metadata
+        .insert("provider_tool_completed".into(), true.into());
+    let error = interrupted(error);
+    assert_eq!(super::super::error(&error).code, ErrorCode::OutcomeUnknown);
+    assert_eq!(
+        super::super::error(&error)
+            .message
+            .matches("connection closed")
+            .count(),
+        1
+    );
+    assert!(matches!(
+        classification::Failure::new(&error).class,
+        classification::Class::Terminal(Stop::LocalFailure)
+    ));
 }

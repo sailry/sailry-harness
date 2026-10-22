@@ -415,6 +415,16 @@ async fn bounds_transient_failure_retries() {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Failure).await;
             let fixture = Fixture::empty(remote, api, &server.endpoint).await;
+            let mut provider = fixture.provider.clone();
+            provider.request_max_retries = Some(0);
+            execute(
+                &fixture.client,
+                Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                },
+            )
+            .await;
             let turn = fixture.submit("failure fixture").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(

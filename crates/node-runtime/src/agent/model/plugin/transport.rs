@@ -56,8 +56,35 @@ impl Failure {
                         "model connection failed",
                     )
                 };
-                adk_core::AdkError::new(adk_core::ErrorComponent::Model, category, code, message)
-                    .with_source(Fault::new(ErrorCode::Unavailable, message))
+                let kind = if error.is_timeout() {
+                    "timeout"
+                } else if error.is_connect() {
+                    "connection"
+                } else if error.is_builder() {
+                    "build"
+                } else {
+                    "network"
+                };
+                let mut failure = adk_core::AdkError::new(
+                    adk_core::ErrorComponent::Model,
+                    category,
+                    code,
+                    message,
+                )
+                .with_source(Fault::new(ErrorCode::Unavailable, message));
+                failure
+                    .details
+                    .metadata
+                    .insert("transport".into(), "http".into());
+                failure.details.metadata.insert(
+                    "transport_phase".into(),
+                    if error.is_body() { "stream" } else { "request" }.into(),
+                );
+                failure
+                    .details
+                    .metadata
+                    .insert("transport_error_kind".into(), kind.into());
+                failure
             }
         }
     }
@@ -103,6 +130,7 @@ pub(super) async fn send(
     credentials: &Credentials,
     stop: &CancellationToken,
     budget: usize,
+    retries: u64,
 ) -> Result<Response, Failure> {
     let budget = budget.min(REQUEST_BYTES);
     let endpoint = address(endpoint)?;
@@ -203,10 +231,40 @@ pub(super) async fn send(
     if let Some(body) = prepared.body {
         request = request.body(body);
     }
-    tokio::select! {
-        _ = stop.cancelled()=>Err(cancelled().into()),
-        response = request.send()=>response.map_err(Failure::Network),
+    let request = request.build().map_err(Failure::Network)?;
+    for attempt in 0..=retries {
+        let sent = request.try_clone().ok_or_else(invalid)?;
+        let result = tokio::select! {
+            biased;
+            _ = stop.cancelled() => return Err(cancelled().into()),
+            response = client.execute(sent) => response,
+        };
+        let retry = match &result {
+            Ok(response) => response.status().is_server_error(),
+            Err(error) => !error.is_builder(),
+        };
+        if attempt == retries || !retry {
+            return result.map_err(Failure::Network);
+        }
+        let at = result
+            .as_ref()
+            .ok()
+            .and_then(|response| deadline(response.headers()))
+            .unwrap_or_else(|| {
+                tokio::time::Instant::now() + super::super::retry::budget::backoff(attempt + 1)
+            });
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => return Err(cancelled().into()),
+            _ = tokio::time::sleep_until(at) => {},
+        }
     }
+    unreachable!("inclusive retry loop returns its last result")
+}
+
+pub(super) fn deadline(headers: &HeaderMap) -> Option<tokio::time::Instant> {
+    let delay = adk_model::retry::parse_retry_after(headers.get("retry-after")?.to_str().ok()?)?;
+    tokio::time::Instant::now().checked_add(delay)
 }
 
 pub(super) fn headers(

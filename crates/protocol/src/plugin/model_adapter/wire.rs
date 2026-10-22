@@ -177,6 +177,14 @@ pub enum Delta {
         class: Class,
         message: String,
         retry_after_ms: Option<u64>,
+        #[serde(default)]
+        code: Option<String>,
+        #[serde(default)]
+        error_type: Option<String>,
+        #[serde(default)]
+        event_type: Option<String>,
+        #[serde(default)]
+        incomplete_reason: Option<String>,
     },
 }
 
@@ -202,4 +210,17 @@ pub enum Class {
     Unavailable,
     Unsupported,
     Unknown,
+}
+
+/// Provider-owned error fields, separate from normalized adapter classifications.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Diagnostics {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incomplete_reason: Option<String>,
 }

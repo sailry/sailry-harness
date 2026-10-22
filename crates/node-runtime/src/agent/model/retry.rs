@@ -1,32 +1,27 @@
-//! ADK owns backoff and error classification; retry notices use canonical session events.
+//! Session recovery follows Codex; raw HTTP retries remain owned by the transport.
 //! Only uncommitted attempts can recover; complete responses and tool work are never replayed.
 use super::*;
 use adk_core::{
     AdkError, Content, Event, LlmRequest, LlmResponse, LlmResponseStream, SchemaAdapter,
 };
-use adk_model::retry::{execute_with_retry_observer, is_retryable_model_error};
 use adk_session::SessionService;
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt, channel::mpsc};
 use sailry_protocol::SessionId;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-mod budget;
-
-fn retryable(error: &AdkError) -> bool {
-    error.retry.should_retry && is_retryable_model_error(error)
-}
-
-fn scheduled(error: &AdkError, stopped: bool, attempt: u64, limit: u32, committed: bool) -> bool {
-    !stopped && attempt <= u64::from(limit) && !committed && retryable(error)
-}
+pub(super) mod budget;
+mod classification;
+use sailry_protocol::conversation::recovery::{Retry, Stop, Transport};
 
 pub(super) struct Model {
     pub inner: Arc<dyn Llm>,
     pub ingress: Arc<Ingress>,
-    pub turn: TurnId,
+    pub turn: Option<TurnId>,
     pub session: SessionId,
     pub stop: CancellationToken,
+    pub limit: u64,
+    pub persistent: bool,
 }
 
 #[async_trait]
@@ -58,100 +53,115 @@ impl Llm for Model {
         let turn = self.turn;
         let session = self.session;
         let stop = self.stop.clone();
+        let limit = self.limit;
+        let persistent = self.persistent;
         let (mut output, responses) = mpsc::channel(0);
         let producer = async move {
-            let budget = budget::Budget::default();
-            let budget = &budget;
+            let mut budget = budget::Budget::default();
             let committed = AtomicBool::new(false);
-            let committed = &committed;
             let published = AtomicBool::new(false);
-            let published = &published;
-            let diagnostic = std::sync::Mutex::new(String::new());
-            let diagnostic = &diagnostic;
-            let model = inner.as_ref();
-            let sender = output.clone();
-            let policy = RetryConfig::default()
-                .with_max_retries(5)
-                .with_max_delay(std::time::Duration::from_secs(60));
-            let retry_limit = policy.max_retries;
-            let limit = u64::from(retry_limit);
-            let node = ingress.node;
-            let mut index = 0_u64;
-            let mut operation = || {
-                index += 1;
-                let attempt_number = index;
-                let started = std::time::Instant::now();
-                let stopped = stop.clone();
-                let attempt = attempt(
-                    model,
-                    request.clone(),
-                    stream,
-                    committed,
-                    published,
-                    sender.clone(),
-                );
-                async move {
-                    let mut result = attempt.await;
-                    if let Err(error) = &mut result {
-                        if !budget.schedule(
-                            error,
-                            stopped.is_cancelled(),
-                            attempt_number,
-                            retry_limit,
-                            committed.load(Ordering::Relaxed),
-                            published.load(Ordering::Relaxed),
-                        ) {
-                            return result;
-                        }
-                        *diagnostic.lock().expect("retry diagnostic lock is healthy") =
-                            super::error(&*error).message;
-                        let mut entry = crate::logging::Entry::new(
-                            crate::logging::Area::Model,
-                            crate::logging::Phase::Failed,
-                        );
-                        entry.operation = Some("model_retry");
-                        entry.stage = Some("attempt");
-                        entry.attempt = Some(attempt_number);
-                        entry.limit = Some(limit);
-                        entry.duration_us = u64::try_from(started.elapsed().as_micros()).ok();
-                        entry.code = Some(ErrorCode::Unavailable);
-                        entry.context = crate::logging::Context {
-                            node: Some(node),
-                            turn: Some(turn),
-                            session: Some(session),
-                            model: Some(model.name().into()),
-                            ..Default::default()
-                        };
-                        super::cause(&mut entry, error);
-                        entry.emit();
-                    }
-                    result
+            let result = loop {
+                let result = tokio::select! {
+                    biased;
+                    _ = stop.cancelled() => Err(cancelled()),
+                    result = attempt(inner.as_ref(), request.clone(), stream, &committed,
+                        &published, output.clone()) => result,
+                };
+                let Err(error) = result else {
+                    break Ok(());
+                };
+                if stop.is_cancelled() || committed.load(Ordering::Relaxed) {
+                    break Err(error);
                 }
-            };
-            let result = tokio::select! {
-                biased;
-                _ = stop.cancelled() => Err(cancelled()),
-                result = execute_with_retry_observer(
-                    &policy,
-                    |error| !committed.load(Ordering::Relaxed) && retryable(error),
-                    None,
-                    &mut operation,
-                    |attempt, limit, _| {
-                        let ingress = &ingress;
-                        let error = diagnostic.lock().expect("retry diagnostic lock is healthy").clone();
-                        async move {
-                            let mut event = Event::new(turn.to_string());
-                            event.author = "system".into();
-                            event.provider_metadata.insert(
-                                "sailry_retry".into(),
-                                serde_json::json!({"attempt": attempt, "limit": limit, "error": error}).to_string(),
-                            );
-                            ingress.sessions(turn)
-                                .append_event(&session.to_string(), event)
-                                .await
+                let error = interrupted(error);
+                let failure = classification::Failure::new(&error);
+                let (attempt, finite, at, delay, fallback) =
+                    match budget.next(&failure, limit, persistent) {
+                        budget::Decision::Stop(reason) => break Err(terminal(error, reason)),
+                        budget::Decision::Exhausted => {
+                            if failure.transport != Some(Transport::WebSocket)
+                                || !ingress.model_clients.fallback(session)
+                            {
+                                break Err(terminal(error, Stop::AttemptsExhausted));
+                            }
+                            budget.fallback();
+                            (
+                                0,
+                                Some(limit),
+                                failure.retry_at.unwrap_or_else(tokio::time::Instant::now),
+                                None,
+                                true,
+                            )
                         }
-                    },
-                ) => result,
+                        budget::Decision::Retry {
+                            attempt,
+                            limit,
+                            at,
+                            delay,
+                        } => (attempt, limit, at, delay, false),
+                    };
+                let notice = Retry {
+                    attempt,
+                    fallback,
+                    limit: finite,
+                    delay_ms: Some(
+                        u64::try_from(
+                            delay
+                                .unwrap_or_else(|| {
+                                    at.saturating_duration_since(tokio::time::Instant::now())
+                                })
+                                .as_millis(),
+                        )
+                        .unwrap_or(u64::MAX),
+                    ),
+                    transport: failure.transport,
+                    status: failure.status,
+                    code: failure.code,
+                    error: Some(super::error(&error).message),
+                };
+                let mut entry = crate::logging::Entry::new(
+                    crate::logging::Area::Model,
+                    crate::logging::Phase::Failed,
+                );
+                entry.operation = Some("model_retry");
+                entry.stage = Some("session");
+                entry.attempt = Some(attempt);
+                entry.limit = finite;
+                entry.context = crate::logging::Context {
+                    node: Some(ingress.node),
+                    turn,
+                    session: Some(session),
+                    model: Some(inner.name().into()),
+                    ..Default::default()
+                };
+                super::cause(&mut entry, &error);
+                entry.emit();
+                if let Some(turn) = turn {
+                    let mut event = Event::new(turn.to_string());
+                    event.author = "system".into();
+                    event.provider_metadata.insert(
+                        "sailry_retry".into(),
+                        serde_json::to_string(&notice).expect("retry diagnostic serializes"),
+                    );
+                    let sessions = ingress.sessions(turn);
+                    let session_id = session.to_string();
+                    let observed = tokio::select! {
+                        biased;
+                        _ = stop.cancelled() => Err(cancelled()),
+                        result = sessions.append_event(&session_id, event) => result,
+                    };
+                    if let Err(error) = observed {
+                        break Err(error);
+                    }
+                }
+                // Server advice keeps its original deadline. Codex starts local
+                // backoff after the recovery notification has been delivered.
+                let at = delay.map_or(at, |delay| tokio::time::Instant::now() + delay);
+                tokio::select! {
+                    biased;
+                    _ = stop.cancelled() => break Err(cancelled()),
+                    _ = tokio::time::sleep_until(at) => {},
+                }
             };
             if let Err(error) = result {
                 let _ = output.send(Err(error)).await;
@@ -236,6 +246,34 @@ async fn attempt(
         ));
     }
     Ok(())
+}
+
+fn interrupted(error: AdkError) -> AdkError {
+    if error
+        .details
+        .metadata
+        .get("provider_tool_completed")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return error;
+    }
+    let mut fault = super::error(&error);
+    fault.code = ErrorCode::OutcomeUnknown;
+    fault.message.push_str(
+        "\n\nA provider tool completed before the response ended; the request was not replayed",
+    );
+    error.with_source(fault)
+}
+
+fn terminal(error: AdkError, reason: Stop) -> AdkError {
+    let mut fault = super::error(&error);
+    if !matches!(fault.code, ErrorCode::Cancelled | ErrorCode::OutcomeUnknown)
+        && fault.details.is_none()
+    {
+        fault.details = Some(sailry_protocol::FaultDetails::ModelRecovery { reason });
+    }
+    error.with_source(fault)
 }
 
 fn cancelled() -> AdkError {

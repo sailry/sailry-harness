@@ -39,7 +39,7 @@ declare module 'sailry/adapter' {
   export type Finish = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'other';
   export type Class = 'authentication' | 'permission' | 'rate_limited' | 'quota'
     | 'context_overflow' | 'invalid_request' | 'unavailable' | 'unsupported' | 'unknown';
-  export interface Classified {class: Class; message: string; retry_after_ms?: number | null}
+  export interface Classified {class: Class; message: string; retry_after_ms?: number | null; code?: string | null; error_type?: string | null; event_type?: string | null; incomplete_reason?: string | null}
   export type Delta =
     | {kind: 'text'; text: string}
     | {kind: 'reasoning'; text?: string | null; replay?: string | null}

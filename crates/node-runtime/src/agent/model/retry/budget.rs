@@ -1,213 +1,78 @@
-//! One retry budget bounds transport recovery; the final error retains its protected diagnostics.
-use super::*;
-use adk_core::ErrorCategory;
-use std::sync::Mutex;
+//! Session recovery follows openai/codex 61f34c35 core/responses_retry.rs.
+//! HTTP request retries belong to the transport; these counters never own them.
+use super::classification::{Class, Failure};
+use sailry_protocol::conversation::recovery::Stop;
+use std::time::Duration;
+use tokio::time::Instant;
 
 #[derive(Default)]
-pub(super) struct Budget(Mutex<State>);
+pub(super) struct Budget {
+    retries: u64,
+    connections: u64,
+}
 
-#[derive(Default)]
-struct State {
-    timeouts: u8,
-    recoveries: u8,
+#[derive(Debug)]
+pub(super) enum Decision {
+    Retry {
+        attempt: u64,
+        limit: Option<u64>,
+        at: Instant,
+        delay: Option<Duration>,
+    },
+    Exhausted,
+    Stop(Stop),
 }
 
 impl Budget {
-    pub(super) fn schedule(
-        &self,
-        error: &mut AdkError,
-        stopped: bool,
-        attempt: u64,
-        limit: u32,
-        committed: bool,
-        published: bool,
-    ) -> bool {
-        let mut state = self.0.lock().expect("retry budget lock is healthy");
-        let long_delay = error.retry.retry_after_ms.filter(|delay| *delay > 60_000);
-        let timed_out = error.category == ErrorCategory::Timeout;
-        let allowed = scheduled(error, stopped, attempt, limit, committed)
-            && long_delay.is_none()
-            && (!timed_out || state.timeouts < 2)
-            && (!published || state.recoveries < 1);
-        error.retry.should_retry &= allowed;
-        if allowed {
-            state.timeouts += u8::from(timed_out);
-            state.recoveries += u8::from(published);
+    pub fn next(&mut self, failure: &Failure, limit: u64, persistent: bool) -> Decision {
+        match failure.class {
+            Class::Terminal(reason) => return Decision::Stop(reason),
+            Class::Advice(reason) if failure.retry_at.is_none() => return Decision::Stop(reason),
+            _ => {}
         }
-        if let Some(delay) = long_delay {
-            error.retry.should_retry = false;
-            error
-                .details
-                .metadata
-                .insert("sailry_retry_after_ms".into(), delay.into());
-            let explanation =
-                format!("\n\nRetry-After is {delay} ms; automatic retry waits at most 60000 ms");
-            error.message.push_str(&explanation);
-            if let Some(mut fault) = std::error::Error::source(error)
-                .and_then(|source| source.downcast_ref::<Fault>())
-                .cloned()
-            {
-                fault.message.push_str(&explanation);
-                *error = std::mem::replace(error, cancelled()).with_source(fault);
-            }
+        if failure.class == Class::Connection && persistent {
+            self.connections = self.connections.saturating_add(1);
+            let seconds = 5_u64
+                .saturating_mul(
+                    2_u64.saturating_pow(self.connections.saturating_sub(1).min(4) as u32),
+                )
+                .min(60);
+            return Decision::Retry {
+                attempt: self.connections,
+                limit: None,
+                at: Instant::now() + Duration::from_secs(seconds),
+                delay: Some(Duration::from_secs(seconds)),
+            };
         }
-        allowed
+        if self.retries >= limit {
+            return Decision::Exhausted;
+        }
+        self.retries += 1;
+        let delay = failure.retry_at.is_none().then(|| backoff(self.retries));
+        Decision::Retry {
+            attempt: self.retries,
+            limit: Some(limit),
+            at: failure
+                .retry_at
+                .unwrap_or_else(|| Instant::now() + delay.expect("local backoff")),
+            delay,
+        }
     }
+
+    /// A transport switch resets only the finite counter, like Codex.
+    pub fn fallback(&mut self) {
+        self.retries = 0;
+    }
+}
+
+pub(in crate::agent::model) fn backoff(attempt: u64) -> Duration {
+    // Existing UUID entropy avoids a separate application RNG owner.
+    let entropy = uuid::Uuid::new_v4();
+    let sample = u32::from_le_bytes(entropy.as_bytes()[..4].try_into().expect("four bytes"));
+    let jitter = 0.9 + 0.2 * f64::from(sample) / (f64::from(u32::MAX) + 1.0);
+    let base = (200.0 * 2.0_f64.powi(attempt.saturating_sub(1) as i32)) as u64;
+    Duration::from_millis((base as f64 * jitter) as u64)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn failure(category: ErrorCategory) -> AdkError {
-        AdkError::new(
-            adk_core::ErrorComponent::Model,
-            category,
-            "model.fixture.failure",
-            "unchecked body",
-        )
-    }
-
-    #[test]
-    fn shares_sublimits_without_replaying_committed_work() {
-        let budget = Budget::default();
-        assert!(budget.schedule(
-            &mut failure(ErrorCategory::Timeout),
-            false,
-            1,
-            5,
-            false,
-            false
-        ));
-        assert!(budget.schedule(
-            &mut failure(ErrorCategory::Unavailable),
-            false,
-            2,
-            5,
-            false,
-            false
-        ));
-        assert!(budget.schedule(
-            &mut failure(ErrorCategory::Timeout),
-            false,
-            3,
-            5,
-            false,
-            false
-        ));
-        assert!(!budget.schedule(
-            &mut failure(ErrorCategory::Timeout),
-            false,
-            4,
-            5,
-            false,
-            false
-        ));
-        assert!(budget.schedule(
-            &mut failure(ErrorCategory::Unavailable),
-            false,
-            4,
-            5,
-            false,
-            true
-        ));
-        assert!(!budget.schedule(
-            &mut failure(ErrorCategory::Unavailable),
-            false,
-            5,
-            5,
-            false,
-            true
-        ));
-        assert!(!Budget::default().schedule(
-            &mut failure(ErrorCategory::Unavailable),
-            false,
-            1,
-            5,
-            true,
-            false
-        ));
-        assert!(!Budget::default().schedule(
-            &mut failure(ErrorCategory::Unavailable),
-            true,
-            1,
-            5,
-            false,
-            false
-        ));
-        assert!(!Budget::default().schedule(
-            &mut failure(ErrorCategory::Unavailable),
-            false,
-            6,
-            5,
-            false,
-            false
-        ));
-    }
-
-    #[test]
-    fn keeps_only_the_final_protected_cause() {
-        let budget = Budget::default();
-        let mut first = failure(ErrorCategory::Unavailable)
-            .with_upstream_status(503)
-            .with_source(Fault::new(
-                ErrorCode::Unavailable,
-                "Protected early failure",
-            ));
-        assert!(budget.schedule(&mut first, false, 1, 5, false, false));
-        let last = failure(ErrorCategory::RateLimited)
-            .with_upstream_status(429)
-            .with_source(Fault::new(
-                ErrorCode::Unavailable,
-                "Protected final failure",
-            ));
-        let fault = super::super::super::error(last);
-        assert_eq!(fault.message, "Protected final failure");
-        assert!(!fault.message.contains("Protected early failure"));
-        assert!(!fault.message.contains("unchecked body"));
-    }
-
-    #[test]
-    fn caps_waits_without_repeating_the_final_cause() {
-        for protected in [false, true] {
-            let budget = Budget::default();
-            let mut first = failure(ErrorCategory::Unavailable).with_upstream_status(503);
-            assert!(budget.schedule(&mut first, false, 1, 5, false, false));
-            let mut last = AdkError::new(
-                adk_core::ErrorComponent::Model,
-                ErrorCategory::RateLimited,
-                "model.fixture.rate_limited",
-                "Final provider reason",
-            )
-            .with_upstream_status(429);
-            if protected {
-                let fault = Fault::new(
-                    ErrorCode::Unavailable,
-                    format!(
-                        "{}\n\nFinal provider reason",
-                        super::super::super::summary(&last)
-                    ),
-                );
-                last = last.with_source(fault);
-            }
-            last.retry.retry_after_ms = Some(426_414_000);
-            assert!(!budget.schedule(&mut last, false, 2, 5, false, false));
-            assert_eq!(last.category, ErrorCategory::RateLimited);
-            assert_eq!(last.details.upstream_status_code, Some(429));
-            assert_eq!(last.retry.retry_after_ms, Some(426_414_000));
-            let fault = super::super::super::error(last);
-            for text in [
-                "Final provider reason",
-                "model.fixture.rate_limited",
-                "HTTP 429",
-                "Retry-After is 426414000 ms",
-                "at most 60000 ms",
-            ] {
-                assert_eq!(fault.message.matches(text).count(), 1);
-            }
-            assert!(!fault.message.contains("HTTP 503"));
-            assert!(!fault.message.contains("First failure"));
-            assert!(!fault.message.contains("Final failure"));
-        }
-    }
-}
+mod tests;

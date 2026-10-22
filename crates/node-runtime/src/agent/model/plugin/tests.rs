@@ -475,6 +475,7 @@ async fn bounds_requests_before_network_io() {
         &credentials,
         &CancellationToken::new(),
         usize::MAX,
+        0,
     )
     .await
     .unwrap_err()
@@ -648,4 +649,88 @@ async fn finishes_before_the_http_connection_closes() {
             text: "done".into()
         }]
     );
+}
+
+#[test]
+fn preserves_structured_stream_diagnostics() {
+    let delta: Delta = serde_json::from_value(json!({"kind":"error","class":"unknown",
+        "message":"upstream private-token", "code":"relay_busy", "error_type":"capacity",
+        "event_type":"response.failed", "retry_after_ms":0}))
+    .unwrap();
+    let error = response::Accumulator::default()
+        .push(vec![delta], true, &[Secret::new("private-token".into())])
+        .unwrap_err();
+    assert_eq!(error.details.metadata["provider_error_code"], "relay_busy");
+    assert_eq!(error.details.metadata["provider_error_type"], "capacity");
+    assert_eq!(
+        error.details.metadata["provider_event_type"],
+        "response.failed"
+    );
+    assert_eq!(error.details.metadata["transport_phase"], "stream");
+    assert!(!error.to_string().contains("private-token"));
+    let minimal: Delta =
+        serde_json::from_value(json!({"kind":"error","class":"unknown","message":"minimal"}))
+            .unwrap();
+    assert!(matches!(
+        minimal,
+        Delta::Error {
+            code: None,
+            event_type: None,
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn retries_raw_http_without_retranslation() {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    for status in [429, 503] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/", listener.local_addr().unwrap());
+        let count = if status == 503 { 3 } else { 1 };
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for _ in 0..count {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut bytes = [0; 1024];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = socket.read(&mut bytes).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&bytes[..count]);
+                }
+                requests.push(request);
+                socket.write_all(format!("HTTP/1.1 {status} Fixture\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            }
+            assert!(requests.iter().all(|request| request == &requests[0]));
+        });
+        let prepared =
+            serde_json::from_value(json!({"method":"GET","url":endpoint,"headers":{}})).unwrap();
+        let declaration = serde_json::from_value(json!({"id":"example","script":{"entry":"dev.sailry.platform/adapter.js"},"origins":[],"framing":"json"})).unwrap();
+        let credentials = transport::Credentials {
+            origin: None,
+            headers: Default::default(),
+            access: None,
+            key: None,
+            secrets: vec![],
+        };
+        let response = transport::send(
+            &transport::client().unwrap(),
+            prepared,
+            &endpoint,
+            &declaration,
+            &credentials,
+            &CancellationToken::new(),
+            usize::MAX,
+            2,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status().as_u16(), status);
+        server.await.unwrap();
+    }
 }

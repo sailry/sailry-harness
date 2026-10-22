@@ -421,21 +421,11 @@ pub(crate) fn project(
                 Ok(Part::Resource(Failure { source: Source::Automatic, stage: Stage::Unknown, reason: Reason::Unknown, continued: true, status: None }.resource()))
             }))
             .chain(event.provider_metadata.get("sailry_retry").map(|value| {
-                let value: Value = serde_json::from_str(value).map_err(storage_error)?;
-                let attempt = value["attempt"]
-                    .as_u64()
-                    .filter(|value| (1..=5).contains(value));
-                let limit = value["limit"].as_u64().filter(|value| *value == 5);
-                match (attempt, limit) {
-                    (Some(attempt), Some(limit)) if event.author == "system" => {
-                        let mut retry = serde_json::json!({"type":"model_retry","attempt":attempt,"limit":limit});
-                        if let Some(error) = value["error"].as_str() {
-                            retry["error"] = error.into();
-                        }
-                        Ok(Part::Resource(retry))
-                    },
-                    _ => Err(sailry_protocol::Fault::invalid("invalid model retry metadata")),
+                let retry: sailry_protocol::conversation::recovery::Retry = serde_json::from_str(value).map_err(storage_error)?;
+                if event.author != "system" || !retry.valid() {
+                    return Err(sailry_protocol::Fault::invalid("invalid model retry metadata"));
                 }
+                Ok(Part::Resource(retry.resource()))
             }))
             .chain(
                 references

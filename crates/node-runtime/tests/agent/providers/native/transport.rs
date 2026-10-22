@@ -5,6 +5,8 @@ use server::Mode;
 use std::sync::atomic::Ordering;
 #[path = "transport/preparation.rs"]
 mod preparation;
+#[path = "transport/recovery.rs"]
+mod recovery;
 
 #[tokio::test]
 async fn reuses_after_provider_error() {
@@ -28,9 +30,8 @@ async fn reuses_after_provider_error() {
                 .iter()
                 .all(|request| request.body["type"] == "response.create")
         );
-        // The error follows response.created, so a late frame of that response
-        // could reach the retry; the retry uses a new socket.
-        assert_eq!(server.upgrades.lock().unwrap().len(), 2);
+        // A terminal response.failed closes this response, so the socket can be reused.
+        assert_eq!(server.upgrades.lock().unwrap().len(), 1);
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
@@ -38,28 +39,34 @@ async fn reuses_after_provider_error() {
 }
 
 #[tokio::test]
-async fn retains_accepted_read_failure() {
+async fn falls_back_after_stream_budget() {
     for remote in [false, true] {
         let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::InvalidFrame).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        let turn = fixture.submit("Report the accepted delivery failure").await;
+        let turn = fixture.submit("Recover the interrupted generation").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let terminal = page.runs.last().unwrap();
-        assert_eq!(terminal.status, Status::Failed);
-        assert!(
-            terminal
-                .error
-                .as_ref()
-                .unwrap()
-                .message
-                .contains("model.openai_responses.ws_read")
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
         );
-        assert!(super::retry::attempts(&page).is_empty());
+        assert_eq!(completion::response(&page), server::ANSWER);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].body["type"], "response.create");
-        assert_eq!(server.upgrades.lock().unwrap().len(), 1);
-        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.body["type"] == "response.create")
+                .count(),
+            6
+        );
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.body.get("type").is_none())
+                .count(),
+            1
+        );
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }
@@ -201,7 +208,14 @@ async fn stream(remote: bool, mode: Mode) -> Vec<(Status, Vec<Part>)> {
         let requests = server.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         let upgrades = server.upgrades.lock().unwrap();
-        assert_eq!(upgrades.len(), 1);
+        assert_eq!(
+            upgrades.len(),
+            if matches!(mode, Mode::Refuse(_)) {
+                6
+            } else {
+                1
+            }
+        );
         assert!(upgrades[0].received <= requests[0].received);
         assert_eq!(
             upgrades[0].headers["authorization"],
@@ -270,7 +284,14 @@ async fn continues_the_canonical_tool_loop() {
             );
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), 2);
-            assert_eq!(server.upgrades.lock().unwrap().len(), 1);
+            assert_eq!(
+                server.upgrades.lock().unwrap().len(),
+                if matches!(mode, Mode::Refuse(_)) {
+                    6
+                } else {
+                    1
+                }
+            );
             assert!(requests[1].body.to_string().contains("工具内容 🙂"));
             match mode {
                 Mode::Accept => {
@@ -329,14 +350,9 @@ async fn remembers_confirmed_refusals() {
                 page.runs
             );
             assert!(text(&page).contains(server::ANSWER));
-            assert!(super::retry::attempts(&page).is_empty());
+            assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5, 0]);
         }
-        let expected = if matches!(mode, Mode::Close(1013) | Mode::Limit) {
-            2
-        } else {
-            1
-        };
-        assert_eq!(server.upgrades.lock().unwrap().len(), expected);
+        assert_eq!(server.upgrades.lock().unwrap().len(), 6);
         assert_eq!(
             server
                 .requests
@@ -375,8 +391,8 @@ async fn keeps_authentication_failures_retryable() {
     let fixture = Fixture::empty(false, ModelApi::Responses, &server.endpoint).await;
     let turn = fixture.submit("Use the current authorization").await;
     let page = finished(&fixture.client, fixture.session.id, turn).await;
-    assert_eq!(page.runs.last().unwrap().status, Status::Failed);
-    assert!(super::retry::attempts(&page).is_empty());
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5, 0, 1]);
     let reference = fixture.session.config.credential.as_ref().unwrap();
     let Output::Credentials(credentials) = execute(&fixture.client, Command::ListCredentials).await
     else {
@@ -424,23 +440,19 @@ async fn keeps_authentication_failures_retryable() {
         page.runs
     );
     let upgrades = server.upgrades.lock().unwrap().clone();
-    assert_eq!(upgrades.len(), 2);
+    assert_eq!(upgrades.len(), 6);
     assert_eq!(
         upgrades[0].headers["authorization"],
         format!("Bearer {}", server::KEY)
     );
-    assert_eq!(
-        upgrades[1].headers["authorization"],
-        format!("Bearer {renewed}")
-    );
     let requests = server.requests.lock().unwrap().clone();
-    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.len(), 3);
     assert_eq!(
         requests[0].headers["authorization"],
         format!("Bearer {}", server::KEY)
     );
     assert_eq!(
-        requests[1].headers["authorization"],
+        requests[2].headers["authorization"],
         format!("Bearer {renewed}")
     );
     let public = serde_json::to_string(&page).unwrap();
@@ -450,24 +462,17 @@ async fn keeps_authentication_failures_retryable() {
 }
 
 #[tokio::test]
-async fn stops_after_partial_delivery() {
+async fn recovers_after_partial_delivery() {
     for remote in [false, true] {
         let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::Partial).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        let turn = fixture
-            .submit("Keep the accepted generation from being replayed")
-            .await;
+        let turn = fixture.submit("Recover the unfinished generation").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
-        let failure = page.runs.last().unwrap().error.as_ref().unwrap();
-        assert!(
-            failure
-                .message
-                .contains("model.openai_responses.unfinished_stream")
-        );
-        assert!(super::retry::attempts(&page).is_empty());
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(completion::response(&page), server::ANSWER);
+        assert_eq!(super::retry::attempts(&page), [1]);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 1);
+        assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].body["type"], "response.create");
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         fixture.controller.close().await.unwrap();
@@ -570,18 +575,17 @@ async fn classifies_acknowledged_timeouts() {
             .submit("Wait after the provider accepts the request")
             .await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
-        assert!(super::retry::attempts(&page).is_empty());
-        let failure = page.runs.last().unwrap().error.as_ref().unwrap();
-        assert!(failure.message.contains("model.openai_responses.timeout"));
-        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5, 0]);
+        assert_eq!(completion::response(&page), server::ANSWER);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 1);
+        assert_eq!(requests.len(), 7);
         assert!(
-            requests
+            requests[..6]
                 .iter()
                 .all(|request| request.body["type"] == "response.create")
         );
+        assert!(requests[6].body.get("type").is_none());
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }
@@ -681,11 +685,18 @@ async fn remembers_repeated_refusals() {
                 ..Default::default()
             });
         let mut completed = Vec::new();
-        for (index, expected) in [1, 2, 3, 3].into_iter().enumerate() {
+        for (index, expected) in [1, 7, 7, 7].into_iter().enumerate() {
             let turn = fixture.submit("Use the session capability").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            assert!(super::retry::attempts(&page).is_empty());
+            assert_eq!(
+                super::retry::attempts(&page),
+                if index == 0 {
+                    vec![]
+                } else {
+                    vec![1, 2, 3, 4, 5, 0]
+                }
+            );
             completed.push((
                 server.upgrades.lock().unwrap().len(),
                 server
@@ -705,12 +716,12 @@ async fn remembers_repeated_refusals() {
                 tokio::time::sleep(lifetime + Duration::from_millis(50)).await;
             }
         }
-        // One successful WebSocket followed by two confirmed refusals disables probing.
+        // Exhausting this session's WebSocket recovery disables future probing.
         let upgrades = server.upgrades.lock().unwrap().clone();
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(
             upgrades.len(),
-            3,
+            7,
             "remote={remote}, handshakes={:?}, wire={:?}, completed=(handshakes,ws_creates) {completed:?}",
             upgrades
                 .iter()
@@ -755,22 +766,22 @@ async fn falls_back_before_provider_acceptance() {
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(completion::response(&page), server::ANSWER);
-        assert!(super::retry::attempts(&page).is_empty());
+        assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5, 0]);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 7);
         assert_eq!(requests[0].body["type"], "response.create");
-        assert!(requests[1].body.get("type").is_none());
-        let mut full = requests[1].body.clone();
+        assert!(requests[6].body.get("type").is_none());
+        let mut full = requests[6].body.clone();
         let fields = full.as_object_mut().unwrap();
         fields.remove("stream");
         fields.remove("background");
         fields.insert("type".into(), serde_json::json!("response.create"));
         assert_eq!(requests[0].body, full);
         let upgrades = server.upgrades.lock().unwrap().clone();
-        assert_eq!(upgrades.len(), 1);
+        assert_eq!(upgrades.len(), 6);
         assert_eq!(
             upgrades[0].headers["authorization"],
-            requests[1].headers["authorization"]
+            requests[6].headers["authorization"]
         );
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         fixture.controller.close().await.unwrap();

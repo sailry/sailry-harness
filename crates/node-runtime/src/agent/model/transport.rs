@@ -1,7 +1,10 @@
 //! Session sockets and endpoint observations are Node-private transport optimizations.
 use super::*;
 use adk_model::openai::{TransportEvent, WsOptions, WsRefusal};
-use std::{collections::BTreeMap, sync::Mutex};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Mutex,
+};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Capability {
@@ -38,11 +41,16 @@ impl Capability {
 #[derive(Default)]
 pub(super) struct Capabilities {
     states: Mutex<BTreeMap<String, Capability>>,
+    fallback: Mutex<BTreeSet<sailry_protocol::SessionId>>,
     #[cfg(any(test, feature = "test-support"))]
     fixture: Mutex<Option<WsOptions>>,
 }
 
 impl Capabilities {
+    pub(super) fn fallback(&self, session: sailry_protocol::SessionId) -> bool {
+        self.fallback.lock().unwrap().insert(session)
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     fn configure_fixture(&self, options: WsOptions) {
         *self.fixture.lock().unwrap() = Some(options);
@@ -80,8 +88,10 @@ impl Capabilities {
         #[cfg(not(any(test, feature = "test-support")))]
         let options = WsOptions::default();
         Some(WsOptions {
+            fallback_to_http: false,
             enabled: Arc::new(move || {
-                enabled.states.lock().unwrap().get(&permit) != Some(&Capability::Unsupported)
+                !enabled.fallback.lock().unwrap().contains(&session)
+                    && enabled.states.lock().unwrap().get(&permit) != Some(&Capability::Unsupported)
             }),
             observe: Arc::new(move |event| {
                 {

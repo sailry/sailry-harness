@@ -8,6 +8,34 @@ const DISCARDED: &str = "Discarded draft";
 const RECOVERED: &str = "Recovered answer";
 const FAILURE: &str = "Upstream temporarily unavailable";
 
+async fn session_policy(fixture: &mut Fixture) {
+    let mut provider = fixture.provider.clone();
+    provider.request_max_retries = Some(0);
+    let Output::Provider(provider) = execute(
+        &fixture.client,
+        Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        },
+    )
+    .await
+    else {
+        panic!("provider expected")
+    };
+    fixture.provider = provider;
+}
+
+async fn fixture(remote: bool, api: ModelApi, endpoint: &str) -> Fixture {
+    let mut fixture = Fixture::empty(remote, api, endpoint).await;
+    session_policy(&mut fixture).await;
+    fixture
+}
+
+fn rejected(status: u16, code: Option<&str>, kind: Option<&str>) -> Script {
+    let body = json!({"error":{"code":code,"type":kind,"message":FAILURE}});
+    Script { bytes: format!("HTTP/1.1 {status} Failure\r\nContent-Type: application/json\r\nRetry-After: 0\r\nConnection: close\r\n\r\n{body}").into_bytes(), ending: Ending::Close }
+}
+
 fn delta(text: &str) -> Value {
     json!({"type":"response.output_text.delta", "sequence_number":1,
         "item_id":"retry-answer", "output_index":0, "content_index":0,
@@ -30,7 +58,7 @@ fn wire(events: &[Value], chunked: bool, complete: bool) -> Vec<u8> {
         ""
     };
     let mut bytes = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n{framing}Connection: close\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nRetry-After: 0\r\n{framing}Connection: close\r\n\r\n"
     );
     for event in events {
         let event = format!("data: {event}\n\n");
@@ -102,7 +130,7 @@ async fn honors_server_retry_delays() {
                 Reply::Scripted(Arc::new(vec![unavailable("2"), success]))
             };
             let server = Server::start(ModelApi::Responses, reply).await;
-            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Respect the server retry delay").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
@@ -144,7 +172,7 @@ async fn cancels_a_hinted_wait_without_replay() {
             Reply::Scripted(Arc::new(vec![unavailable("30")])),
         )
         .await;
-        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Cancel the server retry wait").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -187,7 +215,7 @@ async fn ignores_invalid_server_delays() {
             ])),
         )
         .await;
-        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Ignore an invalid retry delay").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
@@ -242,7 +270,7 @@ async fn recover(chunked: bool, empty: bool) {
             },
         ];
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
-        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
         let (updates, mut observed) = tokio::sync::watch::channel(View::default());
         let stop = CancellationToken::new();
         let (_requests, requests) = tokio::sync::mpsc::channel(1);
@@ -384,7 +412,7 @@ async fn preserves_committed_tools_without_replay() {
         first.ending = Ending::Release(release.clone());
         let server = Server::start(
             ModelApi::ChatCompletions,
-            Reply::Scripted(Arc::new(vec![first, unavailable("61")])),
+            Reply::Scripted(Arc::new(vec![first, rejected(400, None, None)])),
         )
         .await;
         let mut fixture = Fixture::packages(
@@ -394,6 +422,7 @@ async fn preserves_committed_tools_without_replay() {
             &["files"],
         )
         .await;
+        session_policy(&mut fixture).await;
         let mut config = fixture.session.config.clone();
         config.permission = sailry_protocol::Permission::Full;
         let Output::Session(session) = execute(
@@ -461,7 +490,7 @@ async fn preserves_committed_answers_without_replay() {
             }])),
         )
         .await;
-        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Answer once").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
@@ -498,15 +527,11 @@ async fn shares_opening_and_partial_retry_budget() {
             },
         ];
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
-        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Bound opening and streaming retries").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
-        assert_eq!(
-            page.runs.last().unwrap().error.as_ref().unwrap().code,
-            ErrorCode::Unavailable
-        );
-        assert_eq!(attempts(&page), vec![1, 2, 3]);
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(attempts(&page), vec![1, 2, 3, 4]);
         let errors: Vec<_> = page
             .entries
             .iter()
@@ -516,20 +541,20 @@ async fn shares_opening_and_partial_retry_budget() {
                 _ => None,
             })
             .collect();
-        assert_eq!(errors.len(), 3);
+        assert_eq!(errors.len(), 4);
         assert!(errors[0].contains("fixture unavailable"));
         assert_eq!(errors[0], errors[1]);
         assert_ne!(errors[1], errors[2]);
         {
             let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 4);
+            assert_eq!(requests.len(), 5);
             assert!(
                 requests
                     .iter()
                     .all(|request| request.body == requests[0].body)
             );
         }
-        assert_eq!(completion::response(&page), DISCARDED);
+        assert_eq!(completion::response(&page), RECOVERED);
         unique_entries(&page);
         let continuation = fixture.submit("Continue from the saved answer").await;
         let continued = finished(&fixture.client, fixture.session.id, continuation).await;
@@ -537,10 +562,11 @@ async fn shares_opening_and_partial_retry_budget() {
         assert!(completion::response(&continued).ends_with(RECOVERED));
         let sent = {
             let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 5);
+            assert_eq!(requests.len(), 6);
             requests.last().unwrap().body.to_string()
         };
-        assert!(sent.contains(DISCARDED));
+        assert!(!sent.contains(DISCARDED));
+        assert!(sent.contains(RECOVERED));
         assert!(sent.contains("Continue from the saved answer"));
         assert!(!sent.contains("Uncommitted recovery"));
         assert!(!sent.contains("fixture unavailable"));
@@ -572,7 +598,7 @@ async fn cancels_recovery_without_another_request() {
             },
         ];
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
-        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Cancel recovery").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             while server.requests.lock().unwrap().len() != 1 {
@@ -610,7 +636,7 @@ async fn bounds_retries_before_any_output() {
             Reply::Scripted(Arc::new(vec![unavailable("0")])),
         )
         .await;
-        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Bound retries without model output").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Failed);
@@ -661,6 +687,7 @@ async fn continues_without_repeating_completed_tools() {
             &["files"],
         )
         .await;
+        session_policy(&mut fixture).await;
         let mut config = fixture.session.config.clone();
         config.permission = sailry_protocol::Permission::Full;
         let Output::Session(session) = execute(
@@ -719,8 +746,10 @@ async fn bounds_classified_response_failures() {
     for remote in [false, true] {
         for (code, retries) in [
             (Some("server_error"), 5),
-            (Some("stream_timeout"), 2),
+            (Some("stream_timeout"), 5),
             (Some("future_backend_failure"), 5),
+            (Some("subscription_sharing_usage_limit_exceeded"), 5),
+            (Some("insufficient_quota"), 0),
             (None, 5),
         ] {
             let message = format!(
@@ -739,7 +768,7 @@ async fn bounds_classified_response_failures() {
                 }])),
             )
             .await;
-            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Bound the response failure retries").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Failed);
@@ -750,12 +779,12 @@ async fn bounds_classified_response_failures() {
                     .message
                     .contains("model.openai_responses.response_failed")
             );
-            let expected = match code {
-                Some("server_error") => "OpenAI Responses generation failed: server_error",
-                Some("stream_timeout") => "OpenAI Responses generation failed: stream_timeout",
-                _ => "OpenAI Responses generation failed",
-            };
-            assert_eq!(failure.message.split_once("\n\n").unwrap().1, expected);
+            assert!(
+                failure
+                    .message
+                    .contains("Our servers are currently overloaded")
+            );
+            assert!(failure.message.contains("[redacted]"));
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
             {
                 let requests = server.requests.lock().unwrap();
@@ -776,5 +805,223 @@ async fn bounds_classified_response_failures() {
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }
+    }
+}
+
+#[tokio::test]
+async fn separates_raw_http_and_session_recovery() {
+    for remote in [false, true] {
+        let success = Script {
+            bytes: wire(&[completed()], true, true),
+            ending: Ending::Close,
+        };
+        let mut scripts = vec![unavailable("0"); 4];
+        scripts.push(success);
+        let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let turn = fixture.submit("Recover inside the request layer").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert!(attempts(&page).is_empty());
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 5);
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.body == requests[0].body)
+        );
+        drop(requests);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn maps_http_failures_before_session_recovery() {
+    for remote in [false, true] {
+        for (status, code, kind, retry) in [
+            (401, None, None, true),
+            (403, None, None, true),
+            (400, None, None, false),
+            (429, None, None, true),
+            (429, None, Some("insufficient_quota"), false),
+            (
+                429,
+                Some("subscription_sharing_usage_limit_exceeded"),
+                None,
+                true,
+            ),
+        ] {
+            let server = Server::start(
+                ModelApi::Responses,
+                Reply::Scripted(Arc::new(vec![
+                    rejected(status, code, kind),
+                    Script {
+                        bytes: wire(&[completed()], true, true),
+                        ending: Ending::Close,
+                    },
+                ])),
+            )
+            .await;
+            let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
+            let turn = fixture.submit("Apply the captured recovery policy").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                if retry {
+                    Status::Completed
+                } else {
+                    Status::Failed
+                }
+            );
+            assert_eq!(attempts(&page), if retry { vec![1] } else { vec![] });
+            assert_eq!(
+                server.requests.lock().unwrap().len(),
+                if retry { 2 } else { 1 }
+            );
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn ignores_standalone_errors_before_completion() {
+    for remote in [false, true] {
+        let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(vec![Script {
+            bytes: wire(&[json!({"type":"error","error":{"code":"insufficient_quota","message":"ignored standalone diagnostic"}}), completed()], true, true),
+            ending: Ending::Close,
+        }]))).await;
+        let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
+        let turn = fixture.submit("Consume the authoritative completion").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert!(attempts(&page).is_empty());
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn cancels_persistent_connection_wait() {
+    for remote in [false, true] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        drop(listener);
+        let fixture = fixture(remote, ModelApi::Responses, &endpoint).await;
+        let turn = fixture.submit("Wait for the unavailable network").await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let page = history(&fixture.client, fixture.session.id).await;
+                let retry =
+                    page.entries.iter().flat_map(|entry| &entry.parts).find_map(
+                        |part| match part {
+                            Part::Resource(value) if value["type"] == "model_retry" => Some(value),
+                            _ => None,
+                        },
+                    );
+                if let Some(retry) = retry {
+                    assert_eq!(retry["attempt"], 1);
+                    assert!(retry["limit"].is_null());
+                    assert_eq!(retry["transport"], "http");
+                    assert!(retry["delay_ms"].as_u64().unwrap() <= 5000);
+                    assert_eq!(page.runs.last().unwrap().status, Status::Running);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("persistent retry notification");
+        execute(&fixture.client, Command::StopTurn { turn }).await;
+        let page = tokio::time::timeout(
+            Duration::from_secs(3),
+            finished(&fixture.client, fixture.session.id, turn),
+        )
+        .await
+        .unwrap();
+        assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn retains_queued_recovery_overrides() {
+    for remote in [false, true] {
+        let success = Script {
+            bytes: wire(&[completed()], true, true),
+            ending: Ending::Close,
+        };
+        let server = Server::start(
+            ModelApi::Responses,
+            Reply::Scripted(Arc::new(vec![unavailable("0"), success, unavailable("0")])),
+        )
+        .await;
+        let mut fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
+        let mut provider = fixture.provider.clone();
+        provider.stream_max_retries = Some(1);
+        let Output::Provider(provider) = execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        let Output::QueuedTurn(queued) = execute(
+            &fixture.client,
+            Command::QueueTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "Use the captured recovery limit".into(),
+            },
+        )
+        .await
+        else {
+            panic!("queued turn expected")
+        };
+        let mut changed = provider;
+        changed.stream_max_retries = Some(0);
+        let Output::Provider(provider) = execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: changed.revision,
+                provider: changed,
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        fixture.provider = provider;
+        execute(
+            &fixture.client,
+            Command::StartQueuedTurn { turn: queued.id },
+        )
+        .await;
+        let page = finished(&fixture.client, fixture.session.id, queued.id).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        let retry = page
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| match part {
+                Part::Resource(value) if value["type"] == "model_retry" => Some(value),
+                _ => None,
+            })
+            .expect("captured session retry");
+        assert_eq!(retry["attempt"], 1);
+        assert_eq!(retry["limit"], 1);
+        let next = fixture.submit("Use the new recovery setting").await;
+        let page = finished(&fixture.client, fixture.session.id, next).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }

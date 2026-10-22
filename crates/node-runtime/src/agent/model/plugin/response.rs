@@ -119,8 +119,22 @@ impl Accumulator {
                     class,
                     message,
                     retry_after_ms,
+                    code,
+                    error_type,
+                    event_type,
+                    incomplete_reason,
                 } => {
-                    return Err(classified(class, &message, retry_after_ms, None, secrets));
+                    let diagnostics = sailry_protocol::plugin::model_adapter::wire::Diagnostics {
+                        code,
+                        error_type,
+                        event_type,
+                        incomplete_reason,
+                    };
+                    return Err(diagnostic(
+                        classified(class, &message, retry_after_ms, None, secrets),
+                        &diagnostics,
+                        secrets,
+                    ));
                 }
             }
             if streaming {
@@ -260,8 +274,47 @@ pub(super) fn classified(
     let safe = redact(message, secrets);
     let mut error = failure(category, code, &safe);
     error.retry.retry_after_ms = retry_after_ms;
+    if let Some(delay) = retry_after_ms.and_then(|millis| {
+        std::time::Instant::now().checked_add(std::time::Duration::from_millis(millis))
+    }) {
+        error = error.with_retry_deadline(delay);
+    }
+    error
+        .details
+        .metadata
+        .insert("transport".into(), "http".into());
+    error.details.metadata.insert(
+        "transport_phase".into(),
+        if status.is_some() {
+            "request"
+        } else {
+            "stream"
+        }
+        .into(),
+    );
     if let Some(status) = status {
         error = error.with_upstream_status(status);
+    }
+    error
+}
+
+pub(super) fn diagnostic(
+    mut error: AdkError,
+    fields: &sailry_protocol::plugin::model_adapter::wire::Diagnostics,
+    secrets: &[Secret],
+) -> AdkError {
+    for (name, value) in [
+        ("provider_error_code", &fields.code),
+        ("provider_error_type", &fields.error_type),
+        ("provider_event_type", &fields.event_type),
+        ("incomplete_reason", &fields.incomplete_reason),
+    ] {
+        if let Some(value) = value {
+            let value = redact(value, secrets);
+            if value.len() <= 256 {
+                error.details.metadata.insert(name.into(), value.into());
+            }
+        }
     }
     error
 }

@@ -50,30 +50,6 @@ fn protect(response: LlmResponseStream, secrets: Vec<Secret>) -> LlmResponseStre
 }
 
 fn redact(mut error: AdkError, secrets: &[Secret]) -> AdkError {
-    // These existing application policy failures remain terminal.
-    if error.code.starts_with("model.openai_responses.") {
-        let policy = match error
-            .details
-            .metadata
-            .get("provider_error_code")
-            .and_then(serde_json::Value::as_str)
-        {
-            Some("subscription_sharing_usage_limit_exceeded") => Some((
-                adk_core::ErrorCategory::RateLimited,
-                "model.openai_responses.subscription_sharing_usage_limit_exceeded",
-            )),
-            Some("subscription_sharing_usage_unavailable") => Some((
-                adk_core::ErrorCategory::Unavailable,
-                "model.openai_responses.subscription_sharing_usage_unavailable",
-            )),
-            _ => None,
-        };
-        if let Some((category, code)) = policy {
-            error.category = category;
-            error.code = code;
-            error.retry = adk_core::RetryHint::default();
-        }
-    }
     error.message = safe(&error.message, secrets, 8192);
     if let Some(request_id) = &mut error.details.request_id {
         *request_id = safe(request_id, secrets, 256);
