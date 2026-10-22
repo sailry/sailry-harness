@@ -22,6 +22,7 @@ mod files;
 mod frame;
 pub(super) use frame::elapsed;
 mod grounding;
+mod retry;
 mod user;
 mod work;
 use blocks::Block;
@@ -439,75 +440,8 @@ impl View {
                     .text_color(cx.theme().muted_foreground)
                     .child(tr("chat_resource_pending"))
                     .into_any_element(),
-                Block::Retry(key, attempt, limit, error) => {
-                    let active = retrying && index == last_block;
-                    let label = rust_i18n::t!(
-                        if active {
-                            "chat_model_reconnecting"
-                        } else {
-                            "chat_model_retried"
-                        },
-                        attempt = attempt,
-                        limit = limit
-                    )
-                    .to_string();
-                    if let Some(error) = error {
-                        let open = self
-                            .expanded
-                            .get(&(turn, key.clone()))
-                            .copied()
-                            .unwrap_or(false);
-                        return Collapsible::new()
-                            .open(open)
-                            .w_full()
-                            .min_w_0()
-                            .child(
-                                crate::conversation::disclosure::trigger(
-                                    format!("live-model-retry-{turn}-{attempt}"),
-                                    IconName::Network,
-                                    label.into(),
-                                    crate::conversation::disclosure::Detail {
-                                        running: active,
-                                        ..Default::default()
-                                    },
-                                    open,
-                                    cx,
-                                )
-                                .on_click(cx.listener(
-                                    move |view, _, _, cx| {
-                                        view.expand(turn, key.clone(), !open, cx);
-                                    },
-                                )),
-                            )
-                            .content(crate::conversation::disclosure::body(
-                                div()
-                                    .id(format!("{turn}-retry-{index}-scroll"))
-                                    .text_sm()
-                                    .min_w_0()
-                                    .max_h_40()
-                                    .overflow_y_scroll()
-                                    .child(gpui_kit::base::SelectableText::new(
-                                        format!("{turn}-retry-{index}-text"),
-                                        diagnostic::display(error),
-                                    )),
-                                cx,
-                            ))
-                            .into_any_element();
-                    }
-                    h_flex()
-                        .gap_2()
-                        .text_sm()
-                        .debug_selector(move || format!("live-model-retry-{turn}-{attempt}"))
-                        .text_color(cx.theme().muted_foreground)
-                        .child(Icon::new(IconName::Network).size_4())
-                        .child(if active {
-                            ShimmerText::new(label)
-                                .id(format!("{turn}-retry-shimmer"))
-                                .into_any_element()
-                        } else {
-                            div().child(label).into_any_element()
-                        })
-                        .into_any_element()
+                Block::Retry(key, retry) => {
+                    self.recovery(turn, key, retry, retrying && index == last_block, cx)
                 }
             })
             .collect();
@@ -749,11 +683,16 @@ impl View {
 }
 
 pub(crate) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
+    match error.code {
+        sailry_protocol::ErrorCode::Cancelled => return "turn_cancelled",
+        sailry_protocol::ErrorCode::OutcomeUnknown => return "chat_execution_unknown",
+        _ => {}
+    }
+    if let Some(sailry_protocol::FaultDetails::ModelRecovery { reason }) = &error.details {
+        return retry::stop_key(*reason);
+    }
     if let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = &error.details {
-        use sailry_protocol::{ErrorCode, notification::DiagnosticReason};
-        if error.code == ErrorCode::OutcomeUnknown {
-            return "chat_execution_unknown";
-        }
+        use sailry_protocol::notification::DiagnosticReason;
         if report.reason == DiagnosticReason::Cancelled {
             return "turn_cancelled";
         }
@@ -793,7 +732,6 @@ pub(crate) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
         Some("rate_limited") => "chat_model_rate_limited",
         Some("timeout") => "chat_response_timeout",
         _ if error.code == sailry_protocol::ErrorCode::Unavailable => "chat_model_failed",
-        _ if error.code == sailry_protocol::ErrorCode::OutcomeUnknown => "chat_execution_unknown",
         _ => super::actions::error_key(error),
     }
 }

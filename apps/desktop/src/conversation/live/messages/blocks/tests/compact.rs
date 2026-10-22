@@ -62,7 +62,13 @@ fn preserves_visible_boundaries() {
         Block::Children(vec![]),
         Block::Resource,
         Block::Compaction("summary".into(), "Summary"),
-        Block::Retry("retry".into(), 1, 5, None),
+        Block::Retry(
+            "retry".into(),
+            sailry_protocol::conversation::recovery::Retry::from_resource(
+                &serde_json::json!({"type":"model_retry","attempt":1,"limit":5}),
+            )
+            .unwrap(),
+        ),
     ] {
         let blocks = super::super::compact(vec![
             Block::Tools(vec![&first]),

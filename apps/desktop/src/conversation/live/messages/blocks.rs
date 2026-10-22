@@ -16,7 +16,7 @@ pub(super) enum Block<'a> {
     Question(&'a Call),
     Children(Vec<&'a Child>),
     Resource,
-    Retry(String, u64, u64, Option<&'a str>),
+    Retry(String, sailry_protocol::conversation::recovery::Retry),
 }
 
 /// Visual grouping only; call identities and results come from the shared Client.
@@ -145,21 +145,19 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                     || (value["type"] == "operation_warning"
                         && value["code"] == "context_summary_failed") => {}
             Part::Resource(value) if value["type"] == "model_retry" => {
-                if let (Some(attempt), Some(limit)) =
-                    (value["attempt"].as_u64(), value["limit"].as_u64())
+                if let Some(retry) =
+                    sailry_protocol::conversation::recovery::Retry::from_resource(value)
                 {
-                    let error = value["error"]
-                        .as_str()
-                        .filter(|error| !error.trim().is_empty());
-                    if let Some(Block::Retry(_, previous, previous_limit, previous_error)) =
-                        blocks.last_mut()
-                        && *previous_limit == limit
-                        && attempt > *previous
+                    if let Some(Block::Retry(_, previous)) = blocks.last_mut()
+                        && !previous.fallback
+                        && !retry.fallback
+                        && previous.limit == retry.limit
+                        && previous.transport == retry.transport
+                        && retry.attempt > previous.attempt
                     {
-                        *previous = attempt;
-                        *previous_error = error;
+                        *previous = retry;
                     } else {
-                        blocks.push(Block::Retry(key, attempt, limit, error));
+                        blocks.push(Block::Retry(key, retry));
                     }
                 }
             }

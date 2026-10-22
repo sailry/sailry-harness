@@ -294,6 +294,46 @@ fn recovers_compaction_failures_without_duplicates() {
 }
 
 #[test]
+fn preserves_recovery_diagnostics_across_reconnect() {
+    use conversation::recovery::{Retry, Transport};
+    for (attempt, limit) in [(2, Some(5)), (9, None)] {
+        let (mut projection, mut snapshot, run, draft) = fixture();
+        snapshot.drafts.push(draft.clone());
+        projection
+            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .unwrap();
+        let mut retry = entry(&run, 41);
+        retry.author = "system".into();
+        retry.parts = vec![Part::Resource(
+            Retry {
+                attempt,
+                fallback: false,
+                limit,
+                delay_ms: Some(60_000),
+                transport: Some(Transport::Http),
+                status: Some(503),
+                code: Some("connection_failed".into()),
+                error: Some("Original connection failure".into()),
+            }
+            .resource(),
+        )];
+        let update = frame(&snapshot, 11, Change::Entry(retry.clone()));
+        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
+        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Ignored);
+        let saved = projection.snapshot().unwrap().clone();
+        projection.reconnect(2).unwrap();
+        assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
+        projection
+            .apply(2, Update::ConversationSnapshot(saved))
+            .unwrap();
+        let current = projection.snapshot().unwrap();
+        assert_eq!(current.page.entries, vec![retry]);
+        assert_eq!(current.page.runs, vec![run]);
+        assert_eq!(current.drafts, vec![draft]);
+    }
+}
+
+#[test]
 fn keeps_failures_visible_after_guidance() {
     use conversation::compaction::{Failure, Reason, Source, Stage};
     let (_, mut snapshot, mut run, _) = fixture();
