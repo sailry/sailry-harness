@@ -1,0 +1,5 @@
+plugin_response_timeout: "Se agotó el tiempo de respuesta del complemento"
+plugin_metadata_failed: "No se pudo cargar la información del complemento"
+plugin_initialization_failed: "No se pudo inicializar el complemento"
+git_inspection_failed: "No se pudo comprobar Git"
+plugin_callback_failed: "Falló la ejecución del complemento"

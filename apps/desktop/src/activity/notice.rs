@@ -99,6 +99,7 @@ impl Shell {
             notice.details,
             Some(
                 sailry_protocol::notification::Details::Diagnostic(_)
+                    | sailry_protocol::notification::Details::System(_)
                     | sailry_protocol::notification::Details::Power { .. }
             )
         ) {
@@ -142,7 +143,10 @@ impl Shell {
             tr("power_request_unavailable")
         } else if matches!(
             notice.details,
-            Some(sailry_protocol::notification::Details::Diagnostic(_))
+            Some(
+                sailry_protocol::notification::Details::Diagnostic(_)
+                    | sailry_protocol::notification::Details::System(_)
+            )
         ) {
             SharedString::default()
         } else if let Some(error) = &notice.error {

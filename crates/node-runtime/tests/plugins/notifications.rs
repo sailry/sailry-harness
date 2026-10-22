@@ -291,3 +291,114 @@ async fn scheduled_callback_publishes_without_a_panel() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn system_reports_survive_reconnect_without_duplicates() {
+    use sailry_protocol::notification::{
+        Details, DiagnosticReason, SystemDiagnostic, SystemSource,
+    };
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let context = actions::install_actions(
+            &client,
+            &directory.path().join("source/package"),
+            worktree,
+            0,
+            &[Action::Notify],
+        )
+        .await;
+        let mut report = SystemDiagnostic::new(
+            RequestId::new(),
+            SystemSource::GitInspection,
+            ErrorCode::Unavailable,
+        );
+        report.worktree = Some(worktree);
+        report.operation = Some("InspectGit".into());
+        let mut updates = client.subscribe().await.unwrap();
+        let _ = updates.next().await.unwrap();
+        client.report_diagnostic(report.clone()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Update::Event(event) = updates.next().await.unwrap()
+                    && let Event::NotificationChanged(notice) = event.event
+                    && matches!(notice.content.details, Some(Details::System(_)))
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        client.report_diagnostic(report.clone()).await.unwrap();
+        // A fresh transport command cannot duplicate the same logical failure either.
+        client
+            .execute(client.prepare(Command::ReportDiagnostic(report.clone())))
+            .await
+            .unwrap();
+        let systems = |items: Vec<Notice>| {
+            items
+                .into_iter()
+                .filter(|notice| matches!(notice.content.details, Some(Details::System(_))))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(systems(notices(&client).await).len(), 1);
+        let forbidden = client
+            .prepare(Command::ReportDiagnostic(report.clone()))
+            .with_plugin(context);
+        assert_eq!(
+            client.execute(forbidden).await.unwrap_err().code,
+            ErrorCode::PermissionDenied
+        );
+        let mut invalid = report.clone();
+        invalid.incident = RequestId::new();
+        invalid.worktree = Some(WorktreeId::new());
+        assert_eq!(
+            client.report_diagnostic(invalid).await.unwrap_err().code,
+            ErrorCode::NotFound
+        );
+        let mut cancelled = report.clone();
+        cancelled.incident = RequestId::new();
+        cancelled.reason = DiagnosticReason::Cancelled;
+        client.report_diagnostic(cancelled).await.unwrap();
+        assert_eq!(systems(notices(&client).await).len(), 1);
+        drop(updates);
+        drop(client);
+        node.shutdown().await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        client.report_diagnostic(report.clone()).await.unwrap();
+        let persisted = systems(notices(&client).await);
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(
+            persisted[0].content.details,
+            Some(Details::System(report.clone()))
+        );
+        execute(
+            &client,
+            Command::MarkNotificationRead {
+                id: persisted[0].id,
+            },
+        )
+        .await;
+        execute(
+            &client,
+            Command::DismissReadNotifications {
+                ids: vec![persisted[0].id],
+            },
+        )
+        .await;
+        client.report_diagnostic(report).await.unwrap();
+        assert!(systems(notices(&client).await).is_empty());
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

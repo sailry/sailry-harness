@@ -1,0 +1,5 @@
+plugin_response_timeout: "プラグインの応答がタイムアウトしました"
+plugin_metadata_failed: "プラグイン情報を読み込めません"
+plugin_initialization_failed: "プラグインを初期化できません"
+git_inspection_failed: "Git を確認できません"
+plugin_callback_failed: "プラグインの実行に失敗しました"

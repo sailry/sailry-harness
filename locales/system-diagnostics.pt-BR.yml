@@ -1,0 +1,5 @@
+plugin_response_timeout: "Tempo de resposta do plugin esgotado"
+plugin_metadata_failed: "Não foi possível carregar as informações do plugin"
+plugin_initialization_failed: "Não foi possível inicializar o plugin"
+git_inspection_failed: "Não foi possível verificar o Git"
+plugin_callback_failed: "Falha na execução do plugin"

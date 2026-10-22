@@ -1,0 +1,5 @@
+plugin_response_timeout: "外掛回應逾時"
+plugin_metadata_failed: "無法載入外掛資訊"
+plugin_initialization_failed: "無法初始化外掛"
+git_inspection_failed: "無法檢查 Git"
+plugin_callback_failed: "外掛執行失敗"

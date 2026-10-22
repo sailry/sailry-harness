@@ -1,4 +1,5 @@
 //! The persistent source for notices, reduced by the shared Client feed.
+pub(super) mod diagnostics;
 pub(super) mod system;
 #[cfg(test)]
 mod tests;

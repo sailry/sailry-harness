@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Details {
     Diagnostic(Diagnostic),
+    System(super::SystemDiagnostic),
     Task(Task),
     Terminal(Terminal),
     Text { body: String },

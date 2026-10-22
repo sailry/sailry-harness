@@ -1,0 +1,5 @@
+plugin_response_timeout: "Время ожидания ответа плагина истекло"
+plugin_metadata_failed: "Не удалось загрузить информацию о плагине"
+plugin_initialization_failed: "Не удалось инициализировать плагин"
+git_inspection_failed: "Не удалось проверить Git"
+plugin_callback_failed: "Ошибка выполнения плагина"

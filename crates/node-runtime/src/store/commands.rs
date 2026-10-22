@@ -100,6 +100,15 @@ pub(super) fn execute(
                 None,
             ))
         }
+        Command::ReportDiagnostic(report) => {
+            if request.plugin.is_some() {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "system diagnostics require a controller",
+                ));
+            }
+            super::notifications::diagnostics::report(db, report)
+        }
         Command::PublishNotification { .. }
         | Command::MarkNotificationRead { .. }
         | Command::MarkNotificationsRead { .. }

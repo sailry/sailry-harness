@@ -1,0 +1,5 @@
+plugin_response_timeout: "Plugin response timed out"
+plugin_metadata_failed: "Could not load plugin metadata"
+plugin_initialization_failed: "Could not initialize plugin"
+git_inspection_failed: "Could not inspect Git"
+plugin_callback_failed: "Plugin callback failed"

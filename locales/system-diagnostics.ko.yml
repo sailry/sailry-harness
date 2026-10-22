@@ -1,0 +1,5 @@
+plugin_response_timeout: "플러그인 응답 시간 초과"
+plugin_metadata_failed: "플러그인 정보를 불러올 수 없음"
+plugin_initialization_failed: "플러그인을 초기화할 수 없음"
+git_inspection_failed: "Git을 확인할 수 없음"
+plugin_callback_failed: "플러그인 실행 실패"

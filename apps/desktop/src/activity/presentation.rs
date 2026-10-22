@@ -13,6 +13,9 @@ use sailry_protocol::{
 };
 
 pub(super) fn heading(notice: &Notice) -> SharedString {
+    if let Some(Details::System(report)) = &notice.details {
+        return tr(system_key(report));
+    }
     if matches!(notice.details, Some(Details::Power { .. })) {
         return tr("power_request_failed");
     }
@@ -127,4 +130,27 @@ pub(super) fn report(notice: &Notice) -> Option<String> {
         "details": details,
     }))
     .ok()
+}
+
+/// Unknown side effects take precedence over a timeout explanation.
+pub(crate) fn system_key(report: &sailry_protocol::notification::SystemDiagnostic) -> &'static str {
+    use sailry_protocol::{
+        ErrorCode,
+        notification::{DiagnosticReason, SystemSource},
+    };
+    if report.code == ErrorCode::OutcomeUnknown {
+        return "chat_execution_unknown";
+    }
+    if report.reason == DiagnosticReason::Cancelled || report.code == ErrorCode::Cancelled {
+        return "turn_cancelled";
+    }
+    if report.reason == DiagnosticReason::Timeout {
+        return "plugin_response_timeout";
+    }
+    match report.source {
+        SystemSource::PluginMetadata => "plugin_metadata_failed",
+        SystemSource::PluginInitialization => "plugin_initialization_failed",
+        SystemSource::GitInspection => "git_inspection_failed",
+        SystemSource::PluginCallback => "plugin_callback_failed",
+    }
 }

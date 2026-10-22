@@ -4,6 +4,7 @@ pub mod commands;
 pub mod connection;
 pub mod connectors;
 pub mod conversation;
+mod diagnostics;
 mod directory;
 mod document;
 mod files;

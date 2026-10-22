@@ -262,6 +262,15 @@ impl Shell {
                     ));
                 }
             }
+            Some(Details::System(report)) => {
+                body = body.child(tr(presentation::system_key(report)));
+                if let Some(plugin) = &report.plugin {
+                    body = body.child(format!("{} {}", plugin.name, plugin.version));
+                }
+                if let Some(operation) = &report.operation {
+                    body = body.child(operation.clone());
+                }
+            }
             Some(Details::Power { code }) => {
                 body = body
                     .child(tr("power_request_unavailable"))

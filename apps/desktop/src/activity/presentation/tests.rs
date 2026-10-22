@@ -51,6 +51,25 @@ fn reports_exclude_user_content_and_raw_errors() {
     ] {
         assert!(!report.contains(text));
     }
+    let mut diagnostic = sailry_protocol::notification::SystemDiagnostic::new(
+        sailry_protocol::RequestId::new(),
+        sailry_protocol::notification::SystemSource::PluginCallback,
+        sailry_protocol::ErrorCode::OutcomeUnknown,
+    );
+    diagnostic.reason = sailry_protocol::notification::DiagnosticReason::Timeout;
+    diagnostic.operation = Some("write_plugin_value".into());
+    notice.details = Some(Details::System(diagnostic.clone()));
+    let copied = super::report(&notice).unwrap();
+    assert!(copied.contains(&diagnostic.incident.to_string()));
+    assert!(copied.contains("write_plugin_value"));
+    assert!(copied.contains("outcome_unknown"));
+    assert!(!copied.contains("Private"));
+    assert!(!copied.contains("Sensitive"));
+    assert_eq!(system_key(&diagnostic), "chat_execution_unknown");
+    diagnostic.code = ErrorCode::Expired;
+    assert_eq!(system_key(&diagnostic), "plugin_response_timeout");
+    diagnostic.code = ErrorCode::Cancelled;
+    assert_eq!(system_key(&diagnostic), "turn_cancelled");
     notice.details = Some(Details::Text {
         body: "Private plugin content".into(),
     });
