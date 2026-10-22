@@ -16,7 +16,7 @@ pub(super) enum Block<'a> {
     Question(&'a Call),
     Children(Vec<&'a Child>),
     Resource,
-    Retry(u64, u64),
+    Retry(String, u64, u64, Option<&'a str>),
 }
 
 /// Visual grouping only; call identities and results come from the shared Client.
@@ -148,13 +148,18 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                 if let (Some(attempt), Some(limit)) =
                     (value["attempt"].as_u64(), value["limit"].as_u64())
                 {
-                    if let Some(Block::Retry(previous, previous_limit)) = blocks.last_mut()
+                    let error = value["error"]
+                        .as_str()
+                        .filter(|error| !error.trim().is_empty());
+                    if let Some(Block::Retry(_, previous, previous_limit, previous_error)) =
+                        blocks.last_mut()
                         && *previous_limit == limit
                         && attempt > *previous
                     {
                         *previous = attempt;
+                        *previous_error = error;
                     } else {
-                        blocks.push(Block::Retry(attempt, limit));
+                        blocks.push(Block::Retry(key, attempt, limit, error));
                     }
                 }
             }

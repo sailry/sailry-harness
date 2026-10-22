@@ -11,6 +11,7 @@ mod chronology;
 mod compact;
 mod failure;
 mod progress;
+mod retry;
 
 #[test]
 fn keeps_native_references_in_canonical_copy_source() {

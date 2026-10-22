@@ -439,7 +439,7 @@ impl View {
                     .text_color(cx.theme().muted_foreground)
                     .child(tr("chat_resource_pending"))
                     .into_any_element(),
-                Block::Retry(attempt, limit) => {
+                Block::Retry(key, attempt, limit, error) => {
                     let active = retrying && index == last_block;
                     let label = rust_i18n::t!(
                         if active {
@@ -451,6 +451,49 @@ impl View {
                         limit = limit
                     )
                     .to_string();
+                    if let Some(error) = error {
+                        let open = self
+                            .expanded
+                            .get(&(turn, key.clone()))
+                            .copied()
+                            .unwrap_or(false);
+                        return Collapsible::new()
+                            .open(open)
+                            .w_full()
+                            .min_w_0()
+                            .child(
+                                crate::conversation::disclosure::trigger(
+                                    format!("live-model-retry-{turn}-{attempt}"),
+                                    IconName::Network,
+                                    label.into(),
+                                    crate::conversation::disclosure::Detail {
+                                        running: active,
+                                        ..Default::default()
+                                    },
+                                    open,
+                                    cx,
+                                )
+                                .on_click(cx.listener(
+                                    move |view, _, _, cx| {
+                                        view.expand(turn, key.clone(), !open, cx);
+                                    },
+                                )),
+                            )
+                            .content(crate::conversation::disclosure::body(
+                                div()
+                                    .id(format!("{turn}-retry-{index}-scroll"))
+                                    .text_sm()
+                                    .min_w_0()
+                                    .max_h_40()
+                                    .overflow_y_scroll()
+                                    .child(gpui_kit::base::SelectableText::new(
+                                        format!("{turn}-retry-{index}-text"),
+                                        diagnostic::display(error),
+                                    )),
+                                cx,
+                            ))
+                            .into_any_element();
+                    }
                     h_flex()
                         .gap_2()
                         .text_sm()

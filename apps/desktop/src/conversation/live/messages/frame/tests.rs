@@ -98,7 +98,10 @@ fn active_phase_lifecycle() {
     ];
     assert!(!continuing_tools(&run, &page, &next));
     assert_eq!(phase(&run, &page, &next), Some("turn_thinking"));
-    let retry = [Block::Tools(vec![]), Block::Retry(1, 3)];
+    let retry = [
+        Block::Tools(vec![]),
+        Block::Retry("retry".into(), 1, 3, None),
+    ];
     assert!(!continuing_tools(&run, &page, &retry));
     assert_eq!(phase(&run, &page, &retry), None);
     page.questions

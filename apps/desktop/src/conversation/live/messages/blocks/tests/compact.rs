@@ -62,7 +62,7 @@ fn preserves_visible_boundaries() {
         Block::Children(vec![]),
         Block::Resource,
         Block::Compaction("summary".into(), "Summary"),
-        Block::Retry(1, 5),
+        Block::Retry("retry".into(), 1, 5, None),
     ] {
         let blocks = super::super::compact(vec![
             Block::Tools(vec![&first]),
