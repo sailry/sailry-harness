@@ -176,8 +176,14 @@ def build(target, cache, development=False):
     return output
 
 
+def receipt_path(output):
+    if output.name == "Helpers" and output.parent.name == "Contents":
+        return output.parent / "Resources" / RECEIPT
+    return output / RECEIPT
+
+
 def finalize(output):
-    receipt = output / RECEIPT
+    receipt = receipt_path(output)
     if receipt.is_file():
         value = json.loads(receipt.read_text())
         value["files"] = inventory(output)
@@ -201,8 +207,12 @@ def stage(target, output, cache, development=False, identity=None):
     output.mkdir(parents=True, exist_ok=True)
     if output.is_symlink():
         raise ValueError("Computer-use helper destination is a symlink")
+    receipt = receipt_path(output)
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    if receipt != output / RECEIPT:
+        (output / RECEIPT).unlink(missing_ok=True)
     for path in source.iterdir():
-        destination = output / path.name
+        destination = receipt if path.name == RECEIPT else output / path.name
         if destination.is_symlink():
             raise ValueError("Computer-use helper destination is a symlink")
         if path.is_dir():

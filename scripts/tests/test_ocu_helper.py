@@ -89,6 +89,52 @@ class Inputs(unittest.TestCase):
             self.assertIn("--deep", run.call_args.args)
 
 
+class Staging(unittest.TestCase):
+    def test_moves_desktop_receipt_and_cleans_legacy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "cache"
+            binary = source / helper.APP / "Contents/MacOS/OpenComputerUse"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"unsigned helper")
+            (source / helper.RECEIPT).write_text(json.dumps({"version": 1, "files": []}))
+            output = directory / "Sailry.app/Contents/Helpers"
+            output.mkdir(parents=True)
+            (output / helper.RECEIPT).write_text("legacy manifest")
+            receipt = output.parent / "Resources" / helper.RECEIPT
+
+            def sign(staged, identity):
+                self.assertFalse((output / helper.RECEIPT).exists())
+                self.assertTrue(receipt.is_file())
+                (staged / helper.APP / "Contents/MacOS/OpenComputerUse").write_bytes(b"signed helper")
+
+            with patch.object(helper, "build", return_value=source), patch.object(helper, "sign", side_effect=sign):
+                path = helper.stage("aarch64-apple-darwin", output, source, identity="-")
+            self.assertEqual(path.read_bytes(), b"signed helper")
+            self.assertEqual(json.loads(receipt.read_text())["files"], helper.inventory(output))
+            self.assertEqual(sorted(path.name for path in output.iterdir()), [helper.APP])
+            path.write_bytes(b"resigned helper")
+            helper.finalize(output)
+            self.assertEqual(json.loads(receipt.read_text())["files"], helper.inventory(output))
+
+    def test_preserves_host_and_windows_layouts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "cache"
+            source.mkdir()
+            (source / helper.RECEIPT).write_text(json.dumps({"version": 1, "files": []}))
+            (source / "open-computer-use.exe").write_bytes(b"helper fixture")
+            for name, target in (("host/helpers", "aarch64-apple-darwin"),
+                                 ("windows/helpers", "x86_64-pc-windows-msvc")):
+                with self.subTest(target=target), patch.object(helper, "build", return_value=source):
+                    output = directory / name
+                    helper.stage(target, output, source)
+                    self.assertEqual(helper.receipt_path(output), output / helper.RECEIPT)
+                    self.assertEqual(json.loads((output / helper.RECEIPT).read_text())["files"],
+                                     helper.inventory(output))
+            self.assertEqual(json.loads((source / helper.RECEIPT).read_text())["files"], [])
+
+
 @unittest.skipUnless(platform.system() == "Darwin" and os.environ.get("SAILRY_OCU_HELPER"),
                      "Requires an explicitly built macOS helper")
 class Sessions(unittest.TestCase):

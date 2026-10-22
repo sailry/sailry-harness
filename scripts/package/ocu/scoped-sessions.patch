@@ -37,7 +37,7 @@ index f7b28bc..66bc7c6 100644
  
      func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
 diff --git a/apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift b/apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift
-index 6e6060b..7abe7a7 100644
+index 6e6060b..7ad0f90 100644
 --- a/apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift
 +++ b/apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift
 @@ -112,20 +112,23 @@ enum MacOSAppAgentProxy {
@@ -117,7 +117,7 @@ index 6e6060b..7abe7a7 100644
          }
          defer {
 -            server.endSession()
-+            _ = AppAgentEnvironment.withOverrides([:]) { server.endSession() }
++            AppAgentEnvironment.withOverrides([:]) { server.disconnectSession() }
              fclose(file)
          }
  
@@ -143,7 +143,7 @@ index ae2213c..1b197ac 100644
  
          // Engines that accept AXManualAccessibility build their web tree lazily
 diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AgentDisplay.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AgentDisplay.swift
-index a5a5517..e74c42d 100644
+index a5a5517..9805b4f 100644
 --- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AgentDisplay.swift
 +++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AgentDisplay.swift
 @@ -66,7 +66,7 @@ final class AgentDisplay: @unchecked Sendable {
@@ -205,7 +205,7 @@ index a5a5517..e74c42d 100644
 -            return
 +        guard var state = parked[windowID] else { return }
 +        if !force {
-+            guard let owner, state.owners.contains(owner) else { return }
++            guard let owner, state.owners.contains(owner) || state.pendingRestore else { return }
 +            if state.owners.count > 1 {
 +                _ = state.release(owner) { _ in }
 +                parked[windowID] = state
@@ -236,13 +236,21 @@ index a5a5517..e74c42d 100644
          var firstError: Error?
          for windowID in windowIDs {
              do {
-@@ -219,6 +241,18 @@ final class AgentDisplay: @unchecked Sendable {
+@@ -219,6 +241,26 @@ final class AgentDisplay: @unchecked Sendable {
          }
      }
  
++    func abandon(owner: UUID) {
++        lock.lock()
++        defer { lock.unlock() }
++        for windowID in Array(parked.keys) {
++            parked[windowID]?.abandon(owner)
++        }
++    }
++
 +    func release(owner: UUID) throws {
 +        lock.lock()
-+        let windowIDs = parked.filter { $0.value.owners.contains(owner) }.map(\.key)
++        let windowIDs = parked.filter { $0.value.owners.contains(owner) || $0.value.pendingRestore }.map(\.key)
 +        lock.unlock()
 +        var firstError: Error?
 +        for windowID in windowIDs {
@@ -321,7 +329,7 @@ index f6aca66..cde4018 100644
          }
      }
 diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift
-index e592e41..9b2ac18 100644
+index e592e41..d2cf101 100644
 --- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift
 +++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift
 @@ -14,17 +14,19 @@ Computer Use tools allow you to use the user's apps in the background, so while
@@ -352,7 +360,7 @@ index e592e41..9b2ac18 100644
  
      public func run() throws {
 -        defer { endSession() }
-+        defer { _ = endSession() }
++        defer { disconnectSession() }
          while let line = readLine(strippingNewline: true) {
              guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                  continue
@@ -379,7 +387,7 @@ index e592e41..9b2ac18 100644
                  let name = params["name"] as? String ?? ""
                  let arguments = params["arguments"] as? [String: Any] ?? [:]
                  let result = try dispatcher.callTool(name: name, arguments: arguments)
-@@ -128,12 +136,22 @@ public final class StdioMCPServer {
+@@ -128,12 +136,33 @@ public final class StdioMCPServer {
      /// Release state that is scoped to one MCP client session. App-hosted MCP
      /// connections call this explicitly because they use `handle(line:)`
      /// instead of the stdio `run()` loop.
@@ -402,6 +410,17 @@ index e592e41..9b2ac18 100644
 +                ended = true
 +            }
 +            return success
++        }
++    }
++
++    /// A closed connection cannot own retryable window state. The helper keeps
++    /// any failed capture and retries it when a later session releases state.
++    public func disconnectSession() {
++        SessionOwnership.withOwner(owner) {
++            _ = endSession()
++            WindowOcclusionKeepAlive.shared.abandon(owner: owner)
++            AgentDisplay.shared.abandon(owner: owner)
++            ended = true
          }
 -        backgroundStateReset()
      }
@@ -428,10 +447,10 @@ index 298bb9d..87c1087 100644
      private static let appVariantInfoKey = "OpenComputerUseAppVariant"
 diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SessionOwnership.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SessionOwnership.swift
 new file mode 100644
-index 0000000..6661cb3
+index 0000000..ae9bc9d
 --- /dev/null
 +++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SessionOwnership.swift
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,76 @@
 +import Foundation
 +
 +/// All tool requests and releases use the same serialized boundary. The value
@@ -454,9 +473,11 @@ index 0000000..6661cb3
 +
 +/// The first acquisition captures the original state; overlapping sessions
 +/// share that capture until its final owner has restored it successfully.
++/// Failed cleanup from a disconnected owner stays with the helper for retry.
 +struct OwnedState<Value> {
 +    let original: Value
 +    private(set) var owners: Set<UUID>
++    private(set) var pendingRestore = false
 +
 +    init(_ original: Value, owner: UUID) {
 +        self.original = original
@@ -465,16 +486,23 @@ index 0000000..6661cb3
 +
 +    mutating func acquire(_ owner: UUID) {
 +        owners.insert(owner)
++        pendingRestore = false
++    }
++
++    mutating func abandon(_ owner: UUID) {
++        guard owners.remove(owner) != nil else { return }
++        pendingRestore = owners.isEmpty
 +    }
 +
 +    mutating func release(_ owner: UUID, restore: (Value) throws -> Void) rethrows -> Bool {
-+        guard owners.contains(owner) else { return false }
++        guard owners.contains(owner) || pendingRestore else { return false }
 +        if owners.count > 1 {
 +            owners.remove(owner)
 +            return false
 +        }
 +        try restore(original)
 +        owners.remove(owner)
++        pendingRestore = false
 +        return true
 +    }
 +}
@@ -608,7 +636,7 @@ index 2dfe3ad..9500218 100644
  
      private static func defaultInitialTipPosition() -> CGPoint {
 diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/WindowOcclusionKeepAlive.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/WindowOcclusionKeepAlive.swift
-index 83df3c9..da28272 100644
+index 83df3c9..30afa0f 100644
 --- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/WindowOcclusionKeepAlive.swift
 +++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/WindowOcclusionKeepAlive.swift
 @@ -59,7 +59,7 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
@@ -646,7 +674,7 @@ index 83df3c9..da28272 100644
          } catch {
              return false
          }
-@@ -102,12 +103,34 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
+@@ -102,12 +103,42 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
          return frozenWindowPreviousStates[windowID] != nil
      }
  
@@ -655,6 +683,14 @@ index 83df3c9..da28272 100644
 +        lock.lock()
 +        defer { lock.unlock() }
 +        frozenWindowPreviousStates[windowID]?.acquire(owner)
++    }
++
++    func abandon(owner: UUID) {
++        lock.lock()
++        defer { lock.unlock() }
++        for windowID in Array(frozenWindowPreviousStates.keys) {
++            frozenWindowPreviousStates[windowID]?.abandon(owner)
++        }
 +    }
 +
 +    func release(owner: UUID, spi: any WindowOcclusionControlling = SkyLightSPI.shared) throws {
@@ -702,10 +738,10 @@ index 60cdfb7..7f2d35a 100644
  
 diff --git a/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionOwnershipTests.swift b/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionOwnershipTests.swift
 new file mode 100644
-index 0000000..48e6c5d
+index 0000000..a32a9ee
 --- /dev/null
 +++ b/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionOwnershipTests.swift
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,117 @@
 +import XCTest
 +@testable import OpenComputerUseKit
 +
@@ -750,6 +786,45 @@ index 0000000..48e6c5d
 +        XCTAssertTrue(window.owners.isEmpty)
 +    }
 +
++    func testDisconnectedFailureRetriesWithoutReacquisition() throws {
++        enum Failure: Error { case unavailable }
++        let owner = UUID()
++        var window = OwnedState("original", owner: owner)
++        for _ in 0..<2 {
++            XCTAssertThrowsError(try window.release(owner) { _ in throw Failure.unavailable })
++        }
++        window.abandon(owner)
++        XCTAssertTrue(window.owners.isEmpty)
++        XCTAssertTrue(window.pendingRestore)
++        XCTAssertThrowsError(try window.release(UUID()) { _ in throw Failure.unavailable })
++        XCTAssertTrue(window.pendingRestore)
++        var restored: [String] = []
++        XCTAssertTrue(window.release(UUID()) { restored.append($0) })
++        XCTAssertEqual(restored, ["original"])
++        XCTAssertFalse(window.pendingRestore)
++        XCTAssertFalse(window.release(UUID()) { restored.append($0) })
++        XCTAssertEqual(restored.count, 1)
++    }
++
++    func testPendingCaptureProtectsNewOwner() {
++        enum Failure: Error { case unavailable }
++        let first = UUID(), second = UUID(), third = UUID()
++        var window = OwnedState("first position", owner: first)
++        XCTAssertThrowsError(try window.release(first) { _ in throw Failure.unavailable })
++        window.abandon(first)
++        window.acquire(second)
++        window.acquire(third)
++        var restored: [String] = []
++        XCTAssertFalse(window.release(first) { restored.append($0) })
++        window.abandon(second)
++        XCTAssertFalse(window.pendingRestore)
++        XCTAssertEqual(window.owners, [third])
++        XCTAssertFalse(window.release(UUID()) { restored.append($0) })
++        XCTAssertTrue(restored.isEmpty)
++        XCTAssertTrue(window.release(third) { restored.append($0) })
++        XCTAssertEqual(restored, ["first position"])
++    }
++
 +    func testCursorCannotReleaseAnotherOwner() {
 +        let first = UUID(), second = UUID()
 +        var cursor = CursorOwnership()
@@ -779,6 +854,91 @@ index 0000000..48e6c5d
 +        let server = StdioMCPServer(backgroundStateReset: { resets += 1 })
 +        XCTAssertTrue(server.endSession())
 +        XCTAssertTrue(server.endSession())
++        XCTAssertEqual(resets, 1)
++        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_apps","arguments":{}}}"#)
++        XCTAssertTrue(response?.contains("Tool session has ended") == true)
++    }
++}
+diff --git a/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionRecoveryTests.swift b/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionRecoveryTests.swift
+new file mode 100644
+index 0000000..f2ffc26
+--- /dev/null
++++ b/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionRecoveryTests.swift
+@@ -0,0 +1,79 @@
++import XCTest
++@testable import OpenComputerUseKit
++
++final class SessionRecoveryTests: XCTestCase {
++    private final class OcclusionSPI: WindowOcclusionControlling {
++        let occlusionCapability = SkyLightSPICapability(missingSymbols: [], feature: "occlusion")
++        var enabled = true
++        var failedRestores = 2
++        var restores = 0
++
++        func setWindowOcclusionNotificationsEnabled(_ enabled: Bool, windowID: CGWindowID) throws -> Bool {
++            if enabled {
++                restores += 1
++                if failedRestores > 0 {
++                    failedRestores -= 1
++                    throw ComputerUseError.message("Injected restoration failure")
++                }
++            }
++            let previous = self.enabled
++            self.enabled = enabled
++            return previous
++        }
++    }
++
++    func testDisconnectedWindowRestoresOnLaterCleanup() throws {
++        let state = WindowOcclusionKeepAlive()
++        let spi = OcclusionSPI()
++        let first = UUID()
++        try SessionOwnership.withOwner(first) {
++            XCTAssertTrue(state.keepVisible(windowID: 101, bounds: CGRect(x: 10, y: 10, width: 100, height: 100), spi: spi))
++            XCTAssertThrowsError(try state.release(owner: first, spi: spi))
++            XCTAssertThrowsError(try state.release(owner: first, spi: spi))
++            state.abandon(owner: first)
++        }
++        XCTAssertTrue(state.isPinned(windowID: 101))
++        try SessionOwnership.withOwner(UUID()) {
++            try state.release(owner: SessionOwnership.current!, spi: spi)
++        }
++        XCTAssertEqual(spi.restores, 3)
++        XCTAssertTrue(spi.enabled)
++        XCTAssertFalse(state.isPinned(windowID: 101))
++    }
++
++    func testLaterCleanupPreservesActiveWindow() throws {
++        let state = WindowOcclusionKeepAlive()
++        let spi = OcclusionSPI()
++        let first = UUID(), second = UUID(), third = UUID()
++        try SessionOwnership.withOwner(first) {
++            XCTAssertTrue(state.keepVisible(windowID: 101, bounds: CGRect(x: 10, y: 10, width: 100, height: 100), spi: spi))
++            XCTAssertThrowsError(try state.release(owner: first, spi: spi))
++            XCTAssertThrowsError(try state.release(owner: first, spi: spi))
++            state.abandon(owner: first)
++        }
++        SessionOwnership.withOwner(second) { state.retain(windowID: 101) }
++        SessionOwnership.withOwner(third) { state.retain(windowID: 101) }
++        try SessionOwnership.withOwner(second) {
++            try state.release(owner: second, spi: spi)
++            state.abandon(owner: second)
++        }
++        try state.release(owner: UUID(), spi: spi)
++        XCTAssertEqual(spi.restores, 2)
++        XCTAssertFalse(spi.enabled)
++        XCTAssertTrue(state.isPinned(windowID: 101))
++        try SessionOwnership.withOwner(third) { try state.release(owner: third, spi: spi) }
++        XCTAssertEqual(spi.restores, 3)
++        XCTAssertTrue(spi.enabled)
++        XCTAssertFalse(state.isPinned(windowID: 101))
++    }
++
++    func testDisconnectedServerRejectsTools() {
++        var resets = 0
++        let server = StdioMCPServer(backgroundStateReset: { resets += 1 })
++        server.disconnectSession()
++        server.disconnectSession()
 +        XCTAssertEqual(resets, 1)
 +        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_apps","arguments":{}}}"#)
 +        XCTAssertTrue(response?.contains("Tool session has ended") == true)

@@ -29,7 +29,10 @@ SAILRY_HELPERS_DIR="$PWD/target/helpers" cargo run --locked -p sailry-host
 
 Release packaging stages the unsigned helper before signing nested code and the
 helper app, followed by the enclosing Desktop app. Host archives carry a
-separately signed helper app. Ad hoc signing is available for local builds;
+separately signed helper app. Desktop keeps `sailry-ocu.json` in
+`Contents/Resources`, outside the nested-code directory; its inventory is updated
+after helper signing and before outer application signing. Ad hoc signing is
+available for local builds;
 Developer ID signing and notarization use the existing packaging credentials and
 verification flow. The helper keeps its own entitlements rather than inheriting
 the Desktop app's permissions. The production bundle identifier is
@@ -50,6 +53,9 @@ acknowledgement. A negative or lost acknowledgement causes a nonzero proxy exit.
 The app agent remains alive; session cleanup clears its connection's query and
 snapshot indexes. Only process shutdown restores all owners. The global
 turn-ended notification is not used by the embedded helper.
+When a connection closes after failed restoration, the helper releases its owner
+UUID and keeps the original capture for retry during later session cleanup.
+New active owners retain that capture and prevent premature restoration.
 
 The patch also aligns permission guidance, bundle metadata and the helper name
 with Sailry, and makes MCP instructions respect existing authorization and

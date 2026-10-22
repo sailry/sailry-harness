@@ -10,7 +10,7 @@
   "patches": [
     {
       "path": "ocu/scoped-sessions.patch",
-      "sha256": "a2524f95ccbb004d62dab00945a3df3e376dd64e2332c15ef0623ff1f0d36c24"
+      "sha256": "60942c07a0174d97595850a566d0db9b5b3a8c54d123bddbe5f60647401c24f0"
     }
   ],
   "targets": {
