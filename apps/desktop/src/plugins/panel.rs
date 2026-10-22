@@ -875,6 +875,7 @@ impl Panel {
                             .filter(|info| info.summary.reference() == package)
                             .and_then(|info| info.extension.as_ref())
                             .is_some_and(|extension| !extension.model_resources.is_empty());
+                        let snapshot = panel.snapshot.borrow().clone();
                         match Mounted::new(
                             cache,
                             host.clone(),
@@ -898,7 +899,7 @@ impl Panel {
                                 location: super::location::Scope {
                                     binding: panel.binding.clone(),
                                     source: panel.location_source(),
-                                    snapshot: panel.snapshot.borrow().clone(),
+                                    snapshot,
                                     connected: panel.connected,
                                     read: actions
                                         .contains(&sailry_protocol::plugin::Action::ReadWorktrees),
