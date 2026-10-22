@@ -88,8 +88,7 @@ impl Shell {
                             .gap_2()
                             .child(
                                 Button::new("center-read-all")
-                                    .ghost()
-                                    .small()
+                                    .outline()
                                     .label(tr("notifications_read_all"))
                                     .disabled(!unread || self.activity.pending)
                                     .on_click(cx.listener(|shell, _, window, cx| {
@@ -98,8 +97,7 @@ impl Shell {
                             )
                             .child(
                                 Button::new("center-delete-read")
-                                    .ghost()
-                                    .small()
+                                    .outline()
                                     .label(tr("notification_delete_read"))
                                     .disabled(!read || self.activity.pending)
                                     .on_click(cx.listener(|shell, _, window, cx| {
@@ -127,7 +125,7 @@ impl Shell {
         let time = notice.timestamp_ms.map(presentation::timestamp);
         let title = presentation::heading(notice);
         let trigger = Button::new(format!("{key}-open"))
-            .ghost()
+            .text()
             .w_full()
             .h_auto()
             .py_3()
@@ -205,8 +203,19 @@ impl Shell {
     }
 
     fn center_details(&self, notice: &Notice, cx: &mut Context<Self>) -> AnyElement {
-        let mut body = v_flex().w_full().min_w_0().gap_3().pb_4().text_sm();
-        if !notice.message.trim().is_empty() {
+        let mut body = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_3()
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .pt_3()
+            .pb_4()
+            .pl_8()
+            .text_sm();
+        if !notice.message.trim().is_empty()
+            && notice.message.trim() != presentation::heading(notice).as_ref()
+        {
             body = body.child(notice.message.clone());
         }
         match &notice.details {
@@ -263,7 +272,6 @@ impl Shell {
                 }
             }
             Some(Details::System(report)) => {
-                body = body.child(tr(presentation::system_key(report)));
                 if let Some(plugin) = &report.plugin {
                     body = body.child(format!("{} {}", plugin.name, plugin.version));
                 }
@@ -276,16 +284,27 @@ impl Shell {
                     .child(tr("power_request_unavailable"))
                     .child(code.to_string());
             }
-            Some(Details::Text { body: text }) => body = body.child(text.clone()),
+            Some(Details::Text { body: text }) => {
+                if text.trim() != notice.message.trim()
+                    && text.trim() != presentation::heading(notice).as_ref()
+                {
+                    body = body.child(text.clone());
+                }
+            }
             None => {}
         }
-        body = body.child(detail_line(
-            "notification_source",
-            self.notice_source(notice),
-            cx,
-        ));
+        let mut facts = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .text_xs()
+            .child(detail_line(
+                "notification_source",
+                self.notice_source(notice),
+                cx,
+            ));
         if let Some(time) = notice.timestamp_ms {
-            body = body.child(detail_line(
+            facts = facts.child(detail_line(
                 "notification_time",
                 presentation::timestamp(time),
                 cx,
@@ -297,14 +316,12 @@ impl Shell {
                 .and_then(|snapshot| snapshot.sessions.iter().find(|entry| entry.id == session))
                 .map(|entry| sessions::title(entry))
                 .unwrap_or_else(|| session.to_string().into());
-            body = body.child(detail_line("conversation", title, cx));
+            facts = facts.child(detail_line("conversation", title, cx));
         }
-        if let Some(report) = presentation::report(notice) {
-            body = body.child(self.technical_details(notice.id, report, cx));
-        }
+        body = body.child(facts);
         let id = notice.id;
         let available = self.notice_available(notice, cx);
-        body.child(
+        body = body.child(
             h_flex().gap_2().child(
                 Button::new(format!("center-action-{id:?}"))
                     .outline()
@@ -319,8 +336,11 @@ impl Shell {
                         shell.open_activity(id.node, id.target, window, cx)
                     })),
             ),
-        )
-        .into_any_element()
+        );
+        if let Some(report) = presentation::report(notice) {
+            body = body.child(self.technical_details(notice.id, report, cx));
+        }
+        body.into_any_element()
     }
 
     fn technical_details(&self, id: Id, report: String, cx: &mut Context<Self>) -> AnyElement {
@@ -328,54 +348,74 @@ impl Shell {
         let copied = report.clone();
         Collapsible::new()
             .w_full()
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .pt_3()
             .open(expanded)
             .child(
-                Button::new(format!("center-technical-{id:?}"))
-                    .ghost()
-                    .small()
-                    .icon(if expanded {
-                        IconName::ChevronDown
-                    } else {
-                        IconName::ChevronRight
-                    })
-                    .label(tr("notification_technical"))
-                    .on_click(cx.listener(move |shell, _, _, cx| {
-                        if !shell.activity.technical.remove(&id) {
-                            shell.activity.technical.insert(id);
-                        }
-                        cx.notify();
-                    })),
+                h_flex().items_center().child(
+                    Button::new(format!("center-technical-{id:?}"))
+                        .text()
+                        .small()
+                        .icon(if expanded {
+                            IconName::ChevronDown
+                        } else {
+                            IconName::ChevronRight
+                        })
+                        .label(tr("notification_technical"))
+                        .on_click(cx.listener(move |shell, _, _, cx| {
+                            if !shell.activity.technical.remove(&id) {
+                                shell.activity.technical.insert(id);
+                            }
+                            cx.notify();
+                        })),
+                ),
             )
             .content(
                 v_flex()
-                    .gap_3()
+                    .min_w_0()
+                    .gap_2()
                     .pt_2()
                     .child(
+                        h_flex().justify_end().child(
+                            Button::new(format!("center-copy-{id:?}"))
+                                .outline()
+                                .small()
+                                .icon(IconName::Copy)
+                                .label(tr("notification_copy_report"))
+                                .on_click(move |_, window, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        copied.clone(),
+                                    ));
+                                    crate::feedback::toast(
+                                        window,
+                                        tr("notification_report_copied"),
+                                        gpui_kit::component::notification::Notification::success(
+                                            tr("notification_report_copied"),
+                                        ),
+                                        cx,
+                                    );
+                                }),
+                        ),
+                    )
+                    .child(
                         div()
+                            .id(format!("center-report-{id:?}"))
                             .w_full()
                             .min_w_0()
+                            .max_h_64()
+                            .overflow_y_scroll()
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .rounded(cx.theme().radius)
+                            .p_3()
                             .text_xs()
                             .font_family(cx.theme().mono_font_family.clone())
                             .text_color(cx.theme().muted_foreground)
-                            .child(report),
-                    )
-                    .child(
-                        Button::new(format!("center-copy-{id:?}"))
-                            .outline()
-                            .small()
-                            .icon(IconName::Copy)
-                            .label(tr("notification_copy_report"))
-                            .on_click(move |_, window, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
-                                crate::feedback::toast(
-                                    window,
-                                    tr("notification_report_copied"),
-                                    gpui_kit::component::notification::Notification::success(tr(
-                                        "notification_report_copied",
-                                    )),
-                                    cx,
-                                );
-                            }),
+                            .child(gpui_kit::base::SelectableText::new(
+                                format!("center-report-text-{id:?}"),
+                                report,
+                            )),
                     ),
             )
             .into_any_element()
@@ -424,7 +464,7 @@ fn detail_line(label: &'static str, value: SharedString, cx: &App) -> impl IntoE
         .items_start()
         .child(
             div()
-                .w_24()
+                .w_16()
                 .flex_shrink_0()
                 .text_color(cx.theme().muted_foreground)
                 .child(tr(label)),

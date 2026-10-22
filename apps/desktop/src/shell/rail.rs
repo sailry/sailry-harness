@@ -61,7 +61,9 @@ impl Shell {
                     .child(self.more_features(self.features(cx), cx)),
             )
             .child(self.notifications(window, cx))
-            .child(crate::installations::button(window, cx))
+            .when(crate::installations::visible(cx), |rail| {
+                rail.child(crate::installations::button(window, cx))
+            })
             .child(self.host_picker(cx))
             .child(
                 Button::new("feature-search")

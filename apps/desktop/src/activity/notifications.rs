@@ -96,16 +96,22 @@ impl Shell {
                             .px_2()
                             .gap_1()
                             .child(
-                                Button::new("notification-center-open")
-                                    .ghost()
-                                    .small()
-                                    .flex_1()
-                                    .justify_start()
-                                    .label(tr("notification_center"))
-                                    .icon(IconName::ArrowRight)
-                                    .on_click(cx.listener(|shell, _, window, cx| {
-                                        shell.open_notification_center(None, window, cx)
-                                    })),
+                                h_flex().flex_1().min_w_0().child(
+                                    Button::new("notification-center-open")
+                                        .ghost()
+                                        .small()
+                                        .child(
+                                            h_flex()
+                                                .gap_1()
+                                                .items_center()
+                                                .child(tr("notification_center"))
+                                                .child(Icon::new(IconName::ArrowRight).size_3()),
+                                        )
+                                        .accessibility_label(tr("notification_center"))
+                                        .on_click(cx.listener(|shell, _, window, cx| {
+                                            shell.open_notification_center(None, window, cx)
+                                        })),
+                                ),
                             )
                             .child(
                                 Button::new("notifications-read-all")

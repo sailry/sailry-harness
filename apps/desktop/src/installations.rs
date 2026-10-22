@@ -461,6 +461,9 @@ impl Queue {
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.prune();
         cx.global_mut::<Badge>().count = self.entries.len();
+        if self.entries.is_empty() {
+            self.window = None;
+        }
         if let Some(list) = &self.list {
             let rows = rows::snapshot(&self.entries);
             list.update(cx, |list, cx| {
