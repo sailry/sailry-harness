@@ -33,7 +33,6 @@ base64.workspace = true
 gpui-kit.workspace = true
 gpui-fps = { workspace = true, optional = true }
 gpui-shell.workspace = true
-gpui-component-shell.workspace = true
 rust-i18n.workspace = true
 sys-locale.workspace = true
 sailry-node-runtime.workspace = true

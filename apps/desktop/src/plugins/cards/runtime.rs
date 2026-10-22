@@ -17,7 +17,7 @@ impl Mounted {
         window: &mut Window,
         cx: &mut App,
     ) -> gpui_shell::anyhow::Result<Self> {
-        let runtime = gpui_component_shell::new_isolated_runtime()?;
+        let runtime = gpui_shell::components::new_isolated_runtime()?;
         let policy = Policy::new()
             .with_application(format!(
                 "card-{}-{}",

@@ -46,11 +46,10 @@ sailry-content = { path = "crates/content" }
 objc2-application-services = { version = "=0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXUIElement", "AXError", "AXAttributeConstants", "AXRoleConstants", "AXActionConstants", "AXValue"] }
 objc2-core-graphics = { version = "=0.3.2", features = ["CGWindow"] }
 rfd = { version = "=0.17.2", default-features = false, features = ["gtk3", "common-controls-v6"] }
-gpui-kit = { git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["tree-sitter-languages", "gpui-fast"] }
-gpui-fps = { git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["gpui-fast"] }
-gpui-shell = { git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["gpui-fast"] }
-gpui-component-shell = { git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["gpui-fast"] }
-gpui-webview = { package = "gpui-wry", git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["gpui-fast"] }
+gpui-kit = { git = "https://github.com/dux-web/gpui-component", rev = "7fc6a4cfa126a23ad11ed8fed58186b51e451d64", features = ["tree-sitter-languages", "gpui-fast"] }
+gpui-fps = { git = "https://github.com/dux-web/gpui-component", rev = "7fc6a4cfa126a23ad11ed8fed58186b51e451d64", features = ["gpui-fast"] }
+gpui-shell = { git = "https://github.com/dux-web/gpui-component", rev = "7fc6a4cfa126a23ad11ed8fed58186b51e451d64", features = ["gpui-fast"] }
+gpui-webview = { git = "https://github.com/dux-web/gpui-component", rev = "7fc6a4cfa126a23ad11ed8fed58186b51e451d64", features = ["gpui-fast"] }
 wry = { package = "lb-wry", version = "=0.53.3", features = ["transparent", "devtools"] }
 rust-i18n = "=4.2.0"
 sys-locale = "=0.3.2"
@@ -179,16 +178,16 @@ url = "=2.5.8"
 tokio-tungstenite = { version = "=0.28.0", features = ["rustls-tls-webpki-roots", "connect"] }
 
 [patch.crates-io]
-rquickjs = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab" }
-gpui-fast = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-gpui-fast-macros = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-gpui-fast-apple = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-gpui-fast-wgpu = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-gpui-fast-macos = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-gpui-fast-linux = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-gpui-fast-windows = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-gpui-fast-web = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-gpui-fast-platform = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
+rquickjs = { git = "https://github.com/dux-web/gpui-component", rev = "7fc6a4cfa126a23ad11ed8fed58186b51e451d64" }
+gpui-fast = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
+gpui-fast-macros = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
+gpui-fast-apple = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
+gpui-fast-wgpu = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
+gpui-fast-macos = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
+gpui-fast-linux = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
+gpui-fast-windows = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
+gpui-fast-web = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
+gpui-fast-platform = { git = "https://github.com/dux-web/gpui-fast", rev = "aa12fda8c18c5b8fb1a0b2ff16650cf138908b8b" }
 rmcp = { git = "https://github.com/sailry/rust-sdk.git", rev = "5e8fb5a9502d0fd153c29369b11e93bee88e63ac" }
 portable-pty = { git = "https://github.com/sailry/wezterm.git", rev = "e814e06b5149d73ddbcb5be670b41855b2873c74" }
 

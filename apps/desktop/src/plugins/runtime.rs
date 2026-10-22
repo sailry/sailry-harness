@@ -89,7 +89,7 @@ impl Mounted {
             file_transfers,
         } = scopes;
         let configuration_binding = location.binding.clone();
-        let runtime = gpui_component_shell::new_isolated_runtime()?;
+        let runtime = gpui_shell::components::new_isolated_runtime()?;
         // Kit b79f4ce resolves script images through the application-wide asset
         // source. Mounted plugins need package-local paths instead. Keep Kit's
         // native image renderer and admit only declared SVG and validated PNG resources.
