@@ -640,9 +640,10 @@ impl Render for Editor {
                     .menu(false)
                     .w_full()
                     .selected_index(self.tab)
-                    .on_click(cx.listener(|editor, index, _, cx| {
+                    .on_click(cx.listener(|editor, index, window, cx| {
                         editor.tab = *index;
                         editor.task = None;
+                        editor.flush(window, cx);
                         cx.notify();
                     }))
                     .children(["backup_webdav", "backup_s3", "backup_local"].map(|key| {
