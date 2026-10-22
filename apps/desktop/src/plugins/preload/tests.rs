@@ -91,15 +91,13 @@ fn bounds_resources_and_invalidates_revisions() {
         let fixture = Fixture::new(remote);
         let mut resources = resources(&fixture);
         let mut summaries = Vec::new();
-        for name in ["browser", "computer", "delegation", "media", "memory"] {
+        for name in ["browser", "code", "delegation", "media", "memory"] {
             let summary = package(&fixture, name);
-            assert!(
-                fixture
-                    .runtime
-                    .block_on(resources.prepare(summary.reference()).load())
-                    .unwrap()
-                    .is_ok()
-            );
+            let prepared = fixture
+                .runtime
+                .block_on(resources.prepare(summary.reference()).load())
+                .unwrap();
+            assert!(prepared.is_ok(), "{name}: {:?}", prepared.err());
             summaries.push(summary);
         }
         assert_eq!(resources.entries.len(), CAPACITY);
