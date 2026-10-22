@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn other_slots_keep_their_requested_form() {
-        for slot in ["status", "toolbar"] {
+        for slot in ["status", "model", "project", "project_menu"] {
             let entry: Contribution = serde_json::from_value(json!({
                 "id":"sample", "label":{"label":"Sample"}, "slot":slot,
                 "kind":"button", "overflow":"menu"
