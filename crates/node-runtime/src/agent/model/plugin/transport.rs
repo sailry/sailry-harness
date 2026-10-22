@@ -132,7 +132,7 @@ pub(super) async fn send(
     stop: &CancellationToken,
     budget: usize,
     retries: u64,
-) -> Result<Response, Failure> {
+) -> Result<(Response, adk_core::model_observation::AttemptGuard), Failure> {
     let budget = budget.min(REQUEST_BYTES);
     let endpoint = address(endpoint)?;
     let url = address(&prepared.url)?;
@@ -239,6 +239,7 @@ pub(super) async fn send(
             adk_core::model_observation::Transport::Http,
             None,
         );
+        let guard = observed.guard();
         observed.prepared(sent.body().and_then(reqwest::Body::as_bytes));
         let result = tokio::select! {
             biased;
@@ -262,7 +263,9 @@ pub(super) async fn send(
             Err(error) => !error.is_builder(),
         };
         if attempt == retries || !retry {
-            return result.map_err(Failure::Network);
+            return result
+                .map(|response| (response, guard))
+                .map_err(Failure::Network);
         }
         let at = result
             .as_ref()

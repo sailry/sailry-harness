@@ -133,7 +133,7 @@ impl Llm for Model {
                 );
             }
             let framing = prepared.framing.unwrap_or(self.declaration.framing);
-            let received = transport::send(
+            let (received, observation) = transport::send(
                 &self.client,
                 prepared,
                 &self.provider.endpoint,
@@ -148,7 +148,10 @@ impl Llm for Model {
             let retry_at = transport::deadline(received.headers());
             let status = received.status().as_u16();
             let headers =
-                transport::headers(received.headers(), &credentials).map_err(response::fault)?;
+                transport::headers(received.headers(), &credentials).map_err(|error| {
+                    observation.finish(adk_core::model_observation::Outcome::Failed);
+                    response::fault(error)
+                })?;
             let (sender, receiver) = mpsc::channel(1);
             let cancelled = stop.clone();
             tokio::spawn(async move {
@@ -177,6 +180,13 @@ impl Llm for Model {
                             }
                             error
                         });
+                observation.finish(if cancelled.is_cancelled() {
+                    adk_core::model_observation::Outcome::Cancelled
+                } else if result.is_ok() {
+                    adk_core::model_observation::Outcome::Succeeded
+                } else {
+                    adk_core::model_observation::Outcome::Failed
+                });
                 let _ = sender.send(result).await;
             });
             let stream: LlmResponseStream = Box::pin(Output { receiver, stop });
@@ -553,6 +563,7 @@ async fn read_catalog(
 ) -> Result<sailry_protocol::conversation::discovery::Catalog, Fault> {
     let mut stage = "prepare";
     let mut upstream_status = None;
+    let mut observation = None;
     let result = async {
         const DISCOVERY_BYTES: usize = 8 * 1024 * 1024;
         let worker = worker::Worker::new(bundle, stop, DISCOVERY_BYTES).await?;
@@ -563,7 +574,7 @@ async fn read_catalog(
             )
             .await?;
         stage = "request";
-        let received = transport::send(
+        let (received, guard) = transport::send(
             &transport::client()?,
             prepared,
             &provider.endpoint,
@@ -574,6 +585,7 @@ async fn read_catalog(
             0,
         )
         .await.map_err(transport::Failure::fault)?;
+        observation = Some(guard);
         let status = received.status().as_u16();
         upstream_status = Some(u64::from(status));
         stage = "headers";
@@ -647,6 +659,15 @@ async fn read_catalog(
         }
         Ok(catalog)
     }.await;
+    if let Some(observation) = observation {
+        observation.finish(if stop.is_cancelled() {
+            adk_core::model_observation::Outcome::Cancelled
+        } else if result.is_ok() {
+            adk_core::model_observation::Outcome::Succeeded
+        } else {
+            adk_core::model_observation::Outcome::Failed
+        });
+    }
     if let Err(error) = &result {
         // Only typed failure metadata is logged, never bodies, headers or grant fields.
         let code = serde_json::to_value(error.code)

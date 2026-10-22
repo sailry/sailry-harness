@@ -478,7 +478,8 @@ async fn bounds_requests_before_network_io() {
         0,
     )
     .await
-    .unwrap_err()
+    .err()
+    .expect("oversized request must be rejected")
     .fault();
     assert_eq!(error.code, sailry_protocol::ErrorCode::Internal);
     for (status, category) in [
@@ -718,7 +719,7 @@ async fn retries_raw_http_without_retranslation() {
             key: None,
             secrets: vec![],
         };
-        let response = transport::send(
+        let (response, _observation) = transport::send(
             &transport::client().unwrap(),
             prepared,
             &endpoint,

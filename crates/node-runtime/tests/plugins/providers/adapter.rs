@@ -55,6 +55,24 @@ export function classify(){return {class:'unavailable',message:'Synthetic failur
     fs::write(path, manifest.to_string()).unwrap();
 }
 
+fn last_attempt(
+    profile: &Path,
+    turn: TurnId,
+) -> sailry_protocol::conversation::observation::Attempt {
+    let db = rusqlite::Connection::open_with_flags(
+        profile.join("storage/node.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let value: String = db.query_row(
+        "SELECT json_extract(body,'$.event_metadata.sailry_model_observation') FROM agent_events WHERE turn=?1 AND json_type(body,'$.event_metadata.sailry_model_observation')='text' ORDER BY sequence DESC LIMIT 1",
+        [turn.to_string()], |row| row.get(0),
+    ).unwrap();
+    let request: sailry_protocol::conversation::observation::Request =
+        serde_json::from_str(&value).unwrap();
+    request.attempts.last().unwrap().clone()
+}
+
 #[tokio::test]
 async fn runs_captured_translations_without_manual_approval() {
     for remote in [false, true] {
@@ -173,14 +191,18 @@ async fn runs_captured_translations_without_manual_approval() {
         );
         assert_eq!(captured(node.profile(), first.id), original);
         provider.consent = None;
-        execute(
+        let Output::Provider(updated) = execute(
             &client,
             Command::PutProvider {
                 provider: provider.clone(),
                 expected_revision: provider.revision,
             },
         )
-        .await;
+        .await
+        else {
+            panic!("provider expected")
+        };
+        provider = updated;
         let count = server.requests.lock().unwrap().len();
         let Output::QueuedTurn(third) = execute(&client, queue()).await else {
             panic!("turn expected")
@@ -189,6 +211,78 @@ async fn runs_captured_translations_without_manual_approval() {
         assert!(server.requests.lock().unwrap().len() > count);
         assert!(captured(node.profile(), third.id).consent.is_none());
         assert_eq!(captured(node.profile(), first.id), original);
+        use sailry_protocol::conversation::observation::Outcome;
+        assert_eq!(
+            last_attempt(node.profile(), third.id).outcome,
+            Outcome::Succeeded
+        );
+        for cancel in [false, true] {
+            let server = if cancel {
+                model_fixture::Server::start(true).await
+            } else {
+                model_fixture::Server::http(usize::MAX, 400).await
+            };
+            provider.endpoint = server.endpoint.clone();
+            provider.request_max_retries = Some(0);
+            provider.stream_max_retries = Some(0);
+            let Output::Provider(updated) = execute(
+                &client,
+                Command::PutProvider {
+                    provider: provider.clone(),
+                    expected_revision: provider.revision,
+                },
+            )
+            .await
+            else {
+                panic!("provider expected")
+            };
+            provider = updated;
+            let Output::QueuedTurn(turn) = execute(&client, queue()).await else {
+                panic!("turn expected")
+            };
+            if cancel {
+                server.wait_count(1).await;
+                execute(&client, Command::StopTurn { turn: turn.id }).await;
+            }
+            tokio::time::timeout(Duration::from_secs(15), async {
+                loop {
+                    let history = client
+                        .read_conversation(session.id, None, 100)
+                        .await
+                        .unwrap();
+                    if let Some(run) = history.page.runs.iter().find(|run| run.turn == turn.id)
+                        && matches!(
+                            run.status,
+                            sailry_protocol::conversation::Status::Failed
+                                | sailry_protocol::conversation::Status::Cancelled
+                        )
+                    {
+                        assert_eq!(
+                            run.status,
+                            if cancel {
+                                sailry_protocol::conversation::Status::Cancelled
+                            } else {
+                                sailry_protocol::conversation::Status::Failed
+                            }
+                        );
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+            let attempt = last_attempt(node.profile(), turn.id);
+            assert_eq!(
+                attempt.outcome,
+                if cancel {
+                    Outcome::Cancelled
+                } else {
+                    Outcome::Failed
+                }
+            );
+            assert!(attempt.elapsed_us.is_some());
+        }
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }
