@@ -587,9 +587,10 @@ async fn execute_with(
     let session = invocation.turn.session.to_string();
     let target = invocation.turn.session;
     let turn = invocation.turn.id;
-    let user = adk_core::UserId::try_from(USER).map_err(|error| model::error(error.into()))?;
+    let user = adk_core::UserId::try_from(USER)
+        .map_err(|error| model::error(adk_core::AdkError::from(error)))?;
     let session_id = adk_core::SessionId::try_from(session.as_str())
-        .map_err(|error| model::error(error.into()))?;
+        .map_err(|error| model::error(adk_core::AdkError::from(error)))?;
     // Tool discovery can be interrupted before ADK owns an invocation.
     if stop.is_cancelled() {
         return Ok(Outcome::default());
