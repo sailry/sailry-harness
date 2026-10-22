@@ -99,40 +99,45 @@ impl Panel {
     }
 
     pub(super) fn rows(&self) -> Vec<Card> {
-        let mut rows: Vec<Card> = Vec::new();
-        for card in self.cards.iter().filter(|card| card.resource.is_system()) {
-            if rows.iter().any(|row| row.resource == card.resource) {
-                continue;
-            }
-            let members: Vec<_> = self
-                .cards
-                .iter()
-                .filter(|member| member.resource == card.resource)
-                .collect();
-            let mut row = card.clone();
-            if members.len() > 1 {
-                row.status = match aggregate(
-                    members
-                        .iter()
-                        .map(|member| matches!(member.status, Status::Granted | Status::NotNeeded)),
-                ) {
-                    Aggregate::Authorized => Status::Granted,
-                    Aggregate::Partial => Status::Partial,
-                    Aggregate::Unauthorized => Status::Required,
-                };
-                row.settings = None;
-                row.check = members.iter().find_map(|member| member.check.clone());
-                row.request = members
-                    .iter()
-                    .filter(|member| !matches!(member.status, Status::Granted | Status::NotNeeded))
-                    .find_map(|member| member.request.clone());
-            }
-            rows.push(row);
-        }
-        rows
+        rows(&self.cards)
     }
 }
 
+pub(super) fn rows(cards: &[Card]) -> Vec<Card> {
+    let mut rows: Vec<Card> = Vec::new();
+    for card in cards.iter().filter(|card| card.resource.is_system()) {
+        if rows.iter().any(|row| row.resource == card.resource) {
+            continue;
+        }
+        let members: Vec<_> = cards
+            .iter()
+            .filter(|member| member.resource == card.resource)
+            .collect();
+        let mut row = card.clone();
+        if members.len() > 1 {
+            row.status = match aggregate(
+                members
+                    .iter()
+                    .map(|member| matches!(member.status, Status::Granted | Status::NotNeeded)),
+            ) {
+                Aggregate::Authorized => Status::Granted,
+                Aggregate::Partial => Status::Partial,
+                Aggregate::Unauthorized => Status::Required,
+            };
+            row.settings = members
+                .iter()
+                .filter(|member| !matches!(member.status, Status::Remote | Status::Unavailable))
+                .find_map(|member| member.settings);
+            row.check = members.iter().find_map(|member| member.check.clone());
+            row.request = members
+                .iter()
+                .filter(|member| !matches!(member.status, Status::Granted | Status::NotNeeded))
+                .find_map(|member| member.request.clone());
+        }
+        rows.push(row);
+    }
+    rows
+}
 fn action(
     client: Arc<Client>,
     runtime: Arc<tokio::runtime::Runtime>,

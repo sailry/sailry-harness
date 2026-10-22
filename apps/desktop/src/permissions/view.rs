@@ -41,9 +41,11 @@ impl Render for Panel {
                         let resource = card.resource;
                         let status = card.status;
                         let granted = matches!(status, Status::Granted | Status::NotNeeded);
-                        let opens_settings = resource == Resource::FullDisk
-                            || matches!(status, Status::Denied | Status::Restricted)
-                                && card.settings.is_some();
+                        let opens_settings = self.cards.iter().any(|member| {
+                            member.resource == resource
+                                && member.actionable()
+                                && member.settings_action().is_some()
+                        });
                         let action = if opens_settings {
                             "permission_settings"
                         } else {
@@ -51,7 +53,11 @@ impl Render for Panel {
                         };
                         let pending = self.pending == Some(resource);
                         let unavailable = matches!(status, Status::Remote | Status::Unavailable);
-                        let disabled = busy || unavailable || card.request.is_none() || granted;
+                        let disabled = busy
+                            || !self
+                                .cards
+                                .iter()
+                                .any(|member| member.resource == resource && member.actionable());
                         Row::new(
                             resource.key(),
                             h_flex()
@@ -94,18 +100,7 @@ impl Render for Panel {
                                             .small()
                                             .label(tr(action))
                                             .loading(pending)
-                                            .disabled(
-                                                if resource == Resource::FullDisk
-                                                    || matches!(
-                                                        status,
-                                                        Status::Denied | Status::Restricted
-                                                    )
-                                                {
-                                                    busy || unavailable || card.settings.is_none()
-                                                } else {
-                                                    disabled
-                                                },
-                                            )
+                                            .disabled(disabled)
                                             .debug_selector(move || {
                                                 format!("{}-request", resource.key())
                                             })

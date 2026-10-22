@@ -11,6 +11,8 @@ use std::{cell::RefCell, rc::Rc};
 mod app;
 mod catalog;
 mod microphone;
+#[cfg(test)]
+mod tests;
 mod view;
 pub(crate) use microphone::open as microphone;
 
@@ -80,6 +82,38 @@ pub(crate) struct Card {
     pub check: Option<Action>,
     pub request: Option<Action>,
     pub requires: Option<Resource>,
+}
+
+impl Card {
+    fn settings_action(&self) -> Option<&'static str> {
+        if matches!(self.status, Status::Remote | Status::Unavailable) {
+            return None;
+        }
+        (self.resource == Resource::FullDisk
+            || matches!(self.status, Status::Denied | Status::Restricted)
+                && self.resource != Resource::Chrome)
+            .then_some(self.settings)
+            .flatten()
+    }
+
+    fn actionable(&self) -> bool {
+        !matches!(
+            self.status,
+            Status::Granted | Status::NotNeeded | Status::Remote | Status::Unavailable
+        ) && (self.settings_action().is_some() || self.request.is_some())
+    }
+
+    fn operation(&self) -> (Option<&'static str>, Option<Action>) {
+        let settings = self.settings_action();
+        let action = if settings.is_some() {
+            (self.resource == Resource::FullDisk)
+                .then(|| self.check.clone())
+                .flatten()
+        } else {
+            self.request.clone()
+        };
+        (settings, action)
+    }
 }
 pub(crate) type Completion = Box<dyn FnOnce(bool, &mut Window, &mut App)>;
 pub(crate) struct Request {
@@ -307,7 +341,7 @@ impl Panel {
         let Some(card) = self
             .cards
             .iter()
-            .find(|card| card.resource == Resource::FullDisk)
+            .find(|card| card.resource == Resource::FullDisk && card.settings_action().is_some())
         else {
             return;
         };
@@ -514,28 +548,38 @@ impl Panel {
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
             let mut advanced = false;
             for card in requests {
-                let Some(action) = card.request else { continue };
-                let Ok(job) = cx.update(|_, cx| action(cx, stop.clone())) else {
-                    return;
+                let (settings, action) = card.operation();
+                let result = if let Some(action) = action {
+                    let Ok(job) = cx.update(|_, cx| action(cx, stop.clone())) else {
+                        return;
+                    };
+                    Some(job.await)
+                } else if settings.is_some() {
+                    None
+                } else {
+                    continue;
                 };
-                let result = job.await;
                 if stop.is_cancelled() {
                     return;
                 }
                 let _ = owner.update_in(cx, |flow, window, cx| {
                     match result {
-                        Ok(changes) => {
+                        Some(Ok(changes)) => {
                             advanced |= changes.iter().any(|(changed, status)| {
                                 *changed == resource
                                     && matches!(status, Status::Granted | Status::NotNeeded)
                             });
                             flow.apply(&card.owner, changes);
                         }
-                        Err(failure) => {
+                        Some(Err(failure)) => {
                             flow.continuing = false;
                             flow.apply(&card.owner, vec![(resource, failure.status)]);
                             crate::feedback::info("", tr(&failure.key).as_ref(), window, cx);
                         }
+                        None => {}
+                    }
+                    if let Some(settings) = settings {
+                        cx.open_url(settings);
                     }
                     cx.notify();
                 });
