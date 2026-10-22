@@ -57,16 +57,55 @@ impl Llm for Model {
         let persistent = self.persistent;
         let (mut output, responses) = mpsc::channel(0);
         let producer = async move {
+            let capture = turn.map(|turn| observation::Capture::new(turn, inner.name().into()));
             let mut budget = budget::Budget::default();
             let committed = AtomicBool::new(false);
             let published = AtomicBool::new(false);
             let result = loop {
+                if capture.as_ref().is_some_and(|value| {
+                    value
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner())
+                        .empty()
+                }) {
+                    if let Some(capture) = &capture {
+                        if let Err(error) =
+                            observation::Capture::persist(capture, &ingress, session).await
+                        {
+                            break Err(error);
+                        }
+                    }
+                }
+                let observer = capture.as_ref().map(observation::Capture::observer);
+                let request_attempt = attempt(
+                    inner.as_ref(),
+                    request.clone(),
+                    stream,
+                    &committed,
+                    &published,
+                    output.clone(),
+                    capture.clone(),
+                );
+                let observed = async {
+                    match observer {
+                        Some(observer) => {
+                            adk_core::model_observation::scope(observer, request_attempt).await
+                        }
+                        None => request_attempt.await,
+                    }
+                };
                 let result = tokio::select! {
                     biased;
                     _ = stop.cancelled() => Err(cancelled()),
-                    result = attempt(inner.as_ref(), request.clone(), stream, &committed,
-                        &published, output.clone()) => result,
+                    result = observed => result,
                 };
+                if let Some(capture) = &capture {
+                    if let Err(error) =
+                        observation::Capture::persist(capture, &ingress, session).await
+                    {
+                        break Err(error);
+                    }
+                }
                 let Err(error) = result else {
                     break Ok(());
                 };
@@ -182,12 +221,19 @@ async fn attempt(
     committed: &AtomicBool,
     published: &AtomicBool,
     mut output: mpsc::Sender<adk_core::Result<LlmResponse>>,
+    capture: Option<Arc<std::sync::Mutex<observation::Capture>>>,
 ) -> adk_core::Result<()> {
     let recovering = published.load(Ordering::Relaxed);
     let mut responses = model.generate_content(request, stream).await?;
     let mut content = None::<Content>;
     while let Some(response) = responses.next().await {
         let mut response = response?;
+        if let Some(capture) = &capture {
+            capture
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .response(&response);
+        }
         if response.partial
             && response.content.is_none()
             && response.usage_metadata.is_none()
