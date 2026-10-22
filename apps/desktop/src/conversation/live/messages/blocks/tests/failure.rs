@@ -11,6 +11,7 @@ fn retains_failure_identity_between_text() {
             reason: Reason::HistoryMismatch,
             continued: false,
             status: None,
+            cause: None,
         };
         let entry = Entry {
             id: "diagnostic".into(),

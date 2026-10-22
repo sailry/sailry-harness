@@ -1,8 +1,8 @@
 use super::*;
-use gpui_kit::component::separator::Separator;
+use gpui_kit::component::{button::ButtonCustomVariant, separator::Separator};
 use sailry_protocol::conversation::{
     Page, Run,
-    compaction::{Failure, Reason, Source, Stage},
+    compaction::{Failure, Source},
 };
 
 impl View {
@@ -112,93 +112,50 @@ impl View {
             .get(&(turn, key.clone()))
             .copied()
             .unwrap_or(false);
-        let stage = match failure.stage {
-            Stage::Unknown => "compact_stage_unknown",
-            Stage::History => "compact_stage_history",
-            Stage::Budget => "compact_stage_budget",
-            Stage::Request => "compact_stage_request",
-            Stage::Summary => "compact_stage_summary",
-            Stage::Persistence => "compact_stage_persistence",
-        };
-        let (reason, suggestion) = match failure.reason {
-            Reason::Unknown => ("compact_reason_unknown", "compact_suggest_retry"),
-            Reason::HistoryMismatch => ("compact_reason_history", "compact_suggest_report"),
-            Reason::NoFittingPrefix => ("compact_reason_budget", "compact_suggest_context"),
-            Reason::RequestTimeout => ("compact_reason_timeout", "compact_suggest_retry"),
-            Reason::RateLimited => ("compact_reason_rate", "compact_suggest_wait"),
-            Reason::AuthorizationFailed => ("compact_reason_auth", "compact_suggest_auth"),
-            Reason::ServiceRejected => ("compact_reason_rejected", "compact_suggest_retry"),
-            Reason::EmptySummary => ("compact_reason_empty", "compact_suggest_retry"),
-            Reason::RequestFailed => ("compact_reason_request", "compact_suggest_retry"),
-            Reason::TruncatedSummary => ("compact_reason_truncated", "compact_suggest_context"),
-            Reason::IncompleteResponse => ("compact_reason_incomplete", "compact_suggest_retry"),
-            Reason::UnexpectedOutput => ("compact_reason_output", "compact_suggest_retry"),
-            Reason::SummaryTooLarge => ("compact_reason_size", "compact_suggest_context"),
-            Reason::NoReduction => ("compact_reason_reduction", "compact_suggest_context"),
-            Reason::PersistenceFailed => ("compact_reason_persistence", "compact_suggest_retry"),
-        };
-        let status = self
-            .history
-            .snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.page.runs.iter().find(|run| run.turn == turn))
-            .map(|run| run.status);
-        let outcome = if !failure.continued {
-            "compact_task_stopped"
-        } else {
-            match status {
-                Some(Status::Completed) => "compact_task_completed",
-                Some(Status::Running | Status::Continued) => "compact_task_continued",
-                _ => "compact_task_stopped",
-            }
-        };
+        let cause = failure
+            .cause
+            .as_deref()
+            .filter(|cause| !cause.trim().is_empty())
+            .map(diagnostic::display)
+            .unwrap_or_else(|| tr("compact_reason_unknown").to_string());
         Collapsible::new()
             .open(open)
             .w_full()
             .min_w_0()
             .child(
-                crate::conversation::disclosure::trigger(
-                    id.clone(),
-                    IconName::CircleX,
-                    tr(if failure.source == Source::Automatic {
-                        "compact_auto_failed"
-                    } else {
-                        "chat_compact_failed"
-                    }),
-                    crate::conversation::disclosure::Detail {
-                        failed: true,
-                        ..Default::default()
-                    },
-                    open,
-                    cx,
-                )
-                .on_click(
-                    cx.listener(move |view, _, _, cx| view.expand(turn, key.clone(), !open, cx)),
-                ),
-            )
-            .content(crate::conversation::disclosure::body(
-                v_flex()
+                h_flex()
+                    .w_full()
                     .gap_2()
+                    .child(Separator::horizontal().flex_1())
+                    .child(
+                        Button::new(id.clone())
+                            .custom(ButtonCustomVariant::new(cx).foreground(cx.theme().danger))
+                            .small()
+                            .px_0()
+                            .label(tr(if failure.source == Source::Automatic {
+                                "compact_auto_failed"
+                            } else {
+                                "chat_compact_failed"
+                            }))
+                            .on_click(cx.listener(move |view, _, _, cx| {
+                                view.expand(turn, key.clone(), !open, cx)
+                            })),
+                    )
+                    .child(Separator::horizontal().flex_1()),
+            )
+            .content(
+                div()
+                    .id(format!("{id}-scroll"))
+                    .min_w_0()
+                    .max_h_40()
+                    .overflow_y_scroll()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child(tr(stage))
-                    .child(tr(reason))
-                    .when_some(failure.status, |body, status| {
-                        body.child(format!("HTTP {status}"))
-                    })
-                    .child(tr(outcome))
-                    .child(tr(suggestion))
-                    .child(
-                        Button::new(format!("{id}-retry"))
-                            .small()
-                            .label(tr("chat_retry"))
-                            .disabled(!self.can_compact())
-                            .on_click(
-                                cx.listener(|view, _, window, cx| view.compact_context(window, cx)),
-                            ),
-                    ),
-                cx,
-            ))
+                    .child(gpui_kit::base::SelectableText::new(
+                        format!("{id}-text"),
+                        cause,
+                    )),
+            )
             .into_any_element()
     }
 

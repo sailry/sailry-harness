@@ -36,6 +36,7 @@ fn reports_exclude_user_content_and_raw_errors() {
                 reason: Reason::RequestTimeout,
                 continued: false,
                 status: Some(504),
+                cause: None,
             }),
             version: "0.1.0".into(),
             platform: "macos-aarch64".into(),
