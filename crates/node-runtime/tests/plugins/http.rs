@@ -149,19 +149,35 @@ async fn binds_credentials_and_keeps_durable_results() {
             assert_eq!(client.execute(request).await.unwrap_err(), result);
             assert_eq!(server.requests.lock().unwrap().len(), count);
         }
-        let mut timeout = command(&server, "/hold", None);
-        if let Command::RequestPluginHttp(request) = &mut timeout {
-            request.timeout_ms = 200;
+        let before = server.requests.lock().unwrap().len();
+        let mut pending = Vec::new();
+        for _ in 0..6 {
+            let mut timeout = command(&server, "/hold", None);
+            if let Command::RequestPluginHttp(request) = &mut timeout {
+                request.timeout_ms = 500;
+            }
+            pending.push(
+                client
+                    .dispatch(client.prepare(timeout).with_plugin(context.clone()))
+                    .await
+                    .unwrap(),
+            );
         }
-        let result = client
-            .execute(client.prepare(timeout).with_plugin(context.clone()))
-            .await
-            .unwrap_err();
-        assert_eq!(result.code, ErrorCode::OutcomeUnknown);
-        assert!(
-            server.held.is_cancelled(),
-            "the timeout request reached the server"
-        );
+        // Independent HTTP operations must all reach I/O, rather than rejecting
+        // the fifth request through a shared plugin execution limit.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while server.requests.lock().unwrap().len() != before + pending.len() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        for admission in pending {
+            assert_eq!(
+                admission.completion.await.unwrap().unwrap_err().code,
+                ErrorCode::OutcomeUnknown
+            );
+        }
         tokio::time::timeout(Duration::from_secs(3), server.disconnected.cancelled())
             .await
             .unwrap();

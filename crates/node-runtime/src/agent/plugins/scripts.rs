@@ -299,7 +299,7 @@ impl Tool for Script {
         if prepared.get("isError").and_then(Value::as_bool) == Some(true) {
             return Ok(prepared);
         }
-        // The VM and its pool permit have been released before waiting on Node work.
+        // The VM has been released before waiting on Node work.
         let mut output = if let Some(delegate) = &self.delegate {
             delegate
                 .execute_prepared(context.clone(), prepared, arguments.clone())
@@ -372,11 +372,6 @@ impl Script {
         {
             return Err(AdkError::tool("plugin tool input exceeds limit"));
         }
-        let permit = tokio::select! {
-            biased;
-            _ = self.stop.cancelled() => return Err(AdkError::tool("plugin tool was cancelled")),
-            permit = self.ingress.plugins.scripts.clone().acquire_owned() => permit.map_err(|_| AdkError::tool("plugin VM pool is closed"))?,
-        };
         let ingress = self.ingress.clone();
         let caller = self.caller;
         let package = self.package.clone();
@@ -399,7 +394,6 @@ impl Script {
         let node = ingress.node;
         let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             let mut turn_state = turn
                 .as_ref()
                 .map(|turn| turn.state.lock())

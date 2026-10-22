@@ -16,12 +16,19 @@ export async function run(input) {
 "#;
 
 #[tokio::test]
-async fn times_out_reads_and_releases_slots() {
+async fn times_out_independent_callbacks() {
     for remote in [false, true] {
         let http = server::Server::start().await;
         let (directory, node, controller, client, worktree) =
             crate::plugins::support::empty(remote).await;
-        let hosts = ["first.sailry.test", "second.sailry.test"];
+        let hosts = [
+            "first.sailry.test",
+            "second.sailry.test",
+            "third.sailry.test",
+            "fourth.sailry.test",
+            "fifth.sailry.test",
+            "sixth.sailry.test",
+        ];
         for host in hosts {
             node.set_web_fixture(host, http.address);
         }
@@ -50,10 +57,10 @@ async fn times_out_reads_and_releases_slots() {
                     .unwrap(),
             );
         }
-        // The server must observe both requests; merely polling Pending would
+        // The server must observe every request; merely polling Pending would
         // not establish that the VMs reached native SDK I/O.
         tokio::time::timeout(Duration::from_secs(5), async {
-            while http.requests.lock().unwrap().len() != 2 {
+            while http.requests.lock().unwrap().len() != hosts.len() {
                 tokio::task::yield_now().await;
             }
         })
@@ -97,7 +104,7 @@ async fn times_out_reads_and_releases_slots() {
                 )
             })
             .collect();
-        assert_eq!(reports.len(), 2);
+        assert_eq!(reports.len(), hosts.len());
         let serialized = serde_json::to_string(&reports).unwrap();
         assert!(!serialized.contains("sailry.test"));
         assert!(!serialized.contains("/hold"));
@@ -113,7 +120,7 @@ async fn times_out_reads_and_releases_slots() {
         .unwrap();
         assert!(matches!(output, Output::PluginResult(_)));
         assert_eq!(read(&client, &context, "counter").await.value, json!(1));
-        assert_eq!(http.requests.lock().unwrap().len(), 2);
+        assert_eq!(http.requests.lock().unwrap().len(), hosts.len());
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

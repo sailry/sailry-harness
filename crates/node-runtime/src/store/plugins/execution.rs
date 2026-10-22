@@ -6,10 +6,8 @@ use sailry_protocol::*;
 use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{
     runtime::Handle,
-    sync::{Semaphore, mpsc, oneshot},
+    sync::{mpsc, oneshot},
 };
-
-const MAX_SCRIPTS: usize = 32;
 
 pub(in crate::store) enum Input {
     Text {
@@ -104,8 +102,6 @@ pub(in crate::store) struct Execution {
 
 pub(in crate::store) struct Worker {
     pub pending: usize,
-    scripts: usize,
-    script_slots: Arc<Semaphore>,
     active: std::collections::BTreeMap<(NodeId, RequestId), CancellationToken>,
     ingress: Arc<Ingress>,
     runtime: Handle,
@@ -117,8 +113,6 @@ impl Worker {
     pub fn new(ingress: Arc<Ingress>) -> Self {
         Self {
             pending: 0,
-            scripts: 0,
-            script_slots: ingress.plugins.scripts.clone(),
             active: Default::default(),
             runtime: Handle::current(),
             completed: ingress.sender.clone(),
@@ -129,15 +123,7 @@ impl Worker {
 
     pub fn submit(&mut self, execution: Execution) -> Result<(), Box<Execution>> {
         let script = matches!(execution.input, Input::Script(_));
-        let cancel = matches!(execution.input, Input::Cancel(_));
-        if (!cancel
-            && if script {
-                self.scripts >= MAX_SCRIPTS
-            } else {
-                self.pending - self.scripts >= 4
-            })
-            || self.closed.is_cancelled()
-        {
+        if self.closed.is_cancelled() {
             return Err(Box::new(execution));
         }
         let stop = if let Some(turn) = execution
@@ -166,10 +152,8 @@ impl Worker {
             None
         };
         self.pending += 1;
-        self.scripts += usize::from(script);
         let ingress = self.ingress.clone();
         let completed = self.completed.clone();
-        let script_slots = self.script_slots.clone();
         self.runtime.spawn(async move {
             let input = execution.input;
             let operation = async {
@@ -181,18 +165,9 @@ impl Worker {
                             &ingress, &provider, &config, prompt, &stop) => result.map(Output::PluginText),
                     },
                     Input::Http(input) => crate::plugins::http::run(*input, &ingress, stop.clone()).await.map(Output::PluginHttp),
-                    Input::Script(info) => {
-                        // Wait for a VM slot without allocating
-                        // a VM or failing a valid dispatch group merely because two VMs are busy.
-                        let permit = tokio::select! {
-                            biased;
-                            _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin callback cancelled")),
-                            permit = script_slots.acquire_owned() => permit.expect("script pool remains open"),
-                        };
-                        let result = super::script::run(ingress.clone(), execution.caller, execution.request.clone(), *info, stop.clone()).await;
-                        drop(permit);
-                        result
-                    },
+                    Input::Script(info) => super::script::run(
+                        ingress.clone(), execution.caller, execution.request.clone(), *info, stop.clone()
+                    ).await,
                     Input::Command(child) => super::command::run(&ingress, execution.caller, child).await,
                     Input::Cancel(_) => cancelled.map(|request| Output::PluginCallStopping { request })
                         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "plugin callback is not running")),
@@ -209,10 +184,6 @@ impl Worker {
 
     pub fn finished(&mut self, caller: NodeId, request: &Request) {
         self.pending -= 1;
-        self.scripts -= usize::from(matches!(
-            request.command,
-            Command::CallPlugin { .. } | Command::ReadPluginCallback { .. }
-        ));
         self.active.remove(&(caller, request.id));
     }
 }

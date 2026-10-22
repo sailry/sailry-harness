@@ -177,15 +177,12 @@ impl Turn {
                 "plugin turn input exceeds limit",
             ));
         }
-        let permit = tokio::select! {
-            biased;
-            _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin turn stopped")),
-            permit = self.ingress.plugins.scripts.clone().acquire_owned() => permit.map_err(|_| sailry_protocol::Fault::invalid("plugin VM pool is closed"))?,
-        };
+        if self.stop.is_cancelled() {
+            return Err(Fault::new(ErrorCode::Cancelled, "plugin turn stopped"));
+        }
         let owner = self.clone();
         let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             let mut current = owner
                 .state
                 .lock()

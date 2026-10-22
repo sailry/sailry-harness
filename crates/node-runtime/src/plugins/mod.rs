@@ -43,7 +43,6 @@ pub(crate) use manifest::validate_name;
 #[derive(Clone)]
 pub(crate) struct Host {
     profile: Option<PathBuf>,
-    pub(crate) scripts: std::sync::Arc<tokio::sync::Semaphore>,
     reads: std::sync::Arc<tokio::sync::Semaphore>,
     pub(crate) authorizations: std::sync::Arc<authorization::Clients>,
     pub(crate) connectors: std::sync::Arc<connectors::Service>,
@@ -121,7 +120,6 @@ impl Host {
     pub(crate) fn new(profile: Option<PathBuf>) -> Self {
         Self {
             profile,
-            scripts: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             reads: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             authorizations: Default::default(),
             connectors: Default::default(),
