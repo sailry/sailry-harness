@@ -245,7 +245,7 @@ impl Server {
     pub async fn compaction_sequence(fail_summary: bool, text: String, usage: Vec<i32>) -> Self {
         assert!(!usage.is_empty());
         Self::serve(Reply::Compaction {
-            failure_status: fail_summary.then_some(501),
+            failure_status: fail_summary.then_some(400),
             failure_count: usize::MAX,
             text: Arc::new(text),
             usage: Arc::new(usage),

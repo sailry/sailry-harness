@@ -196,7 +196,7 @@ async fn preserves_context_on_failure() {
                                             .unwrap()
                                             .contains(agent_support::compaction::PRIVATE_SENTINEL)
                                     );
-                                    assert_eq!(value["failure"]["status"], 501);
+                                    assert_eq!(value["failure"]["status"], 400);
 
                                     warnings.push(entry.id.clone());
                                 }
@@ -272,7 +272,7 @@ async fn preserves_context_on_failure() {
                 .count(),
             7
         );
-        // The fixture returns a nonretryable HTTP 501.
+        // The fixture returns a nonretryable HTTP 400.
         // A changed complete prefix may retry; each prefix gets only one attempt.
         let summaries: Vec<_> = requests
             .iter()

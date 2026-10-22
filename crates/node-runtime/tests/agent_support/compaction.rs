@@ -19,7 +19,7 @@ pub async fn respond(
     fail_summary: bool,
     text: &str,
 ) -> std::io::Result<()> {
-    respond_usage(stream, body, fail_summary.then_some(501), text, 100).await
+    respond_usage(stream, body, fail_summary.then_some(400), text, 100).await
 }
 
 pub async fn respond_usage(
@@ -57,7 +57,7 @@ pub async fn respond_plain(
     fail_summary: bool,
 ) -> std::io::Result<()> {
     if is_summary(body) && fail_summary {
-        return respond_usage(stream, body, Some(501), "Unused", input_tokens).await;
+        return respond_usage(stream, body, Some(400), "Unused", input_tokens).await;
     }
     let content = if is_summary(body) {
         "Prepared summary".into()
@@ -85,7 +85,7 @@ pub async fn respond_loop(
         return respond_usage(
             stream,
             body,
-            fail_summary.then_some(501),
+            fail_summary.then_some(400),
             "Context summary fixture: earlier tool evidence retained",
             summary_input,
         )
