@@ -127,3 +127,74 @@ async fn retains_guards_through_cleanup() {
         }
     }
 }
+
+#[cfg(unix)]
+mod process {
+    use super::*;
+
+    async fn close(script: &str) -> Result<(), Fault> {
+        let directory = tempfile::tempdir().unwrap();
+        let root =
+            cap_std::fs::Dir::open_ambient_dir(directory.path(), cap_std::ambient_authority())
+                .unwrap();
+        let mut command = tokio::process::Command::new("/bin/sh");
+        command
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut command = CommandWrap::from(command);
+        command.wrap(KillOnDrop);
+        command.wrap(process_wrap::tokio::ProcessGroup::leader());
+        let mut inner = command.spawn().unwrap();
+        let input = inner.stdin().take().unwrap();
+        let (output, retained) = output::Reader::new(inner.stdout().take().unwrap());
+        let child = Child {
+            inner,
+            _roots: (root.try_clone().unwrap(), root),
+            settings: None,
+            _python: None,
+            armed: true,
+            graceful: true,
+            output: retained,
+        };
+        let (transport, completion) =
+            Tracked::new(rmcp::transport::async_rw::AsyncRwTransport::new_client(
+                limits::Lines::new(output),
+                input,
+            ));
+        let mut connection = Connection {
+            stop: CancellationToken::new(),
+            closing: CancellationToken::new(),
+            closed: Some(completion),
+            child: Some(child),
+            tasks: None,
+            result: None,
+        };
+        drop(transport);
+        let result = connection.close().await;
+        assert_eq!(connection.close().await, result);
+        result
+    }
+
+    #[tokio::test]
+    async fn drains_output_after_stdin_closes() {
+        // More than pipe capacity proves cleanup keeps reading instead of merely
+        // retaining the descriptor while waiting for a blocked writer to exit.
+        close("cat >/dev/null; exec dd if=/dev/zero bs=65536 count=32")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn preserves_abnormal_exit_failures() {
+        for script in [
+            "cat >/dev/null; exit 7",
+            "cat >/dev/null; trap - PIPE; kill -PIPE $$",
+        ] {
+            let error = close(script).await.unwrap_err();
+            assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+            assert!(error.message.contains("MCP process exited with"));
+        }
+    }
+}

@@ -7,6 +7,7 @@ use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
 use rmcp::{RoleClient, transport::Transport};
 use std::{io, process::Stdio};
 use tokio::sync::oneshot;
+mod output;
 mod sse;
 
 fn failure() -> io::Error {
@@ -20,6 +21,7 @@ struct Child {
     _python: Option<crate::python::Ready>,
     armed: bool,
     graceful: bool,
+    output: output::Retained,
 }
 
 impl Drop for Child {
@@ -32,10 +34,27 @@ impl Drop for Child {
 
 impl Child {
     async fn close(&mut self) -> io::Result<()> {
-        let process = if self.graceful {
-            self.finish().await
-        } else {
-            self.force().await
+        let output = self.output.lock().unwrap().take();
+        let process = {
+            let process = async {
+                if self.graceful {
+                    self.finish().await
+                } else {
+                    self.force().await
+                }
+            };
+            tokio::pin!(process);
+            // Closing stdin requests shutdown; keep stdout readable until the child
+            // exits so its final notifications cannot receive a client-made SIGPIPE.
+            if let Some(mut output) = output {
+                let mut sink = tokio::io::sink();
+                tokio::select! {
+                    result = &mut process => result,
+                    _ = tokio::io::copy(&mut output, &mut sink) => process.await,
+                }
+            } else {
+                process.await
+            }
         };
         let settings = if let Some(file) = self.settings.take() {
             tokio::task::spawn_blocking(move || file.close())
@@ -232,16 +251,19 @@ impl Connection {
                 if turn_stop.is_cancelled() {
                     return Err(unavailable());
                 }
-                let mut child = Child {
-                    inner: command.spawn().map_err(|_| unavailable())?,
+                let mut inner = command.spawn().map_err(|_| unavailable())?;
+                let input = inner.stdin().take().expect("MCP stdin was piped");
+                let (output, retained) =
+                    output::Reader::new(inner.stdout().take().expect("MCP stdout was piped"));
+                let child = Child {
+                    inner,
                     _roots: roots,
                     settings,
                     _python: python,
                     armed: true,
                     graceful,
+                    output: retained,
                 };
-                let input = child.inner.stdin().take().expect("MCP stdin was piped");
-                let output = child.inner.stdout().take().expect("MCP stdout was piped");
                 Self::connect(
                     rmcp::transport::async_rw::AsyncRwTransport::new_client(
                         limits::Lines::new(output),
