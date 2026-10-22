@@ -66,6 +66,8 @@ impl Llm for Model {
             let committed = &committed;
             let published = AtomicBool::new(false);
             let published = &published;
+            let diagnostic = std::sync::Mutex::new(String::new());
+            let diagnostic = &diagnostic;
             let model = inner.as_ref();
             let sender = output.clone();
             let policy = RetryConfig::default()
@@ -101,6 +103,8 @@ impl Llm for Model {
                         ) {
                             return result;
                         }
+                        *diagnostic.lock().expect("retry diagnostic lock is healthy") =
+                            super::error(&*error).message;
                         let mut entry = crate::logging::Entry::new(
                             crate::logging::Area::Model,
                             crate::logging::Phase::Failed,
@@ -134,12 +138,13 @@ impl Llm for Model {
                     &mut operation,
                     |attempt, limit, _| {
                         let ingress = &ingress;
+                        let error = diagnostic.lock().expect("retry diagnostic lock is healthy").clone();
                         async move {
                             let mut event = Event::new(turn.to_string());
                             event.author = "system".into();
                             event.provider_metadata.insert(
                                 "sailry_retry".into(),
-                                serde_json::json!({"attempt": attempt, "limit": limit}).to_string(),
+                                serde_json::json!({"attempt": attempt, "limit": limit, "error": error}).to_string(),
                             );
                             ingress.sessions(turn)
                                 .append_event(&session.to_string(), event)

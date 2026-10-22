@@ -427,9 +427,13 @@ pub(crate) fn project(
                     .filter(|value| (1..=5).contains(value));
                 let limit = value["limit"].as_u64().filter(|value| *value == 5);
                 match (attempt, limit) {
-                    (Some(attempt), Some(limit)) if event.author == "system" => Ok(Part::Resource(
-                        serde_json::json!({"type":"model_retry","attempt":attempt,"limit":limit}),
-                    )),
+                    (Some(attempt), Some(limit)) if event.author == "system" => {
+                        let mut retry = serde_json::json!({"type":"model_retry","attempt":attempt,"limit":limit});
+                        if let Some(error) = value["error"].as_str() {
+                            retry["error"] = error.into();
+                        }
+                        Ok(Part::Resource(retry))
+                    },
                     _ => Err(sailry_protocol::Fault::invalid("invalid model retry metadata")),
                 }
             }))

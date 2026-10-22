@@ -427,13 +427,14 @@ fn native(
     Ok(registry::Built::new(inner))
 }
 
-pub(super) fn error(error: adk_core::AdkError) -> Fault {
+pub(super) fn error(error: impl std::borrow::Borrow<adk_core::AdkError>) -> Fault {
+    let error = error.borrow();
     if let Some(fault) =
-        std::error::Error::source(&error).and_then(|source| source.downcast_ref::<Fault>())
+        std::error::Error::source(error).and_then(|source| source.downcast_ref::<Fault>())
     {
         return fault.clone();
     }
-    let summary = summary(&error);
+    let summary = summary(error);
     if error.component == adk_core::ErrorComponent::Model && error.code == "model.empty_response" {
         return Fault::new(ErrorCode::Unavailable, summary);
     }

@@ -6,6 +6,7 @@ use server::{Ending, Script};
 
 const DISCARDED: &str = "Discarded draft";
 const RECOVERED: &str = "Recovered answer";
+const FAILURE: &str = "Upstream temporarily unavailable";
 
 fn delta(text: &str) -> Value {
     json!({"type":"response.output_text.delta", "sequence_number":1,
@@ -52,6 +53,9 @@ pub(super) fn attempts(page: &Page) -> Vec<u64> {
         .filter_map(|part| match part {
             Part::Resource(value) if value["type"] == "model_retry" => {
                 assert_eq!(value["limit"], 5);
+                let error = value["error"].as_str().expect("retry error text expected");
+                assert!(!error.is_empty());
+                assert!(!error.contains(server::KEY));
                 value["attempt"].as_u64()
             }
             _ => None,
@@ -67,7 +71,7 @@ fn unique_entries(page: &Page) {
 fn unavailable(retry_after: &str) -> Script {
     Script {
         bytes: format!(
-            "HTTP/1.1 503 Unavailable\r\nContent-Type: application/json\r\nRetry-After: {retry_after}\r\nConnection: close\r\n\r\n{{\"error\":{{\"message\":\"private provider failure\",\"type\":\"server_error\"}}}}"
+            "HTTP/1.1 503 Unavailable\r\nContent-Type: application/json\r\nRetry-After: {retry_after}\r\nConnection: close\r\n\r\n{{\"error\":{{\"message\":\"{FAILURE} {}\",\"type\":\"server_error\"}}}}", server::KEY
         ).into_bytes(),
         ending: Ending::Close,
     }
@@ -123,7 +127,7 @@ async fn honors_server_retry_delays() {
                 }
             }
             let serialized = serde_json::to_string(&page).unwrap();
-            assert!(!serialized.contains("private provider failure"));
+            assert!(serialized.contains(FAILURE));
             assert!(!serialized.contains(server::KEY));
             unique_entries(&page);
             fixture.controller.close().await.unwrap();
@@ -503,6 +507,19 @@ async fn shares_opening_and_partial_retry_budget() {
             ErrorCode::Unavailable
         );
         assert_eq!(attempts(&page), vec![1, 2, 3]);
+        let errors: Vec<_> = page
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| match part {
+                Part::Resource(value) if value["type"] == "model_retry" => value["error"].as_str(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(errors.len(), 3);
+        assert!(errors[0].contains("fixture unavailable"));
+        assert_eq!(errors[0], errors[1]);
+        assert_ne!(errors[1], errors[2]);
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 4);
@@ -526,6 +543,8 @@ async fn shares_opening_and_partial_retry_budget() {
         assert!(sent.contains(DISCARDED));
         assert!(sent.contains("Continue from the saved answer"));
         assert!(!sent.contains("Uncommitted recovery"));
+        assert!(!sent.contains("fixture unavailable"));
+        assert!(!sent.contains("model.openai_responses.unavailable"));
         assert!(
             page.entries
                 .iter()

@@ -13,6 +13,7 @@ mod location;
 mod preview;
 mod records;
 mod removal;
+mod retry;
 mod rewind;
 mod title;
 
