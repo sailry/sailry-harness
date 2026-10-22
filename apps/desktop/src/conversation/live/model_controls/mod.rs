@@ -133,6 +133,19 @@ impl View {
         available
     }
 
+    pub(super) fn model_settings(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.sync_model_controls(cx) {
+            return self.model_controls.clone().into_any_element();
+        }
+        Button::new("composer-select-model")
+            .ghost()
+            .w_full()
+            .label(tr("composer_select_model"))
+            .disabled(self.configuration_blocked() || !self.can_pick_model())
+            .on_click(cx.listener(|view, _, _, cx| cx.emit(Event::Settings(view.settings_node()))))
+            .into_any_element()
+    }
+
     pub(super) fn model_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         let available = self.sync_model_controls(cx);
         let model = self.model_label();

@@ -67,6 +67,7 @@ impl View {
     pub(super) fn composer_settings(&self, cx: &App) -> AnyElement {
         let panel = self.composer_settings.clone();
         let opening = panel.clone();
+        let model = self.model_controls.clone();
         let current = self
             .config
             .as_ref()
@@ -108,6 +109,7 @@ impl View {
             )
             .on_open_change(move |open, window, cx| {
                 if *open {
+                    model.update(cx, |panel, cx| panel.back(window, cx));
                     opening.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
                 }
             })
@@ -278,6 +280,7 @@ impl Render for Panel {
                     .w_full()
                     .min_w_0()
                     .gap_1()
+                    .child(view.model_settings(cx))
                     .children(view.registered_controls(
                         sailry_protocol::plugin::ui::Slot::Composer,
                         sailry_protocol::plugin::ui::Align::End,

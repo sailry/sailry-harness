@@ -99,7 +99,7 @@ impl View {
                             cx,
                         ))
                     })
-                    .child(self.model_menu(cx))
+                    .when(!self.compact_composer, |bar| bar.child(self.model_menu(cx)))
                     .when(self.sidebar, |bar| bar.child(self.model_spacer(cx)))
                     .child(self.dictation_controls(cx))
                     // An executing turn keeps its Stop action during dictation.
