@@ -35,7 +35,6 @@ pub(super) struct State {
     rows: Vec<Connection>,
     binding: Option<Binding>,
     loading: bool,
-    refreshing: bool,
     stop: CancellationToken,
     task: Option<Task<()>>,
     pending: BTreeSet<connector::Id>,
@@ -68,7 +67,6 @@ impl State {
             rows: Vec::new(),
             binding: None,
             loading: false,
-            refreshing: false,
             stop: CancellationToken::new(),
             task: None,
             pending: BTreeSet::new(),
@@ -82,7 +80,7 @@ impl State {
     }
 
     pub(super) fn heading(&self) -> SharedString {
-        rust_i18n::t!("connector_title", count = self.rows.len()).into()
+        tr("settings_connectors")
     }
 }
 impl Drop for State {
@@ -227,13 +225,6 @@ impl Workspace {
                 Select::new(&self.connectors.method).accessibility_label(tr("connector_filter")),
             ))
             .child(
-                crate::feedback::retry("connector-refresh")
-                    .disabled(disabled || self.connectors.loading || self.connectors.refreshing)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.refresh_connectors(window, cx);
-                    })),
-            )
-            .child(
                 Button::new("connector-add")
                     .primary()
                     .label(tr("settings_add"))
@@ -304,24 +295,19 @@ impl Workspace {
                     .items_center()
                     .gap_2()
                     .child(div().truncate().child(label.clone()))
-                    .child(
-                        Tag::secondary()
-                            .child(tr(filter::key(row.method)))
-                            .xsmall()
-                            .flex_shrink_0(),
-                    )
+                    .when(!account.is_empty(), |element| {
+                        element.child(Tag::secondary().child(account).xsmall().flex_shrink_0())
+                    })
                     .when_some(status, |element, key| {
                         element.child(Tag::new().child(tr(key)).xsmall().flex_shrink_0())
                     }),
             )
-            .when(!account.is_empty(), |element| {
-                element.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(account),
-                )
-            });
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(tr(filter::key(row.method))),
+            );
         let content = super::entry::Entry::new(
             row_id.clone(),
             h_flex()
