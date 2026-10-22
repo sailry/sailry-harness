@@ -291,7 +291,7 @@ fn entry(
         })
         .child(
             h_flex()
-                .w_full()
+                .flex_1()
                 .min_w_0()
                 .gap_2()
                 .relative()

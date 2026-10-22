@@ -107,7 +107,7 @@ impl Shell {
                     ),
             )
             .when(rows.is_empty(), |page| {
-                page.child(crate::empty_state::list(
+                page.child(crate::empty_state::card(
                     IconName::Bell,
                     "notifications_empty",
                     cx,
@@ -127,6 +127,7 @@ impl Shell {
         let trigger = Button::new(format!("{key}-open"))
             .text()
             .w_full()
+            .min_w_0()
             .h_auto()
             .py_3()
             .px_0()
@@ -134,11 +135,15 @@ impl Shell {
             .accessibility_label(title.clone())
             .child(
                 h_flex()
-                    .w_full()
+                    .flex_1()
                     .min_w_0()
                     .items_center()
                     .gap_3()
-                    .child(notifications::glyph(notice.kind, cx).size_5())
+                    .child(
+                        notifications::glyph(notice.kind, cx)
+                            .size_5()
+                            .flex_shrink_0(),
+                    )
                     .child(
                         v_flex()
                             .flex_1()
@@ -171,7 +176,13 @@ impl Shell {
                         )
                     })
                     .when(!notice.read, |row| {
-                        row.child(div().size_1p5().rounded_full().bg(cx.theme().primary))
+                        row.child(
+                            div()
+                                .size_1p5()
+                                .flex_shrink_0()
+                                .rounded_full()
+                                .bg(cx.theme().primary),
+                        )
                     })
                     .child(
                         Icon::new(if expanded {
@@ -180,6 +191,7 @@ impl Shell {
                             IconName::ChevronRight
                         })
                         .size_4()
+                        .flex_shrink_0()
                         .text_color(cx.theme().muted_foreground),
                     ),
             )
@@ -293,16 +305,11 @@ impl Shell {
             }
             None => {}
         }
-        let mut facts = v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .text_xs()
-            .child(detail_line(
-                "notification_source",
-                self.notice_source(notice),
-                cx,
-            ));
+        let mut facts = v_flex().w_full().min_w_0().gap_2().child(detail_line(
+            "notification_source",
+            self.notice_source(notice),
+            cx,
+        ));
         if let Some(time) = notice.timestamp_ms {
             facts = facts.child(detail_line(
                 "notification_time",
@@ -322,9 +329,9 @@ impl Shell {
         let id = notice.id;
         let available = self.notice_available(notice, cx);
         body = body.child(
-            h_flex().gap_2().child(
+            h_flex().gap_3().child(div().w_16().flex_shrink_0()).child(
                 Button::new(format!("center-action-{id:?}"))
-                    .outline()
+                    .primary()
                     .small()
                     .label(tr(match notice.target() {
                         Target::Session(_) => "notification_open_conversation",
@@ -372,17 +379,39 @@ impl Shell {
                 ),
             )
             .content(
-                v_flex()
+                div()
+                    .relative()
+                    .w_full()
                     .min_w_0()
-                    .gap_2()
-                    .pt_2()
+                    .mt_2()
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .rounded(cx.theme().radius)
                     .child(
-                        h_flex().justify_end().child(
+                        div()
+                            .id(format!("center-report-{id:?}"))
+                            .w_full()
+                            .min_w_0()
+                            .max_h_64()
+                            .overflow_y_scroll()
+                            .p_3()
+                            .pr_12()
+                            .text_xs()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_color(cx.theme().muted_foreground)
+                            .child(gpui_kit::base::SelectableText::new(
+                                format!("center-report-text-{id:?}"),
+                                report,
+                            )),
+                    )
+                    .child(
+                        div().absolute().top_2().right_2().child(
                             Button::new(format!("center-copy-{id:?}"))
                                 .outline()
                                 .small()
                                 .icon(IconName::Copy)
-                                .label(tr("notification_copy_report"))
+                                .tooltip(tr("notification_copy_report"))
+                                .accessibility_label(tr("notification_copy_report"))
                                 .on_click(move |_, window, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(
                                         copied.clone(),
@@ -397,25 +426,6 @@ impl Shell {
                                     );
                                 }),
                         ),
-                    )
-                    .child(
-                        div()
-                            .id(format!("center-report-{id:?}"))
-                            .w_full()
-                            .min_w_0()
-                            .max_h_64()
-                            .overflow_y_scroll()
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .rounded(cx.theme().radius)
-                            .p_3()
-                            .text_xs()
-                            .font_family(cx.theme().mono_font_family.clone())
-                            .text_color(cx.theme().muted_foreground)
-                            .child(gpui_kit::base::SelectableText::new(
-                                format!("center-report-text-{id:?}"),
-                                report,
-                            )),
                     ),
             )
             .into_any_element()
@@ -427,11 +437,10 @@ impl Shell {
             .as_ref()
             .map(|live| live.name(notice.id.node))
             .unwrap_or_default();
-        let source = if notice.package.is_empty() {
-            tr("notification_system")
-        } else {
-            notice.package.clone().into()
-        };
+        if notice.package.is_empty() {
+            return host;
+        }
+        let source: SharedString = notice.package.clone().into();
         if host.is_empty() {
             source
         } else {
@@ -462,6 +471,7 @@ fn detail_line(label: &'static str, value: SharedString, cx: &App) -> impl IntoE
         .min_w_0()
         .gap_3()
         .items_start()
+        .text_sm()
         .child(
             div()
                 .w_16()
@@ -469,5 +479,5 @@ fn detail_line(label: &'static str, value: SharedString, cx: &App) -> impl IntoE
                 .text_color(cx.theme().muted_foreground)
                 .child(tr(label)),
         )
-        .child(div().flex_1().min_w_0().child(value))
+        .child(div().flex_1().min_w_0().truncate().child(value))
 }
