@@ -91,14 +91,13 @@ impl Host {
         module
             .async_function("readActivityCatalog", move |_| {
                 read.check_activity()?;
-                let permit = read.capacity.clone().try_acquire_owned()
-                    .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
+
                 let host = read.clone();
                 let sources = read_sources.clone();
                 Ok(async move {
                     let runtime = host.runtime.clone();
                     runtime.spawn(async move {
-                        let _permit = permit;
+
                         let catalog = host.activity_catalog().await?;
                         let mut value = serde_json::to_value(&catalog)
                             .map_err(|error| HostError::new(error.to_string()))?;
@@ -131,15 +130,14 @@ impl Host {
                 if !state.borrow().visible {
                     return Err(HostError::new("activity page is hidden"));
                 }
-                let permit = previews.capacity.clone().try_acquire_owned()
-                    .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
+
                 let host = previews.clone();
                 let request = host.client.prepare(Command::ReadActivity { sessions })
                     .with_plugin(host.context.clone());
                 Ok(async move {
                     let runtime = host.runtime.clone();
                     runtime.spawn(async move {
-                        let _permit = permit;
+
                         let read = host.client.execute(request);
                         tokio::pin!(read);
                         loop {

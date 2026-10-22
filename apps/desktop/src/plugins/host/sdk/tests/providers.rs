@@ -23,9 +23,10 @@ fn sends_exact_provider_scope_without_durable_receipts() {
         let module = host.sdk();
         module.validate().unwrap();
         let provider = sailry_protocol::ProviderId::new();
-        let error = fixture
-            .runtime
-            .block_on(
+        // Begin independent reads before polling any of them. A per-view
+        // request-count gate must not reject an otherwise valid fifth read.
+        let pending = (0..6)
+            .map(|_| {
                 module
                     .begin(
                         "requestProviderHttp",
@@ -33,11 +34,15 @@ fn sends_exact_provider_scope_without_durable_receipts() {
                             provider, "9007199254740993", "account", {"date":"2026-10-19"}
                         ])),
                     )
-                    .unwrap(),
-            )
-            .unwrap_err();
-        let fault: sailry_protocol::Fault = serde_json::from_str(&error.to_string()).unwrap();
-        assert_eq!(fault.code, sailry_protocol::ErrorCode::PermissionDenied);
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let results = fixture.runtime.block_on(futures::future::join_all(pending));
+        for result in results {
+            let error = result.unwrap_err();
+            let fault: sailry_protocol::Fault = serde_json::from_str(&error.to_string()).unwrap();
+            assert_eq!(fault.code, sailry_protocol::ErrorCode::PermissionDenied);
+        }
         let requests = fixture.transport.requests.lock().unwrap();
         let request = requests
             .iter()

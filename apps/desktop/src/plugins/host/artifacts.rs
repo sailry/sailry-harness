@@ -17,11 +17,7 @@ impl Host {
         HostError,
     > {
         self.check()?;
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
+
         let owner = self.clone();
         let request = self
             .client
@@ -34,7 +30,7 @@ impl Host {
         Ok(async move {
             let runtime = owner.runtime.clone();
             runtime.spawn(async move {
-                let _permit = permit;
+
                 let output = tokio::select! {
                     biased;
                     _ = owner.stop.cancelled() => return Err(HostError::new("plugin view is closed")),

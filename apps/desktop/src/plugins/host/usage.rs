@@ -102,12 +102,12 @@ impl Host {
             .async_function("readUsageInventory", move |args| {
                 inventory_host.check_usage()?;
                 let client = inventory_host.usage_client(&inventory_sources, args.get(0))?;
-                let permit = inventory_host.capacity.clone().try_acquire_owned().map_err(|_|HostError::new("plugin request capacity exhausted"))?;
+
                 let host = inventory_host.clone();
                 Ok(async move {
                     let runtime = host.runtime.clone();
                     runtime.spawn(async move {
-                        let _permit = permit;
+
                         tokio::select! {biased; _=host.stop.cancelled()=>Err(HostError::new("plugin view is closed")),result=async {
                         // Authenticate the package before exposing a narrow inventory projection.
                         let _ = client.read_usage(empty_query()).await.map_err(sdk::values::fault)?;
@@ -124,13 +124,13 @@ impl Host {
             .async_function("readUsageChoices", move |args| {
                 choices_host.check_usage()?;
                 let client = choices_host.usage_client(&choices_sources, args.get(1))?;
-                let permit = choices_host.capacity.clone().try_acquire_owned().map_err(|_|HostError::new("plugin request capacity exhausted"))?;
+
                 let query = query(sdk::values::decode(args.value(0)?)?)?;
                 let host = choices_host.clone();
                 Ok(async move {
                     let runtime=host.runtime.clone();
                     runtime.spawn(async move {
-                        let _permit = permit;
+
                         tokio::select! {biased; _=host.stop.cancelled()=>Err(HostError::new("plugin view is closed")),result=async {
                         let report=client.read_usage(query).await.map_err(sdk::values::fault)?;
                         sdk::values::encode(exact(serde_json::to_value(report).map_err(|error|HostError::new(error.to_string()))?))

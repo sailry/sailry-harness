@@ -264,11 +264,10 @@ impl Host {
                 if context.package.settings_revision != revision {
                     return Err(HostError::new("plugin configuration changed"));
                 }
-                let permit = load.capacity.clone().try_acquire_owned()
-                    .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
+
                 let owner = load.clone();
                 let job = load.runtime.spawn(async move {
-                    let _permit = permit;
+
                     tokio::select! {
                         biased;
                         _ = owner.stop.cancelled() => Err(HostError::new("plugin view is closed")),

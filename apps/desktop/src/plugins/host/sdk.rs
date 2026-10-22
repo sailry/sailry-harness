@@ -292,11 +292,7 @@ impl Host {
     > {
         self.check()?;
         self.settings_readable()?;
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
+
         let owner = self.clone();
         let request = owner.client.prepare(command).with_plugin(owner.context());
         let cancellation = matches!(&request.command, Command::FetchWeb(_)).then(|| {
@@ -311,7 +307,6 @@ impl Host {
             let runtime = owner.runtime.clone();
             runtime
                 .spawn(async move {
-                    let _permit = permit;
                     let result = tokio::select! {
                         biased;
                         _ = owner.stop.cancelled() => {
@@ -352,11 +347,7 @@ impl Host {
             .get(&id)
             .cloned()
             .ok_or_else(|| HostError::new("plugin request draft is unavailable"))?;
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
+
         let owner = self.clone();
         let feedback = self
             .model_feedback(&request)
@@ -366,7 +357,6 @@ impl Host {
             let runtime = owner.runtime.clone();
             runtime
                 .spawn(async move {
-                    let _permit = permit;
                     let work = async {
                         let result = confirmed(&owner.client, request).await?;
                         if let Some(feedback) = feedback {

@@ -29,7 +29,6 @@ pub(super) struct Host {
     stop: CancellationToken,
     requests: Mutex<BTreeMap<RequestId, Request>>,
     settings: Mutex<settings::Settings>,
-    capacity: Arc<tokio::sync::Semaphore>,
     models: Mutex<model_assets::Services>,
     installations: sdk::installations::Subscription,
 }
@@ -75,7 +74,6 @@ impl Host {
             runtime,
             stop: CancellationToken::new(),
             requests: Mutex::new(BTreeMap::new()),
-            capacity: Arc::new(tokio::sync::Semaphore::new(4)),
             models: Default::default(),
             installations: Default::default(),
         })
@@ -127,13 +125,12 @@ impl Host {
                 let id: RequestId = arguments.string(0)?.parse().map_err(HostError::new)?;
                 let request = execute.requests.lock().map_err(lock_error)?
                     .get(&id).cloned().ok_or_else(|| HostError::new("plugin request draft is unavailable"))?;
-                let permit = execute.capacity.clone().try_acquire_owned()
-                    .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
+
                 let owner = execute.clone();
                 Ok(async move {
                     let runtime = owner.runtime.clone();
                     let task = runtime.spawn(async move {
-                        let _permit = permit;
+
                         let result = tokio::select! {
                             biased;
                             _ = owner.stop.cancelled() => return Err(HostError::new("plugin view is closed")),
@@ -160,13 +157,12 @@ impl Host {
                 let id: RequestId = arguments.string(0)?.parse().map_err(HostError::new)?;
                 let request = outcome.requests.lock().map_err(lock_error)?.get(&id).cloned()
                     .ok_or_else(|| HostError::new("plugin request draft is unavailable"))?;
-                let permit = outcome.capacity.clone().try_acquire_owned()
-                    .map_err(|_| HostError::new("plugin request capacity exhausted"))?;
+
                 let owner = outcome.clone();
                 Ok(async move {
                     let runtime = owner.runtime.clone();
                     runtime.spawn(async move {
-                        let _permit = permit;
+
                         let result = tokio::select! {
                             biased;
                             _ = owner.stop.cancelled() => return Err(HostError::new("plugin view is closed")),
