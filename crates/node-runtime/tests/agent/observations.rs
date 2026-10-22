@@ -17,8 +17,6 @@ async fn statistics(client: &Client, session: SessionId) -> Statistics {
 async fn finalizes_terminal_and_cancelled_streams() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("project");
-        std::fs::create_dir(&root).unwrap();
         let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
@@ -37,6 +35,12 @@ async fn finalizes_terminal_and_cancelled_streams() {
             node.local()
         });
         for cancel in [false, true] {
+            let root = directory.path().join(if cancel {
+                "cancelled-project"
+            } else {
+                "completed-project"
+            });
+            std::fs::create_dir(&root).unwrap();
             let server = Server::start(cancel).await;
             let (session, _) = configured_session(&client, &server.endpoint, &root).await;
             let Output::QueuedTurn(turn) = client
