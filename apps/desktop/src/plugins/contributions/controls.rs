@@ -99,9 +99,6 @@ impl Registry {
     pub(crate) fn control(&self, entry: Entry, form: Form, cx: &mut Context<Self>) -> AnyElement {
         let key = entry.key.clone();
         let selector = format!("plugin-control-{}-{}", key.package.name, key.id);
-        if entry.declaration.kind == Kind::Indicator {
-            return self.indicator(entry, cx);
-        }
         if entry.retry {
             return h_flex()
                 .gap_1()
@@ -131,6 +128,9 @@ impl Registry {
                     ),
                 )
                 .into_any_element();
+        }
+        if entry.declaration.kind == Kind::Indicator {
+            return self.indicator(entry, cx);
         }
         let enabled = entry.state.enabled;
         let selected = entry.state.value.as_bool().unwrap_or(false);

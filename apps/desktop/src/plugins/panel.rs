@@ -369,9 +369,7 @@ impl Panel {
                     .as_ref()
                     .is_some_and(|mounted| !mounted.active()))
         {
-            if self.mounted.is_some() || self.initialization.loading() {
-                self.initialization = Initialization::Invalidated;
-            }
+            self.initialization.invalidate();
             if self
                 .mounted
                 .as_ref()
@@ -624,9 +622,7 @@ impl Panel {
         self.connected = false;
         self.load_stop.cancel();
         self.load = None;
-        if self.mounted.is_some() || self.initialization.loading() {
-            self.initialization = Initialization::Invalidated;
-        }
+        self.initialization.invalidate();
         if let Some(mounted) = &self.mounted {
             mounted.close();
         }

@@ -17,6 +17,12 @@ impl Initialization {
     pub(in crate::plugins) fn loading(self) -> bool {
         self == Self::Loading
     }
+
+    pub(super) fn invalidate(&mut self) {
+        if *self != Self::Unloaded {
+            *self = Self::Invalidated;
+        }
+    }
 }
 
 /// One report per unresolved failure; retries keep their original failure cycle.
@@ -51,7 +57,7 @@ impl Failures {
 
 #[cfg(test)]
 mod tests {
-    use super::Failures;
+    use super::{Failures, Initialization};
     use sailry_protocol::{ErrorCode, plugin::Reference};
 
     #[test]
@@ -73,5 +79,22 @@ mod tests {
             ..package
         };
         assert!(failures.record(&updated, ErrorCode::Internal, "view_initialize"));
+    }
+
+    #[test]
+    fn disconnected_failures_can_restore() {
+        for mut state in [
+            Initialization::Loading,
+            Initialization::Published,
+            Initialization::Failed,
+        ] {
+            state.invalidate();
+            assert_eq!(state, Initialization::Invalidated);
+            assert!(!state.loading());
+            assert!(!state.failed());
+        }
+        let mut state = Initialization::Unloaded;
+        state.invalidate();
+        assert_eq!(state, Initialization::Unloaded);
     }
 }

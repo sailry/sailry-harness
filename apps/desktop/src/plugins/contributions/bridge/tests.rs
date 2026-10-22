@@ -450,7 +450,21 @@ fn hides_unpublished_controls() {
     let bridge = picker();
     let declaration = &bridge.declarations[0];
     assert!(bridge.presentation(declaration, false, false).is_none());
-    assert!(bridge.presentation(declaration, false, true).is_none());
+    let failed = bridge.presentation(declaration, false, true).unwrap();
+    assert!(failed.visible);
+    assert!(!failed.enabled);
+    assert!(!failed.loading);
+    bridge.restart();
+    assert!(bridge.presentation(declaration, false, false).is_none());
+    bridge
+        .publish(vec![state(json!({"id":"resource"}))])
+        .unwrap();
+    assert!(
+        bridge
+            .presentation(declaration, true, false)
+            .unwrap()
+            .enabled
+    );
     bridge
         .publish(vec![state(json!({"id":"resource", "visible":false}))])
         .unwrap();

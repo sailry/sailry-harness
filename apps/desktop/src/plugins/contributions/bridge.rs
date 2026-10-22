@@ -73,7 +73,7 @@ impl Bridge {
             .is_ok_and(|current| current.published.contains(id))
     }
 
-    /// Only indicators have an empty presentation; explicit plugin visibility wins.
+    /// Empty controls stay hidden until a real failure; explicit visibility wins.
     pub(super) fn presentation(
         &self,
         declaration: &Contribution,
@@ -83,7 +83,7 @@ impl Bridge {
         let current = self.current.lock().ok()?;
         let mut state = self.state(&declaration.id)?;
         if !current.retained.contains(&declaration.id) {
-            state.visible = declaration.kind == ui::Kind::Indicator;
+            state.visible = failed || declaration.kind == ui::Kind::Indicator;
             state.enabled = false;
         }
         if !current.published.contains(&declaration.id) {
