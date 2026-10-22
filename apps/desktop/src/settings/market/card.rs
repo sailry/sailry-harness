@@ -116,31 +116,3 @@ pub(super) fn action(id: String, installed: bool, update: bool, cx: &App) -> But
         .accessibility_label(tr(key))
         .disabled(installed && !update)
 }
-
-pub(super) fn skeleton(cx: &App) -> AnyElement {
-    div()
-        .grid()
-        .grid_cols(2)
-        .gap_3()
-        .w_full()
-        .children((0usize..6).map(|index| {
-            h_flex()
-                .id(("market-skeleton", index))
-                .h(px(76.))
-                .px_4()
-                .gap_3()
-                .items_center()
-                .border_1()
-                .border_color(cx.theme().border)
-                .rounded(cx.theme().radius_lg)
-                .child(Skeleton::new().size_10().rounded(cx.theme().radius_lg))
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .gap_2()
-                        .child(Skeleton::new().w_1_2().h_4().rounded(cx.theme().radius))
-                        .child(Skeleton::new().w_full().h_3().rounded(cx.theme().radius)),
-                )
-        }))
-        .into_any_element()
-}

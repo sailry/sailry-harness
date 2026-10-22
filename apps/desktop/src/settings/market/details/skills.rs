@@ -387,13 +387,6 @@ impl Render for Details {
                 choices,
                 cx,
             ));
-        } else if self.loading {
-            content = content.child(
-                Skeleton::new()
-                    .h_24()
-                    .w_full()
-                    .rounded(cx.theme().radius_lg),
-            );
         }
         super::panel(
             summary,

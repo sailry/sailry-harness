@@ -141,7 +141,7 @@ impl Market {
     pub(super) fn skill_cards(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some(page) = &self.skills else {
             return if self.pending.is_some() {
-                card::skeleton(cx)
+                div().into_any_element()
             } else {
                 self.empty(cx)
             };

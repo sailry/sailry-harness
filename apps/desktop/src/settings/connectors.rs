@@ -11,7 +11,6 @@ use gpui_kit::{
         button::{Button, ButtonVariants as _},
         input::{Input, InputState},
         select::{Select, SelectEvent, SelectState},
-        skeleton::Skeleton,
         spinner::Spinner,
         switch::Switch,
         tag::Tag,
@@ -243,9 +242,6 @@ impl Workspace {
             .child(toolbar)
             .when(disabled, |element| {
                 element.child(Tag::new().child(tr("connector_preview")))
-            })
-            .when(self.connectors.loading, |element| {
-                element.child(Skeleton::new().h_12().w_full())
             })
             .child(content)
             .into_any_element()

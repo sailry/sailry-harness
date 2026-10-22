@@ -2,7 +2,6 @@ use super::*;
 use gpui_kit::component::{
     badge::Badge,
     menu::{DropdownMenu, PopupMenuItem},
-    skeleton::Skeleton,
     tab::{Tab as KitTab, TabBar},
 };
 use sailry_protocol::plugin::Origin;
@@ -374,16 +373,7 @@ impl Render for Details {
                 .on_click(cx.listener(|details, _, _, cx| details.load(cx)))
                 .into_any_element()
         } else {
-            v_flex()
-                .w_full()
-                .gap_3()
-                .children((0..3).map(|_| {
-                    Skeleton::new()
-                        .h_10()
-                        .w_full()
-                        .rounded(cx.theme().radius_lg)
-                }))
-                .into_any_element()
+            div().into_any_element()
         };
         crate::settings::market::details::panel(
             header(self, cx),

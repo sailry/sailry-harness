@@ -221,13 +221,6 @@ impl Render for Details {
                 crate::feedback::retry("theme-details-retry")
                     .on_click(cx.listener(|state, _, _, cx| state.load(cx))),
             );
-        } else if self.loading {
-            content = content.child(
-                Skeleton::new()
-                    .w_full()
-                    .h_48()
-                    .rounded(cx.theme().radius_lg),
-            );
         }
         let mut information = vec![
             rows::row(

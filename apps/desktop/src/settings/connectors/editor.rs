@@ -411,9 +411,6 @@ impl Editor {
             match auth {
                 Auth::LocalCli { .. } => v_flex()
                     .gap_3()
-                    .when(self.inspecting, |element| {
-                        element.child(Skeleton::new().h_12().w_full())
-                    })
                     .when(!self.inspecting, |element| {
                         element.child(
                             h_flex()
