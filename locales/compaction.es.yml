@@ -27,3 +27,4 @@ compact_suggest_auth: "Comprueba la cuenta del modelo o la clave API antes de re
 compact_task_completed: "La tarea se completó posteriormente"
 compact_stage_unknown: "Etapa · No registrada"
 compact_reason_unknown: "No se registraron más detalles sobre este fallo"
+compact_reason_truncated: "El resumen alcanzó su límite de salida"

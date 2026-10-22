@@ -1,5 +1,6 @@
 use super::*;
 
+mod compaction;
 pub(in crate::store) mod report;
 
 // Expressions match the covering index; summaries do not materialize message bodies.
@@ -34,6 +35,10 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
     } else {
         None
     };
+    let context_model = observation.as_ref().and_then(|value| value.model.clone());
+    let context_timestamp_ms = observation.as_ref().and_then(|value| value.timestamp_ms);
+    let budget = compaction::budget(db, session)?;
+    let last_compaction = compaction::latest(db, session)?;
     let first_token_us = observation.as_ref().and_then(|value| value.first_token_us);
     db.query_row(TOTALS, [session.to_string()], |row| {
         let responses = row.get::<_, i64>(0)? as u64;
@@ -54,6 +59,10 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
             context_tokens,
             context_estimate,
             context_limit,
+            context_model: context_model.clone(),
+            context_timestamp_ms,
+            budget: budget.clone(),
+            last_compaction: last_compaction.clone(),
             first_token_us,
             cost: metrics.cost.clone(),
             generation: metrics.generation.clone(),
@@ -83,6 +92,8 @@ struct Observation {
     sequence: i64,
     tokens: Option<u64>,
     context_limit: Option<u32>,
+    model: Option<String>,
+    timestamp_ms: Option<i64>,
     first_token_us: Option<u64>,
 }
 
@@ -135,6 +146,25 @@ pub(super) fn context_usage(
 }
 
 fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation>, Fault> {
+    let latest = read_observation(db, session, false)?;
+    if latest
+        .as_ref()
+        .is_some_and(|value| value.tokens.is_none() && !value.summary)
+        && let Some(reset) = read_observation(db, session, true)?
+        && reset.summary
+    {
+        // An unmetered response cannot replace a post-compaction estimate with
+        // a real observation. Keep estimating the growing canonical window.
+        return Ok(Some(reset));
+    }
+    Ok(latest)
+}
+
+fn read_observation(
+    db: &Connection,
+    session: SessionId,
+    measured: bool,
+) -> Result<Option<Observation>, Fault> {
     // Read the last model observation in canonical order. A summary invalidates
     // the old window measurement; its own prompt is not the resumed context.
     db.query_row(
@@ -151,7 +181,8 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation
          THEN json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') END,
          (SELECT json_extract(model.value,'$.context') FROM json_each(r.provider,'$.models') model
           WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
-         coalesce(json_type(e.body,'$.actions.compaction')='object',0)
+         coalesce(json_type(e.body,'$.actions.compaction')='object',0),
+         json_extract(revision.config,'$.model'),json_extract(e.body,'$.timestamp')
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn
          LEFT JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
@@ -159,8 +190,11 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation
            AND (json_extract(e.body,'$.content.role')='model'
            OR json_type(e.body,'$.usage_metadata')='object'
            OR json_type(e.body,'$.actions.compaction')='object')
+           AND (?2=0 OR json_type(e.body,'$.actions.compaction')='object'
+             OR (json_extract(e.body,'$.usage_metadata.prompt_token_count')>=0
+                 AND json_extract(e.body,'$.usage_metadata.candidates_token_count')>=0))
          ORDER BY h.sequence DESC LIMIT 1",
-        [session.to_string()],
+        params![session.to_string(), measured],
         |row| {
             let tokens = row.get::<_, Option<i64>>(1)?.map(|value| value as u64);
             Ok(Observation {
@@ -168,6 +202,11 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation
                 sequence: row.get(0)?,
                 context_limit: if tokens.is_some() || row.get::<_, bool>(4)? {
                     row.get::<_, Option<u32>>(3)?.filter(|limit| *limit > 0)
+                } else { None },
+                model: if tokens.is_some() || row.get::<_, bool>(4)? { row.get(5)? } else { None },
+                timestamp_ms: if tokens.is_some() || row.get::<_, bool>(4)? {
+                    row.get::<_, Option<String>>(6)?.and_then(|value| chrono::DateTime::parse_from_rfc3339(&value).ok())
+                        .map(|value| value.timestamp_millis())
                 } else { None },
                 tokens,
                 first_token_us: row.get::<_, Option<i64>>(2)?.map(|value| value as u64),

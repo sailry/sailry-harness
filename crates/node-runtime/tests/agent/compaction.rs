@@ -331,3 +331,9 @@ async fn failure_preserves_context() {
         fixture.controller.close().await.unwrap();
     }
 }
+
+#[path = "compaction/recovery.rs"]
+mod recovery;
+
+#[path = "compaction/statistics.rs"]
+mod statistics;

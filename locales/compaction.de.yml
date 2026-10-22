@@ -27,3 +27,4 @@ compact_suggest_auth: "Modellkonto oder API-Schlüssel prüfen und erneut versuc
 compact_task_completed: "Die Aufgabe wurde anschließend abgeschlossen"
 compact_stage_unknown: "Phase · Nicht aufgezeichnet"
 compact_reason_unknown: "Für diesen Fehler wurden keine weiteren Details aufgezeichnet"
+compact_reason_truncated: "Die Zusammenfassung hat ihr Ausgabelimit erreicht"

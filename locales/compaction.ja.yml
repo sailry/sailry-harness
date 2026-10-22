@@ -27,3 +27,4 @@ compact_suggest_auth: "モデルのアカウントまたは API キーを確認�
 compact_task_completed: "その後、タスクは完了しました"
 compact_stage_unknown: "段階 · 記録なし"
 compact_reason_unknown: "この失敗の詳細は記録されていません"
+compact_reason_truncated: "要約が出力上限に達しました"

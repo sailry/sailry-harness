@@ -2,6 +2,7 @@ use super::*;
 use adk_core::{LlmResponse, LlmResponseStream, UsageMetadata};
 use std::sync::Mutex;
 
+mod responses;
 mod timing;
 
 const DIAGNOSTIC: &str = "OpenAI Responses API error: 429 Too Many Requests rate_limit_error: Summary request was rejected (code: rate_limit_exceeded)";
@@ -109,9 +110,27 @@ mod budget {
     }
 
     #[test]
+    fn shares_effective_policy_with_statistics() {
+        for (context, output) in [(4096, 2048), (16_000, 2048), (200_000, 64_000)] {
+            let (mut summarizer, _) = summarizer(vec![], false);
+            summarizer.context = Some(u64::from(context));
+            summarizer.output = Some(output as i32);
+            summarizer.budget = super::super::budget(context, output);
+            let policy = policy::resolve(summarizer.model.name(), context, output).unwrap();
+            assert_eq!(summarizer.policy(), Some(policy.clone()));
+            assert_eq!(
+                summarizer.summary_output(),
+                u64::from(policy.summary_output)
+            );
+            assert_eq!(summarizer.budget, Some(policy.trigger_tokens));
+        }
+    }
+
+    #[test]
     fn retains_known_capacity_without_reserve() {
-        for output in [0, 16_000, 32_000] {
-            assert_eq!(super::super::budget(16_000, output), Some(12_800));
+        assert_eq!(super::super::budget(16_000, 0), Some(12_800));
+        for output in [16_000, 32_000] {
+            assert_eq!(super::super::budget(16_000, output), Some(1));
         }
     }
 
@@ -256,12 +275,8 @@ async fn rejects_invalid_summaries() {
         let fault = model::error(error);
         assert!(!fault.message.contains("private"));
         if rejected {
-            assert!(fault.message.contains(DIAGNOSTIC));
-            assert!(
-                fault
-                    .message
-                    .contains("model.openai_responses.rate_limited")
-            );
+            assert!(!fault.message.contains(DIAGNOSTIC));
+            assert!(fault.message.contains("rate_limited"));
             assert!(fault.message.contains("HTTP 429"));
         }
         assert_eq!(model.requests.lock().unwrap().len(), 1);
@@ -294,15 +309,18 @@ fn retains_safe_request_diagnostics() {
         "body".into(),
         json!("private provider response and credential"),
     );
-    let fault = model::error(request_error(error));
-    assert!(fault.message.contains("context summary request failed"));
-    assert!(
-        fault
-            .message
-            .contains("model.openai_responses.rate_limited")
+    let error = request_error(error);
+    assert_eq!(
+        failure::classify(&error),
+        (
+            sailry_protocol::conversation::compaction::Stage::Request,
+            sailry_protocol::conversation::compaction::Reason::RateLimited
+        )
     );
+    let fault = model::error(error);
+    assert!(fault.message.contains("context summary request failed"));
     assert!(fault.message.contains("HTTP 429"));
-    assert!(fault.message.contains(DIAGNOSTIC));
+    assert!(!fault.message.contains(DIAGNOSTIC));
     assert!(!fault.message.contains("private"));
 }
 
@@ -584,10 +602,10 @@ async fn preserves_large_covered_input_within_capacity() {
         .to_owned();
     assert!(content.ends_with(&text));
     assert!(content.len() <= summarizer.size_limit());
-    assert_eq!(summarizer.size_limit(), 25_600);
-    summarizer.budget = Some(4096);
+    assert_eq!(summarizer.size_limit(), 32_000);
+    summarizer.context = Some(4096);
     assert_eq!(summarizer.size_limit(), 8192);
-    summarizer.budget = None;
+    summarizer.context = None;
     assert_eq!(summarizer.size_limit(), 16 * 1024);
 }
 
@@ -703,18 +721,12 @@ fn rejects_unfittable_candidate_without_failing_search() {
 }
 
 #[tokio::test]
-async fn accepts_completed_stream_without_finish_reason() {
-    let mut response = complete("Completed summary");
+async fn rejects_stream_without_completion_marker() {
+    let mut response = complete("Incomplete summary");
     response.finish_reason = None;
     response.turn_complete = false;
     let (summarizer, _) = summarizer(vec![response], false);
-    assert!(
-        summarizer
-            .summarize_events(&history())
-            .await
-            .unwrap()
-            .is_some()
-    );
+    assert!(summarizer.summarize_events(&history()).await.is_err());
 }
 
 #[test]

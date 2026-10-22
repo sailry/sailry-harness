@@ -205,6 +205,9 @@ fn freezes_observed_model_limits() {
         (retained.context_tokens, retained.context_limit),
         (Some(120), Some(1_000))
     );
+    assert_eq!(retained.context_model.as_deref(), Some("fixture"));
+    assert_eq!(retained.context_timestamp_ms, observed.context_timestamp_ms);
+    assert_eq!(retained.budget.as_ref().unwrap().context_limit, 2_000);
     let turn = fixture.append([event(200, 30)]);
     let latest = read(&fixture.database.connection, fixture.session).unwrap();
     assert_eq!(
@@ -274,10 +277,16 @@ fn estimates_only_after_summary_reset() {
     let mut unknown = event(10, 2);
     unknown.llm_response.usage_metadata = None;
     fixture.append([unknown]);
+    let pending = context_usage(&fixture.database.connection, fixture.session)
+        .unwrap()
+        .unwrap();
+    assert!(!pending.observed);
     assert!(
-        context_usage(&fixture.database.connection, fixture.session)
+        read(&fixture.database.connection, fixture.session)
             .unwrap()
-            .is_none()
+            .context_estimate
+            .unwrap()
+            > totals.context_estimate.unwrap()
     );
     fixture.append([event(40, 8)]);
     assert_eq!(

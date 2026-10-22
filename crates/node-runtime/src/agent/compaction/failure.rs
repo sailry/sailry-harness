@@ -19,6 +19,8 @@ pub(super) fn classify(error: &adk_core::AdkError) -> (Stage, Reason) {
         );
     }
     match error.message.as_str() {
+        "context summary was truncated" => (Stage::Summary, Reason::TruncatedSummary),
+        "context summary could not be saved" => (Stage::Persistence, Reason::PersistenceFailed),
         "context summary is empty" => (Stage::Summary, Reason::EmptySummary),
         "model context does not match the persisted summary"
         | "persisted context summary is missing" => (Stage::History, Reason::HistoryMismatch),
@@ -29,10 +31,13 @@ pub(super) fn classify(error: &adk_core::AdkError) -> (Stage, Reason) {
         "context summary returned non-text output" => (Stage::Summary, Reason::UnexpectedOutput),
         "context summary exceeds the size limit" => (Stage::Summary, Reason::SummaryTooLarge),
         "context summary did not reduce the conversation" => (Stage::Summary, Reason::NoReduction),
+        "context exceeds the model limit and no summary was applied" => {
+            (Stage::Budget, Reason::NoFittingPrefix)
+        }
         message if message.contains("budget") || message.contains("no complete prefix") => {
             (Stage::Budget, Reason::NoFittingPrefix)
         }
-        _ => (Stage::Persistence, Reason::PersistenceFailed),
+        _ => (Stage::Unknown, Reason::Unknown),
     }
 }
 
@@ -71,6 +76,31 @@ pub(super) async fn record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distinguishes_unknown_save_and_truncation() {
+        assert_eq!(
+            classify(&invalid("unrecognized internal failure")),
+            (Stage::Unknown, Reason::Unknown)
+        );
+        assert_eq!(
+            classify(&save_error(adk_core::AdkError::session(
+                "private storage path"
+            ))),
+            (Stage::Persistence, Reason::PersistenceFailed)
+        );
+        assert_eq!(
+            classify(&invalid("context summary was truncated")),
+            (Stage::Summary, Reason::TruncatedSummary)
+        );
+        assert!(
+            !model::error(save_error(adk_core::AdkError::session(
+                "private storage path"
+            )))
+            .message
+            .contains("private")
+        );
+    }
 
     #[test]
     fn limits_request_diagnostics_to_safe_classifications() {

@@ -2,6 +2,7 @@ use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
 mod context;
+mod maintenance;
 
 fn event(input: i32, output: i32) -> AdkEvent {
     let mut event = AdkEvent::new("statistics-fixture");
@@ -357,5 +358,8 @@ fn reads_indexed_totals() {
     assert_eq!(totals.usage.as_ref().unwrap().input, 80);
     let mut own = serde_json::to_value(&totals).unwrap();
     own.as_object_mut().unwrap().remove("delegated");
-    assert!(serde_json::to_vec(&own).unwrap().len() < 256);
+    // Observation provenance and policy add fixed metadata, never conversation bodies.
+    let encoded = serde_json::to_string(&own).unwrap();
+    assert!(encoded.len() < 1024);
+    assert!(!encoded.contains(&"x".repeat(100)));
 }

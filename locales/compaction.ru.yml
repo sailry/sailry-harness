@@ -27,3 +27,4 @@ compact_suggest_auth: "Проверьте аккаунт модели или к�
 compact_task_completed: "Впоследствии задача была завершена"
 compact_stage_unknown: "Этап · Не записан"
 compact_reason_unknown: "Подробности этого сбоя не были записаны"
+compact_reason_truncated: "Сводка достигла лимита вывода"

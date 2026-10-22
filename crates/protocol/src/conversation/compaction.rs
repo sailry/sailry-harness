@@ -32,6 +32,7 @@ pub enum Reason {
     ServiceRejected,
     EmptySummary,
     IncompleteResponse,
+    TruncatedSummary,
     UnexpectedOutput,
     SummaryTooLarge,
     NoReduction,
@@ -59,4 +60,34 @@ impl Failure {
             .then(|| serde_json::from_value(value["failure"].clone()).ok())
             .flatten()
     }
+}
+
+/// Effective execution policy for the current or captured next model invocation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Budget {
+    pub model: String,
+    pub context_limit: u32,
+    pub trigger_tokens: u64,
+    pub output_reserve: u32,
+    pub recent_tokens: u64,
+    pub summary_input: u64,
+    pub summary_output: u32,
+}
+
+/// A canonical maintenance reference, independent of controller history pagination.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Record {
+    pub id: String,
+    pub sequence: u64,
+    pub turn: crate::TurnId,
+    pub turn_sequence: u64,
+    pub timestamp_ms: i64,
+    pub outcome: Outcome,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    Succeeded,
+    Failed(Failure),
 }

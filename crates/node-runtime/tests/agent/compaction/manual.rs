@@ -228,6 +228,11 @@ async fn preserves_failed_context() {
         .await;
         let (request, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert!(
+            !serde_json::to_string(&page)
+                .unwrap()
+                .contains(agent_support::compaction::PRIVATE_SENTINEL)
+        );
         assert_eq!(&page.entries[..before.entries.len()], before.entries);
         let failure = page.entries.last().unwrap();
         assert_eq!(failure.turn, turn.id);
@@ -240,6 +245,11 @@ async fn preserves_failed_context() {
         assert_eq!(value["failure"]["reason"], "service_rejected");
         assert_eq!(value["failure"]["continued"], false);
         let snapshot = super::super::configuration::snapshot(&fixture.client).await;
+        assert!(
+            !serde_json::to_string(&snapshot.notifications)
+                .unwrap()
+                .contains(agent_support::compaction::PRIVATE_SENTINEL)
+        );
         let notices: Vec<_> = snapshot.notifications.iter().filter(|notice| {
             matches!(&notice.content.details, Some(sailry_protocol::notification::Details::Diagnostic(details)) if details.turn == turn.id)
         }).collect();
@@ -273,6 +283,7 @@ async fn preserves_failed_context() {
         assert!(messages(&current).contains("Keep original requirement"));
         assert!(messages(&current).contains("Keep evidence"));
         assert!(!messages(&current).contains("compaction_failure"));
+        assert!(!messages(&current).contains(agent_support::compaction::PRIVATE_SENTINEL));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

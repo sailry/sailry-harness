@@ -412,6 +412,17 @@ pub struct Statistics {
     /// Missing historical metadata remains unknown, never a current-provider fallback.
     #[serde(default)]
     pub context_limit: Option<u32>,
+    /// Model and time belonging to the observed or summary-reset window above.
+    #[serde(default)]
+    pub context_model: Option<String>,
+    #[serde(default)]
+    pub context_timestamp_ms: Option<i64>,
+    /// Current effective policy, separate from an older observation's model limit.
+    #[serde(default)]
+    pub budget: Option<compaction::Budget>,
+    /// Latest canonical maintenance record, regardless of history pagination.
+    #[serde(default)]
+    pub last_compaction: Option<compaction::Record>,
     /// Recorded first text latency of the latest visible normal model response.
     /// Includes retries within that logical invocation; absent when unrecorded.
     #[serde(default)]

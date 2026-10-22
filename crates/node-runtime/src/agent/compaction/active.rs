@@ -177,12 +177,13 @@ impl Context {
         history: &History,
         request: &LlmRequest,
         keep: usize,
+        invocation: &str,
     ) -> adk_core::Result<Option<usize>> {
         self.summarizer.prefix(
             &history.events,
-            self.candidates(history, keep)
-                .into_iter()
-                .filter(|cut| tail(request, &history.events[*cut..], &self.preamble).is_some()),
+            self.candidates(history, keep).into_iter().filter(|cut| {
+                tail(request, &history.events[*cut..], &self.preamble, invocation).is_some()
+            }),
         )
     }
 
@@ -192,8 +193,9 @@ impl Context {
         history: &[Event],
         summary: &Event,
         offset: usize,
+        invocation: &str,
     ) -> adk_core::Result<()> {
-        let index = tail(request, history, &self.preamble)
+        let index = tail(request, history, &self.preamble, invocation)
             .ok_or_else(|| invalid("model context does not match the persisted summary"))?;
         let content = summary
             .actions
@@ -220,10 +222,10 @@ impl Context {
 
     pub(super) async fn before(
         &self,
-        _invocation: &str,
+        invocation: &str,
         request: LlmRequest,
     ) -> adk_core::Result<BeforeModelResult> {
-        let result = self.before_inner(request).await;
+        let result = self.before_inner(invocation, request).await;
         if let Err(error) = &result
             && !self.summarizer.stop.is_cancelled()
         {
@@ -241,7 +243,11 @@ impl Context {
         result
     }
 
-    async fn before_inner(&self, mut request: LlmRequest) -> adk_core::Result<BeforeModelResult> {
+    async fn before_inner(
+        &self,
+        invocation: &str,
+        mut request: LlmRequest,
+    ) -> adk_core::Result<BeforeModelResult> {
         if self.summarizer.stop.is_cancelled() {
             return Err(invalid("context compaction was cancelled"));
         }
@@ -267,7 +273,7 @@ impl Context {
                         .contains_key(crate::store::agent::compaction::END_EVENT)
                 })
                 .ok_or_else(|| invalid("persisted context summary is missing"))?;
-            self.saved(&mut request, &history.events[1..], summary, 0)?;
+            self.saved(&mut request, &history.events[1..], summary, 0, invocation)?;
             offset = self
                 .checkpoint
                 .lock()
@@ -301,12 +307,18 @@ impl Context {
         self.manual_applied.store(false, Ordering::Relaxed);
         let history = self.history().await?;
         let keep = self.retention.load(Ordering::Relaxed);
-        let Some(cut) = self.cut(&history, &request, keep)? else {
+        let Some(cut) = self.cut(&history, &request, keep, invocation)? else {
             let candidates = self.candidates(&history, keep);
             let mismatch = !candidates.is_empty()
-                && !candidates
-                    .iter()
-                    .any(|cut| tail(&request, &history.events[*cut..], &self.preamble).is_some());
+                && !candidates.iter().any(|cut| {
+                    tail(
+                        &request,
+                        &history.events[*cut..],
+                        &self.preamble,
+                        invocation,
+                    )
+                    .is_some()
+                });
             if full && mismatch {
                 return Err(invalid(
                     "model context does not match the persisted summary",
@@ -368,56 +380,61 @@ impl Context {
             }
             return Ok(BeforeModelResult::Continue(request));
         };
-        let mut failure = None;
-        for attempt in 0..if full { 2 } else { 1 } {
-            let result = if !full && attempt == 0 {
-                self.summarize(&history.events[..cut], true, history.frontier.as_deref())
+        // The helper model owns bounded transient retries. Never repeat a
+        // completed invalid summary or a failed save through another loop.
+        let result = self
+            .summarize(&history.events[..cut], true, history.frontier.as_deref())
+            .await;
+        let result = match result {
+            Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
+                // Validate the resulting window before committing its boundary.
+                let index = tail(&request, &history.events[cut..], &self.preamble, invocation)
+                    .ok_or_else(|| invalid("model context does not match the persisted summary"))?;
+                let mut projected = request.clone();
+                projected.contents.splice(
+                    1..index,
+                    [summary
+                        .actions
+                        .compaction
+                        .as_ref()
+                        .ok_or_else(|| invalid("persisted context summary is missing"))?
+                        .compacted_content
+                        .clone()],
+                );
+                if full
+                    && self.summarizer.context.is_some_and(|context| {
+                        estimate::request(&projected).is_ok_and(|tokens| tokens >= context)
+                    })
+                {
+                    return Err(invalid(
+                        "context remains over the estimated model budget after compaction",
+                    ));
+                }
+                match self
+                    .service
+                    .append_event(&self.session.to_string(), summary.clone())
                     .await
-            } else {
-                self.summarizer
-                    .summarize_with(&history.events[..cut], SummaryMode::Automatic)
-                    .await
-            };
-            let result = match result {
-                Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
-                    match self
-                        .service
-                        .append_event(&self.session.to_string(), summary.clone())
-                        .await
-                    {
-                        Ok(()) => {
-                            self.saved(&mut request, &history.events[cut..], &summary, offset)?;
-                            // A completed summary can still be too large with the retained input.
-                            // This remains an estimate, never a claim of provider-measured overflow.
-                            if full
-                                && self.summarizer.context.is_some_and(|context| {
-                                    estimate::request(&request)
-                                        .is_ok_and(|tokens| tokens >= context)
-                                })
-                            {
-                                return Err(invalid(
-                                    "context remains over the estimated model budget after compaction",
-                                ));
-                            }
-                            return Ok(BeforeModelResult::Continue(request));
-                        }
-                        Err(error) => {
-                            self.summarizer
-                                .failure(SummaryMode::Automatic, "persistence", &error);
-                            Err(error)
-                        }
+                {
+                    Ok(()) => {
+                        self.saved(
+                            &mut request,
+                            &history.events[cut..],
+                            &summary,
+                            offset,
+                            invocation,
+                        )?;
+                        return Ok(BeforeModelResult::Continue(request));
+                    }
+                    Err(error) => {
+                        self.summarizer
+                            .failure(SummaryMode::Automatic, "persistence", &error);
+                        Err(save_error(error))
                     }
                 }
-                other => other,
-            };
-            match result {
-                Err(error) => failure = Some(error),
-                Ok(_) => break,
             }
-            if self.summarizer.stop.is_cancelled() {
-                return Err(invalid("context compaction was cancelled"));
-            }
-        }
+            other => other,
+        };
+        let failure = result.err();
         if self.summarizer.stop.is_cancelled() {
             return Err(invalid("context compaction was cancelled"));
         }
@@ -512,7 +529,8 @@ impl Context {
                     Err(error) => {
                         self.summarizer
                             .failure(SummaryMode::Automatic, "persistence", &error);
-                        self.notice(&error, SummaryMode::Automatic, true).await?;
+                        self.notice(&save_error(error), SummaryMode::Automatic, true)
+                            .await?;
                     }
                 }
                 // The event is already persisted; do not ask Runner to append it twice.
@@ -572,8 +590,12 @@ mod tests {
         let preamble = Content::new("system").with_text("Instructions");
         let content = Content::new("model").with_text("Repeated response");
         let mut event = Event::new("invocation");
-        event.set_content(content.clone());
-        let augmented = content.clone().with_text("Provider continuation");
+        let mut augmented = content.clone();
+        augmented.parts.push(Part::Thinking {
+            thinking: "Retained reasoning".into(),
+            signature: Some("retained-signature".into()),
+        });
+        event.set_content(augmented.clone());
         let mut request = LlmRequest {
             model: "fixture".into(),
             contents: vec![
@@ -585,7 +607,7 @@ mod tests {
             tools: Default::default(),
             previous_response_id: None,
         };
-        let index = tail(&request, &[event.clone()], &preamble).unwrap();
+        let index = tail(&request, &[event.clone()], &preamble, "current").unwrap();
         assert_eq!(index, 2);
         request
             .contents
@@ -595,11 +617,12 @@ mod tests {
             tail(
                 &request,
                 &[event.clone()],
-                &Content::new("system").with_text("Changed instructions")
+                &Content::new("system").with_text("Changed instructions"),
+                "current",
             )
             .is_none()
         );
         request.contents[2].parts.reverse();
-        assert!(tail(&request, &[event], &preamble).is_none());
+        assert!(tail(&request, &[event], &preamble, "current").is_none());
     }
 }

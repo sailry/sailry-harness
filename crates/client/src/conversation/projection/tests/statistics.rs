@@ -18,6 +18,25 @@ fn recovers_totals_across_generations() {
         }),
         ..Default::default()
     };
+    snapshot.statistics.context_model = Some("observed-model".into());
+    snapshot.statistics.context_timestamp_ms = Some(1_000);
+    snapshot.statistics.budget = Some(conversation::compaction::Budget {
+        model: "selected-model".into(),
+        context_limit: 4096,
+        trigger_tokens: 2048,
+        output_reserve: 2048,
+        recent_tokens: 512,
+        summary_input: 3584,
+        summary_output: 512,
+    });
+    snapshot.statistics.last_compaction = Some(conversation::compaction::Record {
+        id: "summary-before-page".into(),
+        sequence: 1,
+        turn: TurnId::new(),
+        turn_sequence: 1,
+        timestamp_ms: 900,
+        outcome: conversation::compaction::Outcome::Succeeded,
+    });
     projection
         .apply(1, Update::ConversationSnapshot(snapshot.clone()))
         .unwrap();
@@ -26,6 +45,8 @@ fn recovers_totals_across_generations() {
     updated.context_tokens = Some(26);
     updated.context_limit = Some(2_048);
     updated.first_token_us = None;
+    updated.context_model = Some("selected-model".into());
+    updated.context_timestamp_ms = Some(2_000);
     updated.usage.as_mut().unwrap().input += 10;
     let event = frame(&snapshot, 11, Change::Statistics(updated.clone()));
     projection.apply(1, event.clone()).unwrap();
@@ -72,8 +93,40 @@ fn leaves_old_context_limits_unknown() {
     .unwrap();
     value.as_object_mut().unwrap().remove("context_limit");
     value.as_object_mut().unwrap().remove("context_estimate");
+    for field in [
+        "budget",
+        "context_model",
+        "context_timestamp_ms",
+        "last_compaction",
+    ] {
+        value.as_object_mut().unwrap().remove(field);
+    }
     let statistics: Statistics = serde_json::from_value(value).unwrap();
     assert_eq!(statistics.context_tokens, Some(100));
     assert_eq!(statistics.context_limit, None);
     assert_eq!(statistics.context_estimate, None);
+    assert_eq!(statistics.budget, None);
+    assert_eq!(statistics.context_model, None);
+    assert_eq!(statistics.context_timestamp_ms, None);
+    assert_eq!(statistics.last_compaction, None);
+}
+
+#[test]
+fn replaces_estimates_only_with_node_observation() {
+    let (mut projection, mut snapshot, _, _) = fixture();
+    snapshot.statistics.context_estimate = Some(300);
+    snapshot.statistics.context_limit = Some(1024);
+    snapshot.statistics.context_model = Some("summarized-model".into());
+    projection
+        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .unwrap();
+    let mut measured = snapshot.statistics.clone();
+    measured.context_estimate = None;
+    measured.context_tokens = Some(450);
+    measured.context_limit = Some(4096);
+    measured.context_model = Some("next-model".into());
+    let event = frame(&snapshot, 11, Change::Statistics(measured.clone()));
+    projection.apply(1, event.clone()).unwrap();
+    assert_eq!(projection.snapshot().unwrap().statistics, measured);
+    assert_eq!(projection.apply(1, event).unwrap(), Apply::Ignored);
 }

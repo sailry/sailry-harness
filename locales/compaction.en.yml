@@ -27,3 +27,4 @@ compact_suggest_auth: Check the model account or API key before retrying
 compact_task_completed: The task subsequently completed
 compact_stage_unknown: "Stage · Not recorded"
 compact_reason_unknown: "No further details were recorded for this failure"
+compact_reason_truncated: "The summary reached its output limit"

@@ -49,13 +49,21 @@ fn preamble_matches(request: &LlmRequest, preamble: &Content) -> bool {
     })
 }
 
-pub(super) fn tail(request: &LlmRequest, events: &[Event], preamble: &Content) -> Option<usize> {
+pub(super) fn tail(
+    request: &LlmRequest,
+    events: &[Event],
+    preamble: &Content,
+    invocation: &str,
+) -> Option<usize> {
     if !preamble_matches(request, preamble) {
         return None;
     }
     // Match the same projection LlmAgent passes to before_model, before the
     // provider boundary unwraps ownership. Never discard opaque reasoning.
-    let retained = events.iter().filter_map(project).collect::<Vec<_>>();
+    let retained = events
+        .iter()
+        .filter_map(|event| project(event, invocation))
+        .collect::<Vec<_>>();
     if retained.is_empty() {
         return None;
     }
@@ -63,12 +71,18 @@ pub(super) fn tail(request: &LlmRequest, events: &[Event], preamble: &Content) -
     (index > 0 && matches(&request.contents[index..], &retained)).then_some(index)
 }
 
-fn project(event: &Event) -> Option<Content> {
+fn project(event: &Event, invocation: &str) -> Option<Content> {
     let original = event.content()?;
-    let mut content = adk_core::history::with_provider_parts(
-        original,
-        event.llm_response.provider_metadata.as_ref(),
-    );
+    let metadata = event.llm_response.provider_metadata.as_ref();
+    // Runner requires ownership when replaying prior invocations; LlmAgent's
+    // current invocation appends provider parts before that replay boundary.
+    let mut content = if event.invocation_id == invocation
+        || adk_core::history::provider_origin(metadata).is_some()
+    {
+        adk_core::history::with_provider_parts(original, metadata)
+    } else {
+        original.clone()
+    };
     content.role = match (event.author.as_str(), original.role.as_str()) {
         ("user", _) => "user",
         (_, "function" | "tool") => original.role.as_str(),
@@ -94,7 +108,7 @@ fn same(actual: &Content, stored: &Content) -> bool {
     let mut stored = stored.clone();
     actual.strip_generated_call_ids();
     stored.strip_generated_call_ids();
-    actual.role == stored.role && actual.parts.starts_with(&stored.parts)
+    actual.role == stored.role && actual.parts == stored.parts
 }
 
 fn matches(actual: &[Content], stored: &[Content]) -> bool {
@@ -225,11 +239,11 @@ mod tests {
             vec![
                 preamble.clone(),
                 Content::new("user").with_text("Old prefix"),
-                second.clone().with_text("Provider suffix"),
+                second.clone(),
                 first.clone(),
             ],
         );
-        assert_eq!(tail(&request, &events, &preamble), Some(2));
+        assert_eq!(tail(&request, &events, &preamble, "current"), Some(2));
         let checkpoint = Checkpoint::new(
             &request,
             2,
@@ -242,10 +256,7 @@ mod tests {
         request.previous_response_id = Some("old-response".into());
         checkpoint.apply(&mut request, &preamble).unwrap();
         assert_eq!(request.contents[1].parts[0].text(), Some("Saved summary"));
-        assert_eq!(
-            request.contents[2].parts,
-            second.with_text("Provider suffix").parts
-        );
+        assert_eq!(request.contents[2].parts, second.parts);
         assert!(request.previous_response_id.is_none());
         assert_eq!(events[0].content().unwrap().parts, first.parts);
         let mut changed = result("read", "Changed payload");
@@ -253,7 +264,7 @@ mod tests {
             text: "Changed".into(),
         });
         request.contents[3] = changed;
-        assert!(tail(&request, &events, &preamble).is_none());
+        assert!(tail(&request, &events, &preamble, "current").is_none());
     }
 
     #[test]
@@ -328,13 +339,13 @@ mod tests {
             content
         }));
         let mut request = LlmRequest::new("fixture", contents);
-        assert_eq!(tail(&request, &events, &preamble), Some(2));
+        assert_eq!(tail(&request, &events, &preamble, "current"), Some(2));
         assert_eq!(
             serde_json::to_value(&events).unwrap(),
             serde_json::to_value(&canonical).unwrap()
         );
         request.contents[2].parts.remove(0);
-        assert_eq!(tail(&request, &events, &preamble), None);
+        assert_eq!(tail(&request, &events, &preamble, "current"), None);
     }
 
     #[test]
@@ -414,3 +425,6 @@ mod tests {
         assert_eq!(original.contents[2].parts[0].text(), Some("Latest task"));
     }
 }
+
+#[cfg(test)]
+mod origin;

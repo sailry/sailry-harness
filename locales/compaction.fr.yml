@@ -27,3 +27,4 @@ compact_suggest_auth: "Vérifiez le compte du modèle ou la clé API avant de r�
 compact_task_completed: "La tâche s’est ensuite terminée"
 compact_stage_unknown: "Étape · Non enregistrée"
 compact_reason_unknown: "Aucun détail supplémentaire n’a été enregistré pour cet échec"
+compact_reason_truncated: "Le résumé a atteint sa limite de sortie"

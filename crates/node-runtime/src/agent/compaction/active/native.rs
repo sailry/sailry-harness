@@ -81,7 +81,8 @@ impl Context {
         let id = summary.id.clone();
         self.service
             .append_event(&self.session.to_string(), summary)
-            .await?;
+            .await
+            .map_err(save_error)?;
         *self
             .checkpoint
             .lock()

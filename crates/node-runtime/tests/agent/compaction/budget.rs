@@ -504,7 +504,7 @@ async fn stops_overfull_context_on_summary_failure() {
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
         assert_eq!(summaries(&after), 0);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 2);
         assert!(!agent_support::compaction::is_summary(&requests[0]));
         assert!(
             requests[1..]
@@ -512,7 +512,7 @@ async fn stops_overfull_context_on_summary_failure() {
                 .all(agent_support::compaction::is_summary)
         );
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

@@ -54,9 +54,11 @@ enum Reply {
     Anthropic(anthropic::Reply),
     Compaction {
         failure_status: Option<u16>,
+        failure_count: usize,
         text: Arc<String>,
         usage: Arc<Vec<i32>>,
     },
+    TruncatedSummary,
     Summary {
         usage: i32,
         fail_summary: bool,
@@ -244,14 +246,28 @@ impl Server {
         assert!(!usage.is_empty());
         Self::serve(Reply::Compaction {
             failure_status: fail_summary.then_some(501),
+            failure_count: usize::MAX,
             text: Arc::new(text),
             usage: Arc::new(usage),
+        })
+        .await
+    }
+    pub async fn truncated_summary() -> Self {
+        Self::serve(Reply::TruncatedSummary).await
+    }
+    pub async fn recovering_summary() -> Self {
+        Self::serve(Reply::Compaction {
+            failure_status: Some(503),
+            failure_count: 1,
+            text: Arc::new("Verified tool evidence; continue remaining work".into()),
+            usage: Arc::new(vec![100]),
         })
         .await
     }
     pub async fn automatic_compaction(fail_summary: bool) -> Self {
         Self::serve(Reply::Compaction {
             failure_status: fail_summary.then_some(500),
+            failure_count: usize::MAX,
             text: Arc::new(
                 "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂"
                     .into(),
@@ -532,25 +548,32 @@ async fn respond(
     }
     if let Reply::Compaction {
         failure_status,
+        failure_count,
         text,
         usage,
     } = reply
     {
-        let index = {
+        let (index, summaries) = {
             let mut records = records.lock().unwrap();
             let index = records
                 .iter()
                 .filter(|request| !compaction::is_summary(request))
                 .count();
+            let summaries = records.len() - index;
             records.push(body.clone());
-            index
+            (index, summaries)
         };
+        let failure_status = failure_status.filter(|_| summaries < failure_count);
         let input_tokens = if compaction::is_summary(&body) {
             100
         } else {
             usage[index.min(usage.len() - 1)]
         };
         return compaction::respond_usage(stream, &body, failure_status, &text, input_tokens).await;
+    }
+    if let Reply::TruncatedSummary = reply {
+        records.lock().unwrap().push(body.clone());
+        return compaction::respond_truncated(stream, &body).await;
     }
     if let Reply::Summary {
         usage,

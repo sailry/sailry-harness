@@ -27,3 +27,4 @@ compact_suggest_auth: "모델 계정 또는 API 키를 확인한 후 다시 시�
 compact_task_completed: "이후 작업이 완료되었습니다"
 compact_stage_unknown: "단계 · 기록 없음"
 compact_reason_unknown: "이 오류의 자세한 원인은 기록되지 않았습니다"
+compact_reason_truncated: "요약이 출력 한도에 도달했습니다"

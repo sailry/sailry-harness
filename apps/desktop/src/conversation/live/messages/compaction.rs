@@ -130,6 +130,7 @@ impl View {
             Reason::ServiceRejected => ("compact_reason_rejected", "compact_suggest_retry"),
             Reason::EmptySummary => ("compact_reason_empty", "compact_suggest_retry"),
             Reason::RequestFailed => ("compact_reason_request", "compact_suggest_retry"),
+            Reason::TruncatedSummary => ("compact_reason_truncated", "compact_suggest_context"),
             Reason::IncompleteResponse => ("compact_reason_incomplete", "compact_suggest_retry"),
             Reason::UnexpectedOutput => ("compact_reason_output", "compact_suggest_retry"),
             Reason::SummaryTooLarge => ("compact_reason_size", "compact_suggest_context"),

@@ -1,5 +1,7 @@
 use super::*;
 
+pub const PRIVATE_SENTINEL: &str = "PRIVATE_SUMMARY_PROVIDER_BODY_SENTINEL";
+
 pub fn is_summary(body: &Value) -> bool {
     body["messages"].as_array().is_some_and(|messages| {
         messages.iter().any(|message| {
@@ -29,14 +31,10 @@ pub async fn respond_usage(
 ) -> std::io::Result<()> {
     let summary = is_summary(body);
     if summary && let Some(status) = failure_status {
-        stream
-            .write_all(
-                format!(
-                    "HTTP/1.1 {status} Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                )
-                .as_bytes(),
-            )
-            .await?;
+        let body =
+            json!({"error":{"message":PRIVATE_SENTINEL,"type":"server_error","code":"fixture"}})
+                .to_string();
+        stream.write_all(format!("HTTP/1.1 {status} Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
         return stream.shutdown().await;
     }
     let messages = body["messages"].as_array().unwrap();
@@ -198,12 +196,47 @@ async fn reply(stream: TcpStream, body: &Value, delta: Value, read: bool) -> std
     reply_usage(stream, body, delta, read, Some(100)).await
 }
 
+pub async fn respond_truncated(stream: TcpStream, body: &Value) -> std::io::Result<()> {
+    if is_summary(body) {
+        reply_finish(
+            stream,
+            body,
+            json!({"role":"assistant","content":"An unfinished handoff"}),
+            false,
+            Some(100),
+            "length",
+        )
+        .await
+    } else {
+        respond_usage(stream, body, None, "Unused", 100).await
+    }
+}
+
 async fn reply_usage(
+    stream: TcpStream,
+    body: &Value,
+    delta: Value,
+    read: bool,
+    input_tokens: Option<i32>,
+) -> std::io::Result<()> {
+    reply_finish(
+        stream,
+        body,
+        delta,
+        read,
+        input_tokens,
+        if read { "tool_calls" } else { "stop" },
+    )
+    .await
+}
+
+async fn reply_finish(
     mut stream: TcpStream,
     body: &Value,
     delta: Value,
     read: bool,
     input_tokens: Option<i32>,
+    finish: &str,
 ) -> std::io::Result<()> {
     stream
         .write_all(
@@ -220,7 +253,7 @@ async fn reply_usage(
     let usage = input_tokens.map(
         |input| json!({"prompt_tokens":input,"completion_tokens":10,"total_tokens":input + 10}),
     );
-    let end = json!({"id":"context-fixture","object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":{},"finish_reason":if read { "tool_calls" } else { "stop" }}],"usage":usage});
+    let end = json!({"id":"context-fixture","object":"chat.completion.chunk","created":1,"model":body["model"],"choices":[{"index":0,"delta":{},"finish_reason":finish}],"usage":usage});
     stream
         .write_all(format!("data: {chunk}\n\ndata: {end}\n\ndata: [DONE]\n\n").as_bytes())
         .await?;

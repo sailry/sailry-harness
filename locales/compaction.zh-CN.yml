@@ -27,3 +27,4 @@ compact_suggest_auth: 检查模型账号或 API 密钥后重试
 compact_task_completed: 任务随后已完成
 compact_stage_unknown: "阶段 · 未记录"
 compact_reason_unknown: "此次失败未记录具体原因"
+compact_reason_truncated: "摘要达到输出上限"

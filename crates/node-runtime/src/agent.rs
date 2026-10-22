@@ -5,6 +5,7 @@ pub(crate) mod attachments;
 mod catalog;
 mod compaction;
 pub(crate) use compaction::estimate::tokens as estimate_context;
+pub(crate) use compaction::policy::resolve as compaction_budget;
 pub(crate) mod completion;
 mod controls;
 mod delegation;

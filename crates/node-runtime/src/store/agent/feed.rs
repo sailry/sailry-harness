@@ -317,6 +317,23 @@ pub(in crate::store) fn package(database: &mut Database, name: &str) {
 }
 
 pub(in crate::store) fn command(database: &mut Database, output: &Output) {
+    if let Output::Session(session) = output {
+        statistics(database, session.id);
+    }
+    if matches!(output, Output::Provider(_)) {
+        let sessions = database
+            .feeds
+            .0
+            .lock()
+            .unwrap()
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        for session in sessions {
+            statistics(database, session);
+        }
+    }
+
     if let Output::ArtifactWritten { artifact, .. } = output {
         database.feeds.publish(
             database.node,
@@ -427,6 +444,18 @@ pub(in crate::store) fn run(database: &Database, current: Run) {
         Ok(current) => database
             .feeds
             .publish(database.node, session, Change::Run(current)),
+        Err(_) => database.feeds.reset(session),
+    }
+    statistics(database, session);
+}
+
+fn statistics(database: &Database, session: SessionId) {
+    match super::statistics::read(&database.connection, session) {
+        Ok(statistics) => {
+            database
+                .feeds
+                .publish(database.node, session, Change::Statistics(statistics))
+        }
         Err(_) => database.feeds.reset(session),
     }
 }
