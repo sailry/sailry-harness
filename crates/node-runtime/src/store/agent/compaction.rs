@@ -30,13 +30,16 @@ pub(super) fn validate(
             "context summary content is invalid",
         ));
     }
+    let visible = history::VISIBLE_EVENT;
+    let later_visible = visible.replace("e.body", "next.body");
     let valid: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+        &format!("SELECT EXISTS(SELECT 1 FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN turns t ON t.id=e.turn JOIN agent_runs r ON r.turn=t.id
          WHERE h.session=?1 AND e.id=?2 AND e.turn<>?3 AND json_extract(r.body,'$.status') NOT IN ('queued','running','stopping')
+         AND {visible}
          AND NOT EXISTS(SELECT 1 FROM conversation_events later JOIN agent_events next ON next.sequence=later.sequence
            WHERE later.session=h.session AND next.turn=e.turn AND later.sequence>h.sequence
-           AND json_type(next.body,'$.actions.compaction') IS NULL))",
+           AND json_type(next.body,'$.actions.compaction') IS NULL AND {later_visible}))"),
         params![session.to_string(), end, turn.to_string()], |row| row.get(0)
     ).map_err(storage_error)?;
     if !valid && !current_exchange(db, session, turn, end)? {
@@ -201,15 +204,18 @@ pub(super) fn history(
     )?
     .events()
     .all();
+    // Prompt events omit telemetry; their completed boundary must use the same
+    // projection rather than a later statistics-only canonical event.
+    let visible = history::VISIBLE_EVENT;
     let mut query = db
-        .prepare(
+        .prepare(&format!(
             "WITH ends AS (SELECT e.turn, max(e.sequence) AS last FROM conversation_events h
            JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1
-           AND json_type(e.body,'$.actions.compaction') IS NULL GROUP BY e.turn)
+           AND json_type(e.body,'$.actions.compaction') IS NULL AND {visible} GROUP BY e.turn)
          SELECT e.id, e.turn, json_extract(r.body,'$.status'), e.sequence=ends.last
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-         JOIN agent_runs r ON r.turn=e.turn JOIN ends ON ends.turn=e.turn WHERE h.session=?1",
-        )
+         JOIN agent_runs r ON r.turn=e.turn JOIN ends ON ends.turn=e.turn WHERE h.session=?1"
+        ))
         .map_err(|error| adk_error(storage_error(error)))?;
     let owners = query
         .query_map([session.to_string()], |row| {

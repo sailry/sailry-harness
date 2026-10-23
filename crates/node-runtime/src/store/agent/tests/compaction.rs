@@ -358,10 +358,18 @@ fn uses_real_turn_boundaries() {
         serde_json::json!({"attempt":1,"limit":5}).to_string(),
     );
     let final_event = event("Final canonical content");
-    let prior = fixture.append([original.clone(), retry, final_event.clone()]);
+    let mut telemetry = AdkEvent::new("timing-fixture");
+    telemetry.author = "system".into();
+    telemetry.provider_metadata.insert(
+        "sailry_execution_phases".into(),
+        serde_json::to_string(&sailry_protocol::conversation::observation::Phases::default())
+            .unwrap(),
+    );
+    let prior = fixture.append([original.clone(), retry, final_event.clone(), telemetry]);
     let current = fixture.queued();
     let history = context::history(&fixture.database.connection, fixture.session, current).unwrap();
     assert_eq!(history.completed, vec![3]);
+    assert_eq!(history.events.len(), 3);
     assert_eq!(history.current, 3);
     assert_eq!(history.recent, None);
     assert_eq!(history.frontier, Some(format!("turn:{prior}")));

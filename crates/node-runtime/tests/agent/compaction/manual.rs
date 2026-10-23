@@ -30,11 +30,16 @@ async fn skips_empty_and_small_context() {
         assert_eq!(page.runs[0].status, Status::Completed);
         assert!(page.entries.is_empty());
         assert!(server.requests.lock().unwrap().is_empty());
-        submit(&fixture.client, fixture.session.id, "Small".into()).await;
-        let (_, small) = compact(&fixture.client, fixture.session.id, 1).await;
-        let page = finished(&fixture.client, fixture.session.id, small.id).await;
-        assert!(page.runs.iter().all(|run| run.status == Status::Completed));
-        assert_eq!(summaries(&page), 0);
+        let (_, _, before) = submit(&fixture.client, fixture.session.id, "Small".into()).await;
+        // A completed response is followed by canonical observation/timing events.
+        // They must not replace its complete boundary or turn a no-op into failure.
+        for _ in 0..2 {
+            let (_, small) = compact(&fixture.client, fixture.session.id, 1).await;
+            let page = finished(&fixture.client, fixture.session.id, small.id).await;
+            assert!(page.runs.iter().all(|run| run.status == Status::Completed));
+            assert_eq!(page.entries, before.entries);
+            assert_eq!(summaries(&page), 0);
+        }
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
