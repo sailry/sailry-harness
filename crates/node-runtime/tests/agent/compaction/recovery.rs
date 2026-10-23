@@ -77,7 +77,7 @@ async fn retries_transient_summary_without_replaying_tools() {
 }
 
 #[tokio::test]
-async fn does_not_retry_invalid_overfull_summary() {
+async fn continues_after_empty_summary_without_retry() {
     for remote in [false, true] {
         let server =
             Server::compaction_sequence(false, String::new(), vec![100, 20_000, 100]).await;
@@ -113,7 +113,7 @@ async fn does_not_retry_invalid_overfull_summary() {
                 .find(|run| run.turn == turn.id)
                 .unwrap()
                 .status,
-            Status::Failed
+            Status::Completed
         );
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
         let requests = server.requests.lock().unwrap().clone();
@@ -129,8 +129,16 @@ async fn does_not_retry_invalid_overfull_summary() {
                 .iter()
                 .filter(|request| !agent_support::compaction::is_summary(request))
                 .count(),
-            2
+            3
         );
+        assert_eq!(requests.len(), 4);
+        assert!(agent_support::compaction::is_summary(&requests[2]));
+        assert!(!agent_support::compaction::is_summary(&requests[3]));
+        let continued = messages(&requests[3]);
+        assert!(continued.contains("Verified tool evidence"));
+        assert!(continued.contains("evidence-call"));
+        assert!(continued.contains("Continue with verified evidence"));
+        assert!(!continued.contains("compaction_failure"));
         assert!(
             !after
                 .entries
@@ -138,7 +146,19 @@ async fn does_not_retry_invalid_overfull_summary() {
                 .flat_map(|entry| &entry.parts)
                 .any(|part| matches!(part, Part::Compaction(_)))
         );
-        assert!(after.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Resource(value) if value["type"] == "compaction_failure" && value["failure"]["continued"] == false)));
+        assert!(
+            after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
+                && value["failure"]["source"] == "automatic"
+                && value["failure"]["stage"] == "summary"
+                && value["failure"]["reason"] == "empty_summary"
+                && value["failure"]["continued"] == true)
+                })
+        );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

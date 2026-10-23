@@ -478,7 +478,7 @@ async fn compacts_before_plain_followup() {
 }
 
 #[tokio::test]
-async fn stops_overfull_context_on_summary_failure() {
+async fn continues_overfull_context_on_summary_failure() {
     for remote in [false, true] {
         let server = Server::summary_failure(20_000).await;
         let fixture = Fixture::files(remote, &server).await;
@@ -500,31 +500,44 @@ async fn stops_overfull_context_on_summary_failure() {
         };
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
-        assert_eq!(run.status, Status::Failed, "{run:?}");
+        assert_eq!(run.status, Status::Completed, "{run:?}");
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
         assert_eq!(summaries(&after), 0);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 3);
         assert!(!agent_support::compaction::is_summary(&requests[0]));
+        assert!(agent_support::compaction::is_summary(&requests[1]));
+        assert!(!agent_support::compaction::is_summary(&requests[2]));
+        assert!(messages(&requests[2]).contains("Continue only after preparing context"));
         assert!(
-            requests[1..]
+            after
+                .entries
                 .iter()
-                .all(agent_support::compaction::is_summary)
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
+                && value["failure"]["stage"] == "request"
+                && value["failure"]["reason"] == "service_rejected"
+                && value["failure"]["continued"] == true)
+                })
         );
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 3);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
 }
 
 #[tokio::test]
-async fn continues_nonfull_unfittable_context() {
+async fn submits_context_beyond_local_estimates() {
     for remote in [false, true] {
-        let server = Server::summary(14_000).await;
+        let server = Server::summary(20_000).await;
         let fixture = Fixture::files(remote, &server).await;
         model(&fixture, 16_000, 2_048, false).await;
-        let original = "x".repeat(31 * 1024);
+        // Even the verbatim instruction alone exceeds the estimated context.
+        // Both the summary and the next real provider request still succeed.
+        let original = "x".repeat(70 * 1024);
+        assert!(original.len() > 16_000 * 4);
         let (_, first, before) =
             submit(&fixture.client, fixture.session.id, original.clone()).await;
         let (_, second, after) = submit(
@@ -552,35 +565,26 @@ async fn continues_nonfull_unfittable_context() {
                 .flat_map(|entry| &entry.parts)
                 .any(|part| matches!(part, Part::Text(text) if text == &original))
         );
-        assert_eq!(summaries(&after), 0);
-        let warnings = after
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::Resource(value) = part
-                    && value["type"] == "compaction_failure"
-                {
-                    Some(value)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0]["failure"]["stage"], "budget");
-        assert_eq!(warnings[0]["failure"]["reason"], "no_fitting_prefix");
-        assert_eq!(warnings[0]["failure"]["continued"], true);
+        assert_eq!(summaries(&after), 1);
+        assert!(
+            !after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")
+                })
+        );
         {
             let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
-            assert!(
-                requests
-                    .iter()
-                    .all(|request| !agent_support::compaction::is_summary(request))
-            );
-            assert!(messages(&requests[1]).contains(&original));
-            assert!(!messages(&requests[1]).contains("compaction_failure"));
+            assert_eq!(requests.len(), 3);
+            assert!(!agent_support::compaction::is_summary(&requests[0]));
+            assert!(agent_support::compaction::is_summary(&requests[1]));
+            assert!(!agent_support::compaction::is_summary(&requests[2]));
+            let retained = messages(&requests[2]);
+            assert!(retained.contains(&original));
+            assert!(retained.contains("Prepared summary"));
+            assert!(!retained.contains("compaction_failure"));
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

@@ -29,14 +29,6 @@ pub(super) fn classify(error: &adk_core::AdkError) -> (Stage, Reason) {
             (Stage::Summary, Reason::IncompleteResponse)
         }
         "context summary returned non-text output" => (Stage::Summary, Reason::UnexpectedOutput),
-        "context summary exceeds the size limit" => (Stage::Summary, Reason::SummaryTooLarge),
-        "context summary did not reduce the conversation" => (Stage::Summary, Reason::NoReduction),
-        "context exceeds the model limit and no summary was applied" => {
-            (Stage::Budget, Reason::NoFittingPrefix)
-        }
-        message if message.contains("budget") || message.contains("no complete prefix") => {
-            (Stage::Budget, Reason::NoFittingPrefix)
-        }
         _ => (Stage::Unknown, Reason::Unknown),
     }
 }

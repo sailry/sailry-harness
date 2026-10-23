@@ -315,17 +315,19 @@ admitted model's frozen context limit; a later model change does not relabel an
 old observation. Pending-content estimates can trigger early compaction but are
 not provider token measurements. Before another request, compaction can summarize
 a completed historical prefix while preserving the current input and complete
-tool exchanges. Its summary request must fit the configured model budget; a
-failed summary never permits replay or a known over-limit ordinary request.
+tool exchanges. Summary requests use the effective summary output token limit;
+input estimates guide prefix selection without rejecting a request. A failed
+summary never permits replay.
 Eligible prefixes use canonical turn ownership and complete call-ID-paired tool
 batches, including prefixes within completed turns. Parallel results are matched
 only within their batch; original history and provider-added parts are retained.
-Automatic, explicit and model-requested compaction select the largest eligible
-prefix that fits the estimated summary envelope and its remaining output budget.
-A persisted summary invalidates the old token observation; bounded estimates
-trigger subsequent compaction until the next provider measurement. A failed
-non-full attempt produces a controller warning and leaves context unchanged;
-a known-full window permits one further summary attempt before failing clearly.
+Automatic, explicit and model-requested compaction prefer complete prefixes that
+fit the estimated summary envelope, with an eligible complete fallback when none
+is estimated to fit. A complete nonempty text summary is accepted without a
+length comparison against its source. A persisted summary invalidates the old
+token observation; estimates can trigger later compaction until the next provider
+measurement. Automatic summary failures are reported and retain the prior
+context; estimated limits do not reject the ordinary model request.
 Request checkpoints are changed only after persistence succeeds and are local
 projections, not another history writer.
 

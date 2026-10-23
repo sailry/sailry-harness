@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 async fn compact(client: &Client, session: SessionId, revision: u64) -> (Request, QueuedTurn) {
     let request = client.prepare(Command::CompactContext {
@@ -21,7 +22,7 @@ fn summaries(page: &Page) -> usize {
 }
 
 #[tokio::test]
-async fn skips_empty_and_small_context() {
+async fn skips_empty_and_summarizes_small_context() {
     for remote in [false, true] {
         let server = Server::start(false).await;
         let fixture = Fixture::files(remote, &server).await;
@@ -31,16 +32,124 @@ async fn skips_empty_and_small_context() {
         assert!(page.entries.is_empty());
         assert!(server.requests.lock().unwrap().is_empty());
         let (_, _, before) = submit(&fixture.client, fixture.session.id, "Small".into()).await;
-        // A completed response is followed by canonical observation/timing events.
-        // They must not replace its complete boundary or turn a no-op into failure.
-        for _ in 0..2 {
-            let (_, small) = compact(&fixture.client, fixture.session.id, 1).await;
-            let page = finished(&fixture.client, fixture.session.id, small.id).await;
-            assert!(page.runs.iter().all(|run| run.status == Status::Completed));
-            assert_eq!(page.entries, before.entries);
-            assert_eq!(summaries(&page), 0);
+        // Observation metadata does not replace the completed interaction boundary.
+        let (_, small) = compact(&fixture.client, fixture.session.id, 1).await;
+        let compacted = finished(&fixture.client, fixture.session.id, small.id).await;
+        assert!(
+            compacted
+                .runs
+                .iter()
+                .all(|run| run.status == Status::Completed)
+        );
+        assert_eq!(&compacted.entries[..before.entries.len()], before.entries);
+        assert_eq!(summaries(&compacted), 1);
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        // A summary without later work has no additional eligible history.
+        let (_, noop) = compact(&fixture.client, fixture.session.id, 1).await;
+        let unchanged = finished(&fixture.client, fixture.session.id, noop.id).await;
+        assert_eq!(unchanged.entries, compacted.entries);
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn accepts_a_short_two_turn_handoff() {
+    for remote in [false, true] {
+        let server = Server::compaction(false).await;
+        let fixture = Fixture::files(remote, &server).await;
+        super::budget::model(&fixture, 500_000, 128_000, false).await;
+        let sessions = (0..7)
+            .map(|index| {
+                json!({
+                    "id":format!("retained-session-{index}"),
+                    "title":format!("Saved session {index}"),
+                    "detail":"Retained metadata only. ".repeat(12)
+                })
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            fixture.root.join("source.txt"),
+            serde_json::to_vec(&json!({"sessions":sessions})).unwrap(),
+        )
+        .unwrap();
+        submit(
+            &fixture.client,
+            fixture.session.id,
+            "List saved sessions".into(),
+        )
+        .await;
+        let (_, _, before) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Retain those session identities for follow-up work".into(),
+        )
+        .await;
+        let count = server.requests.lock().unwrap().len();
+        let (request, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(after.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(summaries(&after), 1);
+        assert!(
+            !after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")
+                })
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), count + 1);
+            let summary = requests.last().unwrap();
+            assert!(agent_support::compaction::is_summary(summary));
+            let prompt = summary["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|message| message["role"] == "system")
+                .unwrap()["content"]
+                .as_str()
+                .unwrap();
+            assert!(prompt.contains("Summary output budget: 8192 tokens"));
+            let output = summary["max_completion_tokens"]
+                .as_u64()
+                .or_else(|| summary["max_tokens"].as_u64())
+                .unwrap();
+            assert_eq!(output, 8_192);
         }
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        fixture.client.execute(request).await.unwrap();
+        assert_eq!(server.requests.lock().unwrap().len(), count + 1);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn preserves_verbatim_only_history() {
+    for remote in [false, true] {
+        let server = Server::start(false).await;
+        let fixture = Fixture::files(remote, &server).await;
+        let original = "Retain exact constraints 中文 🙂 ".repeat(200);
+        let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
+        assert!(original.len() > 1_024);
+        let count = server.requests.lock().unwrap().len();
+        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(after.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(summaries(&after), 1);
+        assert_eq!(server.requests.lock().unwrap().len(), count + 1);
+        assert!(
+            after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| { matches!(part, Part::Text(text) if text == &original) })
+        );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -151,12 +260,13 @@ async fn restores_branch_history() {
             snapshot.statistics.usage.as_ref().unwrap().output
                 >= measured.usage.as_ref().unwrap().output
         );
-        let estimated = snapshot.statistics.clone();
         drop(stream);
         let (_, noop) = compact(&fixture.client, fixture.session.id, 1).await;
         let unchanged = finished(&fixture.client, fixture.session.id, noop.id).await;
         assert_eq!(unchanged.entries, page.entries);
         assert_eq!(server.requests.lock().unwrap().len(), 3);
+        // The maintenance turn contributes its own timing before completion.
+        let estimated = super::budget::statistics(&fixture).await;
         let mut branches = Vec::new();
         for through in [first, turn.id] {
             let Output::Session(branch) = fixture
@@ -516,7 +626,7 @@ async fn preserves_cancelled_configuration() {
 }
 
 #[tokio::test]
-async fn preserves_unfittable_original_input() {
+async fn submits_estimated_oversized_original_input() {
     for remote in [false, true] {
         let server = Server::summary(100).await;
         let fixture = Fixture::files(remote, &server).await;
@@ -526,20 +636,18 @@ async fn preserves_unfittable_original_input() {
         let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
-        assert_eq!(run.status, Status::Failed);
-        assert!(
-            run.error
-                .as_ref()
-                .unwrap()
-                .message
-                .contains("no complete prefix fits")
-        );
+        assert_eq!(run.status, Status::Completed, "{run:?}");
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
-        let Part::Resource(value) = &after.entries.last().unwrap().parts[0] else {
-            panic!("failure expected")
-        };
-        assert_eq!(value["failure"]["reason"], "no_fitting_prefix");
-        assert_eq!(value["failure"]["source"], "manual");
+        assert_eq!(summaries(&after), 1);
+        assert!(
+            !after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")
+                })
+        );
         assert!(
             after
                 .entries
@@ -547,7 +655,69 @@ async fn preserves_unfittable_original_input() {
                 .flat_map(|entry| &entry.parts)
                 .any(|part| matches!(part, Part::Text(text) if text == &original))
         );
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(agent_support::compaction::is_summary(&requests[1]));
+        assert!(messages(&requests[1]).contains(&original));
+        drop(requests);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn accepts_larger_complete_handoffs() {
+    for remote in [false, true] {
+        let handoff = "Verified complete handoff. ".repeat(2_000);
+        let server = Server::compaction_text(false, handoff.clone()).await;
+        let fixture = Fixture::files(remote, &server).await;
+        std::fs::write(fixture.root.join("source.txt"), "Exact source evidence").unwrap();
+        let (_, _, before) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Inspect the source".into(),
+        )
+        .await;
+        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(after.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        let summary = after
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| {
+                if let Part::Compaction(text) = part {
+                    Some(text)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert!(summary.starts_with(&handoff));
+        assert_eq!(summaries(&after), 1);
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(agent_support::compaction::is_summary(&requests[2]));
+        let transcript = requests[2]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["role"] == "user")
+            .unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(handoff.len() > transcript.len());
+        assert!(
+            !after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")
+                })
+        );
+        drop(requests);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

@@ -291,16 +291,6 @@ impl Context {
             None => None,
         };
         let compact = self.summarizer.needs_compaction(projected);
-        let full = self
-            .summarizer
-            .context
-            .zip(
-                usage
-                    .as_ref()
-                    .filter(|usage| usage.observed)
-                    .map(|usage| usage.tokens),
-            )
-            .is_some_and(|(context, tokens)| tokens >= context);
         if !compact {
             return Ok(BeforeModelResult::Continue(request));
         }
@@ -319,17 +309,7 @@ impl Context {
                     )
                     .is_some()
                 });
-            if full && mismatch {
-                return Err(invalid(
-                    "model context does not match the persisted summary",
-                ));
-            }
-            if full {
-                return Err(invalid(
-                    "context exceeds the model limit and no complete prefix fits the summary budget",
-                ));
-            }
-            if !self.candidates(&history, keep).is_empty() {
+            if mismatch {
                 let key = self
                     .candidates(&history, keep)
                     .first()
@@ -339,7 +319,7 @@ impl Context {
                             .rev()
                             .find(|event| event.content().is_some())
                     })
-                    .map(|event| format!("fit:{}", event.id));
+                    .map(|event| format!("match:{}", event.id));
                 let warn = {
                     let mut attempted = self
                         .attempted
@@ -367,11 +347,7 @@ impl Context {
                 };
                 if warn {
                     self.notice(
-                        &invalid(if mismatch {
-                            "model context does not match the persisted summary"
-                        } else {
-                            "no complete prefix fits the context summary budget"
-                        }),
+                        &invalid("model context does not match the persisted summary"),
                         SummaryMode::Automatic,
                         true,
                     )
@@ -387,29 +363,9 @@ impl Context {
             .await;
         let result = match result {
             Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
-                // Validate the resulting window before committing its boundary.
-                let index = tail(&request, &history.events[cut..], &self.preamble, invocation)
+                // Verify canonical matching before persisting a new boundary.
+                tail(&request, &history.events[cut..], &self.preamble, invocation)
                     .ok_or_else(|| invalid("model context does not match the persisted summary"))?;
-                let mut projected = request.clone();
-                projected.contents.splice(
-                    1..index,
-                    [summary
-                        .actions
-                        .compaction
-                        .as_ref()
-                        .ok_or_else(|| invalid("persisted context summary is missing"))?
-                        .compacted_content
-                        .clone()],
-                );
-                if full
-                    && self.summarizer.context.is_some_and(|context| {
-                        estimate::request(&projected).is_ok_and(|tokens| tokens >= context)
-                    })
-                {
-                    return Err(invalid(
-                        "context remains over the estimated model budget after compaction",
-                    ));
-                }
                 match self
                     .service
                     .append_event(&self.session.to_string(), summary.clone())
@@ -437,11 +393,6 @@ impl Context {
         let failure = result.err();
         if self.summarizer.stop.is_cancelled() {
             return Err(invalid("context compaction was cancelled"));
-        }
-        if full {
-            return Err(failure.unwrap_or_else(|| {
-                invalid("context exceeds the model limit and no summary was applied")
-            }));
         }
         if let Some(error) = failure {
             self.notice(&error, SummaryMode::Automatic, true).await?;
