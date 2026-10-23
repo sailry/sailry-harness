@@ -125,8 +125,9 @@ async fn cancellation_keeps_node_running() {
             &directory.path().join("source/package"),
             worktree,
             r#"
-            import {setValue, completeRequest} from 'sailry/sdk';
+            import {getValue, setValue, completeRequest} from 'sailry/sdk';
             export async function run(input) {
+                await getValue(input.key);
                 await completeRequest(setValue(input.key, true, '0'));
                 if (input.wait) while (true) {}
                 return input.key;
@@ -149,22 +150,31 @@ async fn cancellation_keeps_node_running() {
         .await
         .unwrap();
         let mut waiting = Vec::new();
-        for index in 0..30 {
-            let request = call(&client, &context, json!({"key":format!("queued-{index}")}));
+        for index in 0..34 {
+            let (entered, release) = node.hold_plugin_read_fixture();
+            let request = call(&client, &context, json!({"key":format!("held-{index}")}));
             let pending = client.dispatch(request.clone()).await.unwrap();
             assert!(pending.receipt.durable);
-            waiting.push((request, pending));
+            let read = tokio::time::timeout(Duration::from_secs(5), entered)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(matches!(read.command, Command::ReadPluginValue { .. }));
+            waiting.push((request, pending, release));
         }
         assert_eq!(
-            client
-                .execute(call(&client, &context, json!({"key":"third"})))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                client.execute(call(&client, &context, json!({"key":"third"}))),
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+            Output::PluginResult(json!("third"))
         );
-        assert!(!read(&client, &context, "queued-0").await.present);
-        let (cancelled, pending) = waiting.pop().unwrap();
+        assert!(read(&client, &context, "third").await.present);
+        assert!(!read(&client, &context, "held-0").await.present);
+        let (cancelled, pending, release) = waiting.pop().unwrap();
         assert_eq!(
             client
                 .execute(
@@ -184,7 +194,8 @@ async fn cancellation_keeps_node_running() {
             pending.completion.await.unwrap().unwrap_err().code,
             ErrorCode::Cancelled
         );
-        assert!(!read(&client, &context, "queued-29").await.present);
+        release.cancel();
+        assert!(!read(&client, &context, "held-33").await.present);
         execute(
             &client,
             Command::SetPluginEnabled {
@@ -212,14 +223,18 @@ async fn cancellation_keeps_node_running() {
                 .code,
             ErrorCode::Cancelled
         );
-        // Queued calls keep their admitted authority after disabling the package.
-        for (request, pending) in waiting {
+        // Unfinished calls keep their admitted authority after disabling the package.
+        for (request, pending, release) in waiting {
+            release.cancel();
             let result = tokio::time::timeout(Duration::from_secs(10), pending.completion)
                 .await
                 .unwrap()
                 .unwrap()
                 .unwrap();
-            assert!(matches!(result, Output::PluginResult(_)));
+            let Command::CallPlugin { input, .. } = &request.command else {
+                unreachable!()
+            };
+            assert_eq!(result, Output::PluginResult(input["key"].clone()));
             assert_eq!(client.execute(request).await.unwrap(), result);
         }
         execute(&client, Command::Snapshot).await;
