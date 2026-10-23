@@ -46,3 +46,18 @@ connector_changed_flow: Способ входа
 connector_changed_targets: Получатели учётных данных
 connector_changed_mcp: Серверы MCP
 connector_changed_source: Источник пакета
+
+connector_authentication: "Аутентификация"
+connector_account_enabled: "Включить аккаунт"
+connector_server_allowed: "Включить сервер"
+connector_package_disabled: "Плагин отключён"
+connector_account_disabled: "Аккаунт отключён"
+connector_server_disabled: "Сервер отключён"
+connector_view_plugin: "Открыть плагин"
+connector_tools_unchecked: "Не проверено"
+connector_tools_empty: "Нет инструментов"
+connector_check_failed: "Не удалось проверить сервис"
+connector_configuration_required: "Требуется настройка"
+connector_unavailable: "Недоступно"
+connector_available: "Доступно"
+connector_unsaved: "Не сохранено"

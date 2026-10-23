@@ -32,3 +32,5 @@ market_skills_failed: "Не удалось загрузить каталог н�
 market_themes_failed: "Не удалось загрузить темы"
 market_no_themes: "Подходящих тем нет"
 market_load_more: Загрузить ещё
+
+market_manage: "Управление"

@@ -2663,3 +2663,6 @@ chat_context_summary_failed: "Não foi possível compactar a conversa"
 
 permission_partial: "Parcialmente autorizado"
 permission_failed: "Falha ao verificar permissão"
+
+appearance_up_to_date: "Os temas estão atualizados"
+appearance_updates_available: "Atualizações disponíveis"

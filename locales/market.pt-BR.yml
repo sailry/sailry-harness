@@ -32,3 +32,5 @@ market_skills_failed: "Não foi possível carregar o catálogo de habilidades"
 market_themes_failed: "Não foi possível carregar os temas"
 market_no_themes: "Nenhum tema correspondente"
 market_load_more: Carregar mais
+
+market_manage: "Gerenciar"

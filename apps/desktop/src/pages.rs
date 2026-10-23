@@ -8,7 +8,7 @@ impl Shell {
         if self.page == Page::Notifications {
             return self.notification_center(cx);
         }
-        if matches!(self.page, Page::Settings | Page::Plugins)
+        if matches!(self.page, Page::Settings | Page::Market)
             && let Some(live) = &self.live
         {
             let node = self.settings_target.unwrap_or(live.selected);
@@ -72,7 +72,7 @@ impl Shell {
         }
         let content = match self.page {
             Page::Conversation => self.conversation(cx),
-            Page::Settings | Page::Plugins => self.settings.clone().into_any_element(),
+            Page::Settings | Page::Market => self.settings.clone().into_any_element(),
             Page::Host => self.host_overview(cx),
             Page::Project => self.project_overview(cx),
             Page::Terminal => self.terminal_overview(cx),
@@ -94,7 +94,7 @@ impl Shell {
         if self.live.is_some()
             && !matches!(
                 self.page,
-                Page::Settings | Page::Plugins | Page::Files | Page::Git
+                Page::Settings | Page::Market | Page::Files | Page::Git
             )
         {
             v_flex()

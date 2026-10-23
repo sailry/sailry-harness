@@ -9,6 +9,7 @@ mod view;
 
 pub(super) struct Editor {
     binding: Binding,
+    owner: Option<Entity<Workspace>>,
     original: Option<Info>,
     name: Entity<InputState>,
     command: Entity<InputState>,
@@ -23,6 +24,28 @@ pub(super) struct Editor {
     dialog: crate::ui::overlays::Owned,
     submission: Submission,
     task: Option<Task<()>>,
+}
+
+pub(super) fn bind_owner(
+    editor: &Entity<Editor>,
+    owner: &Entity<Workspace>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    editor.update(cx, |editor, cx| {
+        editor.owner = Some(owner.clone());
+        cx.observe_in(owner, window, |editor, _, window, cx| {
+            if !editor.active(cx) {
+                editor.close(window, cx);
+                editor.dialog.close(window, cx);
+            }
+        })
+        .detach();
+        if !editor.active(cx) {
+            editor.close(window, cx);
+            editor.dialog.close(window, cx);
+        }
+    });
 }
 
 struct Slot {
@@ -73,6 +96,7 @@ pub(super) fn open(
         });
         Editor {
             binding,
+            owner: None,
             original,
             name: text_input(name, "mcp_name_hint", window, cx),
             command: text_input(command, "mcp_command_hint", window, cx),
@@ -150,6 +174,12 @@ impl Slot {
 }
 
 impl Editor {
+    fn active(&self, cx: &App) -> bool {
+        self.owner
+            .as_ref()
+            .is_none_or(|owner| current(owner, &self.binding, cx))
+    }
+
     fn locked(&self) -> bool {
         self.loading || self.submission.pending || self.submission.request.is_some()
     }
@@ -165,7 +195,7 @@ impl Editor {
     }
 
     fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.closed || self.locked() {
+        if self.closed || !self.active(cx) || self.locked() {
             return;
         }
         let Some(info) = &self.original else {
@@ -187,7 +217,7 @@ impl Editor {
         self.task = Some(cx.spawn_in(window, async move |editor, cx| {
             let result = job.await;
             _ = editor.update_in(cx, |editor, _, cx| {
-                if editor.closed {
+                if editor.closed || !editor.active(cx) {
                     return;
                 }
                 editor.loading = false;
@@ -312,7 +342,12 @@ impl Editor {
     }
 
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.submission.pending || self.loading || self.closed || !self.loaded {
+        if self.submission.pending
+            || self.loading
+            || self.closed
+            || !self.active(cx)
+            || !self.loaded
+        {
             return;
         }
         let command = self.submission.request.is_none().then(|| self.prepare(cx));
@@ -329,6 +364,9 @@ impl Editor {
                 request,
                 false,
                 move |attempt, window, cx| {
+                    if !retry.read(cx).active(cx) {
+                        return;
+                    }
                     let show = retry.update(cx, |editor, cx| {
                         editor.closed = false;
                         if !editor.submission.pending
@@ -367,6 +405,10 @@ impl Editor {
             _ = target.update(cx, |_, window, cx| {
                 editor.update(cx, |editor, cx| {
                     editor.submission.pending = false;
+                    if editor.closed || !editor.active(cx) {
+                        cx.notify();
+                        return;
+                    }
                     match result {
                         Ok(Ok(Output::Plugin(_))) => {
                             editor.submission.request = None;

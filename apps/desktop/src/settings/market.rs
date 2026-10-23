@@ -69,7 +69,6 @@ pub(in crate::settings) struct Market {
 enum Loading {
     Catalog,
     Repository(String),
-    Theme(String),
 }
 
 impl Drop for Market {
@@ -85,11 +84,13 @@ pub(super) fn create(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Market> {
+    let themes = owner.read(cx).theme_updates.clone();
     let state = cx.new(|cx| {
         crate::feedback::observe(window, cx, |state: &Market, _| {
             state.error.into_iter().collect()
         });
         cx.observe(&owner, |_, _, cx| cx.notify()).detach();
+        cx.observe(&themes, |_, _, cx| cx.notify()).detach();
         let query =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr("market_search_plugins")));
         cx.subscribe_in(&query, window, |state: &mut Market, _, event, _, cx| {
@@ -109,7 +110,7 @@ pub(super) fn create(
             skill_query: None,
             skill_cache: Default::default(),
             skill_details: Vec::new(),
-            themes: themes::State::new(cx),
+            themes: themes::State::new(themes, cx),
             page: None,
             paging: Default::default(),
             scroll: ScrollHandle::new(),
@@ -125,6 +126,31 @@ pub(super) fn create(
 }
 
 impl Market {
+    pub(in crate::settings) fn installed(
+        &self,
+        name: &str,
+        cx: &App,
+    ) -> Option<sailry_protocol::plugin::Summary> {
+        let owner = self.owner.upgrade()?;
+        owner
+            .read(cx)
+            .plugin_catalog
+            .packages
+            .iter()
+            .find(|package| package.name == name)
+            .cloned()
+    }
+
+    fn manage(&self, name: String, skill: Option<String>, window: &mut Window, cx: &mut App) {
+        window.dispatch_action(
+            Box::new(super::OpenManagement {
+                node: self.binding.client.target(),
+                name,
+                skill,
+            }),
+            cx,
+        );
+    }
     pub(in crate::settings) fn begin_details(&mut self) -> CancellationToken {
         self.detail_stop.cancel();
         self.detail_stop = CancellationToken::new();

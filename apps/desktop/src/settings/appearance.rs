@@ -3,6 +3,7 @@ mod gallery;
 mod import;
 mod menu;
 pub(super) mod opacity;
+pub(in crate::settings) mod updates;
 use super::{
     Workspace,
     group::{Group, Row},
@@ -17,6 +18,18 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 impl Workspace {
+    pub(in crate::settings) fn open_theme(&self, id: &str, window: &mut Window, cx: &mut App) {
+        if let Some(package) = cx
+            .global::<theme::Catalog>()
+            .packages
+            .iter()
+            .find(|package| package.id == id)
+            .cloned()
+        {
+            import::details(package, self.theme_updates.clone(), window, cx);
+        }
+    }
+
     pub(super) fn appearance(&self, cx: &mut Context<Self>) -> AnyElement {
         let selected = if theme::follows_system(cx) {
             0
@@ -73,6 +86,21 @@ impl Workspace {
                 Group::new("appearance_packages")
                     .card(false)
                     .child(self.theme_cards(cx))
+                    .action(
+                        Button::new("themes-check-updates")
+                            .label(tr("plugins_check_updates"))
+                            .loading(self.theme_updates.read(cx).checking())
+                            .disabled(
+                                self.theme_updates.read(cx).service.is_none()
+                                    || self.theme_updates.read(cx).checking(),
+                            )
+                            .on_click({
+                                let updates = self.theme_updates.clone();
+                                move |_, window, cx| {
+                                    updates.update(cx, |state, cx| state.check(window, cx));
+                                }
+                            }),
+                    )
                     .action(
                         Button::new("theme-import")
                             .primary()

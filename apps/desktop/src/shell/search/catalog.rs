@@ -1,10 +1,8 @@
 //! Read existing navigation owners, capturing identities for each displayed choice.
 use super::*;
-use crate::{live::menus, plugins::navigation::SettingsEntry, settings::Section};
+use crate::{live::menus, settings::Section};
 use sailry_protocol::{
-    NodeId, ProjectId, SessionId, Snapshot,
-    connection::Resource,
-    plugin::desktop::{SettingsGroup, Surface},
+    NodeId, ProjectId, SessionId, Snapshot, connection::Resource, plugin::desktop::Surface,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,7 +54,6 @@ pub(super) enum Target {
     PreviewHost(usize),
     Feature(Box<rail::Feature>),
     Setting(Section),
-    PluginSetting(SettingsEntry),
 }
 
 impl Target {
@@ -70,7 +67,6 @@ impl Target {
             (Self::PreviewProject(a), Self::PreviewProject(b)) => a == b,
             (Self::PreviewHost(a), Self::PreviewHost(b)) => a == b,
             (Self::Setting(a), Self::Setting(b)) => a == b,
-            (Self::PluginSetting(a), Self::PluginSetting(b)) => a == b,
             (Self::Feature(a), Self::Feature(b)) => match (&a.destination, &b.destination) {
                 (rail::Destination::Page(a), rail::Destination::Page(b)) => a == b,
                 (rail::Destination::Plugin(a), rail::Destination::Plugin(b)) => a == b,
@@ -131,7 +127,7 @@ pub(super) fn entries(shell: &Shell, scope: Scope, folder: Folder, cx: &App) -> 
         return Vec::new();
     }
     if folder == Folder::Settings {
-        return settings(shell, cx);
+        return settings();
     }
     let choices = match folder {
         Folder::Sessions => sessions(shell, scope, cx),
@@ -283,52 +279,23 @@ fn features(shell: &Shell, cx: &App) -> Vec<Choice> {
         .collect()
 }
 
-fn settings(shell: &Shell, cx: &App) -> Vec<Group> {
-    let plugins = shell.command_settings_entries(cx);
-    [
-        SettingsGroup::App,
-        SettingsGroup::Ai,
-        SettingsGroup::Tools,
-        SettingsGroup::System,
-    ]
-    .into_iter()
-    .zip(Section::GROUPS)
-    .map(|(group, (label, sections))| {
-        let mut choices: Vec<_> = sections
-            .iter()
-            .map(|section| {
-                (
-                    section.navigation_order(),
-                    Choice::new(tr(section.key()), section.icon(), Target::Setting(*section)),
-                )
-            })
-            .collect();
-        choices.extend(
-            plugins
-                .iter()
-                .filter(|entry| entry.placement.group == group)
-                .map(|entry| {
-                    (
-                        entry.placement.order,
-                        Choice::new(
-                            entry.label.clone(),
-                            entry
-                                .icon
-                                .as_ref()
-                                .map(crate::assets::icons::icon)
-                                .unwrap_or_else(|| IconName::Settings2.into()),
-                            Target::PluginSetting(entry.clone()),
-                        ),
-                    )
-                }),
-        );
-        choices.sort_by_key(|(order, _)| *order);
-        Group {
-            label: Some(tr(label)),
-            choices: choices.into_iter().map(|(_, choice)| choice).collect(),
-        }
-    })
-    .collect()
+fn settings() -> Vec<Group> {
+    Section::GROUPS
+        .into_iter()
+        .map(|(label, sections)| {
+            let mut sections = sections.to_vec();
+            sections.sort_by_key(|section| section.navigation_order());
+            Group {
+                label: Some(tr(label)),
+                choices: sections
+                    .into_iter()
+                    .map(|section| {
+                        Choice::new(tr(section.key()), section.icon(), Target::Setting(section))
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
 }
 
 pub(super) fn available(
@@ -395,17 +362,7 @@ pub(super) fn open(
         Target::PreviewHost(host) => shell.select_host(host, window, cx),
         Target::Feature(feature) => feature.open(shell, window, cx),
         Target::Setting(section) => {
-            shell.navigate(Page::Settings, window, cx);
-            shell
-                .settings
-                .update(cx, |settings, cx| settings.select(section, cx));
-        }
-        Target::PluginSetting(entry) => {
-            shell.navigate(Page::Settings, window, cx);
-            shell.settings_target = Some(entry.node);
-            shell.settings.update(cx, |settings, cx| {
-                settings.open_plugin_settings(&entry.package.name, cx)
-            });
+            shell.open_settings_section(&crate::settings::OpenSection(section), window, cx);
         }
         Target::Folder(_) => {}
     }

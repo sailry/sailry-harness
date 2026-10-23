@@ -32,3 +32,5 @@ market_skills_failed: "无法加载技能目录"
 market_themes_failed: "无法加载主题"
 market_no_themes: "暂无匹配主题"
 market_load_more: 加载更多
+
+market_manage: "管理"

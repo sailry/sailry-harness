@@ -2663,3 +2663,6 @@ chat_context_summary_failed: "無法壓縮對話脈絡"
 
 permission_partial: "部分授權"
 permission_failed: "權限檢查失敗"
+
+appearance_up_to_date: "佈景主題已是最新"
+appearance_updates_available: "有可用更新"

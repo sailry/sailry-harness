@@ -32,3 +32,5 @@ market_skills_failed: "Skill-Katalog konnte nicht geladen werden"
 market_themes_failed: "Designs konnten nicht geladen werden"
 market_no_themes: "Keine passenden Designs"
 market_load_more: Mehr laden
+
+market_manage: "Verwalten"

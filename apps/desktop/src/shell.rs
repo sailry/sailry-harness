@@ -130,13 +130,13 @@ impl Shell {
         cx.subscribe_in(
             &settings,
             window,
-            |shell, _, _: &settings::OpenPlugins, window, cx| {
+            |shell, _, _: &settings::OpenMarket, window, cx| {
                 shell.clear_extension_details(cx);
-                if shell.page == Page::Plugins {
+                if shell.page == Page::Market {
                     return;
                 }
                 let target = shell.settings_target;
-                shell.navigate(Page::Plugins, window, cx);
+                shell.navigate(Page::Market, window, cx);
                 shell.settings_target = target;
             },
         )
@@ -319,7 +319,7 @@ impl Shell {
         if self.page == Page::Plugin && page != Page::Plugin {
             self.park_extension(cx);
         }
-        if matches!(self.page, Page::Settings | Page::Plugins) && self.page != page {
+        if matches!(self.page, Page::Settings | Page::Market) && self.page != page {
             self.settings.update(cx, |settings, cx| settings.leave(cx));
         }
         let page = if self.live.is_none()
@@ -335,7 +335,7 @@ impl Shell {
         }
         if page == Page::Settings && self.page != Page::Settings {
             self.settings.update(cx, |settings, cx| {
-                let section = if settings.section.is_extension() {
+                let section = if settings.section == settings::Section::Market {
                     settings::Section::General
                 } else {
                     settings.section
@@ -343,9 +343,9 @@ impl Shell {
                 settings.select(section, cx);
             });
         }
-        if page == Page::Plugins {
+        if page == Page::Market {
             self.settings.update(cx, |settings, cx| {
-                if !settings.section.is_extension() {
+                if settings.section != settings::Section::Market {
                     settings.select(settings::Section::Market, cx);
                 }
             });
@@ -655,8 +655,11 @@ impl Render for Shell {
             .on_action(cx.listener(Self::open_page))
             .on_action(cx.listener(Self::open_settings_panel))
             .on_action(cx.listener(Self::open_settings_section))
+            .on_action(cx.listener(Self::open_management))
+            .on_action(cx.listener(Self::open_theme))
             .on_action(cx.listener(Self::open_extension_details))
             .on_action(cx.listener(Self::close_extension_details))
+            .on_action(cx.listener(Self::close_owned_details))
             .on_action(cx.listener(Self::refresh_host))
             .on_action(cx.listener(Self::close_active_terminal))
             .on_action(cx.listener(Self::find_conversation))

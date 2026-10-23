@@ -135,15 +135,6 @@ impl Entry {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SettingsEntry {
-    pub node: NodeId,
-    pub package: Reference,
-    pub label: String,
-    pub icon: Option<sailry_protocol::plugin::desktop::Icon>,
-    pub placement: sailry_protocol::plugin::desktop::SettingsPlacement,
-}
-
 pub(crate) struct Navigation {
     node: NodeId,
     pub metadata: Entity<Metadata>,
@@ -188,26 +179,20 @@ impl Shell {
         cx.subscribe_in(
             panel,
             window,
-            |_, panel, event: &OpenSettings, window, cx| {
+            |shell, panel, event: &OpenSettings, window, cx| {
                 let state = panel.read(cx);
-                if !state.resource_active() || state.selected.as_ref() != Some(&event.package) {
+                if !state.resource_active()
+                    || state.selected.as_ref() != Some(&event.package)
+                    || state.binding.client.target() != event.node
+                {
                     return;
                 }
-                if state.binding.client.target() != event.node {
-                    return;
-                }
-                let Some(info) = state
-                    .metadata
-                    .read(cx)
-                    .entries
-                    .get(&event.package.name)
-                    .cloned()
-                else {
-                    return;
-                };
-                crate::settings::Workspace::configure_bound(
-                    state.binding.clone(),
-                    info,
+                shell.open_management(
+                    &crate::settings::OpenManagement {
+                        node: event.node,
+                        name: event.package.name.clone(),
+                        skill: None,
+                    },
                     window,
                     cx,
                 );
@@ -351,35 +336,28 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(panel) = self
+        if self
             .extensions
             .as_ref()
             .and_then(|state| state.panel.as_ref())
+            .is_none_or(|panel| {
+                let state = panel.read(cx);
+                !state.resource_active()
+                    || state.binding.client.target() != entry.node
+                    || state.selected.as_ref() != Some(&entry.package)
+            })
         {
-            let state = panel.read(cx);
-            if state.binding.client.target() != entry.node
-                || state
-                    .selected
-                    .as_ref()
-                    .is_none_or(|selected| selected.name != entry.package.name)
-            {
-                return;
-            }
-            if let Some(info) = state
-                .metadata
-                .read(cx)
-                .entries
-                .get(&entry.package.name)
-                .cloned()
-            {
-                crate::settings::Workspace::configure_bound(
-                    state.binding.clone(),
-                    info,
-                    window,
-                    cx,
-                );
-            }
+            return;
         }
+        self.open_management(
+            &crate::settings::OpenManagement {
+                node: entry.node,
+                name: entry.package.name,
+                skill: None,
+            },
+            window,
+            cx,
+        );
     }
 
     pub(crate) fn observe_plugin_errors(window: &Window, cx: &mut Context<Self>) {
@@ -568,56 +546,6 @@ impl Shell {
         });
     }
 
-    pub(crate) fn command_settings_entries(&self, cx: &App) -> Vec<SettingsEntry> {
-        let Some(state) = &self.extensions else {
-            return Vec::new();
-        };
-        let desktop = state.desktop.read(cx);
-        let snapshot = self
-            .live
-            .as_ref()
-            .filter(|live| live.selected == state.node && live.view.connected)
-            .and_then(|live| live.view.snapshot.as_ref())
-            .filter(|snapshot| snapshot.node == state.node);
-        [
-            (state.node, Scope::Host, &state.metadata, snapshot.is_some()),
-            (
-                desktop.client.target(),
-                Scope::Desktop,
-                &desktop.metadata,
-                desktop.connected,
-            ),
-        ]
-        .into_iter()
-        .filter(|(_, _, _, connected)| *connected)
-        .flat_map(|(node, scope, metadata, _)| {
-            metadata.read(cx).entries.values().filter_map(move |info| {
-                let extension = info.extension.as_ref()?;
-                let page = extension.settings_page.as_ref()?;
-                if !crate::settings::extensions::modal::configurable(info)
-                    || extension.scope != scope
-                    || scope == Scope::Host
-                        && !snapshot.is_some_and(|snapshot| {
-                            snapshot
-                                .plugins
-                                .iter()
-                                .any(|summary| summary.reference() == info.summary.reference())
-                        })
-                {
-                    return None;
-                }
-                Some(SettingsEntry {
-                    node,
-                    package: info.summary.reference(),
-                    label: page.navigation.label(&rust_i18n::locale()).into(),
-                    icon: page.navigation.icon.clone(),
-                    placement: page.placement,
-                })
-            })
-        })
-        .collect()
-    }
-
     pub(crate) fn extension_entries(&self, cx: &App) -> Vec<Entry> {
         let Some(state) = &self.extensions else {
             return vec![];
@@ -737,29 +665,15 @@ impl Shell {
         };
         let host = live.name(entry.node);
         if entry.navigation.surface == sailry_protocol::plugin::desktop::Surface::Settings {
-            let metadata = if entry.node == desktop.client.target() {
-                &desktop.metadata
-            } else {
-                &state.metadata
-            };
-            if let Some(info) = metadata.read(cx).entries.get(&entry.package.name).cloned() {
-                let runtime = cx.global::<crate::backend::Services>().runtime.clone();
-                crate::settings::Workspace::configure_bound(
-                    Binding {
-                        client: client.clone(),
-                        defaults: client,
-                        runtime,
-                        host,
-                        project: None,
-                        worktree: None,
-                        project_name: "".into(),
-                        branch: "".into(),
-                    },
-                    info,
-                    window,
-                    cx,
-                );
-            }
+            self.open_management(
+                &crate::settings::OpenManagement {
+                    node: entry.node,
+                    name: entry.package.name,
+                    skill: None,
+                },
+                window,
+                cx,
+            );
             return;
         }
 

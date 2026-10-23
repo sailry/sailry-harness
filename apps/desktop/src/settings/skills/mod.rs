@@ -43,6 +43,21 @@ impl State {
     }
 }
 
+pub(in crate::settings) fn open_management(
+    info: Info,
+    name: Option<&str>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let selected = name
+        .and_then(|name| info.skills.iter().find(|skill| skill.name == name))
+        .or_else(|| info.skills.first())
+        .cloned();
+    if let Some(skill) = selected {
+        details::open(info, skill, window, cx);
+    }
+}
+
 impl Workspace {
     pub(in crate::settings) fn reimport_skill(
         &mut self,
@@ -80,24 +95,30 @@ impl Workspace {
             .metadata
             .as_ref()
             .expect("skills metadata is bound");
-        let entries: Vec<_> = metadata
-            .read(cx)
-            .entries
-            .values()
-            .filter(|info| info.skill.is_some())
-            .flat_map(|info| {
-                info.skills.iter().filter_map(|skill| {
-                    let source = provenance(info);
-                    (query.is_empty()
-                        || format!("{} {} {source}", skill.name, skill.description)
-                            .to_lowercase()
-                            .contains(&query))
-                    .then_some((info.clone(), skill.clone()))
-                })
+        let entries: Vec<_> = super::plugins::classification::inventory(
+            &self.plugin_catalog.packages,
+            &metadata.read(cx).entries,
+            super::plugins::classification::Kind::Skill,
+        )
+        .into_iter()
+        .flat_map(|info| {
+            info.skills.iter().filter_map(|skill| {
+                let source = provenance(info);
+                (query.is_empty()
+                    || format!("{} {} {source}", skill.name, skill.description)
+                        .to_lowercase()
+                        .contains(&query))
+                .then_some((info.clone(), skill.clone()))
             })
-            .collect();
+        })
+        .collect();
         let binding = live.binding.clone();
         let known = self.plugin_catalog.packages.clone();
+        let checking = self
+            .plugin_catalog
+            .updates
+            .as_ref()
+            .is_some_and(|state| state.read(cx).checking());
         v_flex()
             .gap_4()
             .child(
@@ -114,6 +135,15 @@ impl Workspace {
                                     .cleanable(true)
                                     .prefix(Icon::new(IconName::Search).small()),
                             ),
+                    )
+                    .child(
+                        Button::new("skills-check-updates")
+                            .label(tr("plugins_check_updates"))
+                            .loading(checking)
+                            .disabled(!live.connected || self.plugin_catalog.busy(cx))
+                            .on_click(cx.listener(|owner, _, window, cx| {
+                                owner.check_plugin_updates(window, cx)
+                            })),
                     )
                     .child(
                         Button::new("skills-install")
@@ -152,8 +182,25 @@ impl Workspace {
                     )
                 },
             )
+            .when(!metadata.read(cx).settled(), |view| {
+                view.child(div().py_4().child(spinner::Spinner::new().small()))
+            })
+            .when(!metadata.read(cx).errors.is_empty(), |view| {
+                view.child(
+                    crate::feedback::retry("skills-metadata-retry").on_click(cx.listener(
+                        |owner, _, _, cx| {
+                            if let Some(metadata) = &owner.plugin_catalog.metadata {
+                                metadata.update(cx, |metadata, cx| metadata.refresh(cx));
+                            }
+                        },
+                    )),
+                )
+            })
             .when(
-                entries.is_empty() && metadata.read(cx).settled() && live.connected,
+                entries.is_empty()
+                    && metadata.read(cx).settled()
+                    && metadata.read(cx).errors.is_empty()
+                    && live.connected,
                 |view| {
                     view.child(
                         crate::settings::group::Group::new("skills_installed")
@@ -207,6 +254,12 @@ impl Workspace {
             _ => None,
         };
         let reimport = summary.clone();
+        let update = summary.name.clone();
+        let available = self
+            .plugin_catalog
+            .updates
+            .as_ref()
+            .is_some_and(|state| state.read(cx).has_candidate(&summary.name));
         let icon = sailry_protocol::plugin::desktop::Icon::Name("reicon:school/book".into());
         let content = resource_card::summary(
             format!("skill-details-{id}"),
@@ -224,6 +277,17 @@ impl Workspace {
         let actions = h_flex()
             .items_center()
             .gap_2()
+            .when(available, |row| {
+                row.child(
+                    Button::new(SharedString::from(format!("skill-update-{id}")))
+                        .small()
+                        .label(tr("market_update"))
+                        .disabled(busy || self.plugin_catalog.busy(cx))
+                        .on_click(cx.listener(move |owner, _, window, cx| {
+                            owner.update_plugins(Some(&update), window, cx)
+                        })),
+                )
+            })
             .child(
                 resource_card::menu(format!("skill-menu-{id}"), card_id.clone().into())
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {

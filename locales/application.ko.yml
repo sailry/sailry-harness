@@ -2663,3 +2663,6 @@ chat_context_summary_failed: "대화 컨텍스트를 압축할 수 없음"
 
 permission_partial: "일부 허용됨"
 permission_failed: "권한 확인 실패"
+
+appearance_up_to_date: "테마가 최신 상태입니다"
+appearance_updates_available: "업데이트 있음"

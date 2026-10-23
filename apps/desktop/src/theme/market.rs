@@ -6,7 +6,8 @@ mod tests;
 mod transfer;
 
 pub(crate) use catalog::{Catalog, Entry, Selection};
-pub(crate) use installation::{Installed, Prepared};
+#[cfg(test)]
+use installation::Installed;
 use sailry_link::CancellationToken;
 use serde::{Deserialize, Serialize};
 use std::{

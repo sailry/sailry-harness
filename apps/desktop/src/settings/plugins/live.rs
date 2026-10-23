@@ -50,6 +50,20 @@ impl Catalog {
 }
 
 impl Workspace {
+    pub(in crate::settings) fn installed_plugins(&self, cx: &App) -> Vec<Summary> {
+        let Some(metadata) = &self.plugin_catalog.metadata else {
+            return Vec::new();
+        };
+        super::classification::inventory(
+            &self.plugin_catalog.packages,
+            &metadata.read(cx).entries,
+            super::classification::Kind::Plugin,
+        )
+        .into_iter()
+        .map(|info| info.summary.clone())
+        .collect()
+    }
+
     pub(in crate::settings) fn install_bundled(
         &mut self,
         name: &str,

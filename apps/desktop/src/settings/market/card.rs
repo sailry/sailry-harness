@@ -79,11 +79,17 @@ pub(super) fn row(
         )
 }
 
-pub(super) fn action(id: String, installed: bool, update: bool, cx: &App) -> Button {
-    let key = if update {
-        "market_update"
-    } else if installed {
-        "market_installed"
+pub(super) fn status(installed: bool) -> AnyElement {
+    div()
+        .when(installed, |view| {
+            view.child(tag::Tag::secondary().small().child(tr("market_installed")))
+        })
+        .into_any_element()
+}
+
+pub(super) fn action(id: String, installed: bool, cx: &App) -> Button {
+    let key = if installed {
+        "market_manage"
     } else {
         "market_install"
     };
@@ -93,28 +99,15 @@ pub(super) fn action(id: String, installed: bool, update: bool, cx: &App) -> But
         .size_8()
         .flex_shrink_0()
         .rounded_md()
-        .icon(if update {
-            IconName::RefreshCw
-        } else if installed {
-            IconName::Check
+        .icon(if installed {
+            IconName::Settings2
         } else {
             IconName::Download
         })
-        .text_color(if update {
-            cx.theme().primary
-        } else {
-            cx.theme().muted_foreground
-        })
-        .when(!installed || update, |button| {
-            button.bg(if update {
-                cx.theme().primary.opacity(0.16)
-            } else {
-                cx.theme().secondary
-            })
-        })
+        .text_color(cx.theme().muted_foreground)
+        .when(!installed, |button| button.bg(cx.theme().secondary))
         .tooltip(tr(key))
         .accessibility_label(tr(key))
-        .disabled(installed && !update)
 }
 
 pub(super) fn skeleton(cx: &App) -> AnyElement {

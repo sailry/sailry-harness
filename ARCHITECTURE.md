@@ -929,14 +929,16 @@ the complete stored data before applying changes. Third-party dependency version
 data revisions and event sequences are independent. Release compatibility remains
 a separate decision.
 
-Plugin configuration follows its declared settings surface. Plugins with settings
-pages open their existing panels from configuration actions and
-settings navigation. Other configurable plugins use the shared schema form dialog,
-with the Node and package captured when opened. MCP authorization is available
+Core Settings owns connector, plugin, standalone skill and appearance management.
+The native Market provides discovery, search, details and installation; installed
+items open their corresponding core settings details. Plugin configuration opens
+from its core detail and follows its declared settings surface. Plugins with
+settings pages open their existing panels. Other configurable plugins use the
+shared schema form dialog, with the Node and package captured when opened. MCP authorization is available
 from connection cards and plugin details.
 Plugins without configuration fields or a settings surface have no configuration action.
 Scripted settings pages preload up to four validated resource bundles per captured
-Node, warming on settings entry and navigation hover. Preloading never executes
+Node, warming on settings entry. Preloading never executes
 scripts or reads configuration values. Workspace and scripted settings navigation
 retain Kit's actual `ScriptView` and `ShellRoot` entities under their scoped owners.
 First use loads a page; later selections display the same instance and run its

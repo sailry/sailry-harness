@@ -116,7 +116,7 @@ impl Workspace {
             Command::Apply => apply(&package.id, window, cx),
             Command::Details => {
                 if package.manifest.is_some() {
-                    import::details(package, window, cx);
+                    import::details(package, self.theme_updates.clone(), window, cx);
                 }
             }
             Command::Homepage => {

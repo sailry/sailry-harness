@@ -32,3 +32,5 @@ market_skills_failed: "スキルカタログを読み込めませんでした"
 market_themes_failed: "テーマを読み込めませんでした"
 market_no_themes: "一致するテーマがありません"
 market_load_more: さらに読み込む
+
+market_manage: "管理"

@@ -5,27 +5,15 @@ use super::{
     group::{Group, Row},
 };
 use crate::{plugins::Panel, tr};
-use gpui_kit::{component::*, *};
-use sailry_protocol::plugin::{Info, Reference, desktop};
+use gpui_kit::{
+    component::{
+        button::{Button, ButtonVariants},
+        *,
+    },
+    *,
+};
+use sailry_protocol::plugin::{Info, Reference};
 use std::collections::BTreeMap;
-
-pub(crate) struct NavigationEntry {
-    pub name: String,
-    pub label: String,
-    pub icon: Option<desktop::Icon>,
-    pub placement: desktop::SettingsPlacement,
-}
-
-impl NavigationEntry {
-    fn new(name: String, page: &desktop::Settings) -> Self {
-        Self {
-            name,
-            label: page.navigation.label(&rust_i18n::locale()).into(),
-            icon: page.navigation.icon.clone(),
-            placement: page.placement,
-        }
-    }
-}
 
 #[derive(Default)]
 pub(super) struct State {
@@ -122,7 +110,7 @@ impl Workspace {
     }
 
     pub(super) fn warm_settings(&mut self, cx: &App) {
-        if self.section.is_extension()
+        if self.section == Section::Market
             || self.extensions.warmed
             || !self
                 .provider_link
@@ -164,93 +152,43 @@ impl Workspace {
             self.preload_settings(&name, cx);
         }
     }
-    pub(crate) fn configure_plugin(
-        &mut self,
-        name: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(live) = &self.provider_link else {
-            return;
-        };
-        if !live.connected {
-            return;
-        }
-        let Some(info) = self
-            .plugin_catalog
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.read(cx).entries.get(name))
-            .cloned()
-        else {
-            crate::feedback::toast(
-                window,
-                tr("plugins_read_failed"),
-                notification::Notification::error(tr("plugins_read_failed")),
-                cx,
-            );
-            return;
-        };
-        if modal::has_panel(&info) {
-            let event = modal::OpenPanel {
-                node: live.binding.client.target(),
-                name: name.into(),
-            };
-            self.open_plugin_settings(name, cx);
-            cx.emit(event);
-        } else {
-            modal::open(live.binding.clone(), info, window, cx);
-        }
-    }
-
-    pub(crate) fn configure_bound(
-        binding: crate::conversation::live::Binding,
-        info: Info,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        modal::open(
-            super::providers::Binding {
-                client: binding.client,
-                runtime: binding.runtime,
-                label: binding.host,
-            },
-            info,
-            window,
-            cx,
-        );
-    }
-
     pub(crate) fn header(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if self.section.is_extension() {
-            return Some(self.plugin_tabs(cx));
-        }
-        self.extensions
+        let header = self
+            .extensions
             .panel
             .as_ref()
             .and_then(|panel| panel.read(cx).header())
-            .filter(|header| !header.read(cx).is_empty())
-            .map(IntoElement::into_any_element)
-    }
-
-    pub(crate) fn plugin_settings_entries(&self, cx: &App) -> Vec<NavigationEntry> {
-        if let Some(metadata) = &self.plugin_catalog.metadata {
-            return metadata
-                .read(cx)
-                .entries
-                .values()
-                .filter(|info| modal::configurable(info))
-                .filter_map(|info| {
-                    let page = info.extension.as_ref()?.settings_page.as_ref()?;
-                    Some(NavigationEntry::new(info.summary.name.clone(), page))
-                })
-                .collect();
-        }
-        Vec::new()
+            .filter(|header| !header.read(cx).is_empty());
+        let name = self.selected_plugin_settings()?.to_owned();
+        let node = self.provider_link.as_ref()?.binding.client.target();
+        Some(
+            h_flex()
+                .gap_3()
+                .items_center()
+                .child(
+                    Button::new("plugin-settings-back")
+                        .ghost()
+                        .small()
+                        .icon(IconName::ChevronLeft)
+                        .label(tr("reference_back"))
+                        .on_click(move |_, window, cx| {
+                            window.dispatch_action(
+                                Box::new(super::OpenManagement {
+                                    node,
+                                    name: name.clone(),
+                                    skill: None,
+                                }),
+                                cx,
+                            )
+                        }),
+                )
+                .children(header)
+                .into_any_element(),
+        )
     }
 
     pub(crate) fn selected_plugin_settings(&self) -> Option<&str> {
@@ -290,10 +228,20 @@ impl Workspace {
     }
 
     pub(super) fn plugin_heading(&self, cx: &App) -> String {
-        self.plugin_settings_entries(cx)
-            .into_iter()
-            .find(|entry| Some(entry.name.as_str()) == self.selected_plugin_settings())
-            .map(|entry| entry.label)
+        self.selected_plugin_settings()
+            .and_then(|name| {
+                self.plugin_catalog
+                    .metadata
+                    .as_ref()?
+                    .read(cx)
+                    .entries
+                    .get(name)?
+                    .extension
+                    .as_ref()?
+                    .settings_page
+                    .as_ref()
+                    .map(|page| page.navigation.label(&rust_i18n::locale()).to_owned())
+            })
             .unwrap_or_else(|| tr("plugins_settings_title").to_string())
     }
 

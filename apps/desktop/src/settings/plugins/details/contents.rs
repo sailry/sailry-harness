@@ -148,8 +148,7 @@ impl Details {
                         || transport.to_string(),
                         |host| format!("{transport} · {host}"),
                     );
-                    let allowed = matches!(self.target, Target::Installed(_))
-                        && metadata::has_connector(info, &server.name);
+                    let allowed = matches!(self.target, Target::Installed(_));
                     let action = div().when(allowed, |view| {
                         view.child(
                             Button::new(SharedString::from(format!(

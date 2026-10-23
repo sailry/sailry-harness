@@ -46,3 +46,18 @@ connector_changed_flow: 登入流程
 connector_changed_targets: 憑證目標
 connector_changed_mcp: MCP 服務
 connector_changed_source: 外掛來源
+
+connector_authentication: "身分驗證"
+connector_account_enabled: "啟用帳號"
+connector_server_allowed: "啟用服務"
+connector_package_disabled: "外掛已停用"
+connector_account_disabled: "帳號已停用"
+connector_server_disabled: "服務已停用"
+connector_view_plugin: "檢視外掛"
+connector_tools_unchecked: "未檢查"
+connector_tools_empty: "無工具"
+connector_check_failed: "無法檢查服務"
+connector_configuration_required: "需要設定"
+connector_unavailable: "無法使用"
+connector_available: "可用"
+connector_unsaved: "未儲存"

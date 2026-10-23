@@ -14,12 +14,11 @@ mod hooks;
 mod market;
 mod models;
 mod navigation;
-pub(crate) use navigation::OpenSection;
+pub(crate) use navigation::{OpenManagement, OpenSection, OpenTheme};
 mod mcp;
 mod model_library;
 mod plugins;
-pub(crate) use navigation::{CloseDetails, OpenDetails};
-pub(crate) use plugins::open_bound as open_plugin_details;
+pub(crate) use navigation::{CloseDetails, CloseOwnedDetails, OpenDetails};
 pub(crate) use plugins::preparation::label as python_stage;
 pub(crate) use plugins::updates::connected as check_plugin_updates;
 mod preferences;
@@ -70,14 +69,12 @@ pub(crate) fn open_plugin_settings(
     window: &mut Window,
     cx: &mut App,
 ) {
-    extensions::modal::open(
-        providers::Binding {
-            client: binding.client,
-            runtime: binding.runtime,
-            label: binding.host,
-        },
-        info,
-        window,
+    window.dispatch_action(
+        Box::new(OpenManagement {
+            node: binding.client.target(),
+            name: info.summary.name,
+            skill: None,
+        }),
         cx,
     );
 }
@@ -98,7 +95,6 @@ pub enum Section {
     Plugin,
     Market,
     Plugins,
-    Mcp,
     Providers,
     Skills,
     Connections,
@@ -110,12 +106,6 @@ pub enum Section {
 }
 
 impl Section {
-    pub(crate) const EXTENSIONS: [Self; 4] = [Self::Market, Self::Plugins, Self::Skills, Self::Mcp];
-
-    pub(crate) fn is_extension(self) -> bool {
-        Self::EXTENSIONS.contains(&self)
-    }
-
     pub const GROUPS: [(&'static str, &'static [Self]); 4] = [
         (
             "settings_group_app",
@@ -132,6 +122,8 @@ impl Section {
             &[
                 Self::Providers,
                 Self::Connectors,
+                Self::Plugins,
+                Self::Skills,
                 Self::Knowledge,
                 Self::Decision,
             ],
@@ -159,6 +151,8 @@ impl Section {
             Self::Backup | Self::Decision => 300,
             Self::Appearance | Self::Connections => 200,
             Self::Connectors => 150,
+            Self::Plugins => 160,
+            Self::Skills => 170,
             Self::Conversation => 300,
             Self::Shortcuts => 400,
             Self::Hooks => 500,
@@ -184,7 +178,6 @@ impl Section {
             Self::Plugin => "plugins_settings_title",
             Self::Market => "plugins_market",
             Self::Plugins => "settings_plugins",
-            Self::Mcp => "settings_mcp",
             Self::Providers => "settings_providers",
             Self::Skills => "settings_skills",
             Self::Connections => "settings_connections",
@@ -210,7 +203,7 @@ impl Section {
             Self::Hooks => IconName::Settings2,
             Self::Plugin => IconName::Settings2,
             Self::Market | Self::Plugins => IconName::GalleryVerticalEnd,
-            Self::Mcp | Self::Providers => IconName::Cpu,
+            Self::Providers => IconName::Cpu,
             Self::Skills => IconName::Bot,
             Self::Connections => IconName::Network,
             Self::Connectors => return gpui_kit::assets::IconName::Plug.into(),
@@ -223,8 +216,8 @@ impl Section {
     }
 }
 
-pub(crate) struct OpenPlugins;
-impl EventEmitter<OpenPlugins> for Workspace {}
+pub(crate) struct OpenMarket;
+impl EventEmitter<OpenMarket> for Workspace {}
 
 pub struct Workspace {
     connections: Entity<connections::Connections>,
@@ -242,6 +235,7 @@ pub struct Workspace {
     hooks: hooks::State,
     conversation: conversation::State,
     opacity: appearance::opacity::State,
+    theme_updates: Entity<appearance::updates::State>,
     theme_focus: FocusHandle,
     shortcuts: Entity<shortcuts::Panel>,
     dictation: Entity<dictation::Panel>,
@@ -258,6 +252,7 @@ pub struct Workspace {
     plugins: Vec<plugins::Plugin>,
     plugin_serial: usize,
     plugin_catalog: plugins::Catalog,
+    management: Option<sailry_protocol::RequestId>,
 }
 
 impl Workspace {
@@ -291,6 +286,12 @@ impl Workspace {
                 ]
                 .into_iter()
                 .flatten()
+                .chain(
+                    view.plugin_catalog
+                        .metadata
+                        .iter()
+                        .flat_map(|metadata| metadata.read(cx).errors.values().copied()),
+                )
                 .collect()
             },
             |_, key, _| {
@@ -328,6 +329,8 @@ impl Workspace {
         .detach();
         cx.observe(&terminal.font_size, |_, _, cx| cx.notify())
             .detach();
+        let theme_updates = cx.new(|cx| appearance::updates::State::new(cx));
+        cx.observe(&theme_updates, |_, _, cx| cx.notify()).detach();
         Self {
             connections: cx.new(|cx| connections::Connections::new(window, cx)),
             connectors: connectors::State::new(window, cx),
@@ -344,6 +347,7 @@ impl Workspace {
             hooks: hooks::State::default(),
             conversation: conversation::State::new(window, cx),
             opacity: appearance::opacity::State::new(cx),
+            theme_updates,
             theme_focus: cx.focus_handle(),
             shortcuts: cx.new(shortcuts::Panel::new),
             dictation: cx.new(dictation::Panel::new),
@@ -360,10 +364,12 @@ impl Workspace {
             plugins: vec![plugins::Plugin::example()],
             plugin_serial: 0,
             plugin_catalog: plugins::Catalog::default(),
+            management: None,
         }
     }
 
     pub fn select(&mut self, section: Section, cx: &mut Context<Self>) {
+        self.management = None;
         if section != Section::Connections {
             self.deactivate(cx);
         } else {
@@ -382,13 +388,14 @@ impl Workspace {
         if section == Section::Providers {
             self.refresh_catalog(providers::Source::Automatic, cx);
         }
-        if section.is_extension() {
-            cx.emit(OpenPlugins);
+        if section == Section::Market {
+            cx.emit(OpenMarket);
         }
         cx.notify();
     }
 
     pub fn leave(&mut self, cx: &mut Context<Self>) {
+        self.management = None;
         self.deactivate(cx);
         self.extensions.clear_resources();
     }
@@ -472,7 +479,6 @@ impl Render for Workspace {
             }
             Section::Market => self.plugin_page(window, cx),
             Section::Plugins => self.plugins(cx),
-            Section::Mcp => self.mcp(cx),
             Section::Skills => self.skills(cx),
             _ => self.catalog(cx),
         };

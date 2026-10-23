@@ -2663,3 +2663,6 @@ chat_context_summary_failed: "Impossible de condenser la conversation"
 
 permission_partial: "Partiellement autorisé"
 permission_failed: "Échec de la vérification des autorisations"
+
+appearance_up_to_date: "Les thèmes sont à jour"
+appearance_updates_available: "Mises à jour disponibles"

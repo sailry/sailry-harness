@@ -2663,3 +2663,6 @@ chat_context_summary_failed: "Не удалось сократить конте�
 
 permission_partial: "Частично разрешено"
 permission_failed: "Не удалось проверить разрешение"
+
+appearance_up_to_date: "Темы обновлены"
+appearance_updates_available: "Доступны обновления"

@@ -46,3 +46,18 @@ connector_changed_flow: Fluxo de login
 connector_changed_targets: Destinos de credenciais
 connector_changed_mcp: Servidores MCP
 connector_changed_source: Origem do pacote
+
+connector_authentication: "Autenticação"
+connector_account_enabled: "Ativar conta"
+connector_server_allowed: "Ativar servidor"
+connector_package_disabled: "Plugin desativado"
+connector_account_disabled: "Conta desativada"
+connector_server_disabled: "Servidor desativado"
+connector_view_plugin: "Ver plugin"
+connector_tools_unchecked: "Não verificado"
+connector_tools_empty: "Sem ferramentas"
+connector_check_failed: "Não foi possível verificar o serviço"
+connector_configuration_required: "Configuração necessária"
+connector_unavailable: "Indisponível"
+connector_available: "Disponível"
+connector_unsaved: "Não salvo"

@@ -2663,3 +2663,6 @@ chat_context_summary_failed: "Der Gesprächskontext konnte nicht komprimiert wer
 
 permission_partial: "Teilweise autorisiert"
 permission_failed: "Berechtigungsprüfung fehlgeschlagen"
+
+appearance_up_to_date: "Themes sind aktuell"
+appearance_updates_available: "Updates verfügbar"

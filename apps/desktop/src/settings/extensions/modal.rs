@@ -28,7 +28,13 @@ pub(crate) fn configurable(info: &Info) -> bool {
             .is_some_and(|page| page.entry.is_some())
 }
 
-pub(in crate::settings) fn open(binding: Binding, info: Info, window: &mut Window, cx: &mut App) {
+pub(in crate::settings) fn open(
+    owner: Entity<Workspace>,
+    binding: Binding,
+    info: Info,
+    window: &mut Window,
+    cx: &mut App,
+) {
     if has_panel(&info) {
         window.dispatch_action(
             Box::new(OpenPanel {
@@ -38,7 +44,8 @@ pub(in crate::settings) fn open(binding: Binding, info: Info, window: &mut Windo
             cx,
         );
     } else if configurable(&info) {
-        configuration::panel(binding, info.summary, window, cx);
+        let editor = configuration::panel(binding, info.summary, window, cx);
+        configuration::bind_owner(&editor, &owner, window, cx);
     } else {
         crate::feedback::toast(
             window,

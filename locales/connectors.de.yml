@@ -46,3 +46,18 @@ connector_changed_flow: Anmeldeablauf
 connector_changed_targets: Anmeldedatenziele
 connector_changed_mcp: MCP-Server
 connector_changed_source: Paketquelle
+
+connector_authentication: "Authentifizierung"
+connector_account_enabled: "Konto aktivieren"
+connector_server_allowed: "Server aktivieren"
+connector_package_disabled: "Plugin deaktiviert"
+connector_account_disabled: "Konto deaktiviert"
+connector_server_disabled: "Server deaktiviert"
+connector_view_plugin: "Plugin anzeigen"
+connector_tools_unchecked: "Nicht geprüft"
+connector_tools_empty: "Keine Werkzeuge"
+connector_check_failed: "Dienst konnte nicht geprüft werden"
+connector_configuration_required: "Konfiguration erforderlich"
+connector_unavailable: "Nicht verfügbar"
+connector_available: "Verfügbar"
+connector_unsaved: "Nicht gespeichert"

@@ -32,6 +32,7 @@ enum Target {
 }
 
 pub(crate) struct Details {
+    owner: WeakEntity<Workspace>,
     binding: Binding,
     target: Target,
     info: Option<Info>,
@@ -61,37 +62,46 @@ pub(in crate::settings) fn open(
     let Some(live) = &owner.read(cx).provider_link else {
         return;
     };
+    let binding = live.binding.clone();
     mount(
-        live.binding.clone(),
+        owner,
+        binding,
         Target::Installed(expected),
+        None,
         stop,
         window,
         cx,
     );
 }
 
-pub(crate) fn open_bound(
-    client: std::sync::Arc<sailry_client::Client>,
-    runtime: std::sync::Arc<tokio::runtime::Runtime>,
-    label: SharedString,
-    expected: Summary,
+pub(in crate::settings) fn open_management(
+    owner: Entity<Workspace>,
+    binding: Binding,
+    info: Info,
+    contents: bool,
     window: &mut Window,
     cx: &mut App,
 ) {
-    mount(
-        Binding {
-            client,
-            runtime,
-            label,
-        },
-        Target::Installed(expected),
+    let target = Target::Installed(info.summary.clone());
+    let details = mount(
+        owner,
+        binding,
+        target,
+        Some(info),
         CancellationToken::new(),
         window,
         cx,
     );
+    if contents {
+        details.update(cx, |details, cx| {
+            details.tab = Tab::Contents;
+            cx.notify();
+        });
+    }
 }
 
 pub(in crate::settings) fn open_catalog(
+    owner: Entity<Workspace>,
     market: Entity<market::Market>,
     binding: Binding,
     source: Source,
@@ -101,12 +111,14 @@ pub(in crate::settings) fn open_catalog(
     cx: &mut App,
 ) -> Entity<Details> {
     mount(
+        owner,
         binding,
         Target::Catalog {
             market: market.downgrade(),
             entry: Box::new(entry),
             source,
         },
+        None,
         stop,
         window,
         cx,
@@ -114,22 +126,53 @@ pub(in crate::settings) fn open_catalog(
 }
 
 fn mount(
+    owner: Entity<Workspace>,
     binding: Binding,
     target: Target,
+    info: Option<Info>,
     stop: CancellationToken,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Details> {
     let update_state = updates::bind(binding.clone(), cx);
+    let node = binding.client.target();
+    let section = owner.read(cx).section;
     let details = cx.new(|cx| {
+        cx.observe_in(
+            &owner,
+            window,
+            move |details: &mut Details, owner, window, cx| {
+                let workspace = owner.read(cx);
+                if !details.stop.is_cancelled()
+                    && (workspace.section != section
+                        || workspace
+                            .provider_link
+                            .as_ref()
+                            .is_none_or(|live| live.binding.client.target() != node))
+                {
+                    details.stop.cancel();
+                    window.dispatch_action(
+                        Box::new(super::super::CloseOwnedDetails(cx.entity_id())),
+                        cx,
+                    );
+                }
+            },
+        )
+        .detach();
         cx.observe(&update_state, |_, _, cx| cx.notify()).detach();
+        if let Target::Catalog { market, .. } = &target
+            && let Some(market) = market.upgrade()
+        {
+            cx.observe(&market, |_, _, cx| cx.notify()).detach();
+        }
         Details {
+            owner: owner.downgrade(),
             updates: update_state,
             tab: Tab::Overview,
             scroll: ScrollHandle::new(),
             binding,
             target,
-            info: None,
+            info,
             external: None,
             error: None,
             stop,
@@ -158,7 +201,9 @@ fn mount(
             },
         );
     });
-    details.update(cx, |details, cx| details.load(cx));
+    if details.read(cx).info.is_none() {
+        details.update(cx, |details, cx| details.load(cx));
+    }
     window.dispatch_action(
         Box::new(super::super::OpenDetails(details.clone().into())),
         cx,
@@ -188,10 +233,13 @@ impl Details {
         if info.summary.reference() != expected.reference() {
             return;
         }
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
         let binding = self.binding.clone();
         self.stop.cancel();
         dismiss(window, cx);
-        super::super::extensions::modal::open(binding, info, window, cx);
+        super::super::extensions::modal::open(owner, binding, info, window, cx);
     }
 
     fn pending(&self, cx: &App) -> bool {
@@ -203,6 +251,10 @@ impl Details {
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.catalog_installed(cx).is_some() {
+            self.manage(window, cx);
+            return;
+        }
         if self.stop.is_cancelled() || !self.ready() || self.error.is_some() || self.pending(cx) {
             return;
         }
@@ -265,6 +317,27 @@ impl Details {
                 dismiss(window, cx);
                 market.update(cx, |market, cx| market.install(source, entry, window, cx));
             }
+        }
+    }
+
+    fn catalog_installed(&self, cx: &App) -> Option<Summary> {
+        let Target::Catalog { market, entry, .. } = &self.target else {
+            return None;
+        };
+        let market = market.upgrade()?;
+        market.read(cx).installed(&entry.name, cx)
+    }
+
+    fn manage(&self, window: &mut Window, cx: &mut App) {
+        if let Some(summary) = self.catalog_installed(cx) {
+            window.dispatch_action(
+                Box::new(super::super::OpenManagement {
+                    node: self.binding.client.target(),
+                    name: summary.name,
+                    skill: None,
+                }),
+                cx,
+            );
         }
     }
 

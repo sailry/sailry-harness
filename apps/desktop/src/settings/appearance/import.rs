@@ -55,14 +55,31 @@ pub(super) fn load(path: PathBuf, window: &mut Window, cx: &mut App) {
 }
 
 pub(super) fn preview(loaded: Loaded, window: &mut Window, cx: &mut App) {
-    open(theme::Package::preview(&loaded), Some(loaded), window, cx);
+    open(
+        theme::Package::preview(&loaded),
+        Some(loaded),
+        None,
+        window,
+        cx,
+    );
 }
 
-pub(super) fn details(package: theme::Package, window: &mut Window, cx: &mut App) {
-    open(package, None, window, cx);
+pub(super) fn details(
+    package: theme::Package,
+    updates: Entity<updates::State>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    open(package, None, Some(updates), window, cx);
 }
 
-fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx: &mut App) {
+fn open(
+    package: theme::Package,
+    loaded: Option<Loaded>,
+    updates: Option<Entity<updates::State>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let importing = loaded.is_some();
     let view = cx.new(|_| Import {
         package,
@@ -73,6 +90,9 @@ fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx
     });
     view.update(cx, |_, cx| {
         crate::feedback::observe(window, cx, |view, _| view.error.into_iter().collect());
+        if let Some(updates) = &updates {
+            cx.observe(updates, |_, _, cx| cx.notify()).detach();
+        }
     });
     window.open_dialog(cx, move |dialog, window, cx| {
         let busy = view.read(cx).busy;
@@ -83,6 +103,13 @@ fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx
                 .iter()
                 .any(|package| package.id == view.read(cx).package.id);
         let save = view.clone();
+        let id = view.read(cx).package.id.clone();
+        let update = updates
+            .as_ref()
+            .is_some_and(|updates| updates.read(cx).available(&id));
+        let pending = updates
+            .as_ref()
+            .is_some_and(|updates| updates.read(cx).pending(&id));
         dialog
             .form_title(
                 div()
@@ -130,6 +157,29 @@ fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx
                                 .loading(busy)
                                 .on_click(move |_, window, cx| {
                                     save.update(cx, |view, cx| view.save(window, cx))
+                                }),
+                        )
+                    })
+                    .when(!importing, |footer| {
+                        let apply = id.clone();
+                        footer.child(
+                            Button::new("theme-details-apply")
+                                .label(tr("appearance_select"))
+                                .on_click(move |_, window, cx| {
+                                    super::menu::apply(&apply, window, cx)
+                                }),
+                        )
+                    })
+                    .when(update || pending, |footer| {
+                        let updates = updates.clone().expect("theme updates are bound");
+                        footer.child(
+                            Button::new("theme-details-update")
+                                .primary()
+                                .label(tr("market_update"))
+                                .disabled(pending)
+                                .loading(pending)
+                                .on_click(move |_, window, cx| {
+                                    updates.update(cx, |state, cx| state.update(&id, window, cx))
                                 }),
                         )
                     }),
@@ -222,11 +272,9 @@ impl Import {
 
 impl Render for Import {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let manifest = self
-            .package
-            .manifest
-            .as_ref()
-            .expect("imported theme manifest");
+        let Some(manifest) = self.package.manifest.as_ref() else {
+            return theme::preview(&self.package, cx.theme().is_dark(), cx).into_any_element();
+        };
         let license = &manifest.license;
         let width = (window.viewport_size().width - px(48.)).min(px(640.));
         let value_width = (width - px(88.)) * 0.55;
@@ -368,5 +416,6 @@ impl Render for Import {
                         cx.notify();
                     })),
             )
+            .into_any_element()
     }
 }

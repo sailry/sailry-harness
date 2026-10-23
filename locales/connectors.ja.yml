@@ -46,3 +46,18 @@ connector_changed_flow: ログイン方式
 connector_changed_targets: 認証情報の送信先
 connector_changed_mcp: MCP サーバー
 connector_changed_source: パッケージの取得元
+
+connector_authentication: "認証"
+connector_account_enabled: "アカウントを有効化"
+connector_server_allowed: "サーバーを有効化"
+connector_package_disabled: "プラグインは無効"
+connector_account_disabled: "アカウントは無効"
+connector_server_disabled: "サーバーは無効"
+connector_view_plugin: "プラグインを表示"
+connector_tools_unchecked: "未確認"
+connector_tools_empty: "ツールなし"
+connector_check_failed: "サービスを確認できませんでした"
+connector_configuration_required: "設定が必要"
+connector_unavailable: "利用不可"
+connector_available: "利用可能"
+connector_unsaved: "未保存"

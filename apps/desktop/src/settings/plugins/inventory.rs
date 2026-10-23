@@ -91,8 +91,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let packages = self.installed_plugins(cx);
         let catalog = &self.plugin_catalog;
         let updates = catalog.updates.as_ref().map(|state| state.read(cx));
+        let metadata = catalog.metadata.as_ref().map(|state| state.read(cx));
         let mut heading = vec![
             (
                 tr("settings_plugins").to_string(),
@@ -102,14 +104,29 @@ impl Workspace {
             (
                 String::new(),
                 String::new(),
-                updates.is_some_and(|state| state.available() > 0 || state.applying()),
+                updates.is_some_and(|state| {
+                    packages
+                        .iter()
+                        .any(|plugin| state.has_candidate(&plugin.name))
+                        || state.applying()
+                }),
             ),
             (
                 String::new(),
                 String::new(),
-                catalog.packages.is_empty() && self.provider_link.as_ref().unwrap().connected,
+                packages.is_empty() && self.provider_link.as_ref().unwrap().connected,
             ),
             (String::new(), String::new(), catalog.python.connected),
+            (
+                String::new(),
+                String::new(),
+                metadata.is_some_and(|metadata| metadata.settled()),
+            ),
+            (
+                String::new(),
+                String::new(),
+                metadata.is_some_and(|metadata| !metadata.errors.is_empty()),
+            ),
         ];
         if catalog.python.connected {
             heading.extend(
@@ -133,7 +150,7 @@ impl Workspace {
             );
         }
         let mut content = vec![(Vec::new(), heading)];
-        content.extend(catalog.packages.chunks(2).map(|plugins| {
+        content.extend(packages.chunks(2).map(|plugins| {
             let names = plugins.iter().map(|plugin| plugin.name.clone()).collect();
             let text = plugins
                 .iter()
@@ -185,14 +202,14 @@ impl Workspace {
                         .description(tr("settings_plugins_description"))
                         .child(self.inventory_controls(cx))
                         .content(cx)
-                        .when(!self.plugin_catalog.packages.is_empty(), |content| {
-                            content.pb_4()
-                        }),
+                        .when(
+                            self.plugin_catalog.inventory.as_ref().unwrap().rows.len() > 1,
+                            |content| content.pb_4(),
+                        ),
                 )
                 .into_any_element();
         }
-        let start = (index - 1) * 2;
-        let end = (start + 2).min(self.plugin_catalog.packages.len());
+        let final_row = index + 1 == self.plugin_catalog.inventory.as_ref().unwrap().rows.len();
         let busy = !self.provider_link.as_ref().unwrap().connected || self.plugin_catalog.busy(cx);
         div()
             .w_full()
@@ -204,7 +221,7 @@ impl Workspace {
                     .mx_auto()
                     .px_6()
                     .pb_3()
-                    .when(end == self.plugin_catalog.packages.len(), |row| row.pb_6())
+                    .when(final_row, |row| row.pb_6())
                     .child(
                         resource_card::grid()
                             .debug_selector(move || {
@@ -215,8 +232,14 @@ impl Workspace {
                                 }
                             })
                             .children(
-                                self.plugin_catalog.packages[start..end]
+                                row.names
                                     .iter()
+                                    .filter_map(|name| {
+                                        self.plugin_catalog
+                                            .packages
+                                            .iter()
+                                            .find(|plugin| plugin.name == *name)
+                                    })
                                     .map(|plugin| self.plugin_card(plugin, busy, cx)),
                             ),
                     ),

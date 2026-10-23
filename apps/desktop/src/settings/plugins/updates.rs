@@ -149,7 +149,7 @@ impl State {
     pub(super) fn selecting(&self) -> bool {
         self.dialog.is_some()
     }
-    pub(super) fn checking(&self) -> bool {
+    pub(in crate::settings) fn checking(&self) -> bool {
         self.check.is_some()
     }
     pub(super) fn applying(&self) -> bool {
@@ -290,7 +290,11 @@ pub(crate) fn connected(
 }
 
 impl Workspace {
-    pub(super) fn check_plugin_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::settings) fn check_plugin_updates(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.plugin_catalog.busy(cx)
             || self
                 .provider_link
@@ -319,7 +323,14 @@ impl Workspace {
             return;
         }
         if let Some(state) = &self.plugin_catalog.updates {
-            state.update(cx, |state, cx| state.apply(name, window, cx));
+            let packages = name.is_none().then(|| self.installed_plugins(cx));
+            state.update(cx, |state, cx| {
+                if let Some(packages) = packages {
+                    state.apply_packages(&packages, window, cx);
+                } else {
+                    state.apply(name, window, cx);
+                }
+            });
         }
     }
 
@@ -460,6 +471,30 @@ impl State {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let names = name.map(|name| BTreeSet::from([name.to_owned()]));
+        self.apply_selection(names.as_ref(), name.is_some(), window, cx);
+    }
+
+    fn apply_packages(
+        &mut self,
+        packages: &[Summary],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let names = packages
+            .iter()
+            .map(|package| package.name.clone())
+            .collect();
+        self.apply_selection(Some(&names), false, window, cx);
+    }
+
+    fn apply_selection(
+        &mut self,
+        selected: Option<&BTreeSet<String>>,
+        single: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.busy() || (self.dialog.is_some() && !self.popup.focused(window, cx)) {
             return;
         }
@@ -471,11 +506,11 @@ impl State {
             .entries
             .iter()
             .filter(|(key, entry)| {
-                name.is_none_or(|name| key.as_str() == name)
+                selected.is_none_or(|names| names.contains(key.as_str()))
                     && entry.candidate.is_some()
                     && state.dialog.as_ref().is_none_or(|dialog| {
                         dialog.rows.get(*key).is_some_and(|row| {
-                            row.selected && (name.is_some() || row.status == view::Status::Ready)
+                            row.selected && (single || row.status == view::Status::Ready)
                         })
                     })
             })

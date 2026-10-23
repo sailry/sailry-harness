@@ -2656,3 +2656,6 @@ chat_context_summary_failed: "无法压缩会话上下文"
 
 permission_partial: "部分授权"
 permission_failed: "权限检查失败"
+
+appearance_up_to_date: "主题已是最新"
+appearance_updates_available: "有可用更新"

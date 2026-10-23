@@ -53,7 +53,7 @@ impl Feature {
     }
 
     pub fn last(&self) -> bool {
-        matches!(self.destination, Destination::Page(Page::Plugins))
+        matches!(self.destination, Destination::Page(Page::Market))
     }
 
     pub fn selector(&self) -> String {
@@ -148,13 +148,18 @@ impl Shell {
                     Icon::default().path("reicon:messages/chat-round")
                 } else if page == Page::Activity {
                     Icon::default().path("reicon:ui/grid")
-                } else if page == Page::Plugins {
+                } else if page == Page::Market {
                     Icon::default().path("reicon:ui/puzzle-piece")
                 } else {
                     Icon::new(page.icon())
                 };
                 Feature {
-                    key: format!("page:{}", page.key()),
+                    // Renaming the discovery entry preserves this controller's pin and order.
+                    key: if page == Page::Market {
+                        "page:settings_plugins".into()
+                    } else {
+                        format!("page:{}", page.key())
+                    },
                     label: page.label(),
                     icon,
                     destination: Destination::Page(page),

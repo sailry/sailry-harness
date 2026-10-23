@@ -141,6 +141,13 @@ impl Workspace {
         let Some(binding) = self.connectors.binding.clone() else {
             return;
         };
+        if self
+            .provider_link
+            .as_ref()
+            .is_none_or(|live| live.binding.client.target() != binding.client.target())
+        {
+            return;
+        }
         let id = match &command {
             Command::StartConnectorLogin {
                 connection: Some(connection),

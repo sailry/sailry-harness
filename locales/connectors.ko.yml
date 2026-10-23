@@ -46,3 +46,18 @@ connector_changed_flow: 로그인 방식
 connector_changed_targets: 인증 정보 대상
 connector_changed_mcp: MCP 서버
 connector_changed_source: 패키지 출처
+
+connector_authentication: "인증"
+connector_account_enabled: "계정 활성화"
+connector_server_allowed: "서버 활성화"
+connector_package_disabled: "플러그인 비활성화됨"
+connector_account_disabled: "계정 비활성화됨"
+connector_server_disabled: "서버 비활성화됨"
+connector_view_plugin: "플러그인 보기"
+connector_tools_unchecked: "확인하지 않음"
+connector_tools_empty: "도구 없음"
+connector_check_failed: "서비스를 확인할 수 없습니다"
+connector_configuration_required: "설정 필요"
+connector_unavailable: "사용 불가"
+connector_available: "사용 가능"
+connector_unsaved: "저장하지 않음"

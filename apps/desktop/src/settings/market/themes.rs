@@ -6,22 +6,17 @@ pub(super) struct State {
     columns: u16,
     pub(super) service: Option<Arc<service::Service>>,
     pub(super) listing: Option<service::Listing>,
-    pub(super) installed: BTreeMap<String, service::Installed>,
+    pub(super) updates: Entity<crate::settings::appearance::updates::State>,
     previews: BTreeMap<(String, bool), Arc<Image>>,
 }
 
 impl State {
-    pub fn new(cx: &App) -> Self {
+    pub fn new(updates: Entity<crate::settings::appearance::updates::State>, cx: &App) -> Self {
         Self {
             columns: 3,
-            service: cx
-                .global::<theme::Catalog>()
-                .root
-                .clone()
-                .and_then(|root| service::Service::new(root).ok())
-                .map(Arc::new),
+            service: updates.read(cx).service.clone(),
+            updates,
             listing: None,
-            installed: BTreeMap::new(),
             previews: BTreeMap::new(),
         }
     }
@@ -47,27 +42,33 @@ impl Market {
         let cancelled = stop.clone();
         let job = self.binding.runtime.spawn(async move {
             let listing = service.list(force, &cancelled).await?;
-            let mut installed = BTreeMap::new();
-            let mut previews = Vec::new();
-            for entry in &listing.catalog.themes {
-                if cancelled.is_cancelled() {
-                    return Err(service::Failure::Cancelled);
-                }
-                if let Some(value) = service.installed(&entry.id).await? {
-                    installed.insert(entry.id.clone(), value);
-                }
-                if let Some(selection) = listing.selection(&entry.id) {
-                    for dark in [false, true] {
-                        if let Ok(Some(bytes)) = service
-                            .preview(&selection, if dark { "dark" } else { "light" }, &cancelled)
+            let requests = listing
+                .catalog
+                .themes
+                .iter()
+                .filter_map(|entry| listing.selection(&entry.id))
+                .flat_map(|selection| [false, true].map(|dark| (selection.clone(), dark)))
+                .map(|(selection, dark)| {
+                    let service = service.clone();
+                    let stop = cancelled.clone();
+                    async move {
+                        service
+                            .preview(&selection, if dark { "dark" } else { "light" }, &stop)
                             .await
-                        {
-                            previews.push((entry.id.clone(), dark, bytes));
-                        }
+                            .ok()
+                            .flatten()
+                            .map(|bytes| (selection.entry.id, dark, bytes))
                     }
-                }
+                });
+            let previews = futures::future::join_all(requests)
+                .await
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            if cancelled.is_cancelled() {
+                return Err(service::Failure::Cancelled);
             }
-            Ok((listing, installed, previews))
+            Ok((listing, previews))
         });
         self.task = Some(cx.spawn(async move |state, cx| {
             let result = job.await;
@@ -77,11 +78,10 @@ impl Market {
                 }
                 state.pending = None;
                 match result {
-                    Ok(Ok((listing, installed, previews))) => {
+                    Ok(Ok((listing, previews))) => {
                         state.error = listing.unavailable.then_some("market_themes_failed");
                         state.paging.failed = listing.unavailable.then_some(1);
                         state.themes.listing = Some(listing);
-                        state.themes.installed = installed;
                         for (id, dark, bytes) in previews {
                             if let Some(image) = image(bytes) {
                                 state.themes.previews.insert((id, dark), image);
@@ -105,131 +105,18 @@ impl Market {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.pending.is_some() {
+        if cx
+            .global::<theme::Catalog>()
+            .packages
+            .iter()
+            .any(|package| package.id == selection.entry.id)
+        {
+            window.dispatch_action(Box::new(crate::settings::OpenTheme(selection.entry.id)), cx);
             return;
         }
-        let Some(service) = self.themes.service.clone() else {
-            return;
-        };
-        let id = selection.entry.id.clone();
-        let stop = self.begin(Loading::Theme(id));
-        let cancelled = stop.clone();
-        let downloader = service.clone();
-        let job = self
-            .binding
-            .runtime
-            .spawn(async move { downloader.download(selection, &cancelled).await });
-        self.task = Some(cx.spawn_in(window, async move |state, cx| {
-            let result = job.await;
-            _ = state.update_in(cx, |state, window, cx| {
-                if stop.is_cancelled() {
-                    return;
-                }
-                match result {
-                    Ok(Ok(prepared)) => {
-                        if let Err(error) = cx.global::<theme::Catalog>().check(&prepared.loaded) {
-                            eprintln!("could not install theme: {error}");
-                            state.pending = None;
-                            state.error = Some("appearance_import_conflict");
-                            cx.notify();
-                            return;
-                        }
-                        state.publish_theme(service, prepared, stop, window, cx);
-                    }
-                    _ => {
-                        state.pending = None;
-                        state.error = Some("appearance_load_failed");
-                        cx.notify();
-                    }
-                }
-            });
-        }));
-        cx.notify();
-    }
-
-    fn publish_theme(
-        &mut self,
-        service: Arc<service::Service>,
-        prepared: service::Prepared,
-        stop: CancellationToken,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let cancelled = stop.clone();
-        let job = self
-            .binding
-            .runtime
-            .spawn(async move { service.install(prepared, &stop).await });
-        let origin = window.window_handle();
-        // Publication belongs to the controller Catalog even if this view is closed.
-        cx.spawn(async move |state, cx| {
-            let result = job.await;
-            let feedback = cx.update(|cx| {
-                _ = state.update(cx, |state, cx| {
-                    if !cancelled.is_cancelled() {
-                        state.pending = None;
-                        cx.notify();
-                    }
-                });
-                match result {
-                    Ok(Ok(result)) => {
-                        let id = result.loaded.manifest.id.clone();
-                        let registered = cx.update_global::<theme::Catalog, _>(|catalog, _| {
-                            let active = catalog.packages[catalog.selected].id == id;
-                            catalog.add(result.loaded)?;
-                            catalog.error = None;
-                            Ok::<_, String>(
-                                active.then(|| catalog.packages[catalog.selected].clone()),
-                            )
-                        });
-                        match registered {
-                            Ok(active) => {
-                                _ = state.update(cx, |state, cx| {
-                                    state.themes.installed.insert(id, result.installed);
-                                    cx.notify();
-                                });
-                                if let Some(package) = active {
-                                    theme::apply_colors(package, None, cx);
-                                }
-                                cx.refresh_windows();
-                                Some(("appearance_import_done", false))
-                            }
-                            Err(error) => {
-                                eprintln!("could not register installed theme: {error}");
-                                Some(("appearance_load_failed", true))
-                            }
-                        }
-                    }
-                    Ok(Err(service::Failure::Cancelled)) => None,
-                    Ok(Err(error)) => {
-                        eprintln!("could not publish theme: {error}");
-                        Some((
-                            if matches!(error, service::Failure::Publication { .. }) {
-                                "appearance_save_uncertain"
-                            } else {
-                                "appearance_save_failed"
-                            },
-                            true,
-                        ))
-                    }
-                    Err(_) => Some(("appearance_save_uncertain", true)),
-                }
-            });
-            if let Some((key, failed)) = feedback
-                && let Some(target) = cx.update(|cx| crate::installations::target(origin, cx))
-            {
-                _ = target.update(cx, |_, window, cx| {
-                    let message = tr(key);
-                    let notification = if failed {
-                        gpui_kit::component::notification::Notification::error(message.clone())
-                    } else {
-                        gpui_kit::component::notification::Notification::success(message.clone())
-                    };
-                    crate::feedback::toast(window, message, notification, cx);
-                });
-            }
-        })
-        .detach();
+        self.themes
+            .updates
+            .update(cx, |state, cx| state.install(selection, window, cx));
     }
 
     pub(super) fn theme_cards(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -290,16 +177,13 @@ impl Market {
                     .into_any_element(),
                 Button::new(SharedString::from(format!("market-theme-apply-{id}")))
                     .small()
-                    .label(tr(if current {
-                        "market_theme_current"
-                    } else {
-                        "market_theme_apply"
-                    }))
-                    .disabled(current)
+                    .label(tr("market_manage"))
                     .on_click(move |_, window, cx| {
                         cx.stop_propagation();
-                        apply(&id, window, cx)
+                        window
+                            .dispatch_action(Box::new(crate::settings::OpenTheme(id.clone())), cx);
                     }),
+                true,
                 current,
                 cx,
             ));
@@ -310,11 +194,6 @@ impl Market {
                 .iter()
                 .find(|package| package.id == entry.id);
             let installed = package.is_some();
-            let update = self
-                .themes
-                .installed
-                .get(&entry.id)
-                .is_some_and(|installed| entry.update_available(installed));
             let current = *selected == entry.id;
             let selection = self
                 .themes
@@ -342,28 +221,21 @@ impl Market {
                     .into_any_element()
             };
             let id = entry.id.clone();
-            let key = if update {
-                "market_update"
-            } else if current {
-                "market_theme_current"
-            } else if installed {
-                "market_theme_apply"
-            } else {
-                "market_install"
-            };
+            let pending = self.themes.updates.read(cx).pending(&id);
             let action = Button::new(SharedString::from(format!("market-theme-action-{id}")))
                 .small()
-                .label(tr(key))
-                .disabled(
-                    self.pending.is_some()
-                        || current && !update
-                        || (!installed || update) && selection.is_none(),
-                )
-                .loading(matches!(&self.pending, Some(Loading::Theme(value)) if *value == id))
+                .label(tr(if installed {
+                    "market_manage"
+                } else {
+                    "market_install"
+                }))
+                .disabled(!installed && (pending || selection.is_none()))
+                .loading(pending)
                 .on_click(cx.listener(move |state, _, window, cx| {
                     cx.stop_propagation();
-                    if installed && !update {
-                        apply(&id, window, cx);
+                    if installed {
+                        window
+                            .dispatch_action(Box::new(crate::settings::OpenTheme(id.clone())), cx);
                     } else if let Some(selection) = selection.clone() {
                         state.install_theme(selection, window, cx);
                     }
@@ -377,6 +249,7 @@ impl Market {
                     .to_owned(),
                 preview,
                 action,
+                installed,
                 current,
                 cx,
             ));
@@ -423,6 +296,7 @@ impl Market {
         description: String,
         preview: AnyElement,
         action: Button,
+        installed: bool,
         current: bool,
         cx: &Context<Self>,
     ) -> AnyElement {
@@ -483,7 +357,13 @@ impl Market {
                                         )
                                     }),
                             )
-                            .child(action.flex_shrink_0()),
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(card::status(installed))
+                                    .child(action.flex_shrink_0()),
+                            ),
                     ),
             )
             .on_click(cx.listener(move |state, _, window, cx| {
@@ -495,17 +375,6 @@ impl Market {
                 });
             }))
             .into_any_element()
-    }
-}
-
-pub(super) fn apply(id: &str, window: &mut Window, cx: &mut App) {
-    if let Some(index) = cx
-        .global::<theme::Catalog>()
-        .packages
-        .iter()
-        .position(|package| package.id == id)
-    {
-        theme::apply(index, Some(window), cx);
     }
 }
 

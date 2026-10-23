@@ -46,3 +46,18 @@ connector_changed_flow: Sign-in flow
 connector_changed_targets: Credential targets
 connector_changed_mcp: MCP servers
 connector_changed_source: Package source
+
+connector_authentication: "Authentication"
+connector_account_enabled: "Enable account"
+connector_server_allowed: "Enable server"
+connector_package_disabled: "Plugin disabled"
+connector_account_disabled: "Account disabled"
+connector_server_disabled: "Server disabled"
+connector_view_plugin: "View plugin"
+connector_tools_unchecked: "Not checked"
+connector_tools_empty: "No tools"
+connector_check_failed: "Could not check service"
+connector_configuration_required: "Configuration required"
+connector_unavailable: "Unavailable"
+connector_available: "Available"
+connector_unsaved: "Unsaved"

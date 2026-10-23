@@ -125,9 +125,9 @@ impl Details {
         cx.notify();
     }
 
-    fn submit(&self, installed: bool, update: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if installed && !update {
-            super::super::themes::apply(&self.id, window, cx);
+    fn submit(&self, installed: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if installed {
+            window.dispatch_action(Box::new(crate::settings::OpenTheme(self.id.clone())), cx);
         } else if let Some(selection) = self.selection.clone()
             && let Some(market) = self.market.upgrade()
         {
@@ -145,49 +145,43 @@ impl Render for Details {
             .find(|package| package.id == self.id);
         let package = installed.or(self.preview.as_ref());
         let manifest = package.and_then(|package| package.manifest.as_ref());
-        let current = catalog.packages[catalog.selected].id == self.id;
         let market = self.market.upgrade();
-        let update = self.entry.as_ref().is_some_and(|entry| {
-            market
-                .as_ref()
-                .and_then(|market| market.read(cx).themes.installed.get(&self.id))
-                .is_some_and(|installed| entry.update_available(installed))
-        });
         let pending = market
             .as_ref()
-            .is_some_and(|market| market.read(cx).pending.is_some());
+            .is_some_and(|market| market.read(cx).themes.updates.read(cx).pending(&self.id));
         let has_package = installed.is_some();
         let action = Button::new("theme-details-action")
             .small()
             .primary()
-            .label(tr(if update {
-                "market_update"
-            } else if current {
-                "market_theme_current"
-            } else if has_package {
-                "market_theme_apply"
+            .label(tr(if has_package {
+                "market_manage"
             } else {
                 "market_install"
             }))
-            .disabled(
-                pending
-                    || current && !update
-                    || (!has_package || update) && self.selection.is_none(),
-            )
-            .on_click(cx.listener(move |state, _, window, cx| {
-                state.submit(has_package, update, window, cx)
-            }));
-        let version = self
-            .entry
-            .as_ref()
-            .map(|entry| entry.package_version.as_str())
-            .or_else(|| manifest.and_then(|manifest| manifest.package_version.as_deref()));
+            .disabled(!has_package && (pending || self.selection.is_none()))
+            .on_click(
+                cx.listener(move |state, _, window, cx| state.submit(has_package, window, cx)),
+            );
+        let version = has_package
+            .then(|| manifest.and_then(|manifest| manifest.package_version.as_deref()))
+            .flatten()
+            .or_else(|| {
+                self.entry
+                    .as_ref()
+                    .map(|entry| entry.package_version.as_str())
+            });
         let author = self.entry.as_ref().map(|entry| entry.author.as_str());
-        let byline = author
+        let mut byline = author
             .into_iter()
             .chain(version)
             .collect::<Vec<_>>()
             .join(" · ");
+        if has_package {
+            if !byline.is_empty() {
+                byline.push_str(" · ");
+            }
+            byline.push_str(&tr("market_installed"));
+        }
         let title = self
             .entry
             .as_ref()

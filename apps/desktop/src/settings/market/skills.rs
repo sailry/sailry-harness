@@ -43,6 +43,27 @@ pub(super) fn installed(entry: &skillcatalog::Entry, info: &Info) -> bool {
 }
 
 impl Market {
+    pub(super) fn manage_skill(
+        &self,
+        entry: &skillcatalog::Entry,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let package = self.owner.upgrade().and_then(|owner| {
+            let metadata = owner.read(cx).plugin_catalog.metadata.as_ref()?;
+            let entries = &metadata.read(cx).entries;
+            entries
+                .values()
+                .find(|info| {
+                    entry.package.as_deref() == Some(&info.summary.name) && installed(entry, info)
+                })
+                .or_else(|| entries.values().find(|info| installed(entry, info)))
+                .map(|info| info.summary.name.clone())
+        });
+        if let Some(name) = package {
+            self.manage(name, Some(entry.name.clone()), window, cx);
+        }
+    }
     pub(super) fn load_skills(&mut self, requested: u32, force: bool, cx: &mut Context<Self>) {
         let query = self.query.read(cx).value().trim().to_owned();
         let source = self.filter.skills.source();
@@ -196,19 +217,21 @@ impl Market {
                             Some(entry.origin.clone().into()),
                             cx,
                         );
-                        let action = if entry.source.is_some() {
+                        let action = if entry.source.is_some() || installed {
                             card::action(
                                 format!("market-skill-install-{}", entry.id),
                                 installed,
-                                false,
                                 cx,
                             )
-                            .disabled(busy || installed)
+                            .disabled(!self.connected(cx) || !installed && busy)
                             .on_click(cx.listener({
                                 let source = entry.source.clone();
+                                let entry = entry.clone();
                                 move |state, _, window, cx| {
                                     cx.stop_propagation();
-                                    if let Some(source) = &source {
+                                    if installed {
+                                        state.manage_skill(&entry, window, cx);
+                                    } else if let Some(source) = &source {
                                         state.skill_install(source.clone(), window, cx);
                                     }
                                 }
@@ -220,7 +243,11 @@ impl Market {
                         card::row(
                             format!("market-skill-card-{}", entry.id),
                             summary,
-                            action,
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(card::status(installed))
+                                .child(action),
                             cx,
                         )
                         .accessibility_label(entry.title(&rust_i18n::locale()).to_owned())

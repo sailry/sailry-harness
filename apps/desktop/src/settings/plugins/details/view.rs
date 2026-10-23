@@ -10,12 +10,14 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
     let owner = cx.entity();
     let info = details.info.as_ref();
     let installed = matches!(details.target, Target::Installed(_));
+    let managed = details.catalog_installed(cx);
     let update = info.is_some_and(|info| {
         installed && details.updates.read(cx).candidate(&info.summary).is_some()
     });
     let configurable =
         installed && info.is_some_and(super::super::super::extensions::modal::configurable);
-    let disabled = details.pending(cx) || details.error.is_some() || !details.ready();
+    let disabled =
+        managed.is_none() && (details.pending(cx) || details.error.is_some() || !details.ready());
     let title = info.map(metadata::title).unwrap_or_else(|| {
         details
             .external_metadata()
@@ -30,7 +32,16 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                 .and_then(|metadata| metadata.author.clone())
         })
         .unwrap_or_default();
-    let subtitle = byline(&publisher, details.version().as_deref(), installed);
+    let version = managed
+        .as_ref()
+        .and_then(|summary| summary.version.clone())
+        .or_else(|| details.version());
+    let subtitle = byline(
+        &publisher,
+        version.as_deref(),
+        installed || managed.is_some(),
+    );
+    let manage = managed.is_some();
     let primary = owner.clone();
     let more = owner.clone();
     let tabs = owner.clone();
@@ -72,14 +83,16 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                         ),
                 )
                 .when(
-                    (!installed && details.installable()) || update || configurable,
+                    manage || (!installed && details.installable()) || update || configurable,
                     |row| {
                         row.child(
                             Button::new("plugin-details-primary")
                                 .small()
                                 .disabled(disabled)
                                 .when(update || !installed, |button| button.primary())
-                                .label(tr(if update {
+                                .label(tr(if manage {
+                                    "market_manage"
+                                } else if update {
                                     "market_update"
                                 } else if installed {
                                     "plugins_configure"
@@ -88,7 +101,9 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                                 }))
                                 .on_click(move |_, window, cx| {
                                     primary.update(cx, |details, cx| {
-                                        if update {
+                                        if manage {
+                                            details.manage(window, cx);
+                                        } else if update {
                                             details.update(window, cx);
                                         } else if installed {
                                             details.configure(window, cx);
@@ -109,8 +124,18 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                             .accessibility_label(tr("market_details_more"))
                             .disabled(disabled)
                             .dropdown_menu(move |menu, _, _| {
+                                let configure = more.clone();
                                 let more = more.clone();
-                                menu.item(
+                                menu.when(update && configurable, |menu| {
+                                    menu.item(PopupMenuItem::new(tr("plugins_configure")).on_click(
+                                        move |_, window, cx| {
+                                            configure.update(cx, |details, cx| {
+                                                details.configure(window, cx)
+                                            });
+                                        },
+                                    ))
+                                })
+                                .item(
                                     PopupMenuItem::new(tr("market_details_uninstall")).on_click(
                                         move |_, window, cx| {
                                             more.update(cx, |details, cx| {

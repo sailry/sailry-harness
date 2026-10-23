@@ -184,18 +184,12 @@ impl View {
         } else {
             self.binding.defaults.clone()
         };
-        let label = self
-            .hosts
-            .iter()
-            .find(|(node, _)| *node == client.target())
-            .map(|(_, label)| label.clone())
-            .unwrap_or_else(|| self.binding.host.clone());
-        crate::settings::open_plugin_details(
-            client,
-            self.binding.runtime.clone(),
-            label,
-            expected,
-            window,
+        window.dispatch_action(
+            Box::new(crate::settings::OpenManagement {
+                node: client.target(),
+                name: expected.name,
+                skill: None,
+            }),
             cx,
         );
     }

@@ -46,3 +46,18 @@ connector_changed_flow: 登录流程
 connector_changed_targets: 凭据目标
 connector_changed_mcp: MCP 服务
 connector_changed_source: 插件来源
+
+connector_authentication: "身份验证"
+connector_account_enabled: "启用账号"
+connector_server_allowed: "启用服务"
+connector_package_disabled: "插件已停用"
+connector_account_disabled: "账号已停用"
+connector_server_disabled: "服务已停用"
+connector_view_plugin: "查看插件"
+connector_tools_unchecked: "未检查"
+connector_tools_empty: "无工具"
+connector_check_failed: "无法检查服务"
+connector_configuration_required: "需要配置"
+connector_unavailable: "不可用"
+connector_available: "可用"
+connector_unsaved: "未保存"

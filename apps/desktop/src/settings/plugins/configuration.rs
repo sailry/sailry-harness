@@ -30,6 +30,7 @@ pub(in crate::settings) struct Editor {
     request: Option<Request>,
     pending: bool,
     closed: bool,
+    dialog: crate::ui::overlays::Owned,
     stop: CancellationToken,
     task: Option<Task<()>>,
 }
@@ -57,9 +58,37 @@ pub(in crate::settings) fn panel(
     expected: Summary,
     window: &mut Window,
     cx: &mut App,
-) {
+) -> Entity<Editor> {
     let editor = mount(binding, expected, window, cx);
     editor.update(cx, |editor, _| editor.panel = true);
+    editor
+}
+
+pub(in crate::settings) fn bind_owner(
+    editor: &Entity<Editor>,
+    owner: &Entity<Workspace>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let section = owner.read(cx).section;
+    editor.update(cx, |editor, cx| {
+        let node = editor.binding.client.target();
+        cx.observe_in(owner, window, move |editor, owner, window, cx| {
+            let workspace = owner.read(cx);
+            if !editor.closed
+                && (workspace.section != section
+                    || workspace
+                        .provider_link
+                        .as_ref()
+                        .is_none_or(|live| live.binding.client.target() != node))
+            {
+                editor.close(window, cx);
+                editor.dialog.close(window, cx);
+                cx.notify();
+            }
+        })
+        .detach();
+    });
 }
 
 pub(in crate::settings) fn page(
@@ -86,6 +115,7 @@ pub(in crate::settings) fn page(
         request: None,
         pending: false,
         closed: false,
+        dialog: Default::default(),
         stop: CancellationToken::new(),
         task: None,
     });
@@ -132,15 +162,21 @@ impl Editor {
                     if !info.settings.as_ref().is_some_and(|schema| !schema.properties.is_empty()) {
                         return Err(sailry_protocol::Fault::new(ErrorCode::NotConfigured, "plugin has no configurable settings"));
                     }
-                    let Output::PluginSettings(state) = binding.client.execute(binding.client.prepare(Command::ReadPluginSettings { package: info.summary.reference() })).await? else {
-                        return Err(sailry_protocol::Fault::new(ErrorCode::Internal, "plugin settings expected"));
-                    };
-                    let models = if info.settings.as_ref().is_some_and(|schema| schema.properties.values().any(|field| field.model)) {
-                        let Output::PluginModels(models) = binding.client.execute(binding.client.prepare(Command::ListPluginModels)).await? else {
-                            return Err(sailry_protocol::Fault::new(ErrorCode::Internal, "plugin models expected"));
+                    let settings = async {
+                        let Output::PluginSettings(state) = binding.client.execute(binding.client.prepare(Command::ReadPluginSettings { package: info.summary.reference() })).await? else {
+                            return Err(sailry_protocol::Fault::new(ErrorCode::Internal, "plugin settings expected"));
                         };
-                        models
-                    } else { Default::default() };
+                        Ok(state)
+                    };
+                    let models = async {
+                        if info.settings.as_ref().is_some_and(|schema| schema.properties.values().any(|field| field.model)) {
+                            let Output::PluginModels(models) = binding.client.execute(binding.client.prepare(Command::ListPluginModels)).await? else {
+                                return Err(sailry_protocol::Fault::new(ErrorCode::Internal, "plugin models expected"));
+                            };
+                            Ok(models)
+                        } else { Ok(Default::default()) }
+                    };
+                    let (state, models) = tokio::try_join!(settings, models)?;
                     Ok((info, state, models))
                 } => Some(result),
             }

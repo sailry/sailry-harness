@@ -292,17 +292,27 @@ impl Render for Details {
             .market
             .upgrade()
             .is_some_and(|market| market.read(cx).connected(cx));
-        let action = self.entry.source.as_ref().map(|_| {
+        let action = (self.entry.source.is_some() || installed).then(|| {
             Button::new("skill-details-install")
                 .small()
                 .primary()
                 .label(tr(if installed {
-                    "skills_already_installed"
+                    "market_manage"
                 } else {
                     "market_install"
                 }))
-                .disabled(!connected || installed || self.loading || self.error.is_some())
-                .on_click(cx.listener(|state, _, window, cx| state.install(window, cx)))
+                .disabled(!connected || !installed && (self.loading || self.error.is_some()))
+                .on_click(cx.listener(move |state, _, window, cx| {
+                    if installed {
+                        if let Some(market) = state.market.upgrade() {
+                            market.update(cx, |market, cx| {
+                                market.manage_skill(&state.entry, window, cx)
+                            });
+                        }
+                    } else {
+                        state.install(window, cx);
+                    }
+                }))
         });
         let summary = super::summary(
             self.document
@@ -310,7 +320,11 @@ impl Render for Details {
                 .map(|document| document.skill.display_name(&rust_i18n::locale()).to_owned())
                 .unwrap_or_else(|| self.entry.title(&rust_i18n::locale()).to_owned())
                 .into(),
-            self.entry.origin.clone(),
+            if installed {
+                format!("{} · {}", self.entry.origin, tr("market_installed"))
+            } else {
+                self.entry.origin.clone()
+            },
             self.document
                 .as_ref()
                 .map(|document| document.skill.description.clone())

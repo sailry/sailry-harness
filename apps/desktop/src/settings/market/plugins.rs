@@ -87,6 +87,10 @@ impl Market {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.installed(&entry.name, cx).is_some() {
+            self.manage(entry.name, None, window, cx);
+            return;
+        }
         if self.busy(cx) {
             return;
         }
@@ -209,13 +213,6 @@ impl Market {
         }) {
             return;
         }
-        let installed = owner
-            .read(cx)
-            .plugin_catalog
-            .packages
-            .iter()
-            .find(|package| package.name == entry.name)
-            .cloned();
         let market = cx.entity();
         let binding = self.binding.clone();
         let source = self.source;
@@ -224,11 +221,9 @@ impl Market {
             if selection.is_cancelled() {
                 return;
             }
-            if let Some(installed) = installed {
-                plugin_details::open(owner, installed, selection, window, cx);
-            } else {
-                plugin_details::open_catalog(market, binding, source, entry, selection, window, cx);
-            }
+            plugin_details::open_catalog(
+                owner, market, binding, source, entry, selection, window, cx,
+            );
         });
     }
 }
@@ -274,10 +269,6 @@ impl Market {
                     .gap_3()
                     .children(visible.into_iter().map(|entry| {
                         let known = packages.iter().any(|package| package.name == entry.name);
-                        let update = owner
-                            .as_ref()
-                            .and_then(|owner| owner.read(cx).plugin_catalog.updates.as_ref())
-                            .is_some_and(|state| state.read(cx).has_candidate(&entry.name));
                         let info = owner
                             .as_ref()
                             .and_then(|owner| owner.read(cx).plugin_catalog.metadata.as_ref())
@@ -315,10 +306,9 @@ impl Market {
                         let action = card::action(
                             format!("market-action-{}", entry.id),
                             known,
-                            update,
                             cx,
                         )
-                        .disabled(busy || known && !update)
+                        .disabled(!connected || !known && busy)
                         .loading(
                             matches!(&self.pending,Some(Loading::Repository(id)) if *id==entry.id),
                         )
@@ -327,24 +317,29 @@ impl Market {
                             let source = self.source;
                             move |state, _, window, cx| {
                                 cx.stop_propagation();
-                                if update {
-                                    if let Some(owner) = state.owner.upgrade() {
-                                        owner.update(cx, |owner, cx| {
-                                            owner.update_plugins(Some(&entry.name), window, cx)
-                                        });
-                                    }
+                                if known {
+                                    state.manage(entry.name.clone(), None, window, cx);
                                 } else {
                                     state.install(source, entry.clone(), window, cx);
                                 }
                             }
                         }));
-                        card::row(format!("market-card-{}", entry.id), summary, action, cx)
-                            .accessibility_label(title)
-                            .disabled(!connected)
-                            .on_click(cx.listener({
-                                let entry = entry.clone();
-                                move |state, _, window, cx| state.details(entry.clone(), window, cx)
-                            }))
+                        card::row(
+                            format!("market-card-{}", entry.id),
+                            summary,
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(card::status(known))
+                                .child(action),
+                            cx,
+                        )
+                        .accessibility_label(title)
+                        .disabled(!connected)
+                        .on_click(cx.listener({
+                            let entry = entry.clone();
+                            move |state, _, window, cx| state.details(entry.clone(), window, cx)
+                        }))
                     })),
             )
             .into_any_element()

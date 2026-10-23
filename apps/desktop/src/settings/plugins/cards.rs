@@ -14,7 +14,16 @@ impl Workspace {
         let catalog = &self.plugin_catalog;
         let updates = catalog.updates.as_ref().map(|state| state.read(cx));
         let busy = !live.connected || catalog.busy(cx);
-        let plugins = &catalog.packages;
+        let plugins = self.installed_plugins(cx);
+        let available = updates.map_or(0, |state| {
+            plugins
+                .iter()
+                .filter(|plugin| state.has_candidate(&plugin.name))
+                .count()
+        });
+        let metadata = catalog.metadata.as_ref().map(|metadata| metadata.read(cx));
+        let settled = metadata.is_some_and(|metadata| metadata.settled());
+        let failed = metadata.is_some_and(|metadata| !metadata.errors.is_empty());
         let preparations = catalog
             .python
             .preparations
@@ -44,8 +53,7 @@ impl Workspace {
                                 })),
                         )
                         .when(
-                            updates.map_or(0, |state| state.available()) > 0
-                                || updates.is_some_and(|state| state.applying()),
+                            available > 0 || updates.is_some_and(|state| state.applying()),
                             |view| {
                                 view.child(
                                     Button::new("plugins-update-all")
@@ -108,13 +116,30 @@ impl Workspace {
                     )))
                 },
             )
-            .when(plugins.is_empty() && live.connected, |view| {
+            .when(!settled, |view| {
+                view.child(div().py_4().child(spinner::Spinner::new().small()))
+            })
+            .when(failed, |view| {
                 view.child(
-                    Group::new("plugins_installed")
-                        .heading(false)
-                        .empty(IconName::Inbox, "plugins_none"),
+                    crate::feedback::retry("plugins-metadata-retry").on_click(cx.listener(
+                        |owner, _, _, cx| {
+                            if let Some(metadata) = &owner.plugin_catalog.metadata {
+                                metadata.update(cx, |metadata, cx| metadata.refresh(cx));
+                            }
+                        },
+                    )),
                 )
             })
+            .when(
+                plugins.is_empty() && live.connected && settled && !failed,
+                |view| {
+                    view.child(
+                        Group::new("plugins_installed")
+                            .heading(false)
+                            .empty(IconName::Inbox, "plugins_none"),
+                    )
+                },
+            )
             .into_any_element()
     }
 
@@ -151,7 +176,6 @@ impl Workspace {
             .as_ref()
             .and_then(|state| state.read(cx).entries.get(&plugin.name));
         let (title, description) = self.caption(plugin, cx);
-        let configured = info.is_some_and(super::super::extensions::modal::configurable);
         let update_ready = info.is_some_and(|info| info.summary == *plugin);
         let online = info.is_some_and(|info| {
             matches!(
@@ -226,21 +250,6 @@ impl Workspace {
             .child(
                 resource_card::menu(format!("plugin-menu-{name}"), group)
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-                        let owner = menu_owner.clone();
-                        let plugin = menu_plugin.clone();
-                        let menu = menu.when(configured, |menu| {
-                            menu.item(
-                                PopupMenuItem::new(tr("plugins_settings_title"))
-                                    .icon(IconName::Settings2)
-                                    .disabled(busy)
-                                    .on_click(move |_, window, cx| {
-                                        owner.update(cx, |owner, cx| {
-                                            owner.configure_plugin(&plugin.name, window, cx)
-                                        });
-                                    }),
-                            )
-                            .separator()
-                        });
                         let owner = menu_owner.clone();
                         let plugin = menu_plugin.clone();
                         let remove_owner = menu_owner.clone();

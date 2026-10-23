@@ -4,6 +4,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{alert::Alert, text::markdown};
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
+    let active = editor.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let confirm = editor.clone();
         let save = editor.clone();
@@ -30,7 +31,12 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                 confirm.update(cx, |editor, cx| editor.save(window, cx));
                 false
             })
-            .on_close(move |_, window, cx| close.update(cx, |editor, cx| editor.close(window, cx)))
+            .on_close(move |_, window, cx| {
+                close.update(cx, |editor, cx| {
+                    editor.close(window, cx);
+                    editor.dialog.dismissed();
+                })
+            })
             .child(editor.clone())
             .footer(
                 v_flex()
@@ -120,6 +126,9 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                             ),
                     ),
             )
+    });
+    active.update(cx, |editor, cx| {
+        crate::ui::overlays::Owned::bind(editor, |editor| &mut editor.dialog, window, cx)
     });
 }
 

@@ -4,6 +4,7 @@ use gpui_kit::component::{
     alert::Alert,
     dialog::DialogFooter,
     form::Field,
+    group_box::{GroupBox, GroupBoxVariants as _},
     tab::{Tab, TabBar},
 };
 

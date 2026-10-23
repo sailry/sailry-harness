@@ -9,7 +9,7 @@ pub enum Page {
     Git,
     Terminal,
     Settings,
-    Plugins,
+    Market,
     Host,
     Project,
     Plugin,
@@ -24,7 +24,7 @@ impl Page {
         Self::Git,
         Self::Terminal,
         Self::Settings,
-        Self::Plugins,
+        Self::Market,
         Self::Host,
         Self::Project,
     ];
@@ -40,7 +40,8 @@ impl Page {
             Self::Settings => "settings",
             Self::Host => "workspace_host",
             Self::Project => "workspace_project",
-            Self::Plugin | Self::Plugins => "settings_plugins",
+            Self::Plugin => "settings_plugins",
+            Self::Market => "market_title",
         }
     }
 
@@ -63,7 +64,7 @@ impl Page {
             Self::Settings => IconName::Settings,
             Self::Host => IconName::Cpu,
             Self::Project => IconName::Folder,
-            Self::Plugin | Self::Plugins => IconName::GalleryVerticalEnd,
+            Self::Plugin | Self::Market => IconName::GalleryVerticalEnd,
         }
     }
 

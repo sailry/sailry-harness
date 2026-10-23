@@ -20,7 +20,7 @@ impl Shell {
                     .truncate()
                     .child(pane_title.unwrap())
                     .into_any_element(),
-                Page::Settings | Page::Plugins => self
+                Page::Settings | Page::Market => self
                     .settings
                     .update(cx, |settings, cx| settings.header(window, cx))
                     .unwrap_or_else(|| div().truncate().child(self.title()).into_any_element()),

@@ -26,7 +26,7 @@ pub(super) fn open(owner: Entity<Workspace>, window: &mut Window, cx: &mut App) 
         return;
     }
     let picker = cx.new(|cx| Picker {
-        _updates: cx.observe_in(&owner, window, |picker, _, window, cx| {
+        _updates: cx.observe_in(&owner, window, |picker: &mut Picker, _, window, cx| {
             let state = picker.state.clone();
             window.defer(cx, move |window, cx| {
                 state.update(cx, |list, cx| {

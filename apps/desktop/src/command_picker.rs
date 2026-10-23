@@ -2,7 +2,7 @@
 use crate::theme::DialogStyle as _;
 use gpui_kit::{
     component::{
-        ActiveTheme as _, IconName, Sizable as _,
+        ActiveTheme as _, IconName, IndexPath, Sizable as _,
         dialog::Dialog,
         list::{List, ListDelegate, ListItem, ListState},
     },

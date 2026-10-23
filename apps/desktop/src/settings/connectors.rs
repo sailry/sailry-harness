@@ -1,6 +1,8 @@
 //! Connection presentation uses the same Client contracts for local and remote Nodes.
+mod catalog;
 mod commands;
 mod consent;
+mod details;
 mod editor;
 mod filter;
 mod menu;
@@ -93,6 +95,57 @@ enum Message {
     Failed(Fault),
 }
 
+pub(in crate::settings) fn open_management(
+    owner: Entity<Workspace>,
+    info: sailry_protocol::plugin::Info,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    owner.update(cx, |owner, cx| owner.warm_connectors(window, cx));
+    details::open(owner, None, info.summary.name, window, cx);
+}
+
+fn availability(value: sailry_protocol::plugin::mcp::Availability) -> Option<&'static str> {
+    use sailry_protocol::plugin::mcp::Availability;
+    match value {
+        Availability::Available => None,
+        Availability::PackageDisabled => Some("connector_package_disabled"),
+        Availability::ServerDisabled => Some("connector_server_disabled"),
+        Availability::ConfigurationRequired => Some("connector_configuration_required"),
+        Availability::ConnectionRequired => Some("connector_not_connected"),
+        Availability::ConnectionDisabled => Some("connector_account_disabled"),
+        Availability::AuthorizationExpired => Some("connector_expired"),
+        Availability::ConsentRequired => Some("connector_confirmation"),
+        Availability::Unavailable => Some("connector_unavailable"),
+    }
+}
+
+fn status(service: &catalog::Service) -> Option<&'static str> {
+    if !service.enabled() {
+        return Some("connector_package_disabled");
+    }
+    if let Some(account) = &service.account {
+        if !account.enabled {
+            return Some("connector_account_disabled");
+        }
+        match account.state {
+            connector::State::NotConnected => return Some("connector_not_connected"),
+            connector::State::Expired => return Some("connector_expired"),
+            connector::State::NeedsConfirmation => return Some("connector_confirmation"),
+            connector::State::Failed => return Some("connector_failed"),
+            _ => (),
+        }
+    }
+    service
+        .servers
+        .iter()
+        .find_map(|server| availability(server.availability))
+        .or_else(|| {
+            (service.servers.is_empty() && service.account.is_none())
+                .then_some("connector_not_connected")
+        })
+}
+
 impl Workspace {
     pub(super) fn warm_connectors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(binding) = self.provider_link.as_ref().map(|live| live.binding.clone()) else {
@@ -180,37 +233,25 @@ impl Workspace {
             .selected_value()
             .copied()
             .unwrap_or_default();
-        let rows = self
-            .connectors
-            .rows
-            .iter()
-            .filter(|row| method.matches(row.method))
-            .filter(|row| {
-                let label = self
-                    .connectors
-                    .types
-                    .iter()
-                    .find(|kind| {
-                        kind.package.name == row.package.name
-                            && kind.declaration.id == row.connector
-                    })
-                    .map(|kind| title(&kind.declaration.display));
-                format!(
-                    "{} {} {}",
-                    label.unwrap_or_else(|| row.connector.clone()),
-                    row.identity
-                        .as_ref()
-                        .map(|identity| identity.name.as_str())
-                        .unwrap_or_default(),
-                    row.package.name
-                )
-                .to_lowercase()
-                .contains(&query)
-            })
-            .cloned()
+        let services = self
+            .service_catalog(cx)
+            .into_iter()
+            .filter(|service| service.matches(method, &query))
             .collect::<Vec<_>>();
         let owner = cx.entity();
-        let disabled = self.connectors.binding.is_none();
+        let disabled = self
+            .provider_link
+            .as_ref()
+            .is_none_or(|live| !live.connected);
+        let preview = self.connectors.binding.is_none();
+        let loading = self.connectors.loading
+            || self
+                .plugin_catalog
+                .metadata
+                .as_ref()
+                .is_some_and(|metadata| !metadata.read(cx).settled());
+        let mcp_binding = self.connectors.binding.clone();
+        let mcp_owner = owner.clone();
         let toolbar = h_flex()
             .w_full()
             .gap_3()
@@ -229,21 +270,150 @@ impl Workspace {
                     .label(tr("settings_add"))
                     .disabled(disabled)
                     .on_click(move |_, window, cx| editor::open(owner.clone(), None, window, cx)),
-            );
-        let content = super::group::Group::new("settings_connectors")
-            .heading(false)
-            .empty(IconName::Network, "connector_empty")
-            .children(rows.iter().map(|row| self.connector_row(row, cx)));
+            )
+            .child(
+                Button::new("connector-add-mcp")
+                    .label(tr("mcp_add"))
+                    .disabled(disabled)
+                    .on_click(move |_, window, cx| {
+                        if let Some(binding) = &mcp_binding {
+                            super::mcp::add(mcp_owner.clone(), binding.clone(), window, cx);
+                        }
+                    }),
+            )
+            .when(loading, |row| row.child(Spinner::new().small()));
+        let content = if services.is_empty() && loading {
+            h_flex()
+                .w_full()
+                .justify_center()
+                .py_8()
+                .child(Spinner::new())
+                .into_any_element()
+        } else {
+            super::group::Group::new("settings_connectors")
+                .heading(false)
+                .empty(IconName::Network, "connector_empty")
+                .children(services.iter().map(|service| self.service_row(service, cx)))
+                .into_any_element()
+        };
         v_flex()
             .track_focus(&self.connectors.focus)
             .on_action(cx.listener(Self::connector_action))
             .w_full()
             .gap_4()
             .child(toolbar)
-            .when(disabled, |element| {
+            .when(preview, |element| {
                 element.child(Tag::new().child(tr("connector_preview")))
             })
             .child(content)
+            .into_any_element()
+    }
+
+    fn service_catalog(&self, cx: &App) -> Vec<catalog::Service> {
+        let metadata = self
+            .plugin_catalog
+            .metadata
+            .as_ref()
+            .map(|metadata| {
+                let metadata = metadata.read(cx);
+                metadata
+                    .entries
+                    .iter()
+                    .filter(|(_, info)| metadata.ready(&info.summary.reference()))
+                    .map(|(name, info)| (name.clone(), info.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        catalog::collect(&self.connectors.types, &self.connectors.rows, &metadata)
+    }
+
+    fn service_row(&self, service: &catalog::Service, cx: &mut Context<Self>) -> AnyElement {
+        let label = service.label();
+        let status = status(service);
+        let description = service
+            .account
+            .as_ref()
+            .and_then(|account| account.identity.as_ref())
+            .map(|identity| identity.name.clone())
+            .filter(|name| !name.is_empty())
+            .or_else(|| {
+                service
+                    .info
+                    .as_ref()
+                    .and_then(crate::plugins::metadata::description)
+            })
+            .unwrap_or_else(|| service.package.name.clone());
+        let icon = service
+            .kind
+            .as_ref()
+            .and_then(|kind| kind.declaration.display.icon.as_ref())
+            .or_else(|| {
+                service
+                    .info
+                    .as_ref()
+                    .and_then(crate::plugins::emblem::glyph)
+            })
+            .map(crate::assets::icons::icon)
+            .unwrap_or_else(|| Icon::new(gpui_kit::assets::IconName::Plug));
+        let key = service.key.clone();
+        let owner = cx.entity();
+        let id = format!("connector-service-{}-{:?}", key.package, key.member);
+        let entry = super::entry::Entry::new(
+            id.clone(),
+            h_flex()
+                .items_center()
+                .gap_3()
+                .child(crate::plugins::emblem::surface(&label, None, px(36.)).child(icon.size_5()))
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .flex_1()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(div().truncate().child(label.clone()))
+                                .when_some(status, |row, key| {
+                                    row.child(Tag::new().child(tr(key)).xsmall())
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .truncate()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(description),
+                        ),
+                ),
+        )
+        .action(
+            Button::new(format!("{id}-open"))
+                .icon(IconName::ChevronRight)
+                .accessibility_label(label)
+                .on_click(move |_, window, cx| {
+                    details::open(
+                        owner.clone(),
+                        Some(key.clone()),
+                        key.package.clone(),
+                        window,
+                        cx,
+                    );
+                }),
+        );
+        let account = service.account.clone();
+        div()
+            .id(SharedString::from(id))
+            .child(entry)
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    if let Some(account) = &account {
+                        cx.stop_propagation();
+                        this.connectors.focus.focus(window, cx);
+                        this.connector_context(account, event.position, window, cx);
+                    }
+                }),
+            )
             .into_any_element()
     }
 
@@ -323,6 +493,7 @@ impl Workspace {
                 .child(
                     Switch::new(format!("connector-enabled-{row_id}"))
                         .checked(row.enabled)
+                        .accessibility_label(tr("connector_account_enabled"))
                         .disabled(
                             row.state == connector::State::Connecting
                                 || self.connectors.pending.contains(&row.id),

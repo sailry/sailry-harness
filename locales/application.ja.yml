@@ -2663,3 +2663,6 @@ chat_context_summary_failed: "会話のコンテキストを圧縮できませ�
 
 permission_partial: "一部許可済み"
 permission_failed: "権限を確認できませんでした"
+
+appearance_up_to_date: "テーマは最新です"
+appearance_updates_available: "更新があります"

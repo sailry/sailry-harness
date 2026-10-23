@@ -58,7 +58,7 @@ impl Editor {
                         .h_auto()
                         .p_3()
                         .justify_start()
-                        .disabled(self.pending)
+                        .disabled(self.pending || !kind.enabled)
                         .accessibility_label(accessibility)
                         .child(
                             h_flex()

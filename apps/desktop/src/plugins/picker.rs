@@ -4,6 +4,7 @@ use super::{
     host::sdk::values::{decode, encode},
     native_context::Events,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     component::{
         list::{ListDelegate, ListItem, ListState},

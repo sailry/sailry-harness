@@ -46,3 +46,18 @@ connector_changed_flow: Connexion
 connector_changed_targets: Destinations des identifiants
 connector_changed_mcp: Serveurs MCP
 connector_changed_source: Source du paquet
+
+connector_authentication: "Authentification"
+connector_account_enabled: "Activer le compte"
+connector_server_allowed: "Activer le serveur"
+connector_package_disabled: "Extension désactivée"
+connector_account_disabled: "Compte désactivé"
+connector_server_disabled: "Serveur désactivé"
+connector_view_plugin: "Voir l’extension"
+connector_tools_unchecked: "Non vérifié"
+connector_tools_empty: "Aucun outil"
+connector_check_failed: "Impossible de vérifier le service"
+connector_configuration_required: "Configuration requise"
+connector_unavailable: "Indisponible"
+connector_available: "Disponible"
+connector_unsaved: "Non enregistré"

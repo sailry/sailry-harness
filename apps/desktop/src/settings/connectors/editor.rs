@@ -20,7 +20,10 @@ pub(super) fn open(
     window: &mut Window,
     cx: &mut App,
 ) {
-    mount(owner, connection, false, window, cx);
+    mount(owner, connection, None, false, window, cx);
+}
+pub(super) fn connect(owner: Entity<Workspace>, kind: Type, window: &mut Window, cx: &mut App) {
+    mount(owner, None, Some(kind), false, window, cx);
 }
 pub(super) fn reconnect(
     owner: Entity<Workspace>,
@@ -28,11 +31,12 @@ pub(super) fn reconnect(
     window: &mut Window,
     cx: &mut App,
 ) {
-    mount(owner, Some(connection), true, window, cx);
+    mount(owner, Some(connection), None, true, window, cx);
 }
 fn mount(
     owner: Entity<Workspace>,
     connection: Option<Connection>,
+    selected: Option<Type>,
     reconnect: bool,
     window: &mut Window,
     cx: &mut App,
@@ -40,6 +44,14 @@ fn mount(
     let Some(binding) = owner.read(cx).connectors.binding.clone() else {
         return;
     };
+    if owner
+        .read(cx)
+        .provider_link
+        .as_ref()
+        .is_none_or(|live| live.binding.client.target() != binding.client.target())
+    {
+        return;
+    }
     let types = owner.read(cx).connectors.types.clone();
     let editing = connection.is_some();
     let form = cx.new(|cx: &mut Context<Editor>| {
@@ -62,16 +74,25 @@ fn mount(
             cli: None,
             inspecting: false,
             closed: false,
+            dialog: Default::default(),
             editing,
             reconnecting: reconnect,
         };
         cx.observe(&editor.query, |_, _, cx| cx.notify()).detach();
-        cx.observe(&editor.owner, |editor, _, cx| editor.reconcile(cx))
-            .detach();
+        cx.observe_in(&editor.owner, window, |editor, _, window, cx| {
+            editor.reconcile(window, cx)
+        })
+        .detach();
         if let Some(connection) = &editor.connection
             && let Some(index) = editor.types.iter().position(|kind| {
                 kind.package.name == connection.package.name
                     && kind.declaration.id == connection.connector
+            })
+        {
+            editor.choose(index, window, cx);
+        } else if let Some(selected) = &selected
+            && let Some(index) = editor.types.iter().position(|kind| {
+                kind.package == selected.package && kind.declaration.id == selected.declaration.id
             })
         {
             editor.choose(index, window, cx);
@@ -85,6 +106,7 @@ fn mount(
         }
         editor
     });
+    let active = form.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = form.clone();
         let dialog = if form.read(cx).flow.is_some() {
@@ -101,9 +123,13 @@ fn mount(
                 close.update(cx, |editor, _| {
                     editor.closed = true;
                     editor.stop.cancel();
+                    editor.dialog.dismissed();
                 })
             })
             .child(form.clone())
+    });
+    active.update(cx, |editor, cx| {
+        crate::ui::overlays::Owned::bind(editor, |editor| &mut editor.dialog, window, cx)
     });
 }
 
@@ -126,6 +152,7 @@ pub(super) struct Editor {
     cli: Option<connector::Identity>,
     inspecting: bool,
     closed: bool,
+    dialog: crate::ui::overlays::Owned,
     editing: bool,
     reconnecting: bool,
 }
@@ -140,7 +167,19 @@ impl Editor {
         self.editing && !self.reconnecting
     }
 
-    fn reconcile(&mut self, cx: &mut Context<Self>) {
+    fn reconcile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .owner
+            .read(cx)
+            .provider_link
+            .as_ref()
+            .is_none_or(|live| live.binding.client.target() != self.binding.client.target())
+        {
+            self.closed = true;
+            self.stop.cancel();
+            self.dialog.close(window, cx);
+            return;
+        }
         if self.pending || self.closed {
             return;
         }
@@ -223,9 +262,15 @@ impl Editor {
         }
     }
     fn required(&self, cx: &App) -> bool {
+        if self.closed {
+            return false;
+        }
         let Some(kind) = self.kind() else {
             return false;
         };
+        if !kind.enabled && !self.configuring() {
+            return false;
+        }
         if !self.configuring() {
             if self
                 .method()
@@ -520,7 +565,9 @@ fn submit_key(method: Kind, configuring: bool) -> &'static str {
 
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.flow.is_some() {
+        if self.closed {
+            div().into_any_element()
+        } else if self.flow.is_some() {
             self.authorization(cx)
         } else {
             self.normal(cx)
