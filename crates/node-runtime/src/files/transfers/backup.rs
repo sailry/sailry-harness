@@ -11,13 +11,12 @@ impl Transfers {
         revision: String,
         closed: CancellationToken,
     ) -> Result<sailry_protocol::backup::Download, Fault> {
-        let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
+        let (mut lease, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
         let prepared = Prepared {
             source: Source::File(file.reopen().map_err(crate::files::io_error)?),
             size: record.size_bytes,
             revision: revision.clone(),
             stamp: String::new(),
-            _permit: permit,
             _staging: Some((file, directory)),
         };
         let output = sailry_protocol::backup::Download {

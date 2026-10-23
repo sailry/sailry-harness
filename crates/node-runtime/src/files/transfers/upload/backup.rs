@@ -1,10 +1,9 @@
 use super::*;
 
-/// The original transfer lease and capacity remain held through restore validation.
+/// The original transfer lease remains held through restore validation.
 pub(crate) struct BackupFile {
     pub file: std::fs::File,
     pub size: u64,
-    _permit: OwnedSemaphorePermit,
     _lease: Lease,
 }
 
@@ -20,14 +19,13 @@ impl Transfers {
             return Err(Fault::invalid("backup exceeds the upload limit"));
         }
         let revision = revision(digest)?;
-        let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
+        let (mut lease, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
         let prepared = Prepared {
             file: self.staging_file()?,
             size,
             revision: revision.clone(),
             target: None,
             scope: Scope::Backup,
-            _permit: permit,
         };
         let output = sailry_protocol::backup::Upload {
             stream: lease.stream,
@@ -46,16 +44,10 @@ impl Transfers {
         let (prepared, lease) = self.take(caller, Path::new(""), stream, |scope| {
             matches!(scope, Scope::Backup)
         })?;
-        let Prepared {
-            file,
-            size,
-            _permit,
-            ..
-        } = *prepared;
+        let Prepared { file, size, .. } = *prepared;
         Ok(BackupFile {
             file,
             size,
-            _permit,
             _lease: lease,
         })
     }

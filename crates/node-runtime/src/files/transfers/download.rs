@@ -16,7 +16,6 @@ pub(super) fn prepare<'a>(
     relative: &str,
     profile: Option<&Path>,
     cancel: CancellationToken,
-    permit: OwnedSemaphorePermit,
 ) -> Result<Prepared, Fault> {
     let root = root.into();
     let control = Control {
@@ -81,7 +80,6 @@ pub(super) fn prepare<'a>(
         size,
         revision: hash.finalize().to_hex().to_string(),
         stamp,
-        _permit: permit,
         _staging: None,
     })
 }
@@ -93,7 +91,6 @@ pub(super) async fn send(
     let Prepared {
         source,
         size,
-        _permit,
         _staging,
         ..
     } = prepared;

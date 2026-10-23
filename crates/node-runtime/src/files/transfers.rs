@@ -10,7 +10,6 @@ use sailry_link::{CancellationToken, Stream};
 use sailry_protocol::{
     ErrorCode, FILE_TRANSFER_CHUNK_BYTES, Fault, FileDownload, NodeId, StreamId, WorktreeId,
 };
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 mod backup;
 mod download;
@@ -19,15 +18,12 @@ mod registry;
 mod tests;
 mod upload;
 
-const CAPACITY: usize = 8;
-const PER_CALLER: usize = 4;
 const PREPARE_TIMEOUT: Duration = Duration::from_secs(8);
 const OPEN_TIMEOUT: Duration = Duration::from_secs(60);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(crate) struct Transfers {
     entries: Mutex<Registry>,
-    capacity: Arc<Semaphore>,
     profile: Option<PathBuf>,
 }
 
@@ -64,7 +60,6 @@ struct Prepared {
     size: u64,
     revision: String,
     stamp: String,
-    _permit: OwnedSemaphorePermit,
     _staging: Option<(tempfile::NamedTempFile, tempfile::TempDir)>,
 }
 
@@ -91,7 +86,6 @@ impl Transfers {
     pub(crate) fn new(profile: Option<PathBuf>) -> Arc<Self> {
         Arc::new(Self {
             entries: Mutex::new(Registry::default()),
-            capacity: Arc::new(Semaphore::new(CAPACITY)),
             profile,
         })
     }
@@ -125,20 +119,13 @@ impl Transfers {
         closed: CancellationToken,
         access: crate::files::Access,
     ) -> Result<FileDownload, Fault> {
-        let (mut lease, permit, cancel) = self.reserve(caller, root.clone(), closed)?;
+        let (mut lease, cancel) = self.reserve(caller, root.clone(), closed)?;
         let stream = lease.stream;
         let source = path.clone();
         let profile = self.profile.clone();
         let stopping = cancel.clone();
-        // A cancelled blocking read keeps its permit until the worker really exits.
         let worker = tokio::task::spawn_blocking(move || {
-            download::prepare(
-                access.scope(&root),
-                &source,
-                profile.as_deref(),
-                stopping,
-                permit,
-            )
+            download::prepare(access.scope(&root), &source, profile.as_deref(), stopping)
         });
         let prepared = tokio::select! {
             biased;
@@ -166,7 +153,7 @@ impl Transfers {
         attachment: sailry_protocol::attachment::Attachment,
         closed: CancellationToken,
     ) -> Result<sailry_protocol::attachment::Download, Fault> {
-        let (mut lease, permit, cancel) = self.reserve(caller, root, closed)?;
+        let (mut lease, cancel) = self.reserve(caller, root, closed)?;
         let profile = self.profile.clone();
         let source = attachment.clone();
         let worker = tokio::task::spawn_blocking(move || {
@@ -176,7 +163,6 @@ impl Transfers {
                 size: source.spec.size,
                 revision: source.spec.revision,
                 stamp: String::new(),
-                _permit: permit,
                 _staging: None,
             })
         });
@@ -203,7 +189,7 @@ impl Transfers {
         bytes: Vec<u8>,
         closed: CancellationToken,
     ) -> Result<sailry_protocol::attachment::Download, Fault> {
-        let (mut lease, permit, cancel) = self.reserve(caller, root, closed)?;
+        let (mut lease, cancel) = self.reserve(caller, root, closed)?;
         if bytes.len() as u64 != attachment.spec.size
             || attachment.spec.size > sailry_protocol::attachment::MAX_BYTES
         {
@@ -214,7 +200,6 @@ impl Transfers {
             size: attachment.spec.size,
             revision: attachment.spec.revision.clone(),
             stamp: String::new(),
-            _permit: permit,
             _staging: None,
         };
         let output = sailry_protocol::attachment::Download {
@@ -289,9 +274,6 @@ impl Transfers {
     }
 }
 
-fn busy() -> Fault {
-    Fault::new(ErrorCode::Busy, "file transfer capacity exhausted")
-}
 fn missing() -> Fault {
     Fault::new(ErrorCode::NotFound, "file transfer is unavailable")
 }

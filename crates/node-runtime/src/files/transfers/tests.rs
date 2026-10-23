@@ -20,15 +20,18 @@ async fn prepared(
         .unwrap()
 }
 
-async fn released(transfers: &Transfers) {
+async fn released(transfers: &Arc<Transfers>) {
     tokio::time::timeout(Duration::from_secs(2), async {
-        while transfers.capacity.available_permits() != CAPACITY {
+        while !transfers.entries.lock().unwrap().entries.is_empty()
+            || Arc::strong_count(transfers) != 1
+        {
             tokio::task::yield_now().await;
         }
     })
     .await
     .unwrap();
     assert!(transfers.entries.lock().unwrap().entries.is_empty());
+    assert_eq!(Arc::strong_count(transfers), 1);
 }
 
 #[tokio::test]
@@ -44,24 +47,11 @@ async fn confines_single_use_handles() {
     let second = NodeId([2; 32]);
     let mut files = Vec::new();
     for caller in [first, second] {
-        for _ in 0..PER_CALLER {
+        for _ in 0..6 {
             files.push((caller, prepared(&transfers, root.path(), caller).await));
         }
-        assert_eq!(
-            transfers
-                .download(
-                    caller,
-                    WorktreeId::new(),
-                    root.path().into(),
-                    "file".into(),
-                    CancellationToken::new()
-                )
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
-        );
     }
+    assert_eq!(files.len(), 12);
     let id = files[0].1.stream;
     assert!(matches!(
         transfers.open(second, id),
@@ -157,7 +147,7 @@ async fn releases_closed_transfers() {
 }
 
 #[tokio::test]
-async fn releases_unused_capacity() {
+async fn releases_failed_preparations() {
     let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     std::fs::write(root.path().join("file"), []).unwrap();
     let transfers = Transfers::new(None);

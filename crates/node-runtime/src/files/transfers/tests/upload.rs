@@ -208,34 +208,24 @@ async fn extends_staged_expiry() {
 }
 
 #[tokio::test]
-async fn shares_transfer_limits() {
+async fn admits_mixed_streams() {
     let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     std::fs::write(root.path().join("file"), []).unwrap();
     let profile = tempfile::tempdir().unwrap();
     let transfers = Transfers::new(Some(profile.path().canonicalize().unwrap()));
     let caller = NodeId([1; 32]);
-    for index in 0..PER_CALLER {
-        prepare(&transfers, root.path(), caller, &format!("{index}"), &[]).await;
+    let mut handles = Vec::new();
+    for index in 0..6 {
+        let upload = prepare(&transfers, root.path(), caller, &format!("{index}"), &[]).await;
+        let download = prepared(&transfers, root.path(), caller).await;
+        handles.extend([upload.stream, download.stream]);
     }
-    assert_eq!(
-        transfers
-            .download(
-                caller,
-                WorktreeId::new(),
-                root.path().into(),
-                "file".into(),
-                CancellationToken::new()
-            )
-            .await
-            .unwrap_err()
-            .code,
-        ErrorCode::Busy
-    );
-    for _ in 0..PER_CALLER {
-        prepared(&transfers, root.path(), NodeId([2; 32])).await;
+    assert_eq!(handles.len(), 12);
+    assert_eq!(transfers.entries.lock().unwrap().entries.len(), 12);
+    for stream in handles {
+        transfers.cancel(caller, stream).unwrap();
+        assert!(transfers.open(caller, stream).is_err());
     }
-    assert_eq!(transfers.capacity.available_permits(), 0);
-    transfers.shutdown();
     released(&transfers).await;
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
 }

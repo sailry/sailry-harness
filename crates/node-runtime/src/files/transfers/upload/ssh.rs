@@ -25,14 +25,13 @@ impl Transfers {
             return Err(Fault::invalid("SSH file exceeds the transfer limit"));
         }
         spec.revision = revision(&spec.revision)?;
-        let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
+        let (mut lease, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
         let prepared = Prepared {
             file: self.staging_file()?,
             size: spec.size,
             revision: spec.revision.clone(),
             target: None,
             scope: Scope::Ssh(spec.clone()),
-            _permit: permit,
         };
         let output = Upload {
             stream: lease.stream,
@@ -72,7 +71,7 @@ impl Transfers {
         revision: String,
         closed: CancellationToken,
     ) -> Result<sailry_protocol::ssh::Download, Fault> {
-        let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
+        let (mut lease, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
         let output = sailry_protocol::ssh::Download {
             stream: lease.stream,
             path,
@@ -87,7 +86,6 @@ impl Transfers {
                 size,
                 revision,
                 stamp: String::new(),
-                _permit: permit,
             }),
             cancel,
         )?;

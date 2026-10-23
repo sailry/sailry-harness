@@ -12,7 +12,7 @@ impl Transfers {
             return Err(Fault::invalid("plugin ZIP exceeds the upload limit"));
         }
         spec.revision = revision(&spec.revision)?;
-        let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
+        let (mut lease, cancel) = self.reserve(caller, PathBuf::new(), closed)?;
         let file = self.staging_file()?;
         let prepared = Prepared {
             file,
@@ -20,7 +20,6 @@ impl Transfers {
             revision: spec.revision.clone(),
             target: None,
             scope: Scope::Plugin,
-            _permit: permit,
         };
         let output = Upload {
             stream: lease.stream,
@@ -115,7 +114,6 @@ impl Transfers {
         let stop = cancel.clone();
         let digest = prepared.revision.clone();
         let worker = tokio::task::spawn_blocking(move || {
-            // Keep the upload capacity reserved until all blocking work stops.
             let result = inspect(file, digest, stop);
             (prepared, result)
         });
@@ -160,7 +158,7 @@ impl Transfers {
         host: crate::plugins::Host,
         closed: CancellationToken,
     ) -> Result<sailry_protocol::plugin::skills::ImportDiscovery, Fault> {
-        let (mut lease, permit, cancel) = self.reserve(caller, PathBuf::new(), closed.clone())?;
+        let (mut lease, cancel) = self.reserve(caller, PathBuf::new(), closed.clone())?;
         let stopping = cancel.clone();
         let file = self.staging_file()?;
         let captured = tokio::task::spawn_blocking(move || {
@@ -178,7 +176,6 @@ impl Transfers {
                     revision: digest,
                     target: None,
                     scope: Scope::Skill { format, kind },
-                    _permit: permit,
                 }),
                 format,
                 kind,

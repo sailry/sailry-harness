@@ -6,26 +6,12 @@ impl Transfers {
         caller: NodeId,
         root: PathBuf,
         closed: CancellationToken,
-    ) -> Result<(Lease, OwnedSemaphorePermit, CancellationToken), Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| busy())?;
+    ) -> Result<(Lease, CancellationToken), Fault> {
         let stream = StreamId::new();
         let cancel = closed.child_token();
         let mut registry = self.entries.lock().unwrap();
         if registry.closed {
             return Err(unavailable());
-        }
-        if registry
-            .entries
-            .values()
-            .filter(|entry| entry.caller == caller)
-            .count()
-            >= PER_CALLER
-        {
-            return Err(busy());
         }
         registry.entries.insert(
             stream,
@@ -43,7 +29,6 @@ impl Transfers {
                 stream,
                 armed: true,
             },
-            permit,
             cancel,
         ))
     }

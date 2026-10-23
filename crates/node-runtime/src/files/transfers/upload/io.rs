@@ -12,7 +12,6 @@ pub(in crate::files::transfers) async fn receive(
         revision,
         target,
         scope,
-        _permit,
     } = *prepared;
     let mut file = tokio::fs::File::from_std(file);
     let mut hash = blake3::Hasher::new();
@@ -54,7 +53,6 @@ pub(in crate::files::transfers) async fn receive(
         revision,
         target,
         scope,
-        _permit,
     }))
 }
 

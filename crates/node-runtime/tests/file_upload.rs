@@ -4,6 +4,8 @@ use sailry_node_runtime::Node;
 use sailry_protocol::*;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+#[path = "file_upload/concurrency.rs"]
+mod concurrency;
 #[path = "file_upload/guards.rs"]
 mod guards;
 #[path = "file_upload/lifecycle.rs"]

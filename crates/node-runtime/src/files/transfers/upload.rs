@@ -18,7 +18,6 @@ pub(super) struct Prepared {
     revision: String,
     target: Option<save::Target>,
     scope: Scope,
-    _permit: OwnedSemaphorePermit,
 }
 
 enum Scope {
@@ -46,7 +45,7 @@ impl Transfers {
     ) -> Result<attachment::Upload, Fault> {
         crate::files::attachments::validate(&spec)?;
         spec.revision = revision(&spec.revision)?;
-        let (mut lease, permit, cancel) = self.reserve(caller, root, closed)?;
+        let (mut lease, cancel) = self.reserve(caller, root, closed)?;
         let profile = self.profile.clone();
         let upload = spec.clone();
         let stopping = cancel.clone();
@@ -66,7 +65,6 @@ impl Transfers {
                 revision: attachment.spec.revision.clone(),
                 target: Some(target),
                 scope: Scope::Attachment(attachment),
-                _permit: permit,
             })
         });
         let prepared = tokio::select! {
@@ -111,18 +109,12 @@ impl Transfers {
             .map(revision)
             .transpose()?;
         access.scope(&root).entries(&spec.path)?;
-        let (mut lease, permit, cancel) = self.reserve(caller, root.clone(), closed)?;
+        let (mut lease, cancel) = self.reserve(caller, root.clone(), closed)?;
         let profile = self.profile.clone();
         let upload = spec.clone();
         let stopping = cancel.clone();
         let worker = tokio::task::spawn_blocking(move || {
-            prepare(
-                access.scope(&root),
-                profile.as_deref(),
-                upload,
-                &stopping,
-                permit,
-            )
+            prepare(access.scope(&root), profile.as_deref(), upload, &stopping)
         });
         let prepared = tokio::select! {
             biased;
@@ -252,7 +244,6 @@ fn prepare<'a>(
     profile: Option<&Path>,
     spec: FileUploadSpec,
     cancel: &CancellationToken,
-    permit: OwnedSemaphorePermit,
 ) -> Result<Prepared, Fault> {
     let root = root.into();
     if cancel.is_cancelled() {
@@ -292,7 +283,6 @@ fn prepare<'a>(
             path: spec.path,
         },
         target: Some(target),
-        _permit: permit,
     })
 }
 
