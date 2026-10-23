@@ -104,9 +104,9 @@ impl Action {
     }
 }
 
-pub(super) fn action(id: String, action: Action, cx: &App) -> Button {
+pub(super) fn action(id: String, action: Action, _cx: &App) -> Button {
     Button::new(SharedString::from(id))
-        .ghost()
+        .secondary()
         .small()
         .size_8()
         .flex_shrink_0()
@@ -116,12 +116,9 @@ pub(super) fn action(id: String, action: Action, cx: &App) -> Button {
         } else {
             IconName::Download
         })
-        .text_color(if action == Action::Update {
-            cx.theme().primary
-        } else {
-            cx.theme().muted_foreground
+        .when(action == Action::Update, |button| {
+            button.primary().outline()
         })
-        .bg(cx.theme().secondary)
         .disabled(action == Action::Installed)
         .tooltip(tr(action.label()))
         .accessibility_label(tr(action.label()))

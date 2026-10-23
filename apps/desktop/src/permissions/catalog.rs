@@ -59,7 +59,9 @@ impl Panel {
                     owner: owner.clone(),
                     resource,
                     status: Status::Unknown,
-                    settings: None,
+                    settings: (cfg!(target_os = "macos") && local == Some(entry.identity.device))
+                        .then(|| app::standard(resource).settings)
+                        .flatten(),
                     check: connected
                         .then(|| action(client.clone(), runtime.clone(), entry.clone(), false)),
                     request: (connected

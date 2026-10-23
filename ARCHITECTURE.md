@@ -952,8 +952,8 @@ a separate decision.
 
 Core Settings owns connector, plugin, standalone skill and appearance management.
 The native Market provides discovery, search, details, installation and available
-package updates. Plugin and skill information uses the existing side pane; theme
-information reuses Appearance's dialog. Plugin configuration opens
+package updates. Marketplace information uses the existing side pane for plugins,
+skills and themes; Appearance retains its theme dialog. Plugin configuration opens
 from core management actions and follows its declared settings surface. Plugins with
 settings pages open their existing panels. Other configurable plugins use the
 shared schema form dialog, with the Node and package captured when opened. MCP authorization is available

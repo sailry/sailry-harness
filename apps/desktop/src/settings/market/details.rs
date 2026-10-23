@@ -6,10 +6,10 @@ use gpui_kit::component::scroll::ScrollableElement;
 pub(in crate::settings) mod rows;
 
 pub(in crate::settings) mod skills;
+pub(in crate::settings::market) mod themes;
 
 pub(in crate::settings) fn panel(
     summary: AnyElement,
-    information: AnyElement,
     content: AnyElement,
     scroll: &ScrollHandle,
     cx: &App,
@@ -36,15 +36,7 @@ pub(in crate::settings) fn panel(
                         }),
                 ),
         )
-        .child(
-            v_flex()
-                .flex_shrink_0()
-                .min_w_0()
-                .pt_5()
-                .gap_4()
-                .child(summary)
-                .child(div().px_7().child(information)),
-        )
+        .child(v_flex().flex_shrink_0().min_w_0().pt_5().child(summary))
         .child(
             div()
                 .id("extension-details-body")
@@ -65,7 +57,7 @@ fn summary(
     subtitle: String,
     description: Option<String>,
     icon: Option<AnyElement>,
-    action: Option<Button>,
+    action: Option<AnyElement>,
     cx: &App,
 ) -> AnyElement {
     v_flex()
@@ -94,7 +86,9 @@ fn summary(
                             )
                         }),
                 )
-                .children(action.map(|action| action.flex_shrink_0())),
+                .when_some(action, |row, action| {
+                    row.child(div().flex_shrink_0().child(action))
+                }),
         )
         .when_some(description, |view, description| {
             view.child(

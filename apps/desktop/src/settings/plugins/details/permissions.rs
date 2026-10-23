@@ -121,10 +121,10 @@ impl Details {
             );
         }
         for action in actions {
-            let (tag, key) = match action.access() {
-                Access::Read => (Tag::secondary(), "market_details_access_read"),
-                Access::Modify => (Tag::warning(), "market_details_access_modify"),
-                Access::Operate => (Tag::warning(), "market_details_access_operate"),
+            let (tag, access) = match action.access() {
+                Access::Read => (Tag::secondary(), "read"),
+                Access::Modify => (Tag::warning().outline(), "modify"),
+                Access::Operate => (Tag::warning().outline(), "operate"),
             };
             items.push(
                 rows::row(
@@ -132,7 +132,7 @@ impl Details {
                     icon(action),
                     tr(label(action)),
                     Some(raw(action)),
-                    tag.small().child(tr(key)),
+                    tag.small().child(access),
                     cx,
                 )
                 .into_any_element(),
@@ -151,9 +151,7 @@ impl Details {
                             IconName::SquareTerminal,
                             tr("connector_cli_capability"),
                             Some(command.clone()),
-                            Tag::warning()
-                                .small()
-                                .child(tr("market_details_access_operate")),
+                            Tag::warning().outline().small().child("operate"),
                             cx,
                         )
                         .into_any_element(),
@@ -179,54 +177,6 @@ impl Details {
                 .into_any_element(),
             );
         }
-        let mut body =
-            v_flex()
-                .gap_4()
-                .child(rows::section("market_details_permissions", None, items, cx));
-        let installed = matches!(self.target, Target::Installed(_));
-        if actions
-            .iter()
-            .any(|action| matches!(action, Action::ReadComputer | Action::ControlComputer))
-        {
-            body = body.child(
-                h_flex()
-                    .w_full()
-                    .items_start()
-                    .gap_3()
-                    .p_3()
-                    .child(
-                        Icon::new(IconName::Shield)
-                            .size_4()
-                            .flex_shrink_0()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .child(tr("market_details_permission_system")),
-                    )
-                    .child(
-                        Button::new("plugin-open-permissions")
-                            .small()
-                            .label(tr("market_details_open"))
-                            .on_click(move |_, window, cx| {
-                                if installed {
-                                    window.close_dialog(cx);
-                                } else {
-                                    super::dismiss(window, cx);
-                                }
-                                window.dispatch_action(
-                                    Box::new(crate::settings::OpenSection(
-                                        crate::settings::Section::Permissions,
-                                    )),
-                                    cx,
-                                );
-                            }),
-                    ),
-            );
-        }
-        body.into_any_element()
+        rows::section("market_details_permissions", None, items, cx)
     }
 }

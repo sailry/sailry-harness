@@ -11,7 +11,6 @@ pub(super) struct State {
     pub(super) updates: Entity<crate::settings::appearance::updates::State>,
     previews: BTreeMap<(String, bool), Arc<Image>>,
     selected: Selection,
-    dialog: Option<WeakEntity<crate::settings::appearance::import::Import>>,
 }
 
 #[derive(Default)]
@@ -53,7 +52,6 @@ impl State {
             listing: None,
             previews: BTreeMap::new(),
             selected: Default::default(),
-            dialog: None,
         }
     }
 }
@@ -68,7 +66,7 @@ fn open(
     if stop.is_cancelled() {
         return;
     }
-    let (source, updates, previous, workspace) = {
+    let (source, updates) = {
         let state = market.read(cx);
         (
             state
@@ -78,13 +76,8 @@ fn open(
                 .filter(|listing| !listing.unavailable)
                 .and_then(|listing| listing.selection(&id)),
             state.themes.updates.clone(),
-            state.themes.dialog.as_ref().and_then(WeakEntity::upgrade),
-            state.owner.upgrade(),
         )
     };
-    if let Some(previous) = previous {
-        previous.update(cx, |view, cx| view.close(window, cx));
-    }
     let package = cx
         .global::<theme::Catalog>()
         .packages
@@ -92,45 +85,15 @@ fn open(
         .find(|package| package.id == id)
         .cloned();
     let Some(view) =
-        crate::settings::appearance::import::catalog(package, source, updates, stop, window, cx)
+        details::themes::open(market.clone(), package, source, updates, stop, window, cx)
     else {
         return;
     };
-    if let Some(workspace) = workspace {
-        let expected = workspace.read(cx).section;
-        let node = market.read(cx).binding.client.target();
-        view.update(cx, |_, cx| {
-            cx.observe_in(&workspace, window, move |view, workspace, window, cx| {
-                let workspace = workspace.read(cx);
-                if workspace.section != expected
-                    || workspace
-                        .provider_link
-                        .as_ref()
-                        .is_none_or(|live| live.binding.client.target() != node)
-                {
-                    view.close(window, cx);
-                }
-            })
-            .detach();
-        });
-    }
     let owner = view.entity_id();
     market.update(cx, |market, cx| {
         market.themes.selected.select(id, owner);
-        market.themes.dialog = Some(view.downgrade());
-        cx.subscribe(
-            &view,
-            move |market, _, _: &crate::settings::appearance::import::Closed, cx| {
-                if market.themes.selected.close(owner) {
-                    market.themes.dialog = None;
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
         cx.observe_release(&view, move |market, _, cx| {
             if market.themes.selected.close(owner) {
-                market.themes.dialog = None;
                 cx.notify();
             }
         })
@@ -262,40 +225,7 @@ impl Market {
                         .contains(&query)
             })
             .collect();
-        let locals: Vec<_> = catalog
-            .packages
-            .iter()
-            .filter(|package| {
-                !self.themes.listing.as_ref().is_some_and(|listing| {
-                    listing
-                        .catalog
-                        .themes
-                        .iter()
-                        .any(|entry| entry.id == package.id)
-                }) && (query.is_empty() || package.name.to_lowercase().contains(&query))
-            })
-            .collect();
         let mut cards = Vec::new();
-        for package in locals {
-            let id = package.id.clone();
-            let current = self.themes.selected.contains(&id);
-            cards.push(Self::theme_card(
-                id.clone(),
-                package.name.clone(),
-                theme::preview(package, cx.theme().is_dark(), cx)
-                    .h_full()
-                    .into_any_element(),
-                card::action(
-                    format!("market-theme-install-{id}"),
-                    card::Action::Installed,
-                    cx,
-                )
-                .size_6()
-                .disabled(true),
-                current,
-                cx,
-            ));
-        }
         for entry in entries {
             let package = catalog
                 .packages
@@ -481,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn dialog_identity_owns_selection() {
+    fn pane_identity_owns_selection() {
         let mut selection = Selection::default();
         let first = EntityId::from(1);
         let second = EntityId::from(2);

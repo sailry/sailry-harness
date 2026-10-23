@@ -24,23 +24,6 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
             .map(|metadata| metadata.name.clone())
             .unwrap_or_else(|| details.name().into())
     });
-    let publisher = info
-        .map(publisher)
-        .or_else(|| {
-            details
-                .external_metadata()
-                .and_then(|metadata| metadata.author.clone())
-        })
-        .unwrap_or_default();
-    let version = managed
-        .as_ref()
-        .and_then(|summary| summary.version.clone())
-        .or_else(|| details.version());
-    let subtitle = byline(
-        &publisher,
-        version.as_deref(),
-        installed || managed.is_some(),
-    );
     let primary = owner.clone();
     let tabs = owner.clone();
     let extension = info.and_then(|info| info.extension.as_ref());
@@ -70,18 +53,10 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                         .flex_1()
                         .min_w_0()
                         .gap_1()
-                        .child(div().text_lg().font_semibold().truncate().child(title))
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_normal()
-                                .text_color(cx.theme().muted_foreground)
-                                .truncate()
-                                .child(subtitle),
-                        ),
+                        .child(div().text_lg().font_semibold().truncate().child(title)),
                 )
                 .when(
-                    !installed && (managed.is_some() || details.installable()),
+                    !installed && ((managed.is_none() && details.installable()) || catalog_update),
                     |row| {
                         row.child(
                             Button::new("plugin-details-primary")
@@ -170,16 +145,6 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                 }),
         )
         .into_any_element()
-}
-
-fn publisher(info: &Info) -> String {
-    match info.origin.as_ref() {
-        Some(Origin::Bundled) => "Sailry".into(),
-        Some(Origin::Online { source, .. }) => repository_owner(&source.repository)
-            .unwrap_or_else(|| tr("market_details_local").to_string()),
-        Some(Origin::Registry { source }) => source.namespace.clone(),
-        _ => tr("market_details_local").to_string(),
-    }
 }
 
 fn repository_owner(repository: &str) -> Option<String> {
@@ -341,6 +306,7 @@ impl Details {
         }
         v_flex()
             .gap_5()
+            .child(self.information(cx))
             .when(!includes.is_empty(), |view| {
                 view.child(rows::section("market_details_includes", None, includes, cx))
             })
@@ -366,29 +332,7 @@ impl Render for Details {
         } else {
             div().into_any_element()
         };
-        crate::settings::market::details::panel(
-            header(self, cx),
-            self.information(cx),
-            content,
-            &self.scroll,
-            cx,
-        )
-    }
-}
-
-fn byline(publisher: &str, version: Option<&str>, installed: bool) -> String {
-    let Some(version) = version else {
-        return publisher.into();
-    };
-    let version = if installed {
-        format!("{} {version}", tr("market_installed"))
-    } else {
-        version.into()
-    };
-    if publisher.is_empty() {
-        version
-    } else {
-        format!("{publisher} · {version}")
+        crate::settings::market::details::panel(header(self, cx), content, &self.scroll, cx)
     }
 }
 
@@ -396,17 +340,6 @@ fn byline(publisher: &str, version: Option<&str>, installed: bool) -> String {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
-    #[test]
-    fn formats_version_once() {
-        assert_eq!(byline("Sailry", None, true), "Sailry");
-        assert_eq!(byline("Sailry", Some("0.1.7"), false), "Sailry · 0.1.7");
-        assert_eq!(
-            byline("Sailry", Some("0.1.7"), true),
-            format!("Sailry · {} 0.1.7", tr("market_installed")),
-        );
-        assert_eq!(byline("", Some("0.1.7"), false), "0.1.7");
-    }
-
     #[test]
     fn identifies_repository_publishers() {
         assert_eq!(

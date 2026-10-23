@@ -423,7 +423,7 @@ impl Render for Details {
             .market()
             .is_some_and(|market| market.read(cx).connected(cx));
         let action = (matches!(self.target, Target::Catalog(_))
-            && (self.entry.source.is_some() || installed))
+            && ((!installed && self.entry.source.is_some()) || update))
             .then(|| {
                 Button::new("skill-details-install")
                     .small()
@@ -452,11 +452,7 @@ impl Render for Details {
                 .map(|document| document.skill.display_name(&rust_i18n::locale()).to_owned())
                 .unwrap_or_else(|| self.entry.title(&rust_i18n::locale()).to_owned())
                 .into(),
-            if installed {
-                format!("{} · {}", self.entry.origin, tr("market_installed"))
-            } else {
-                self.entry.origin.clone()
-            },
+            self.entry.origin.clone(),
             self.document
                 .as_ref()
                 .map(|document| document.skill.description.clone())
@@ -470,21 +466,11 @@ impl Render for Details {
                     .size(px(40.))
                     .into_any_element(),
             ),
-            action,
+            action.map(|button| button.into_any_element()),
             cx,
         );
         let mut content = v_flex().w_full().min_w_0().gap_5();
-        let mut information = vec![
-            rows::row(
-                "skill-source".into(),
-                IconName::Link,
-                tr("market_details_source"),
-                None,
-                self.entry.origin.clone(),
-                cx,
-            )
-            .into_any_element(),
-        ];
+        let mut information = Vec::new();
         let version = match (&self.target, &self.resolved) {
             (Target::Installed { version, .. }, _) => version.as_deref(),
             (_, Some(Resolved::Registry(discovery))) => Some(discovery.source.version.as_str()),
@@ -506,7 +492,9 @@ impl Render for Details {
         if let Some(url) = &self.entry.url {
             information.push(rows::homepage("skill-homepage", url, cx));
         }
-        let information = rows::information(information, cx);
+        if !information.is_empty() {
+            content = content.child(rows::information(information, cx));
+        }
 
         if let Some(document) = &self.document {
             content = content.child(crate::content::markdown::View::markdown(
@@ -539,13 +527,7 @@ impl Render for Details {
                 cx,
             ));
         }
-        super::panel(
-            summary,
-            information,
-            content.into_any_element(),
-            &self.scroll,
-            cx,
-        )
+        super::panel(summary, content.into_any_element(), &self.scroll, cx)
     }
 }
 

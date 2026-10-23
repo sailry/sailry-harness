@@ -42,7 +42,7 @@ impl State {
     pub(super) fn checking(&self) -> bool {
         self.checking.is_some()
     }
-    pub(super) fn available(&self, id: &str) -> bool {
+    pub(in crate::settings) fn available(&self, id: &str) -> bool {
         self.available.contains_key(id)
     }
     pub(in crate::settings) fn pending(&self, id: &str) -> bool {
@@ -123,7 +123,12 @@ impl State {
         cx.notify();
     }
 
-    pub(super) fn update(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::settings) fn update(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(selection) = self.available.get(id).cloned() else {
             return;
         };

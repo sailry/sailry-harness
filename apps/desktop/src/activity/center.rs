@@ -227,24 +227,26 @@ impl Shell {
                         })),
                 )
             })
-            .child(
-                Button::new(format!("{key}-toggle"))
-                    .ghost()
-                    .small()
-                    .icon(if expanded {
-                        IconName::ChevronDown
-                    } else {
-                        IconName::ChevronRight
-                    })
-                    .accessibility_label(title)
-                    .on_click(cx.listener(move |shell, _, window, cx| {
-                        if !shell.activity.expanded.remove(&id) {
-                            shell.activity.expanded.insert(id);
-                            shell.read_notice(id, window, cx);
-                        }
-                        cx.notify();
-                    })),
-            );
+            .when(!available, |row| {
+                row.child(
+                    Button::new(format!("{key}-toggle"))
+                        .ghost()
+                        .small()
+                        .icon(if expanded {
+                            IconName::ChevronDown
+                        } else {
+                            IconName::ChevronRight
+                        })
+                        .accessibility_label(title)
+                        .on_click(cx.listener(move |shell, _, window, cx| {
+                            if !shell.activity.expanded.remove(&id) {
+                                shell.activity.expanded.insert(id);
+                                shell.read_notice(id, window, cx);
+                            }
+                            cx.notify();
+                        })),
+                )
+            });
         card_list::frame(
             key,
             Collapsible::new()
