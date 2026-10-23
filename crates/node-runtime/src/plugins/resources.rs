@@ -80,7 +80,7 @@ impl Resources {
             .unwrap_or_default()
     }
 
-    fn tool_declaration(
+    pub(crate) fn tool_declaration(
         &self,
         plugin: &str,
         server: &str,

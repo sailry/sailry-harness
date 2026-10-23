@@ -93,7 +93,7 @@ tool_ssh_run: Run SSH command
 tool_ssh_transfer: Transfer SSH file
 tool_load_skill: Load skill
 tool_read_skill_resource: Read skill resource
-tool_list_sessions: "List sessions"
+tool_list_sessions: "Find sessions"
 tool_read_session: "Read session"
 tool_search_session: "Search session"
 tool_update_plan: Update plan
@@ -231,3 +231,5 @@ reference_group_context: "Add"
 provider_key_hint: Enter API Key
 form_date_hint: Choose date
 form_time_hint: "HH:mm:ss"
+
+tool_raw_result: "View raw result"

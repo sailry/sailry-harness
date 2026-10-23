@@ -105,6 +105,7 @@ fn updates_preserve_failures() {
                 content: None,
                 resolved: None,
                 state: State::Returned,
+                failure: None,
                 approval: None,
                 question: None,
             }

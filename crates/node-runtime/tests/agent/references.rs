@@ -153,18 +153,53 @@ async fn reads_history_with_and_without_mentions() {
             format!("Summarize conversation {} and continue its task", source.id).into(),
         )
         .await;
-        let results = history(&client, target.id)
-            .await
+        let captured = history(&client, target.id).await;
+        let view = super::progress::observe(&client, target.id).await;
+        assert_eq!(view.calls.len(), 8);
+        for call in view.calls.iter().take(7) {
+            assert_eq!(
+                call.presentation,
+                sailry_protocol::tool::Presentation::Summary
+            );
+            assert!(!call.details(&captured));
+            let display = call.display(&captured).unwrap();
+            assert!(display.valid());
+            assert_ne!(display.label("en"), display.label("zh-CN"));
+            if call.name != "list_sessions" {
+                let summary = &call
+                    .resolved
+                    .as_ref()
+                    .unwrap()
+                    .input
+                    .summary
+                    .as_ref()
+                    .unwrap()
+                    .text;
+                assert_eq!(summary, "First decision: use the shared editor 中文");
+                assert!(!summary.contains(&source.id.to_string()));
+            }
+        }
+        assert!(view.calls[7].details(&captured));
+        assert!(
+            view.calls[7]
+                .resolved
+                .as_ref()
+                .unwrap()
+                .input
+                .summary
+                .is_none()
+        );
+        let results = captured
             .entries
-            .into_iter()
+            .iter()
             .filter(|entry| entry.turn == turn)
-            .flat_map(|entry| entry.parts)
+            .flat_map(|entry| &entry.parts)
             .filter_map(|part| match part {
                 Part::ToolResult { name, result, .. }
                     if ["list_sessions", "read_session", "search_session"]
                         .contains(&name.as_str()) =>
                 {
-                    Some(result)
+                    Some(result.clone())
                 }
                 _ => None,
             })

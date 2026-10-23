@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 pub mod display;
+mod presentation;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +51,8 @@ pub struct Call {
     pub source: Reference,
     pub response: Option<Reference>,
     pub state: State,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<sailry_protocol::tool::Failure>,
     pub approval: Option<sailry_protocol::conversation::Approval>,
     pub question: Option<sailry_protocol::conversation::question::Question>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -191,6 +194,7 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
                         source,
                         response: None,
                         state: State::Waiting,
+                        failure: None,
                         progress: None,
                         content: None,
                         resolved: None,
@@ -245,6 +249,7 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
                             source: source.clone(),
                             response: Some(source),
                             state: State::Returned,
+                            failure: None,
                             approval: None,
                             question: None,
                             progress: None,
@@ -258,6 +263,7 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
         }
     }
     for call in &mut calls {
+        call.failure = presentation::failure(call, page);
         if call.presentation == sailry_protocol::tool::Presentation::Progress {
             call.grouping = sailry_protocol::tool::Grouping::Standalone;
         }

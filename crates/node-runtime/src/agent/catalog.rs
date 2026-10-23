@@ -2,6 +2,7 @@
 use adk_core::Tool;
 use sailry_link::CancellationToken;
 mod arguments;
+pub(super) mod display;
 use sailry_protocol::Fault;
 use sailry_protocol::tool::Presentation;
 use std::{collections::BTreeMap, sync::Arc};

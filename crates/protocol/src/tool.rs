@@ -14,14 +14,24 @@ pub use result::{Diagnostic, Expected, LocalText, ResultDisplay};
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Presentation {
+    #[default]
     Summary,
+    /// Omits an ordinary activity only after a confirmed successful result.
+    Hidden,
     /// A validated progress result, with raw details retained as a fallback.
     Progress,
     /// Bounded standard content, with the original result retained for inspection.
     Content,
     /// Retains the original result for inspection.
-    #[default]
     Details,
+}
+
+/// A failed execution observed by Node independently of returned business data.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Failure {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<crate::ErrorCode>,
 }
 
 /// Whether a tool joins consecutive activity or occupies its own transcript row.
@@ -491,6 +501,7 @@ impl Declaration {
             && self.display.as_ref().is_none_or(|display| {
                 display.valid()
                     && display.aliases.is_empty()
+                    && !display.raw_result
                     && display.input.as_ref().is_none_or(|input| {
                         input
                             .summary

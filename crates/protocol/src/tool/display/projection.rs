@@ -47,8 +47,16 @@ pub struct Part {
     pub take: Option<usize>,
     pub text: Option<String>,
     pub value: Option<Reference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<ValueFormat>,
     pub rows: Option<Rows>,
     pub when: Option<Condition>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ValueFormat {
+    Json,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -214,6 +222,7 @@ impl Text {
                     && part
                         .take
                         .is_none_or(|limit| part.value.is_some() && limit > 0 && limit <= 4096)
+                    && (part.format.is_none() || part.value.is_some())
                     && part.text.as_ref().is_none_or(|text| text.len() <= 1024)
                     && part.value.as_ref().is_none_or(|value| value.valid(item))
                     && part.when.as_ref().is_none_or(|test| test.valid(item))
@@ -235,12 +244,18 @@ impl Text {
                     return Some(text.clone());
                 }
                 if let Some(value) = &part.value {
-                    return value.resolve(data).and_then(literal).map(|text| {
-                        part.take.map_or_else(
-                            || text.clone(),
-                            |limit| text.chars().take(limit).collect(),
-                        )
-                    });
+                    return value
+                        .resolve(data)
+                        .and_then(|value| match part.format {
+                            Some(ValueFormat::Json) => serde_json::to_string_pretty(value).ok(),
+                            None => literal(value),
+                        })
+                        .map(|text| {
+                            part.take.map_or_else(
+                                || text.clone(),
+                                |limit| text.chars().take(limit).collect(),
+                            )
+                        });
                 }
                 let rows = part.rows.as_ref()?;
                 let values = rows.value.resolve(data)?.as_array()?;
@@ -266,6 +281,51 @@ impl Text {
 
     pub fn render(&self, arguments: &Value, result: &Value) -> String {
         self.resolve(Data::new(arguments, result))
+    }
+
+    /// JSON bodies stay in the authoritative result until a controller opens them.
+    pub fn deferred(&self) -> bool {
+        self.parts.iter().any(|part| {
+            part.format.is_some() || part.rows.as_ref().is_some_and(|rows| rows.text.deferred())
+        })
+    }
+
+    pub fn visible(&self, arguments: &Value, result: &Value) -> bool {
+        self.has_value(Data::new(arguments, result))
+    }
+
+    fn has_value(&self, data: Data<'_>) -> bool {
+        self.parts
+            .iter()
+            .filter(|part| part.when.as_ref().is_none_or(|test| test.resolve(data)))
+            .any(|part| {
+                if let Some(text) = &part.text {
+                    return !text.is_empty();
+                }
+                if let Some(reference) = &part.value {
+                    return reference.resolve(data).is_some_and(|value| {
+                        part.format.is_some()
+                            || match value {
+                                Value::String(text) => !text.is_empty(),
+                                Value::Bool(_) | Value::Number(_) => true,
+                                _ => false,
+                            }
+                    });
+                }
+                part.rows.as_ref().is_some_and(|rows| {
+                    rows.value
+                        .resolve(data)
+                        .and_then(Value::as_array)
+                        .is_some_and(|items| {
+                            items.iter().any(|item| {
+                                rows.text.has_value(Data {
+                                    item: Some(item),
+                                    ..data
+                                })
+                            })
+                        })
+                })
+            })
     }
 }
 

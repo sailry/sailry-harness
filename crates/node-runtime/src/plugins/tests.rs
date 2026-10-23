@@ -222,7 +222,11 @@ mod extension_loading {
         ] {
             assert_eq!(
                 resources.tool_presentation(package, server, tool),
-                Presentation::Details
+                if (package, server, tool) == ("example", "native", "write") {
+                    Presentation::Details
+                } else {
+                    Presentation::Summary
+                }
             );
         }
         for tools in [

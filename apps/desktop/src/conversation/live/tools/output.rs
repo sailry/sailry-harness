@@ -138,24 +138,30 @@ pub(super) fn preview(value: &Value) -> Preview {
     }
 }
 
-pub(super) fn has_output(value: &Value) -> bool {
-    let body = preview(value);
-    !body.text.is_empty() || !body.notices.is_empty()
+/// Raw inspection is explicit and preserves every public business field.
+pub(super) fn raw(value: &Value) -> String {
+    serde_json::to_string_pretty(value).expect("tool JSON is serializable")
 }
 
 fn readable(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
-        Value::Array(items) => items.iter().map(readable).collect::<Vec<_>>().join("\n"),
-        Value::Object(fields) => fields
+        Value::Array(items) if items.iter().all(Value::is_string) => items
             .iter()
-            .filter(|(_, value)| !value.is_null())
-            .map(|(key, value)| format!("{key}: {}", readable(value)))
+            .filter_map(Value::as_str)
             .collect::<Vec<_>>()
             .join("\n"),
-        Value::Null => String::new(),
+        Value::Null | Value::Array(_) | Value::Object(_) => String::new(),
         _ => value.to_string(),
     }
+}
+
+pub(super) fn observed_failure(
+    failure: Option<&sailry_protocol::tool::Failure>,
+    result: &Value,
+) -> Option<String> {
+    failure?;
+    result.get("error")?.as_str().map(str::to_owned)
 }
 #[cfg(test)]
 mod tests;

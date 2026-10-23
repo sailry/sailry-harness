@@ -724,6 +724,30 @@ successful save opens the containing directory.
 
 ## Tool message content
 
+Successful tools default to `presentation: "summary"`: an activity row without
+result expansion. Declare `details` for meaningful output, `content` for the
+existing standard blocks, or `progress` for plans. `hidden` omits a successful
+ordinary maintenance activity; approvals, questions, child agents and failures
+retain their existing interactions. These declarations change no model result,
+canonical tool output, permissions or execution scope. Captured explicit modes
+remain part of historical calls; omitted modes use the current v1 default.
+
+Prefer `display.output` references for the actual body, paths, table or diff.
+An explicitly declared output that resolves empty does not fall back to arbitrary
+JSON. Conditional `preview.parts` and notices let a mixed tool keep queries brief
+while exposing confirmed changes for mutations. A value part can explicitly set
+`format: "json"` to inspect an object, array or scalar at its declared pointer;
+the existing `when` condition still applies. JSON formatting is deferred until
+details are opened and preserves business fields such as `id` and `node`.
+Without this format, object and array values are not converted into preview text.
+Ordinary undeclared MCP successes retain an explicit raw-result inspection action
+without acquiring a normal result disclosure. `display.raw_result` is captured
+only by Node and cannot be supplied by packages.
+
+Node captures actual failed execution facts with the same canonical call/result
+identity. These facts keep native errors and MCP `isError` responses inspectable
+without interpreting a successful business field named `error` as a failure.
+
 `display.input.summary` can use `format: "connection"` to show a saved connection's
 public name. The execution Node captures names only from the connections admitted
 to that turn; packages cannot supply the captured `names` map. Unknown or blank
@@ -753,9 +777,9 @@ A tool declaration can set `presentation: "content"`. Return `sailry_content` in
 
 The content is finite data. Tables contain literal strings with equal row and column widths. Diffs contain unified diff text and a path used only for syntax and display. Images refer to the original inline-data index of a `Image` in that same result; MCP servers send image bytes through normal MCP image content. Image URLs, arbitrary attachment IDs, executable markup and UI scripts are not accepted. Downloads retain the existing authenticated conversation boundary.
 
-Content allows 1–16 blocks and at most 256 KiB of serialized JSON. Tables allow 1–64 columns, 1000 rows, 1024 bytes per column label and 16 KiB per cell. Diffs allow a 4096-byte path without control characters and 4096 lines. Tables and diffs accept `truncated: true` to disclose partial output. Unknown fields or kinds, unsupported versions, mismatched rows, missing or duplicate image references and failed results fall back to literal output. The shared Client validates the matched call and result, so controllers can consume the same content.
+Content allows 1–16 blocks and at most 256 KiB of serialized JSON. Tables allow 1–64 columns, 1000 rows, 1024 bytes per column label and 16 KiB per cell. Diffs allow a 4096-byte path without control characters and 4096 lines. Tables and diffs accept `truncated: true` to disclose partial output. Unknown fields or kinds, unsupported versions, mismatched rows, missing or duplicate image references and failed results retain the original result for inspection. The shared Client validates the matched call and result, so controllers can consume the same content.
 
-Desktop renders these blocks with the common Kit table, diff and authenticated image viewer. Native call state, approval, cancellation, folding and history order still belong to the conversation. Expand **Details** for the unchanged result. History remains readable after package removal and Node restart; no plugin script runs to render saved tool content. The built-in database query uses this same contract.
+Desktop renders these blocks with the common Kit table, diff and authenticated image viewer. Native call state, approval, cancellation, folding and history order still belong to the conversation. Explicit raw inspection preserves the unchanged result when a standard block cannot be rendered. History remains readable after package removal and Node restart; no plugin script runs to render saved tool content. The built-in database query uses this same contract.
 
 Plans retain `presentation: "progress"` and the `progress.update` operation. Questions and plan confirmation retain `ask_user` and the existing question state; external MCP servers can use form or URL elicitation. Content blocks cannot create approvals or questions or submit answers.
 

@@ -142,6 +142,7 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
             Part::Resource(value)
                 if value["type"] == "provider_context"
                     || value["type"] == "tool_started"
+                    || value["type"] == "tool_failed"
                     || (value["type"] == "operation_warning"
                         && value["code"] == "context_summary_failed") => {}
             Part::Resource(value) if value["type"] == "model_retry" => {
@@ -208,6 +209,9 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                     }
                     if call.question_spec(&snapshot.page).is_some() {
                         blocks.push(Block::Question(call));
+                        continue;
+                    }
+                    if call.hidden(&snapshot.page) {
                         continue;
                     }
                     match blocks.last_mut() {

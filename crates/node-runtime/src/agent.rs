@@ -571,10 +571,7 @@ async fn execute_with(
             .push(catalog::Registration::managed(compact_tool));
         if invocation.child.is_none() {
             extensions.tools.extend([
-                catalog::Registration::managed(Arc::new(title::SetTitle {
-                    session: invocation.turn.session.to_string(),
-                    stop: stop.clone(),
-                })),
+                title::bind(invocation.turn.session.to_string(), stop.clone()),
                 catalog::Registration::managed(Arc::new(question::Question {
                     ingress: ingress.clone(),
                     turn: invocation.turn.id,

@@ -130,6 +130,20 @@ async fn manages_only_standalone_inventory() {
         );
         let outputs = results(&page);
         assert_eq!(outputs.len(), 6);
+        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        assert_eq!(view.calls.len(), 6);
+        for (call, details) in view
+            .calls
+            .iter()
+            .zip([false, true, true, true, true, false])
+        {
+            assert_eq!(
+                call.presentation,
+                sailry_protocol::tool::Presentation::Details
+            );
+            assert_eq!(call.details(&page), details);
+            assert!(call.display(&page).unwrap().valid());
+        }
         assert_eq!(outputs[1]["enabled"], false);
         assert_eq!(outputs[1]["revision"], disabled.summary.revision + 2);
         assert_eq!(outputs[2]["credential_slots"], json!(["API-Key"]));

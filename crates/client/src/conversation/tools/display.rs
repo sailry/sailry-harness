@@ -38,6 +38,8 @@ pub struct Text {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Output {
     pub preview: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub preview_deferred: bool,
     pub notices: Vec<LocalText>,
     pub paths: Vec<String>,
     pub body: Option<Body>,
@@ -65,6 +67,15 @@ fn field(value: Option<&Field>, arguments: &Value) -> Option<Text> {
         text: value.read(arguments)?.to_owned(),
         code: value.code,
     })
+}
+
+fn result_name<'a>(field: &Field, result: &'a Value) -> Option<&'a str> {
+    field
+        .result_path
+        .as_ref()
+        .and_then(|path| result.pointer(path))
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
 }
 
 /// The name from a child's canonical spawn call or frozen role metadata.
@@ -141,8 +152,13 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
                 preview: output
                     .preview
                     .as_ref()
+                    .filter(|text| !text.deferred())
                     .map(|text| text.render(arguments, result))
                     .unwrap_or_default(),
+                preview_deferred: output
+                    .preview
+                    .as_ref()
+                    .is_some_and(|text| text.deferred() && text.visible(arguments, result)),
                 notices: output
                     .notices
                     .iter()
@@ -188,8 +204,15 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
             locales: display.locales.clone(),
         }),
         input: Input {
-            summary: field(input.and_then(|input| input.summary.as_ref()), arguments).and_then(
-                |mut text| {
+            summary: field(input.and_then(|input| input.summary.as_ref()), arguments)
+                .or_else(|| {
+                    let field = input.and_then(|input| input.summary.as_ref())?;
+                    Some(Text {
+                        text: result_name(field, result)?.to_owned(),
+                        code: field.code,
+                    })
+                })
+                .and_then(|mut text| {
                     let field = input.and_then(|input| input.summary.as_ref())?;
                     if field.format == Some(sailry_protocol::tool::InputFormat::Connection)
                         && let Some(name) = field.names.get(&text.text)
@@ -197,13 +220,7 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
                     {
                         text.text = name.clone();
                     }
-                    if let Some(name) = field
-                        .result_path
-                        .as_ref()
-                        .and_then(|path| result.pointer(path))
-                        .and_then(Value::as_str)
-                        .filter(|name| !name.trim().is_empty())
-                    {
+                    if let Some(name) = result_name(field, result) {
                         text.text = name.to_owned();
                     }
                     match field.format {
@@ -224,8 +241,7 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
                         Some(sailry_protocol::tool::InputFormat::Connection) | None => {}
                     }
                     Some(text)
-                },
-            ),
+                }),
             context: field(input.and_then(|input| input.context.as_ref()), arguments),
             target: field(input.and_then(|input| input.target.as_ref()), arguments),
             content: field(input.and_then(|input| input.content.as_ref()), arguments),

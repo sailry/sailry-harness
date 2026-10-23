@@ -124,6 +124,10 @@ pub(super) fn insert(
         "SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2",
         params![session.to_string(),event.id],|row| Ok((row.get(0)?,row.get(1)?)),
     ).optional().map_err(storage_error)?;
+    super::presentation::preserve_failures(
+        &mut event,
+        previous.as_ref().map(|(_, body)| body.as_slice()),
+    )?;
     super::presentation::capture_names(
         db,
         session,
@@ -350,6 +354,7 @@ pub(crate) fn project(
     let presentations = super::presentation::read(event)?;
     let groupings = super::presentation::groupings(event)?;
     let displays = super::presentation::displays(event)?;
+    let failures = super::presentation::failures(event)?;
     Ok(Entry {
         sequence,
         turn,
@@ -461,6 +466,12 @@ pub(crate) fn project(
             }))
             .chain(super::elicitation::project(event)?.into_iter().map(Ok))
             .chain(super::review::project(event)?.into_iter().map(Ok))
+            .chain(failures.into_iter().map(|failure| {
+                Ok(Part::Resource(serde_json::json!({
+                    "type":"tool_failed", "index":failure.index, "id":failure.id,
+                    "name":failure.name, "failure":failure.failure
+                })))
+            }))
             .chain(event.provider_metadata.get("adk_tool_started").map(|value| {
                 let value: Value = serde_json::from_str(value).map_err(storage_error)?;
                 let name = value["name"].as_str().ok_or_else(|| sailry_protocol::Fault::invalid("invalid tool start name"))?;

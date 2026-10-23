@@ -23,6 +23,10 @@ pub struct Display {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(skip)]
     pub aliases: Vec<Alias>,
+    /// Node-owned inspection entry for an undeclared external tool result.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(skip)]
+    pub raw_result: bool,
 }
 
 impl Display {
@@ -59,6 +63,7 @@ impl From<Navigation> for Display {
             output: None,
             approval: Vec::new(),
             aliases: Vec::new(),
+            raw_result: false,
         }
     }
 }
@@ -204,6 +209,28 @@ mod tests {
             serde_json::from_value(json!({"content":{"path":"/command","format":"command"}}))
                 .unwrap();
         assert!(!input.valid());
+    }
+
+    #[test]
+    fn defaults_to_summary_and_reserves_raw_inspection() {
+        let mut declaration: super::super::Declaration = serde_json::from_value(json!({
+            "name":"read", "display":{"label":"Read"}
+        }))
+        .unwrap();
+        assert_eq!(
+            declaration.presentation,
+            super::super::Presentation::Summary
+        );
+        declaration.display.as_mut().unwrap().raw_result = true;
+        assert!(declaration.display.as_ref().unwrap().valid());
+        assert!(!declaration.valid());
+        declaration.display.as_mut().unwrap().raw_result = false;
+        for presentation in ["hidden", "details", "content", "progress"] {
+            let mut value = serde_json::to_value(&declaration).unwrap();
+            value["presentation"] = json!(presentation);
+            let declaration: super::super::Declaration = serde_json::from_value(value).unwrap();
+            assert!(declaration.valid());
+        }
     }
 
     #[test]

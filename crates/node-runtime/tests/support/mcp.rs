@@ -179,6 +179,19 @@ fn stdio_peer() {
                     continue;
                 }
                 let name = request["params"]["name"].as_str().unwrap();
+                if mode == "presentation" {
+                    let failed = request["params"]["arguments"]["value"] == "failure";
+                    println!(
+                        "{}",
+                        json!({"jsonrpc":"2.0","id":id,"result":if failed {
+                            json!({"isError":true,"content":[{"type":"text","text":"Original MCP failure\n参数错误 🙂"}]})
+                        } else {
+                            json!({"content":[],"structuredContent":{"error":"business value","id":"business-id","node":[119,14,79],"text":"Literal 内容 🙂"}})
+                        }})
+                    );
+                    std::io::stdout().flush().unwrap();
+                    continue;
+                }
                 if matches!(name, "write" | "fail") {
                     append(
                         &data.join("effects"),

@@ -240,6 +240,15 @@ impl Management {
 
 #[async_trait]
 impl Definition for Management {
+    fn presentation(&self) -> sailry_protocol::tool::Presentation {
+        sailry_protocol::tool::Presentation::Details
+    }
+    fn display(&self) -> Option<sailry_protocol::tool::Display> {
+        Some(super::super::catalog::display::management(
+            super::super::catalog::display::Label::Plugins,
+            Some("/summary/version"),
+        ))
+    }
     fn name(&self) -> &'static str {
         NAMES[0]
     }

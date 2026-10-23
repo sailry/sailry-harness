@@ -17,6 +17,7 @@ fn call(index: usize) -> Call {
         },
         response: None,
         state: State::Running,
+        failure: None,
         approval: None,
         question: None,
     }

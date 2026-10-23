@@ -8,6 +8,116 @@ const GROUPING: &str = "dev.sailry.tool_grouping";
 const DISPLAY: &str = "dev.sailry.tool_display";
 
 const METADATA: &str = "dev.sailry.tool_presentation";
+const FAILURES: &str = "dev.sailry.tool_failures";
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Failure {
+    pub index: usize,
+    pub id: String,
+    pub name: String,
+    pub failure: sailry_protocol::tool::Failure,
+}
+
+pub(super) fn capture_failures(
+    event: &mut Event,
+    timeline: Option<&crate::agent::observation::Timeline>,
+) -> adk_core::Result<Vec<Failure>> {
+    event.provider_metadata.remove(FAILURES);
+    let failures: Vec<_> = event
+        .content()
+        .into_iter()
+        .flat_map(|content| &content.parts)
+        .enumerate()
+        .filter_map(|(index, part)| {
+            let Part::FunctionResponse {
+                id: Some(id),
+                function_response,
+                ..
+            } = part
+            else {
+                return None;
+            };
+            let failure = timeline?.tool_failure(&event.branch, id, &function_response.name)?;
+            Some(Failure {
+                index,
+                id: id.clone(),
+                name: function_response.name.clone(),
+                failure,
+            })
+        })
+        .collect();
+    if !failures.is_empty() {
+        event.provider_metadata.insert(
+            FAILURES.into(),
+            serde_json::to_string(&failures)
+                .map_err(|error| AdkError::session(error.to_string()))?,
+        );
+    }
+    Ok(failures)
+}
+
+pub(super) fn failures(event: &Event) -> Result<Vec<Failure>, sailry_protocol::Fault> {
+    event.provider_metadata.get(FAILURES).map_or_else(
+        || Ok(Vec::new()),
+        |value| serde_json::from_str(value).map_err(super::storage_error),
+    )
+}
+
+pub(super) fn preserve_failures(
+    event: &mut Event,
+    previous: Option<&[u8]>,
+) -> Result<(), sailry_protocol::Fault> {
+    let Some(previous) = previous else {
+        return Ok(());
+    };
+    let previous: Event = serde_json::from_slice(previous).map_err(super::storage_error)?;
+    if previous.branch != event.branch {
+        return Ok(());
+    }
+    let mut captured = failures(event)?;
+    for failure in failures(&previous)? {
+        if captured
+            .iter()
+            .any(|current| current.index == failure.index)
+        {
+            continue;
+        }
+        let old = previous
+            .content()
+            .and_then(|content| content.parts.get(failure.index));
+        let current = event
+            .content()
+            .and_then(|content| content.parts.get(failure.index));
+        if let (
+            Some(Part::FunctionResponse {
+                id: old_id,
+                function_response: old,
+                ..
+            }),
+            Some(Part::FunctionResponse {
+                id,
+                function_response: current,
+                ..
+            }),
+        ) = (old, current)
+            && old_id.as_deref() == Some(failure.id.as_str())
+            && id == old_id
+            && old.name == failure.name
+            && current.name == failure.name
+            && old.response == current.response
+        {
+            captured.push(failure);
+        }
+    }
+    if !captured.is_empty() {
+        event.provider_metadata.insert(
+            FAILURES.into(),
+            serde_json::to_string(&captured).map_err(super::storage_error)?,
+        );
+    }
+    Ok(())
+}
 
 pub(super) fn stamp(
     event: &mut Event,
@@ -148,6 +258,14 @@ pub(super) fn capture_names(
         .map(|body| serde_json::from_slice::<Event>(body).map_err(super::storage_error))
         .transpose()?;
     let original = previous.as_ref().map(displays).transpose()?;
+    let source_project = original
+        .is_none()
+        .then(|| {
+            super::super::commands::session(db, session)
+                .ok()
+                .map(|session| session.project)
+        })
+        .flatten();
     for (name, display) in &mut captured {
         let Some(field) = display
             .input
@@ -188,10 +306,18 @@ pub(super) fn capture_names(
             else {
                 continue;
             };
+            if field.names.contains_key(&target.to_string()) {
+                continue;
+            }
             let title: Option<String> = db.query_row(
                 "SELECT json_extract(body,'$.task.title') FROM agent_background WHERE session=?1 AND kind='agent' AND source=?2 ORDER BY sequence DESC,rowid DESC LIMIT 1",
                 rusqlite::params![session.to_string(), target.to_string()], |row| row.get(0),
             ).optional().map_err(super::storage_error)?.flatten();
+            let title = title.or_else(|| {
+                let target =
+                    super::references::history::visible(db, source_project?, target).ok()?;
+                Some(target.activity.title)
+            });
             if let Some(title) = title
                 .filter(|title| !title.trim().is_empty() && !title.chars().any(char::is_control))
             {
@@ -209,6 +335,96 @@ pub(super) fn capture_names(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matches_only_observed_failed_calls() {
+        let timeline = crate::agent::observation::Timeline::new();
+        timeline.fail_tool(
+            "branch",
+            "failed",
+            "same",
+            Some(sailry_protocol::ErrorCode::Cancelled),
+        );
+        let mut event = Event::new("outcomes");
+        event.branch = "branch".into();
+        let mut content = adk_core::Content::new("function");
+        for id in ["business", "failed"] {
+            content.parts.push(Part::FunctionResponse {
+                id: Some(id.into()),
+                function_response: adk_core::FunctionResponseData::new(
+                    "same",
+                    serde_json::json!({"error":"unchanged data"}),
+                ),
+                annotations: None,
+            });
+        }
+        event.set_content(content);
+        let original = serde_json::to_value(event.content()).unwrap();
+        capture_failures(&mut event, Some(&timeline)).unwrap();
+        let observed = failures(&event).unwrap();
+        assert_eq!(observed.len(), 1);
+        assert_eq!(observed[0].index, 1);
+        assert_eq!(observed[0].id, "failed");
+        assert_eq!(
+            observed[0].failure.code,
+            Some(sailry_protocol::ErrorCode::Cancelled)
+        );
+        assert_eq!(serde_json::to_value(event.content()).unwrap(), original);
+        let saved = serde_json::to_vec(&event).unwrap();
+        timeline.forget_failure("branch", "failed", "same");
+        capture_failures(&mut event, Some(&timeline)).unwrap();
+        assert!(failures(&event).unwrap().is_empty());
+        preserve_failures(&mut event, Some(&saved)).unwrap();
+        assert_eq!(failures(&event).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn preserves_only_matching_response_facts() {
+        let timeline = crate::agent::observation::Timeline::new();
+        timeline.fail_tool("branch", "failed", "same", None);
+        let mut event = Event::new("outcomes");
+        event.branch = "branch".into();
+        let mut content = adk_core::Content::new("function");
+        content.parts.push(Part::FunctionResponse {
+            id: Some("failed".into()),
+            function_response: adk_core::FunctionResponseData::new(
+                "same",
+                serde_json::json!({"error":"unchanged data"}),
+            ),
+            annotations: None,
+        });
+        event.set_content(content);
+        capture_failures(&mut event, Some(&timeline)).unwrap();
+        let saved = serde_json::to_vec(&event).unwrap();
+        for mismatch in ["branch", "id", "name", "result"] {
+            let mut current = event.clone();
+            current.provider_metadata.remove(FAILURES);
+            if mismatch == "branch" {
+                current.branch = "other".into();
+            } else {
+                let mut content = current.content().unwrap().clone();
+                let Part::FunctionResponse {
+                    id,
+                    function_response,
+                    ..
+                } = &mut content.parts[0]
+                else {
+                    unreachable!()
+                };
+                match mismatch {
+                    "id" => *id = Some("other".into()),
+                    "name" => function_response.name = "other".into(),
+                    "result" => {
+                        function_response.response = serde_json::json!({"error":"changed data"})
+                    }
+                    _ => unreachable!(),
+                }
+                current.set_content(content);
+            }
+            preserve_failures(&mut current, Some(&saved)).unwrap();
+            assert!(failures(&current).unwrap().is_empty(), "{mismatch}");
+        }
+    }
 
     #[test]
     fn freezes_owned_session_names() {

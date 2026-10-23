@@ -74,7 +74,7 @@ pub(super) fn finish(span: &mut Span, result: &adk_core::Result<Value>, cancelle
     span.finish(phase, code);
 }
 
-fn server_error(value: &Value) -> bool {
+pub(super) fn server_error(value: &Value) -> bool {
     // Pinned ADK's server_error_response wraps isError=true in exactly this
     // shape. Successful structured content is nested under `output`, even when
     // that business object has its own `error` field.

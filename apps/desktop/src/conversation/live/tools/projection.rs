@@ -13,7 +13,8 @@ fn descriptor<'a>(call: &Call, page: &'a Page) -> Option<&'a Projection> {
 }
 
 pub(super) fn grouped(call: &Call, page: &Page) -> bool {
-    descriptor(call, page).is_some_and(|projection| projection.paths.is_some())
+    call.details(page)
+        && descriptor(call, page).is_some_and(|projection| projection.paths.is_some())
 }
 
 fn paths(calls: &[&Call], page: &Page) -> Vec<SharedString> {
@@ -51,7 +52,8 @@ pub(super) fn group(
         .iter()
         .filter_map(|call| {
             let result = call.result(page)?;
-            (output::is_error(&call.name, Some(result))
+            (call.diagnostics(page)
+                || output::is_error(&call.name, Some(result))
                 || output::failure(&call.name, Some(result)).is_some())
             .then_some((*call, result))
         })
@@ -107,15 +109,19 @@ pub(super) fn render(
     result: &Value,
     cx: &mut Context<View>,
 ) -> Option<AnyElement> {
-    if output::is_error(&call.name, Some(result))
+    if call.diagnostics(page)
+        || output::is_error(&call.name, Some(result))
         || output::failure(&call.name, Some(result)).is_some()
     {
         return None;
     }
     let projection = descriptor(call, page)?;
     let arguments = call.arguments(page).unwrap_or(&Value::Null);
-    if let Some(table) = &projection.table {
-        let data = table.render(arguments, result)?;
+    if let Some(data) = projection
+        .table
+        .as_ref()
+        .and_then(|table| table.render(arguments, result))
+    {
         let content = sailry_protocol::tool::Content {
             version: 1,
             blocks: vec![sailry_protocol::tool::Block::Table(data)],

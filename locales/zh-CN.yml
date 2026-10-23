@@ -2549,7 +2549,7 @@ tool_ssh_run: 运行 SSH 命令
 tool_ssh_transfer: 传输 SSH 文件
 tool_load_skill: 加载技能
 tool_read_skill_resource: 读取技能资源
-tool_list_sessions: "列出会话"
+tool_list_sessions: "查找会话"
 tool_read_session: "读取会话"
 tool_search_session: "搜索会话"
 tool_update_plan: 更新计划
@@ -2663,3 +2663,5 @@ permission_failed: "权限检查失败"
 
 appearance_up_to_date: "主题已是最新"
 appearance_updates_available: "有可用更新"
+
+tool_raw_result: "查看原始结果"

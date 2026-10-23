@@ -32,7 +32,7 @@ pub(super) fn bind(
     [Kind::List, Kind::Read, Kind::Search]
         .into_iter()
         .map(|kind| {
-            catalog::Registration::from(Arc::new(History {
+            let tool: Arc<dyn Tool> = Arc::new(History {
                 ingress: ingress.clone(),
                 source: Source {
                     caller: invocation.caller,
@@ -42,7 +42,26 @@ pub(super) fn bind(
                 session: invocation.turn.session.to_string(),
                 stop: stop.clone(),
                 kind,
-            }) as Arc<dyn Tool>)
+            });
+            let label = match kind {
+                Kind::List => catalog::display::Label::ListSessions,
+                Kind::Read => catalog::display::Label::ReadSession,
+                Kind::Search => catalog::display::Label::SearchSession,
+            };
+            let mut display = catalog::display::new(label);
+            display.input = Some(
+                serde_json::from_value(match kind {
+                    Kind::List => json!({"summary":{"path":"/text"}}),
+                    Kind::Read | Kind::Search => {
+                        json!({"summary":{"path":"/session","format":"session"}})
+                    }
+                })
+                .expect("history display is valid"),
+            );
+            let mut registration =
+                catalog::Registration::new(tool, sailry_protocol::tool::Presentation::Summary);
+            registration.display = Some((registration.tool.name().into(), display));
+            registration
         })
         .collect()
 }

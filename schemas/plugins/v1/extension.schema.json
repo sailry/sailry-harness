@@ -1314,7 +1314,7 @@
         },
         "presentation": {
           "$ref": "#/$defs/Presentation",
-          "default": "details"
+          "default": "summary"
         },
         "server": {
           "type": [
@@ -2710,6 +2710,16 @@
       "additionalProperties": false,
       "description": "Exactly one of text, value or rows supplies a part. Rows cannot nest.",
       "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "rows": {
           "anyOf": [
             {
@@ -2783,6 +2793,11 @@
           "enum": [
             "summary"
           ],
+          "type": "string"
+        },
+        {
+          "const": "hidden",
+          "description": "Omits an ordinary activity only after a confirmed successful result.",
           "type": "string"
         },
         {
@@ -3727,6 +3742,12 @@
         "initialize"
       ],
       "type": "object"
+    },
+    "ValueFormat": {
+      "enum": [
+        "json"
+      ],
+      "type": "string"
     },
     "View": {
       "additionalProperties": false,

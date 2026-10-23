@@ -35,6 +35,8 @@ pub(crate) struct Timeline {
     origin: Instant,
     spans: Mutex<Vec<(u64, u64, Phase, Option<u64>)>>,
     next: AtomicU64,
+    failures:
+        Mutex<std::collections::BTreeMap<(String, String, String), sailry_protocol::tool::Failure>>,
 }
 pub(crate) struct Span {
     timeline: Arc<Timeline>,
@@ -48,6 +50,7 @@ impl Timeline {
             origin: Instant::now(),
             spans: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
+            failures: Mutex::new(Default::default()),
         })
     }
     pub(crate) fn span(self: &Arc<Self>, phase: Phase) -> Span {
@@ -87,6 +90,41 @@ impl Timeline {
     }
     pub(crate) fn summary(&self) -> Phases {
         reduce(micros(self.origin.elapsed()), &self.spans.lock().unwrap())
+    }
+
+    pub(crate) fn fail_tool(
+        &self,
+        branch: &str,
+        id: &str,
+        name: &str,
+        code: Option<sailry_protocol::ErrorCode>,
+    ) {
+        if !id.is_empty() {
+            self.failures.lock().unwrap().insert(
+                (branch.to_owned(), id.to_owned(), name.to_owned()),
+                sailry_protocol::tool::Failure { code },
+            );
+        }
+    }
+
+    pub(crate) fn tool_failure(
+        &self,
+        branch: &str,
+        id: &str,
+        name: &str,
+    ) -> Option<sailry_protocol::tool::Failure> {
+        self.failures
+            .lock()
+            .unwrap()
+            .get(&(branch.to_owned(), id.to_owned(), name.to_owned()))
+            .cloned()
+    }
+
+    pub(crate) fn forget_failure(&self, branch: &str, id: &str, name: &str) {
+        self.failures
+            .lock()
+            .unwrap()
+            .remove(&(branch.to_owned(), id.to_owned(), name.to_owned()));
     }
 }
 impl Drop for Span {

@@ -217,8 +217,11 @@ fn invalid_markers_preserve_user_data() {
         assert!(failure("external_step", Some(&result)).is_none());
         assert!(ResultDisplay::from_value(&result).is_none());
         let body = tool_preview("external_step", Presentation::Details, &result);
-        assert!(body.copy_text().contains("literal field"));
-        assert!(body.copy_text().contains("user data"));
+        assert!(body.text.is_empty());
+        let inspected = raw(&result);
+        assert!(inspected.contains("literal field"));
+        assert!(inspected.contains("user data"));
+        assert_eq!(serde_json::from_str::<Value>(&inspected).unwrap(), result);
     }
 }
 
@@ -276,22 +279,11 @@ fn shows_content_and_limits() {
         ["Partial results"]
     );
     let body = preview(&result);
-    for field in [
-        "kind: file_lines",
-        "path: source.rs",
-        "size: 200",
-        "revision: full-content-revision",
-        "number: 1",
-        "number: 5",
-        "offset: 0",
-        "next_offset: 5",
-    ] {
-        assert!(body.text.contains(field), "{}", body.text);
-    }
-    for line in source.split_inclusive('\n') {
-        assert!(body.text.contains(&format!("text: {line}")));
-    }
-    assert_eq!(body.copy_text(), body.text);
+    assert!(body.text.is_empty());
+    assert_eq!(
+        serde_json::from_str::<Value>(&raw(&result)).unwrap(),
+        result
+    );
     assert!(body.notices.is_empty());
     assert!(literal(&text).starts_with("````\n"));
     assert!(literal(&text).ends_with("\n````"));
@@ -332,18 +324,11 @@ fn shows_content_and_limits() {
         ["Partial results"]
     );
     let body = preview(&search);
-    for field in [
-        "kind: search_results",
-        "path: 资料.txt",
-        "line_number: 3",
-        "line: matched text",
-        "scanned_files: 2",
-        "skipped: 1",
-        "truncated: false",
-    ] {
-        assert!(body.text.contains(field), "{}", body.text);
-    }
-    assert_eq!(body.copy_text(), body.text);
+    assert!(body.text.is_empty());
+    assert_eq!(
+        serde_json::from_str::<Value>(&raw(&search)).unwrap(),
+        search
+    );
     assert!(body.notices.is_empty());
 }
 
@@ -359,8 +344,11 @@ fn separates_diagnostics() {
     assert_eq!(body.notices.len(), 1);
     assert!(fault(Some(&json!({"error": "user data"}))).is_none());
     let body = preview(&json!({"text": "output", "count": 2}));
-    assert!(body.text.lines().any(|line| line == "count: 2"));
-    assert!(body.text.lines().any(|line| line == "text: output"));
+    assert!(body.text.is_empty());
+    assert_eq!(
+        serde_json::from_str::<Value>(&raw(&json!({"text":"output","count":2}))).unwrap(),
+        json!({"text":"output","count":2})
+    );
     assert!(preview(&json!(null)).notices.is_empty());
 }
 
@@ -389,15 +377,11 @@ fn shows_file_write_receipts() {
     );
     assert_eq!(projection.notices(&arguments, &result, "en"), ["Written"]);
     let body = preview(&result);
-    for field in [
-        "kind: file_written",
-        "path: 资料.txt",
-        "revision: opaque-revision",
-        "size: 3",
-    ] {
-        assert!(body.text.contains(field), "{}", body.text);
-    }
-    assert_eq!(body.copy_text(), body.text);
+    assert!(body.text.is_empty());
+    assert_eq!(
+        serde_json::from_str::<Value>(&raw(&result)).unwrap(),
+        result
+    );
     assert!(body.notices.is_empty());
 }
 

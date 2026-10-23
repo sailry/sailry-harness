@@ -27,6 +27,17 @@ pub(super) struct SetTitle {
     pub stop: CancellationToken,
 }
 
+pub(super) fn bind(session: String, stop: CancellationToken) -> super::catalog::Registration {
+    let mut registration =
+        super::catalog::Registration::managed(Arc::new(SetTitle { session, stop }));
+    registration.presentation = sailry_protocol::tool::Presentation::Hidden;
+    registration.display = Some((
+        registration.tool.name().into(),
+        super::catalog::display::new(super::catalog::display::Label::Title),
+    ));
+    registration
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Arguments {

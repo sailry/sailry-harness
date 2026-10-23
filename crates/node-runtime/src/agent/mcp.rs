@@ -134,7 +134,19 @@ impl Connections {
                         for descriptor in descriptors {
                             let presentation = resources.tool_presentation(&config.plugin, &config.name, &descriptor.name);
                             let grouping = resources.tool_grouping(&config.plugin, &config.name, &descriptor.name);
-                            let display = resources.tool_display(&config.plugin, &config.name, &descriptor.name);
+                            let display = resources.tool_display(&config.plugin, &config.name, &descriptor.name).or_else(|| {
+                                resources.tool_declaration(&config.plugin, &config.name, &descriptor.name).is_none().then(|| {
+                                    let mut navigation = sailry_protocol::plugin::desktop::Navigation {
+                                        label: descriptor.name.to_string(), icon: None, locales: Default::default(),
+                                    };
+                                    if !navigation.valid() {
+                                        navigation.label = alias(&config.plugin, &config.name, &descriptor.name);
+                                    }
+                                    let mut display = sailry_protocol::tool::Display::from(navigation);
+                                    display.raw_result = true;
+                                    display
+                                })
+                            });
                             let mut registration = Registration::new(Arc::new(Bound {
                                 name: alias(&config.plugin, &config.name, &descriptor.name),
                                 description: format!("MCP {}/{}/{}\n{}", config.plugin, config.name, descriptor.name, descriptor.description.as_deref().unwrap_or("")),
@@ -337,6 +349,16 @@ impl Tool for Bound {
         };
         let mut span = diagnostics::begin(identity, "call", &self.stop);
         let result = self.call(context.clone(), arguments, &mut span).await;
+        if result.as_ref().is_ok_and(diagnostics::server_error)
+            && let Some(timeline) = self.ingress.agents.timeline(self.turn)
+        {
+            timeline.fail_tool(
+                context.branch(),
+                context.function_call_id(),
+                self.name(),
+                None,
+            );
+        }
         diagnostics::finish(
             &mut span,
             &result,

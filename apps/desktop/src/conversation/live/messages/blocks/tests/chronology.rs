@@ -67,6 +67,7 @@ fn history() -> (TurnId, View) {
                 index: 1,
             }),
             state: State::Returned,
+            failure: None,
             approval: None,
             question: None,
         });

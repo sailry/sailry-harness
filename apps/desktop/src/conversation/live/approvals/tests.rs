@@ -17,6 +17,7 @@ fn sample(display: Option<serde_json::Value>) -> (Call, Page) {
         },
         response: None,
         state: sailry_client::conversation::tools::State::Waiting,
+        failure: None,
         approval: None,
         question: None,
         progress: None,

@@ -475,6 +475,16 @@ answers, remove scripts and interactive forms, and include Sailry branding.
 
 ### Agent turns and tools
 
+Conversation tool results default to an activity without successful-result
+expansion. Captured declarations opt into meaningful details, standard content,
+progress or hidden maintenance success. Finite output projections select bodies,
+paths, tables and diffs; explicit JSON projections retain business data without
+turning protocol metadata into ordinary detail rows. Undeclared MCP tools retain
+an explicit raw-result inspector. Actual failed-call facts share the existing
+turn observation and canonical history owner, preserving error inspection without
+classifying arbitrary business fields as failures. Model results and durable
+tool output remain unchanged.
+
 Node freezes configuration, scope and package revisions at turn admission. Tools
 use the same approval, cancellation and durable outcome boundaries. Work mode
 and permissions are distinct; read-only planning does not authorize side effects.

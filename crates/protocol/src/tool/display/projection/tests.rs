@@ -2,6 +2,77 @@ use super::*;
 use crate::tool::Display;
 use serde_json::json;
 
+#[test]
+fn declared_json_preserves_business_values() {
+    let package: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../plugins/wecom/plugin.json"
+    )))
+    .unwrap();
+    let display: Display = serde_json::from_value(
+        package["extensions"]["dev.sailry.platform"]["tools"][0]["display"].clone(),
+    )
+    .unwrap();
+    assert!(display.valid());
+    let preview = display.output.unwrap().preview.unwrap();
+    for data in [
+        json!({"id":"business-id","node":[119,14,79],"text":"字面 内容 🙂\n"}),
+        json!([1, "two", null]),
+        json!("text"),
+        json!(12),
+        json!(true),
+        Value::Null,
+    ] {
+        let result = json!({"data":data,"untrusted":true});
+        let original = result.clone();
+        for action in ["discover", "describe"] {
+            assert!(!preview.visible(&json!({"action":action}), &result));
+            assert!(
+                preview
+                    .render(&json!({"action":action}), &result)
+                    .is_empty()
+            );
+        }
+        let args = json!({"action":"invoke"});
+        assert!(preview.deferred());
+        assert!(preview.visible(&args, &result));
+        assert_eq!(
+            serde_json::from_str::<Value>(&preview.render(&args, &result)).unwrap(),
+            data
+        );
+        assert_eq!(result, original);
+    }
+    let plain: Output = serde_json::from_value(
+        json!({"preview":{"parts":[{"value":{"source":"result","path":"/data"}}]}}),
+    )
+    .unwrap();
+    assert!(
+        !plain
+            .preview
+            .as_ref()
+            .unwrap()
+            .visible(&Value::Null, &json!({"data":{"id":"kept"}}))
+    );
+    assert!(
+        plain
+            .preview
+            .unwrap()
+            .render(&Value::Null, &json!({"data":{"id":"kept"}}))
+            .is_empty()
+    );
+}
+
+#[test]
+fn json_format_requires_a_value_selector() {
+    for part in [
+        json!({"text":"text","format":"json"}),
+        json!({"value":{"source":"result","path":"/data"},"format":"unsupported"}),
+    ] {
+        let output = serde_json::from_value::<Output>(json!({"preview":{"parts":[part]}}));
+        assert!(output.is_err() || !output.unwrap().valid());
+    }
+}
+
 fn display(name: &str) -> Display {
     let package: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

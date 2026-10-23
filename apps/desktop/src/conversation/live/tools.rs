@@ -12,6 +12,7 @@ use sailry_client::conversation::tools::{Call, State};
 use sailry_protocol::conversation::{ApprovalState, Page};
 
 mod content;
+mod inspector;
 pub(super) mod output;
 pub(super) mod progress;
 mod projection;
@@ -30,33 +31,8 @@ impl View {
             && !calls
                 .iter()
                 .all(|call| call.name == first.name && call.progress.is_none());
-        let mut groups = Vec::new();
-        let mut start = 0;
-        while start < calls.len() {
-            let end = if calls[start].progress.is_some() {
-                start + 1
-            } else {
-                start
-                    + calls[start..]
-                        .iter()
-                        .take_while(|call| call.name == calls[start].name)
-                        .count()
-            };
-            let group = &calls[start..end];
-            groups.push(
-                if group.len() == 1
-                    && !projection::grouped(group[0], &self.history.snapshot.as_ref().unwrap().page)
-                {
-                    self.tool_rows(group, continuing && end == calls.len(), cx)
-                } else {
-                    self.tool_group(group, continuing && end == calls.len(), cx)
-                },
-            );
-            start = end;
-        }
-        let content = v_flex().w_full().min_w_0().gap_2().children(groups);
         if !sequence {
-            return content.into_any_element();
+            return self.tool_groups(calls, continuing, cx);
         }
         let page = &self.history.snapshot.as_ref().unwrap().page;
         let summary = self
@@ -88,11 +64,45 @@ impl View {
                 ),
             )
             .content(
-                disclosure::body(content, cx)
-                    .py_2()
-                    .debug_selector(move || content_id.clone()),
+                disclosure::body(
+                    v_flex().when(open, |body| {
+                        body.child(self.tool_groups(calls, continuing, cx))
+                    }),
+                    cx,
+                )
+                .py_2()
+                .debug_selector(move || content_id.clone()),
             )
             .into_any_element()
+    }
+
+    fn tool_groups(&self, calls: &[&Call], continuing: bool, cx: &mut Context<Self>) -> AnyElement {
+        let mut groups = Vec::new();
+        let mut start = 0;
+        while start < calls.len() {
+            let end = if calls[start].progress.is_some() {
+                start + 1
+            } else {
+                start
+                    + calls[start..]
+                        .iter()
+                        .take_while(|call| call.name == calls[start].name)
+                        .count()
+            };
+            let group = &calls[start..end];
+            groups.push(
+                if group.len() == 1
+                    && !projection::grouped(group[0], &self.history.snapshot.as_ref().unwrap().page)
+                {
+                    self.tool_rows(group, continuing && end == calls.len(), cx)
+                } else {
+                    self.tool_group(group, continuing && end == calls.len(), cx)
+                },
+            );
+            start = end;
+        }
+        let content = v_flex().w_full().min_w_0().gap_2().children(groups);
+        content.into_any_element()
     }
 
     fn tool_group(&self, calls: &[&Call], continuing: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -110,21 +120,36 @@ impl View {
             .copied()
             .unwrap_or(false);
         let detail = summary.detail;
+        if grouped.is_none()
+            && calls
+                .iter()
+                .any(|call| call.raw_result(page) || activity_path(call).is_some())
+            && !calls.iter().any(|call| has_content(call, page))
+        {
+            return self.tool_rows(calls, continuing, cx);
+        }
         if (grouped.is_none() && !calls.iter().any(|call| has_content(call, page)))
             || grouped.as_ref().is_some_and(|group| group.count == 0)
         {
-            return disclosure::summary(
+            return self.activity(
+                calls[0],
+                page,
                 format!("live-{turn}-{key}"),
-                summary.icon.clone(),
-                summary.label.clone(),
-                detail,
+                Summary {
+                    icon: summary.icon,
+                    label: summary.label,
+                    detail,
+                },
                 cx,
-            )
-            .into_any_element();
+            );
         }
-        let content = match grouped {
-            Some(group) => group.content,
-            None => self.tool_rows(calls, continuing, cx),
+        let content = if open {
+            match grouped {
+                Some(group) => group.content,
+                None => self.tool_rows(calls, continuing, cx),
+            }
+        } else {
+            v_flex().into_any_element()
         };
         let content_id = format!("live-{turn}-{key}-content");
         Collapsible::new()
@@ -169,14 +194,7 @@ impl View {
                     .preparing_summary(summary(call, page), &[call], page)
                     .continuing(continuing);
                 if !has_content(call, page) {
-                    return disclosure::summary(
-                        format!("live-{turn}-{key}"),
-                        summary.icon,
-                        summary.label,
-                        summary.detail,
-                        cx,
-                    )
-                    .into_any_element();
+                    return self.activity(call, page, format!("live-{turn}-{key}"), summary, cx);
                 }
                 let has_result = has_content(call, page);
                 let open = has_result
@@ -205,9 +223,14 @@ impl View {
                         })),
                     )
                     .content(
-                        disclosure::body(self.tool(call, page, continuing, cx), cx)
-                            .pt_1()
-                            .pb_2(),
+                        disclosure::body(
+                            v_flex().when(open, |body| {
+                                body.child(self.tool(call, page, continuing, cx))
+                            }),
+                            cx,
+                        )
+                        .pt_1()
+                        .pb_2(),
                     )
                     .into_any_element()
             }))
@@ -321,6 +344,44 @@ impl View {
             .into_any_element()
     }
 
+    fn activity(
+        &self,
+        call: &Call,
+        page: &Page,
+        id: String,
+        summary: Summary,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let group = SharedString::from(format!("{id}-actions"));
+        let mut actions = Vec::new();
+        if let Some(path) = activity_path(call) {
+            actions.push(self.path_link(&id, call.turn, path.to_owned().into(), cx));
+        }
+        if call.raw_result(page) {
+            actions.push(self.raw_action(call, &id, cx));
+        }
+        h_flex()
+            .group(group.clone())
+            .min_w_0()
+            .gap_2()
+            .child(disclosure::summary(
+                id.clone(),
+                summary.icon,
+                summary.label,
+                summary.detail,
+                cx,
+            ))
+            .when(!actions.is_empty(), |row| {
+                row.child(surface::Actions {
+                    id: format!("{id}-controls").into(),
+                    group,
+                    actions,
+                    absolute: false,
+                })
+            })
+            .into_any_element()
+    }
+
     fn preparing_summary(&self, mut summary: Summary, calls: &[&Call], page: &Page) -> Summary {
         if let Some(stage) = preparation(calls, page, &self.python) {
             summary.detail.state = Some(crate::settings::python_stage(stage));
@@ -361,8 +422,15 @@ impl View {
         result: &serde_json::Value,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let fault = output::failure(&call.name, Some(result));
-        let body = output::tool_preview(&call.name, call.presentation, result);
+        let fault = output::failure(&call.name, Some(result))
+            .or_else(|| output::observed_failure(call.failure.as_ref(), result));
+        let body = match &fault {
+            Some(text) if call.failure.is_some() => output::Preview {
+                text: text.clone(),
+                notices: Vec::new(),
+            },
+            _ => output::tool_preview(&call.name, call.presentation, result),
+        };
         let mut actions = Vec::new();
         let copy = body.copy_text();
         if !copy.is_empty() {
@@ -376,7 +444,9 @@ impl View {
                 .iter()
                 .map(|notice| surface::notice(tr(notice), cx)),
         );
-        let content = if fault.is_some() && !body.text.is_empty() {
+        let content = if body.text.is_empty() && body.notices.is_empty() {
+            v_flex().py_2().child(self.raw_action(call, key, cx))
+        } else if fault.is_some() && !body.text.is_empty() {
             let selector = format!("live-tool-error-{key}");
             v_flex().child(surface::notice(body.text, cx).debug_selector(move || selector.clone()))
         } else if body.text.is_empty() {
@@ -434,16 +504,27 @@ fn summary(call: &Call, page: &Page) -> Summary {
         .approval
         .as_ref()
         .is_some_and(|approval| approval.state == ApprovalState::Denied);
-    let failed = output::is_error(&call.name, call.result(page));
+    let failure_code = call.failure.as_ref().and_then(|failure| failure.code);
+    let failed = output::is_error(&call.name, call.result(page))
+        || call.failure.is_some()
+            && !matches!(
+                failure_code,
+                Some(
+                    sailry_protocol::ErrorCode::Cancelled
+                        | sailry_protocol::ErrorCode::OutcomeUnknown
+                )
+            );
     let state = if denied {
         Some(approvals::label(ApprovalState::Denied))
-    } else if let Some(fault) = output::fault(call.result(page))
+    } else if let Some(code) = output::fault(call.result(page))
+        .map(|fault| fault.code)
+        .or(failure_code)
         && matches!(
-            fault.code,
+            code,
             sailry_protocol::ErrorCode::Cancelled | sailry_protocol::ErrorCode::OutcomeUnknown
         )
     {
-        Some(if fault.code == sailry_protocol::ErrorCode::Cancelled {
+        Some(if code == sailry_protocol::ErrorCode::Cancelled {
             "turn_cancelled"
         } else {
             "tool_interrupted"
@@ -484,7 +565,7 @@ fn summary(call: &Call, page: &Page) -> Summary {
     } else {
         state.map(tr)
     };
-    detail.failed = !denied && output::is_error(&call.name, call.result(page));
+    detail.failed = !denied && failed;
     detail.state_icon = matches!(
         state,
         Some("approval_rejected" | "turn_cancelled" | "tool_interrupted" | "tool_not_executed")
@@ -521,30 +602,24 @@ fn summary(call: &Call, page: &Page) -> Summary {
 }
 
 fn has_content(call: &Call, page: &Page) -> bool {
-    if call
-        .approval
-        .as_ref()
-        .is_some_and(|approval| approval.state == ApprovalState::Denied)
-    {
-        return false;
-    }
-    let result = call.result(page);
-    let diagnostic =
-        output::failure(&call.name, result).is_some_and(|message| !message.trim().is_empty());
-    if !call.images(page).is_empty() || diagnostic {
-        return true;
-    }
-    if let Some(content) = &call.content {
-        return result.is_some_and(|result| content.has_visible(result));
-    }
-    !summary_only(call)
-        && output::fault(result).is_none()
-        && !output::is_error(&call.name, result)
-        && result.is_some_and(output::has_output)
+    call.details(page)
 }
 
-fn summary_only(call: &Call) -> bool {
-    call.presentation == sailry_protocol::tool::Presentation::Summary
+fn activity_path(call: &Call) -> Option<&str> {
+    let resolved = call.resolved.as_ref()?;
+    resolved
+        .output
+        .as_ref()
+        .filter(|output| output.paths.len() == 1)
+        .map(|output| output.paths[0].as_str())
+        .or_else(|| {
+            resolved
+                .input
+                .target
+                .as_ref()
+                .map(|target| target.text.as_str())
+        })
+        .filter(|path| !path.is_empty())
 }
 
 /// While parallel calls run, show the latest active call; otherwise show the last result.

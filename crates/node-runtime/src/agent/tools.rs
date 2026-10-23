@@ -15,6 +15,12 @@ pub(super) trait Definition: Send + Sync {
     fn description(&self) -> &'static str;
     fn parameters(&self) -> Value;
     fn read_only(&self) -> bool;
+    fn presentation(&self) -> sailry_protocol::tool::Presentation {
+        Default::default()
+    }
+    fn display(&self) -> Option<sailry_protocol::tool::Display> {
+        None
+    }
     fn command(&self, binding: &Binding, arguments: Value) -> Result<Command, Fault>;
     async fn prepare(&self, binding: &Binding, arguments: Value) -> Result<Command, Fault> {
         self.command(binding, arguments)
@@ -63,10 +69,18 @@ pub(super) fn bind<D: Definition + 'static>(
     definitions
         .into_iter()
         .map(|definition| {
-            Registration::from(Arc::new(Operation {
-                binding: binding.clone(),
-                definition,
-            }) as Arc<dyn Tool>)
+            let presentation = definition.presentation();
+            let display = definition.display();
+            let mut registration = Registration::new(
+                Arc::new(Operation {
+                    binding: binding.clone(),
+                    definition,
+                }) as Arc<dyn Tool>,
+                presentation,
+            );
+            registration.display =
+                display.map(|display| (registration.tool.name().into(), display));
+            registration
         })
         .collect()
 }

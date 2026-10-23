@@ -214,6 +214,9 @@ impl SessionService for Sessions {
             .map_err(|_| AdkError::session("Node storage is closed"))?
     }
     async fn append_event(&self, session_id: &str, mut event: AdkEvent) -> adk_core::Result<()> {
+        let timeline = self.ingress.agents.timeline(self.turn);
+        let failures = super::presentation::capture_failures(&mut event, timeline.as_deref())?;
+        let branch = event.branch.clone();
         let displays = self.current_displays(&event).await?;
         let mut aliases = Vec::new();
         if let Some(home) = self.ingress.environment.home() {
@@ -307,9 +310,17 @@ impl SessionService for Sessions {
             })))
             .await
             .map_err(|_| AdkError::session("Node storage is closed"))?;
-        response
+        let result = response
             .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?
+            .map_err(|_| AdkError::session("Node storage is closed"))?;
+        if result.is_ok()
+            && let Some(timeline) = timeline
+        {
+            for failure in failures {
+                timeline.forget_failure(&branch, &failure.id, &failure.name);
+            }
+        }
+        result
     }
     async fn append_event_for_identity(&self, request: AppendEventRequest) -> adk_core::Result<()> {
         identity(

@@ -228,25 +228,46 @@ impl Tool for Validated {
         context: Arc<dyn ToolContext>,
         arguments: Value,
     ) -> adk_core::Result<Value> {
-        if context.session_id() != self.session {
-            return Err(AdkError::tool("tool belongs to another session"));
-        }
-        if context.is_cancelled() || self.stop.is_cancelled() {
-            return Err(AdkError::tool("tool execution was cancelled"));
-        }
-        if let Some(error) = self.invalid(&arguments) {
-            return Ok(json!({"isError":true,"error":error}));
-        }
-        match &self.timeline {
-            Some(timeline) => {
-                timeline
-                    .tool(
-                        self.tool.is_agent_delegation(),
-                        self.tool.execute(context, arguments),
-                    )
-                    .await
+        let result = async {
+            if context.session_id() != self.session {
+                return Err(AdkError::tool("tool belongs to another session"));
             }
-            None => self.tool.execute(context, arguments).await,
+            if context.is_cancelled() || self.stop.is_cancelled() {
+                return Err(AdkError::tool("tool execution was cancelled"));
+            }
+            if let Some(error) = self.invalid(&arguments) {
+                return Ok(json!({"isError":true,"error":error}));
+            }
+            match &self.timeline {
+                Some(timeline) => {
+                    timeline
+                        .tool(
+                            self.tool.is_agent_delegation(),
+                            self.tool.execute(context.clone(), arguments),
+                        )
+                        .await
+                }
+                None => self.tool.execute(context.clone(), arguments).await,
+            }
         }
+        .await;
+        if let Err(error) = &result
+            && let Some(timeline) = &self.timeline
+        {
+            let code = std::error::Error::source(error)
+                .and_then(|source| source.downcast_ref::<Fault>())
+                .map(|fault| fault.code)
+                .or_else(|| {
+                    (error.category == adk_core::ErrorCategory::Cancelled)
+                        .then_some(sailry_protocol::ErrorCode::Cancelled)
+                });
+            timeline.fail_tool(
+                context.branch(),
+                context.function_call_id(),
+                self.name(),
+                code,
+            );
+        }
+        result
     }
 }

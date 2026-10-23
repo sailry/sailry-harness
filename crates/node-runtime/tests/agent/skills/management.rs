@@ -211,6 +211,15 @@ async fn permissions_and_empty_inventory() {
             }
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+            let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+            assert_eq!(view.calls.len(), 4);
+            for index in [0, 1, 3] {
+                assert!(!view.calls[index].details(&page));
+                assert!(view.calls[index].display(&page).unwrap().valid());
+            }
+            if allow {
+                assert!(view.calls[2].details(&page));
+            }
             let output = results(&page);
             assert_eq!(output[0]["skills"], json!([]));
             assert_eq!(output[1]["source"]["commit"], fixture.next.source.commit);
