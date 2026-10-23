@@ -9,7 +9,13 @@ use std::{
 #[ignore = "Requires explicit native macOS unified-log acceptance"]
 fn observes_synthetic_console_messages() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     let nonce = format!("sailry-console-{}", uuid::Uuid::new_v4());
     let start = (chrono::Utc::now() - chrono::Duration::seconds(2))

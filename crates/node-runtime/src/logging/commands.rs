@@ -20,6 +20,15 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
             ("read_turn_capture", Some(*session), Some(*turn))
         }
         Command::ReadTurn { session, turn, .. } => ("read_turn", Some(*session), Some(*turn)),
+        Command::ReadSession { session } => ("read_session", Some(*session), None),
+        Command::ReadPluginCallback { .. } => ("read_plugin_callback", None, None),
+        Command::ReadPluginValue { .. } => ("read_plugin_value", None, None),
+        Command::ReadPluginConversationValue { .. } => ("read_conversation_value", None, None),
+        Command::ListSsh => ("list_ssh", None, None),
+        Command::ListDatabases => ("list_databases", None, None),
+        Command::ListPluginModels => ("list_plugin_models", None, None),
+        Command::ReadModelCatalog(_) => ("read_model_catalog", None, None),
+        Command::ReadProjectCatalog => ("read_project_catalog", None, None),
         _ if request.plugin.is_some() => (
             "plugin_command",
             request.plugin.as_ref().and_then(|context| context.session),
@@ -45,7 +54,27 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         entry.stage = Some("provider_http");
         entry.context.provider = Some(*provider);
     }
-    Some(Span::new(entry))
+    Some(
+        if matches!(
+            &request.command,
+            Command::ReadConversation { .. }
+                | Command::ReadTurnCapture { .. }
+                | Command::ReadTurn { .. }
+                | Command::ReadSession { .. }
+                | Command::ReadPluginCallback { .. }
+                | Command::ReadPluginValue { .. }
+                | Command::ReadPluginConversationValue { .. }
+                | Command::ListSsh
+                | Command::ListDatabases
+                | Command::ListPluginModels
+                | Command::ReadModelCatalog(_)
+                | Command::ReadProjectCatalog
+        ) {
+            Span::query(entry)
+        } else {
+            Span::new(entry)
+        },
+    )
 }
 
 pub(crate) fn admitted(mut span: Span, mut admission: Admission) -> Admission {

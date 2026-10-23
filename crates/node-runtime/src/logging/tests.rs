@@ -29,7 +29,13 @@ fn lines(directory: &Path) -> Vec<Value> {
 #[test]
 fn filters_payloads_and_upstream_events() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Desktop));
     tracing::dispatcher::with_default(&dispatch, || {
         tracing::error!(target: "sailry", area = "desktop", phase = "failed", reason = "fixture", body = "PRIVATE_BODY", credential = "PRIVATE_KEY", url = "PRIVATE_URL", error = ?"PRIVATE_ERROR", code = ?"PRIVATE_CODE");
@@ -51,7 +57,13 @@ fn filters_payloads_and_upstream_events() {
 #[test]
 fn records_typed_artifact_metadata() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Desktop));
     let artifact = sailry_protocol::ArtifactId::new();
     tracing::dispatcher::with_default(&dispatch, || {
@@ -72,7 +84,13 @@ fn records_typed_artifact_metadata() {
 #[test]
 fn records_safe_model_causes_without_empty_fields() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     tracing::dispatcher::with_default(&dispatch, || {
         let mut error = adk_core::AdkError::new(
@@ -178,7 +196,13 @@ impl format::Sink for Capture {
 #[test]
 fn shares_sanitized_fields_with_native_sink() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let capture = Capture::default();
     let dispatch = tracing::Dispatch::new(
         tracing_subscriber::registry().with(
@@ -246,7 +270,13 @@ fn shares_sanitized_fields_with_native_sink() {
 #[test]
 fn records_correlated_recovery_metadata() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     let incident = sailry_protocol::RequestId::new();
     let call = sailry_protocol::RequestId::new();
@@ -288,7 +318,13 @@ fn records_correlated_recovery_metadata() {
 #[test]
 fn records_complete_public_node_ids() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     tracing::dispatcher::with_default(&dispatch, || {
         let mut entry = Entry::new(Area::Command, Phase::Begin);
@@ -307,9 +343,84 @@ fn records_complete_public_node_ids() {
 }
 
 #[test]
+fn bounds_oversized_unicode_fields_without_losing_failures() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
+    tracing::dispatcher::with_default(&dispatch, || {
+        let mut entry = Entry::new(Area::Model, Phase::Failed);
+        entry.context.model = Some("🙂".repeat(MAX_FILE_BYTES));
+        entry.code = Some(sailry_protocol::ErrorCode::OutcomeUnknown);
+        entry.emit();
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["model"].as_str().unwrap().chars().count(), 256);
+    assert_eq!(records[0]["phase"], "failed");
+    assert_eq!(records[0]["code"], "outcome_unknown");
+    assert!(
+        std::fs::metadata(latest_file(directory.path()).unwrap().unwrap())
+            .unwrap()
+            .len()
+            <= MAX_FILE_BYTES as u64
+    );
+}
+
+#[test]
+fn retains_read_failures_and_slow_completions() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
+    tracing::dispatcher::with_default(&dispatch, || {
+        let node = sailry_protocol::NodeId([1; 32]);
+        let request = sailry_protocol::Request::new(node, sailry_protocol::Command::ListSsh);
+        let mut fast = commands::begin(node, node, &request).unwrap();
+        fast.record(Phase::Admitted);
+        fast.finish(Phase::Completed, None);
+        let mut failed = commands::begin(node, node, &request).unwrap();
+        failed.finish(Phase::Failed, Some(sailry_protocol::ErrorCode::Busy));
+        let mut slow = commands::begin(node, node, &request).unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        slow.finish(Phase::Completed, None);
+        let mut unknown = commands::begin(node, node, &request).unwrap();
+        unknown.finish(
+            Phase::Interrupted,
+            Some(sailry_protocol::ErrorCode::OutcomeUnknown),
+        );
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records.len(), 3);
+    assert_eq!(records[0]["code"], "busy");
+    assert_eq!(records[1]["phase"], "completed");
+    assert!(records[1]["duration_us"].as_u64().unwrap() >= 150_000);
+    assert_eq!(records[2]["level"], "WARN");
+    assert!(records.iter().all(|record| record["command"] == "list_ssh"));
+}
+
+#[test]
 fn retains_cancelled_cleanup_uncertainty() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     tracing::dispatcher::with_default(&dispatch, || {
         let mut entry = Entry::new(Area::Run, Phase::Cancelled);
@@ -328,7 +439,13 @@ fn retains_cancelled_cleanup_uncertainty() {
 #[test]
 fn flushes_concurrent_complete_lines() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     let workers = (0..4)
         .map(|_| {
@@ -358,7 +475,7 @@ fn flushes_concurrent_complete_lines() {
 }
 
 #[test]
-fn prunes_only_owned_dates() {
+fn retires_only_owned_dates() {
     let directory = tempfile::tempdir().unwrap();
     for day in 1..=10 {
         std::fs::write(directory.path().join(format!("2020-01-{day:02}.log")), "").unwrap();
@@ -366,9 +483,10 @@ fn prunes_only_owned_dates() {
     std::fs::write(directory.path().join("notes.txt"), "preserve").unwrap();
     std::fs::write(directory.path().join("2020-01-01"), "legacy").unwrap();
     std::fs::create_dir(directory.path().join("2020-01-11.log")).unwrap();
+    rolling::retire(directory.path()).unwrap();
     let (mut writer, worker) = writer(
         directory.path(),
-        Rotation::DAILY,
+        MAX_FILE_BYTES,
         RETAINED_FILES,
         QUEUED_LINES,
     )
@@ -399,15 +517,20 @@ fn prunes_only_owned_dates() {
 }
 
 #[test]
-fn resolves_latest_daily_file() {
+fn resolves_active_file() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     drop(worker);
     drop(writer);
     let actual = latest_file(directory.path()).unwrap().unwrap();
     assert_eq!(actual.extension().unwrap(), "log");
-    chrono::NaiveDate::parse_from_str(actual.file_stem().unwrap().to_str().unwrap(), "%Y-%m-%d")
-        .unwrap();
+    assert_eq!(actual.file_name().unwrap(), rolling::CURRENT);
     for name in ["2099-01-01", "2099-02-30.log", "notes.log"] {
         std::fs::write(directory.path().join(name), "").unwrap();
     }
@@ -476,7 +599,13 @@ fn reports_bounded_queue_loss() {
 #[test]
 fn records_script_errors_without_values() {
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     let result = tracing::dispatcher::with_default(&dispatch, || {
         let context = sailry_protocol::plugin::Context {
@@ -529,7 +658,13 @@ fn records_provider_http_metadata() {
     };
 
     let directory = tempfile::tempdir().unwrap();
-    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     let node = NodeId([1; 32]);
     let provider = ProviderId::new();

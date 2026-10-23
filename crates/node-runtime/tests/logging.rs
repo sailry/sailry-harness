@@ -42,9 +42,15 @@ async fn finish(client: &Client, session: SessionId, turn: TurnId) -> Page {
     .unwrap()
 }
 async fn session(client: &Client, endpoint: &str, root: &Path) -> Session {
-    session_api(client, endpoint, root, ModelApi::ChatCompletions).await
+    session_api(client, endpoint, root, ModelApi::ChatCompletions, None).await
 }
-async fn session_api(client: &Client, endpoint: &str, root: &Path, api: ModelApi) -> Session {
+async fn session_api(
+    client: &Client,
+    endpoint: &str,
+    root: &Path,
+    api: ModelApi,
+    retries: Option<u64>,
+) -> Session {
     let Output::Plugins(packages) = execute(client, Command::ListPlugins).await else {
         panic!("plugins expected")
     };
@@ -61,7 +67,7 @@ async fn session_api(client: &Client, endpoint: &str, root: &Path, api: ModelApi
     }
     let provider = Provider {
         request_max_retries: None,
-        stream_max_retries: None,
+        stream_max_retries: retries,
         preset: None,
         binding: None,
         consent: None,
@@ -154,7 +160,19 @@ async fn observes_shared_lifecycles_without_payloads() {
             0o700
         );
     }
+    let legacy = profile.join("logs/host/2026-10-23.log");
+    std::fs::write(&legacy, "old diagnostic file").unwrap();
     let node = Node::start_empty(profile.clone()).await.unwrap();
+    assert!(!legacy.exists());
+    std::fs::write(&legacy, "active diagnostic file").unwrap();
+    assert!(matches!(
+        Node::start_empty(profile.clone()).await,
+        Err(sailry_node_runtime::Error::ProfileInUse(_))
+    ));
+    assert!(legacy.exists());
+    node.shutdown().await.unwrap();
+    let node = Node::start_empty(profile.clone()).await.unwrap();
+    assert!(!legacy.exists());
     node.shutdown().await.unwrap();
     let another = tempfile::tempdir().unwrap();
     assert!(
@@ -291,7 +309,7 @@ async fn observes_shared_lifecycles_without_payloads() {
     let retry_profile = &profiles[1];
     let retry_root = retry_profile.path().join("retry-project");
     std::fs::create_dir(&retry_root).unwrap();
-    let retry_model = models::Server::http(1, 429).await;
+    let retry_model = models::Server::http(1, 500).await;
     let retry_node = Node::start_empty(retry_profile.path().join("node"))
         .await
         .unwrap();
@@ -321,7 +339,42 @@ async fn observes_shared_lifecycles_without_payloads() {
         panic!("queued turn expected")
     };
     let retry_page = finish(&retry_client, retry_session.id, retry_turn.id).await;
-    assert_eq!(retry_page.runs.last().unwrap().status, Status::Completed);
+    assert_eq!(
+        retry_page.runs.last().unwrap().status,
+        Status::Completed,
+        "{:?}",
+        retry_page.runs.last().unwrap().error
+    );
+    assert_eq!(retry_model.requests.lock().unwrap().len(), 2);
+    let rate_model = models::Server::http(usize::MAX, 429).await;
+    let rate_root = retry_profile.path().join("rate-project");
+    std::fs::create_dir(&rate_root).unwrap();
+    let rate_session = session(&retry_client, &rate_model.endpoint, &rate_root).await;
+    let Output::QueuedTurn(rate_turn) = execute(
+        &retry_client,
+        Command::SubmitTurn {
+            session: rate_session.id,
+            expected_revision: rate_session.revision,
+            message: "Keep throttling visible".into(),
+        },
+    )
+    .await
+    else {
+        panic!("queued turn expected")
+    };
+    let rate_page = finish(&retry_client, rate_session.id, rate_turn.id).await;
+    let rate_run = rate_page.runs.last().unwrap();
+    assert_eq!(rate_run.status, Status::Failed);
+    let error = rate_run.error.as_ref().unwrap();
+    assert_eq!(error.code, ErrorCode::Unavailable);
+    assert!(error.message.contains("HTTP 429") && error.message.contains("fixture unavailable"));
+    assert!(matches!(
+        error.details.as_ref(),
+        Some(FaultDetails::ModelRecovery {
+            reason: recovery::Stop::RateLimited
+        })
+    ));
+    assert_eq!(rate_model.requests.lock().unwrap().len(), 1);
     retry_node.shutdown().await.unwrap();
     retry_controller.close().await.unwrap();
 
@@ -332,6 +385,10 @@ async fn observes_shared_lifecycles_without_payloads() {
     let parse_node = Node::start_empty(parse_profile.path().join("node"))
         .await
         .unwrap();
+    parse_node.set_model_transport_fixture(adk_model::openai::WsOptions {
+        enabled: std::sync::Arc::new(|| false),
+        ..Default::default()
+    });
     let parse_controller = Link::controller(
         parse_profile.path().join("controller"),
         NetworkScope::default(),
@@ -349,6 +406,8 @@ async fn observes_shared_lifecycles_without_payloads() {
         &parse_model.endpoint,
         &parse_root,
         ModelApi::Responses,
+        // This scenario observes one parse failure; recovery has separate tests.
+        Some(0),
     )
     .await;
     let Output::QueuedTurn(parse_turn) = execute(
@@ -365,6 +424,7 @@ async fn observes_shared_lifecycles_without_payloads() {
     };
     let parse_page = finish(&parse_client, parse_session.id, parse_turn.id).await;
     assert_eq!(parse_page.runs.last().unwrap().status, Status::Failed);
+    assert_eq!(parse_model.requests.lock().unwrap().len(), 1);
     parse_node.shutdown().await.unwrap();
     parse_controller.close().await.unwrap();
 
@@ -497,21 +557,50 @@ async fn observes_shared_lifecycles_without_payloads() {
             .iter()
             .any(|record| record["phase"] == "first_token")
     );
-    let retries: Vec<_> = records
+    assert!(
+        !records
+            .iter()
+            .any(|record| record["turn"] == retry_turn.id.to_string()
+                && record["operation"] == "model_retry")
+    );
+    let attempts: Vec<_> = records
         .iter()
         .filter(|record| {
-            record["turn"] == retry_turn.id.to_string() && record["operation"] == "model_retry"
+            record["turn"] == retry_turn.id.to_string() && record["operation"] == "model_attempt"
         })
         .collect();
-    assert_eq!(retries.len(), 1);
-    let retry = retries[0];
+    assert_eq!(attempts.len(), 4);
+    let retry = attempts
+        .iter()
+        .find(|record| record["phase"] == "failed")
+        .unwrap();
     assert_eq!(retry["phase"], "failed");
     assert_eq!(retry["attempt"], 1);
-    assert_eq!(retry["limit"], 5);
-    assert_eq!(retry["cause_code"], "model.openai_compat.api_error");
+    assert_eq!(retry["cause_code"], "model.http.status");
     assert_eq!(retry["cause_component"], "model");
-    assert_eq!(retry["cause_category"], "rate_limited");
-    assert_eq!(retry["upstream_status"], 429);
+    assert_eq!(retry["cause_category"], "unavailable");
+    assert_eq!(retry["upstream_status"], 500);
+    assert!(attempts.iter().any(|record| record["phase"] == "completed"
+        && record["attempt"] == 2
+        && record["upstream_status"] == 200));
+    let failures = records
+        .iter()
+        .filter(|record| {
+            record["turn"] == rate_turn.id.to_string()
+                && record["operation"] == "model_request"
+                && record["phase"] == "failed"
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["cause_code"], "model.openai_compat.api_error");
+    assert_eq!(failures[0]["cause_category"], "rate_limited");
+    assert_eq!(failures[0]["upstream_status"], 429);
+    assert!(
+        !records
+            .iter()
+            .any(|record| record["turn"] == rate_turn.id.to_string()
+                && record["operation"] == "model_retry")
+    );
     let parse: Vec<_> = records
         .iter()
         .filter(|record| {
@@ -533,6 +622,14 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert_eq!(failure["parse_event"], "response.output_text.delta");
     assert!(failure["parse_line"].is_u64());
     assert!(failure["parse_column"].is_u64());
+    let attempts = records
+        .iter()
+        .filter(|record| {
+            record["turn"] == parse_turn.id.to_string() && record["operation"] == "model_attempt"
+        })
+        .collect::<Vec<_>>();
+    assert!(!attempts.is_empty());
+    assert!(attempts.iter().all(|record| record["transport"] == "http"));
     assert!(!records.iter().any(|record| {
         record["turn"] == parse_turn.id.to_string() && record["operation"] == "model_retry"
     }));

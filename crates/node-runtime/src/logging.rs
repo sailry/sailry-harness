@@ -2,12 +2,12 @@
 //! Records contain identifiers and lifecycle metadata, never operation payloads.
 use std::{
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
-use tracing_appender::{
-    non_blocking::{ErrorCounter, WorkerGuard},
-    rolling::{RollingFileAppender, Rotation},
-};
+use tracing_appender::non_blocking::{ErrorCounter, WorkerGuard};
 use tracing_log::AsLog as _;
 use tracing_subscriber::{Layer, filter::filter_fn, layer::SubscriberExt};
 
@@ -15,11 +15,13 @@ pub(crate) mod commands;
 mod format;
 mod native;
 mod records;
+mod rolling;
 pub use records::{Area, Context, Entry, Phase, Span};
 #[cfg(test)]
 mod tests;
 
-const RETAINED_FILES: usize = 7;
+const MAX_FILE_BYTES: usize = 1024 * 1024;
+const RETAINED_FILES: usize = 5;
 const QUEUED_LINES: usize = 8192;
 static DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 
@@ -54,6 +56,7 @@ pub struct InitError;
 pub struct Guard {
     worker: Option<WorkerGuard>,
     counter: ErrorCounter,
+    write_errors: Arc<AtomicUsize>,
     _temporary: Option<tempfile::TempDir>,
 }
 
@@ -61,8 +64,7 @@ pub fn directory() -> Option<&'static Path> {
     DIRECTORY.get().and_then(|directory| directory.parent())
 }
 
-/// Resolve the newest daily file in this process's application log directory.
-/// An idle appender keeps its last file until the next record triggers rotation.
+/// Resolve the active bounded file, or an earlier daily file before transition.
 pub fn current_file() -> std::io::Result<Option<PathBuf>> {
     let Some(directory) = DIRECTORY.get() else {
         return Ok(None);
@@ -71,6 +73,13 @@ pub fn current_file() -> std::io::Result<Option<PathBuf>> {
 }
 
 fn latest_file(directory: &Path) -> std::io::Result<Option<PathBuf>> {
+    let current = directory.join(rolling::CURRENT);
+    if current
+        .symlink_metadata()
+        .is_ok_and(|metadata| metadata.is_file())
+    {
+        return Ok(Some(current));
+    }
     let mut latest = None;
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
@@ -97,8 +106,7 @@ fn latest_file(directory: &Path) -> std::io::Result<Option<PathBuf>> {
 pub fn install(profile: &Path, application: Application) -> Result<Guard, InitError> {
     crate::profile::private_directory(profile).map_err(|_| InitError)?;
     let directory = profile.join("logs").join(application.name());
-    let (writer, worker) = writer(&directory, Rotation::DAILY, RETAINED_FILES, QUEUED_LINES)?;
-    let counter = writer.error_counter();
+    let (writer, guard) = writer(&directory, MAX_FILE_BYTES, RETAINED_FILES, QUEUED_LINES)?;
     tracing::subscriber::set_global_default(subscriber(writer, application))
         .map_err(|_| InitError)?;
     if tracing_log::LogTracer::builder()
@@ -113,11 +121,25 @@ pub fn install(profile: &Path, application: Application) -> Result<Guard, InitEr
         eprintln!("sailry logging: the existing log logger was preserved");
     }
     let _ = DIRECTORY.set(directory);
-    Ok(Guard {
-        worker: Some(worker),
-        counter,
-        _temporary: None,
-    })
+    Ok(guard)
+}
+
+/// Called only after exclusive Node profile ownership is acquired, so an older
+/// process's active daily file cannot be retired by a rejected second startup.
+pub(crate) fn retain(profile: &Path) -> std::io::Result<()> {
+    let Some(directory) = DIRECTORY.get() else {
+        return Ok(());
+    };
+    if directory
+        .parent()
+        .and_then(Path::parent)
+        .and_then(|path| path.canonicalize().ok())
+        .as_deref()
+        == Some(profile)
+    {
+        rolling::retire(directory)?;
+    }
+    Ok(())
 }
 
 /// Preview diagnostics have no relationship to the normal data profile.
@@ -133,24 +155,26 @@ pub fn preview() -> Result<Guard, InitError> {
 
 fn writer(
     directory: &Path,
-    rotation: Rotation,
+    maximum: usize,
     retained: usize,
     capacity: usize,
-) -> Result<(tracing_appender::non_blocking::NonBlocking, WorkerGuard), InitError> {
-    // Retention matches .log files in this application-owned directory.
-    // Existing extensionless diagnostics remain untouched.
-    let appender = RollingFileAppender::builder()
-        .rotation(rotation)
-        .filename_suffix("log")
-        .max_log_files(retained)
-        .build(directory)
-        .map_err(|_| InitError)?;
-    Ok(
-        tracing_appender::non_blocking::NonBlockingBuilder::default()
-            .buffered_lines_limit(capacity)
-            .lossy(true)
-            .finish(appender),
-    )
+) -> Result<(tracing_appender::non_blocking::NonBlocking, Guard), InitError> {
+    let appender = rolling::Writer::new(directory, maximum, retained).map_err(|_| InitError)?;
+    let write_errors = appender.errors.clone();
+    let (writer, worker) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+        .buffered_lines_limit(capacity)
+        .lossy(true)
+        .finish(appender);
+    let counter = writer.error_counter();
+    Ok((
+        writer,
+        Guard {
+            worker: Some(worker),
+            counter,
+            write_errors,
+            _temporary: None,
+        },
+    ))
 }
 
 fn subscriber(
@@ -199,6 +223,10 @@ impl Drop for Guard {
             eprintln!("sailry logging dropped at least {dropped} records");
         }
         drop(self.worker.take());
+        let errors = self.write_errors.load(Ordering::Relaxed);
+        if errors > 0 {
+            eprintln!("sailry logging encountered {errors} diagnostic I/O failures");
+        }
         // WorkerGuard finishes before the preview's temporary directory is removed.
     }
 }

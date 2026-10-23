@@ -688,6 +688,7 @@ impl Node {
             let _ = rustls::crypto::ring::default_provider().install_default();
             let (profile, identity) = tokio::task::spawn_blocking(move || {
                 let profile = Profile::acquire(&path)?;
+                logging::retain(&profile.path)?;
                 let identity = sailry_link::Identity::open(&profile.path)?;
                 Ok::<_, Error>((profile, identity))
             })

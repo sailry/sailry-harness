@@ -67,6 +67,7 @@ tracing.workspace = true
 tracing-log.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
+rolling-file.workspace = true
 age.workspace = true
 opendal.workspace = true
 russh.workspace = true
