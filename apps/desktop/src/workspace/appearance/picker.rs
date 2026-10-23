@@ -32,6 +32,7 @@ pub(crate) fn picker<T: 'static>(
     let id = id.to_owned();
     let trigger = format!("{id}-appearance");
     Popover::new(SharedString::from(format!("{id}-appearance")))
+        .map(|popover| crate::theme::popover(popover, cx))
         .trigger(
             Button::new(SharedString::from(format!("{id}-identity")))
                 .text()

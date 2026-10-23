@@ -55,7 +55,7 @@ impl Shell {
         let channels = self.settings.read(cx).model_channels().to_vec();
         picker.update(cx, |picker, cx| picker.set(channels, selected, cx));
         let opening = picker.clone();
-        Popover::new("composer-model-popover")
+        crate::theme::popover(Popover::new("composer-model-popover"), cx)
             .p_2()
             .anchor(Anchor::BottomRight)
             .trigger(

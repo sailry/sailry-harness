@@ -179,6 +179,7 @@ impl Shell {
                     .min((f32::from(window.viewport_size().height) - 280.).max(48.));
                 v_flex()
                     .popover_style(cx)
+                    .refine_style(&crate::theme::popup_style(cx))
                     .p_1()
                     .bottom_1()
                     .debug_selector(|| "reference-picker".into())

@@ -300,7 +300,7 @@ impl Render for WorktreeForm {
                     .child(tr("worktree_preview_hint")),
             )
             .child(
-                gpui_kit::component::form::Form::vertical().children(
+                crate::ui::form::vertical().children(
                     ["worktree_base", "worktree_branch", "worktree_path"]
                         .into_iter()
                         .zip(&self.inputs)

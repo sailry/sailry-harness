@@ -139,7 +139,7 @@ impl Render for Editor {
             )
             .when(self.update, |this| {
                 this.child(
-                    gpui_kit::component::form::Form::vertical().child(
+                    crate::ui::form::vertical().child(
                         Field::new()
                             .label(tr("plugins_package"))
                             .child(Input::new(&self.package).aria_label(tr("plugins_package"))),
@@ -147,14 +147,14 @@ impl Render for Editor {
                 )
             })
             .child(
-                gpui_kit::component::form::Form::vertical().child(
+                crate::ui::form::vertical().child(
                     Field::new()
                         .label(tr("plugins_directory"))
                         .child(Input::new(&self.directory).aria_label(tr("plugins_directory"))),
                 ),
             )
             .child(
-                gpui_kit::component::form::Form::vertical().child(
+                crate::ui::form::vertical().child(
                     Field::new().label(tr("plugins_capabilities")).child(
                         v_flex().gap_2().children(
                             ["plugins_cap_files", "plugins_cap_network"]

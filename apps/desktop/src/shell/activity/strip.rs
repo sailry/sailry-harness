@@ -129,6 +129,7 @@ impl Shell {
     ) -> impl IntoElement {
         let owner = cx.entity().downgrade();
         let popover = Popover::new(format!("header-{}-overflow", group.key()))
+            .map(|popover| crate::theme::popover(popover, cx))
             .anchor(Anchor::TopRight)
             .w(px(300.))
             .p_2()

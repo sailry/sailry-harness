@@ -66,7 +66,7 @@ impl View {
                                 })),
                         )
                         .when(self.compact_composer, |bar| {
-                            bar.child(self.composer_settings())
+                            bar.child(self.composer_settings(cx))
                         })
                         .map(|bar| {
                             bar.children(self.registered_controls(
@@ -84,7 +84,7 @@ impl View {
                     .when(self.sidebar, |bar| bar.w_full().min_w_0())
                     .when(!self.sidebar, |bar| bar.ml_auto().flex_wrap().justify_end())
                     .when(self.sidebar && self.compact_composer, |bar| {
-                        bar.child(self.composer_settings())
+                        bar.child(self.composer_settings(cx))
                     })
                     .when(self.sidebar && !self.compact_composer, |bar| {
                         bar.children(self.registered_controls(

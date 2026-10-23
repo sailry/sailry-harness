@@ -1,6 +1,7 @@
 //! Completed-turn file summary with navigation to the shared Git panel.
 use super::*;
 use crate::conversation::surface;
+use crate::feedback::Recovery as _;
 use crate::{resources::checkpoints::Restore, shell::Shell};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
@@ -101,7 +102,7 @@ impl View {
                 },
                 |_, key, cx| {
                     let owner = cx.weak_entity();
-                    gpui_kit::component::notification::Notification::error(tr(key)).action(
+                    gpui_kit::component::notification::Notification::error(tr(key)).scoped_action(
                         move |_, _, cx| {
                             let owner = owner.clone();
                             crate::feedback::retry("retry-changes").on_click(cx.listener(

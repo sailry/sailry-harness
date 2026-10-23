@@ -4,7 +4,7 @@ mod login;
 use super::*;
 use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
-    form::{Field, Form},
+    form::Field,
     input::InputContentType,
     tab::{Tab, TabBar},
 };
@@ -368,7 +368,7 @@ impl Editor {
         .detach();
     }
     fn field_form(&self, kind: &Type) -> AnyElement {
-        let mut form = Form::new();
+        let mut form = crate::ui::form::vertical();
         for field in &kind.declaration.fields {
             if !editable(field, self.method().expect("selected method").kind()) {
                 continue;
@@ -535,7 +535,7 @@ impl Editor {
                             .ghost()
                             .label(tr("authorization_cancel"))
                             .disabled(self.pending)
-                            .on_click(cx.listener(|this, _, window, cx| this.back(window, cx))),
+                            .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
                         Button::new("connector-submit")

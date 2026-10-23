@@ -6,7 +6,82 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use std::collections::HashSet;
+use std::{cell::RefCell, collections::HashSet, rc::Rc};
+
+/// Recovery controls belong to an active error; ordinary outcome toasts do not.
+pub(crate) struct Feedback {
+    message: Notification,
+    scoped: bool,
+}
+
+impl From<Notification> for Feedback {
+    fn from(message: Notification) -> Self {
+        Self {
+            message,
+            scoped: false,
+        }
+    }
+}
+
+pub(crate) trait Recovery {
+    fn scoped_action(
+        self,
+        action: impl Fn(
+            &mut Notification,
+            &mut Window,
+            &mut Context<Notification>,
+        ) -> component::button::Button
+        + 'static,
+    ) -> Feedback;
+}
+
+impl Recovery for Notification {
+    fn scoped_action(
+        self,
+        action: impl Fn(
+            &mut Notification,
+            &mut Window,
+            &mut Context<Notification>,
+        ) -> component::button::Button
+        + 'static,
+    ) -> Feedback {
+        Feedback {
+            message: self.action(action),
+            scoped: true,
+        }
+    }
+}
+
+#[derive(Default)]
+struct Scope {
+    active: HashSet<&'static str>,
+    recoveries: HashSet<&'static str>,
+}
+
+impl Scope {
+    fn reconcile(&mut self, keys: Vec<&'static str>) -> (Vec<&'static str>, Vec<&'static str>) {
+        let current: HashSet<_> = keys.into_iter().collect();
+        let added = current.difference(&self.active).copied().collect();
+        let dismissed = self
+            .active
+            .difference(&current)
+            .copied()
+            .filter(|key| self.recoveries.remove(key))
+            .collect();
+        self.active = current;
+        (added, dismissed)
+    }
+
+    fn record(&mut self, key: &'static str, recovery: bool) {
+        if recovery {
+            self.recoveries.insert(key);
+        }
+    }
+
+    fn release(&mut self) -> Vec<&'static str> {
+        self.recoveries.drain().collect()
+    }
+}
 
 /// Retry actions share Kit styling while each owner retains request semantics.
 pub(crate) fn retry(id: impl Into<ElementId>) -> component::button::Button {
@@ -134,23 +209,32 @@ pub(crate) fn observe<T: 'static>(
     observe_with(window, cx, errors, |_, key, _| Notification::error(tr(key)));
 }
 
-pub(crate) fn observe_with<T: 'static, Errors>(
+pub(crate) fn observe_with<T: 'static, Errors, Built>(
     window: &Window,
     cx: &mut Context<T>,
     errors: Errors,
-    build: impl Fn(&T, &'static str, &mut Context<T>) -> Notification + 'static,
+    build: impl Fn(&T, &'static str, &mut Context<T>) -> Built + 'static,
 ) where
     Errors: Fn(&T, &App) -> Vec<&'static str> + 'static,
+    Built: Into<Feedback>,
 {
     let window = window.window_handle();
-    let mut previous = HashSet::new();
+    let scope = Rc::new(RefCell::new(Scope::default()));
+    let released = scope.clone();
+    let owner = cx.entity_id();
+    cx.on_release(move |_, cx| {
+        let keys = released.borrow_mut().release();
+        _ = window.update(cx, |_, window, cx| {
+            for key in keys {
+                window.remove_notification1::<Errors>((key, owner), cx);
+            }
+        });
+    })
+    .detach();
     cx.observe_self(move |view, cx| {
-        let current: HashSet<_> = errors(view, cx).into_iter().collect();
-        let added: Vec<_> = current.difference(&previous).copied().collect();
-        let cleared: Vec<_> = previous.difference(&current).copied().collect();
-        previous = current;
+        let (added, dismissed) = scope.borrow_mut().reconcile(errors(view, cx));
         let owner = cx.entity_id();
-        if !added.is_empty() || !cleared.is_empty() {
+        if !added.is_empty() || !dismissed.is_empty() {
             let messages: Vec<_> = added
                 .into_iter()
                 .map(|key| {
@@ -160,11 +244,16 @@ pub(crate) fn observe_with<T: 'static, Errors>(
                     );
                     diagnostic.reason = Some(key);
                     diagnostic.emit();
-                    (tr(key), build(view, key, cx).id1::<Errors>((key, owner)))
+                    let built = build(view, key, cx).into();
+                    scope.borrow_mut().record(key, built.scoped);
+                    (tr(key), built.message.id1::<Errors>((key, owner)))
                 })
                 .collect();
             _ = window.update(cx, |_, window, cx| {
-                for key in cleared {
+                for key in dismissed {
+                    // Resolving a live condition must not retract the outcome
+                    // before Kit's normal reading interval. Recovery actions,
+                    // however, cannot outlive the error that authorizes them.
                     window.remove_notification1::<Errors>((key, owner), cx);
                 }
                 for (summary, message) in messages {
@@ -182,3 +271,6 @@ pub(crate) fn observe_with<T: 'static, Errors>(
 
 mod node;
 pub(crate) use node::observe as observe_node;
+
+#[cfg(test)]
+mod tests;

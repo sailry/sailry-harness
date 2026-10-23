@@ -250,7 +250,7 @@ pub(super) fn auth_label(authentication: Authentication) -> &'static str {
 
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut form = gpui_kit::component::form::Form::vertical();
+        let mut form = crate::ui::form::vertical();
         for (index, (key, input)) in ["settings_name", "ssh_host", "ssh_port", "ssh_username"]
             .into_iter()
             .zip(&self.fields)

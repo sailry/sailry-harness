@@ -12,6 +12,11 @@ mod history;
 mod planning;
 mod view;
 
+// Kit 7fc6a4c's Radio label wrapper uses 100% width without a zero minimum.
+// Reserve the Small marker (0.875rem) and its Kit gap (0.5rem) so the native
+// control's label wraps inside the row at every UI scale.
+const RADIO_INSET: Rems = rems(1.375);
+
 pub(super) struct Form {
     keys: Entity<crate::ui::keys::Bindings>,
     open: bool,

@@ -1,3 +1,4 @@
+use crate::feedback::Recovery as _;
 mod appearance;
 mod backup;
 mod catalog;
@@ -297,7 +298,7 @@ impl Workspace {
             |_, key, _| {
                 let notice = gpui_kit::component::notification::Notification::error(crate::tr(key));
                 if key == "preferences_save_failed" {
-                    notice.action(|_, _, cx| {
+                    notice.scoped_action(|_, _, cx| {
                         crate::feedback::retry("preferences-retry").on_click(cx.listener(
                             |toast, _, window, cx| {
                                 toast.dismiss(window, cx);
@@ -306,7 +307,7 @@ impl Workspace {
                         ))
                     })
                 } else {
-                    notice
+                    notice.into()
                 }
             },
         );

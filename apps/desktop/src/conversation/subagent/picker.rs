@@ -27,7 +27,13 @@ impl Shell {
             ..location
         };
         let owner = cx.entity().downgrade();
-        popover(Source::Preview { location, owner }, selected, id, button)
+        popover(
+            Source::Preview { location, owner },
+            selected,
+            id,
+            button,
+            cx,
+        )
     }
 }
 
@@ -36,12 +42,19 @@ pub(in crate::conversation) fn activity(
     session: sailry_protocol::SessionId,
     id: &'static str,
     button: Button,
+    cx: &App,
 ) -> Popover {
-    popover(Source::Activity { owner, session }, None, id, button)
+    popover(Source::Activity { owner, session }, None, id, button, cx)
 }
 
-fn popover(source: Source, selected: Option<Choice>, id: &'static str, button: Button) -> Popover {
-    Popover::new(id)
+fn popover(
+    source: Source,
+    selected: Option<Choice>,
+    id: &'static str,
+    button: Button,
+    cx: &App,
+) -> Popover {
+    crate::theme::popover(Popover::new(id), cx)
         .anchor(if selected.is_some() {
             Anchor::TopLeft
         } else {

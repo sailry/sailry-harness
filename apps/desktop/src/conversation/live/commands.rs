@@ -314,7 +314,7 @@ impl View {
                 .gap_2()
                 .flex_wrap()
                 .child(
-                    Popover::new("background-popover")
+                    crate::theme::popover(Popover::new("background-popover"), cx)
                         .open(open)
                         .on_open_change({
                             let panel = self.commands.downgrade();

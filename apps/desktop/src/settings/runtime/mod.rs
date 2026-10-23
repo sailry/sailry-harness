@@ -1,3 +1,4 @@
+use crate::feedback::Recovery as _;
 mod index;
 mod requests;
 mod view;
@@ -63,7 +64,7 @@ impl Panel {
                             .title(crate::tr(key))
                     },
                 );
-                notice.action(move |_, _, cx| {
+                notice.scoped_action(move |_, _, cx| {
                     let owner = owner.clone();
                     crate::feedback::retry("runtime-retry")
                         .debug_selector(|| "runtime-retry".into())

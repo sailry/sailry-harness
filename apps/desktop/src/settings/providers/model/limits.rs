@@ -35,7 +35,7 @@ impl Editor {
                         cx.notify();
                     }))
             }));
-        Form::vertical()
+        crate::ui::form::vertical()
             .child(
                 Field::new().label(tr("provider_context")).child(
                     v_flex()

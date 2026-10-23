@@ -95,7 +95,7 @@ impl Render for Popover {
             .disabled(!self.entry.state.enabled)
             .selected(self.open)
             .track_focus(&self.focus);
-        popover::Popover::new("header-contribution-popover")
+        crate::theme::popover(popover::Popover::new("header-contribution-popover"), cx)
             .open(self.open)
             .anchor(Anchor::TopRight)
             .track_focus(&self.focus)

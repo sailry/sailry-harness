@@ -47,7 +47,7 @@ impl Render for Editor {
                 },
             )
             .child(
-                gpui_kit::component::form::Form::vertical()
+                crate::ui::form::vertical()
                     .gap_4()
                     .child(
                         field().label(tr("project_name")).required(true).child(

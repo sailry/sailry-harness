@@ -10,29 +10,7 @@ impl Market {
                 .into_any_element();
         }
         if self.kind == Kind::Skills {
-            let owner = self.owner.clone();
-            let sources = owner
-                .upgrade()
-                .map(|owner| owner.read(cx).usage_sources.clone())
-                .unwrap_or_default();
-            return Button::new("market-install-host")
-                .outline()
-                .label(rust_i18n::t!("market_install_to", host = self.binding.label).to_string())
-                .icon(IconName::ChevronDown)
-                .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-                    sources.iter().fold(menu, |menu, source| {
-                        let node = source.client.target();
-                        let owner = owner.clone();
-                        menu.item(PopupMenuItem::new(source.label.clone()).on_click(
-                            move |_, _, cx| {
-                                _ = owner.update(cx, |_, cx| {
-                                    cx.emit(super::super::extensions::SelectHost(node))
-                                });
-                            },
-                        ))
-                    })
-                })
-                .into_any_element();
+            return div().into_any_element();
         }
         let owner = cx.weak_entity();
         let source = self.source;
@@ -243,7 +221,7 @@ impl Render for Market {
                                 .prefix(IconName::Search),
                         ),
                     )
-                    .child(self.scope(cx)),
+                    .when(self.kind != Kind::Skills, |row| row.child(self.scope(cx))),
             )
             .child(self.filters(cx))
             .child(match self.kind {

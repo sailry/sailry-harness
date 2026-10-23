@@ -7,7 +7,7 @@ use crate::tr;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
-    form::{Field, Form},
+    form::Field,
     input::{Input, InputState},
     *,
 };
@@ -227,7 +227,7 @@ impl Editor {
             .rounded(cx.theme().radius)
             .child(header);
         if draft.expanded {
-            let form = Form::vertical().child(
+            let form = crate::ui::form::vertical().child(
                 Field::new()
                     .label(tr(if self.preset == super::Preset::AzureOpenAi {
                         "provider_deployment_id"

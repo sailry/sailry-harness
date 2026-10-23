@@ -52,7 +52,7 @@ impl Shell {
             .mx_2()
             .gap_2()
             .child(
-                Popover::new("composer-todo-popover")
+                crate::theme::popover(Popover::new("composer-todo-popover"), cx)
                     .anchor(Anchor::BottomLeft)
                     .p_2()
                     .trigger(

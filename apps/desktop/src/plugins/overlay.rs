@@ -1,6 +1,7 @@
 //! Kit b79f4ce's script window dialogs require ShellRoot as the OS window root.
 //! Embedded plugins instead compose the native Base dialog in their own view.
 //! Kit retains focus trapping, keyboard dismissal, stacking and theme surfaces.
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     base::Disableable as _,
     component::{
@@ -74,6 +75,7 @@ fn form_popup(
         .border_color(cx.theme().border)
         .rounded(cx.theme().radius_lg)
         .shadow_xl()
+        .when(!cx.theme().is_dark(), |surface| surface.border_0())
         .child(
             div()
                 .v_flex()
@@ -183,6 +185,7 @@ pub(super) fn module(cx: &mut App) -> HostModule {
                     .child(div().debug_selector(|| "plugin-modal-surface".into()).occlude().relative().flex().flex_col().p_5().pt_10()
                         .bg(cx.theme().popover).text_color(cx.theme().popover_foreground)
                         .border_1().border_color(cx.theme().border).rounded(cx.theme().radius_lg)
+                        .when(!cx.theme().is_dark(), |surface| surface.border_0().shadow_lg())
                         .children(args.take_children()).child(close_button(id.clone(), dismissable))).into_any_element()
             };
             base::Dialog::new(cx)

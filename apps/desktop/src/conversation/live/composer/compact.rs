@@ -64,7 +64,7 @@ impl View {
             .into_any_element()
     }
 
-    pub(super) fn composer_settings(&self) -> AnyElement {
+    pub(super) fn composer_settings(&self, cx: &App) -> AnyElement {
         let panel = self.composer_settings.clone();
         let opening = panel.clone();
         let model = self.model_controls.clone();
@@ -81,7 +81,7 @@ impl View {
             tr(mode::label(mode)),
             tr(permission::label(current))
         );
-        Popover::new("composer-settings-popover")
+        crate::theme::popover(Popover::new("composer-settings-popover"), cx)
             .anchor(Anchor::BottomLeft)
             .bottom_2()
             .p_2()

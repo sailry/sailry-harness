@@ -121,7 +121,7 @@ impl RenderOnce for Compact {
         let focus = state.read(cx).focus.clone();
         let target = (open && !held).then(|| window.focused(cx)).flatten();
         let groups = Rc::new(self.groups);
-        popover::Popover::new("composer-stats-popover")
+        crate::theme::popover(popover::Popover::new("composer-stats-popover"), cx)
             .open(open)
             .anchor(Anchor::BottomRight)
             .when_some(target, |popover, target| popover.track_focus(&target))

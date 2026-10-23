@@ -312,7 +312,7 @@ impl View {
         }
         let panel = self.model_controls.clone();
         let opening = panel.clone();
-        let popover = Popover::new("live-model-popover")
+        let popover = crate::theme::popover(Popover::new("live-model-popover"), cx)
             .anchor(Anchor::BottomRight)
             .bottom_2()
             .p_3()

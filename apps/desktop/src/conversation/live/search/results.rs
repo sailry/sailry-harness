@@ -1,4 +1,5 @@
 use super::*;
+use crate::feedback::Recovery as _;
 use gpui_kit::component::{
     label::Label,
     list::{ListDelegate, ListItem},
@@ -233,10 +234,10 @@ impl Results {
             move |_, key, _| {
                 let notice = gpui_kit::component::notification::Notification::error(tr(key));
                 if key == "chat_search_limit" {
-                    return notice;
+                    return notice.into();
                 }
                 let owner = search.clone();
-                notice.action(move |_, _, cx| {
+                notice.scoped_action(move |_, _, cx| {
                     let owner = owner.clone();
                     crate::feedback::retry("live-search-retry")
                         .debug_selector(|| "live-search-retry".into())

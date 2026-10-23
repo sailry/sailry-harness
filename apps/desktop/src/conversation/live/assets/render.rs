@@ -16,7 +16,7 @@ impl Render for Assets {
         let selector = session
             .map(|id| id.to_string())
             .unwrap_or_else(|| "draft".into());
-        let popover = Popover::new("live-assets-popover")
+        let popover = crate::theme::popover(Popover::new("live-assets-popover"), cx)
             .anchor(Anchor::TopRight)
             .open(self.open)
             .p_3()

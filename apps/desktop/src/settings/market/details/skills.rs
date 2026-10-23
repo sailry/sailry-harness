@@ -496,7 +496,9 @@ impl Render for Details {
             content = content.child(rows::information(information, cx));
         }
 
-        if let Some(document) = &self.document {
+        if self.loading && self.document.is_none() && self.resolved.is_none() {
+            content = content.child(crate::settings::market::details::skeleton(cx));
+        } else if let Some(document) = &self.document {
             content = content.child(crate::content::markdown::View::markdown(
                 "skill-document",
                 document.content.clone(),
@@ -527,7 +529,13 @@ impl Render for Details {
                 cx,
             ));
         }
-        super::panel(summary, content.into_any_element(), &self.scroll, cx)
+        super::panel(
+            "market_skill_details",
+            summary,
+            content.into_any_element(),
+            &self.scroll,
+            cx,
+        )
     }
 }
 

@@ -6,7 +6,6 @@ use crate::{
 use gpui_kit::component::{
     accordion::Accordion,
     group_box::{GroupBox, GroupBoxVariants},
-    spinner::Spinner,
 };
 
 pub(in crate::settings::market) struct Details {
@@ -391,18 +390,12 @@ impl Render for Details {
         let content = if let Some(package) = package {
             self.content(&package, cx)
         } else if self.loading {
-            div()
-                .h_24()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(Spinner::new())
-                .into_any_element()
+            crate::settings::market::details::skeleton(cx).into_any_element()
         } else {
             crate::feedback::retry("market-theme-reload")
                 .on_click(cx.listener(|view, _, _, cx| view.load(cx)))
                 .into_any_element()
         };
-        super::panel(summary, content, &self.scroll, cx)
+        super::panel("market_theme_details", summary, content, &self.scroll, cx)
     }
 }

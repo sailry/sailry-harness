@@ -1,4 +1,5 @@
 //! Local welcome guide; every connection action reuses the actual provider editor.
+use crate::theme::DialogStyle as _;
 use crate::{
     backend::Services,
     preferences,
@@ -46,8 +47,7 @@ impl Shell {
                 .max_h(window.viewport_size().height * 0.85)
                 .rounded(cx.theme().radius_lg)
                 .overflow_hidden()
-                .bg(cx.theme().popover)
-                .text_color(cx.theme().popover_foreground)
+                .floating_surface(cx)
                 .overlay_closable(false)
                 .on_ok(|_, _, _| false)
                 .on_close(|_, _, cx| preferences::mark_welcome_seen(cx))

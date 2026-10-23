@@ -113,7 +113,6 @@ impl Render for Picker {
                         })),
                 )
             });
-        gpui_kit::component::form::Form::vertical()
-            .child(Field::new().label(tr("connection_scope")).child(choices))
+        crate::ui::form::vertical().child(Field::new().label(tr("connection_scope")).child(choices))
     }
 }

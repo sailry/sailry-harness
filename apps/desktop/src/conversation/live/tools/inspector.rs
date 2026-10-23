@@ -1,5 +1,6 @@
 //! Raw inspection is explicit and rechecks the captured conversation identity.
 use super::*;
+use crate::theme::DialogStyle as _;
 
 impl View {
     pub(super) fn raw_action(&self, call: &Call, key: &str, cx: &mut Context<Self>) -> AnyElement {
@@ -51,6 +52,7 @@ impl View {
                 let key = key.clone();
                 window.open_dialog(cx, move |dialog, _, cx| {
                     dialog
+                        .when(!cx.theme().is_dark(), |dialog| dialog.floating_surface(cx))
                         .title(tr("tool_raw_result"))
                         .w(rems(40.).to_pixels(cx.theme().font_size))
                         .child(surface::result(

@@ -95,3 +95,7 @@ market_details_unsupported: "No compatible"
 market_page_filter: "El filtro se aplica a los resultados cargados"
 
 market_details_visit_link: "Visitar enlace"
+
+market_plugin_details: "Detalles del plugin"
+market_skill_details: "Detalles del skill"
+market_theme_details: "Detalles del tema"

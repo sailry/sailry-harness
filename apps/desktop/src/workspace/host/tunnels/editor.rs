@@ -111,7 +111,7 @@ impl Render for Editor {
                     .child(tr("tunnel_policy_hint")),
             )
             .child(
-                gpui_kit::component::form::Form::vertical().child(
+                crate::ui::form::vertical().child(
                     field().label(tr("tunnel_ports_label")).child(
                         div()
                             .debug_selector(|| "tunnel-policy-input".into())

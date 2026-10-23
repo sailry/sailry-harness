@@ -113,7 +113,7 @@ impl Render for Workspace {
             .overflow_y_scrollbar()
             .debug_selector(|| "live-ports".into())
             .child(
-                gpui_kit::component::form::Form::vertical()
+                crate::ui::form::vertical()
                     .gap_4()
                     .child(
                         Field::new().label(tr("port_remote")).child(

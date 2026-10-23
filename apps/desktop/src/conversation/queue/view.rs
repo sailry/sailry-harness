@@ -18,7 +18,7 @@ impl Shell {
         let preview = first.label();
         let owner = cx.entity().downgrade();
         Some(
-            Popover::new("composer-queue-popover")
+            crate::theme::popover(Popover::new("composer-queue-popover"), cx)
                 .anchor(Anchor::BottomLeft)
                 .p_2()
                 .trigger(

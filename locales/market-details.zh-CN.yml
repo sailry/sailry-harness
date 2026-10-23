@@ -95,3 +95,7 @@ market_details_unsupported: "暂不支持"
 market_page_filter: "仅筛选已加载内容"
 
 market_details_visit_link: "访问链接"
+
+market_plugin_details: "插件详情"
+market_skill_details: "技能详情"
+market_theme_details: "主题详情"

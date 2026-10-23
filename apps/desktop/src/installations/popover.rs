@@ -50,7 +50,7 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
     let active = !active.is_empty();
     let pending = visible(cx);
     let change = owner.downgrade();
-    Popover::new("installations-popover")
+    crate::theme::popover(Popover::new("installations-popover"), cx)
         .anchor(Anchor::LeftCenter)
         .open(open)
         .on_open_change(move |open, window, cx| {

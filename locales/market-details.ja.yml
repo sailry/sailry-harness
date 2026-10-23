@@ -95,3 +95,7 @@ market_details_unsupported: "未対応"
 market_page_filter: "読み込み済みの結果のみ絞り込み"
 
 market_details_visit_link: "リンクを開く"
+
+market_plugin_details: "プラグイン詳細"
+market_skill_details: "スキル詳細"
+market_theme_details: "テーマ詳細"

@@ -1,3 +1,4 @@
+use crate::feedback::Recovery as _;
 mod editor;
 mod records;
 mod requests;
@@ -56,7 +57,7 @@ impl Panel {
             |panel: &Self, _| panel.error.into_iter().collect(),
             |_, key, cx| {
                 let owner = cx.weak_entity();
-                notification::Notification::error(crate::tr(key)).action(move |_, _, cx| {
+                notification::Notification::error(crate::tr(key)).scoped_action(move |_, _, cx| {
                     let owner = owner.clone();
                     let action = if matches!(key, "backup_unknown" | "backup_sessions_unknown") {
                         crate::feedback::retry("backup-retry")

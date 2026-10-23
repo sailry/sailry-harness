@@ -1,4 +1,5 @@
 //! Shared spacing for titled form dialogs; Kit retains overlay and focus behavior.
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     component::{ActiveTheme as _, dialog::Dialog},
     *,
@@ -14,6 +15,7 @@ impl DialogStyle for Dialog {
         // Kit's default dialog fill follows the possibly translucent window background.
         self.bg(cx.theme().popover)
             .text_color(cx.theme().popover_foreground)
+            .when(!cx.theme().is_dark(), |dialog| dialog.border_0())
     }
 
     fn form_title(self, title: impl IntoElement, cx: &App) -> Self {

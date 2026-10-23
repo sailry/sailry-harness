@@ -95,3 +95,7 @@ market_details_unsupported: "Nicht unterstützt"
 market_page_filter: "Nur geladene Ergebnisse werden gefiltert"
 
 market_details_visit_link: "Link öffnen"
+
+market_plugin_details: "Plugin-Details"
+market_skill_details: "Skill-Details"
+market_theme_details: "Theme-Details"

@@ -95,3 +95,7 @@ market_details_unsupported: "暫不支援"
 market_page_filter: "僅篩選已載入內容"
 
 market_details_visit_link: "造訪連結"
+
+market_plugin_details: "外掛詳情"
+market_skill_details: "技能詳情"
+market_theme_details: "主題詳情"

@@ -135,36 +135,29 @@ impl Render for Panel {
                         || package
                             .as_ref()
                             .is_some_and(|package| self.available(package)));
-                let body = v_flex().w_full().min_h_64().child(if failed {
-                    div()
-                        .h_64()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            crate::feedback::retry("plugin-view-retry")
-                                .debug_selector(|| "plugin-view-retry".into())
-                                .disabled(!retryable)
-                                .on_click(cx.listener(move |panel, _, window, cx| {
-                                    if let Some(package) = &package {
-                                        panel.enter(package.clone(), window, cx);
-                                    } else {
-                                        panel
-                                            .metadata
-                                            .update(cx, |metadata, cx| metadata.refresh(cx));
-                                    }
-                                })),
-                        )
-                        .into_any_element()
-                } else {
-                    div()
-                        .w_full()
-                        .h_64()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(spinner::Spinner::new())
-                        .into_any_element()
+                let body = v_flex().w_full().when(failed, |body| {
+                    body.child(
+                        div()
+                            .h_64()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                crate::feedback::retry("plugin-view-retry")
+                                    .debug_selector(|| "plugin-view-retry".into())
+                                    .disabled(!retryable)
+                                    .on_click(cx.listener(move |panel, _, window, cx| {
+                                        if let Some(package) = &package {
+                                            panel.enter(package.clone(), window, cx);
+                                        } else {
+                                            panel
+                                                .metadata
+                                                .update(cx, |metadata, cx| metadata.refresh(cx));
+                                        }
+                                    })),
+                            )
+                            .into_any_element(),
+                    )
                 });
                 v_flex()
                     .id("plugin-panel-loading")

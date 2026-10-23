@@ -330,9 +330,15 @@ impl Render for Details {
                 .on_click(cx.listener(|details, _, _, cx| details.load(cx)))
                 .into_any_element()
         } else {
-            div().into_any_element()
+            crate::settings::market::details::skeleton(cx).into_any_element()
         };
-        crate::settings::market::details::panel(header(self, cx), content, &self.scroll, cx)
+        crate::settings::market::details::panel(
+            "market_plugin_details",
+            header(self, cx),
+            content,
+            &self.scroll,
+            cx,
+        )
     }
 }
 

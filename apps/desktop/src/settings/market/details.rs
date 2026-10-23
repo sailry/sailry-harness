@@ -8,7 +8,28 @@ pub(in crate::settings) mod rows;
 pub(in crate::settings) mod skills;
 pub(in crate::settings::market) mod themes;
 
+pub(in crate::settings) fn skeleton(cx: &App) -> Div {
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .gap_5()
+        .child(Skeleton::new().w_2_3().h_6().rounded(cx.theme().radius))
+        .child(v_flex().gap_3().children((0..4).map(|index| {
+            Skeleton::new()
+                .secondary()
+                .when(index == 3, |line| line.w_3_4())
+                .rounded(cx.theme().radius)
+        })))
+        .child(
+            Skeleton::new()
+                .secondary()
+                .h_24()
+                .rounded(cx.theme().radius_lg),
+        )
+}
+
 pub(in crate::settings) fn panel(
+    title: &'static str,
     summary: AnyElement,
     content: AnyElement,
     scroll: &ScrollHandle,
@@ -23,7 +44,7 @@ pub(in crate::settings) fn panel(
         .font_normal()
         .child(
             crate::header::Header::new("extension-details-header", cx)
-                .justify_end()
+                .child(div().flex_1().min_w_0().text_sm().child(tr(title)))
                 .child(
                     Button::new("extension-details-close")
                         .ghost()
@@ -36,7 +57,6 @@ pub(in crate::settings) fn panel(
                         }),
                 ),
         )
-        .child(v_flex().flex_shrink_0().min_w_0().pt_5().child(summary))
         .child(
             div()
                 .id("extension-details-body")
@@ -46,7 +66,16 @@ pub(in crate::settings) fn panel(
                 .min_w_0()
                 .overflow_y_scroll()
                 .track_scroll(scroll)
-                .child(div().w_full().min_w_0().px_7().pt_5().pb_7().child(content))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .pt_5()
+                        .pb_7()
+                        .gap_5()
+                        .child(summary)
+                        .child(div().w_full().min_w_0().px_7().child(content)),
+                )
                 .vertical_scrollbar(scroll),
         )
         .into_any_element()

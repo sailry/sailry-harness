@@ -1,4 +1,5 @@
 //! One Node-scoped owner for local model metadata, selection and installation.
+use crate::feedback::Recovery as _;
 mod requests;
 #[cfg(test)]
 mod tests;
@@ -94,7 +95,7 @@ impl Panel {
                             .title(crate::tr(key))
                     },
                 );
-                notice.action(move |_, _, cx| {
+                notice.scoped_action(move |_, _, cx| {
                     let owner = owner.clone();
                     crate::feedback::retry("local-model-retry").on_click(cx.listener(
                         move |toast, _, window, cx| {

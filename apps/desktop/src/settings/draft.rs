@@ -103,13 +103,11 @@ impl Render for Editor {
             .overflow_y_scrollbar()
             .gap_4()
             .child(
-                gpui_kit::component::form::Form::vertical().children(self.fields.iter().map(
-                    |(key, state)| {
-                        Field::new()
-                            .label(tr(key))
-                            .child(Input::new(state).aria_label(tr(key)))
-                    },
-                )),
+                crate::ui::form::vertical().children(self.fields.iter().map(|(key, state)| {
+                    Field::new()
+                        .label(tr(key))
+                        .child(Input::new(state).aria_label(tr(key)))
+                })),
             )
     }
 }

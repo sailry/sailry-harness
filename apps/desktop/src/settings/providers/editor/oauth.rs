@@ -118,9 +118,9 @@ impl Editor {
             ],
             _ => &[],
         };
-        let form = fields
-            .iter()
-            .fold(Form::vertical(), |form, &(key, selector, input)| {
+        let form = fields.iter().fold(
+            crate::ui::form::vertical(),
+            |form, &(key, selector, input)| {
                 form.child(
                     Field::new().label(tr(key)).child(
                         div()
@@ -129,7 +129,8 @@ impl Editor {
                             .child(Input::new(input).disabled(self.pending).aria_label(tr(key))),
                     ),
                 )
-            });
+            },
+        );
         Collapsible::new()
             .w_full()
             .flex_shrink_0()

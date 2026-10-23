@@ -30,7 +30,7 @@ impl Setting {
                 move || format!("plugin-model-choice-{name}")
             })
             .child(
-                Popover::new("model-picker")
+                crate::theme::popover(Popover::new("model-picker"), cx)
                     .p_2()
                     .anchor(Anchor::TopLeft)
                     .trigger(
@@ -66,7 +66,7 @@ impl Setting {
         {
             model = model.description(description);
         }
-        gpui_kit::component::form::Form::vertical()
+        crate::ui::form::vertical()
             .gap_4()
             .child(model)
             .into_any_element()

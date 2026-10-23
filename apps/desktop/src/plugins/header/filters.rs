@@ -146,7 +146,7 @@ impl Header {
                     let owner = cx.entity();
                     let label = self.content.filters_label.clone();
                     row.child(
-                        Popover::new("plugin-header-overflow")
+                        crate::theme::popover(Popover::new("plugin-header-overflow"), cx)
                             .w(rems(17.))
                             .trigger(
                                 Button::new("plugin-header-filters-trigger")

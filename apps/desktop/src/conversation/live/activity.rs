@@ -58,7 +58,7 @@ impl View {
             .when_some(progress, |bar, progress| {
                 let (completed, total) = tools::progress::counts(&progress);
                 bar.child(
-                    Popover::new("live-todo-popover")
+                    crate::theme::popover(Popover::new("live-todo-popover"), cx)
                         .anchor(Anchor::BottomLeft)
                         .bottom_2()
                         .trigger(

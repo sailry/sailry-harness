@@ -228,7 +228,7 @@ impl View {
                 .into()
         };
         Some(
-            Popover::new("live-approval-popover")
+            crate::theme::popover(Popover::new("live-approval-popover"), cx)
                 .anchor(Anchor::BottomRight)
                 .bottom_2()
                 .overlay_closable(false)

@@ -50,7 +50,7 @@ impl Shell {
             items.push((received, self.notice(index, notice, age, cx)));
         }
         items.sort_by_key(|(received, _)| std::cmp::Reverse(*received));
-        Popover::new("notifications")
+        crate::theme::popover(Popover::new("notifications"), cx)
             .anchor(Anchor::LeftCenter)
             .open(self.activity.open)
             .on_open_change(cx.listener(|shell, open, _, cx| {

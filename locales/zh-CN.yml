@@ -864,7 +864,7 @@ provider_enabled: 启用渠道
 provider_empty: 此分类还没有渠道，点击添加创建示例配置
 provider_connect: 连接账号
 provider_continue_chatgpt: 使用 ChatGPT 继续
-provider_reconnect: 重新登录
+provider_reconnect: "登录"
 provider_login_starting: 正在连接
 provider_login_waiting: 等待授权登录
 provider_login_connected: 已连接

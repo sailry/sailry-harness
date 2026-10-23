@@ -1,5 +1,6 @@
 //! Queue editing drafts and command attempts; scheduling stays on the Node.
 use super::*;
+use crate::feedback::Recovery as _;
 use sailry_protocol::{
     ErrorCode,
     conversation::{Pending, Queue},
@@ -112,10 +113,10 @@ impl Panel {
             |panel, key, cx| {
                 let notice = gpui_kit::component::notification::Notification::error(tr(key));
                 if panel.retry.is_none() {
-                    return notice;
+                    return notice.into();
                 }
                 let owner = cx.weak_entity();
-                notice.action(move |_, _, cx| {
+                notice.scoped_action(move |_, _, cx| {
                     let owner = owner.clone();
                     crate::feedback::retry("queue-retry")
                         .debug_selector(|| "queue-retry".into())

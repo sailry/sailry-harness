@@ -3,6 +3,7 @@ pub(crate) mod authorization;
 pub(crate) mod card_list;
 pub(crate) mod details;
 pub(crate) mod file_icon;
+pub(crate) mod form;
 pub(crate) mod identicon;
 pub(crate) mod keys;
 pub(crate) mod loading;

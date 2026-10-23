@@ -1,3 +1,4 @@
+use crate::feedback::Recovery as _;
 use crate::{
     settings::{
         group::{Group, Row},
@@ -31,7 +32,7 @@ impl Host {
             |view: &Self, _| view.error.into_iter().collect(),
             |_, key, cx| {
                 let owner = cx.weak_entity();
-                notification::Notification::error(tr(key)).action(move |_, _, cx| {
+                notification::Notification::error(tr(key)).scoped_action(move |_, _, cx| {
                     let owner = owner.clone();
                     Button::new("sandbox-reload")
                         .label(tr("sandbox_settings_reload"))

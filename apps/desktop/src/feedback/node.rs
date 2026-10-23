@@ -63,14 +63,11 @@ pub(crate) fn observe<T: 'static>(
     let window = window.window_handle();
     let owner = (window.window_id(), cx.entity_id());
     cx.observe_self(move |view, cx| {
-        let (removed, added) = replace(owner, errors(view, cx), cx);
-        if removed.is_none() && added.is_none() {
+        let (_, added) = replace(owner, errors(view, cx), cx);
+        if added.is_none() {
             return;
         }
         _ = window.update(cx, |_, window, cx| {
-            if let Some(key) = removed {
-                window.remove_notification1::<Owners>(key, cx);
-            }
             if let Some((node, error)) = added {
                 let title = tr(match error.code {
                     ErrorCode::Busy => "live_read_busy",
@@ -90,12 +87,8 @@ pub(crate) fn observe<T: 'static>(
     })
     .detach();
     cx.on_release(move |_, cx| {
-        let (removed, _) = replace(owner, None, cx);
-        if let Some(key) = removed {
-            _ = window.update(cx, |_, window, cx| {
-                window.remove_notification1::<Owners>(key, cx)
-            });
-        }
+        // Release deduplication ownership without retracting a recent outcome.
+        replace(owner, None, cx);
     })
     .detach();
     let entity = cx.weak_entity();

@@ -95,3 +95,7 @@ market_details_unsupported: "Не поддерживается"
 market_page_filter: "Фильтр применяется к загруженным результатам"
 
 market_details_visit_link: "Открыть ссылку"
+
+market_plugin_details: "Сведения о плагине"
+market_skill_details: "Сведения о навыке"
+market_theme_details: "Сведения о теме"

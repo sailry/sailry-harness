@@ -143,13 +143,11 @@ impl Render for Editor {
             .children(self.help())
             .children(self.tab_bar(cx))
             .child(
-                gpui_kit::component::form::Form::vertical()
-                    .gap_4()
-                    .children(
-                        self.visible_fields(cx)
-                            .iter()
-                            .map(|field| Setting::field(field, cx)),
-                    ),
+                crate::ui::form::vertical().gap_4().children(
+                    self.visible_fields(cx)
+                        .iter()
+                        .map(|field| Setting::field(field, cx)),
+                ),
             )
             .when(self.embedded, |view| {
                 view.child(

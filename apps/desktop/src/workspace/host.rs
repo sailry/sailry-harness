@@ -1,3 +1,4 @@
+use crate::feedback::Recovery as _;
 use crate::{shell::Shell, tr};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
@@ -58,11 +59,11 @@ impl Shell {
                     .and_then(|state| state.error)
                     != Some(key)
                 {
-                    return notice;
+                    return notice.into();
                 }
                 let host = shell.host;
                 let owner = cx.weak_entity();
-                notice.action(move |_, _, cx| {
+                notice.scoped_action(move |_, _, cx| {
                     let owner = owner.clone();
                     crate::feedback::retry("tunnels-retry")
                         .debug_selector(|| "tunnels-retry".into())

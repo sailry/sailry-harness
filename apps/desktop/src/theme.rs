@@ -17,6 +17,7 @@ mod controls;
 mod decoration;
 mod dialog;
 pub(crate) mod effects;
+mod floating;
 pub(crate) mod market;
 pub(crate) mod messages;
 mod neutral;
@@ -24,6 +25,7 @@ mod preview;
 mod raster;
 pub(crate) mod wordmark;
 pub(crate) use dialog::DialogStyle;
+pub(crate) use floating::{popover, popup_style};
 #[cfg(test)]
 pub(crate) mod fixture;
 pub(crate) mod package;
@@ -135,6 +137,7 @@ pub fn send_button(button: Button, disabled: bool, active: bool, cx: &App) -> Bu
 
 pub fn init(cx: &mut App) {
     crate::content::init(cx);
+    floating::init(cx);
     let selection = crate::preferences::data(cx).appearance;
     cx.set_global(SystemAppearance(selection.mode == Mode::System));
     let mode = {

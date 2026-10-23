@@ -18,7 +18,7 @@ impl View {
         let id = editing.id;
         let owner = cx.weak_entity();
         Some(
-            Popover::new(format!("live-question-popover-{id}"))
+            crate::theme::popover(Popover::new(format!("live-question-popover-{id}")), cx)
                 .anchor(Anchor::BottomRight)
                 .bottom_2()
                 .open(self.questions.open)
@@ -70,6 +70,7 @@ impl View {
         let plan = matches!(editing.spec.input, Input::Plan);
         let mut content = v_flex()
             .w_full()
+            .min_w_0()
             .h_auto()
             .min_h_0()
             .flex_shrink_1()
@@ -81,6 +82,8 @@ impl View {
             .child(
                 div()
                     .debug_selector(|| "live-question-prompt".into())
+                    .w_full()
+                    .min_w_0()
                     .text_sm()
                     .font_medium()
                     .whitespace_normal()
@@ -103,7 +106,7 @@ impl View {
                 .chain(allow_other.then(|| tr("question_other")))
                 .collect();
             if *multiple {
-                content = content.child(v_flex().w_full().gap_3().children(
+                content = content.child(v_flex().w_full().min_w_0().gap_3().children(
                     labels.into_iter().enumerate().map(|(index, label)| {
                         let selected = if index == options.len() {
                             editing.other
@@ -115,6 +118,8 @@ impl View {
                             .debug_selector(move || format!("live-question-choice-{index}"))
                             .small()
                             .w_full()
+                            .min_w_0()
+                            .whitespace_normal()
                             .label(label)
                             .checked(selected)
                             .disabled(!editable)
@@ -132,6 +137,7 @@ impl View {
                 content = content.child(
                     RadioGroup::vertical(format!("question-{id}-choices"))
                         .w_full()
+                        .min_w_0()
                         .gap_3()
                         .selected_index(selected)
                         .disabled(!editable)
@@ -139,7 +145,20 @@ impl View {
                             Radio::new(index)
                                 .small()
                                 .w_full()
-                                .label(label)
+                                .min_w_0()
+                                .pr(RADIO_INSET)
+                                .whitespace_normal()
+                                .accessibility_label(label.clone())
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .whitespace_normal()
+                                        .when(!editable, |label| {
+                                            label.text_color(cx.theme().muted_foreground)
+                                        })
+                                        .child(label),
+                                )
                                 .debug_selector(move || format!("live-question-choice-{index}"))
                         }))
                         .on_click(cx.listener(move |view, index, window, cx| {
@@ -279,6 +298,7 @@ impl View {
             .key_context(self.questions.keys.read(cx).context().as_str())
             .w_80()
             .max_w_full()
+            .min_w_0()
             .h_auto()
             .min_h_0()
             .max_h(height)

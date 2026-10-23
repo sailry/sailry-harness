@@ -263,6 +263,8 @@ impl View {
                                     })
                                     .small()
                                     .w_full()
+                                    .min_w_0()
+                                    .whitespace_normal()
                                     .label(label)
                                     .checked(draft.input.selected.contains(&choice))
                                     .disabled(!enabled)
@@ -288,6 +290,7 @@ impl View {
                             row = row.child(
                                 RadioGroup::vertical(format!("question-{id}-field-{index}"))
                                     .w_full()
+                                    .min_w_0()
                                     .gap_3()
                                     .selected_index(draft.input.selected.first().copied())
                                     .disabled(!enabled)
@@ -296,7 +299,22 @@ impl View {
                                             Radio::new(choice)
                                                 .small()
                                                 .w_full()
-                                                .label(label)
+                                                .min_w_0()
+                                                .pr(RADIO_INSET)
+                                                .whitespace_normal()
+                                                .accessibility_label(label.clone())
+                                                .child(
+                                                    div()
+                                                        .w_full()
+                                                        .min_w_0()
+                                                        .whitespace_normal()
+                                                        .when(!enabled, |label| {
+                                                            label.text_color(
+                                                                cx.theme().muted_foreground,
+                                                            )
+                                                        })
+                                                        .child(label),
+                                                )
                                                 .debug_selector(move || {
                                                     format!("live-form-choice-{index}-{choice}")
                                                 })

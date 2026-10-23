@@ -18,7 +18,7 @@ use gpui_kit::{
 use gpui_shell::{HostError, HostModule, HostValue};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -63,7 +63,7 @@ struct Event {
     host: Arc<Host>,
     generation: sailry_protocol::RequestId,
     sender: tokio::sync::mpsc::Sender<Click>,
-    ids: Arc<Mutex<BTreeSet<String>>>,
+    ids: Arc<Mutex<BTreeMap<String, bool>>>,
     cleanup: Arc<AtomicBool>,
     change: Change,
 }
@@ -73,7 +73,7 @@ pub(super) fn module(module: HostModule, owner: WeakEntity<Panel>, host: Arc<Hos
     let generation = sailry_protocol::RequestId::new();
     let (sender, receiver) = tokio::sync::mpsc::channel(16);
     let receiver = Arc::new(tokio::sync::Mutex::new(receiver));
-    let ids = Arc::new(Mutex::new(BTreeSet::new()));
+    let ids = Arc::new(Mutex::new(BTreeMap::new()));
     let cleanup = Arc::new(AtomicBool::new(false));
     let declarations = format!(
         "{}\n{}",
@@ -115,8 +115,8 @@ pub(super) fn module(module: HostModule, owner: WeakEntity<Panel>, host: Arc<Hos
             return Err(HostError::new("invalid notification"));
         }
         let mut ids = show_ids.lock().map_err(|_| HostError::new("notifications are unavailable"))?;
-        if !ids.contains(&toast.id) && ids.len() >= 16 { return Err(HostError::new("notification capacity exhausted")); }
-        ids.insert(toast.id.clone());
+        if !ids.contains_key(&toast.id) && ids.len() >= 16 { return Err(HostError::new("notification capacity exhausted")); }
+        ids.insert(toast.id.clone(), toast.action.is_some());
         show(Change::Show(toast))
     }).function("dismissToast", move |args| {
         let id = args.string(0)?.to_owned();
@@ -217,13 +217,16 @@ impl Panel {
                         .lock()
                         .map(|ids| {
                             ids.iter()
-                                .map(|id| {
+                                .filter(|(_, scoped)| **scoped)
+                                .map(|(id, _)| {
                                     SharedString::from(format!("plugin-toast-{generation}-{id}"))
                                 })
                                 .collect()
                         })
                         .unwrap_or_default();
                     let _ = cx.update(|window, cx| {
+                        // Scoped action callbacks end with their host. Ordinary
+                        // completed outcomes retain Kit's own reading interval.
                         for key in keys {
                             window.remove_notification1::<Panel>(key, cx);
                         }

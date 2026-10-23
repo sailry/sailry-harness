@@ -1,3 +1,4 @@
+use crate::feedback::Recovery as _;
 use crate::{
     settings::{
         draft,
@@ -61,7 +62,7 @@ impl Host {
                 } else {
                     "terminal_settings_reload"
                 });
-                gpui_kit::component::notification::Notification::error(tr(key)).action(
+                gpui_kit::component::notification::Notification::error(tr(key)).scoped_action(
                     move |_, _, cx| {
                         let owner = owner.clone();
                         Button::new("terminal-settings-reload")

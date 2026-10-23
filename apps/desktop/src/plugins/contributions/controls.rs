@@ -287,10 +287,13 @@ impl Registry {
                 else {
                     return div().into_any_element();
                 };
-                popover::Popover::new(SharedString::from(format!(
-                    "popover-{}-{}",
-                    key.package.name, key.id
-                )))
+                crate::theme::popover(
+                    popover::Popover::new(SharedString::from(format!(
+                        "popover-{}-{}",
+                        key.package.name, key.id
+                    ))),
+                    cx,
+                )
                 .open(selected)
                 .anchor(Anchor::BottomLeft)
                 .when(entry.declaration.slot == Slot::Status, |popover| {

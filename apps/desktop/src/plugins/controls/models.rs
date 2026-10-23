@@ -87,7 +87,7 @@ pub(super) fn extend(module: HostModule, events: tokio::sync::mpsc::Sender<Value
                 move || id.clone()
             })
             .child(
-                Popover::new(SharedString::from(id.clone()))
+                crate::theme::popover(Popover::new(SharedString::from(id.clone())), cx)
                     .p_2()
                     .anchor(Anchor::TopLeft)
                     .trigger(

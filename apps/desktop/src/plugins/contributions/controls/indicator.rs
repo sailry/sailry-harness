@@ -50,10 +50,13 @@ impl Registry {
             .tooltip(hint)
             .debug_selector(move || id.clone())
             .child(content);
-        popover::Popover::new(SharedString::from(format!(
-            "popover-{}-{}",
-            key.package.name, key.id
-        )))
+        crate::theme::popover(
+            popover::Popover::new(SharedString::from(format!(
+                "popover-{}-{}",
+                key.package.name, key.id
+            ))),
+            cx,
+        )
         .open(indicator.as_ref().is_some_and(|value| value.open))
         .anchor(Anchor::BottomRight)
         .trigger(button)

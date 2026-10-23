@@ -1,4 +1,5 @@
 use super::*;
+use crate::feedback::Recovery as _;
 use crate::settings::providers::Binding;
 use gpui_kit::assets::IconName;
 use sailry_link::CancellationToken;
@@ -183,7 +184,7 @@ fn mount(
             |view, _| view.error.into_iter().collect(),
             |_, key, cx| {
                 let owner = cx.weak_entity();
-                gpui_kit::component::notification::Notification::error(tr(key)).action(
+                gpui_kit::component::notification::Notification::error(tr(key)).scoped_action(
                     move |_, _, cx| {
                         let owner = owner.clone();
                         crate::feedback::retry("plugin-details-retry")

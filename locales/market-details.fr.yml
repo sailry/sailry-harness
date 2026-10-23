@@ -95,3 +95,7 @@ market_details_unsupported: "Non pris en charge"
 market_page_filter: "Le filtre concerne les résultats chargés"
 
 market_details_visit_link: "Ouvrir le lien"
+
+market_plugin_details: "Détails du plugin"
+market_skill_details: "Détails du skill"
+market_theme_details: "Détails du thème"

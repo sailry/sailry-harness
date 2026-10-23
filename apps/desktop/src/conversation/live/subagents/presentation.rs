@@ -189,6 +189,7 @@ impl View {
                     session,
                     id,
                     button,
+                    cx,
                 ))
                 .into_any_element(),
         )
