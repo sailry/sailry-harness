@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use iroh::{
     EndpointAddr,
@@ -12,6 +12,9 @@ use super::{
     frame::{self, Call, Reply, invalid, network},
 };
 use crate::{Admission, Pending, Subscription, Transport};
+
+mod diagnostics;
+use diagnostics::CommandLog;
 
 pub(super) struct Remote {
     pub(super) core: Arc<Core>,
@@ -67,6 +70,7 @@ impl Transport for Remote {
                 log.failed("target", "target_mismatch", &error);
                 return Err(error);
             }
+            log.begin();
             let id = request.id;
             let connection = match self.core.connection(&self.address, true).await {
                 Ok(connection) => connection,
@@ -103,6 +107,7 @@ impl Transport for Remote {
                     return Err(error);
                 }
             };
+            log.sending();
             match self
                 .core
                 .call(&mut send, Call::Command(Box::new(request)))
@@ -142,7 +147,10 @@ impl Transport for Remote {
             // establish non-admission. The caller must retain the same request ID.
             let receipt = match self.core.wait(frame::read::<Reply>(&mut recv)).await {
                 Ok(Ok(Reply::Receipt(receipt))) if receipt.id == id => receipt,
-                Ok(Ok(Reply::Rejected(error))) => return Err(error),
+                Ok(Ok(Reply::Rejected(error))) => {
+                    log.rejected(&error);
+                    return Err(error);
+                }
                 Ok(Ok(Reply::Receipt(_))) => {
                     let error = uncertain();
                     log.interrupted("receipt", "receipt_mismatch", &error, None);
@@ -178,6 +186,7 @@ impl Transport for Remote {
                     return Err(error);
                 }
             };
+            log.admitted(receipt.durable);
             let (completion, result) = oneshot::channel();
             let core = self.core.clone();
             let observer_log = log.clone();
@@ -198,8 +207,24 @@ impl Transport for Remote {
                             Err(error)
                         },
                         reply = frame::read_reply(&mut recv) => match reply {
-                            Ok(Reply::Completed(result)) => *result,
-                            Ok(Reply::Rejected(_)) => Err(completion_unknown()),
+                            Ok(Reply::Completed(result)) => {
+                                observer_log.completed(
+                                    result.as_ref(),
+                                    receipt.durable,
+                                    super::connection::snapshot(&connection),
+                                );
+                                *result
+                            },
+                            Ok(Reply::Rejected(_)) => {
+                                let error = completion_unknown();
+                                observer_log.interrupted(
+                                    "completion",
+                                    "completion_rejected",
+                                    &error,
+                                    Some(receipt.durable),
+                                );
+                                Err(error)
+                            },
                             Ok(_) => {
                                 let error = completion_unknown();
                                 observer_log.interrupted(
@@ -306,100 +331,6 @@ fn completion_unknown() -> Fault {
         ErrorCode::OutcomeUnknown,
         "completion unavailable; retry with the same request identifier",
     )
-}
-
-#[derive(Clone)]
-struct CommandLog {
-    node: String,
-    request: String,
-    started: Instant,
-    dispatch: tracing::Dispatch,
-}
-
-impl CommandLog {
-    fn new(node: NodeId, request: sailry_protocol::RequestId) -> Self {
-        Self {
-            node: serde_json::to_string(&node).unwrap_or_default(),
-            request: request.to_string(),
-            started: Instant::now(),
-            dispatch: tracing::dispatcher::get_default(Clone::clone),
-        }
-    }
-
-    fn failed(&self, stage: &'static str, reason: &'static str, error: &Fault) {
-        self.emit("failed", stage, reason, error, None);
-    }
-
-    fn interrupted(
-        &self,
-        stage: &'static str,
-        reason: &'static str,
-        error: &Fault,
-        durable: Option<bool>,
-    ) {
-        self.emit("interrupted", stage, reason, error, durable);
-    }
-
-    fn emit(
-        &self,
-        phase: &'static str,
-        stage: &'static str,
-        reason: &'static str,
-        error: &Fault,
-        durable: Option<bool>,
-    ) {
-        let duration_us = u64::try_from(self.started.elapsed().as_micros()).unwrap_or(u64::MAX);
-        let code = code(&error.code);
-        tracing::dispatcher::with_default(&self.dispatch, || {
-            if phase == "failed" {
-                tracing::error!(
-                    target: "sailry",
-                    area = "link",
-                    operation = "remote_command",
-                    phase,
-                    node = self.node.as_str(),
-                    request = self.request.as_str(),
-                    stage,
-                    reason,
-                    duration_us,
-                    code,
-                    durable,
-                );
-            } else {
-                tracing::warn!(
-                    target: "sailry",
-                    area = "link",
-                    operation = "remote_command",
-                    phase,
-                    node = self.node.as_str(),
-                    request = self.request.as_str(),
-                    stage,
-                    reason,
-                    duration_us,
-                    code,
-                    durable,
-                );
-            }
-        });
-    }
-}
-
-fn code(value: &ErrorCode) -> &'static str {
-    match value {
-        ErrorCode::InvalidRequest => "invalid_request",
-        ErrorCode::WrongTarget => "wrong_target",
-        ErrorCode::NotFound => "not_found",
-        ErrorCode::NotConfigured => "not_configured",
-        ErrorCode::Conflict => "conflict",
-        ErrorCode::RevisionConflict => "revision_conflict",
-        ErrorCode::PermissionDenied => "permission_denied",
-        ErrorCode::Expired => "expired",
-        ErrorCode::Busy => "busy",
-        ErrorCode::Unavailable => "unavailable",
-        ErrorCode::Cancelled => "cancelled",
-        ErrorCode::OutcomeUnknown => "outcome_unknown",
-        ErrorCode::Internal => "internal",
-    }
 }
 
 struct Events {

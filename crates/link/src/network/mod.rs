@@ -78,7 +78,6 @@ struct Core {
     trust_update: Arc<Mutex<()>>,
     trust_changed: watch::Sender<()>,
     invitation: std::sync::Mutex<Option<pairing::Offer>>,
-    auxiliary: Arc<tokio::sync::Semaphore>,
     relay_selection: RwLock<Option<RelaySelection>>,
     relay_update: Mutex<()>,
 }
@@ -219,7 +218,6 @@ impl Link {
             trust_update: Arc::new(Mutex::new(())),
             trust_changed: watch::channel(()).0,
             invitation: std::sync::Mutex::new(None),
-            auxiliary: Arc::new(tokio::sync::Semaphore::new(32)),
             relay_selection: RwLock::new(relay_selection),
             relay_update: Mutex::new(()),
         });

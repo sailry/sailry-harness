@@ -115,7 +115,14 @@ async fn reports_failures_once_without_payloads() {
         panic!("rejected request must fail")
     };
     assert_eq!(error.code, ErrorCode::NotFound);
-    assert!(rejected.records().is_empty());
+    let records = rejected.records();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["fields"]["phase"], "begin");
+    assert_eq!(records[1]["fields"]["phase"], "rejected");
+    assert_eq!(records[1]["fields"]["communication_outcome"], "succeeded");
+    assert_eq!(records[1]["fields"]["execution_outcome"], "rejected");
+    assert_eq!(records[1]["fields"]["code"], "not_found");
+    assert!(records[1]["fields"]["end_to_end_us"].is_u64());
 
     let completed = Capture::default();
     let admission = fixture
@@ -140,7 +147,19 @@ async fn reports_failures_once_without_payloads() {
         admission.completion.await.unwrap().unwrap_err().code,
         ErrorCode::PermissionDenied
     );
-    assert!(completed.records().is_empty());
+    let records = completed.records();
+    assert_eq!(records.len(), 2);
+    let fields = &records[1]["fields"];
+    assert_eq!(fields["phase"], "completed");
+    assert_eq!(fields["communication_outcome"], "succeeded");
+    assert_eq!(fields["execution_outcome"], "failed");
+    assert_eq!(fields["code"], "permission_denied");
+    assert!(fields["end_to_end_us"].is_u64());
+    assert!(
+        !serde_json::to_string(&records)
+            .unwrap()
+            .contains("PRIVATE_")
+    );
 
     let interrupted = Capture::default();
     let admission = fixture
@@ -158,8 +177,9 @@ async fn reports_failures_once_without_payloads() {
         .unwrap_err();
     assert_eq!(error.code, ErrorCode::OutcomeUnknown);
     let records = interrupted.records();
-    assert_eq!(records.len(), 1);
-    let record = &records[0];
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["fields"]["phase"], "begin");
+    let record = &records[1];
     let fields = &record["fields"];
     assert_eq!(record["target"], "sailry");
     assert_eq!(record["level"], "WARN");
@@ -171,6 +191,9 @@ async fn reports_failures_once_without_payloads() {
     assert_eq!(fields["request"], request_id.to_string());
     assert_eq!(fields["code"], "outcome_unknown");
     assert_eq!(fields["durable"], true);
+    assert_eq!(fields["communication_outcome"], "interrupted");
+    assert_eq!(fields["execution_outcome"], "unknown");
+    assert_eq!(fields["recovery_decision"], "same_request");
     assert!(fields["duration_us"].is_u64());
     assert!(
         !serde_json::to_string(&records)
@@ -179,6 +202,61 @@ async fn reports_failures_once_without_payloads() {
     );
 
     fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn reports_successful_round_trips() {
+    let fixture = Fixture::new().await;
+    let captured = Capture::default();
+    let request = installation(fixture.target);
+    let request_id = request.id;
+    let admission = fixture
+        .remote()
+        .dispatch(request)
+        .with_subscriber(captured.dispatch())
+        .await
+        .unwrap();
+    let before = captured.records();
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0]["fields"]["phase"], "begin");
+    assert!(before[0]["fields"].get("end_to_end_us").is_none());
+    let output = Output::SshOutcome(ssh::Outcome::HostInstalled {
+        node: fixture.target,
+    });
+    fixture
+        .handler
+        .completions
+        .lock()
+        .unwrap()
+        .pop()
+        .unwrap()
+        .send(Ok(output.clone()))
+        .unwrap();
+    assert_eq!(admission.completion.await.unwrap().unwrap(), output);
+    let records = captured.records();
+    assert_eq!(records.len(), 2);
+    for record in &records {
+        assert_eq!(record["fields"]["node"], fixture.target.to_string());
+        assert_eq!(record["fields"]["node"].as_str().unwrap().len(), 64);
+        assert_eq!(record["fields"]["request"], request_id.to_string());
+    }
+    let fields = &records[1]["fields"];
+    assert_eq!(fields["phase"], "completed");
+    assert_eq!(fields["communication_outcome"], "succeeded");
+    assert_eq!(fields["execution_outcome"], "succeeded");
+    assert_eq!(fields["durable"], true);
+    assert!(fields["end_to_end_us"].is_u64());
+    assert!(
+        fields.get("duration_us").is_none(),
+        "Node duration is a separate observation"
+    );
+    assert!(fields.get("code").is_none());
+    assert!(
+        !serde_json::to_string(&records)
+            .unwrap()
+            .contains("PRIVATE_")
+    );
+    fixture.close().await;
 }
 
 #[tokio::test]
@@ -225,9 +303,11 @@ async fn completion_outlives_the_transport_deadline() {
 #[tokio::test]
 async fn shutdown_interrupts_completion_without_replay() {
     let fixture = Fixture::new().await;
+    let captured = Capture::default();
     let admission = fixture
         .remote()
         .dispatch(installation(fixture.target))
+        .with_subscriber(captured.dispatch())
         .await
         .unwrap();
     fixture.controller.close().await.unwrap();
@@ -241,7 +321,50 @@ async fn shutdown_interrupts_completion_without_replay() {
         .and_then(|result| result.map_err(|fault| fault.code));
     assert_eq!(result.unwrap_err(), ErrorCode::OutcomeUnknown);
     assert_eq!(fixture.handler.completions.lock().unwrap().len(), 1);
+    let records = captured.records();
+    assert_eq!(records.len(), 2);
+    let fields = &records[1]["fields"];
+    assert_eq!(fields["phase"], "interrupted");
+    assert_eq!(fields["execution_outcome"], "unknown");
+    assert_eq!(fields["recovery_decision"], "same_request");
+    assert_eq!(fields["code"], "outcome_unknown");
     fixture.execution.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn dropping_completion_does_not_cancel_execution() {
+    let fixture = Fixture::new().await;
+    let captured = Capture::default();
+    let admission = fixture
+        .remote()
+        .dispatch(installation(fixture.target))
+        .with_subscriber(captured.dispatch())
+        .await
+        .unwrap();
+    drop(admission);
+    fixture
+        .handler
+        .completions
+        .lock()
+        .unwrap()
+        .pop()
+        .unwrap()
+        .send(Ok(Output::SshOutcome(ssh::Outcome::HostInstalled {
+            node: fixture.target,
+        })))
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while captured.records().len() < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let records = captured.records();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[1]["fields"]["phase"], "completed");
+    assert_eq!(records[1]["fields"]["execution_outcome"], "succeeded");
+    fixture.close().await;
 }
 
 #[tokio::test]

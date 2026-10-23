@@ -11,8 +11,6 @@ use super::{
 
 pub(super) async fn serve(core: Arc<Core>, connection: Connection, peer: NodeId) {
     let mut streams = JoinSet::new();
-    // Reserve capacity for command and event streams while bulk transfers are active.
-    let auxiliary = Arc::new(tokio::sync::Semaphore::new(4));
     // Conversation tabs retain subscriptions. Leave room for bulk streams and commands.
     let subscriptions = Arc::new(tokio::sync::Semaphore::new(MAX_STREAMS - 8));
     let mut trust_changed = core.trust_changed.subscribe();
@@ -27,9 +25,8 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection, peer: NodeId)
             stream = connection.accept_bi(), if streams.len() < MAX_STREAMS => {
                 let Ok((send, recv)) = stream else { break; };
                 let core = core.clone();
-                let auxiliary = auxiliary.clone();
                 let subscriptions = subscriptions.clone();
-                streams.spawn(async move { let _ = request(core, peer, send, recv, auxiliary, subscriptions).await; });
+                streams.spawn(async move { let _ = request(core, peer, send, recv, subscriptions).await; });
             }
         }
     }
@@ -46,7 +43,6 @@ async fn request(
     peer: NodeId,
     mut send: SendStream,
     mut recv: RecvStream,
-    auxiliary: Arc<tokio::sync::Semaphore>,
     subscriptions: Arc<tokio::sync::Semaphore>,
 ) -> Result<(), Fault> {
     let call: frame::Envelope = core.wait(frame::read(&mut recv)).await??;
@@ -86,18 +82,6 @@ async fn request(
             .await??;
         }
         Call::OpenStream(resource) => {
-            let capacity = auxiliary
-                .try_acquire_owned()
-                .ok()
-                .zip(core.auxiliary.clone().try_acquire_owned().ok());
-            let Some(_permits) = capacity else {
-                core.wait(frame::write(
-                    &mut send,
-                    &Reply::Rejected(Fault::new(ErrorCode::Busy, "stream capacity exhausted")),
-                ))
-                .await??;
-                return send.finish().map_err(network);
-            };
             let mut service = match core.wait(core.handler.open(peer, resource)).await? {
                 Ok(stream) => stream,
                 Err(error) => {

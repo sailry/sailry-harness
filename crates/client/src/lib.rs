@@ -13,6 +13,7 @@ pub mod host;
 pub mod installation;
 pub mod login;
 pub mod oauth;
+mod observation;
 mod outcomes;
 pub mod permissions;
 pub mod ports;
@@ -160,16 +161,32 @@ impl Client {
     }
 
     pub async fn recover(&self, projection: &mut Projection, generation: u64) -> Result<(), Fault> {
-        match self.execute(self.prepare(Command::Snapshot)).await? {
-            Output::Snapshot(snapshot) => {
-                projection.apply(generation, Update::Snapshot(snapshot))?;
-                Ok(())
+        self.recover_observed(projection, generation, None).await
+    }
+
+    async fn recover_observed(
+        &self,
+        projection: &mut Projection,
+        generation: u64,
+        call: Option<&str>,
+    ) -> Result<(), Fault> {
+        let request = self.prepare(Command::Snapshot);
+        let mut log = observation::Recovery::new(self.target(), request.id, generation, call);
+        let result = async {
+            match self.execute(request).await? {
+                Output::Snapshot(snapshot) => {
+                    projection.apply(generation, Update::Snapshot(snapshot))?;
+                    Ok(())
+                }
+                _ => Err(Fault::new(
+                    ErrorCode::Internal,
+                    "snapshot response expected",
+                )),
             }
-            _ => Err(Fault::new(
-                ErrorCode::Internal,
-                "snapshot response expected",
-            )),
         }
+        .await;
+        log.finish(result.as_ref().err());
+        result
     }
 }
 

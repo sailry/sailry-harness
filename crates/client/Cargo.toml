@@ -10,6 +10,7 @@ license.workspace = true
 doctest = false
 
 [dependencies]
+tracing.workspace = true
 sailry-protocol.workspace = true
 sailry-link.workspace = true
 tokio.workspace = true
@@ -18,3 +19,6 @@ serde_json.workspace = true
 blake3.workspace = true
 url.workspace = true
 pulldown-cmark = { workspace = true, features = ["html"] }
+
+[dev-dependencies]
+tracing-subscriber.workspace = true

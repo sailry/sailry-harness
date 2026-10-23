@@ -359,34 +359,33 @@ async fn enforces_resource_authority() {
 }
 
 #[tokio::test]
-async fn dropping_streams_releases_capacity() {
+async fn dropping_streams_releases_resources() {
     let fixture = Fixture::new().await;
     let remote = fixture.remote();
-    let mut streams = Vec::new();
-    for _ in 0..4 {
-        streams.push(remote.open(fixture.handler.resource).await.unwrap());
-    }
-    assert!(matches!(
-        remote.open(fixture.handler.resource).await,
-        Err(Fault {
-            code: ErrorCode::Busy,
-            ..
-        })
-    ));
+    let streams =
+        futures::future::join_all((0..36).map(|_| remote.open(fixture.handler.resource))).await;
+    let mut streams: Vec<_> = streams.into_iter().map(Result::unwrap).collect();
+    assert_eq!(streams.len(), 36);
+    futures::future::join_all(
+        streams
+            .iter_mut()
+            .enumerate()
+            .map(|(index, stream)| async move {
+                let bytes = format!("independent-{index}");
+                stream.write_all(bytes.as_bytes()).await.unwrap();
+                let mut response = vec![0; bytes.len()];
+                stream.read_exact(&mut response).await.unwrap();
+                assert_eq!(response, bytes.as_bytes());
+            }),
+    )
+    .await;
     drop(streams);
-    let mut restored = tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            match remote.open(fixture.handler.resource).await {
-                Ok(stream) => break stream,
-                Err(Fault {
-                    code: ErrorCode::Busy,
-                    ..
-                }) => tokio::time::sleep(Duration::from_millis(5)).await,
-                Err(error) => panic!("unexpected failure: {error}"),
-            }
-        }
-    })
+    let mut restored = tokio::time::timeout(
+        Duration::from_secs(2),
+        remote.open(fixture.handler.resource),
+    )
     .await
+    .unwrap()
     .unwrap();
     restored.write_all(b"new stream").await.unwrap();
     let mut response = [0; 10];
