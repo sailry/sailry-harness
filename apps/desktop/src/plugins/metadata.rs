@@ -219,21 +219,32 @@ impl Metadata {
     }
 
     pub(super) fn retry(&mut self, name: Option<&str>, cx: &mut Context<Self>) {
+        let expected = self.prepare_retry(name);
+        if !expected.is_empty() {
+            self.load(expected, cx);
+        }
+    }
+
+    fn prepare_retry(&mut self, name: Option<&str>) -> Vec<Summary> {
         let retry: Vec<_> = self
             .errors
             .keys()
             .filter(|failed| name.is_none_or(|name| name == failed.as_str()))
             .cloned()
             .collect();
-        if retry.is_empty() {
-            return;
-        }
+        let expected = self
+            .expected
+            .iter()
+            .filter(|summary| retry.contains(&summary.name))
+            .cloned()
+            .collect();
         for name in retry {
             self.reads.remove(&name);
             self.errors.remove(&name);
             self.diagnostics.remove(&name);
         }
-        self.reload(cx);
+        // Matching inventory revisions do not make a failed dynamic projection fresh.
+        expected
     }
 
     fn apply(&mut self, batch: loading::Batch, stop: &CancellationToken) -> bool {

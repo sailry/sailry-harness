@@ -330,6 +330,7 @@ async fn cancels_pending_reads_and_backoff() {
 fn cache() -> Metadata {
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap(),
     );
@@ -468,6 +469,179 @@ fn refreshes_pending_reads_and_retains_api_declarations() {
     assert!(stale.is_cancelled());
     assert!(!cache.errors.contains_key("github"));
     assert_eq!(cache.entries["figma"], api);
+}
+
+async fn read(cache: &mut Metadata, expected: Summary) -> CancellationToken {
+    let stop = cache.stop.child_token();
+    cache.reads.insert(
+        expected.name.clone(),
+        Read {
+            expected: expected.clone(),
+            stop: stop.clone(),
+            pending: true,
+            _task: None,
+        },
+    );
+    let (sender, mut receiver) = mpsc::channel(1);
+    let job = tokio::spawn(load(
+        cache.client.clone(),
+        vec![expected],
+        stop.clone(),
+        sender,
+    ));
+    assert!(cache.apply(next(&mut receiver).await, &stop));
+    finish(job).await;
+    stop
+}
+
+#[test]
+fn retries_failed_refreshes_with_unchanged_inventory() {
+    use sailry_protocol::plugin::mcp::Availability;
+    for loaded in [true, false] {
+        let mut previous = connected("github");
+        previous.mcp[0].availability = Availability::ConnectionRequired;
+        let mut current = previous.clone();
+        current.mcp[0].availability = Availability::Available;
+        let unrelated = connected("other");
+        let mut steps = Vec::new();
+        if loaded {
+            steps.push(success(&previous));
+        }
+        steps.extend([
+            failure(ErrorCode::Unavailable),
+            failure(ErrorCode::Unavailable),
+            failure(ErrorCode::Unavailable),
+            success(&current),
+        ]);
+        let reads = Reads::new(vec![("github", steps)]);
+        let mut cache = cache();
+        cache.client = Arc::new(Client::new(reads.clone()));
+        cache.expected = vec![previous.summary.clone(), unrelated.summary.clone()];
+        cache.entries.insert("other".into(), unrelated.clone());
+        let runtime = cache.runtime.clone();
+        runtime.block_on(async {
+            if loaded {
+                read(&mut cache, previous.summary.clone()).await;
+                assert_eq!(cache.entries["github"], previous);
+            }
+            assert_eq!(
+                cache.reset(&BTreeSet::from(["github".into()])),
+                [previous.summary.clone()]
+            );
+            let failed = read(&mut cache, previous.summary.clone()).await;
+            assert_eq!(cache.errors["github"], "plugins_read_failed");
+            assert_eq!(cache.diagnostics["github"].code, ErrorCode::Unavailable);
+            assert!(!cache.reads["github"].pending);
+            if loaded {
+                let retained = &cache.entries["github"];
+                assert_eq!(retained.summary, previous.summary);
+                assert_eq!(retained.extension, previous.extension);
+                assert_eq!(retained.mcp[0].availability, Availability::Unavailable);
+            } else {
+                assert!(!cache.entries.contains_key("github"));
+            }
+
+            let expected = cache.prepare_retry(None);
+            assert_eq!(expected, [previous.summary.clone()]);
+            assert!(failed.is_cancelled());
+            assert!(!cache.errors.contains_key("github"));
+            assert!(!cache.diagnostics.contains_key("github"));
+            assert_eq!(cache.entries["other"], unrelated);
+            for expected in expected {
+                read(&mut cache, expected).await;
+            }
+            assert_eq!(cache.entries["github"], current);
+            assert!(cache.errors.is_empty());
+            assert!(cache.diagnostics.is_empty());
+            assert!(cache.settled());
+            assert!(!cache.apply(
+                Batch {
+                    results: vec![("github".into(), Ok(previous.clone()))],
+                    diagnostics: Default::default(),
+                    retrying: false,
+                },
+                &failed
+            ));
+            assert_eq!(cache.entries["github"], current);
+        });
+        assert_eq!(
+            reads.requests.lock().unwrap().len(),
+            if loaded { 5 } else { 4 }
+        );
+        assert!(
+            reads
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|name| name == "github")
+        );
+    }
+}
+
+#[test]
+fn retries_selected_failures_without_disrupting_pending_reads() {
+    let mut cache = cache();
+    let first = connected("first");
+    let second = connected("second");
+    let pending = connected("pending");
+    let ready = connected("ready");
+    cache.expected = [&first, &second, &pending, &ready]
+        .map(|info| info.summary.clone())
+        .into();
+    cache.entries = [&first, &second, &ready]
+        .into_iter()
+        .map(|info| (info.summary.name.clone(), info.clone()))
+        .collect();
+    let mut stops = BTreeMap::new();
+    for info in [&first, &second, &pending] {
+        let stop = cache.stop.child_token();
+        stops.insert(info.summary.name.clone(), stop.clone());
+        cache.reads.insert(
+            info.summary.name.clone(),
+            Read {
+                expected: info.summary.clone(),
+                stop,
+                pending: info.summary == pending.summary,
+                _task: None,
+            },
+        );
+    }
+    for info in [&first, &second] {
+        cache
+            .errors
+            .insert(info.summary.name.clone(), "plugins_read_failed");
+        cache.diagnostics.insert(
+            info.summary.name.clone(),
+            Fault::new(ErrorCode::Unavailable, "injected metadata failure"),
+        );
+    }
+    assert_eq!(cache.prepare_retry(Some("first")), [first.summary.clone()]);
+    assert!(stops["first"].is_cancelled());
+    assert!(!stops["second"].is_cancelled());
+    assert!(!stops["pending"].is_cancelled());
+    assert!(cache.errors.contains_key("second"));
+    assert!(cache.diagnostics.contains_key("second"));
+    assert!(cache.reads["pending"].pending);
+    assert_eq!(cache.entries["ready"], ready);
+    let retry = cache.stop.child_token();
+    cache.reads.insert(
+        "first".into(),
+        Read {
+            expected: first.summary.clone(),
+            stop: retry.clone(),
+            pending: true,
+            _task: None,
+        },
+    );
+    assert!(cache.prepare_retry(Some("first")).is_empty());
+    assert!(!retry.is_cancelled());
+    assert!(cache.reads["first"].pending);
+    assert_eq!(cache.prepare_retry(None), [second.summary.clone()]);
+    assert!(stops["second"].is_cancelled());
+    assert!(!stops["pending"].is_cancelled());
+    assert_eq!(cache.entries["first"], first);
+    assert_eq!(cache.entries["ready"], ready);
 }
 
 #[test]
