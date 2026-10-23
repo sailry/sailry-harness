@@ -293,8 +293,26 @@ async fn cools_keyless_mcp_and_preserves_auth_errors() {
         search(&owner, plan.clone()).await.unwrap().driver,
         Driver::Tavily
     );
-    server.respond("/mcp", vec![Reply::Status(401, None)]);
-    assert!(search(&owner, plan).await.is_err());
+    assert!(
+        owner
+            .cooldown(Driver::Exa, plan.settings.revision)
+            .is_none()
+    );
+    assert_eq!(server.count("/mcp"), 2);
+    for (index, status) in [401, 403].into_iter().enumerate() {
+        server.respond("/mcp", vec![Reply::Status(status, None)]);
+        assert_eq!(
+            search(&owner, plan.clone()).await.unwrap_err().code,
+            ErrorCode::PermissionDenied
+        );
+        assert_eq!(server.count("/mcp"), index + 3);
+        assert_eq!(server.count("/tavily"), 2);
+        assert!(
+            owner
+                .cooldown(Driver::Exa, plan.settings.revision)
+                .is_none()
+        );
+    }
     assert_eq!(server.count("/tavily"), 2);
 }
 

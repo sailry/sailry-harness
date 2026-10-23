@@ -235,6 +235,8 @@ fn http_status(status: &HttpStatusError) -> Failure {
             temporary: true,
             retry_at: Some(deadline),
         }
+    } else if matches!(status.status, 401 | 403) {
+        Failure::unauthorized()
     } else {
         Failure::unavailable("search service is unavailable")
     }
