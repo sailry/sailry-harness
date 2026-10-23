@@ -7,19 +7,15 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         return Ok(());
     };
     let declaration = crate::plugins::conversation::declaration(binding, &invocation.plugins)?;
-    let builtins: BTreeSet<_> = [
-        "ask_user",
-        "set_session_title",
-        "compact_context",
-        "read_session",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .chain(skills::NAMES.map(str::to_owned))
-    .chain(skills::management::NAMES.map(str::to_owned))
-    .chain(mcp::management::NAMES.map(str::to_owned))
-    .chain(management::NAMES.map(str::to_owned))
-    .collect();
+    let builtins: BTreeSet<_> = ["ask_user", "set_session_title", "compact_context"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(references::NAMES.map(str::to_owned))
+        .chain(skills::NAMES.map(str::to_owned))
+        .chain(skills::management::NAMES.map(str::to_owned))
+        .chain(mcp::management::NAMES.map(str::to_owned))
+        .chain(management::NAMES.map(str::to_owned))
+        .collect();
     let mut allowed = BTreeSet::new();
     for tool in &declaration.tools {
         let name = match tool {

@@ -29,6 +29,9 @@ pub(crate) fn tool_label(name: &str) -> SharedString {
         "set_session_title" => "tool_session_title",
         "load_skill" => "tool_load_skill",
         "read_skill_resource" => "tool_read_skill_resource",
+        "list_sessions" => "tool_list_sessions",
+        "read_session" => "tool_read_session",
+        "search_session" => "tool_search_session",
         "compact_context" => "chat_compact",
         "plan_review" => "composer_mode_plan",
         _ => return name.to_owned().into(),
@@ -41,6 +44,9 @@ pub(crate) fn tool_icon(name: &str) -> Option<Icon> {
     Some(Icon::new(match name {
         "compact_context" => IconName::FileText,
         "load_skill" | "read_skill_resource" => IconName::BookOpen,
+        "list_sessions" => IconName::Bot,
+        "read_session" => IconName::FileText,
+        "search_session" => IconName::Search,
         _ => return None,
     }))
 }
@@ -279,8 +285,14 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[test]
-    fn skills_have_core_labels_and_icons() {
-        for name in ["load_skill", "read_skill_resource"] {
+    fn core_tools_have_labels_and_icons() {
+        for name in [
+            "load_skill",
+            "read_skill_resource",
+            "list_sessions",
+            "read_session",
+            "search_session",
+        ] {
             let label = tool_label(name);
             assert_ne!(label.as_ref(), name);
             assert!(!label.is_empty() && !label.starts_with("tool_"));

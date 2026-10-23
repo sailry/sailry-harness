@@ -1,6 +1,8 @@
 use super::*;
 use sailry_protocol::conversation::reference::Target;
 
+pub(crate) mod history;
+
 pub(crate) const METADATA: &str = "sailry_references";
 
 pub(super) fn validate(
@@ -22,7 +24,10 @@ pub(super) fn validate(
         }
         targets.push(&reference.target);
         if session.config.resource.is_some()
-            && !matches!(reference.target, Target::Database { .. } | Target::Ssh(_))
+            && !matches!(
+                reference.target,
+                Target::Database { .. } | Target::Ssh(_) | Target::Session(_)
+            )
         {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
@@ -123,13 +128,7 @@ pub(super) fn validate(
                 role = true;
             }
             Target::Session(id) => {
-                let target = super::super::commands::session(db, *id)?;
-                if target.project != session.project || target.worktree != session.worktree {
-                    return Err(Fault::new(
-                        ErrorCode::WrongTarget,
-                        "referenced session belongs to another worktree",
-                    ));
-                }
+                history::visible(db, session.project, *id)?;
             }
             _ => {}
         }

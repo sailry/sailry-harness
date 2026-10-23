@@ -211,10 +211,7 @@ impl View {
                 .snapshot
                 .iter()
                 .flat_map(|snapshot| &snapshot.sessions)
-                .filter(|session| {
-                    session.project == self.binding.project
-                        && Some(session.worktree) == self.binding.worktree
-                })
+                .filter(|session| session.project == self.binding.project)
                 .map(|session| {
                     reference(
                         Target::Session(session.id),
@@ -267,11 +264,10 @@ impl View {
                 .iter()
                 .any(|current| current.reference() == *role),
             Target::Session(id) => self.node.snapshot.as_ref().is_some_and(|snapshot| {
-                snapshot.sessions.iter().any(|session| {
-                    session.id == *id
-                        && session.project == self.binding.project
-                        && Some(session.worktree) == self.binding.worktree
-                })
+                snapshot
+                    .sessions
+                    .iter()
+                    .any(|session| session.id == *id && session.project == self.binding.project)
             }),
             Target::Ssh(id) => self.reference_ssh().iter().any(|profile| profile.id == *id),
             Target::Database { connection, .. } => self

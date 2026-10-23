@@ -83,10 +83,10 @@ pub(super) async fn bind(
         })
         .transpose()?;
     if supports_tools {
+        bound
+            .tools
+            .extend(references::bind(ingress, invocation, stop));
         let diagnostics = if !restricted || assistant.is_some() {
-            bound
-                .tools
-                .extend(references::bind(ingress, invocation, stop));
             let (tools, diagnostics) = connections
                 .bind(&resources, ingress, invocation, stop, assistant)
                 .await;

@@ -131,6 +131,15 @@ role instructions or execution configuration.
 Activity summaries remain metadata-only. Logical history pages preserve full
 inputs using turn cursors rather than truncation or synthetic history events.
 
+Core Agent tools discover and read conversations on their execution Node without
+requiring an explicit mention. Directory, history, search and explicit conversation
+references share project visibility: project histories span worktrees, while
+unassigned conversations can read other unassigned histories on the same Node.
+Each call rechecks its admitted invocation and target; history access grants no
+file, command or worktree-switch authority. Model-facing reads use public history
+projections with bounded output, revision checks, continuations and explicit content
+truncation. Plugin assistants retain their declared tool selection.
+
 New managed project checkouts live under the main worktree's
 `.sailry/worktrees/<id>`; existing profile-owned checkouts retain their registered
 paths. Git excludes `.sailry/` through `info/exclude`, preserving user ignore files.

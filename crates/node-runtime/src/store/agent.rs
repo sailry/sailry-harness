@@ -82,6 +82,11 @@ pub(super) enum Operation {
         turn: TurnId,
         reply: oneshot::Sender<Result<Vec<Worktree>, Fault>>,
     },
+    ReadHistory {
+        source: references::history::Source,
+        query: references::history::Query,
+        reply: oneshot::Sender<Result<serde_json::Value, Fault>>,
+    },
     Connection {
         turn: TurnId,
         package: plugin::Reference,
@@ -566,6 +571,13 @@ pub(super) fn execute(
         }
         Operation::Worktrees { turn, reply } => {
             let _ = reply.send(worktrees::list(database, turn));
+        }
+        Operation::ReadHistory {
+            source,
+            query,
+            reply,
+        } => {
+            let _ = reply.send(references::history::execute(database, source, query));
         }
         Operation::Connection {
             turn,

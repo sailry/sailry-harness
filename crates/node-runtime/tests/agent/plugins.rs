@@ -176,14 +176,21 @@ async fn scopes_tool_switches_to_the_execution_node() {
             let instructions = requests.last().unwrap()["messages"][0].to_string();
             for rule in [
                 "Use update_plan for substantial multi-step tasks",
-                "Before writing code, tests or other output with style preferences",
+                "When an answer or action depends on earlier preferences or decisions",
             ] {
                 assert_eq!(instructions.contains(rule), enabled, "{rule}");
             }
             assert!(instructions.contains("Finish with an answer to the user's request"));
             assert!(instructions.contains("Model:"));
             assert!(instructions.contains("Git repository: no"));
-            for name in ["ask_user", "set_session_title", "compact_context"] {
+            for name in [
+                "ask_user",
+                "set_session_title",
+                "compact_context",
+                "list_sessions",
+                "read_session",
+                "search_session",
+            ] {
                 assert!(tools.contains(name), "core tool {name}");
             }
         }

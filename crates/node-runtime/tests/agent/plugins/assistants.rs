@@ -36,6 +36,9 @@ async fn install(fixture: &process::Fixture, revision: u64, replacement: bool) -
             json!({"kind":"package", "package":"files", "name":"read_file"}),
             json!({"kind":"builtin", "name":"load_skill"}),
             json!({"kind":"builtin", "name":"read_skill_resource"}),
+            json!({"kind":"builtin", "name":"list_sessions"}),
+            json!({"kind":"builtin", "name":"read_session"}),
+            json!({"kind":"builtin", "name":"search_session"}),
             json!({"kind":"plugin", "name":"read_note"}),
         ]
     };
@@ -269,6 +272,9 @@ fn model(request: &Value) {
         "ask_user",
         "set_session_title",
         "compact_context",
+        "list_sessions",
+        "read_session",
+        "search_session",
     ] {
         assert!(tools.contains(name), "missing tool {name}");
     }
@@ -604,6 +610,33 @@ async fn recovery() {
         usage(&client, &restored, fixture.session.project.unwrap(), 2).await;
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn history_requires_an_assistant_declaration() {
+    for remote in [false, true] {
+        let server = Server::start(false).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
+        let info = install(&fixture, 0, true).await;
+        let session = create(&fixture, &info).await;
+        let turn = submit(&fixture.client, &session, false).await;
+        assert_eq!(
+            finished(&fixture.client, session.id, turn.id).await.runs[0].status,
+            Status::Completed
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            let tools = requests[0]["tools"].as_array().unwrap();
+            for name in ["list_sessions", "read_session", "search_session"] {
+                assert!(
+                    !tools.iter().any(|tool| tool["function"]["name"] == name),
+                    "{name}"
+                );
+            }
+        }
+        fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
 }

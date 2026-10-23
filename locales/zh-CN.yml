@@ -1652,7 +1652,7 @@ reference_files_description: 当前 worktree 的示例文件
 reference_agents: 子代理
 reference_agents_description: 引用已配置的子代理
 reference_sessions: 会话
-reference_sessions_description: 当前 worktree 中的会话
+reference_sessions_description: "可用会话"
 reference_context: 工作区上下文
 reference_context_description: 主机、项目和 worktree
 reference_directory: 引用此目录
@@ -2549,6 +2549,9 @@ tool_ssh_run: 运行 SSH 命令
 tool_ssh_transfer: 传输 SSH 文件
 tool_load_skill: 加载技能
 tool_read_skill_resource: 读取技能资源
+tool_list_sessions: "列出会话"
+tool_read_session: "读取会话"
+tool_search_session: "搜索会话"
 tool_update_plan: 更新计划
 tool_database_catalog: 浏览数据库
 tool_database_query: 查询数据库

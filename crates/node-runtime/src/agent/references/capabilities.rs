@@ -1,5 +1,6 @@
 //! Explicit mentions select a capability for this task without widening tool permissions.
 use super::*;
+use sailry_protocol::conversation::reference::Target;
 use std::collections::BTreeSet;
 
 pub(in crate::agent) async fn instruction(

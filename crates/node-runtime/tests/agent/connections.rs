@@ -173,6 +173,12 @@ async fn scopes_database_approvals() {
         let (_, approval) = approvals::pending(&client, session.id).await;
         let requests = server.requests.lock().unwrap().clone();
         let tools = requests[0]["tools"].as_array().unwrap();
+        for name in ["list_sessions", "read_session", "search_session"] {
+            assert!(
+                tools.iter().any(|tool| tool["function"]["name"] == name),
+                "{name}"
+            );
+        }
         for denied in [
             "read_file",
             "write_file",

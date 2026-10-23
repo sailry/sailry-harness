@@ -184,7 +184,11 @@ async fn reconciles_changed_entries_without_restarting_turns() {
                     );
                     assert_eq!(outputs[2]["updated"][0]["revision"], 3);
                     let request = server.requests.lock().unwrap().last().unwrap().to_string();
-                    assert!(request.contains("without asking the user to choose versions"));
+                    assert!(request.contains("changed/latest/pending is not saved"));
+                    assert!(
+                        request
+                            .contains("reread and reconcile automatically, preserving new facts")
+                    );
                     assert!(request.contains("preserve the concurrent fact"));
                 }
                 fixture.node.shutdown().await.unwrap();
