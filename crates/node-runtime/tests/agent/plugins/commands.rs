@@ -115,6 +115,15 @@ async fn reuses_approved_arguments() {
         assert_eq!(output[0].stderr.text, "stderr");
         assert_eq!(output[1].outcome, Outcome::TimedOut);
         assert_eq!(output[1].stdout.text, "before");
+        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        let calls = &view.calls;
+        assert!(calls[0].failure.is_none());
+        assert_eq!(
+            calls[1].failure,
+            Some(sailry_protocol::tool::Failure { code: None })
+        );
+        assert!(calls[1].diagnostics(&page));
+        assert!(calls[1].details(&page));
         assert_eq!(results(&page)[1]["isError"], true);
         for value in results(&page).into_iter().take(2) {
             let content = sailry_protocol::tool::Presentation::Content

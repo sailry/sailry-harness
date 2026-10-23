@@ -349,14 +349,15 @@ impl Tool for Bound {
         };
         let mut span = diagnostics::begin(identity, "call", &self.stop);
         let result = self.call(context.clone(), arguments, &mut span).await;
-        if result.as_ref().is_ok_and(diagnostics::server_error)
+        if let Ok(value) = &result
+            && (diagnostics::server_error(value) || diagnostics::uncertain(value))
             && let Some(timeline) = self.ingress.agents.timeline(self.turn)
         {
             timeline.fail_tool(
                 context.branch(),
                 context.function_call_id(),
                 self.name(),
-                None,
+                diagnostics::uncertain(value).then_some(ErrorCode::OutcomeUnknown),
             );
         }
         diagnostics::finish(

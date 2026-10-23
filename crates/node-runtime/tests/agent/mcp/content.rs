@@ -82,7 +82,11 @@ async fn restores() {
         let call = &view.calls[0];
         assert_eq!(call.presentation, Presentation::Content);
         assert_eq!(call.content.as_ref(), Some(&expected));
+        assert!(call.failure.is_none());
+        assert!(!call.diagnostics(&page));
         assert_eq!(call.result(&page).unwrap()["output"]["sample"], true);
+        assert_eq!(call.result(&page).unwrap()["output"]["isError"], true);
+        assert_eq!(call.result(&page).unwrap()["output"]["error"], "domain row");
         assert_eq!(call.images(&page).len(), 1);
         let image = call.images(&page)[0].clone();
         let requests = model.requests.lock().unwrap().len();

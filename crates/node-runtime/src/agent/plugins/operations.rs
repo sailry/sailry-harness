@@ -321,7 +321,11 @@ impl HostOperation {
             .await
     }
 
-    pub(super) async fn dispatch(&self, request: Request) -> Result<Value, Fault> {
+    pub(super) async fn dispatch(
+        &self,
+        context: &dyn ToolContext,
+        request: Request,
+    ) -> Result<Value, Fault> {
         self.ingress
             .check_plugin(self.caller, request.clone())
             .await?;
@@ -372,6 +376,16 @@ impl HostOperation {
                     "plugin tool response is unavailable",
                 )
             })??;
+            if let Some(failure) = commands::failure(&output)
+                && let Some(timeline) = self.ingress.agents.timeline(self.turn)
+            {
+                timeline.fail_tool(
+                    context.branch(),
+                    context.function_call_id(),
+                    &self.name,
+                    failure.code,
+                );
+            }
             if self.operation == Operation::ReadCommand
                 && let sailry_protocol::Output::CommandOutput(snapshot) = &output
             {
@@ -610,11 +624,21 @@ impl HostOperation {
                         .await?;
                 }
             }
-            self.dispatch(request).await
+            self.dispatch(context.as_ref(), request).await
         };
         Ok(match work.await {
             Ok(output) => output,
-            Err(error) => files::failure(self.operation, error),
+            Err(error) => {
+                if let Some(timeline) = self.ingress.agents.timeline(self.turn) {
+                    timeline.fail_tool(
+                        context.branch(),
+                        context.function_call_id(),
+                        &self.name,
+                        Some(error.code),
+                    );
+                }
+                files::failure(self.operation, error)
+            }
         })
     }
 }

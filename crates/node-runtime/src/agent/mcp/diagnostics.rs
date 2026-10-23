@@ -83,7 +83,7 @@ pub(super) fn server_error(value: &Value) -> bool {
         .is_some_and(|value| value.len() == 1 && value.get("error").is_some_and(Value::is_string))
 }
 
-fn uncertain(value: &Value) -> bool {
+pub(super) fn uncertain(value: &Value) -> bool {
     // This wrapper is created by Bound after an unconfirmed tools/call result.
     value.as_object().is_some_and(|value| value.len() == 1)
         && value.pointer("/error/code").and_then(Value::as_str) == Some("outcome_unknown")

@@ -257,7 +257,7 @@ impl View {
             let selector = format!("live-tool-result-{key}");
             let images = call.images(page);
             if let Some(content) = &call.content
-                && output::failure(&call.name, Some(result)).is_none()
+                && output::failure(call.failure.as_ref(), Some(result)).is_none()
             {
                 return div()
                     .id(selector.clone())
@@ -284,7 +284,7 @@ impl View {
                         cx,
                     ))
                     .when_some(
-                        output::failure(&call.name, Some(result)),
+                        output::failure(call.failure.as_ref(), Some(result)),
                         |column, error| {
                             let selector = format!("live-tool-error-{key}");
                             column.child(
@@ -294,7 +294,7 @@ impl View {
                     )
                     .into_any_element();
             }
-            let body = if output::fault(Some(result)).is_some() {
+            let body = if output::fault(call.failure.as_ref(), Some(result)).is_some() {
                 self.generic(&key, call, path.clone(), result, cx)
             } else if let Some(body) = projection::render(self, &key, call, page, result, cx) {
                 body
@@ -422,15 +422,8 @@ impl View {
         result: &serde_json::Value,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let fault = output::failure(&call.name, Some(result))
-            .or_else(|| output::observed_failure(call.failure.as_ref(), result));
-        let body = match &fault {
-            Some(text) if call.failure.is_some() => output::Preview {
-                text: text.clone(),
-                notices: Vec::new(),
-            },
-            _ => output::tool_preview(&call.name, call.presentation, result),
-        };
+        let fault = output::failure(call.failure.as_ref(), Some(result));
+        let body = output::tool_preview(call.failure.as_ref(), result);
         let mut actions = Vec::new();
         let copy = body.copy_text();
         if !copy.is_empty() {
@@ -444,9 +437,7 @@ impl View {
                 .iter()
                 .map(|notice| surface::notice(tr(notice), cx)),
         );
-        let content = if body.text.is_empty() && body.notices.is_empty() {
-            v_flex().py_2().child(self.raw_action(call, key, cx))
-        } else if fault.is_some() && !body.text.is_empty() {
+        let content = if fault.is_some() && !body.text.is_empty() {
             let selector = format!("live-tool-error-{key}");
             v_flex().child(surface::notice(body.text, cx).debug_selector(move || selector.clone()))
         } else if body.text.is_empty() {
@@ -505,20 +496,10 @@ fn summary(call: &Call, page: &Page) -> Summary {
         .as_ref()
         .is_some_and(|approval| approval.state == ApprovalState::Denied);
     let failure_code = call.failure.as_ref().and_then(|failure| failure.code);
-    let failed = output::is_error(&call.name, call.result(page))
-        || call.failure.is_some()
-            && !matches!(
-                failure_code,
-                Some(
-                    sailry_protocol::ErrorCode::Cancelled
-                        | sailry_protocol::ErrorCode::OutcomeUnknown
-                )
-            );
+    let failed = output::is_error(call.failure.as_ref(), call.result(page));
     let state = if denied {
         Some(approvals::label(ApprovalState::Denied))
-    } else if let Some(code) = output::fault(call.result(page))
-        .map(|fault| fault.code)
-        .or(failure_code)
+    } else if let Some(code) = failure_code
         && matches!(
             code,
             sailry_protocol::ErrorCode::Cancelled | sailry_protocol::ErrorCode::OutcomeUnknown

@@ -228,6 +228,9 @@ impl Tool for Validated {
         context: Arc<dyn ToolContext>,
         arguments: Value,
     ) -> adk_core::Result<Value> {
+        if let Some(timeline) = &self.timeline {
+            timeline.forget_failure(context.branch(), context.function_call_id(), self.name());
+        }
         let result = async {
             if context.session_id() != self.session {
                 return Err(AdkError::tool("tool belongs to another session"));
@@ -236,6 +239,14 @@ impl Tool for Validated {
                 return Err(AdkError::tool("tool execution was cancelled"));
             }
             if let Some(error) = self.invalid(&arguments) {
+                if let Some(timeline) = &self.timeline {
+                    timeline.fail_tool(
+                        context.branch(),
+                        context.function_call_id(),
+                        self.name(),
+                        Some(error.code),
+                    );
+                }
                 return Ok(json!({"isError":true,"error":error}));
             }
             match &self.timeline {
@@ -258,8 +269,10 @@ impl Tool for Validated {
                 .and_then(|source| source.downcast_ref::<Fault>())
                 .map(|fault| fault.code)
                 .or_else(|| {
-                    (error.category == adk_core::ErrorCategory::Cancelled)
-                        .then_some(sailry_protocol::ErrorCode::Cancelled)
+                    (error.category == adk_core::ErrorCategory::Cancelled
+                        || context.is_cancelled()
+                        || self.stop.is_cancelled())
+                    .then_some(sailry_protocol::ErrorCode::Cancelled)
                 });
             timeline.fail_tool(
                 context.branch(),

@@ -322,7 +322,16 @@ async fn validates_role_requirements() {
             assert_eq!(page.runs[0].status, Status::Completed);
             let output = results(&page);
             assert!(output[0].get("error").is_some(), "{output:?}");
+            let view = super::super::progress::observe(&client, session.id).await;
+            assert_eq!(view.calls.len(), 1);
             if skills {
+                assert_eq!(
+                    view.calls[0]
+                        .failure
+                        .as_ref()
+                        .and_then(|failure| failure.code),
+                    Some(ErrorCode::InvalidRequest)
+                );
                 assert_eq!(output[0]["error"]["code"], "invalid_request");
                 assert_eq!(
                     output[0]["error"]["message"],
@@ -331,6 +340,7 @@ async fn validates_role_requirements() {
                 assert_eq!(child.requests.lock().unwrap().len(), 0);
                 assert!(children(&client, session.id, 0).await.is_empty());
             } else {
+                assert!(view.calls[0].failure.is_none());
                 assert_eq!(child.requests.lock().unwrap().len(), 1);
                 let children = children(&client, session.id, 1).await;
                 let page = history(&client, children[0].id).await;

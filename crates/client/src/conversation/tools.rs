@@ -314,6 +314,18 @@ fn content(call: &Call, page: &Page) -> Option<sailry_protocol::tool::Content> {
         return None;
     }
     let content = call.presentation.content(call.result(page)?)?;
+    if call.failure.is_some()
+        && !content.blocks.iter().all(|block| {
+            matches!(
+                block,
+                sailry_protocol::tool::Block::Text(_)
+                    | sailry_protocol::tool::Block::Notice { .. }
+                    | sailry_protocol::tool::Block::Card(_)
+            )
+        })
+    {
+        return None;
+    }
     let images = call.images(page);
     content
         .blocks

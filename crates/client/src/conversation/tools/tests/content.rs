@@ -124,6 +124,10 @@ mod cards {
             *result = original.clone();
             images.clear();
         }
+        page.entries[1]
+            .parts
+            .push(Part::Resource(json!({"type":"tool_failed",
+            "index":0,"id":"call","name":"read_file","failure":{"code":"not_configured"}})));
         let calls = collect(&page);
         assert_eq!(
             calls[0].content.as_ref().unwrap().blocks,
@@ -153,6 +157,32 @@ fn restores() {
         1
     );
     assert!(calls[0].result(&page).unwrap()["output"]["sailry_content"].is_object());
+}
+
+#[test]
+fn business_fields_keep_declared_content() {
+    let mut page = fixture();
+    if let Part::ToolResult { result, .. } = &mut page.entries[1].parts[0] {
+        result["isError"] = json!(false);
+        result["output"]["isError"] = json!(true);
+        result["output"]["error"] = json!("domain row");
+    }
+    let original = page.clone();
+    let calls = collect(&page);
+    assert!(calls[0].failure.is_none());
+    assert!(calls[0].content.is_some());
+    assert!(calls[0].details(&page));
+    assert!(!calls[0].diagnostics(&page));
+    assert_eq!(page, original);
+    page.entries[1]
+        .parts
+        .push(Part::Resource(json!({"type":"tool_failed",
+        "index":0,"id":"call","name":"read_file","failure":{}})));
+    let failed = collect(&page);
+    assert!(failed[0].failure.is_some());
+    assert!(failed[0].content.is_none());
+    assert!(failed[0].diagnostics(&page));
+    assert!(failed[0].details(&page));
 }
 
 #[test]
@@ -190,6 +220,10 @@ fn association() {
                 if let Part::ToolResult { result, .. } = &mut page.entries[1].parts[0] {
                     result["error"] = json!("failed");
                 }
+                page.entries[1]
+                    .parts
+                    .push(Part::Resource(json!({"type":"tool_failed",
+                    "index":0,"id":"call","name":"read_file","failure":{}})));
             }
             8 => {
                 if let Part::ToolResult { result, .. } = &mut page.entries[1].parts[0] {

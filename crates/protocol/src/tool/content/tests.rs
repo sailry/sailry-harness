@@ -225,13 +225,18 @@ fn validates() {
 }
 
 #[test]
-fn failures() {
+fn business_fields_keep_declared_content() {
     for result in [
         json!({"sailry_content":content(),"error":"failed"}),
         json!({"output":{"sailry_content":content(),"error":"failed"}}),
         json!({"output":{"sailry_content":content()},"isError":true}),
     ] {
-        assert!(Presentation::Content.content(&result).is_none());
+        let original = result.clone();
+        assert_eq!(
+            Presentation::Content.content(&result).unwrap().blocks.len(),
+            3
+        );
+        assert_eq!(result, original);
     }
 }
 
@@ -307,7 +312,7 @@ mod text {
                     .contains("完整内容")
             );
             value["error"] = json!("failed before producing a result");
-            assert!(Presentation::Content.content(&value).is_none());
+            assert!(Presentation::Content.content(&value).is_some());
         }
     }
 

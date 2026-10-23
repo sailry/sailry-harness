@@ -9,6 +9,121 @@ const DETAILS: &str = "Apply the current task rules";
 const CONTEXT: &str = "Use the selected project";
 const TASK: &str = "First user task 🙂";
 
+#[tokio::test]
+async fn idless_mcp_results_keep_execution_facts() {
+    use super::super::super::mcp::peer;
+    for remote in [false, true] {
+        let name = peer::alias("native", "read");
+        let model_name = name.clone();
+        let model = Server::start(
+            ModelApi::Gemini,
+            Reply::Dynamic(Arc::new(move |index| {
+                let parts = if index == 0 {
+                    json!([
+                        {"functionCall":{"name":model_name,"args":{"value":"failure"}}},
+                        {"functionCall":{"name":model_name,"args":{"value":"business_flags"}}},
+                    ])
+                } else {
+                    json!([{"text":"Observed tool results"}])
+                };
+                let event = json!({"candidates":[{"content":{"role":"model","parts":parts},"finishReason":"STOP","index":0}],
+                    "usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":4,"totalTokenCount":12},"modelVersion":"fixture-a"});
+                server::Script {
+                    bytes: format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {event}\n\n").into_bytes(),
+                    ending: server::Ending::Close,
+                }
+            })),
+        )
+        .await;
+        let fixture = Fixture::empty(remote, ModelApi::Gemini, &model.endpoint).await;
+        let package = fixture.root.join("package");
+        std::fs::create_dir(&package).unwrap();
+        std::fs::write(package.join("plugin.json"), json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"example","version":"0.1.0"}).to_string()).unwrap();
+        std::fs::write(package.join("mcp.json"), json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"native":peer::config("mcp::peer::stdio_peer","presentation")}}).to_string()).unwrap();
+        execute(
+            &fixture.client,
+            Command::InstallPlugin {
+                worktree: fixture.session.worktree,
+                path: "package".into(),
+                name: "example".into(),
+                expected_revision: 0,
+                expected_digest: None,
+            },
+        )
+        .await;
+        let turn = fixture.submit("Inspect the tool results").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        let view =
+            super::super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        let results: Vec<_> = view
+            .calls
+            .iter()
+            .filter(|call| call.response.is_some())
+            .collect();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|call| {
+            call.name == name
+                && call
+                    .id
+                    .as_deref()
+                    .is_some_and(|id| id.starts_with(adk_core::GENERATED_CALL_ID_PREFIX))
+        }));
+        assert_ne!(results[0].id, results[1].id);
+        let failed = results.iter().find(|call| call.failure.is_some()).unwrap();
+        assert!(failed.diagnostics(&page));
+        assert!(failed.details(&page));
+        assert_eq!(
+            failed.result(&page),
+            Some(&json!({"error":"Original MCP failure\n参数错误 🙂"}))
+        );
+        let business = results.iter().find(|call| call.failure.is_none()).unwrap();
+        assert!(!business.diagnostics(&page));
+        assert!(!business.details(&page));
+        assert_eq!(
+            business.result(&page),
+            Some(&json!({"output":{"isError":true,"error":"domain row"}}))
+        );
+        {
+            let requests = model.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            let returned: Vec<_> = requests[1].body["contents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|content| content["parts"].as_array().into_iter().flatten())
+                .filter_map(|part| part.get("functionResponse"))
+                .collect();
+            assert_eq!(returned.len(), 2);
+            assert!(returned.iter().all(|response| response.get("id").is_none()));
+            for call in results {
+                assert!(
+                    returned
+                        .iter()
+                        .any(|response| Some(&response["response"]) == call.result(&page))
+                );
+            }
+        }
+        let profile = fixture.node.profile().to_owned();
+        fixture.node.shutdown().await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
+        let client = Client::new(if remote {
+            fixture.controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        assert_eq!(history(&client, fixture.session.id).await, page);
+        assert_eq!(model.requests.lock().unwrap().len(), 2);
+        node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
 fn request() -> LlmRequest {
     LlmRequest::new(
         "fixture-a",

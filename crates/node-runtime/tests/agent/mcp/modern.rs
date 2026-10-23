@@ -111,8 +111,9 @@ fn stdio_peer() {
                         0,
                         ContentBlock::text("Sample report: hello.txt updated; notes.txt unchanged"),
                     );
-                    result.structured_content =
-                        Some(json!({"sailry_content":content,"sample":true}));
+                    result.structured_content = Some(json!({
+                        "sailry_content":content,"sample":true,"isError":true,"error":"domain row"
+                    }));
                 }
                 serde_json::to_value(result).unwrap()
             }

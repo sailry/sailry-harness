@@ -1,4 +1,7 @@
-use sailry_protocol::{ErrorCode, Fault, tool::ResultDisplay};
+use sailry_protocol::{
+    ErrorCode, Fault,
+    tool::{Failure, ResultDisplay},
+};
 use serde_json::Value;
 
 pub(super) struct Preview {
@@ -21,12 +24,13 @@ impl Preview {
     }
 }
 
-pub(super) fn fault(value: Option<&Value>) -> Option<Fault> {
+pub(super) fn fault(observed: Option<&Failure>, value: Option<&Value>) -> Option<Fault> {
+    observed?;
     serde_json::from_value(value?.get("error")?.clone()).ok()
 }
 
-pub(super) fn failure(_name: &str, value: Option<&Value>) -> Option<String> {
-    if let Some(fault) = fault(value) {
+pub(super) fn failure(observed: Option<&Failure>, value: Option<&Value>) -> Option<String> {
+    if let Some(fault) = fault(observed, value) {
         if matches!(
             fault.details,
             Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
@@ -48,13 +52,7 @@ pub(super) fn failure(_name: &str, value: Option<&Value>) -> Option<String> {
                 .join("\n"),
         );
     }
-    marked_failure(value).or_else(|| value.get("output").and_then(marked_failure))
-}
-
-fn marked_failure(value: &Value) -> Option<String> {
-    if value.get("isError").and_then(Value::as_bool) != Some(true) {
-        return None;
-    }
+    observed?;
     if let Some(error) = value.get("error").and_then(Value::as_str)
         && !error.trim().is_empty()
     {
@@ -72,28 +70,22 @@ fn marked_failure(value: &Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-pub(super) fn is_error(_name: &str, value: Option<&Value>) -> bool {
-    if expected(value).is_some() {
+pub(super) fn is_error(observed: Option<&Failure>, value: Option<&Value>) -> bool {
+    let Some(observed) = observed else {
+        return false;
+    };
+    if expected(Some(observed), value).is_some() {
         return false;
     }
-    if let Some(fault) = fault(value) {
-        return !matches!(fault.code, ErrorCode::Cancelled | ErrorCode::OutcomeUnknown);
-    }
-    value.is_some_and(|value| {
-        value.get("isError").and_then(Value::as_bool) == Some(true)
-            || value
-                .get("output")
-                .and_then(|value| value.get("isError"))
-                .and_then(Value::as_bool)
-                == Some(true)
-            || ResultDisplay::from_value(value)
-                .is_some_and(|display| display.diagnostics.iter().any(|item| item.error))
-    })
+    !matches!(
+        observed.code,
+        Some(ErrorCode::Cancelled | ErrorCode::OutcomeUnknown)
+    )
 }
 
-pub(super) fn expected(value: Option<&Value>) -> Option<&'static str> {
+pub(super) fn expected(observed: Option<&Failure>, value: Option<&Value>) -> Option<&'static str> {
     use sailry_protocol::tool::Expected;
-    if fault(value)?.code != ErrorCode::NotFound {
+    if observed?.code != Some(ErrorCode::NotFound) {
         return None;
     }
     Some(match ResultDisplay::from_value(value?)?.expected? {
@@ -102,16 +94,8 @@ pub(super) fn expected(value: Option<&Value>) -> Option<&'static str> {
     })
 }
 
-pub(super) fn tool_preview(
-    name: &str,
-    presentation: sailry_protocol::tool::Presentation,
-    value: &Value,
-) -> Preview {
-    if (presentation == sailry_protocol::tool::Presentation::Summary
-        || fault(Some(value)).is_some()
-        || is_error(name, Some(value))
-        || ResultDisplay::from_value(value).is_some_and(|display| !display.diagnostics.is_empty()))
-        && let Some(reason) = failure(name, Some(value))
+pub(super) fn tool_preview(observed: Option<&Failure>, value: &Value) -> Preview {
+    if let Some(reason) = failure(observed, Some(value))
         && !reason.trim().is_empty()
     {
         return Preview {
@@ -119,26 +103,28 @@ pub(super) fn tool_preview(
             notices: Vec::new(),
         };
     }
-    preview(value)
+    preview(observed, value)
 }
 
-pub(super) fn preview(value: &Value) -> Preview {
-    if let Some(error) = fault(Some(value)) {
+pub(super) fn preview(observed: Option<&Failure>, value: &Value) -> Preview {
+    if let Some(observed) = observed {
         return Preview {
             text: String::new(),
-            notices: vec![match error.code {
-                ErrorCode::NotFound => "tool_not_found",
-                ErrorCode::InvalidRequest => "tool_invalid",
-                ErrorCode::PermissionDenied => "tool_denied",
-                ErrorCode::Cancelled => "turn_cancelled",
-                ErrorCode::OutcomeUnknown => "tool_interrupted",
-                ErrorCode::Unavailable => "tool_unavailable",
+            notices: vec![match observed.code {
+                Some(ErrorCode::NotFound) => "tool_not_found",
+                Some(ErrorCode::InvalidRequest) => "tool_invalid",
+                Some(ErrorCode::PermissionDenied) => "tool_denied",
+                Some(ErrorCode::Cancelled) => "turn_cancelled",
+                Some(ErrorCode::OutcomeUnknown) => "tool_interrupted",
+                Some(ErrorCode::Unavailable) => "tool_unavailable",
                 _ => "tool_failed",
             }],
         };
     }
     Preview {
-        text: readable(value),
+        text: sailry_client::conversation::tools::display::literal(value)
+            .map(std::borrow::Cow::into_owned)
+            .unwrap_or_default(),
         notices: Vec::new(),
     }
 }
@@ -148,25 +134,5 @@ pub(super) fn raw(value: &Value) -> String {
     serde_json::to_string_pretty(value).expect("tool JSON is serializable")
 }
 
-fn readable(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        Value::Array(items) if items.iter().all(Value::is_string) => items
-            .iter()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Value::Null | Value::Array(_) | Value::Object(_) => String::new(),
-        _ => value.to_string(),
-    }
-}
-
-pub(super) fn observed_failure(
-    failure: Option<&sailry_protocol::tool::Failure>,
-    result: &Value,
-) -> Option<String> {
-    failure?;
-    result.get("error")?.as_str().map(str::to_owned)
-}
 #[cfg(test)]
 mod tests;

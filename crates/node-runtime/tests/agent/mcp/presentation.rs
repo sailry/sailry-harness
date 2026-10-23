@@ -12,6 +12,7 @@ async fn preserves_failures_without_changing_returns() {
             ("set_session_title".into(), json!({"title":"\n"})),
             (alias("native", "read"), json!({"value":"failure"})),
             (alias("native", "read"), json!({"value":"business"})),
+            (alias("native", "read"), json!({"value":"business_flags"})),
             ("list_sessions".into(), json!({})),
         ])
         .await;
@@ -26,7 +27,7 @@ async fn preserves_failures_without_changing_returns() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        assert_eq!(view.calls.len(), 5);
+        assert_eq!(view.calls.len(), 6);
         let calls = &view.calls;
         assert_eq!(calls[0].id.as_deref(), Some("call-fixture-0"));
         assert_eq!(calls[1].id.as_deref(), Some("call-fixture-1"));
@@ -51,9 +52,17 @@ async fn preserves_failures_without_changing_returns() {
         assert!(calls[3].raw_result(&page));
         let business = json!({"error":"business value","id":"business-id","node":[119,14,79],"text":"Literal 内容 🙂"});
         assert_eq!(calls[3].result(&page).unwrap()["output"], business);
+        assert!(calls[4].failure.is_none());
+        assert!(!calls[4].diagnostics(&page));
         assert!(!calls[4].details(&page));
-        assert!(calls[4].display(&page).unwrap().valid());
-        assert_eq!(calls[4].result(&page).unwrap()["sessions"], json!([]));
+        assert!(calls[4].raw_result(&page));
+        assert_eq!(
+            calls[4].result(&page),
+            Some(&json!({"output":{"isError":true,"error":"domain row"}}))
+        );
+        assert!(!calls[5].details(&page));
+        assert!(calls[5].display(&page).unwrap().valid());
+        assert_eq!(calls[5].result(&page).unwrap()["sessions"], json!([]));
         {
             let requests = model.requests.lock().unwrap();
             assert_eq!(requests.len(), 2);
@@ -86,6 +95,8 @@ async fn preserves_failures_without_changing_returns() {
         assert_eq!(restored.calls[2].failure, calls[2].failure);
         assert!(restored.calls[0].hidden(&page));
         assert!(!restored.calls[3].details(&page));
+        assert!(restored.calls[4].failure.is_none());
+        assert!(!restored.calls[4].details(&page));
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

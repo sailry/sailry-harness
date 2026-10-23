@@ -23,6 +23,14 @@ fn declare(page: &mut Page, value: Value) {
     }
 }
 
+fn mark_failure(page: &mut Page, code: Option<ErrorCode>) {
+    page.entries[1].parts.truncate(1);
+    page.entries[1]
+        .parts
+        .push(Part::Resource(json!({"type":"tool_failed",
+        "index":0,"id":"call","name":"read_file","failure":{"code":code}})));
+}
+
 #[test]
 fn summaries_keep_original_data_without_details() {
     let result =
@@ -40,6 +48,33 @@ fn summaries_keep_original_data_without_details() {
     assert!(calls[0].raw_result(&page));
     assert!(!calls[0].details(&page));
     assert_eq!(calls[0].result(&page), Some(&result));
+}
+
+#[test]
+fn opaque_returns_keep_activity_only() {
+    for result in [
+        Value::Null,
+        json!({"pending":true,"status":"running"}),
+        json!([null, "opaque"]),
+    ] {
+        let page = returned(Presentation::Details, result.clone());
+        let calls = collect(&page);
+        assert!(!calls[0].details(&page));
+        assert!(calls[0].output(&page).is_none());
+        assert_eq!(calls[0].result(&page), Some(&result));
+    }
+    for (result, preview) in [
+        (json!("Direct output"), "Direct output"),
+        (json!(["First", "Second"]), "First\nSecond"),
+        (json!(0), "0"),
+        (json!(false), "false"),
+    ] {
+        let page = returned(Presentation::Details, result.clone());
+        let calls = collect(&page);
+        assert!(calls[0].details(&page));
+        assert_eq!(calls[0].output(&page).unwrap().preview, preview);
+        assert_eq!(calls[0].result(&page), Some(&result));
+    }
 }
 
 #[test]
@@ -109,6 +144,47 @@ fn declared_empty_output_suppresses_fallback() {
 }
 
 #[test]
+fn diagnostics_suppress_success_previews() {
+    for (result, declaration) in [
+        (json!("Captured literal"), None),
+        (
+            json!({"isError":true,"error":"domain row"}),
+            Some(json!({"label":"Execute","output":{"preview":{"parts":[
+                {"text":"Completed"}
+            ]}}})),
+        ),
+        (
+            json!({"payload":{"value":"Original business data"}}),
+            Some(json!({"label":"Execute","output":{"preview":{"parts":[{
+                "value":{"source":"result","path":"/payload"},"format":"json"
+            }]}}})),
+        ),
+    ] {
+        let mut page = returned(Presentation::Details, result.clone());
+        if let Some(declaration) = declaration {
+            declare(&mut page, declaration);
+        }
+        assert!(collect(&page)[0].output(&page).is_some());
+        mark_failure(&mut page, None);
+        let calls = collect(&page);
+        assert!(calls[0].details(&page));
+        assert!(calls[0].output(&page).is_none());
+        assert_eq!(calls[0].result(&page), Some(&result));
+    }
+    let mut page = returned(Presentation::Details, Value::Null);
+    declare(
+        &mut page,
+        json!({"label":"Execute","output":{"preview":{"parts":[
+            {"text":"Completed"}
+        ]}}}),
+    );
+    page.entries.truncate(1);
+    let calls = collect(&page);
+    assert!(!calls[0].details(&page));
+    assert!(calls[0].output(&page).is_none());
+}
+
+#[test]
 fn hidden_success_keeps_failures_and_interactions() {
     let mut page = returned(Presentation::Hidden, json!({"title":"Renamed"}));
     assert!(collect(&page)[0].hidden(&page));
@@ -121,6 +197,7 @@ fn hidden_success_keeps_failures_and_interactions() {
         if let Part::ToolResult { result, .. } = &mut page.entries[1].parts[0] {
             *result = json!({"error":Fault::new(code,"Original diagnostic")});
         }
+        mark_failure(&mut page, Some(code));
         let call = &collect(&page)[0];
         assert!(!call.hidden(&page));
         assert!(call.details(&page));
@@ -191,6 +268,154 @@ fn json_formatting_is_deferred_until_inspection() {
     assert_eq!(serialized["resolved"]["output"]["preview_deferred"], true);
     assert!(!serialized.to_string().contains("business-id"));
     assert_eq!(calls[0].result(&page), Some(&result));
+    let rendered = calls[0].output(&page).unwrap();
+    assert_eq!(
+        rendered.preview,
+        serde_json::to_string_pretty(&result["data"]).unwrap()
+    );
+    assert!(!rendered.preview_deferred);
+    let captured = calls[0].resolved.as_ref().unwrap().output.as_ref().unwrap();
+    assert!(captured.preview.is_empty());
+    assert!(captured.preview_deferred);
+}
+
+#[test]
+fn batch_edits_keep_the_selected_preview() {
+    let manifest: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../plugins/files/plugin.json"
+    )))
+    .unwrap();
+    let declaration = manifest["extensions"]["dev.sailry.platform"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "edit_file")
+        .unwrap();
+    let arguments = json!({"path":"source.txt","edits":[
+        {"old_text":"First","new_text":"Updated first"},
+        {"old_text":"Second","new_text":"Updated second"}
+    ],"expected_revision":"original"});
+    let result = json!({"written":true});
+    let mut page = returned(Presentation::Details, result.clone());
+    if let Part::ToolCall {
+        name,
+        arguments: input,
+        ..
+    } = &mut page.entries[0].parts[0]
+    {
+        *name = "package_update".into();
+        *input = arguments.clone();
+    }
+    if let Part::ToolResult { name, .. } = &mut page.entries[1].parts[0] {
+        *name = "package_update".into();
+    }
+    declare(&mut page, declaration["display"].clone());
+    let calls = collect(&page);
+    assert!(calls[0].details(&page));
+    let output = calls[0].output(&page).unwrap();
+    assert!(output.body.is_none());
+    assert_eq!(output.preview, "Updated first\nUpdated second");
+    assert_eq!(output.notices[0].label, "Written");
+    assert_eq!(calls[0].arguments(&page), Some(&arguments));
+    assert_eq!(calls[0].result(&page), Some(&result));
+}
+
+#[test]
+fn command_outcomes_require_declared_content() {
+    use sailry_protocol::process::{Capture, Completion, Outcome};
+    for outcome in [
+        Outcome::Exited(7),
+        Outcome::Signal(9),
+        Outcome::TimedOut,
+        Outcome::Cancelled,
+        Outcome::Unknown("cleanup is unconfirmed".into()),
+    ] {
+        let mut result = serde_json::to_value(sailry_protocol::Output::CommandResult(Completion {
+            outcome: outcome.clone(),
+            stdout: Capture {
+                text: "Original stdout".into(),
+                ..Default::default()
+            },
+            stderr: Capture::default(),
+            elapsed_ms: 1,
+        }))
+        .unwrap();
+        result["sailry_content"] = json!({"version":1,"blocks":[
+            {"kind":"text","path":"/data/stdout/text"}
+        ]});
+        let mut page = returned(Presentation::Content, result.clone());
+        declare(
+            &mut page,
+            json!({"label":"Execute","input":{"summary":{
+                "path":"/command","format":"command"
+            }}}),
+        );
+        let calls = collect(&page);
+        assert_eq!(calls[0].resolved.as_ref().unwrap().command, Some(outcome));
+        assert!(calls[0].failure.is_none());
+        assert!(!calls[0].diagnostics(&page));
+        assert_eq!(calls[0].result(&page), Some(&result));
+
+        declare(&mut page, json!({"label":"Read"}));
+        assert!(
+            collect(&page)[0]
+                .resolved
+                .as_ref()
+                .unwrap()
+                .command
+                .is_none()
+        );
+        declare(
+            &mut page,
+            json!({"label":"Execute","input":{"summary":{
+                "path":"/command","format":"command"
+            }}}),
+        );
+        if let Part::ToolCall { presentation, .. } = &mut page.entries[0].parts[0] {
+            *presentation = Presentation::Details;
+        }
+        assert!(
+            collect(&page)[0]
+                .resolved
+                .as_ref()
+                .unwrap()
+                .command
+                .is_none()
+        );
+        assert_eq!(collect(&page)[0].result(&page), Some(&result));
+    }
+    for mut result in [
+        json!({"isError":true,"outcome":{"kind":"timed_out"},"data":{
+            "stdout":{"text":"Business row","truncated":false,"invalid_utf8":false}
+        }}),
+        json!({"kind":"command_result","data":{
+            "outcome":{"kind":"exited","data":7},
+            "stdout":{"text":"Incomplete completion","truncated":false,"invalid_utf8":false}
+        }}),
+        json!({"kind":"plugin_result","data":{
+            "outcome":{"kind":"signal","data":9},"elapsed_ms":1,
+            "stdout":{"text":"Other protocol output","truncated":false,"invalid_utf8":false},
+            "stderr":{"text":"","truncated":false,"invalid_utf8":false}
+        }}),
+    ] {
+        result["sailry_content"] = json!({"version":1,"blocks":[
+            {"kind":"text","path":"/data/stdout/text"}
+        ]});
+        let mut page = returned(Presentation::Content, result.clone());
+        declare(
+            &mut page,
+            json!({"label":"Execute","input":{"summary":{
+                "path":"/command","format":"command"
+            }}}),
+        );
+        let calls = collect(&page);
+        assert!(calls[0].content.is_some());
+        assert!(calls[0].resolved.as_ref().unwrap().command.is_none());
+        assert!(calls[0].failure.is_none());
+        assert!(!calls[0].diagnostics(&page));
+        assert_eq!(calls[0].result(&page), Some(&result));
+    }
 }
 
 #[test]
@@ -292,16 +517,23 @@ fn hidden_business_errors_stay_hidden() {
     for result in [
         json!({"error":"business value"}),
         json!({"isError":false,"error":"business value"}),
+        json!({"isError":true,"error":"business value"}),
+        json!({"isError":false,"structuredContent":{"isError":true,"error":"domain row"}}),
+        json!({"output":{"isError":true,"error":"domain row"}}),
+        json!({"error":Fault::new(ErrorCode::Unavailable,"business value")}),
     ] {
-        let page = returned(Presentation::Hidden, result.clone());
-        let calls = collect(&page);
-        assert!(calls[0].hidden(&page));
-        assert!(!calls[0].diagnostics(&page));
-        assert!(!calls[0].details(&page));
-        assert_eq!(calls[0].result(&page), Some(&result));
+        for mode in [Presentation::Summary, Presentation::Hidden] {
+            let page = returned(mode, result.clone());
+            let calls = collect(&page);
+            assert_eq!(calls[0].hidden(&page), mode == Presentation::Hidden);
+            assert!(!calls[0].diagnostics(&page));
+            assert!(!calls[0].details(&page));
+            assert_eq!(calls[0].result(&page), Some(&result));
+        }
     }
-    let result = json!({"isError":true,"error":"Before-tool hook failed"});
-    let page = returned(Presentation::Hidden, result.clone());
+    let result = json!({"error":"Before-tool hook failed"});
+    let mut page = returned(Presentation::Hidden, result.clone());
+    mark_failure(&mut page, None);
     let calls = collect(&page);
     assert!(!calls[0].hidden(&page));
     assert!(calls[0].diagnostics(&page));

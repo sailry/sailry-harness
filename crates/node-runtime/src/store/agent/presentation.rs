@@ -38,7 +38,24 @@ pub(super) fn capture_failures(
             else {
                 return None;
             };
-            let failure = timeline?.tool_failure(&event.branch, id, &function_response.name)?;
+            let observed = timeline.and_then(|timeline| {
+                timeline.tool_failure(&event.branch, id, &function_response.name)
+            });
+            let failure = match part.tool_result_status() {
+                Some(adk_core::ToolResultStatus::Pending) => return None,
+                Some(adk_core::ToolResultStatus::Cancelled) => sailry_protocol::tool::Failure {
+                    code: Some(sailry_protocol::ErrorCode::Cancelled),
+                },
+                Some(adk_core::ToolResultStatus::OutcomeUnknown) => {
+                    sailry_protocol::tool::Failure {
+                        code: Some(sailry_protocol::ErrorCode::OutcomeUnknown),
+                    }
+                }
+                Some(adk_core::ToolResultStatus::Failed) => {
+                    observed.unwrap_or(sailry_protocol::tool::Failure { code: None })
+                }
+                None => observed?,
+            };
             Some(Failure {
                 index,
                 id: id.clone(),
@@ -335,6 +352,55 @@ pub(super) fn capture_names(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captures_framework_status_without_reading_payloads() {
+        let timeline = crate::agent::observation::Timeline::new();
+        timeline.fail_tool(
+            "",
+            "unknown",
+            "same",
+            Some(sailry_protocol::ErrorCode::Unavailable),
+        );
+        let mut event = Event::new("framework-outcomes");
+        let mut content = adk_core::Content::new("function");
+        for (id, status) in [
+            ("business", None),
+            ("failed", Some("failed")),
+            ("cancelled", Some("cancelled")),
+            ("unknown", Some("outcome_unknown")),
+            ("pending", Some("pending")),
+        ] {
+            content.parts.push(Part::FunctionResponse {
+                id: Some(id.into()),
+                function_response: adk_core::FunctionResponseData::new(
+                    "same",
+                    serde_json::json!({"isError":true,"error":"unchanged business data",
+                        "annotations":{"adk.tool_result.status":"failed"}}),
+                ),
+                annotations: status
+                    .map(|status| serde_json::json!({"adk.tool_result.status":status})),
+            });
+        }
+        event.set_content(content);
+        let original = serde_json::to_value(event.content()).unwrap();
+        capture_failures(&mut event, Some(&timeline)).unwrap();
+        let captured = failures(&event).unwrap();
+        assert_eq!(captured.len(), 3);
+        assert_eq!(captured[0].id, "failed");
+        assert_eq!(captured[0].failure.code, None);
+        assert_eq!(captured[1].id, "cancelled");
+        assert_eq!(
+            captured[1].failure.code,
+            Some(sailry_protocol::ErrorCode::Cancelled)
+        );
+        assert_eq!(captured[2].id, "unknown");
+        assert_eq!(
+            captured[2].failure.code,
+            Some(sailry_protocol::ErrorCode::OutcomeUnknown)
+        );
+        assert_eq!(serde_json::to_value(event.content()).unwrap(), original);
+    }
 
     #[test]
     fn matches_only_observed_failed_calls() {

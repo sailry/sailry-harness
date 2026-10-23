@@ -170,7 +170,17 @@ impl Tool for Control {
         };
         Ok(match work.await {
             Ok(output) => output,
-            Err(error) => json!({"isError":true,"error":error}),
+            Err(error) => {
+                if let Some(timeline) = self.ingress.agents.timeline(self.turn) {
+                    timeline.fail_tool(
+                        context.branch(),
+                        context.function_call_id(),
+                        &self.name,
+                        Some(error.code),
+                    );
+                }
+                json!({"isError":true,"error":error})
+            }
         })
     }
 }

@@ -210,7 +210,8 @@ async fn retains_hidden_tool_failures() {
         assert!(call.diagnostics(&page));
         assert!(call.details(&page));
         let result = call.result(&page).unwrap();
-        assert_eq!(result["isError"], true);
+        assert!(call.failure.is_some());
+        assert!(result.get("isError").is_none());
         assert!(
             result["error"]
                 .as_str()

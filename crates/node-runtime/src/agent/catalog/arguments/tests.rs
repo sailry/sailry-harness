@@ -137,6 +137,31 @@ fn context(session: &'static str) -> Arc<dyn ToolContext> {
 }
 
 #[tokio::test]
+async fn replaces_failure_facts_on_execution() {
+    let timeline = crate::agent::observation::Timeline::new();
+    let (probe, calls) = probe(json!({"type":"object"}));
+    let tool = Validated::observed(
+        probe,
+        "parent".into(),
+        CancellationToken::new(),
+        Some(timeline.clone()),
+    )
+    .unwrap();
+    timeline.fail_tool("", "call", "neutral", None);
+    let business = json!({"isError":true,"error":"domain row"});
+    assert_eq!(
+        tool.execute(context("parent"), business.clone())
+            .await
+            .unwrap(),
+        business
+    );
+    assert!(timeline.tool_failure("", "call", "neutral").is_none());
+    assert_eq!(*calls.lock().unwrap(), vec![business]);
+    assert!(tool.execute(context("other"), json!({})).await.is_err());
+    assert!(timeline.tool_failure("", "call", "neutral").is_some());
+}
+
+#[tokio::test]
 async fn preserves_defaults_and_large_values() {
     for session in ["parent", "child"] {
         let (probe, calls) = probe(schema());
@@ -320,8 +345,8 @@ async fn enforces_canonical_union_before_execution() {
             {"type":"object","properties":{"action":{"const":"write"},"value":{"type":"string"}},"required":["action","value"],"additionalProperties":false}
         ]
     });
-    let wire = adk_model::anthropic::AnthropicSchemaAdapter.normalize_schema(schema.clone());
-    assert!(wire.get("oneOf").is_none());
+    let normalized = adk_model::anthropic::AnthropicSchemaAdapter.normalize_schema(schema.clone());
+    assert_eq!(normalized["oneOf"], schema["oneOf"]);
     let (probe, calls) = probe(schema.clone());
     let tool = Validated::bind(probe, "parent".into(), CancellationToken::new()).unwrap();
     assert_eq!(tool.parameters_schema(), Some(schema));

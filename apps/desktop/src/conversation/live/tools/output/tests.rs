@@ -1,7 +1,9 @@
 use super::*;
 use crate::conversation::surface::literal;
 use core::prelude::v1::test;
-use sailry_protocol::tool::{Presentation, projection::Output as Projection};
+use sailry_protocol::tool::projection::Output as Projection;
+
+const FAILED: Failure = Failure { code: None };
 use sailry_protocol::{ErrorCode, Output, SearchMatch, SearchResults};
 use sailry_protocol::{FileLine, FileLines};
 use serde_json::json;
@@ -30,24 +32,20 @@ fn declared_diagnostics_keep_their_tone_and_text() {
     let result = json!({"response":{"unrelated":"opaque output"},"inline_data":["image bytes"],
         "sailry_result":{"version":1,"diagnostics":[{"text":diagnostic,"error":false}],
             "status":{"label":"Condition not met"}}});
-    for name in ["computer_input", "external_step"] {
-        assert!(!is_error(name, Some(&result)));
-        assert_eq!(failure(name, Some(&result)).as_deref(), Some(diagnostic));
-        assert_eq!(
-            ResultDisplay::from_value(&result)
-                .unwrap()
-                .status
-                .unwrap()
-                .label,
-            "Condition not met"
-        );
-        for presentation in [Presentation::Summary, Presentation::Details] {
-            let body = tool_preview(name, presentation, &result);
-            assert_eq!(body.text, diagnostic);
-            assert_eq!(body.copy_text(), diagnostic);
-            assert!(body.notices.is_empty());
-        }
-    }
+    assert!(!is_error(None, Some(&result)));
+    assert_eq!(failure(None, Some(&result)).as_deref(), Some(diagnostic));
+    assert_eq!(
+        ResultDisplay::from_value(&result)
+            .unwrap()
+            .status
+            .unwrap()
+            .label,
+        "Condition not met"
+    );
+    let body = tool_preview(None, &result);
+    assert_eq!(body.text, diagnostic);
+    assert_eq!(body.copy_text(), diagnostic);
+    assert!(body.notices.is_empty());
 }
 
 #[test]
@@ -60,36 +58,25 @@ fn declared_status_cannot_hide_errors() {
         json!({"error":Fault::new(ErrorCode::Unavailable,"Worker disconnected")}),
     ] {
         result["sailry_result"] = marker.clone();
-        assert!(is_error("external_step", Some(&result)));
-        let diagnostic = if fault(Some(&result)).is_some() {
+        assert!(is_error(Some(&FAILED), Some(&result)));
+        let diagnostic = if fault(Some(&FAILED), Some(&result)).is_some() {
             "Worker disconnected"
         } else {
             "Condition diagnostic"
         };
-        for presentation in [Presentation::Summary, Presentation::Details] {
-            let body = tool_preview("external_step", presentation, &result);
-            assert_eq!(body.text, diagnostic);
-            assert_eq!(body.copy_text(), diagnostic);
-            assert!(body.notices.is_empty());
-        }
-        if fault(Some(&result)).is_some() {
-            assert_eq!(
-                failure("external_step", Some(&result)).as_deref(),
-                Some("Worker disconnected")
-            );
-        }
+        let body = tool_preview(Some(&FAILED), &result);
+        assert_eq!(body.text, diagnostic);
+        assert_eq!(body.copy_text(), diagnostic);
+        assert!(body.notices.is_empty());
     }
     let result = json!({"sailry_result":{"version":1,"diagnostics":[
         {"text":"Condition diagnostic","error":false},{"text":"Worker disconnected","error":true}],
         "status":{"label":"Condition not met"}}});
-    assert!(is_error("external_step", Some(&result)));
+    assert!(!is_error(None, Some(&result)));
+    assert!(is_error(Some(&FAILED), Some(&result)));
     assert_eq!(
-        tool_preview("external_step", Presentation::Details, &result).copy_text(),
+        tool_preview(None, &result).copy_text(),
         "Condition diagnostic\nWorker disconnected"
-    );
-    assert_eq!(
-        failure("external_step", Some(&result)).as_deref(),
-        Some("Condition diagnostic\nWorker disconnected")
     );
 }
 
@@ -101,78 +88,61 @@ fn cancellation_and_uncertainty_are_not_execution_errors() {
         ErrorCode::Unavailable,
         ErrorCode::InvalidRequest,
     ] {
+        let observed = Failure { code: Some(code) };
         let result = json!({"isError":true,"error":Fault::new(code,"Diagnostic retained"),
             "sailry_result":{"version":1,"diagnostics":[],"status":{"label":"Complete"}}});
         assert_eq!(
-            is_error("external_tool", Some(&result)),
+            is_error(Some(&observed), Some(&result)),
             matches!(code, ErrorCode::Unavailable | ErrorCode::InvalidRequest)
         );
         assert_eq!(
-            failure("external_tool", Some(&result)).as_deref(),
+            failure(Some(&observed), Some(&result)).as_deref(),
             Some("Diagnostic retained")
         );
-        for presentation in [Presentation::Summary, Presentation::Details] {
-            let body = tool_preview("external_tool", presentation, &result);
-            assert_eq!(body.text, "Diagnostic retained");
-            assert_eq!(body.copy_text(), "Diagnostic retained");
-            assert!(body.notices.is_empty());
-        }
+        let body = tool_preview(Some(&observed), &result);
+        assert_eq!(body.text, "Diagnostic retained");
+        assert_eq!(body.copy_text(), "Diagnostic retained");
+        assert!(body.notices.is_empty());
     }
 }
 
 #[test]
 fn partial_failures() {
     let result = json!({"available":false,"error":"Provider returned HTTP 402","sailry_result":{"version":1,"diagnostics":[{"text":"Provider returned HTTP 402","error":true}]}});
+    assert!(!is_error(None, Some(&result)));
     assert_eq!(
-        failure("plugin_advice", Some(&result)).as_deref(),
+        failure(None, Some(&result)).as_deref(),
         Some("Provider returned HTTP 402")
     );
-    assert!(
-        tool_preview("plugin_advice", Presentation::Summary, &result)
-            .copy_text()
-            .contains("HTTP 402")
-    );
-    assert!(
-        failure(
-            "plugin_advice",
-            Some(&json!({"available":true,"error":null}))
-        )
-        .is_none()
-    );
-    assert!(failure("read_file", Some(&json!({"error":"literal file content"}))).is_none());
+    assert!(tool_preview(None, &result).copy_text().contains("HTTP 402"));
+    assert!(failure(None, Some(&json!({"available":true,"error":null}))).is_none());
+    assert!(failure(None, Some(&json!({"error":"literal file content"}))).is_none());
 }
 
 #[test]
 fn mcp_errors_preserve_text() {
     let first = "Input failed\n[detail](literal) 中文";
     let second = "  Original diagnostic  ";
-    let result = json!({
-        "isError":true,
-        "content":[
+    let expected = format!("{first}\n{second}");
+    for value in [
+        json!({"error":expected}),
+        json!({"isError":true,"content":[
             {"type":"text","text":first},
             {"type":"image","text":"Not diagnostic text","mimeType":"image/png"},
             {"type":"text","text":"  "},
-            {"type":"text","text":second},
-        ],
-        "structuredContent":{"code":"input_failed","details":{"original":true}},
-        "_meta":{"source":"native"},
-    });
-    let expected = format!("{first}\n{second}");
-    for value in [result.clone(), json!({"output":result})] {
+            {"type":"text","text":second}
+        ],"structuredContent":{"code":"input_failed","details":{"original":true}},"_meta":{"source":"native"}}),
+    ] {
         let original = value.clone();
-        for name in ["external_action", "other_action"] {
-            assert!(is_error(name, Some(&value)));
-            assert_eq!(
-                failure(name, Some(&value)).as_deref(),
-                Some(expected.as_str())
-            );
-            for presentation in [Presentation::Summary, Presentation::Details] {
-                let body = tool_preview(name, presentation, &value);
-                assert_eq!(body.text, expected);
-                assert_eq!(body.copy_text(), expected);
-                assert!(body.notices.is_empty());
-            }
-        }
+        assert!(is_error(Some(&FAILED), Some(&value)));
+        assert_eq!(
+            failure(Some(&FAILED), Some(&value)).as_deref(),
+            Some(expected.as_str())
+        );
+        let body = tool_preview(Some(&FAILED), &value);
+        assert_eq!(body.text, expected);
+        assert_eq!(body.copy_text(), expected);
+        assert!(body.notices.is_empty());
         assert_eq!(value, original);
     }
 }
@@ -180,17 +150,26 @@ fn mcp_errors_preserve_text() {
 #[test]
 fn mcp_error_fields_preserve_user_data() {
     for result in [
-        json!({"isError":false,"content":[{"type":"text","text":"Literal content"}],"structuredContent":{"error_code":"user-data"}}),
-        json!({"content":[{"type":"text","text":"Literal content"}],"structuredContent":{"isError":true,"error":"user-data"}}),
+        json!({"isError":false,"structuredContent":{"isError":true,"error":"domain row"}}),
+        json!({"output":{"isError":true,"error":"domain row"}}),
+        json!({"isError":true,"error":"domain row"}),
         json!({"isError":"true","content":[{"type":"text","text":"Literal content"}]}),
-        json!({"output":{"isError":false,"content":[{"type":"text","text":"Literal content"}],"error_code":"user-data"}}),
+        json!({"error":Fault::new(ErrorCode::Unavailable,"domain row")}),
     ] {
-        assert!(!is_error("external_action", Some(&result)));
-        assert!(failure("external_action", Some(&result)).is_none());
+        let original = result.clone();
+        assert!(!is_error(None, Some(&result)));
+        assert!(fault(None, Some(&result)).is_none());
+        assert!(failure(None, Some(&result)).is_none());
         assert_eq!(
-            tool_preview("external_action", Presentation::Details, &result).text,
-            preview(&result).text,
+            tool_preview(None, &result).text,
+            preview(None, &result).text
         );
+        assert!(tool_preview(None, &result).notices.is_empty());
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw(&result)).unwrap(),
+            original
+        );
+        assert_eq!(result, original);
     }
 }
 
@@ -200,9 +179,14 @@ fn mcp_errors_preserve_missing_diagnostics() {
         json!({"isError":true,"content":[]}),
         json!({"isError":true,"content":[{"type":"image","text":"Not diagnostic text"}]}),
         json!({"isError":true,"content":[{"type":"text","text":false}]}),
+        json!({"output":{"isError":true,"error":"domain row"}}),
     ] {
-        assert!(is_error("external_action", Some(&result)));
-        assert!(failure("external_action", Some(&result)).is_none());
+        assert!(is_error(Some(&FAILED), Some(&result)));
+        assert!(failure(Some(&FAILED), Some(&result)).is_none());
+        assert_eq!(
+            tool_preview(Some(&FAILED), &result).notices,
+            ["tool_failed"]
+        );
     }
 }
 
@@ -213,11 +197,10 @@ fn invalid_markers_preserve_user_data() {
         json!({"version":1,"diagnostics":[{"text":"user data","error":"yes"}]}),
     ] {
         let result = json!({"error":"literal field","sailry_result":marker});
-        assert!(!is_error("external_step", Some(&result)));
-        assert!(failure("external_step", Some(&result)).is_none());
+        assert!(!is_error(None, Some(&result)));
+        assert!(failure(None, Some(&result)).is_none());
         assert!(ResultDisplay::from_value(&result).is_none());
-        let body = tool_preview("external_step", Presentation::Details, &result);
-        assert!(body.text.is_empty());
+        assert!(tool_preview(None, &result).text.is_empty());
         let inspected = raw(&result);
         assert!(inspected.contains("literal field"));
         assert!(inspected.contains("user data"));
@@ -229,19 +212,13 @@ fn invalid_markers_preserve_user_data() {
 fn preserves_faults() {
     let message = "file already exists: assets/image.png\nChoose another output path";
     let value = json!({"error":Fault::new(ErrorCode::RevisionConflict, message)});
-    for name in ["generate_image", "read_file", "git_status", "external_tool"] {
-        for presentation in [
-            Presentation::Details,
-            Presentation::Summary,
-            Presentation::Content,
-            Presentation::Progress,
-        ] {
-            let rendered = tool_preview(name, presentation, &value);
-            assert_eq!(rendered.text, message);
-            assert_eq!(rendered.copy_text(), message);
-            assert!(rendered.notices.is_empty());
-        }
-    }
+    let observed = Failure {
+        code: Some(ErrorCode::RevisionConflict),
+    };
+    let rendered = tool_preview(Some(&observed), &value);
+    assert_eq!(rendered.text, message);
+    assert_eq!(rendered.copy_text(), message);
+    assert!(rendered.notices.is_empty());
 }
 
 #[test]
@@ -278,7 +255,7 @@ fn shows_content_and_limits() {
         projection.notices(&arguments, &result, "en"),
         ["Partial results"]
     );
-    let body = preview(&result);
+    let body = preview(None, &result);
     assert!(body.text.is_empty());
     assert_eq!(
         serde_json::from_str::<Value>(&raw(&result)).unwrap(),
@@ -323,7 +300,7 @@ fn shows_content_and_limits() {
         projection.notices(&arguments, &search, "en"),
         ["Partial results"]
     );
-    let body = preview(&search);
+    let body = preview(None, &search);
     assert!(body.text.is_empty());
     assert_eq!(
         serde_json::from_str::<Value>(&raw(&search)).unwrap(),
@@ -335,21 +312,34 @@ fn shows_content_and_limits() {
 #[test]
 fn separates_diagnostics() {
     let result = json!({"error": Fault::new(ErrorCode::PermissionDenied, "protected diagnostic")});
+    let observed = Failure {
+        code: Some(ErrorCode::PermissionDenied),
+    };
     assert_eq!(
-        fault(Some(&result)).unwrap().code,
+        fault(Some(&observed), Some(&result)).unwrap().code,
         ErrorCode::PermissionDenied
     );
-    let body = preview(&result);
+    let body = preview(Some(&observed), &result);
     assert!(body.text.is_empty());
-    assert_eq!(body.notices.len(), 1);
-    assert!(fault(Some(&json!({"error": "user data"}))).is_none());
-    let body = preview(&json!({"text": "output", "count": 2}));
+    assert_eq!(body.notices, ["tool_denied"]);
+    assert!(fault(None, Some(&result)).is_none());
+    assert!(preview(None, &result).notices.is_empty());
+    assert!(fault(Some(&observed), Some(&json!({"error":"user data"}))).is_none());
+    let unknown = Failure {
+        code: Some(ErrorCode::OutcomeUnknown),
+    };
+    assert!(!is_error(Some(&unknown), Some(&result)));
+    assert_eq!(
+        preview(Some(&unknown), &result).notices,
+        ["tool_interrupted"]
+    );
+    let body = preview(None, &json!({"text":"output","count":2}));
     assert!(body.text.is_empty());
     assert_eq!(
         serde_json::from_str::<Value>(&raw(&json!({"text":"output","count":2}))).unwrap(),
         json!({"text":"output","count":2})
     );
-    assert!(preview(&json!(null)).notices.is_empty());
+    assert!(preview(None, &json!(null)).notices.is_empty());
 }
 
 #[test]
@@ -376,7 +366,7 @@ fn shows_file_write_receipts() {
         Some(&json!("资料.txt"))
     );
     assert_eq!(projection.notices(&arguments, &result, "en"), ["Written"]);
-    let body = preview(&result);
+    let body = preview(None, &result);
     assert!(body.text.is_empty());
     assert_eq!(
         serde_json::from_str::<Value>(&raw(&result)).unwrap(),
@@ -401,8 +391,9 @@ fn browser_failure_categories() {
         (ErrorCode::Unavailable, "unavailable", "tool_unavailable"),
         (ErrorCode::OutcomeUnknown, "unknown", "tool_interrupted"),
     ] {
+        let observed = Failure { code: Some(code) };
         assert_eq!(
-            preview(&json!({"error": Fault::new(code, message)})).notices,
+            preview(Some(&observed), &json!({"error":Fault::new(code,message)})).notices,
             [expected]
         );
     }
@@ -412,68 +403,51 @@ fn browser_failure_categories() {
 fn preserves_sql_diagnostics() {
     let message = "Database query failed: syntax error near quoted_table";
     let result = json!({"error":Fault::invalid(message)});
-    let body = preview(&result);
+    let observed = Failure {
+        code: Some(ErrorCode::InvalidRequest),
+    };
+    let body = preview(Some(&observed), &result);
     assert!(body.text.is_empty());
     assert_eq!(body.notices, ["tool_invalid"]);
-    for name in ["database_query", "external_query"] {
-        for presentation in [Presentation::Summary, Presentation::Details] {
-            let body = tool_preview(name, presentation, &result);
-            assert!(body.notices.is_empty());
-            assert_eq!(body.text, message);
-            assert_eq!(body.copy_text(), message);
-        }
-    }
+    let body = tool_preview(Some(&observed), &result);
+    assert!(body.notices.is_empty());
+    assert_eq!(body.text, message);
+    assert_eq!(body.copy_text(), message);
 }
 
 #[test]
-fn undeclared_output_ignores_tool_names() {
-    for name in [
-        "computer_input",
-        "external_input",
-        "write_file",
-        "external_write_file",
+fn undeclared_values_keep_business_fields() {
+    for result in [
+        json!({"response":{"error":"input failed"}}),
+        json!({"error":"literal"}),
     ] {
-        for result in [
-            json!({"response":{"error":"input failed"}}),
-            json!({"error":"literal"}),
-        ] {
-            assert!(failure(name, Some(&result)).is_none());
-            assert!(!is_error(name, Some(&result)));
-            assert_eq!(
-                tool_preview(name, Presentation::Details, &result).text,
-                preview(&result).text
-            );
-        }
+        assert!(failure(None, Some(&result)).is_none());
+        assert!(!is_error(None, Some(&result)));
+        assert_eq!(
+            tool_preview(None, &result).text,
+            preview(None, &result).text
+        );
     }
 }
 
 #[test]
-fn marked_failures_keep_their_messages() {
+fn observed_failures_keep_their_messages() {
     let message = "Before-tool hook failed\nLiteral [diagnostic] 中文 🙂";
     for result in [
-        json!({"isError":true,"error":message}),
-        json!({"output":{"isError":true,"error":message}}),
-    ] {
-        assert!(is_error("external_tool", Some(&result)));
-        assert_eq!(
-            failure("external_tool", Some(&result)).as_deref(),
-            Some(message)
-        );
-        for mode in [
-            Presentation::Summary,
-            Presentation::Hidden,
-            Presentation::Details,
-        ] {
-            let body = tool_preview("external_tool", mode, &result);
-            assert_eq!(body.text, message);
-            assert_eq!(body.copy_text(), message);
-        }
-    }
-    for result in [
         json!({"error":message}),
+        json!({"isError":true,"error":message}),
         json!({"isError":false,"error":message}),
     ] {
-        assert!(!is_error("external_tool", Some(&result)));
-        assert!(failure("external_tool", Some(&result)).is_none());
+        assert!(is_error(Some(&FAILED), Some(&result)));
+        assert_eq!(
+            failure(Some(&FAILED), Some(&result)).as_deref(),
+            Some(message)
+        );
+        let body = tool_preview(Some(&FAILED), &result);
+        assert_eq!(body.text, message);
+        assert_eq!(body.copy_text(), message);
+        assert!(body.notices.is_empty());
+        assert!(!is_error(None, Some(&result)));
+        assert!(failure(None, Some(&result)).is_none());
     }
 }

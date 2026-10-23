@@ -10,6 +10,82 @@ fn status(page: &Page, turn: TurnId) -> Status {
 }
 
 #[tokio::test]
+async fn marks_rejected_child_control() {
+    for remote in [false, true] {
+        let name = plugin_tool("delegation", "guide_agent");
+        let parent = Server::tools(vec![(
+            name.clone(),
+            json!({"session":SessionId::new(),"message":"Inspect the task"}),
+        )])
+        .await;
+        let child = Server::start(false).await;
+        let fixture = Fixture::start(remote, parent, child).await;
+        let turn = fixture.push("Guide the selected child").await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(status(&page, turn.id), Status::Completed);
+        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        let call = view.calls.iter().find(|call| call.name == name).unwrap();
+        assert_eq!(
+            call.failure.as_ref().and_then(|failure| failure.code),
+            Some(ErrorCode::PermissionDenied)
+        );
+        assert!(call.diagnostics(&page));
+        assert!(call.details(&page));
+        assert_eq!(
+            call.result(&page).unwrap()["error"]["code"],
+            "permission_denied"
+        );
+        assert!(fixture.child.requests.lock().unwrap().is_empty());
+        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
+        assert_eq!(history(&fixture.client, fixture.session.id).await, page);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn rejects_completed_child() {
+    for remote in [false, true] {
+        let parent = Server::scripted_tools(vec![(
+            plugin_tool("delegation", "spawn_agent"),
+            json!({"role":"review","task":"Inspect the assigned task"}),
+        )])
+        .await;
+        let child = Server::start(false).await;
+        let fixture = Fixture::start(remote, parent, child).await;
+        let first = fixture.push("Run the independent inspection").await;
+        let page = finished(&fixture.client, fixture.session.id, first.id).await;
+        assert_eq!(page.children[0].run.status, Status::Completed);
+        let child = page.children[0].run.session;
+        let requests = fixture.child.requests.lock().unwrap().len();
+        let name = plugin_tool("delegation", "guide_agent");
+        fixture.parent.replace_tools(vec![(
+            name.clone(),
+            json!({"session":child,"message":"Inspect another detail"}),
+        )]);
+        let turn = fixture.push("Guide the completed child").await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        let call = view
+            .calls
+            .iter()
+            .find(|call| call.turn == turn.id && call.name == name)
+            .unwrap();
+        assert_eq!(
+            call.failure.as_ref().and_then(|failure| failure.code),
+            Some(ErrorCode::Conflict)
+        );
+        assert!(call.diagnostics(&page));
+        assert!(call.details(&page));
+        assert_eq!(call.result(&page).unwrap()["error"]["code"], "conflict");
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), requests);
+        assert_eq!(page.children.len(), 1);
+        assert_eq!(history(&fixture.client, fixture.session.id).await, page);
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn shows_input_before_child_response() {
     const MESSAGE: &str = "Inspect the assigned Unicode paths 中文 🙂 without changing files";
     for remote in [false, true] {

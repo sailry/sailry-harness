@@ -28,6 +28,8 @@ fn separates_server_errors_from_business_results() {
     assert_eq!(failed.entry.execution_outcome, Some("failed"));
     for value in [
         json!({"output":{"error":"PRIVATE_BUSINESS_FIELD"}}),
+        json!({"output":{"isError":true,"error":"domain row"}}),
+        json!({"output":{"error":{"code":"outcome_unknown"}}}),
         json!({"output":"PRIVATE_ERROR_TEXT","error":"business"}),
         json!({"error":null}),
         json!({"error":{"code":"business"}}),

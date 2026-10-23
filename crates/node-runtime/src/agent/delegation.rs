@@ -57,6 +57,17 @@ pub(super) struct Delegate {
 }
 
 impl Delegate {
+    fn record_failure(&self, context: &dyn ToolContext, error: &Fault) {
+        if let Some(timeline) = self.ingress.agents.timeline(self.turn) {
+            timeline.fail_tool(
+                context.branch(),
+                context.function_call_id(),
+                &self.name,
+                Some(error.code),
+            );
+        }
+    }
+
     pub fn new(
         ingress: &Arc<Ingress>,
         tasks: &Tasks,
@@ -247,7 +258,10 @@ impl Delegate {
             Ok(ids) => ids,
             Err(_) => {
                 return match result.await {
-                    Ok(Err(error)) => Ok(json!({"isError":true,"error":error})),
+                    Ok(Err(error)) => {
+                        self.record_failure(context.as_ref(), &error);
+                        Ok(json!({"isError":true,"error":error}))
+                    }
                     _ => Err(AdkError::tool("child admission outcome is unknown")),
                 };
             }
@@ -309,7 +323,10 @@ impl Delegate {
                 }
                 Ok(value)
             }
-            Ok(Err(error)) => Ok(json!({"isError":true, "error": error})),
+            Ok(Err(error)) => {
+                self.record_failure(context.as_ref(), &error);
+                Ok(json!({"isError":true, "error": error}))
+            }
             Err(_) => Err(AdkError::tool("child task outcome is unknown")),
         }
     }

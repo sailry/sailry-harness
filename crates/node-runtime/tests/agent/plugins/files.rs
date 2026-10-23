@@ -229,6 +229,17 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
         assert_eq!(outputs[0]["kind"], "file_written");
         assert_eq!(outputs[1]["kind"], "file_written");
         assert_eq!(outputs[2]["error"]["code"], "revision_conflict");
+        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        assert!(view.calls[..2].iter().all(|call| call.failure.is_none()));
+        assert_eq!(
+            view.calls[2]
+                .failure
+                .as_ref()
+                .and_then(|failure| failure.code),
+            Some(ErrorCode::RevisionConflict)
+        );
+        assert!(view.calls[2].details(&page));
+        assert_eq!(view.calls[2].result(&page), Some(outputs[2]));
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("note.txt")).unwrap(),
             "Second"

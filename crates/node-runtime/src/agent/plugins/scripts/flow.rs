@@ -43,9 +43,6 @@ fn storage_conflict(operation: tool::Operation, value: &Value) -> bool {
                 && fault.details == Some(sailry_protocol::FaultDetails::PluginValueConflict)
         })
 }
-fn invalid(message: &str) -> Value {
-    json!({"isError":true,"error":Fault::invalid(message)})
-}
 fn failure(mut outcome: Value, result: &Value, conflict: bool) -> Value {
     let original = outcome.clone();
     if conflict && let Some(context) = result.get("context") {
@@ -67,6 +64,31 @@ fn failure(mut outcome: Value, result: &Value, conflict: bool) -> Value {
     }
 }
 impl Script {
+    fn record_outcome(&self, context: &dyn ToolContext, error: Option<&Fault>) {
+        if let Some(timeline) = self
+            .context
+            .turn
+            .and_then(|turn| self.ingress.agents.timeline(turn))
+        {
+            if let Some(error) = error {
+                timeline.fail_tool(
+                    context.branch(),
+                    context.function_call_id(),
+                    &self.name,
+                    Some(error.code),
+                );
+            } else {
+                timeline.forget_failure(context.branch(), context.function_call_id(), &self.name);
+            }
+        }
+    }
+
+    fn invalid(&self, context: &dyn ToolContext, message: &str) -> Value {
+        let error = Fault::invalid(message);
+        self.record_outcome(context, Some(&error));
+        json!({"isError":true,"error":error})
+    }
+
     pub(super) async fn execute_flow(
         &self,
         context: Arc<dyn ToolContext>,
@@ -103,7 +125,7 @@ impl Script {
                     return Ok(if failed {
                         outcome
                     } else {
-                        invalid("invalid plugin flow transition")
+                        self.invalid(context.as_ref(), "invalid plugin flow transition")
                     });
                 }
             };
@@ -121,7 +143,10 @@ impl Script {
                                 media.restore(done.result)
                             }
                             Some((original, _)) => original.clone(),
-                            None => invalid("plugin flow references an unavailable output"),
+                            None => self.invalid(
+                                context.as_ref(),
+                                "plugin flow references an unavailable output",
+                            ),
                         },
                         None => done.result,
                     });
@@ -136,19 +161,25 @@ impl Script {
                         return Ok(outcome);
                     }
                     if step == MAX_STEPS {
-                        return Ok(invalid("plugin flow exceeds operation limit"));
+                        return Ok(
+                            self.invalid(context.as_ref(), "plugin flow exceeds operation limit")
+                        );
                     }
                     if failed {
                         // Only a known, fully rolled-back storage CAS can reach
                         // another declared storage step. Authority is rechecked below.
                         tokio::task::yield_now().await;
+                        self.record_outcome(context.as_ref(), None);
                     }
                     let Some((_, operation)) = self
                         .flows
                         .iter()
                         .find(|(operation, _)| *operation == call.call.operation)
                     else {
-                        return Ok(invalid("plugin flow requested an undeclared operation"));
+                        return Ok(self.invalid(
+                            context.as_ref(),
+                            "plugin flow requested an undeclared operation",
+                        ));
                     };
                     // Structural validation precedes the original confirmation. Each resumed
                     // command gets its own durable identity and can never replace earlier work.
@@ -215,9 +246,12 @@ impl Script {
                                 }
                             }
                         }
-                        operation.dispatch(request).await
+                        operation.dispatch(context.as_ref(), request).await
                     }
                     .await;
+                    if let Err(error) = &result {
+                        self.record_outcome(context.as_ref(), Some(error));
+                    }
                     outcome = match result {
                         Ok(output) => output,
                         Err(error) => json!({"error":error,"isError":true}),

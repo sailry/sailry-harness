@@ -1,6 +1,6 @@
 //! Captured, portable data recipes reuse the ordinary conversation surfaces.
 use super::*;
-use sailry_protocol::tool::projection::{Format, Output as Projection};
+use sailry_protocol::tool::projection::Format;
 use serde_json::Value;
 
 pub(super) struct Group {
@@ -8,27 +8,27 @@ pub(super) struct Group {
     pub content: AnyElement,
 }
 
-fn descriptor<'a>(call: &Call, page: &'a Page) -> Option<&'a Projection> {
-    call.display(page)?.output.as_ref()
-}
-
 pub(super) fn grouped(call: &Call, page: &Page) -> bool {
     call.details(page)
-        && descriptor(call, page).is_some_and(|projection| projection.paths.is_some())
+        && call
+            .resolved
+            .as_ref()
+            .and_then(|resolved| resolved.output.as_ref())
+            .is_some_and(|output| !output.paths.is_empty())
 }
 
-fn paths(calls: &[&Call], page: &Page) -> Vec<SharedString> {
+fn paths(calls: &[&Call]) -> Vec<SharedString> {
     let mut paths = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     for call in calls {
-        let Some(source) = descriptor(call, page).and_then(|projection| projection.paths.as_ref())
+        let Some(output) = call
+            .resolved
+            .as_ref()
+            .and_then(|resolved| resolved.output.as_ref())
         else {
             continue;
         };
-        for path in source.read(
-            call.arguments(page).unwrap_or(&Value::Null),
-            call.result(page).unwrap_or(&Value::Null),
-        ) {
+        for path in &output.paths {
             if seen.insert(path.to_owned()) {
                 paths.push(SharedString::from(path.to_owned()));
             }
@@ -47,15 +47,12 @@ pub(super) fn group(
     if !grouped(first, page) {
         return None;
     }
-    let paths = paths(calls, page);
+    let paths = paths(calls);
     let failures: Vec<_> = calls
         .iter()
         .filter_map(|call| {
             let result = call.result(page)?;
-            (call.diagnostics(page)
-                || output::is_error(&call.name, Some(result))
-                || output::failure(&call.name, Some(result)).is_some())
-            .then_some((*call, result))
+            call.diagnostics(page).then_some((*call, result))
         })
         .collect();
     let worktree = view.turn_worktree(first.turn);
@@ -109,32 +106,22 @@ pub(super) fn render(
     result: &Value,
     cx: &mut Context<View>,
 ) -> Option<AnyElement> {
-    if call.diagnostics(page)
-        || output::is_error(&call.name, Some(result))
-        || output::failure(&call.name, Some(result)).is_some()
-    {
-        return None;
-    }
-    let projection = descriptor(call, page)?;
-    let arguments = call.arguments(page).unwrap_or(&Value::Null);
-    if let Some(data) = projection
-        .table
-        .as_ref()
-        .and_then(|table| table.render(arguments, result))
-    {
+    call.resolved.as_ref()?.output.as_ref()?;
+    let output = call.output(page)?;
+    if let Some(data) = &output.table {
         let content = sailry_protocol::tool::Content {
             version: 1,
-            blocks: vec![sailry_protocol::tool::Block::Table(data)],
+            blocks: vec![sailry_protocol::tool::Block::Table(data.clone())],
         };
         return Some(view.structured(key, call, page, &content, result, cx));
     }
-    if let Some(body) = &projection.body {
-        let text = body.text.read(arguments, result)?.as_str()?;
-        let path = body
-            .path
-            .as_ref()
-            .and_then(|path| path.read(arguments, result)?.as_str())
-            .filter(|path| !path.is_empty());
+    if let Some(body) = output
+        .body
+        .as_ref()
+        .filter(|body| !body.text.is_empty() || body.empty.is_some())
+    {
+        let text = body.text.as_str();
+        let path = body.path.as_deref();
         let mut actions = Vec::new();
         if !text.is_empty() {
             actions.push(view.copy_result(key, text.to_owned()));
@@ -142,17 +129,12 @@ pub(super) fn render(
         if let Some(path) = path {
             actions.push(view.path_link(key, call.turn, path.to_owned().into(), cx));
         }
-        if let Some(style) = &body.diff
-            && style
-                .when
-                .as_ref()
-                .is_none_or(|test| test.matches(arguments, result))
-        {
+        if let Some(style) = body.diff {
             return Some(diff::file_rows(
                 key,
                 text,
                 path.unwrap_or_default(),
-                style.format == Format::Added,
+                style == Format::Added,
                 actions,
             ));
         }
@@ -173,15 +155,15 @@ pub(super) fn render(
             };
         return Some(surface::result(key, content, actions, cx).into_any_element());
     }
-    if projection.preview.is_none() && projection.notices.is_empty() {
+    if output.preview.is_empty() && output.notices.is_empty() {
         return None;
     }
-    let text = projection
-        .preview
-        .as_ref()
-        .map(|text| text.render(arguments, result))
-        .unwrap_or_default();
-    let notices = projection.notices(arguments, result, &rust_i18n::locale());
+    let text = &output.preview;
+    let notices: Vec<_> = output
+        .notices
+        .iter()
+        .map(|notice| notice.label(&rust_i18n::locale()).to_owned())
+        .collect();
     let copy = if text.is_empty() {
         notices.join("\n")
     } else {
@@ -191,7 +173,7 @@ pub(super) fn render(
         .when(!text.is_empty(), |column| {
             column.child(surface::code(
                 &format!("{key}-output"),
-                &text,
+                text,
                 px(f32::from(crate::preferences::data(cx).message_text_size())),
                 cx,
             ))
@@ -206,10 +188,11 @@ pub(super) fn render(
         actions.push(view.copy_result(key, copy));
     }
     if let Some(path) = call
-        .display(page)
-        .and_then(|display| display.input.as_ref())
-        .and_then(|input| input.target.as_ref())
-        .and_then(|path| path.read(arguments))
+        .resolved
+        .as_ref()
+        .and_then(|resolved| resolved.input.target.as_ref())
+        .map(|path| path.text.as_str())
+        .filter(|path| !path.is_empty())
     {
         actions.push(view.path_link(key, call.turn, path.to_owned().into(), cx));
     }

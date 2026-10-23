@@ -177,31 +177,9 @@ impl Presentation {
             return None;
         }
         let content: Content = serde_json::from_value(raw.clone()).ok()?;
-        let failure = fault(result) || fault(payload) || failed(result) || failed(payload);
-        let card_failure = content
-            .blocks
-            .iter()
-            .any(|block| matches!(block, Block::Card(_)))
-            && content.blocks.iter().all(|block| {
-                matches!(
-                    block,
-                    Block::Text(_) | Block::Notice { .. } | Block::Card(_)
-                )
-            });
-        if !content.valid()
-            || ((fault(result) || fault(payload)) && !card_failure)
-            || (failure
-                && !content.blocks.iter().all(|block| {
-                    matches!(
-                        block,
-                        Block::Text(_) | Block::Notice { .. } | Block::Card(_)
-                    )
-                }))
-        {
+        if !content.valid() {
             return None;
         }
-        // Failed tools may retain literal diagnostics, while structured success content
-        // keeps its existing failure fallback. The controller still owns the failure state.
         let mut bytes = 0;
         for block in &content.blocks {
             if let Block::Text(text) = block {
@@ -221,14 +199,6 @@ fn payload(result: &Value) -> Option<&Value> {
     } else {
         result.get("output")
     }
-}
-
-fn fault(result: &Value) -> bool {
-    result.get("error").is_some_and(|error| !error.is_null())
-}
-
-fn failed(result: &Value) -> bool {
-    result.get("isError").and_then(Value::as_bool) == Some(true)
 }
 
 #[cfg(test)]

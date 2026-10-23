@@ -180,11 +180,14 @@ fn stdio_peer() {
                 }
                 let name = request["params"]["name"].as_str().unwrap();
                 if mode == "presentation" {
-                    let failed = request["params"]["arguments"]["value"] == "failure";
+                    let value = &request["params"]["arguments"]["value"];
+                    let failed = value == "failure";
                     println!(
                         "{}",
                         json!({"jsonrpc":"2.0","id":id,"result":if failed {
                             json!({"isError":true,"content":[{"type":"text","text":"Original MCP failure\n参数错误 🙂"}]})
+                        } else if value == "business_flags" {
+                            json!({"isError":false,"content":[],"structuredContent":{"isError":true,"error":"domain row"}})
                         } else {
                             json!({"content":[],"structuredContent":{"error":"business value","id":"business-id","node":[119,14,79],"text":"Literal 内容 🙂"}})
                         }})

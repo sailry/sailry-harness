@@ -29,6 +29,7 @@ fn fixture() -> Page {
 fn exposes_matched_results() {
     let page = fixture();
     let calls = collect(&page);
+    assert!(calls[0].details(&page));
     let progress = calls[0].progress.as_ref().unwrap();
     assert_eq!(progress.title.as_deref(), Some("Task 中文 🙂"));
     assert_eq!(progress.steps.len(), 2);

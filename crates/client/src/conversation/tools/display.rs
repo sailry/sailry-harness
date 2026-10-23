@@ -6,7 +6,7 @@ use sailry_protocol::{
     plugin::desktop::Navigation,
     tool::{Diagnostic, Field, LocalText, ResultDisplay, Table, projection::Format},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::borrow::Cow;
 mod command;
@@ -18,6 +18,8 @@ pub struct Resolved {
     pub output: Option<Output>,
     pub approval: Vec<LocalText>,
     pub status: Option<LocalText>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<sailry_protocol::process::Outcome>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -52,6 +54,61 @@ pub struct Body {
     pub path: Option<String>,
     pub diff: Option<Format>,
     pub empty: Option<LocalText>,
+}
+
+impl Call {
+    /// Materialize deferred output only when a controller requests its details.
+    pub fn output(&self, page: &Page) -> Option<Cow<'_, Output>> {
+        if self.diagnostics(page) {
+            return None;
+        }
+        let result = self.result(page)?;
+        let Some(output) = self
+            .resolved
+            .as_ref()
+            .and_then(|resolved| resolved.output.as_ref())
+        else {
+            return Some(Cow::Owned(Output {
+                preview: literal(result)?.into_owned(),
+                preview_deferred: false,
+                notices: Vec::new(),
+                paths: Vec::new(),
+                body: None,
+                table: None,
+            }));
+        };
+        if !output.preview_deferred {
+            return Some(Cow::Borrowed(output));
+        }
+        let preview = self.display(page)?.output.as_ref()?.preview.as_ref()?;
+        let mut rendered = output.clone();
+        rendered.preview = preview.render(self.arguments(page).unwrap_or(&Value::Null), result);
+        rendered.preview_deferred = false;
+        Some(Cow::Owned(rendered))
+    }
+}
+
+/// Literal fallback shared by controllers without interpreting business objects.
+pub fn literal(value: &Value) -> Option<Cow<'_, str>> {
+    match value {
+        Value::String(text) if !text.is_empty() => Some(Cow::Borrowed(text)),
+        Value::Array(items)
+            if items.iter().all(Value::is_string)
+                && items
+                    .iter()
+                    .any(|item| item.as_str().is_some_and(|text| !text.is_empty())) =>
+        {
+            Some(Cow::Owned(
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ))
+        }
+        Value::Number(_) | Value::Bool(_) => Some(Cow::Owned(value.to_string())),
+        _ => None,
+    }
 }
 
 fn label(value: &Navigation) -> LocalText {
@@ -122,6 +179,18 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
         return None;
     }
     let input = display.and_then(|display| display.input.as_ref());
+    let command = input
+        .and_then(|input| input.summary.as_ref())
+        .filter(|summary| {
+            summary.format == Some(sailry_protocol::tool::InputFormat::Command)
+                && call.content.is_some()
+        })
+        .and_then(
+            |_| match sailry_protocol::Output::deserialize(result).ok()? {
+                sailry_protocol::Output::CommandResult(completion) => Some(completion.outcome),
+                _ => None,
+            },
+        );
     let approval = display
         .into_iter()
         .flat_map(|display| &display.approval)
@@ -249,6 +318,7 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
         output,
         approval,
         status: metadata.as_ref().and_then(|display| display.status.clone()),
+        command,
         diagnostics: metadata
             .map(|display| display.diagnostics)
             .unwrap_or_default(),

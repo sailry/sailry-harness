@@ -4,7 +4,6 @@ use sailry_protocol::{
     conversation::{ApprovalState, Page},
     tool::{Failure, Presentation, ResultDisplay},
 };
-use serde_json::Value;
 
 impl Call {
     pub fn diagnostics(&self, page: &Page) -> bool {
@@ -14,11 +13,7 @@ impl Call {
         let Some(result) = self.result(page) else {
             return false;
         };
-        serde_json::from_value::<sailry_protocol::Fault>(result["error"].clone()).is_ok()
-            || result.get("isError").and_then(Value::as_bool) == Some(true)
-            || result["output"].get("isError").and_then(Value::as_bool) == Some(true)
-            || ResultDisplay::from_value(result)
-                .is_some_and(|display| !display.diagnostics.is_empty())
+        ResultDisplay::from_value(result).is_some_and(|display| !display.diagnostics.is_empty())
     }
 
     pub fn hidden(&self, page: &Page) -> bool {
@@ -43,6 +38,9 @@ impl Call {
             return self.result(page).is_some();
         }
         if !self.images(page).is_empty() {
+            return true;
+        }
+        if self.progress.is_some() {
             return true;
         }
         if matches!(
@@ -72,7 +70,7 @@ impl Call {
                     .as_ref()
                     .is_some_and(|body| !body.text.is_empty() || body.empty.is_some());
         }
-        visible(result)
+        super::display::literal(result).is_some()
     }
 
     pub fn raw_result(&self, page: &Page) -> bool {
@@ -98,14 +96,4 @@ pub(super) fn failure(call: &Call, page: &Page) -> Option<Failure> {
         .then(|| serde_json::from_value(value["failure"].clone()).ok())
         .flatten()
     })
-}
-
-fn visible(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::String(text) => !text.is_empty(),
-        Value::Array(items) => items.iter().any(visible),
-        Value::Object(fields) => fields.values().any(visible),
-        _ => true,
-    }
 }
