@@ -93,6 +93,8 @@ async fn finalizes_terminal_and_cancelled_streams() {
             assert!(attempt.elapsed_us.is_some());
             if !cancel {
                 assert_eq!(attempt.status, Some(200));
+                assert_eq!(attempt.response_us, attempt.headers_us);
+                assert!(attempt.response_us.is_some());
                 assert!(attempt.first_text_us.is_some());
             }
             assert!(call.boundary.is_some());

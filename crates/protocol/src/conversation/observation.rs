@@ -46,7 +46,11 @@ pub struct Attempt {
     pub index: u64,
     pub transport: String,
     pub reused: Option<bool>,
+    /// Actual response headers, including a WebSocket's initial upgrade only.
     pub headers_us: Option<u64>,
+    /// HTTP response headers or the first WebSocket response frame, not success.
+    #[serde(default)]
+    pub response_us: Option<u64>,
     pub first_text_us: Option<u64>,
     pub elapsed_us: Option<u64>,
     pub status: Option<u16>,
@@ -97,4 +101,29 @@ pub struct Phases {
     pub output_us: Option<u64>,
     pub tools_us: Option<u64>,
     pub other_us: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_unrecorded_response_time() {
+        let wire = serde_json::json!({
+            "index": 1, "transport": "web_socket", "reused": true,
+            "headers_us": null, "first_text_us": 40, "elapsed_us": 50,
+            "status": null, "outcome": "succeeded", "categories": [],
+            "complete_context": true, "usage": null,
+            "cache_reported": false, "reasoning_reported": false
+        });
+        let mut attempt: Attempt = serde_json::from_value(wire).unwrap();
+        assert_eq!(attempt.response_us, None);
+        attempt.response_us = Some(20);
+        attempt.outcome = Outcome::Failed;
+        let decoded: Attempt =
+            serde_json::from_value(serde_json::to_value(&attempt).unwrap()).unwrap();
+        assert_eq!(decoded, attempt);
+        assert_eq!(decoded.headers_us, None);
+        assert_eq!(decoded.outcome, Outcome::Failed);
+    }
 }

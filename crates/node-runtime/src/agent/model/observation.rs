@@ -107,6 +107,7 @@ impl Capture {
                 .into(),
                 reused,
                 headers_us: None,
+                response_us: None,
                 first_text_us: None,
                 elapsed_us: None,
                 status: None,
@@ -156,6 +157,9 @@ impl Capture {
             } => {
                 attempt.status = Some(status);
                 attempt.headers_us = Some(micros(elapsed));
+                if attempt.transport == "http" {
+                    attempt.response_us = attempt.headers_us;
+                }
                 attempt.reused = reused;
             }
             wire::Kind::Finished {
@@ -193,6 +197,36 @@ impl Capture {
             }
             wire::Kind::Started { .. } => {}
         }
+    }
+
+    pub(super) fn responded(&mut self, received: Instant) {
+        let Some(index) = self.active else {
+            return;
+        };
+        if self.persisted.contains(&index) {
+            return;
+        }
+        let Some(attempt) = self
+            .request
+            .attempts
+            .iter_mut()
+            .find(|value| value.index == index)
+        else {
+            return;
+        };
+        if attempt.transport != "web_socket"
+            || attempt.elapsed_us.is_some()
+            || attempt.response_us.is_some()
+        {
+            return;
+        }
+        // The pinned native WebSocket transport reads its first response frame
+        // before returning the initialized stream. Reuse has no upgrade headers.
+        attempt.response_us = self
+            .starts
+            .get(&index)
+            .and_then(|started| received.checked_duration_since(*started))
+            .map(micros);
     }
 
     pub(super) fn response(&mut self, response: &LlmResponse) {

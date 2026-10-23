@@ -140,6 +140,139 @@ fn keeps_final_usage_and_cancellation() {
     assert_eq!(attempt.usage.as_ref().unwrap().output, 3);
 }
 
+#[test]
+fn records_headers_as_http_response() {
+    let capture = capture(None);
+    let observer = Capture::observer(&capture);
+    started(&observer);
+    capture.lock().unwrap().responded(Instant::now());
+    assert_eq!(
+        capture.lock().unwrap().request.attempts[0].response_us,
+        None
+    );
+    observer(wire::Event {
+        attempt: 1,
+        kind: wire::Kind::Headers {
+            status: 503,
+            elapsed: Duration::from_millis(2),
+            reused: None,
+        },
+    });
+    finished(&observer, wire::Outcome::Failed);
+    let value = capture.lock().unwrap();
+    let attempt = &value.request.attempts[0];
+    assert_eq!(attempt.headers_us, Some(2_000));
+    assert_eq!(attempt.response_us, Some(2_000));
+    assert_eq!(attempt.status, Some(503));
+    assert_eq!(attempt.outcome, Outcome::Failed);
+}
+
+#[test]
+fn separates_socket_response_from_handshake() {
+    for reused in [false, true] {
+        let capture = capture(None);
+        let observer = Capture::observer(&capture);
+        observer(wire::Event {
+            attempt: 1,
+            kind: wire::Kind::Started {
+                transport: wire::Transport::WebSocket,
+                reused: Some(reused),
+            },
+        });
+        let origin = Instant::now();
+        capture.lock().unwrap().starts.insert(1, origin);
+        if !reused {
+            observer(wire::Event {
+                attempt: 1,
+                kind: wire::Kind::Headers {
+                    status: 101,
+                    elapsed: Duration::from_millis(2),
+                    reused: Some(false),
+                },
+            });
+        }
+        assert_eq!(
+            capture.lock().unwrap().request.attempts[0].response_us,
+            None
+        );
+        {
+            let mut value = capture.lock().unwrap();
+            value.responded(origin + Duration::from_millis(8));
+            value.responded(origin + Duration::from_millis(9));
+        }
+        observer(wire::Event {
+            attempt: 1,
+            kind: wire::Kind::Finished {
+                elapsed: Duration::from_millis(20),
+                outcome: wire::Outcome::Failed,
+                failure: None,
+            },
+        });
+        let mut value = capture.lock().unwrap();
+        value.responded(origin + Duration::from_millis(10));
+        let attempt = &value.request.attempts[0];
+        assert_eq!(attempt.response_us, Some(8_000));
+        assert_eq!(attempt.headers_us, (!reused).then_some(2_000));
+        assert_eq!(attempt.outcome, Outcome::Failed);
+    }
+}
+
+#[test]
+fn leaves_unreceived_socket_responses_unknown() {
+    let capture = capture(None);
+    let observer = Capture::observer(&capture);
+    observer(wire::Event {
+        attempt: 1,
+        kind: wire::Kind::Started {
+            transport: wire::Transport::WebSocket,
+            reused: Some(true),
+        },
+    });
+    finished(&observer, wire::Outcome::Cancelled);
+    capture.lock().unwrap().responded(Instant::now());
+    assert_eq!(
+        capture.lock().unwrap().request.attempts[0].response_us,
+        None
+    );
+}
+
+#[test]
+fn resets_response_time_for_each_attempt() {
+    let capture = capture(None);
+    for (index, elapsed, outcome) in [
+        (1, 8, wire::Outcome::Failed),
+        (2, 3, wire::Outcome::Succeeded),
+    ] {
+        let observer = Capture::observer(&capture);
+        observer(wire::Event {
+            attempt: 1,
+            kind: wire::Kind::Started {
+                transport: wire::Transport::WebSocket,
+                reused: Some(true),
+            },
+        });
+        let origin = Instant::now();
+        {
+            let mut value = capture.lock().unwrap();
+            value.starts.insert(index, origin);
+            value.responded(origin + Duration::from_millis(elapsed));
+        }
+        observer(wire::Event {
+            attempt: 1,
+            kind: wire::Kind::Finished {
+                elapsed: Duration::from_millis(20),
+                outcome,
+                failure: None,
+            },
+        });
+    }
+    let value = capture.lock().unwrap();
+    assert_eq!(value.request.attempts[0].response_us, Some(8_000));
+    assert_eq!(value.request.attempts[1].response_us, Some(3_000));
+    assert_eq!(value.request.attempts[0].outcome, Outcome::Failed);
+    assert_eq!(value.request.attempts[1].outcome, Outcome::Succeeded);
+}
+
 #[tokio::test]
 async fn flushes_terminal_response_metadata() {
     let capture = capture(None);
@@ -173,6 +306,7 @@ async fn flushes_terminal_response_metadata() {
     assert!(attempt.elapsed_us.is_some());
     assert_eq!(attempt.status, Some(200));
     assert!(attempt.headers_us.is_some());
+    assert_eq!(attempt.response_us, attempt.headers_us);
     assert_eq!(attempt.reused, Some(true));
     assert!(attempt.complete_context);
     assert_eq!(

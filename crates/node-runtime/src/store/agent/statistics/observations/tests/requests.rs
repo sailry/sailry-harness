@@ -7,6 +7,7 @@ fn attempt(index: u64, outcome: Outcome) -> Attempt {
         transport: "http".into(),
         reused: Some(false),
         headers_us: Some(2),
+        response_us: Some(2),
         first_text_us: Some(4),
         elapsed_us: Some(10),
         status: Some(if outcome == Outcome::Failed { 503 } else { 200 }),

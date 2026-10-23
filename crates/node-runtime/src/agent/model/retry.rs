@@ -271,6 +271,13 @@ async fn attempt(
 ) -> adk_core::Result<Option<LlmResponse>> {
     let recovering = published.load(Ordering::Relaxed);
     let mut responses = model.generate_content(request, stream).await?;
+    let received = std::time::Instant::now();
+    if let Some(capture) = &capture {
+        capture
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .responded(received);
+    }
     let mut content = None::<Content>;
     while let Some(response) = responses.next().await {
         let mut response = response?;

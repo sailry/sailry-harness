@@ -3,6 +3,8 @@ use sailry_client::conversation::View;
 use sailry_link::CancellationToken;
 use server::Mode;
 use std::sync::atomic::Ordering;
+#[path = "transport/observations.rs"]
+mod observations;
 #[path = "transport/preparation.rs"]
 mod preparation;
 #[path = "transport/recovery.rs"]
