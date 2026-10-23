@@ -5,6 +5,19 @@ use crate::plugins::authorization::Target;
 use sailry_protocol::{EventEnvelope, Secret};
 
 pub(super) enum Operation {
+    Preparation {
+        package: sailry_protocol::plugin::Reference,
+        server: String,
+        reply: oneshot::Sender<
+            Result<
+                (
+                    sailry_protocol::plugin::Info,
+                    crate::plugins::settings::Resolved,
+                ),
+                Fault,
+            >,
+        >,
+    },
     ComputerPermissions {
         caller: sailry_protocol::NodeId,
         request: Box<Request>,
@@ -53,6 +66,17 @@ pub(super) fn execute(
     events: &broadcast::Sender<EventEnvelope>,
 ) {
     match operation {
+        Operation::Preparation {
+            package,
+            server,
+            reply,
+        } => {
+            let _ = reply.send(plugins::mcp::prepare(
+                &database.connection,
+                &package,
+                &server,
+            ));
+        }
         Operation::ComputerPermissions {
             caller,
             request,
@@ -131,6 +155,27 @@ pub(super) fn execute(
 }
 
 impl Ingress {
+    pub(crate) async fn mcp_preparation(
+        &self,
+        package: sailry_protocol::plugin::Reference,
+        server: String,
+    ) -> Result<
+        (
+            sailry_protocol::plugin::Info,
+            crate::plugins::settings::Resolved,
+        ),
+        Fault,
+    > {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(Job::McpCredentials(Operation::Preparation {
+                package,
+                server,
+                reply,
+            }))
+            .map_err(|_| unavailable())?;
+        response.await.map_err(|_| unavailable())?
+    }
     pub(crate) async fn computer_inputs(
         &self,
         caller: sailry_protocol::NodeId,

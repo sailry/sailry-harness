@@ -316,3 +316,79 @@ async fn rolls_back_invalid_credentials() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn preserves_server_enablement() {
+    for remote in [false, true] {
+        let (directory, node, controller, client) = start(remote).await;
+        let original = info(
+            execute(
+                &client,
+                command(
+                    0,
+                    "https://example.com/mcp",
+                    SecretUpdate::Replace(Secret::new("private-manual-header".into())),
+                ),
+            )
+            .await,
+        );
+        let configured = settings(&client, &original).await.configured;
+        let disabled = info(
+            execute(
+                &client,
+                Command::SetPluginMcpAllowed {
+                    package: original.summary.reference(),
+                    server: "server".into(),
+                    allowed: false,
+                },
+            )
+            .await,
+        );
+        let changed = info(
+            execute(
+                &client,
+                command(
+                    disabled.summary.revision,
+                    "https://example.com/mcp",
+                    SecretUpdate::Keep,
+                ),
+            )
+            .await,
+        );
+        assert!(!changed.mcp[0].allowed);
+        assert!(changed.summary.enabled);
+        assert_eq!(settings(&client, &changed).await.configured, configured);
+        let Output::Plugin(captured) = execute(
+            &client,
+            Command::ReadPluginVersion {
+                package: original.summary.reference(),
+            },
+        )
+        .await
+        else {
+            panic!("captured plugin expected")
+        };
+        assert!(captured.mcp[0].allowed);
+        drop(client);
+        node.shutdown().await.unwrap();
+        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        let current = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: changed.summary.name.clone(),
+                },
+            )
+            .await,
+        );
+        assert_eq!(current, changed);
+        assert_eq!(settings(&client, &current).await.configured.len(), 1);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}

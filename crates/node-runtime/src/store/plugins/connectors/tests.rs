@@ -410,6 +410,7 @@ fn suspends_changed_mcp_paths_and_queries() {
         };
         super::super::mcp::save(
             &fixture.database.connection,
+            fixture.host.profile(),
             &info.summary.reference(),
             &configuration,
         )

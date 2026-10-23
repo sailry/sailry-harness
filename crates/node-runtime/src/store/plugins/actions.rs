@@ -174,6 +174,8 @@ impl Database {
                     (Some(Action::WriteRoles), context.worktree, Some(*session))
                 }
                 Command::ReadPluginSecret { .. }
+                | Command::SetPluginMcpAllowed { .. }
+                | Command::CheckPluginMcp { .. }
                 | Command::ReadPluginMcp { .. }
                 | Command::SavePluginMcp { .. } => {
                     return Err(denied(

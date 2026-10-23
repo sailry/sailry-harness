@@ -34,6 +34,8 @@ async fn launches_the_bundled_interpreter() {
                 host: None,
                 name: "native".into(),
                 transport: plugin::McpTransport::Stdio,
+                allowed: true,
+                availability: Default::default(),
             }]
         );
         let (_, turn) = submit(&fixture, false).await;

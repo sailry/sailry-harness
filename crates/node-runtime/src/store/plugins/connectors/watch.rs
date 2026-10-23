@@ -22,18 +22,16 @@ pub(in crate::store) fn snapshot(
 
 pub(in crate::store) async fn subscribe(
     ingress: Ingress,
-    caller: NodeId,
+    _caller: NodeId,
 ) -> Result<Box<dyn Subscription>, Fault> {
     let receiver = ingress.events.subscribe();
     let initial = state(&ingress).await?;
     let cursor = initial.cursor;
     Ok(Box::new(Feed {
         ingress,
-        caller,
         receiver,
         initial: Some(initial),
         cursor,
-        timer: tokio::time::interval(std::time::Duration::from_secs(900)),
     }))
 }
 
@@ -48,45 +46,9 @@ async fn state(ingress: &Ingress) -> Result<Changes, Fault> {
 
 struct Feed {
     ingress: Ingress,
-    caller: NodeId,
     receiver: broadcast::Receiver<EventEnvelope>,
     initial: Option<Changes>,
     cursor: u64,
-    timer: tokio::time::Interval,
-}
-
-impl Feed {
-    async fn probe(&self) -> Result<(), Fault> {
-        let changes = state(&self.ingress).await?;
-        for row in changes.connections {
-            if !row.enabled
-                || row.state != State::Connected
-                || row.checked_at_ms.is_some_and(|checked| {
-                    crate::plugins::connectors::now().saturating_sub(checked) < 900_000
-                })
-            {
-                continue;
-            }
-            if !changes.types.iter().any(|kind| {
-                kind.package.name == row.package.name
-                    && kind.declaration.id == row.connector
-                    && kind.declaration.health.is_some()
-            }) {
-                continue;
-            }
-            let request = sailry_protocol::Request::new(
-                self.ingress.node,
-                Command::ProbeConnection { connection: row.id },
-            );
-            let admission = self
-                .ingress
-                .dispatch_request(self.caller, request, false)
-                .await?;
-            // Each read-only upstream probe has its own ordinary durable outcome.
-            let _ = admission.completion.await;
-        }
-        Ok(())
-    }
 }
 
 impl Subscription for Feed {
@@ -99,7 +61,6 @@ impl Subscription for Feed {
                 tokio::select! {
                     biased;
                     _ = self.ingress.closed.cancelled() => return Err(unavailable()),
-                    _ = self.timer.tick() => self.probe().await?,
                     event = self.receiver.recv() => match event {
                         Ok(event) if event.cursor > self.cursor && matches!(event.event, Event::PluginChanged(_)) => {
                             let changes = state(&self.ingress).await?;

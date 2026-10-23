@@ -36,6 +36,7 @@ fn changed(db: &Connection, name: &str, version: &str) -> Info {
 fn captured(db: &Connection, info: &Info) -> Info {
     let (Output::Plugin(package), _) = execute(
         db,
+        None,
         &Command::ReadPluginVersion {
             package: info.summary.reference(),
         },

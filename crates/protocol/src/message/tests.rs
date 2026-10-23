@@ -5,6 +5,49 @@ fn unknown(data: Value) -> Value {
     json!({ "kind": "future_result", "data": data })
 }
 
+mod mcp {
+    use super::*;
+
+    #[test]
+    fn preserves_management_contracts() {
+        let package = crate::plugin::Reference {
+            name: "example".into(),
+            settings_revision: 3,
+            digest: "a".repeat(64),
+        };
+        for command in [
+            Command::SetPluginMcpAllowed {
+                package: package.clone(),
+                server: "service".into(),
+                allowed: false,
+            },
+            Command::CheckPluginMcp {
+                package: package.clone(),
+                server: "service".into(),
+            },
+        ] {
+            assert!(command.durable());
+            assert_eq!(
+                serde_json::from_value::<Command>(serde_json::to_value(&command).unwrap()).unwrap(),
+                command
+            );
+        }
+        let output = Output::PluginMcpChecked(crate::plugin::mcp::Check {
+            package,
+            server: "service".into(),
+            tools: vec![crate::plugin::mcp::Tool {
+                name: "read".into(),
+                description: Some("Read a resource".into()),
+            }],
+        });
+        assert_eq!(
+            serde_json::from_value::<Output>(serde_json::to_value(&output).unwrap()).unwrap(),
+            output
+        );
+        assert_eq!(crate::VERSION, 1);
+    }
+}
+
 mod faults {
     use super::*;
 

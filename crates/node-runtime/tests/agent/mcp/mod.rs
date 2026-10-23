@@ -14,6 +14,7 @@ mod elicitation;
 mod http;
 #[cfg(feature = "test-support")]
 mod management;
+mod management_state;
 mod modern;
 use peer as mcp_peer;
 #[path = "../../support/mcp_input.rs"]

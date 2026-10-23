@@ -31,6 +31,7 @@ fn unsupported_bindings_never_reuse_credentials() {
             slots: BTreeMap::from([("token".into(), Some(Secret::new("fixture-secret".into())))]),
             authorizations: BTreeMap::new(),
             mcp: None,
+            mcp_allowed: BTreeMap::new(),
             github: None,
             oauth: None,
         };
@@ -88,5 +89,6 @@ fn omitted_saved_values_remain_empty() {
     assert!(stored.values.is_empty());
     assert!(stored.slots.is_empty());
     assert!(stored.authorizations.is_empty());
+    assert!(stored.mcp_allowed.is_empty());
     assert!(stored.github.is_none());
 }

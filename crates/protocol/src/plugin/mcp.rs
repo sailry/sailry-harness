@@ -4,6 +4,39 @@ use std::{collections::BTreeMap, fmt};
 
 pub const SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
 
+pub(crate) fn default_allowed() -> bool {
+    true
+}
+
+/// Static configuration availability, never proof that a server is running.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Availability {
+    #[default]
+    Available,
+    PackageDisabled,
+    ServerDisabled,
+    ConfigurationRequired,
+    ConnectionRequired,
+    ConnectionDisabled,
+    AuthorizationExpired,
+    ConsentRequired,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Check {
+    pub package: super::Reference,
+    pub server: String,
+    pub tools: Vec<Tool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tool {
+    pub name: String,
+    pub description: Option<String>,
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Configuration {
@@ -197,6 +230,24 @@ impl Definition {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn defaults_server_availability() {
+        let server: super::super::Mcp = serde_json::from_value(json!({
+            "name": "service", "transport": "stdio"
+        }))
+        .unwrap();
+        assert!(server.allowed);
+        assert_eq!(server.availability, Availability::Available);
+        let mut value = serde_json::to_value(&server).unwrap();
+        value["allowed"] = false.into();
+        value["availability"] = "server_disabled".into();
+        let disabled: super::super::Mcp = serde_json::from_value(value.clone()).unwrap();
+        assert!(!disabled.allowed);
+        assert_eq!(disabled.availability, Availability::ServerDisabled);
+        assert_eq!(serde_json::to_value(disabled).unwrap(), value);
+        assert_eq!(crate::VERSION, 1);
+    }
 
     #[test]
     fn preserves_optional_policies() {

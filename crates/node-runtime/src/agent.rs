@@ -12,6 +12,7 @@ mod delegation;
 mod diagnostics;
 mod guidance;
 mod mcp;
+pub(crate) use mcp::check::run as check_mcp;
 pub(crate) mod media;
 pub(crate) mod model;
 pub(crate) mod observation;

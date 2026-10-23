@@ -409,6 +409,8 @@ fn describe(
         .map(|(name, server)| sailry_protocol::plugin::Mcp {
             name: name.clone(),
             transport: server.transport(),
+            allowed: true,
+            availability: Default::default(),
             host: match server {
                 mcp::Server::Http { url, .. } | mcp::Server::Sse { url, .. } => {
                     url::Url::parse(url)

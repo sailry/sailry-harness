@@ -285,6 +285,103 @@ async fn preserves_private_credentials_and_durable_identity() {
 }
 
 #[tokio::test]
+async fn retains_disabled_account_configuration() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        configure(&directory.path().join("source/package"), declaration());
+        let package = info(execute(&client, install(worktree, 0)).await);
+        let row = connected(&client, package.summary.reference(), None, None, secret()).await;
+        let disabled = info(
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: package.summary.name.clone(),
+                    expected_revision: package.summary.revision,
+                    enabled: false,
+                },
+            )
+            .await,
+        );
+        let Output::ConnectorTypes(types) = execute(&client, Command::ListConnectorTypes).await
+        else {
+            panic!("types expected")
+        };
+        let kind = types
+            .iter()
+            .find(|kind| kind.package.name == package.summary.name)
+            .unwrap();
+        assert!(!kind.enabled);
+        let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
+            panic!("connections expected")
+        };
+        let retained = rows.iter().find(|record| record.id == row.id).unwrap();
+        assert_eq!(retained.revision, row.revision);
+        assert_eq!(retained.fields, row.fields);
+        assert_eq!(retained.configured, row.configured);
+        assert!(retained.can_disconnect);
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ProbeConnection { connection: row.id }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotConfigured
+        );
+        let enabled = info(
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: package.summary.name.clone(),
+                    expected_revision: disabled.summary.revision,
+                    enabled: true,
+                },
+            )
+            .await,
+        );
+        let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
+            panic!("connections expected")
+        };
+        let mut restored = rows
+            .iter()
+            .find(|record| record.id == row.id)
+            .unwrap()
+            .clone();
+        assert_eq!(restored.package, enabled.summary.reference());
+        restored.package = row.package.clone();
+        assert_eq!(restored, row);
+        let disabled = info(
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: package.summary.name.clone(),
+                    expected_revision: enabled.summary.revision,
+                    enabled: false,
+                },
+            )
+            .await,
+        );
+        execute(
+            &client,
+            Command::DisconnectConnection {
+                connection: row.id,
+                expected_revision: row.revision,
+            },
+        )
+        .await;
+        let Output::Plugins(installed) = execute(&client, Command::ListPlugins).await else {
+            panic!("inventory expected")
+        };
+        assert!(
+            installed
+                .iter()
+                .any(|info| info.name == disabled.summary.name && !info.enabled)
+        );
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn probes_identity_on_both_controller_paths() {
     for remote in [false, true] {
         let server = server::Server::respond(

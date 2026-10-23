@@ -390,7 +390,8 @@ pub(super) fn execute(
         | Command::ReadPlugin { .. }
         | Command::ReadPluginVersion { .. }
         | Command::SetPluginEnabled { .. }
-        | Command::RemovePlugin { .. } => super::plugins::execute(db, &request.command),
+        | Command::SetPluginMcpAllowed { .. }
+        | Command::RemovePlugin { .. } => super::plugins::execute(db, profile, &request.command),
         Command::ListRoles => Ok((Output::Roles(super::roles::list(db)?), None)),
         Command::PutRole {
             role,
@@ -810,6 +811,7 @@ pub(super) fn execute(
         | Command::InstallRegistrySkill { .. }
         | Command::InstallSkillUpload { .. }
         | Command::InstallMcp { .. }
+        | Command::CheckPluginMcp { .. }
         | Command::SavePluginMcp { .. }
         | Command::InstallPluginUpload { .. }
         | Command::UploadPlugin(_)

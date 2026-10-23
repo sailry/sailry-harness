@@ -7,6 +7,9 @@ use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{runtime::Handle, sync::oneshot};
 
 pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
+    if let Command::CheckPluginMcp { package, server } = &request.command {
+        return super::plugins::mcp::prepare(&database.connection, package, server).map(|_| ());
+    }
     if let Command::CloseTerminal { worktree, .. } = &request.command {
         database.worktree_root(*worktree)?;
         return Ok(());
@@ -134,6 +137,11 @@ impl Worker {
         self.runtime.spawn(async move {
             let operation = async {
                 match &execution.request.command {
+                    Command::CheckPluginMcp { package, server } => {
+                        crate::agent::check_mcp(&ingress, package, server, &stop)
+                            .await
+                            .map(Output::PluginMcpChecked)
+                    }
                     Command::CloseTerminal { worktree, terminal } => {
                         let terminals = ingress.terminals.clone();
                         let worktree = *worktree;

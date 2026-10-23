@@ -67,12 +67,13 @@ pub(in crate::store) struct Bound {
 
 pub(in crate::store) fn types(db: &Connection) -> Result<Vec<Type>, Fault> {
     let mut result = Vec::new();
-    for summary in list(db)?.into_iter().filter(|summary| summary.enabled) {
+    for summary in list(db)? {
         let info = required(db, &summary.name)?;
         for declaration in registry::declarations(&info) {
             result.push(Type {
                 package: summary.reference(),
                 declaration,
+                enabled: summary.enabled,
             });
         }
     }
@@ -550,7 +551,11 @@ pub(in crate::store) fn execute(
     let mut record = read(db, id)?;
     super::super::commands::check_revision(record.revision, expected)?;
     let info = required(db, &record.plugin)?;
-    let (_, declaration) = declaration(db, &info.summary.reference(), &record.connector)?;
+    // Public account editing remains available while its package is disabled.
+    let declaration = registry::declarations(&info)
+        .into_iter()
+        .find(|declaration| declaration.id == record.connector)
+        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "connector is unavailable"))?;
     match command {
         Command::UpdateConnection { input: values, .. } => {
             let previous = record.clone();
@@ -912,6 +917,18 @@ pub(in crate::store) fn save_grant(
         let _ = events.send(envelope);
     }
     Ok(record.grant_revision)
+}
+
+/// A standalone MCP package owns only its own active connection records.
+pub(super) fn remove_mcp(db: &Connection, info: &Info) -> Result<(), Fault> {
+    if info.mcp_source.is_some() {
+        db.execute(
+            "DELETE FROM plugin_connections WHERE plugin=?1",
+            [&info.summary.name],
+        )
+        .map_err(storage_error)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

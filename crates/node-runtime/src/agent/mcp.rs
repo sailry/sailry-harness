@@ -1,4 +1,5 @@
 //! Namespaced ADK MCP tools bound to the original turn, approval and package snapshot.
+pub(super) mod check;
 mod diagnostics;
 mod input;
 mod limits;

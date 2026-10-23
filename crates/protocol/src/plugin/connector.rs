@@ -208,6 +208,9 @@ pub struct HealthRequest {
 pub struct Type {
     pub package: Reference,
     pub declaration: Declaration,
+    /// Whether the installed package is enabled; saved accounts remain visible.
+    #[serde(default = "super::mcp::default_allowed")]
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

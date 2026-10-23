@@ -501,6 +501,16 @@ pub enum Command {
     ReadPluginMcp {
         package: crate::plugin::Reference,
     },
+    SetPluginMcpAllowed {
+        package: crate::plugin::Reference,
+        server: String,
+        allowed: bool,
+    },
+    /// Explicitly initializes and lists one server, then confirms cleanup on the Node.
+    CheckPluginMcp {
+        package: crate::plugin::Reference,
+        server: String,
+    },
     ListConnectorTypes,
     InspectConnectorCli {
         package: crate::plugin::Reference,
@@ -1863,6 +1873,7 @@ pub enum Output {
     PluginUpload(crate::plugin::Upload),
     PluginSettings(crate::plugin::settings::State),
     PluginMcp(crate::plugin::mcp::State),
+    PluginMcpChecked(crate::plugin::mcp::Check),
     PluginSecret(Option<crate::Secret>),
     PluginView(crate::plugin::desktop::Bundle),
     Plugins(Vec<crate::plugin::Summary>),

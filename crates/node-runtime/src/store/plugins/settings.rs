@@ -22,6 +22,8 @@ pub(in crate::store) struct Stored {
     pub(super) authorizations: BTreeMap<String, history::McpGrant>,
     #[serde(default)]
     pub(super) mcp: Option<plugin::mcp::Configuration>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) mcp_allowed: BTreeMap<String, bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) github: Option<history::Identity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,6 +50,7 @@ pub(super) fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault> {
             mcp_targets: BTreeMap::new(),
             authorizations: BTreeMap::new(),
             mcp: None,
+            mcp_allowed: BTreeMap::new(),
             github: None,
             oauth: None,
         });
@@ -370,6 +373,7 @@ pub(in crate::store) fn save(
         mcp_targets: targets,
         authorizations: previous.authorizations,
         mcp: previous.mcp,
+        mcp_allowed: previous.mcp_allowed,
         github: previous.github,
         oauth: previous.oauth,
     };
@@ -426,6 +430,7 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
             values: BTreeMap::new(),
             secrets: BTreeMap::new(),
             mcp: saved.mcp,
+            mcp_allowed: saved.mcp_allowed,
         });
     }
     let state = project(db, info, &saved)?;
@@ -455,6 +460,7 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
         values: state.values,
         secrets,
         mcp: saved.mcp,
+        mcp_allowed: saved.mcp_allowed,
     })
 }
 

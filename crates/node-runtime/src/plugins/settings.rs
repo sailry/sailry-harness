@@ -15,6 +15,7 @@ pub(crate) struct Resolved {
     pub(crate) values: std::collections::BTreeMap<String, serde_json::Value>,
     pub(crate) secrets: std::collections::BTreeMap<String, sailry_protocol::Secret>,
     pub(crate) mcp: Option<sailry_protocol::plugin::mcp::Configuration>,
+    pub(crate) mcp_allowed: std::collections::BTreeMap<String, bool>,
 }
 
 pub(super) fn discover(

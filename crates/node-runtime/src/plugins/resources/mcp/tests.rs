@@ -23,6 +23,31 @@ fn fixture(servers: serde_json::Value) -> (tempfile::TempDir, Resources) {
 }
 
 #[tokio::test]
+async fn selects_allowed_servers() {
+    let (_directory, mut resources) = fixture(json!({
+        "disabled": {"type":"stdio", "command":"runtime"},
+        "allowed": {"type":"stdio", "command":"runtime"}
+    }));
+    resources.settings.insert(
+        "example".into(),
+        Ok(crate::plugins::settings::Resolved {
+            values: BTreeMap::new(),
+            secrets: BTreeMap::new(),
+            mcp: None,
+            mcp_allowed: BTreeMap::from([("disabled".into(), false)]),
+        }),
+    );
+    let selected = resources.mcp(&crate::process::Environment::ambient()).await;
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].name, "allowed");
+    let diagnostic = resources
+        .mcp_server(&crate::process::Environment::ambient(), "disabled")
+        .await;
+    assert_eq!(diagnostic.len(), 1);
+    assert_eq!(diagnostic[0].name, "disabled");
+}
+
+#[tokio::test]
 async fn resolves_roots_with_literal_arguments() {
     let (_directory, resources) = fixture(json!({
         "relative": {"type": "stdio", "command": "./bin/server", "cwd": "./bin/sub/..", "args": ["${PLUGIN_ROOT}", "${PLUGIN_DATA}", "../../opaque", "${HOME}"], "env": {"PUBLIC": "${PLUGIN_ROOT}|${PLUGIN_DATA}"}},
@@ -121,6 +146,7 @@ async fn fills_only_declared_header_slots() {
                 ),
             ]),
             mcp: None,
+            mcp_allowed: BTreeMap::new(),
         };
         let resources = Resources::new(
             host,
@@ -237,7 +263,12 @@ async fn isolates_missing_helpers() {
         ))
     }
     let configured = resources
-        .configured(&crate::process::Environment::ambient(), missing)
+        .configured(
+            &crate::process::Environment::ambient(),
+            missing,
+            None,
+            false,
+        )
         .await;
     assert_eq!(configured.len(), 2);
     for server in configured {
@@ -265,7 +296,7 @@ async fn expands_helper_inputs_once() {
         Ok(PathBuf::from("/packaged/helper"))
     }
     let mut configured = resources
-        .configured(&crate::process::Environment::ambient(), helper)
+        .configured(&crate::process::Environment::ambient(), helper, None, false)
         .await;
     let Launch::Stdio {
         command, args, env, ..

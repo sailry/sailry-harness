@@ -188,7 +188,7 @@ pub(super) fn finish(
         let info = enable(db, current, true)?;
         services::apply(db, &info, true)?;
         let event = Event::PluginChanged(info.summary.clone());
-        *result = Ok(Output::Plugin(info));
+        *result = Ok(Output::Plugin(mcp::project(db, profile, info)?));
         return Ok(Some(event));
     }
     if let Command::SavePluginMcp {
@@ -209,12 +209,12 @@ pub(super) fn finish(
         }
         db.execute_batch("SAVEPOINT mcp_configuration")
             .map_err(storage_error)?;
-        return match mcp::save(db, package, configuration) {
+        return match mcp::save(db, profile, package, configuration) {
             Ok(info) => {
                 db.execute_batch("RELEASE mcp_configuration")
                     .map_err(storage_error)?;
                 let event = Event::PluginChanged(info.summary.clone());
-                *result = Ok(Output::Plugin(info));
+                *result = Ok(Output::Plugin(mcp::project(db, profile, info)?));
                 Ok(Some(event))
             }
             Err(error) => {
@@ -378,11 +378,13 @@ fn finish_package(
         settings::save(db, &info.summary.reference(), &Default::default(), &updates)?;
         *info = required(db, name)?;
     }
+    *info = mcp::project(db, profile, info.clone())?;
     Ok(Some(Event::PluginChanged(info.summary.clone())))
 }
 
 pub(super) fn execute(
     db: &Connection,
+    profile: Option<&std::path::Path>,
     command: &Command,
 ) -> Result<(Output, Option<Event>), Fault> {
     match command {
@@ -415,11 +417,29 @@ pub(super) fn execute(
             ))
         }
         Command::ListPlugins => Ok((Output::Plugins(list(db)?), None)),
-        Command::ReadPlugin { name } => Ok((Output::Plugin(required(db, name)?), None)),
+        Command::ReadPlugin { name } => Ok((
+            Output::Plugin(mcp::project(db, profile, required(db, name)?)?),
+            None,
+        )),
         Command::ReadPluginVersion { package } => {
             let mut packages =
                 crate::store::agent::plugins::packages(db, std::slice::from_ref(package))?;
-            Ok((Output::Plugin(packages.remove(0)), None))
+            Ok((
+                Output::Plugin(mcp::project(db, profile, packages.remove(0))?),
+                None,
+            ))
+        }
+        Command::SetPluginMcpAllowed {
+            package,
+            server,
+            allowed,
+        } => {
+            let info = mcp::set_allowed(db, package, server, *allowed)?;
+            let event = Event::PluginChanged(info.summary.clone());
+            Ok((
+                Output::Plugin(mcp::project(db, profile, info)?),
+                Some(event),
+            ))
         }
         Command::SetPluginEnabled {
             name,
@@ -431,7 +451,7 @@ pub(super) fn execute(
             let info = enable(db, info, *enabled)?;
             services::apply(db, &info, *enabled)?;
             Ok((
-                Output::Plugin(info.clone()),
+                Output::Plugin(mcp::project(db, profile, info.clone())?),
                 Some(Event::PluginChanged(info.summary)),
             ))
         }
@@ -443,6 +463,7 @@ pub(super) fn execute(
             super::commands::check_revision(info.summary.revision, *expected_revision)?;
             info.summary.revision = next(db, name)?;
             info.summary.enabled = false;
+            connectors::remove_mcp(db, &info)?;
             save(db, &info, false)?;
             services::apply(db, &info, false)?;
             super::agent::continuation::invalidate(db, name)?;

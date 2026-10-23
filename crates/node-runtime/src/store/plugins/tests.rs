@@ -28,6 +28,7 @@ fn refreshes_reinstalled_metadata() {
     assert_eq!(installed.skills, package.skills);
     let (Output::Plugin(retained), _) = execute(
         &db,
+        None,
         &Command::ReadPluginVersion {
             package: installed.summary.reference(),
         },

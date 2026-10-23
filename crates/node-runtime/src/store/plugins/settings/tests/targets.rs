@@ -44,6 +44,7 @@ fn fixture() -> (tempfile::TempDir, Connection, Info, Stored) {
         mcp_targets: Default::default(),
         authorizations: Default::default(),
         mcp: Some(http("https://original.test/mcp")),
+        mcp_allowed: BTreeMap::new(),
         github: None,
         oauth: None,
     };

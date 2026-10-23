@@ -175,18 +175,55 @@ impl Resources {
     }
 
     pub(crate) async fn mcp(&self, environment: &crate::process::Environment) -> Vec<Configured> {
-        self.configured(environment, crate::computer::helper::executable)
-            .await
+        self.configured(
+            environment,
+            crate::computer::helper::executable,
+            None,
+            false,
+        )
+        .await
+    }
+
+    pub(crate) async fn mcp_server(
+        &self,
+        environment: &crate::process::Environment,
+        server: &str,
+    ) -> Vec<Configured> {
+        self.configured(
+            environment,
+            crate::computer::helper::executable,
+            Some(server),
+            true,
+        )
+        .await
     }
 
     async fn configured(
         &self,
         environment: &crate::process::Environment,
         helper: fn() -> Result<PathBuf, Fault>,
+        selected: Option<&str>,
+        diagnostic: bool,
     ) -> Vec<Configured> {
         let mut configured = Vec::new();
         for (index, package) in self.packages.iter().enumerate() {
-            if package.mcp.is_empty() {
+            let choices = package
+                .mcp
+                .iter()
+                .filter(|server| {
+                    selected.is_none_or(|selected| selected == server.name)
+                        && (diagnostic
+                            || self
+                                .settings
+                                .get(&package.summary.name)
+                                .and_then(|settings| settings.as_ref().ok())
+                                .and_then(|settings| settings.mcp_allowed.get(&server.name))
+                                .copied()
+                                .unwrap_or(true))
+                })
+                .map(|server| server.name.clone())
+                .collect::<std::collections::BTreeSet<_>>();
+            if choices.is_empty() {
                 continue;
             }
             let result = async {
@@ -206,10 +243,12 @@ impl Resources {
                             values: BTreeMap::new(),
                             secrets: BTreeMap::new(),
                             mcp: None,
+                            mcp_allowed: BTreeMap::new(),
                         })
                     }
                 })?;
                 let stop = self.stop.clone();
+                let choices = choices.clone();
                 tokio::task::spawn_blocking(move || {
                     if stop.is_cancelled() {
                         return Err(cancelled());
@@ -222,6 +261,7 @@ impl Resources {
                     Ok::<_, Fault>(
                         servers
                             .into_iter()
+                            .filter(|(server, _)| choices.contains(server))
                             .map(|(server, config)| {
                                 let options = config.options();
                                 let launch = prepare(
@@ -241,6 +281,9 @@ impl Resources {
                 Err(error) => (BTreeMap::new(), Some(error)),
             };
             for server in &package.mcp {
+                if !choices.contains(&server.name) {
+                    continue;
+                }
                 let (options, mut launch) = servers.remove(&server.name).unwrap_or_else(|| {
                     (
                         Default::default(),

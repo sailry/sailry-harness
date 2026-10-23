@@ -356,6 +356,10 @@ pub struct Mcp {
     pub host: Option<String>,
     pub name: String,
     pub transport: McpTransport,
+    #[serde(default = "mcp::default_allowed")]
+    pub allowed: bool,
+    #[serde(default)]
+    pub availability: mcp::Availability,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -475,6 +475,7 @@ impl Database {
         } else if matches!(
             request.command,
             Command::CloseTerminal { .. }
+                | Command::CheckPluginMcp { .. }
                 | Command::RestoreBackupFile { .. }
                 | Command::ExportBackup { .. }
                 | Command::RestoreBackup { .. }

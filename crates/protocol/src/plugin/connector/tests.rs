@@ -13,6 +13,23 @@ fn accepted(value: Value) -> bool {
 }
 
 #[test]
+fn defaults_package_enablement() {
+    let mut value = json!({
+        "package": {"name":"example", "digest":"a".repeat(64), "settings_revision":0},
+        "declaration": declaration(),
+    });
+    let kind: Type = serde_json::from_value(value.clone()).unwrap();
+    assert!(kind.enabled);
+    value["enabled"] = false.into();
+    let disabled: Type = serde_json::from_value(value.clone()).unwrap();
+    assert!(!disabled.enabled);
+    assert_eq!(
+        serde_json::from_value::<Type>(serde_json::to_value(&disabled).unwrap()).unwrap(),
+        disabled
+    );
+}
+
+#[test]
 fn confines_endpoints_and_headers() {
     assert!(accepted(declaration()));
     for origin in [

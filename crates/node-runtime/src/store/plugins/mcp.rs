@@ -7,6 +7,45 @@ use sailry_protocol::{
     plugin::mcp::{Configuration, State},
 };
 use tokio::sync::oneshot;
+mod availability;
+pub(super) use availability::project;
+
+pub(in crate::store) fn prepare(
+    db: &Connection,
+    package: &plugin::Reference,
+    server: &str,
+) -> Result<(Info, crate::plugins::settings::Resolved), Fault> {
+    let info = settings::current(db, package)?;
+    if !info.summary.enabled {
+        return Err(Fault::new(
+            ErrorCode::NotConfigured,
+            "MCP package is disabled",
+        ));
+    }
+    if !info.mcp.iter().any(|item| item.name == server) {
+        return Err(Fault::new(ErrorCode::NotFound, "MCP server is unavailable"));
+    }
+    let settings = settings::resolve(db, &info)?;
+    Ok((info, settings))
+}
+
+pub(super) fn set_allowed(
+    db: &Connection,
+    package: &plugin::Reference,
+    server: &str,
+    allowed: bool,
+) -> Result<Info, Fault> {
+    let mut info = settings::current(db, package)?;
+    if !info.mcp.iter().any(|item| item.name == server) {
+        return Err(Fault::new(ErrorCode::NotFound, "MCP server is unavailable"));
+    }
+    let mut saved = settings::stored(db, &info)?;
+    if saved.mcp_allowed.get(server).copied().unwrap_or(true) != allowed {
+        saved.mcp_allowed.insert(server.into(), allowed);
+        settings::persist(db, &mut info, &saved)?;
+    }
+    Ok(info)
+}
 
 pub(in crate::store) fn configuration(
     db: &Connection,
@@ -24,6 +63,7 @@ pub(in crate::store) fn configuration(
 
 pub(super) fn save(
     db: &Connection,
+    profile: Option<&std::path::Path>,
     package: &plugin::Reference,
     configuration: &Configuration,
 ) -> Result<Info, Fault> {
@@ -34,16 +74,26 @@ pub(super) fn save(
         ));
     }
     let mut saved = settings::stored(db, &info)?;
-    // Bound form fields remain the sole editor for their declared MCP slots.
-    if let Some(schema) = &info.settings {
-        for field in schema
-            .properties
-            .values()
-            .filter_map(|field| field.secret.as_ref())
-        {
-            if field.server.is_some() && (field.header.is_some() || field.env.is_some()) {
-                return Err(Fault::invalid("MCP slots use the plugin settings form"));
-            }
+    // Bound form fields remain the sole editor for their declared MCP servers.
+    let bound = info
+        .settings
+        .iter()
+        .flat_map(|schema| schema.properties.values())
+        .filter_map(|field| field.secret.as_ref())
+        .filter(|field| field.header.is_some() || field.env.is_some())
+        .filter_map(|field| field.server.as_deref())
+        .collect::<Vec<_>>();
+    if !bound.is_empty() {
+        let current = match &saved.mcp {
+            Some(current) => current.clone(),
+            None => crate::plugins::Host::new(profile.map(std::path::Path::to_owned))
+                .mcp_configuration(package, sailry_link::CancellationToken::new())?,
+        };
+        if bound.into_iter().any(|name| {
+            let previous = current.servers.get(name);
+            previous.is_none() || previous != configuration.servers.get(name)
+        }) {
+            return Err(Fault::invalid("MCP slots use the plugin settings form"));
         }
     }
     saved.mcp = Some(configuration.clone());
@@ -215,7 +265,7 @@ mod tests {
                     },
                 )]),
             };
-            let latest = save(&db, &info.summary.reference(), &configuration).unwrap();
+            let latest = save(&db, None, &info.summary.reference(), &configuration).unwrap();
             assert_eq!(
                 settings::stored(&db, &latest).unwrap().authorizations["github"].id,
                 id
@@ -225,5 +275,56 @@ mod tests {
                 id
             );
         }
+    }
+
+    #[test]
+    fn preserves_server_choices() {
+        let directory = tempfile::tempdir().unwrap();
+        let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
+        let mut info = host.install_bundled("github").unwrap();
+        info.settings = Some(
+            serde_json::from_value(serde_json::json!({
+                "$schema": plugin::settings::SCHEMA, "type": "object",
+                "additionalProperties": false, "properties": {}
+            }))
+            .unwrap(),
+        );
+        info.extension.as_mut().unwrap().settings_schema = None;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(include_str!("../schema.sql")).unwrap();
+        super::super::save(&db, &info, true).unwrap();
+        let original = info.clone();
+        let disabled = set_allowed(&db, &info.summary.reference(), "github", false).unwrap();
+        assert_eq!(disabled.summary.settings_revision, 1);
+        let unchanged = set_allowed(&db, &disabled.summary.reference(), "github", false).unwrap();
+        assert_eq!(unchanged, disabled);
+        let configuration = host
+            .mcp_configuration(
+                &disabled.summary.reference(),
+                sailry_link::CancellationToken::new(),
+            )
+            .unwrap();
+        let configured = save(&db, None, &disabled.summary.reference(), &configuration).unwrap();
+        let updated = settings::save(
+            &db,
+            &configured.summary.reference(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let current = settings::current(&db, &updated.package).unwrap();
+        assert!(!settings::stored(&db, &current).unwrap().mcp_allowed["github"]);
+        assert!(!settings::resolve(&db, &current).unwrap().mcp_allowed["github"]);
+        assert!(
+            settings::stored(&db, &original)
+                .unwrap()
+                .mcp_allowed
+                .is_empty()
+        );
+        assert!(!settings::stored(&db, &disabled).unwrap().mcp_allowed["github"]);
+        assert_eq!(
+            settings::stored(&db, &current).unwrap().mcp.unwrap(),
+            configuration
+        );
     }
 }
