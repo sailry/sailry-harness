@@ -93,9 +93,10 @@ impl Server {
                     let (status, retry, body) = match override_reply {
                         Some(Reply::Wait(release)) => {
                             held.cancel();
+                            let mut buffer = [0; 1];
                             tokio::select! {
                                 _ = release.cancelled() => {},
-                                _ = stream.read(&mut [0; 1]) => { disconnected.cancel(); return; },
+                                _ = stream.read(&mut buffer) => { disconnected.cancel(); return; },
                             }
                             (200, None, mapping(&path).to_string())
                         }
