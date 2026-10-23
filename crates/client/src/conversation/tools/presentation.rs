@@ -28,6 +28,7 @@ impl Call {
             && self.question.is_none()
             && !self.terminal_interaction
             && !self.diagnostics(page)
+            && self.images(page).is_empty()
     }
 
     pub fn details(&self, page: &Page) -> bool {
@@ -41,6 +42,9 @@ impl Call {
         if self.diagnostics(page) {
             return self.result(page).is_some();
         }
+        if !self.images(page).is_empty() {
+            return true;
+        }
         if matches!(
             self.presentation,
             Presentation::Summary | Presentation::Hidden
@@ -50,9 +54,6 @@ impl Call {
         let Some(result) = self.result(page) else {
             return false;
         };
-        if !self.images(page).is_empty() {
-            return true;
-        }
         if let Some(content) = &self.content {
             return content.has_visible(result);
         }

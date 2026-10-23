@@ -84,12 +84,11 @@ fn stdio_peer() {
                     .with_cache_scope(CacheScope::Private);
                 serde_json::to_value(listed).unwrap()
             }
-            "tools/call" if mode == "content" => {
-                assert_eq!(request["params"]["name"], "report");
-                let content: Value = serde_json::from_slice(
-                    &fs::read(Path::new(&root).join("content.json")).unwrap(),
-                )
-                .unwrap();
+            "tools/call" if matches!(mode.as_str(), "content" | "images") => {
+                assert_eq!(
+                    request["params"]["name"],
+                    if mode == "content" { "report" } else { "read" }
+                );
                 let mut png = Vec::new();
                 image::codecs::png::PngEncoder::new(&mut png)
                     .write_image(
@@ -99,11 +98,22 @@ fn stdio_peer() {
                         image::ExtendedColorType::Rgb8,
                     )
                     .unwrap();
-                let mut result = CallToolResult::success(vec![
-                    ContentBlock::text("Sample report: hello.txt updated; notes.txt unchanged"),
-                    ContentBlock::image(STANDARD.encode(png), "image/png"),
-                ]);
-                result.structured_content = Some(json!({"sailry_content":content,"sample":true}));
+                let mut result = CallToolResult::success(vec![ContentBlock::image(
+                    STANDARD.encode(png),
+                    "image/png",
+                )]);
+                if mode == "content" {
+                    let content: Value = serde_json::from_slice(
+                        &fs::read(Path::new(&root).join("content.json")).unwrap(),
+                    )
+                    .unwrap();
+                    result.content.insert(
+                        0,
+                        ContentBlock::text("Sample report: hello.txt updated; notes.txt unchanged"),
+                    );
+                    result.structured_content =
+                        Some(json!({"sailry_content":content,"sample":true}));
+                }
                 serde_json::to_value(result).unwrap()
             }
             "tools/call" => {

@@ -43,8 +43,8 @@ fn summaries_keep_original_data_without_details() {
 }
 
 #[test]
-fn images_follow_the_declared_mode() {
-    let mut page = returned(Presentation::Summary, json!({"data":"produced image"}));
+fn images_preserve_inspection() {
+    let mut page = returned(Presentation::Summary, Value::Null);
     if let Part::ToolResult { images, .. } = &mut page.entries[1].parts[0] {
         images.push(sailry_protocol::conversation::Image {
             entry: "event-2".into(),
@@ -62,9 +62,20 @@ fn images_follow_the_declared_mode() {
             },
         });
     }
-    assert!(!collect(&page)[0].details(&page));
-    if let Part::ToolCall { presentation, .. } = &mut page.entries[0].parts[0] {
-        *presentation = Presentation::Details;
+    for mode in [
+        Presentation::Summary,
+        Presentation::Hidden,
+        Presentation::Details,
+        Presentation::Content,
+    ] {
+        if let Part::ToolCall { presentation, .. } = &mut page.entries[0].parts[0] {
+            *presentation = mode;
+        }
+        let calls = collect(&page);
+        assert!(calls[0].details(&page));
+        assert!(!calls[0].hidden(&page));
+        assert_eq!(calls[0].result(&page), Some(&Value::Null));
+        assert_eq!(calls[0].images(&page).len(), 1);
     }
     declare(
         &mut page,
@@ -274,4 +285,26 @@ fn receipt_names_do_not_require_argument_titles() {
         assert_eq!(calls[0].arguments(&page), Some(&arguments));
         assert_eq!(calls[0].result(&page), Some(&result));
     }
+}
+
+#[test]
+fn hidden_business_errors_stay_hidden() {
+    for result in [
+        json!({"error":"business value"}),
+        json!({"isError":false,"error":"business value"}),
+    ] {
+        let page = returned(Presentation::Hidden, result.clone());
+        let calls = collect(&page);
+        assert!(calls[0].hidden(&page));
+        assert!(!calls[0].diagnostics(&page));
+        assert!(!calls[0].details(&page));
+        assert_eq!(calls[0].result(&page), Some(&result));
+    }
+    let result = json!({"isError":true,"error":"Before-tool hook failed"});
+    let page = returned(Presentation::Hidden, result.clone());
+    let calls = collect(&page);
+    assert!(!calls[0].hidden(&page));
+    assert!(calls[0].diagnostics(&page));
+    assert!(calls[0].details(&page));
+    assert_eq!(calls[0].result(&page), Some(&result));
 }

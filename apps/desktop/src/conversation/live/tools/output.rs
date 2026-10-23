@@ -48,12 +48,17 @@ pub(super) fn failure(_name: &str, value: Option<&Value>) -> Option<String> {
                 .join("\n"),
         );
     }
-    mcp_failure(value).or_else(|| value.get("output").and_then(mcp_failure))
+    marked_failure(value).or_else(|| value.get("output").and_then(marked_failure))
 }
 
-fn mcp_failure(value: &Value) -> Option<String> {
+fn marked_failure(value: &Value) -> Option<String> {
     if value.get("isError").and_then(Value::as_bool) != Some(true) {
         return None;
+    }
+    if let Some(error) = value.get("error").and_then(Value::as_str)
+        && !error.trim().is_empty()
+    {
+        return Some(error.to_owned());
     }
     let text = value
         .get("content")?

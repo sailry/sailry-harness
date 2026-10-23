@@ -129,3 +129,61 @@ async fn restores() {
         fixture.controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn undeclared_images_remain_inspectable() {
+    for remote in [false, true] {
+        let model = Server::tools(vec![(peer::alias("images", "read"), json!({}))]).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
+        package(
+            &fixture.root,
+            json!({"images":peer::config("mcp::modern::stdio_peer", "images")}),
+            "1.0.0",
+        );
+        install(&fixture, 0).await;
+        let (_, turn) = submit(&fixture, false).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        assert_eq!(view.calls.len(), 1);
+        let call = &view.calls[0];
+        assert_eq!(call.presentation, Presentation::Summary);
+        assert!(call.content.is_none());
+        assert!(call.details(&page));
+        assert!(!call.hidden(&page));
+        assert_eq!(call.images(&page).len(), 1);
+        let image = call.images(&page)[0].clone();
+        let Output::AttachmentDownload(download) = execute(
+            &fixture.client,
+            Command::DownloadImage {
+                session: fixture.session.id,
+                image: image.clone(),
+            },
+        )
+        .await
+        else {
+            panic!("image download expected")
+        };
+        let mut bytes = Vec::new();
+        fixture
+            .client
+            .download_attachment(
+                &download,
+                &mut bytes,
+                sailry_link::CancellationToken::new(),
+                |_| {},
+            )
+            .await
+            .unwrap();
+        assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().as_str(),
+            image.attachment.spec.revision
+        );
+        let restored: Page = serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
+        assert_eq!(restored, page);
+        assert_eq!(history(&fixture.client, fixture.session.id).await, page);
+        assert_eq!(model.requests.lock().unwrap().len(), 2);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}

@@ -101,7 +101,7 @@ fn cancellation_and_uncertainty_are_not_execution_errors() {
         ErrorCode::Unavailable,
         ErrorCode::InvalidRequest,
     ] {
-        let result = json!({"error":Fault::new(code,"Diagnostic retained"),
+        let result = json!({"isError":true,"error":Fault::new(code,"Diagnostic retained"),
             "sailry_result":{"version":1,"diagnostics":[],"status":{"label":"Complete"}}});
         assert_eq!(
             is_error("external_tool", Some(&result)),
@@ -444,5 +444,36 @@ fn undeclared_output_ignores_tool_names() {
                 preview(&result).text
             );
         }
+    }
+}
+
+#[test]
+fn marked_failures_keep_their_messages() {
+    let message = "Before-tool hook failed\nLiteral [diagnostic] 中文 🙂";
+    for result in [
+        json!({"isError":true,"error":message}),
+        json!({"output":{"isError":true,"error":message}}),
+    ] {
+        assert!(is_error("external_tool", Some(&result)));
+        assert_eq!(
+            failure("external_tool", Some(&result)).as_deref(),
+            Some(message)
+        );
+        for mode in [
+            Presentation::Summary,
+            Presentation::Hidden,
+            Presentation::Details,
+        ] {
+            let body = tool_preview("external_tool", mode, &result);
+            assert_eq!(body.text, message);
+            assert_eq!(body.copy_text(), message);
+        }
+    }
+    for result in [
+        json!({"error":message}),
+        json!({"isError":false,"error":message}),
+    ] {
+        assert!(!is_error("external_tool", Some(&result)));
+        assert!(failure("external_tool", Some(&result)).is_none());
     }
 }

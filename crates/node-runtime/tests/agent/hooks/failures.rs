@@ -174,3 +174,64 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
         fixture.controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn retains_hidden_tool_failures() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![(
+            "set_session_title".into(),
+            json!({"title":"Blocked title"}),
+        )])
+        .await;
+        let fixture = Fixture::packages(remote, &server, &[]).await;
+        save(
+            &fixture.client,
+            fixture.session.worktree,
+            Settings {
+                enabled: true,
+                before_tool: script("exit 9"),
+                ..Default::default()
+            },
+        )
+        .await;
+        let (_, turn) = submit(&fixture).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        let call = view
+            .calls
+            .iter()
+            .find(|call| call.name == "set_session_title")
+            .unwrap();
+        assert_eq!(
+            call.presentation,
+            sailry_protocol::tool::Presentation::Hidden
+        );
+        assert!(!call.hidden(&page));
+        assert!(call.diagnostics(&page));
+        assert!(call.details(&page));
+        let result = call.result(&page).unwrap();
+        assert_eq!(result["isError"], true);
+        assert!(
+            result["error"]
+                .as_str()
+                .unwrap()
+                .contains("before_tool hook failed")
+        );
+        let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
+            panic!("snapshot expected")
+        };
+        assert_ne!(
+            snapshot
+                .sessions
+                .iter()
+                .find(|session| session.id == fixture.session.id)
+                .unwrap()
+                .activity
+                .title,
+            "Blocked title"
+        );
+        assert_eq!(history(&fixture.client, fixture.session.id).await, page);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
