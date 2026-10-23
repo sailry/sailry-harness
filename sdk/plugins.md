@@ -414,8 +414,10 @@ successful read.
 
 `CardList` handles these states automatically. Its children are the row-content
 slot: existing children always remain visible; without children, `loaded: false`
-stays empty and a successful read shows `empty_label`. Omit
-the state props to use the original layout-only composition. The plugin still
+stays empty and a successful read shows `empty_label`. Settings lists may opt into
+`loading: true` to show a first-read skeleton card; this never covers existing
+rows or adds a floating overlay. Omit the state props to use the original
+layout-only composition. The plugin still
 owns requests, successful-read state, drafts and error reporting.
 
 ```js

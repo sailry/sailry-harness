@@ -1,6 +1,10 @@
 //! Script access to the shared card composition, without package-specific fields.
 use crate::ui::card_list::{self, Column};
-use gpui_kit::{IntoElement as _, ParentElement as _, SharedString, component::Icon};
+use gpui_kit::{
+    IntoElement as _, ParentElement as _, SharedString, Styled as _,
+    component::{Icon, StyledExt as _, skeleton::Skeleton},
+    div,
+};
 use gpui_shell::{HostModule, HostValue};
 
 pub(super) fn extend(module: HostModule) -> HostModule {
@@ -8,8 +12,8 @@ pub(super) fn extend(module: HostModule) -> HostModule {
         "{}\n{}",
         module.declared().unwrap_or_default(),
         r#"
-            /** Children are rows. Missing first-read data stays empty; existing rows survive refresh. */
-            export const CardList: { new(id: string, props?: { loaded?: boolean; empty_icon?: string; empty_label?: string }): import("gpui-kit").Element };
+            /** Children are rows. Loading opts into a first-read card; existing rows survive refresh. */
+            export const CardList: { new(id: string, props?: { loaded?: boolean; loading?: boolean; empty_icon?: string; empty_label?: string }): import("gpui-kit").Element };
             /** Non-selectable Kit card; children are CardColumn elements with their own controls. */
             export const CardRow: { new(id: string, props?: { row_id?: string }): import("gpui-kit").Element };
             /** Shared column widths and alignment; content and callbacks remain with the caller. */
@@ -23,6 +27,23 @@ pub(super) fn extend(module: HostModule) -> HostModule {
             let id = args.id().to_owned();
             let mut children = args.take_children();
             if children.is_empty()
+                && args.props().get("loading").and_then(HostValue::as_bool) == Some(true)
+            {
+                children.push(
+                    card_list::frame(
+                        format!("{id}-loading"),
+                        div()
+                            .v_flex()
+                            .w_full()
+                            .py_6()
+                            .gap_3()
+                            .child(Skeleton::new().w_40().h_4().rounded_md())
+                            .child(Skeleton::new().w_64().max_w_full().h_4().rounded_md()),
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            } else if children.is_empty()
                 && args.props().get("loaded").and_then(HostValue::as_bool) != Some(false)
                 && let Some(label) = args.props().get("empty_label").and_then(HostValue::as_str)
             {
