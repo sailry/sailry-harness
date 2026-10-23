@@ -133,7 +133,6 @@ impl Host {
                 false,
                 &stop,
                 || async {
-                    let _permit = self.read_permit(&stop).await?;
                     let (file, _) = self
                         .registry
                         .acquire(
@@ -168,7 +167,6 @@ impl Host {
             .registry_reads
             .discoveries
             .fetch(key, std::time::Duration::ZERO, true, &stop, || async {
-                let _permit = self.read_permit(&stop).await?;
                 let (file, source) = self.registry.acquire(source, None, &stop).await?;
                 let resolved = source.clone();
                 let document_source = source.clone();
@@ -241,7 +239,9 @@ impl Host {
         selected_name: &str,
         stop: CancellationToken,
     ) -> Result<Option<Info>, Fault> {
-        let _permit = self.read_permit(&stop).await?;
+        if stop.is_cancelled() {
+            return Err(super::github::cancelled());
+        }
         let (file, resolved) = self
             .registry
             .acquire(

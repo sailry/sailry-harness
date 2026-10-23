@@ -15,11 +15,6 @@ impl Host {
         current: &sailry_protocol::plugin::Summary,
         stop: CancellationToken,
     ) -> Result<Option<Selection>, Fault> {
-        let _permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
         let selected = source::Selection::parse(source)?;
         let (bytes, resolved) = self.source_manifest(&selected, stop.clone()).await?;
         let manifest = manifest::parse(&bytes)?;
@@ -60,11 +55,6 @@ impl Host {
         source: &Source,
         stop: CancellationToken,
     ) -> Result<Selection, Fault> {
-        let _permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
         let selected = source::Selection::parse(source)?;
         let (archive, source) = self
             .source_archive(&selected, None, stop.clone(), None)

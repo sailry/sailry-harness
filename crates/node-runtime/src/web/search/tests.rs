@@ -501,3 +501,55 @@ async fn requests_each_provider_page_without_requerying() {
         }
     }
 }
+
+#[tokio::test]
+async fn searches_independent_requests_together() {
+    let server = Server::start().await;
+    let owner = Arc::new(Searcher::default());
+    let plan = plan(&[Driver::Tavily]);
+    owner.configure(plan.settings.clone());
+    owner.fixture(Driver::Tavily, &server.url(Driver::Tavily));
+    let release = CancellationToken::new();
+    let ids: Vec<_> = (0..12).map(|_| RequestId::new()).collect();
+    server.respond(
+        "/tavily",
+        ids.iter().map(|_| Reply::Wait(release.clone())).collect(),
+    );
+    let caller = NodeId([1; 32]);
+    let pending: Vec<_> = ids
+        .iter()
+        .map(|id| {
+            let (owner, plan, id) = (owner.clone(), plan.clone(), *id);
+            tokio::spawn(async move {
+                owner
+                    .search(caller, id, plan, &input(), &CancellationToken::new())
+                    .await
+            })
+        })
+        .collect();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while server.count("/tavily") != ids.len() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("independent searches must reach HTTP together");
+    assert_eq!(owner.active.lock().unwrap().len(), ids.len());
+    assert_eq!(
+        owner
+            .search(caller, ids[0], plan, &input(), &CancellationToken::new())
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::Busy
+    );
+    release.cancel();
+    let completed =
+        tokio::time::timeout(Duration::from_secs(10), futures::future::join_all(pending))
+            .await
+            .unwrap();
+    for result in completed {
+        assert_eq!(result.unwrap().unwrap().driver, Driver::Tavily);
+    }
+    assert!(owner.active.lock().unwrap().is_empty());
+}

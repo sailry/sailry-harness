@@ -15,7 +15,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-const MAX_DRAFTS: usize = 16;
 const MAX_COMMAND_BYTES: usize = 2 * 1024 * 1024;
 
 pub(super) struct Host {

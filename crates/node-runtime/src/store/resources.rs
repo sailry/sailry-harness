@@ -118,7 +118,7 @@ impl Worker {
     }
 
     pub fn submit(&mut self, execution: Execution) -> Result<(), Box<Execution>> {
-        if self.pending >= super::CAPACITY || self.ingress.closed.is_cancelled() {
+        if self.ingress.closed.is_cancelled() {
             return Err(Box::new(execution));
         }
         let stop = if let Some(turn) = turn(&execution.request) {
@@ -215,3 +215,6 @@ impl Worker {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

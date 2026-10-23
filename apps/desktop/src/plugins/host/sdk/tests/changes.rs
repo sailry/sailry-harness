@@ -25,10 +25,21 @@ fn coalesces_changes_and_ends_with_the_view() {
     let pending = module
         .begin("nextChange", &args(json!([first["cursor"]])))
         .unwrap();
-    assert!(module.begin("nextChange", &args(json!([]))).is_err());
-    host.observe(1, 0, true);
-    host.observe(7, 0, true);
-    let next = decode(&fixture.runtime.block_on(pending).unwrap()).unwrap();
+    let other = module
+        .begin("nextChange", &args(json!([first["cursor"]])))
+        .unwrap();
+    let next = fixture.runtime.block_on(async {
+        let mut first = std::pin::pin!(pending);
+        let mut second = std::pin::pin!(other);
+        assert!(futures::poll!(&mut first).is_pending());
+        assert!(futures::poll!(&mut second).is_pending());
+        host.observe(1, 0, true);
+        host.observe(7, 0, true);
+        let (first, second) = futures::join!(first, second);
+        let first = decode(&first.unwrap()).unwrap();
+        assert_eq!(first, decode(&second.unwrap()).unwrap());
+        first
+    });
     assert_eq!(
         next,
         json!({"cursor":"7:true:0","connected":true,"entry":"0"})
@@ -50,17 +61,21 @@ fn coalesces_changes_and_ends_with_the_view() {
         next,
         json!({"cursor":"8:true:2","connected":true,"entry":"2"})
     );
-    let pending = module
+    let global = module
         .begin("nextChange", &args(json!([next["cursor"]])))
         .unwrap();
-    // A shared cursor can advance without making this package dirty.
-    drop(pending);
     let first = complete(&fixture, &module, "nextChange", json!(["", "package"]));
     let pending = module
         .begin("nextChange", &args(json!([first["cursor"], "package"])))
         .unwrap();
-    host.observe(9, 0, true);
     let mut pending = std::pin::pin!(pending);
+    fixture.runtime.block_on(async {
+        assert!(futures::poll!(&mut pending).is_pending());
+    });
+    // A shared cursor can advance without making this package dirty.
+    host.observe(9, 0, true);
+    let next = decode(&fixture.runtime.block_on(global).unwrap()).unwrap();
+    assert_eq!(next["cursor"], "9:true:2");
     fixture.runtime.block_on(async {
         assert!(futures::poll!(&mut pending).is_pending());
     });

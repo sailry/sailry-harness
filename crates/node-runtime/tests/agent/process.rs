@@ -780,3 +780,53 @@ async fn delivers_completion_without_consuming_controller_reads() {
         fixture.node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn starts_independent_commands_together() {
+    for remote in [false, true] {
+        let server = Server::start(true).await;
+        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
+        let turn = approvals::submit(&fixture.client, fixture.session.id).await;
+        server.wait_count(1).await;
+        let mut pending = Vec::new();
+        for index in 0..12 {
+            let request = fixture.command(turn, &format!(
+                "printf ready > command-{index}.ready; while [ ! -f release ]; do sleep 0.01; done; printf done"
+            ));
+            let admission = fixture.client.dispatch(request).await.unwrap();
+            assert!(admission.receipt.durable);
+            pending.push(admission.completion);
+        }
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if (0..pending.len())
+                    .all(|index| fixture.root.join(format!("command-{index}.ready")).exists())
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("independent commands must start before releasing any");
+        std::fs::write(fixture.root.join("release"), "go").unwrap();
+        let completed =
+            tokio::time::timeout(Duration::from_secs(10), futures::future::join_all(pending))
+                .await
+                .unwrap();
+        for result in completed {
+            let Output::CommandResult(result) = result.unwrap().unwrap() else {
+                panic!("command result expected")
+            };
+            assert_eq!(result.outcome, Outcome::Exited(0));
+            assert_eq!(result.stdout.text, "done");
+        }
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::StopTurn { turn }))
+            .await
+            .unwrap();
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}

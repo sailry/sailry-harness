@@ -246,7 +246,7 @@ async fn installs_and_updates_verified_packages() {
 }
 
 #[tokio::test]
-async fn queues_reads_and_releases_cancelled_slots() {
+async fn isolates_keys_and_releases_cancelled_acquisitions() {
     for remote in [false, true] {
         let registry = fixture::Registry::start().await;
         let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
@@ -282,7 +282,8 @@ async fn queues_reads_and_releases_cancelled_slots() {
         };
         let first = start(None);
         let second = start(Some("1.0.0"));
-        tokio::time::timeout(Duration::from_secs(5), registry.arrivals.acquire_many(2))
+        let third = start(Some("1.1.0"));
+        tokio::time::timeout(Duration::from_secs(5), registry.arrivals.acquire_many(3))
             .await
             .unwrap()
             .unwrap()
@@ -313,6 +314,8 @@ async fn queues_reads_and_releases_cancelled_slots() {
             .forget();
         second.abort();
         assert!(second.await.unwrap_err().is_cancelled());
+        third.abort();
+        assert!(third.await.unwrap_err().is_cancelled());
         latest_gate.add_permits(1);
         let Output::RegistrySkillDiscovery(discovery) =
             tokio::time::timeout(Duration::from_secs(5), latest)
@@ -333,7 +336,7 @@ async fn queues_reads_and_releases_cancelled_slots() {
                 .iter()
                 .filter(|path| path.starts_with("/api/v1/skills/analysis"))
                 .count(),
-            3
+            4
         );
         registry.state.lock().unwrap().hold = None;
         let Output::SkillDocument(document) = client

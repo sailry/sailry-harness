@@ -21,20 +21,30 @@ impl Cache {
         if offset != 0 {
             return Err(restart());
         }
-        if self.entries.len() >= web::CACHE_ENTRIES {
-            let oldest = self
+        self.evict(web::CACHE_ENTRIES - 1);
+        let slot = Arc::new(tokio::sync::Mutex::new(None));
+        self.entries
+            .insert(url.into(), (Instant::now(), slot.clone()));
+        Ok(slot)
+    }
+
+    pub(super) fn trim(&mut self) {
+        self.evict(web::CACHE_ENTRIES);
+    }
+
+    fn evict(&mut self, capacity: usize) {
+        while self.entries.len() > capacity {
+            let Some(oldest) = self
                 .entries
                 .iter()
                 .filter(|(_, (_, slot))| Arc::strong_count(slot) == 1)
                 .min_by_key(|(_, (used, _))| *used)
                 .map(|(url, _)| url.clone())
-                .ok_or_else(|| Fault::new(ErrorCode::Busy, "web cache capacity is exhausted"))?;
+            else {
+                break;
+            };
             self.entries.remove(&oldest);
         }
-        let slot = Arc::new(tokio::sync::Mutex::new(None));
-        self.entries
-            .insert(url.into(), (Instant::now(), slot.clone()));
-        Ok(slot)
     }
 }
 

@@ -1,4 +1,4 @@
-//! Bounded Node-owned read results; unrelated keys never wait for network work.
+//! Node-owned read results retain bounded idle keys without limiting acquisitions.
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{
@@ -12,6 +12,32 @@ type Slot<V> = Arc<tokio::sync::Mutex<State<V>>>;
 type Entries<K, V> = Vec<(K, Instant, Slot<V>)>;
 
 pub(in crate::plugins) struct Cache<K, V>(Mutex<Entries<K, V>>);
+
+struct Retention<'a, K, V>(&'a Cache<K, V>);
+
+impl<K, V> Drop for Retention<'_, K, V> {
+    fn drop(&mut self) {
+        let cache = self.0;
+        if let Ok(mut entries) = cache.0.lock() {
+            evict(&mut entries, CAPACITY);
+        }
+    }
+}
+
+fn evict<K, V>(entries: &mut Entries<K, V>, capacity: usize) {
+    while entries.len() > capacity {
+        let Some(index) = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, _, slot))| Arc::strong_count(slot) == 1)
+            .min_by_key(|(_, (_, used, _))| *used)
+            .map(|(index, _)| index)
+        else {
+            break;
+        };
+        entries.swap_remove(index);
+    }
+}
 
 impl<K, V> Default for Cache<K, V> {
     fn default() -> Self {
@@ -42,16 +68,7 @@ impl<K: Eq + Clone, V: Clone> Cache<K, V> {
             *used = Instant::now();
             return Ok(slot.clone());
         }
-        if entries.len() == CAPACITY {
-            let index = entries
-                .iter()
-                .enumerate()
-                .filter(|(_, (_, _, slot))| Arc::strong_count(slot) == 1)
-                .min_by_key(|(_, (_, used, _))| *used)
-                .map(|(index, _)| index)
-                .ok_or_else(|| Fault::new(ErrorCode::Busy, "read cache is busy"))?;
-            entries.remove(index);
-        }
+        evict(&mut entries, CAPACITY - 1);
         let slot = Arc::new(tokio::sync::Mutex::new(State::default()));
         entries.push((key.clone(), Instant::now(), slot.clone()));
         Ok(slot)
@@ -68,6 +85,7 @@ impl<K: Eq + Clone, V: Clone> Cache<K, V> {
     }
 
     pub fn insert(&self, key: K, value: V) -> Result<(), Fault> {
+        let _retention = Retention(self);
         let slot = self.slot(&key)?;
         let Ok(mut state) = slot.try_lock() else {
             return Ok(());
@@ -91,6 +109,7 @@ impl<K: Eq + Clone, V: Clone> Cache<K, V> {
         T: Future<Output = Result<V, Fault>>,
     {
         let requested = Instant::now();
+        let _retention = Retention(self);
         let slot = self.slot(&key)?;
         let mut state = tokio::select! {biased;
             _ = stop.cancelled() => return Err(super::github::cancelled()),

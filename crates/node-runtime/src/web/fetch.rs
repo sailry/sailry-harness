@@ -45,10 +45,10 @@ impl Fetcher {
         let url = policy::url(&input.url)?;
         let query = {
             let mut active = self.active.lock().expect("web fetch lock is healthy");
-            if active.len() >= 8 || active.contains_key(&(caller, id)) {
+            if active.contains_key(&(caller, id)) {
                 return Err(Fault::new(
                     ErrorCode::Busy,
-                    "web fetch capacity is exhausted",
+                    "web fetch request is already running",
                 ));
             }
             let stop = stop.child_token();
@@ -183,5 +183,10 @@ impl Drop for Query {
             .lock()
             .expect("web fetch lock is healthy")
             .remove(&self.key);
+        self.owner
+            .cache
+            .lock()
+            .expect("web cache lock is healthy")
+            .trim();
     }
 }

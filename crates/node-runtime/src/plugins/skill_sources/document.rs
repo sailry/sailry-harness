@@ -12,12 +12,11 @@ impl Host {
         if let DocumentSource::Registry(source) = source {
             return self.registry_document(source, stop).await;
         }
-        let _permit = self.read_permit(&stop).await?;
+        if stop.is_cancelled() {
+            return Err(cancelled());
+        }
         match source {
             DocumentSource::Bundled { package, skill } => {
-                if stop.is_cancelled() {
-                    return Err(cancelled());
-                }
                 super::super::bundled::document(package, skill)
             }
             DocumentSource::Registry(_) => {

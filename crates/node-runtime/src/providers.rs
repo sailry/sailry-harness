@@ -23,25 +23,19 @@ use sailry_protocol::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
     time::Duration,
 };
-use tokio::sync::Semaphore;
 
 const PAGE_BYTES: usize = 2 * 1024 * 1024;
 const TOTAL_BYTES: usize = 8 * 1024 * 1024;
 const MODEL_LIMIT: usize = 1000;
 
 #[derive(Clone)]
-pub(crate) struct Discovery {
-    capacity: Arc<Semaphore>,
-}
+pub(crate) struct Discovery;
 
 impl Discovery {
     pub(crate) fn new() -> Self {
-        Self {
-            capacity: Arc::new(Semaphore::new(4)),
-        }
+        Self
     }
 
     pub(crate) async fn read(
@@ -71,10 +65,6 @@ impl Discovery {
         query: impl std::future::Future<Output = Result<T, Fault>>,
         closed: CancellationToken,
     ) -> Result<T, Fault> {
-        let _permit = self
-            .capacity
-            .try_acquire()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "model discovery capacity exhausted"))?;
         tokio::select! {
             biased;
             _ = closed.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "model discovery cancelled")),
@@ -272,3 +262,6 @@ async fn read(
 fn unavailable(message: &str) -> Fault {
     Fault::new(ErrorCode::Unavailable, message)
 }
+
+#[cfg(test)]
+mod tests;

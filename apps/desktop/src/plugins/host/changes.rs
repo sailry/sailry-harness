@@ -2,7 +2,7 @@
 //! No second subscription, resource payload, history reducer or recovery loop.
 use super::*;
 use gpui_shell::HostObject;
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::watch;
 
 #[derive(Clone, Default, PartialEq, Eq)]
 struct State {
@@ -25,14 +25,12 @@ impl State {
 
 pub(super) struct Changes {
     state: watch::Sender<State>,
-    pending: Arc<Semaphore>,
 }
 
 impl Default for Changes {
     fn default() -> Self {
         Self {
             state: watch::channel(State::default()).0,
-            pending: Arc::new(Semaphore::new(1)),
         }
     }
 }
@@ -71,15 +69,8 @@ impl Host {
                 _ => return Err(HostError::new("invalid change scope")),
             };
             let mut updates = owner.changes.state.subscribe();
-            let permit = owner
-                .changes
-                .pending
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| HostError::new("a view change request is already pending"))?;
             let stop = owner.stop.clone();
             Ok(async move {
-                let _permit = permit;
                 loop {
                     if stop.is_cancelled() {
                         return Err(HostError::new("plugin view is closed"));

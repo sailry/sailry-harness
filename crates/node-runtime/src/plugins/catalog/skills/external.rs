@@ -145,7 +145,6 @@ impl Host {
             .external_skill_catalog
             .0
             .fetch(key, Duration::from_secs(15 * 60), force, &stop, || async {
-                let _permit = self.read_permit(&stop).await?;
                 match source {
                     DirectorySource::SkillsSh => self.directory_page(query, page, &stop).await,
                     DirectorySource::Skillhub => self.hub_page(query, page, &stop).await,

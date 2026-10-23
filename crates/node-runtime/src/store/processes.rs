@@ -1,6 +1,6 @@
 //! Managed commands share durable admission; waiting never occupies the file mutation worker.
 use super::{
-    CAPACITY, Job,
+    Job,
     database::{Database, storage_error},
     external::Completed,
 };
@@ -12,7 +12,7 @@ use sailry_protocol::*;
 use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{
     runtime::Handle,
-    sync::{Semaphore, mpsc, oneshot},
+    sync::{mpsc, oneshot},
 };
 
 pub(super) struct Execution {
@@ -121,7 +121,6 @@ pub(super) struct Worker {
     closed: CancellationToken,
     agents: Arc<crate::agent::Controls>,
     environment: Arc<Environment>,
-    capacity: Arc<Semaphore>,
     commands: Arc<process::background::Commands>,
     code: Arc<crate::code::Pool>,
     plugins: crate::plugins::Host,
@@ -139,12 +138,11 @@ impl Worker {
             closed: ingress.closed.clone(),
             agents: ingress.agents.clone(),
             environment: ingress.environment.clone(),
-            capacity: Arc::new(Semaphore::new(8)),
         }
     }
 
     pub fn submit(&mut self, execution: Execution) -> Result<(), Box<Execution>> {
-        if self.pending >= CAPACITY || self.closed.is_cancelled() {
+        if self.closed.is_cancelled() {
             return Err(Box::new(execution));
         }
         let Command::RunCommand { turn, .. } = execution.request.command else {
@@ -157,7 +155,6 @@ impl Worker {
         let closed = self.closed.clone();
         let completed = self.completed.clone();
         let environment = self.environment.clone();
-        let capacity = self.capacity.clone();
         let commands = self.commands.clone();
         let code = self.code.clone();
         let agents = self.agents.clone();
@@ -174,8 +171,18 @@ impl Worker {
                 let preparing = stop.child_token();
                 let stopping = preparing.clone();
                 let closing = closed.clone();
-                let watch = tokio::spawn(async move { closing.cancelled().await; stopping.cancel(); });
-                let prepared = plugins.command_python(&environment, execution.launch.session, &agents.python(turn), &preparing).await;
+                let watch = tokio::spawn(async move {
+                    closing.cancelled().await;
+                    stopping.cancel();
+                });
+                let prepared = plugins
+                    .command_python(
+                        &environment,
+                        execution.launch.session,
+                        &agents.python(turn),
+                        &preparing,
+                    )
+                    .await;
                 watch.abort();
                 execution.launch.launch.python = match prepared {
                     Ok(python) => python,
@@ -188,25 +195,17 @@ impl Worker {
                     if stop.is_cancelled() || closed.is_cancelled() {
                         return Ok(Output::CommandResult(process::cancelled()));
                     }
-                    let info=commands
-                        .start(
-                            execution.request.id,
-                            execution.launch.session,
-                            turn,
-                            execution.launch.launch,
-                            environment,
-                            closed,
-                        )?;
-                    commands.watch(info.id,execution.launch.worktree,code);
+                    let info = commands.start(
+                        execution.request.id,
+                        execution.launch.session,
+                        turn,
+                        execution.launch.launch,
+                        environment,
+                        closed,
+                    )?;
+                    commands.watch(info.id, execution.launch.worktree, code);
                     return Ok(Output::CommandStarted(info));
                 }
-                let permit = tokio::select! {
-                    biased;
-                    _ = stop.cancelled() => return Ok(Output::CommandResult(process::cancelled())),
-                    _ = closed.cancelled() => return Ok(Output::CommandResult(process::cancelled())),
-                    permit = capacity.acquire_owned() => permit.map_err(|_| super::unavailable())?,
-                };
-                let _permit = permit;
                 process::execute(execution.launch.launch, &environment, &stop, &closed)
                     .await
                     .map(Output::CommandResult)

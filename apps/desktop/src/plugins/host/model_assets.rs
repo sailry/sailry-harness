@@ -15,11 +15,6 @@ pub(super) struct Services {
     install: bool,
     drafts: BTreeMap<RequestId, controller::Draft>,
 }
-impl Services {
-    pub(super) fn len(&self) -> usize {
-        self.drafts.len()
-    }
-}
 
 impl Host {
     pub(in crate::plugins) fn model_services(

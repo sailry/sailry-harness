@@ -123,3 +123,69 @@ fn commits_scoped_values_and_notices_atomically() {
         fixture.close();
     }
 }
+
+#[test]
+fn completes_independent_drafts_together() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let Output::Plugin(package) = fixture.execute(Command::ReadPlugin {
+            name: "reminders".into(),
+        }) else {
+            panic!("plugin expected")
+        };
+        let host = Host::new(
+            fixture.binding.client.clone(),
+            Context {
+                invocation: None,
+                turn: None,
+                surface: Default::default(),
+                package: package.summary.reference(),
+                worktree: None,
+                session: None,
+            },
+            fixture.runtime.handle().clone(),
+            false,
+            None,
+        );
+        let module = host.sdk();
+        let drafts: Vec<_> = (0..24)
+            .map(|index| {
+                call(
+                    &module,
+                    "setValue",
+                    json!([format!("item-{index}"), index, "0"]),
+                )
+            })
+            .collect();
+        assert_eq!(host.requests.lock().unwrap().len(), drafts.len());
+        let pending: Vec<_> = drafts
+            .iter()
+            .map(|id| module.begin("completeRequest", &args(json!([id]))).unwrap())
+            .collect();
+        let completed = fixture.runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), futures::future::join_all(pending))
+                .await
+                .expect("concurrent value write deadline")
+        });
+        for (index, outcome) in completed.into_iter().enumerate() {
+            let outcome = decode(&outcome.unwrap()).unwrap();
+            assert_eq!(outcome["Ok"]["data"]["revision"], "1");
+            assert_eq!(outcome["Ok"]["data"]["value"], index);
+        }
+        assert_eq!(
+            complete(&fixture, &module, "listKeys", json!([]))["keys"]
+                .as_array()
+                .unwrap()
+                .len(),
+            drafts.len()
+        );
+        let oversized = "x".repeat(MAX_COMMAND_BYTES);
+        assert!(
+            module
+                .call("setValue", &args(json!(["large", oversized, "0"])))
+                .is_err()
+        );
+        host.close();
+        fixture.close();
+    }
+}

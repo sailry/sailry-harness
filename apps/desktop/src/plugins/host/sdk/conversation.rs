@@ -2,19 +2,17 @@
 use super::*;
 use sailry_protocol::{SessionId, TurnId};
 use std::sync::OnceLock;
-use tokio::sync::{Semaphore, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 
 pub(in crate::plugins::host) struct Subscription {
     pub(in crate::plugins::host) receiver:
         OnceLock<watch::Receiver<sailry_client::conversation::View>>,
-    pending: Arc<Semaphore>,
 }
 
 impl Default for Subscription {
     fn default() -> Self {
         Self {
             receiver: OnceLock::new(),
-            pending: Arc::new(Semaphore::new(1)),
         }
     }
 }
@@ -97,15 +95,8 @@ impl Host {
     > {
         let session = self.session()?;
         let permission = self.read_public(Command::ReadSession { session })?;
-        let permit = self
-            .conversation
-            .pending
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| HostError::new("a conversation update request is already pending"))?;
         let owner = self.clone();
         Ok(async move {
-            let _permit = permit;
             // The Node checks the live package and its declared read action before
             // exposing any data from the shared subscription, including cached data.
             permission.await?;

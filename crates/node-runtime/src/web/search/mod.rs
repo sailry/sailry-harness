@@ -1,4 +1,4 @@
-//! Configured Node-owned search drivers share bounded requests and one cooldown owner.
+//! Configured Node-owned search drivers share scoped requests and one cooldown owner.
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault, NodeId, RequestId, Secret,
@@ -91,10 +91,10 @@ impl Searcher {
         input.validate()?;
         let request = {
             let mut active = self.active.lock().expect("search requests lock is healthy");
-            if active.len() >= 8 || active.contains_key(&(caller, id)) {
+            if active.contains_key(&(caller, id)) {
                 return Err(Fault::new(
                     ErrorCode::Busy,
-                    "web search capacity is exhausted",
+                    "web search request is already running",
                 ));
             }
             let stop = stop.child_token();

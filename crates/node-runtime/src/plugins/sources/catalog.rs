@@ -8,11 +8,6 @@ impl Host {
         source: &Source,
         stop: CancellationToken,
     ) -> Result<Details, Fault> {
-        let _permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
         let selected = source::Selection::parse(source)?;
         let (archive, resolved) = self
             .source_archive(&selected, None, stop.clone(), None)

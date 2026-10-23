@@ -5,7 +5,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sailry_protocol::{ErrorCode, Fault, HostInfo, MemoryUsage, NodeId};
 use sysinfo::System;
-use tokio::sync::Semaphore;
 
 mod metrics;
 pub(crate) mod processes;
@@ -13,7 +12,6 @@ pub(crate) mod processes;
 pub(crate) struct Host {
     started: Instant,
     cached: Mutex<Option<(Instant, HostInfo)>>,
-    capacity: Arc<Semaphore>,
     sampler: Mutex<metrics::Sampler>,
 }
 
@@ -22,20 +20,13 @@ impl Host {
         Arc::new(Self {
             started: Instant::now(),
             cached: Mutex::new(None),
-            capacity: Arc::new(Semaphore::new(4)),
             sampler: Mutex::new(metrics::Sampler::new()),
         })
     }
 
     pub(crate) async fn inspect(self: &Arc<Self>, node: NodeId) -> Result<HostInfo, Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "host sampling capacity exhausted"))?;
         let host = self.clone();
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             let mut cached = host.cached.lock().map_err(|_| unavailable())?;
             if let Some((sampled, info)) = cached.as_ref()
                 && sampled.elapsed() < Duration::from_secs(1)
@@ -77,14 +68,8 @@ impl Host {
         self: &Arc<Self>,
         node: NodeId,
     ) -> Result<sailry_protocol::host::metrics::Sample, Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "host sampling capacity exhausted"))?;
         let host = self.clone();
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             host.sampler.lock().map_err(|_| unavailable())?.sample(node)
         })
         .await
@@ -101,17 +86,18 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn reuses_bounded_samples() {
+    async fn shares_information_with_concurrent_readers() {
         let host = Host::new();
-        let occupied = host.capacity.clone().acquire_many_owned(4).await.unwrap();
-        assert_eq!(
-            host.inspect(NodeId([1; 32])).await.unwrap_err().code,
-            ErrorCode::Busy
-        );
-        drop(occupied);
-        let first = host.inspect(NodeId([1; 32])).await.unwrap();
-        let second = host.inspect(NodeId([1; 32])).await.unwrap();
-        assert_eq!(first, second);
-        assert_eq!(host.capacity.available_permits(), 4);
+        let cached = host.cached.lock().unwrap();
+        let reads = (0..12).map(|_| host.inspect(NodeId([1; 32])));
+        let reads = futures::future::join_all(reads);
+        let mut reads = std::pin::pin!(reads);
+        assert!(futures::poll!(&mut reads).is_pending());
+        drop(cached);
+        let results = reads.await;
+        let first = results[0].as_ref().unwrap();
+        for result in &results {
+            assert_eq!(result.as_ref().unwrap(), first);
+        }
     }
 }

@@ -262,9 +262,6 @@ impl Host {
             return Err(HostError::new("plugin command exceeds the size limit"));
         }
         let mut requests = self.requests.lock().map_err(lock_error)?;
-        if requests.len() + self.models.lock().map_err(lock_error)?.len() >= MAX_DRAFTS {
-            return Err(HostError::new("plugin request draft capacity exhausted"));
-        }
         let request = self.client.prepare(command).with_plugin(self.context());
         let id = request.id;
         self.prepare_settings(id, &request.command)?;

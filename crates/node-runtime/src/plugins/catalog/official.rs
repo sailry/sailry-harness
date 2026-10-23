@@ -124,11 +124,6 @@ pub(super) async fn document(
     let url = url(host);
     host.official_catalog
         .fetch(url.as_str(), force, stop, || async {
-            let _permit = host
-                .reads
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| Fault::new(ErrorCode::Busy, "plugin catalog is busy"))?;
             let commit = resolve(host, stop).await?;
             let index: Index = host.catalog_json(fixed_url(host, &commit), stop).await?;
             let mut document = parse(index)?;

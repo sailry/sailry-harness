@@ -22,7 +22,6 @@ impl Host {
     pub(super) fn prepare_controller(&self, operation: Operation) -> Result<HostValue, HostError> {
         self.check()?;
         let package = self.context().package;
-        let requests = self.requests.lock().map_err(lock_error)?;
         let mut models = self.models.lock().map_err(lock_error)?;
         if !models.install {
             return Err(fault(sailry_protocol::Fault::new(
@@ -35,9 +34,6 @@ impl Host {
                 sailry_protocol::ErrorCode::Unavailable,
                 "speech installation requires a controller",
             )));
-        }
-        if requests.len() + models.drafts.len() >= MAX_DRAFTS {
-            return Err(HostError::new("plugin request draft capacity exhausted"));
         }
         let id = RequestId::new();
         models.drafts.insert(

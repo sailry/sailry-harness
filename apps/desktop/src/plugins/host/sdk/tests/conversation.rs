@@ -101,10 +101,31 @@ fn controls_captured_session_and_observes_shared_history() {
             "revision_conflict"
         );
         call(&module, "forgetRequest", json!([stale]));
+        let before = until(&fixture, &module, |view| {
+            view["snapshot"]["page"]["runs"][0]["status"] == "queued"
+        });
+        let first = module
+            .begin("nextConversation", &args(json!([before["cursor"]])))
+            .unwrap();
+        let second = module
+            .begin("nextConversation", &args(json!([before["cursor"]])))
+            .unwrap();
         let stop = call(&module, "stopTurn", json!([turn]));
         let stopped = complete(&fixture, &module, "completeRequest", json!([stop]));
         assert_eq!(stopped["Ok"]["data"]["status"], "cancelled", "{stopped}");
         call(&module, "forgetRequest", json!([stop]));
+        fixture.runtime.block_on(async {
+            let (first, second) = tokio::time::timeout(
+                Duration::from_secs(10),
+                futures::future::join(first, second),
+            )
+            .await
+            .expect("concurrent conversation subscription deadline");
+            let first = decode(&first.unwrap()).unwrap();
+            let second = decode(&second.unwrap()).unwrap();
+            assert_ne!(first["cursor"], before["cursor"]);
+            assert_ne!(second["cursor"], before["cursor"]);
+        });
         let stopped = until(&fixture, &module, |view| {
             view["snapshot"]["page"]["runs"][0]["status"] == "cancelled"
         });

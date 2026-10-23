@@ -9,7 +9,6 @@ use std::sync::{Arc, OnceLock};
 pub(super) struct Files {
     allowed: bool,
     receiver: OnceLock<tokio::sync::watch::Receiver<FileView>>,
-    pending: Arc<tokio::sync::Semaphore>,
 }
 
 impl Files {
@@ -17,7 +16,6 @@ impl Files {
         Self {
             allowed,
             receiver: OnceLock::new(),
-            pending: Arc::new(tokio::sync::Semaphore::new(1)),
         }
     }
 
@@ -35,11 +33,6 @@ impl Files {
         if !self.allowed {
             return Err(HostError::new("plugin does not declare file reading"));
         }
-        let permit = self
-            .pending
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| HostError::new("a file change request is already pending"))?;
         let mut receiver = self
             .receiver
             .get_or_init(|| {
@@ -53,7 +46,6 @@ impl Files {
             .clone();
         Ok(async move {
             let task = runtime.spawn(async move {
-                let _permit = permit;
                 loop {
                     let value = {
                         let view = receiver.borrow_and_update();
@@ -77,3 +69,6 @@ impl Files {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -162,11 +162,6 @@ impl Host {
         let name = current.summary.name.clone();
         let (mut candidate, origin) = match &current.origin {
             Some(Origin::Worktree { worktree, path }) => {
-                let _permit = self
-                    .reads
-                    .clone()
-                    .try_acquire_owned()
-                    .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
                 let origin = Origin::Worktree {
                     worktree: *worktree,
                     path: path.clone(),

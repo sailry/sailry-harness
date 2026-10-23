@@ -26,7 +26,9 @@ impl Host {
         source: &Source,
         stop: CancellationToken,
     ) -> Result<Discovery, Fault> {
-        let _permit = self.read_permit(&stop).await?;
+        if stop.is_cancelled() {
+            return Err(cancelled());
+        }
         let (source, selected_skill) = directory::resolve(source)?;
         let selected = source::Selection::parse(&source)?;
         let (file, source) = self
@@ -86,7 +88,9 @@ impl Host {
         name: &str,
         stop: CancellationToken,
     ) -> Result<Info, Fault> {
-        let _permit = self.read_permit(&stop).await?;
+        if stop.is_cancelled() {
+            return Err(cancelled());
+        }
         let selected = source::Selection::parse(source)?;
         if name != source::name(&selected.repository, &selected.path) {
             return Err(sailry_protocol::Fault::invalid(

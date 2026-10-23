@@ -97,7 +97,7 @@ async fn expires_success_without_stale_fallback() {
 }
 
 #[test]
-fn binds_credential_revisions_and_active_slots() {
+fn binds_credential_revisions() {
     let policy = Policy::new([3; 32], 60000);
     let mut first = credential(1);
     let before = policy.key(&first);
@@ -106,19 +106,52 @@ fn binds_credential_revisions_and_active_slots() {
     assert_ne!(before, refreshed);
     first.id = CredentialId::new();
     assert_ne!(refreshed, policy.key(&first));
-    let cache = Cache::default();
-    let mut held = Vec::new();
-    for value in 0..CAPACITY {
-        held.push(cache.slot([value as u8; 32]).unwrap());
-    }
-    assert_eq!(
-        cache
-            .slot([255; 32])
-            .err()
-            .expect("active slots cannot be evicted")
-            .code,
-        ErrorCode::Busy
+}
+
+#[tokio::test]
+async fn admits_active_keys_beyond_cache_retention() {
+    let cache = Arc::new(Cache::default());
+    let arrived = Arc::new(tokio::sync::Semaphore::new(0));
+    let release = CancellationToken::new();
+    let count = CAPACITY + 2;
+    let pending: Vec<_> = (0..count)
+        .map(|index| {
+            let (cache, arrived, release) = (cache.clone(), arrived.clone(), release.clone());
+            tokio::spawn(async move {
+                cache
+                    .fetch(
+                        [index as u8; 32],
+                        Policy::new([index as u8; 32], 60000),
+                        &CancellationToken::new(),
+                        || async {
+                            arrived.add_permits(1);
+                            release.cancelled().await;
+                            Ok(response(200))
+                        },
+                    )
+                    .await
+            })
+        })
+        .collect();
+    let entered =
+        tokio::time::timeout(Duration::from_secs(2), arrived.acquire_many(count as u32)).await;
+    assert!(
+        entered.is_ok(),
+        "independent provider acquisitions must start together"
     );
-    held.pop();
-    assert!(cache.slot([255; 32]).is_ok());
+    entered.unwrap().unwrap().forget();
+    let stop = CancellationToken::new();
+    let mut shared = std::pin::pin!(cache.fetch(
+        [0; 32],
+        Policy::new([0; 32], 60000),
+        &stop,
+        || async { panic!("an active provider key must retain its acquisition") }
+    ));
+    assert!(futures::poll!(&mut shared).is_pending());
+    release.cancel();
+    assert_eq!(shared.await.unwrap().status, 200);
+    for result in futures::future::join_all(pending).await {
+        assert_eq!(result.unwrap().unwrap().status, 200);
+    }
+    assert!(cache.0.lock().unwrap().len() <= CAPACITY);
 }

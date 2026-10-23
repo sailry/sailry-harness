@@ -140,15 +140,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ignores_remote_read_capacity() {
+    async fn reads_resources_concurrently() {
         let (_directory, host, info) = fixture();
-        let _permit = host.reads.clone().acquire_many_owned(2).await.unwrap();
         let reads = (0..8)
             .map(|_| host.read_view(info.clone(), Default::default(), CancellationToken::new()));
         for result in futures::future::join_all(reads).await {
             assert!(result.unwrap().valid());
         }
-        assert_eq!(host.reads.available_permits(), 0);
     }
 
     #[tokio::test]

@@ -146,3 +146,56 @@ async fn shares_failures_only_during_acquisition() {
         4
     );
 }
+
+#[tokio::test]
+async fn admits_active_keys_beyond_cache_retention() {
+    let cache = Arc::new(Cache::<usize, usize>::default());
+    let arrived = Arc::new(tokio::sync::Semaphore::new(0));
+    let release = CancellationToken::new();
+    let count = CAPACITY + 2;
+    let pending: Vec<_> = (0..count)
+        .map(|key| {
+            let (cache, arrived, release) = (cache.clone(), arrived.clone(), release.clone());
+            tokio::spawn(async move {
+                cache
+                    .fetch(
+                        key,
+                        Duration::from_secs(60),
+                        false,
+                        &CancellationToken::new(),
+                        || async {
+                            arrived.add_permits(1);
+                            release.cancelled().await;
+                            Ok(key)
+                        },
+                    )
+                    .await
+            })
+        })
+        .collect();
+    let entered =
+        tokio::time::timeout(Duration::from_secs(2), arrived.acquire_many(count as u32)).await;
+    assert!(
+        entered.is_ok(),
+        "independent cache acquisitions must start together"
+    );
+    entered.unwrap().unwrap().forget();
+    let stop = CancellationToken::new();
+    let mut shared =
+        std::pin::pin!(
+            cache.fetch(0, Duration::from_secs(60), true, &stop, || async {
+                panic!("an active key must retain its acquisition")
+            })
+        );
+    assert!(futures::poll!(&mut shared).is_pending());
+    release.cancel();
+    assert_eq!(shared.await.unwrap(), 0);
+    for (key, result) in futures::future::join_all(pending)
+        .await
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(result.unwrap().unwrap(), key);
+    }
+    assert!(cache.0.lock().unwrap().len() <= CAPACITY);
+}

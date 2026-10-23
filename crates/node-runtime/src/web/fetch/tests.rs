@@ -286,3 +286,63 @@ async fn bounds_total_request_time() {
         .unwrap();
     assert!(owner.active.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn fetches_independent_urls_together() {
+    let server = server::Server::start().await;
+    let owner = owner(&server);
+    let caller = NodeId([1; 32]);
+    let mut requests = Vec::new();
+    for index in 0..12 {
+        let host = format!("page-{index}.sailry.test");
+        owner.fixture(&host, server.address);
+        requests.push((
+            RequestId::new(),
+            web::Request {
+                url: format!("http://{host}:{}/rebind", server.address.port()),
+                offset: 0,
+            },
+        ));
+    }
+    let pending: Vec<_> = requests
+        .iter()
+        .map(|(id, input)| {
+            let (owner, input, id) = (owner.clone(), input.clone(), *id);
+            tokio::spawn(async move {
+                owner
+                    .fetch(caller, id, &input, &CancellationToken::new())
+                    .await
+            })
+        })
+        .collect();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while server.requests.lock().unwrap().len() != requests.len() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("independent fetches must reach HTTP together");
+    assert_eq!(owner.active.lock().unwrap().len(), requests.len());
+    assert_eq!(
+        owner
+            .fetch(
+                caller,
+                requests[0].0,
+                &requests[0].1,
+                &CancellationToken::new()
+            )
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::Busy
+    );
+    server.release.cancel();
+    let completed =
+        tokio::time::timeout(Duration::from_secs(10), futures::future::join_all(pending))
+            .await
+            .unwrap();
+    for result in completed {
+        assert_eq!(result.unwrap().unwrap().content, server::TEXT);
+    }
+    assert!(owner.active.lock().unwrap().is_empty());
+}

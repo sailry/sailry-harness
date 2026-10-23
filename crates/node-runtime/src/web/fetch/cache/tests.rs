@@ -52,3 +52,21 @@ fn expires_after_fifteen_minutes() {
     document.fetched -= Duration::from_secs(web::CACHE_SECS);
     assert!(document.expired());
 }
+
+#[test]
+fn admits_active_urls_beyond_cache_retention() {
+    let mut cache = Cache::default();
+    let active: Vec<_> = (0..web::CACHE_ENTRIES + 2)
+        .map(|index| cache.slot(&index.to_string(), 0).unwrap())
+        .collect();
+    for (index, slot) in active.iter().enumerate() {
+        assert!(Arc::ptr_eq(
+            slot,
+            &cache.slot(&index.to_string(), 0).unwrap()
+        ));
+    }
+    assert_eq!(cache.entries.len(), active.len());
+    drop(active);
+    cache.trim();
+    assert_eq!(cache.entries.len(), web::CACHE_ENTRIES);
+}

@@ -43,7 +43,6 @@ pub(crate) use manifest::validate_name;
 #[derive(Clone)]
 pub(crate) struct Host {
     profile: Option<PathBuf>,
-    reads: std::sync::Arc<tokio::sync::Semaphore>,
     pub(crate) authorizations: std::sync::Arc<authorization::Clients>,
     pub(crate) connectors: std::sync::Arc<connectors::Service>,
     github: github::Github,
@@ -71,19 +70,6 @@ impl Host {
     pub(crate) fn profile(&self) -> Option<&std::path::Path> {
         self.profile.as_deref()
     }
-    async fn read_permit(
-        &self,
-        stop: &sailry_link::CancellationToken,
-    ) -> Result<tokio::sync::OwnedSemaphorePermit, Fault> {
-        tokio::select! {
-            biased;
-            _ = stop.cancelled() => Err(github::cancelled()),
-            permit = self.reads.clone().acquire_owned() => {
-                permit.map_err(|_| Fault::new(ErrorCode::Unavailable, "skill reader is closed"))
-            }
-        }
-    }
-
     pub(crate) async fn display_python(&self, commands: &[&str]) -> Option<PathBuf> {
         if commands.is_empty() {
             return None;
@@ -120,7 +106,6 @@ impl Host {
     pub(crate) fn new(profile: Option<PathBuf>) -> Self {
         Self {
             profile,
-            reads: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             authorizations: Default::default(),
             connectors: Default::default(),
             github: Default::default(),

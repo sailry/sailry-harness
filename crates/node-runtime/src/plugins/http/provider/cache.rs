@@ -39,6 +39,31 @@ impl Policy {
 #[derive(Default)]
 pub(crate) struct Cache(Mutex<BTreeMap<[u8; 32], (Instant, Slot)>>);
 
+struct Retention<'a>(&'a Cache);
+
+impl Drop for Retention<'_> {
+    fn drop(&mut self) {
+        let cache = self.0;
+        if let Ok(mut entries) = cache.0.lock() {
+            evict(&mut entries, CAPACITY);
+        }
+    }
+}
+
+fn evict(entries: &mut BTreeMap<[u8; 32], (Instant, Slot)>, capacity: usize) {
+    while entries.len() > capacity {
+        let Some(key) = entries
+            .iter()
+            .filter(|(_, (_, slot))| Arc::strong_count(slot) == 1)
+            .min_by_key(|(_, (used, _))| *used)
+            .map(|(key, _)| *key)
+        else {
+            break;
+        };
+        entries.remove(&key);
+    }
+}
+
 struct Document {
     result: Result<http::Response, Fault>,
     fetched: Instant,
@@ -67,20 +92,7 @@ impl Cache {
             *used = Instant::now();
             return Ok(slot.clone());
         }
-        if entries.len() >= CAPACITY {
-            let oldest = entries
-                .iter()
-                .filter(|(_, (_, slot))| Arc::strong_count(slot) == 1)
-                .min_by_key(|(_, (used, _))| *used)
-                .map(|(key, _)| *key)
-                .ok_or_else(|| {
-                    Fault::new(
-                        ErrorCode::Busy,
-                        "provider resource cache capacity is exhausted",
-                    )
-                })?;
-            entries.remove(&oldest);
-        }
+        evict(&mut entries, CAPACITY - 1);
         let slot = Arc::new(tokio::sync::Mutex::new(None));
         entries.insert(key, (Instant::now(), slot.clone()));
         Ok(slot)
@@ -97,6 +109,7 @@ impl Cache {
         F: FnOnce() -> T,
         T: Future<Output = Result<http::Response, Fault>>,
     {
+        let _retention = Retention(self);
         let slot = self.slot(key)?;
         let mut current = tokio::select! {
             biased;

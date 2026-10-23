@@ -82,11 +82,6 @@ impl Host {
                 unavailable: false,
             });
         }
-        let _permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "plugin catalog is busy"))?;
         let mut url = self.catalog_url("api/v1/plugins");
         url.query_pairs_mut()
             .append_pair("protocol", "agent-plugins")
@@ -184,11 +179,6 @@ impl Host {
                     "third-party catalog cannot select bundled packages",
                 ));
             }
-            let _permit = self
-                .reads
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
             let host = self.clone();
             let id = id.to_owned();
             return tokio::task::spawn_blocking(move || host.inspect_bundled(&id, stop))

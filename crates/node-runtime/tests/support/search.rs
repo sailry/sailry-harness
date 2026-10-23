@@ -13,6 +13,7 @@ mod formatted;
 mod transport;
 
 pub enum Reply {
+    Wait(CancellationToken),
     Status(u16, Option<String>),
     Json(Value),
 }
@@ -90,6 +91,14 @@ impl Server {
                         .get_mut(&path)
                         .and_then(VecDeque::pop_front);
                     let (status, retry, body) = match override_reply {
+                        Some(Reply::Wait(release)) => {
+                            held.cancel();
+                            tokio::select! {
+                                _ = release.cancelled() => {},
+                                _ = stream.read(&mut [0; 1]) => { disconnected.cancel(); return; },
+                            }
+                            (200, None, mapping(&path).to_string())
+                        }
                         Some(Reply::Status(status, retry)) => (
                             status,
                             retry,
