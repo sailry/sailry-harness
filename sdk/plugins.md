@@ -17,11 +17,16 @@ share the scoped request contract with bounded snapshot observations.
 | Coalesced invalidation | `nextChange(cursor?, scope?)` |
 | Model error handling | `errorCode(error.message)` |
 | Plugin storage | `getValue(key)`, `listKeys(prefix?, after?, limit?)`, `setValue(key, value, revision)`, `deleteValue(key, revision)` |
-| Captured session | `readSession()`, `readConversation(before?, limit?)`, `nextConversation(cursor?)`, `sendMessage(input, revision)`, `stopTurn(turn)`, `setSessionConfig(config, revision)` |
+| Captured session | `readSession()`, `readConversation(before?, limit?)`, `nextConversation(cursor?, projection?)`, `sendMessage(input, revision)`, `stopTurn(turn)`, `setSessionConfig(config, revision)` |
 | Node HTTP | `requestHttp(request)` |
 | Captured Git | `inspectGit()`, `prepareGitIndex(draft)`, `prepareGitCommit(draft)` |
 | Declarative UI | `publishContributions(states)`, `nextContributionEvent()` |
 | Low-level context, resources and UI | Existing `sailry` exports: `context`, `theme`, `Header`, `Image`, `Conversation`, `header_action`, `next_change` |
+
+`nextConversation(cursor, 'runs')` observes connection, subscription generation and
+run status/error changes from the shared Client snapshot. Content deltas leave
+that call pending. The default projection preserves the full conversation view;
+both projections retain the Node's access check before exposing session data.
 
 `Image.new(id, {path, fit, width, height})` renders declared package images through GPUI Kit.
 `fit` defaults to `contain`; `cover` crops to the component bounds and `fill`

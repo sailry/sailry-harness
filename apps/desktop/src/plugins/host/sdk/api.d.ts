@@ -121,8 +121,8 @@ export function readConversation(before?: string | null, limit?: number): Promis
 export function sendMessage(input: Json, expectedRevision: string): string;
 export function stopTurn(turn: string): string;
 export function setSessionConfig(config: Json, expectedRevision: string): string;
-/** Pass the previous cursor; one pending call per view. Uses shared Client recovery. */
-export function nextConversation(cursor?: string): Promise<{ cursor: string; view: Json }>;
+/** One pending call per view; runs filters content deltas before another permission read. */
+export function nextConversation(cursor?: string, projection?: 'runs'): Promise<{ cursor: string; view: Json }>;
 export type HttpRequest = {
   method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
   url: string; headers?: Record<string, string>; body?: string;
