@@ -36,10 +36,13 @@ pub(super) struct State {
     rows: Vec<Connection>,
     binding: Option<Binding>,
     loading: bool,
+    received: bool,
+    failed: bool,
     stop: CancellationToken,
     task: Option<Task<()>>,
     pending: BTreeSet<connector::Id>,
     requests: BTreeMap<connector::Id, commands::Submission>,
+    services: BTreeMap<catalog::Key, Entity<details::Details>>,
 }
 
 impl State {
@@ -68,10 +71,13 @@ impl State {
             rows: Vec::new(),
             binding: None,
             loading: false,
+            received: false,
+            failed: false,
             stop: CancellationToken::new(),
             task: None,
             pending: BTreeSet::new(),
             requests: BTreeMap::new(),
+            services: BTreeMap::new(),
         }
     }
     pub(super) fn close(&mut self) {
@@ -163,6 +169,7 @@ impl Workspace {
         self.connectors.close();
         self.connectors.stop = CancellationToken::new();
         self.connectors.loading = true;
+        self.connectors.failed = false;
         if self
             .connectors
             .binding
@@ -173,8 +180,11 @@ impl Workspace {
             self.connectors.types.clear();
             self.connectors.requests.clear();
             self.connectors.pending.clear();
+            self.connectors.services.clear();
+            self.connectors.received = false;
         }
         self.connectors.binding = Some(binding.clone());
+        let node = binding.client.target();
         let stop = self.connectors.stop.clone();
         let observed = stop.clone();
         let client = binding.client.clone();
@@ -204,6 +214,10 @@ impl Workspace {
                                     &changes.connections,
                                 );
                                 if !changed.is_empty()
+                                    && this
+                                        .provider_link
+                                        .as_ref()
+                                        .is_some_and(|live| live.binding.client.target() == node)
                                     && let Some(metadata) = &this.plugin_catalog.metadata
                                 {
                                     metadata.update(cx, |metadata, cx| {
@@ -218,9 +232,12 @@ impl Workspace {
                                     &this.connectors.rows,
                                 );
                                 this.connectors.loading = false;
+                                this.connectors.received = true;
+                                this.connectors.failed = false;
                             }
                             Message::Failed(error) => {
                                 this.connectors.loading = false;
+                                this.connectors.failed = true;
                                 failure(error, window, cx);
                             }
                         }
@@ -244,8 +261,13 @@ impl Workspace {
             .selected_value()
             .copied()
             .unwrap_or_default();
-        let services = self
-            .service_catalog(cx)
+        let catalog = self.service_catalog(cx);
+        let keys = catalog
+            .iter()
+            .map(|service| service.key.clone())
+            .collect::<BTreeSet<_>>();
+        self.connectors.services.retain(|key, _| keys.contains(key));
+        let services = catalog
             .into_iter()
             .filter(|service| service.matches(method, &query))
             .collect::<Vec<_>>();
@@ -255,12 +277,26 @@ impl Workspace {
             .as_ref()
             .is_none_or(|live| !live.connected);
         let preview = self.connectors.binding.is_none();
-        let loading = self.connectors.loading
+        let loading = !self.connectors.received
+            || self.connectors.failed
+            || self.connectors.loading
+            || self
+                .provider_link
+                .as_ref()
+                .is_none_or(|live| live.snapshot.is_none())
             || self
                 .plugin_catalog
                 .metadata
                 .as_ref()
-                .is_some_and(|metadata| !metadata.read(cx).settled());
+                .is_none_or(|metadata| {
+                    let metadata = metadata.read(cx);
+                    !metadata.settled() || !metadata.errors.is_empty()
+                });
+        let metadata_failed = self
+            .plugin_catalog
+            .metadata
+            .as_ref()
+            .is_some_and(|metadata| !metadata.read(cx).errors.is_empty());
         let mcp_binding = self.connectors.binding.clone();
         let mcp_owner = owner.clone();
         let toolbar = h_flex()
@@ -282,6 +318,21 @@ impl Workspace {
                     .disabled(disabled)
                     .on_click(move |_, window, cx| editor::open(owner.clone(), None, window, cx)),
             )
+            .when(metadata_failed || self.connectors.failed, |toolbar| {
+                toolbar.child(
+                    crate::feedback::retry("connectors-metadata-retry").on_click(cx.listener(
+                        |workspace, _, window, cx| {
+                            if workspace.connectors.failed {
+                                workspace.connectors.close();
+                                workspace.warm_connectors(window, cx);
+                            }
+                            if let Some(metadata) = &workspace.plugin_catalog.metadata {
+                                metadata.update(cx, |metadata, cx| metadata.refresh(cx));
+                            }
+                        },
+                    )),
+                )
+            })
             .child(
                 Button::new("connector-add-mcp")
                     .label(tr("mcp_add"))
@@ -291,25 +342,24 @@ impl Workspace {
                             super::mcp::add(mcp_owner.clone(), binding.clone(), window, cx);
                         }
                     }),
-            )
-            .when(loading, |row| row.child(Spinner::new().small()));
+            );
+        let rows = services
+            .iter()
+            .map(|service| self.service_row(service, window, cx))
+            .collect::<Vec<_>>();
         let content = if services.is_empty() && loading {
-            h_flex()
-                .w_full()
-                .justify_center()
-                .py_8()
-                .child(Spinner::new())
-                .into_any_element()
+            div().into_any_element()
         } else {
             super::group::Group::new("settings_connectors")
                 .heading(false)
                 .empty(IconName::Network, "connector_empty")
-                .children(services.iter().map(|service| self.service_row(service, cx)))
+                .children(rows)
                 .into_any_element()
         };
         v_flex()
             .track_focus(&self.connectors.focus)
             .on_action(cx.listener(Self::connector_action))
+            .on_action(cx.listener(Self::service_action))
             .w_full()
             .gap_4()
             .child(toolbar)
@@ -330,7 +380,12 @@ impl Workspace {
                 metadata
                     .entries
                     .iter()
-                    .filter(|(_, info)| metadata.ready(&info.summary.reference()))
+                    .filter(|(_, info)| {
+                        self.plugin_catalog
+                            .packages
+                            .iter()
+                            .any(|summary| *summary == info.summary)
+                    })
                     .map(|(name, info)| (name.clone(), info.clone()))
                     .collect()
             })
@@ -338,7 +393,40 @@ impl Workspace {
         catalog::collect(&self.connectors.types, &self.connectors.rows, &metadata)
     }
 
-    fn service_row(&self, service: &catalog::Service, cx: &mut Context<Self>) -> AnyElement {
+    fn service_controller(
+        &mut self,
+        service: &catalog::Service,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<details::Details> {
+        if let Some(controller) = self.connectors.services.get(&service.key) {
+            return controller.clone();
+        }
+        let binding = self
+            .connectors
+            .binding
+            .clone()
+            .expect("service inventory is bound");
+        let controller = details::create(
+            cx.entity(),
+            binding,
+            Some(service.key.clone()),
+            service.package.name.clone(),
+            window,
+            cx,
+        );
+        self.connectors
+            .services
+            .insert(service.key.clone(), controller.clone());
+        controller
+    }
+
+    fn service_row(
+        &mut self,
+        service: &catalog::Service,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let label = service.label();
         let status = status(service);
         let description = service
@@ -397,32 +485,34 @@ impl Workspace {
                         ),
                 ),
         )
-        .action(
-            Button::new(format!("{id}-open"))
-                .icon(IconName::ChevronRight)
-                .accessibility_label(label)
-                .on_click(move |_, window, cx| {
-                    details::open(
-                        owner.clone(),
-                        Some(key.clone()),
-                        key.package.clone(),
-                        window,
-                        cx,
-                    );
-                }),
-        );
-        let account = service.account.clone();
+        .control(details::controls(
+            owner,
+            self.service_controller(service, window, cx),
+            service,
+            self.provider_link
+                .as_ref()
+                .is_some_and(|live| live.connected),
+            service.account.as_ref().is_some_and(|account| {
+                self.connectors.pending.contains(&account.id)
+                    || account.state == connector::State::Connecting
+            }),
+            self.plugin_catalog.busy_package(&service.package.name, cx),
+            self.plugin_catalog
+                .retries()
+                .iter()
+                .any(|name| name == &service.package.name),
+            cx,
+        ));
+        let context = service.clone();
         div()
             .id(SharedString::from(id))
             .child(entry)
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    if let Some(account) = &account {
-                        cx.stop_propagation();
-                        this.connectors.focus.focus(window, cx);
-                        this.connector_context(account, event.position, window, cx);
-                    }
+                    cx.stop_propagation();
+                    this.connectors.focus.focus(window, cx);
+                    this.service_context(&context, event.position, window, cx);
                 }),
             )
             .into_any_element()
@@ -453,6 +543,11 @@ impl Workspace {
             _ => None,
         };
         let row_id = row.id.to_string();
+        let node = self
+            .connectors
+            .binding
+            .as_ref()
+            .map(|binding| binding.client.target());
         let command = Command::SetConnectionEnabled {
             connection: row.id,
             expected_revision: row.revision,
@@ -510,7 +605,15 @@ impl Workspace {
                                 || self.connectors.pending.contains(&row.id),
                         )
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.connector_command(command.clone(), window, cx)
+                            if node.is_some()
+                                && this
+                                    .provider_link
+                                    .as_ref()
+                                    .map(|live| live.binding.client.target())
+                                    == node
+                            {
+                                this.connector_command(command.clone(), window, cx);
+                            }
                         })),
                 )
                 .child(self.connector_menu(row, cx)),

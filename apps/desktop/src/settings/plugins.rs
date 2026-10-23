@@ -78,6 +78,7 @@ impl Workspace {
                         ),
                 )
             })
+            .child(self.plugin_action_retries(cx))
             .child(self.plugin_catalog.market.as_ref().unwrap().clone())
             .into_any_element()
     }

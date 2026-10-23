@@ -1,10 +1,33 @@
 use super::*;
+use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
     badge::Badge,
     menu::{DropdownMenu, PopupMenuItem},
     tab::{Tab as KitTab, TabBar},
 };
 use sailry_protocol::plugin::Origin;
+
+pub(super) fn open(details: Entity<Details>, window: &mut Window, cx: &mut App) {
+    let active = details.clone();
+    window.open_dialog(cx, move |dialog, window, cx| {
+        let close = details.clone();
+        dialog
+            .floating_surface(cx)
+            .w((window.viewport_size().width - px(48.)).min(px(720.)))
+            .max_h(window.viewport_size().height * 0.85)
+            .p_6()
+            .on_close(move |_, _, cx| {
+                close.update(cx, |details, _| {
+                    details.stop.cancel();
+                    details.dialog.dismissed();
+                });
+            })
+            .child(details.clone())
+    });
+    active.update(cx, |details, cx| {
+        crate::ui::overlays::Owned::bind(details, |details| &mut details.dialog, window, cx)
+    });
+}
 
 fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
     let owner = cx.entity();
@@ -88,7 +111,7 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                         row.child(
                             Button::new("plugin-details-primary")
                                 .small()
-                                .disabled(disabled)
+                                .disabled(disabled || (update && details.updates.read(cx).busy()))
                                 .when(update || !installed, |button| button.primary())
                                 .label(tr(if manage {
                                     "market_manage"
@@ -232,7 +255,11 @@ fn repository_owner(repository: &str) -> Option<String> {
 
 impl Details {
     fn update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.stop.is_cancelled() || self.pending(cx) || self.error.is_some() {
+        if self.stop.is_cancelled()
+            || self.pending(cx)
+            || self.error.is_some()
+            || self.updates.read(cx).busy()
+        {
             return;
         }
         let Target::Installed(expected) = &self.target else {
@@ -243,7 +270,7 @@ impl Details {
         }
         let name = expected.name.clone();
         self.stop.cancel();
-        super::dismiss(window, cx);
+        self.dismiss(window, cx);
         self.updates
             .update(cx, |state, cx| state.apply(Some(&name), window, cx));
     }
@@ -400,6 +427,17 @@ impl Render for Details {
         } else {
             div().into_any_element()
         };
+        if matches!(self.target, Target::Installed(_)) {
+            return v_flex()
+                .w_full()
+                .min_w_0()
+                .pt_4()
+                .gap_4()
+                .child(header(self, cx))
+                .child(div().px_7().child(self.information(cx)))
+                .child(div().px_7().child(content))
+                .into_any_element();
+        }
         crate::settings::market::details::panel(
             header(self, cx),
             self.information(cx),

@@ -1,153 +1,72 @@
 use super::*;
 use crate::settings::group::{Group, Row};
 
+use crate::theme::DialogStyle as _;
+
+pub(super) fn open(details: Entity<Details>, window: &mut Window, cx: &mut App) {
+    if !details.read(cx).active(cx) {
+        return;
+    }
+    let active = details.clone();
+    window.open_dialog(cx, move |dialog, window, cx| {
+        let close = details.clone();
+        let state = details.read(cx);
+        let title = state
+            .service(cx)
+            .map(|service| service.label())
+            .unwrap_or_else(|| state.package.clone());
+        dialog
+            .form_title(title, cx)
+            .w((window.viewport_size().width - px(48.)).min(px(600.)))
+            .max_h(window.viewport_size().height * 0.85)
+            .on_close(move |_, _, cx| {
+                close.update(cx, |details, _| details.dialog.dismissed());
+            })
+            .child(details.clone())
+    });
+    active.update(cx, |details, cx| {
+        crate::ui::overlays::Owned::bind(details, |details| &mut details.dialog, window, cx)
+    });
+}
+
 impl Render for Details {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(service) = self.service(cx) else {
             return v_flex()
-                .size_full()
-                .items_center()
-                .justify_center()
+                .w_full()
                 .when(self.loading(cx), |content| content.child(Spinner::new()))
                 .when(!self.loading(cx), |content| {
                     content.child(Tag::new().child(tr("connector_unavailable")))
                 })
                 .into_any_element();
         };
-        let label = service.label();
-        let host = self.binding.label.clone();
-        let enabled = service.enabled();
-        let source = service.info.clone();
-        let package_owner = self.owner.clone();
-        let remove_owner = self.owner.clone();
-        let package_node = self.binding.client.target();
-        let package_info = source.clone();
-        let busy = self.owner.read(cx).plugin_catalog.busy(cx);
-        let package =
-            Group::new("settings_plugins")
-                .heading(false)
-                .when_some(source, |group, info| {
-                    let summary = info.summary.clone();
-                    let remove = summary.clone();
-                    group.child(Row::with_label(
-                        "connector-package",
-                        crate::plugins::metadata::title(&info),
-                        h_flex()
-                            .gap_2()
-                            .when(info.mcp_source.is_none(), |controls| {
-                                controls.child(
-                                    Button::new("connector-view-plugin")
-                                        .ghost()
-                                        .small()
-                                        .label(tr("connector_view_plugin"))
-                                        .on_click(move |_, window, cx| {
-                                            if let Some(info) = &package_info {
-                                                window.dispatch_action(
-                                                    Box::new(crate::settings::OpenManagement {
-                                                        node: package_node,
-                                                        name: info.summary.name.clone(),
-                                                        skill: None,
-                                                    }),
-                                                    cx,
-                                                );
-                                            }
-                                        }),
-                                )
-                            })
-                            .when(info.mcp_source.is_some(), |controls| {
-                                controls.child(
-                                    Button::new("connector-remove-mcp")
-                                        .ghost()
-                                        .small()
-                                        .label(tr("plugins_uninstall"))
-                                        .disabled(busy)
-                                        .on_click(move |_, window, cx| {
-                                            if remove_owner
-                                                .read(cx)
-                                                .provider_link
-                                                .as_ref()
-                                                .is_some_and(|live| {
-                                                    live.binding.client.target() == package_node
-                                                })
-                                            {
-                                                super::super::super::plugins::dialog::open(
-                                                    remove_owner.clone(),
-                                                    Some(remove.clone()),
-                                                    true,
-                                                    window,
-                                                    cx,
-                                                );
-                                            }
-                                        }),
-                                )
-                            })
-                            .child(
-                                Switch::new("connector-package-enabled")
-                                    .checked(info.summary.enabled)
-                                    .disabled(busy)
-                                    .accessibility_label(tr("plugins_enabled"))
-                                    .on_click(move |value, window, cx| {
-                                        package_owner.update(cx, |owner, cx| {
-                                            owner.toggle_plugin(&summary, *value, window, cx)
-                                        });
-                                    }),
-                            ),
-                    ))
-                });
         v_flex()
             .id("connector-details")
-            .size_full()
-            .min_h_0()
+            .w_full()
+            .gap_4()
             .text_sm()
             .child(
-                v_flex()
-                    .w_full()
-                    .px_7()
-                    .gap_2()
-                    .child(div().text_lg().font_semibold().child(label))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(host),
-                    )
-                    .when(!enabled, |header| {
-                        header.child(Tag::new().child(tr("connector_package_disabled")))
-                    }),
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(self.binding.label.clone()),
             )
-            .child(
-                v_flex()
-                    .id("connector-details-content")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .p_7()
-                    .gap_5()
-                    .when(service.info.is_some(), |content| content.child(package))
-                    .when(service.info.is_none(), |content| {
-                        content
-                            .when(self.loading(cx), |content| {
-                                content.child(Spinner::new().small())
-                            })
-                            .when(!self.loading(cx), |content| {
-                                content.child(Tag::new().child(tr("connector_unavailable")))
-                            })
-                    })
-                    .when(
-                        service.kind.is_some() || service.account.is_some(),
-                        |content| content.child(self.authentication(&service, cx)),
-                    )
-                    .children(
-                        service
-                            .servers
-                            .iter()
-                            .map(|server| self.server(&service, server, cx)),
-                    )
-                    .when(
-                        service.info.is_some() && service.servers.is_empty(),
-                        |content| content.child(self.api_tools(&service, cx)),
-                    ),
+            .when(!service.enabled(), |content| {
+                content.child(Tag::new().child(tr("connector_package_disabled")))
+            })
+            .when(
+                service.kind.is_some() || service.account.is_some(),
+                |content| content.child(self.authentication(&service, cx)),
+            )
+            .children(
+                service
+                    .servers
+                    .iter()
+                    .map(|server| self.server(&service, server, cx)),
+            )
+            .when(
+                service.info.is_some() && service.servers.is_empty(),
+                |content| content.child(self.api_tools(&service, cx)),
             )
             .into_any_element()
     }
@@ -157,10 +76,10 @@ impl Details {
     fn authentication(&self, service: &catalog::Service, cx: &mut Context<Self>) -> AnyElement {
         let mut group = Group::new("connector_authentication");
         if let Some(account) = &service.account {
-            let row = self
-                .owner
-                .update(cx, |owner, cx| owner.connector_row(account, cx));
-            group = group.child(row);
+            if let Some(owner) = self.owner.upgrade() {
+                let row = owner.update(cx, |owner, cx| owner.connector_row(account, cx));
+                group = group.child(row);
+            }
         } else if let Some(kind) = &service.kind {
             let owner = self.owner.clone();
             let kind = kind.clone();
@@ -179,7 +98,9 @@ impl Details {
                     .label(tr("connector_connect"))
                     .disabled(!service.enabled())
                     .on_click(move |_, window, cx| {
-                        editor::connect(owner.clone(), kind.clone(), window, cx);
+                        if let Some(owner) = owner.upgrade() {
+                            editor::connect(owner, kind.clone(), window, cx);
+                        }
                     }),
             ));
         }

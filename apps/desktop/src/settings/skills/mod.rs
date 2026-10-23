@@ -22,7 +22,7 @@ pub(super) use preview::Skill;
 
 pub(super) struct State {
     query: Entity<InputState>,
-    action: Option<action::Action>,
+    actions: std::collections::BTreeMap<(sailry_protocol::NodeId, String), action::Action>,
     pub(super) error: Option<&'static str>,
 }
 
@@ -37,7 +37,7 @@ impl State {
         .detach();
         Self {
             query,
-            action: None,
+            actions: Default::default(),
             error: None,
         }
     }
@@ -140,7 +140,12 @@ impl Workspace {
                         Button::new("skills-check-updates")
                             .label(tr("plugins_check_updates"))
                             .loading(checking)
-                            .disabled(!live.connected || self.plugin_catalog.busy(cx))
+                            .disabled(
+                                !live.connected
+                                    || self.plugin_catalog.updates.as_ref().is_some_and(|state| {
+                                        state.read(cx).busy() || state.read(cx).selecting()
+                                    }),
+                            )
                             .on_click(cx.listener(|owner, _, window, cx| {
                                 owner.check_plugin_updates(window, cx)
                             })),
@@ -156,13 +161,15 @@ impl Workspace {
                             }),
                     ),
             )
-            .when_some(
+            .children(
                 self.skill_state
-                    .action
-                    .as_ref()
-                    .filter(|action| !action.pending),
-                |view, action| {
-                    view.child(
+                    .actions
+                    .iter()
+                    .filter(|(key, action)| {
+                        key.0 == live.binding.client.target() && !action.pending
+                    })
+                    .map(|(key, action)| {
+                        let key = key.clone();
                         h_flex()
                             .gap_2()
                             .items_center()
@@ -170,21 +177,25 @@ impl Workspace {
                                 div()
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(action.binding.label.clone()),
+                                    .child(format!("{} · {}", action.binding.label, key.1)),
                             )
                             .child(
-                                crate::feedback::retry("skills-retry")
-                                    .debug_selector(|| "skills-retry".into())
-                                    .on_click(
-                                        cx.listener(|owner, _, _, cx| owner.send_skill_action(cx)),
-                                    ),
-                            ),
-                    )
-                },
+                                crate::feedback::retry(SharedString::from(format!(
+                                    "skills-retry-{}",
+                                    key.1
+                                )))
+                                .on_click(cx.listener(
+                                    move |owner, _, _, cx| {
+                                        if owner.provider_link.as_ref().is_some_and(|live| {
+                                            live.binding.client.target() == key.0
+                                        }) {
+                                            owner.send_skill_action(&key, cx);
+                                        }
+                                    },
+                                )),
+                            )
+                    }),
             )
-            .when(!metadata.read(cx).settled(), |view| {
-                view.child(div().py_4().child(spinner::Spinner::new().small()))
-            })
             .when(!metadata.read(cx).errors.is_empty(), |view| {
                 view.child(
                     crate::feedback::retry("skills-metadata-retry").on_click(cx.listener(
@@ -200,7 +211,8 @@ impl Workspace {
                 entries.is_empty()
                     && metadata.read(cx).settled()
                     && metadata.read(cx).errors.is_empty()
-                    && live.connected,
+                    && live.connected
+                    && live.snapshot.is_some(),
                 |view| {
                     view.child(
                         crate::settings::group::Group::new("skills_installed")
@@ -235,7 +247,13 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let live = self.provider_link.as_ref().unwrap();
-        let busy = !live.connected || self.skill_state.action.is_some();
+        let busy = !live.connected
+            || self
+                .skill_state
+                .actions
+                .contains_key(&(live.binding.client.target(), info.summary.name.clone()))
+            || self.plugin_catalog.busy_package(&info.summary.name, cx);
+        let node = live.binding.client.target();
         let id = format!("{}:{}", info.summary.name, skill.name);
         let card_id = format!("skill-card-{id}");
         let toggle_id = format!("skill-toggle-{id}");
@@ -247,6 +265,8 @@ impl Workspace {
         let title = skill.name.clone();
         let detail_info = info.clone();
         let detail_skill = skill.clone();
+        let menu_info = info.clone();
+        let menu_skill = skill.clone();
         let imported = match &info.skill {
             Some(sailry_protocol::plugin::skills::Provenance::Imported { imported }) => {
                 Some(imported.kind)
@@ -282,9 +302,19 @@ impl Workspace {
                     Button::new(SharedString::from(format!("skill-update-{id}")))
                         .small()
                         .label(tr("market_update"))
-                        .disabled(busy || self.plugin_catalog.busy(cx))
+                        .disabled(
+                            busy || self.plugin_catalog.updates.as_ref().is_some_and(|state| {
+                                state.read(cx).busy() || state.read(cx).selecting()
+                            }),
+                        )
                         .on_click(cx.listener(move |owner, _, window, cx| {
-                            owner.update_plugins(Some(&update), window, cx)
+                            if owner
+                                .provider_link
+                                .as_ref()
+                                .is_some_and(|live| live.binding.client.target() == node)
+                            {
+                                owner.update_plugins(Some(&update), window, cx);
+                            }
                         })),
                 )
             })
@@ -297,14 +327,30 @@ impl Workspace {
                         let title = title.clone();
                         let target = reimport.clone();
                         let reimport_owner = owner.clone();
-                        menu.when_some(imported, |menu, kind| {
+                        let info = menu_info.clone();
+                        let skill = menu_skill.clone();
+                        menu.item(PopupMenuItem::new(tr("plugins_information")).on_click(
+                            move |_, window, cx| {
+                                details::open(info.clone(), skill.clone(), window, cx);
+                            },
+                        ))
+                        .when_some(imported, |menu, kind| {
                             menu.item(
                                 PopupMenuItem::new(tr("skill_source_reimport"))
                                     .icon(IconName::Redo)
                                     .disabled(busy)
                                     .on_click(move |_, window, cx| {
                                         reimport_owner.update(cx, |owner, cx| {
-                                            owner.reimport_skill(target.clone(), kind, window, cx)
+                                            if owner.provider_link.as_ref().is_some_and(|live| {
+                                                live.binding.client.target() == node
+                                            }) {
+                                                owner.reimport_skill(
+                                                    target.clone(),
+                                                    kind,
+                                                    window,
+                                                    cx,
+                                                );
+                                            }
                                         });
                                     }),
                             )
@@ -325,6 +371,11 @@ impl Workspace {
                                         cx,
                                         move |_, cx| {
                                             owner.update(cx, |owner, cx| {
+                                                if owner.provider_link.as_ref().is_none_or(|live| {
+                                                    live.binding.client.target() != node
+                                                }) {
+                                                    return;
+                                                }
                                                 owner.skill_action(
                                                     binding.clone(),
                                                     Command::RemovePlugin {
@@ -347,6 +398,13 @@ impl Workspace {
                         .disabled(busy)
                         .accessibility_label(tr("plugins_enabled"))
                         .on_click(cx.listener(move |owner, enabled, _, cx| {
+                            if owner
+                                .provider_link
+                                .as_ref()
+                                .is_none_or(|live| live.binding.client.target() != node)
+                            {
+                                return;
+                            }
                             owner.skill_action(
                                 binding.clone(),
                                 Command::SetPluginEnabled {

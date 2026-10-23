@@ -114,7 +114,11 @@ impl Workspace {
             (
                 String::new(),
                 String::new(),
-                packages.is_empty() && self.provider_link.as_ref().unwrap().connected,
+                packages.is_empty()
+                    && self
+                        .provider_link
+                        .as_ref()
+                        .is_some_and(|live| live.connected && live.snapshot.is_some()),
             ),
             (String::new(), String::new(), catalog.python.connected),
             (
@@ -128,6 +132,12 @@ impl Workspace {
                 metadata.is_some_and(|metadata| !metadata.errors.is_empty()),
             ),
         ];
+        heading.extend(
+            catalog
+                .retries()
+                .into_iter()
+                .map(|name| (name, String::new(), false)),
+        );
         if catalog.python.connected {
             heading.extend(
                 catalog
@@ -240,7 +250,15 @@ impl Workspace {
                                             .iter()
                                             .find(|plugin| plugin.name == *name)
                                     })
-                                    .map(|plugin| self.plugin_card(plugin, busy, cx)),
+                                    .map(|plugin| {
+                                        self.plugin_card(
+                                            plugin,
+                                            busy || self
+                                                .plugin_catalog
+                                                .busy_package(&plugin.name, cx),
+                                            cx,
+                                        )
+                                    }),
                             ),
                     ),
             )

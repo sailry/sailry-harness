@@ -10,7 +10,7 @@ pub(in crate::settings) struct Catalog {
     pub metadata: Option<Entity<Metadata>>,
     pub(in crate::settings) updates: Option<Entity<super::updates::State>>,
     pub(super) inventory: Option<super::inventory::Inventory>,
-    action: Option<Action>,
+    actions: std::collections::BTreeMap<String, Action>,
     pub(in crate::settings) error: Option<&'static str>,
 }
 
@@ -22,19 +22,53 @@ struct Action {
 
 impl Catalog {
     pub(in crate::settings) fn busy(&self, cx: &App) -> bool {
-        self.action.is_some()
-            || self
-                .updates
-                .as_ref()
-                .is_some_and(|state| state.read(cx).busy() || state.read(cx).selecting())
+        self.updates
+            .as_ref()
+            .is_some_and(|state| state.read(cx).selecting())
     }
     pub(in crate::settings) fn retryable(&self, cx: &App) -> bool {
-        self.action.as_ref().is_some_and(|action| !action.pending)
+        self.updates
+            .as_ref()
+            .is_some_and(|state| state.read(cx).retryable())
+    }
+    pub(in crate::settings) fn busy_package(&self, name: &str, cx: &App) -> bool {
+        self.actions.contains_key(name)
             || self
                 .updates
                 .as_ref()
-                .is_some_and(|state| state.read(cx).retryable())
+                .is_some_and(|state| state.read(cx).pending_package(name))
     }
+
+    fn admit(&mut self, name: String, binding: Binding, command: Command) -> bool {
+        use std::collections::btree_map::Entry;
+        let Entry::Vacant(entry) = self.actions.entry(name) else {
+            return false;
+        };
+        entry.insert(Action {
+            request: binding.client.prepare(command),
+            binding,
+            pending: false,
+        });
+        true
+    }
+
+    pub(in crate::settings) fn retries(&self) -> Vec<String> {
+        self.actions
+            .iter()
+            .filter(|(_, action)| !action.pending)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    fn start(&mut self, target: &str) -> Option<(Binding, Request)> {
+        let action = self.actions.get_mut(target)?;
+        if action.pending {
+            return None;
+        }
+        action.pending = true;
+        Some((action.binding.clone(), action.request.clone()))
+    }
+
     pub(in crate::settings) fn accept(&mut self, snapshot: &Snapshot, cx: &mut App) {
         self.packages = snapshot.plugins.clone();
         if let Some(state) = &self.updates {
@@ -76,20 +110,22 @@ impl Workspace {
         if !live.connected || self.plugin_catalog.busy(cx) {
             return;
         }
-        self.plugin_catalog.action = Some(Action {
-            binding: live.binding.clone(),
-            request: live.binding.client.prepare(Command::InstallBundledPlugin {
-                name: name.into(),
-                expected_revision: self
-                    .plugin_catalog
-                    .packages
-                    .iter()
-                    .find(|plugin| plugin.name == name)
-                    .map_or(0, |plugin| plugin.revision),
-            }),
-            pending: false,
-        });
-        self.send_plugin_action(window, cx);
+        let command = Command::InstallBundledPlugin {
+            name: name.into(),
+            expected_revision: self
+                .plugin_catalog
+                .packages
+                .iter()
+                .find(|plugin| plugin.name == name)
+                .map_or(0, |plugin| plugin.revision),
+        };
+        if !self
+            .plugin_catalog
+            .admit(name.into(), live.binding.clone(), command)
+        {
+            return;
+        }
+        self.send_plugin_action(name, window, cx);
     }
 
     pub(in crate::settings) fn toggle_plugin(
@@ -102,51 +138,41 @@ impl Workspace {
         let Some(live) = &self.provider_link else {
             return;
         };
-        if !live.connected || self.plugin_catalog.action.is_some() {
+        if !live.connected || self.plugin_catalog.busy_package(&plugin.name, cx) {
             return;
         }
-        self.plugin_catalog.action = Some(Action {
-            binding: live.binding.clone(),
-            request: live.binding.client.prepare(Command::SetPluginEnabled {
-                name: plugin.name.clone(),
-                expected_revision: plugin.revision,
-                enabled,
-            }),
-            pending: false,
-        });
-        self.send_plugin_action(window, cx);
+        let command = Command::SetPluginEnabled {
+            name: plugin.name.clone(),
+            expected_revision: plugin.revision,
+            enabled,
+        };
+        if !self
+            .plugin_catalog
+            .admit(plugin.name.clone(), live.binding.clone(), command)
+        {
+            return;
+        }
+        self.send_plugin_action(&plugin.name, window, cx);
     }
 
     pub(in crate::settings) fn send_plugin_action(
         &mut self,
+        target: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self
-            .plugin_catalog
-            .updates
-            .as_ref()
-            .is_some_and(|state| state.read(cx).retryable())
-        {
-            return;
-        }
-        let Some(action) = &mut self.plugin_catalog.action else {
+        let Some((binding, request)) = self.plugin_catalog.start(target) else {
             return;
         };
-        if action.pending {
-            return;
-        }
-        action.pending = true;
         self.plugin_catalog.error = None;
-        let binding = action.binding.clone();
-        let request = action.request.clone();
-        dispatch(cx.entity(), binding, request, window, cx);
+        dispatch(cx.entity(), target.to_owned(), binding, request, window, cx);
         cx.notify();
     }
 }
 
 fn dispatch(
     owner: Entity<Workspace>,
+    name: String,
     binding: Binding,
     request: Request,
     window: &mut Window,
@@ -158,6 +184,7 @@ fn dispatch(
     let retry = owner.clone();
     let retry_binding = binding.clone();
     let captured = request.clone();
+    let retry_name = name.clone();
     let ticket = crate::installations::track(
         binding.client.clone(),
         binding.runtime.clone(),
@@ -174,31 +201,41 @@ fn dispatch(
                 // Recovery remains bound to its captured Node even if the
                 // workspace now presents another host. Do not replace that
                 // host's catalog or reconstruct the old request there.
-                dispatch(retry.clone(), retry_binding.clone(), request, window, cx);
+                dispatch(
+                    retry.clone(),
+                    retry_name.clone(),
+                    retry_binding.clone(),
+                    request,
+                    window,
+                    cx,
+                );
                 return;
             }
             retry.update(cx, |owner, cx| {
                 if owner
                     .plugin_catalog
-                    .action
-                    .as_ref()
+                    .actions
+                    .get(&retry_name)
                     .is_some_and(|action| action.request.id != id)
                 {
                     return;
                 }
                 if owner
                     .plugin_catalog
-                    .action
-                    .as_ref()
+                    .actions
+                    .get(&retry_name)
                     .is_none_or(|action| !action.pending)
                 {
-                    owner.plugin_catalog.action = Some(Action {
-                        binding: retry_binding.clone(),
-                        request,
-                        pending: false,
-                    });
+                    owner.plugin_catalog.actions.insert(
+                        retry_name.clone(),
+                        Action {
+                            binding: retry_binding.clone(),
+                            request,
+                            pending: false,
+                        },
+                    );
                 }
-                owner.send_plugin_action(window, cx);
+                owner.send_plugin_action(&retry_name, window, cx);
             })
         },
         window,
@@ -226,7 +263,7 @@ fn dispatch(
             }
             owner.update(cx, |owner, cx| {
                 let catalog = &mut owner.plugin_catalog;
-                let Some(action) = &mut catalog.action else {
+                let Some(action) = catalog.actions.get_mut(&name) else {
                     return false;
                 };
                 if action.request.id != id || action.binding.client.target() != node {
@@ -235,12 +272,12 @@ fn dispatch(
                 action.pending = false;
                 match &result {
                     Ok(Ok(Output::Plugin(_))) => {
-                        catalog.action = None;
+                        catalog.actions.remove(&name);
                         catalog.error = None;
                     }
                     Ok(Err(error)) => {
                         if !uncertain(error) {
-                            catalog.action = None;
+                            catalog.actions.remove(&name);
                         }
                         catalog.error = Some(error_key(error));
                     }
@@ -294,3 +331,6 @@ pub(in crate::settings) fn error_key(error: &Fault) -> &'static str {
         _ => "plugins_failed",
     }
 }
+
+#[cfg(test)]
+mod tests;

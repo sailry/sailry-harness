@@ -183,6 +183,7 @@ impl Details {
             v_flex()
                 .gap_4()
                 .child(rows::section("market_details_permissions", None, items, cx));
+        let installed = matches!(self.target, Target::Installed(_));
         if actions
             .iter()
             .any(|action| matches!(action, Action::ReadComputer | Action::ControlComputer))
@@ -210,8 +211,12 @@ impl Details {
                         Button::new("plugin-open-permissions")
                             .small()
                             .label(tr("market_details_open"))
-                            .on_click(|_, window, cx| {
-                                super::dismiss(window, cx);
+                            .on_click(move |_, window, cx| {
+                                if installed {
+                                    window.close_dialog(cx);
+                                } else {
+                                    super::dismiss(window, cx);
+                                }
                                 window.dispatch_action(
                                     Box::new(crate::settings::OpenSection(
                                         crate::settings::Section::Permissions,

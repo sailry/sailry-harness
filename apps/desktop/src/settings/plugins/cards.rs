@@ -45,7 +45,10 @@ impl Workspace {
                         .child(
                             Button::new("plugins-check-updates")
                                 .label(tr("plugins_check_updates"))
-                                .disabled(busy || plugins.is_empty())
+                                .disabled(
+                                    busy || plugins.is_empty()
+                                        || updates.is_some_and(|state| state.busy()),
+                                )
                                 .loading(updates.is_some_and(|state| state.checking()))
                                 .debug_selector(|| "plugins-check-updates".into())
                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -58,7 +61,7 @@ impl Workspace {
                                 view.child(
                                     Button::new("plugins-update-all")
                                         .label(tr("plugins_update_all"))
-                                        .disabled(busy)
+                                        .disabled(busy || updates.is_some_and(|state| state.busy()))
                                         .loading(updates.is_some_and(|state| state.applying()))
                                         .debug_selector(|| "plugins-update-all".into())
                                         .on_click(cx.listener(|this, _, window, cx| {
@@ -97,6 +100,7 @@ impl Workspace {
                         ),
                 )
             })
+            .child(self.plugin_action_retries(cx))
             .when(
                 catalog.python.connected && !preparations.is_empty(),
                 |view| {
@@ -116,9 +120,6 @@ impl Workspace {
                     )))
                 },
             )
-            .when(!settled, |view| {
-                view.child(div().py_4().child(spinner::Spinner::new().small()))
-            })
             .when(failed, |view| {
                 view.child(
                     crate::feedback::retry("plugins-metadata-retry").on_click(cx.listener(
@@ -131,7 +132,11 @@ impl Workspace {
                 )
             })
             .when(
-                plugins.is_empty() && live.connected && settled && !failed,
+                plugins.is_empty()
+                    && live.connected
+                    && live.snapshot.is_some()
+                    && settled
+                    && !failed,
                 |view| {
                     view.child(
                         Group::new("plugins_installed")
@@ -140,6 +145,34 @@ impl Workspace {
                     )
                 },
             )
+            .into_any_element()
+    }
+
+    pub(super) fn plugin_action_retries(&self, cx: &mut Context<Self>) -> AnyElement {
+        let node = self
+            .provider_link
+            .as_ref()
+            .map(|live| live.binding.client.target());
+        v_flex()
+            .gap_2()
+            .children(self.plugin_catalog.retries().into_iter().map(|name| {
+                h_flex().items_center().gap_2().child(name.clone()).child(
+                    crate::feedback::retry(SharedString::from(format!(
+                        "plugin-action-retry-{name}"
+                    )))
+                    .on_click(cx.listener(move |owner, _, window, cx| {
+                        if node.is_some()
+                            && owner
+                                .provider_link
+                                .as_ref()
+                                .map(|live| live.binding.client.target())
+                                == node
+                        {
+                            owner.send_plugin_action(&name, window, cx);
+                        }
+                    })),
+                )
+            }))
             .into_any_element()
     }
 
@@ -176,7 +209,18 @@ impl Workspace {
             .as_ref()
             .and_then(|state| state.read(cx).entries.get(&plugin.name));
         let (title, description) = self.caption(plugin, cx);
+        let node = self
+            .provider_link
+            .as_ref()
+            .expect("plugin inventory is bound")
+            .binding
+            .client
+            .target();
         let update_ready = info.is_some_and(|info| info.summary == *plugin);
+        let configure_info = info
+            .filter(|info| super::super::extensions::modal::configurable(info))
+            .cloned();
+        let configure_binding = self.provider_link.as_ref().map(|live| live.binding.clone());
         let online = info.is_some_and(|info| {
             matches!(
                 info.origin,
@@ -200,6 +244,11 @@ impl Workspace {
             .and_then(|state| state.entries.get(&plugin.name))
             .and_then(|entry| entry.candidate.as_ref());
 
+        let update_busy = self
+            .plugin_catalog
+            .updates
+            .as_ref()
+            .is_some_and(|state| state.read(cx).busy());
         let update_name = plugin.name.clone();
         let owner = cx.entity();
         let details = plugin.clone();
@@ -235,6 +284,14 @@ impl Workspace {
                 .is_some_and(|live| live.connected),
         )
         .on_click(move |_, window, cx| {
+            if owner
+                .read(cx)
+                .provider_link
+                .as_ref()
+                .is_none_or(|live| live.binding.client.target() != node)
+            {
+                return;
+            }
             details::open(
                 owner.clone(),
                 details.clone(),
@@ -250,6 +307,55 @@ impl Workspace {
             .child(
                 resource_card::menu(format!("plugin-menu-{name}"), group)
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
+                        let configure = menu_owner.clone();
+                        let configure_info = configure_info.clone();
+                        let configure_binding = configure_binding.clone();
+                        let view_owner = menu_owner.clone();
+                        let view_plugin = menu_plugin.clone();
+                        let menu = menu
+                            .item(PopupMenuItem::new(tr("plugins_information")).on_click(
+                                move |_, window, cx| {
+                                    if view_owner
+                                        .read(cx)
+                                        .provider_link
+                                        .as_ref()
+                                        .is_none_or(|live| live.binding.client.target() != node)
+                                    {
+                                        return;
+                                    }
+                                    details::open(
+                                        view_owner.clone(),
+                                        view_plugin.clone(),
+                                        sailry_link::CancellationToken::new(),
+                                        window,
+                                        cx,
+                                    );
+                                },
+                            ))
+                            .when_some(configure_info, |menu, info| {
+                                menu.item(
+                                    PopupMenuItem::new(tr("plugins_configure"))
+                                        .icon(IconName::Settings2)
+                                        .disabled(busy)
+                                        .on_click(move |_, window, cx| {
+                                            if configure.read(cx).provider_link.as_ref().is_none_or(
+                                                |live| live.binding.client.target() != node,
+                                            ) {
+                                                return;
+                                            }
+                                            if let Some(binding) = &configure_binding {
+                                                super::super::extensions::modal::open(
+                                                    configure.clone(),
+                                                    binding.clone(),
+                                                    info.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            }
+                                        }),
+                                )
+                                .separator()
+                            });
                         let owner = menu_owner.clone();
                         let plugin = menu_plugin.clone();
                         let remove_owner = menu_owner.clone();
@@ -263,8 +369,16 @@ impl Workspace {
                                 "plugins_update"
                             }))
                             .icon(IconName::Redo)
-                            .disabled(busy || !update_ready)
+                            .disabled(busy || !update_ready || (online && update_busy))
                             .on_click(move |_, window, cx| {
+                                if owner
+                                    .read(cx)
+                                    .provider_link
+                                    .as_ref()
+                                    .is_none_or(|live| live.binding.client.target() != node)
+                                {
+                                    return;
+                                }
                                 if let Some(kind) = imported {
                                     owner.update(cx, |owner, cx| {
                                         owner.reimport_skill(plugin.clone(), kind, window, cx)
@@ -289,6 +403,14 @@ impl Workspace {
                                 .icon(IconName::CircleX)
                                 .disabled(busy)
                                 .on_click(move |_, window, cx| {
+                                    if remove_owner
+                                        .read(cx)
+                                        .provider_link
+                                        .as_ref()
+                                        .is_none_or(|live| live.binding.client.target() != node)
+                                    {
+                                        return;
+                                    }
                                     dialog::open(
                                         remove_owner.clone(),
                                         Some(remove.clone()),
@@ -317,13 +439,19 @@ impl Workspace {
                             )
                             .to_string(),
                         )
-                        .disabled(busy)
+                        .disabled(busy || update_busy)
                         .debug_selector({
                             let name = update_name.clone();
                             move || format!("plugin-update-{name}")
                         })
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.update_plugins(Some(&update_name), window, cx)
+                            if this
+                                .provider_link
+                                .as_ref()
+                                .is_some_and(|live| live.binding.client.target() == node)
+                            {
+                                this.update_plugins(Some(&update_name), window, cx);
+                            }
                         })),
                 )
             })
@@ -340,7 +468,13 @@ impl Workspace {
                             .accessibility_label(tr("plugins_enabled"))
                             .on_click(cx.listener(move |this, enabled, window, cx| {
                                 cx.stop_propagation();
-                                this.toggle_plugin(&toggle, *enabled, window, cx);
+                                if this
+                                    .provider_link
+                                    .as_ref()
+                                    .is_some_and(|live| live.binding.client.target() == node)
+                                {
+                                    this.toggle_plugin(&toggle, *enabled, window, cx);
+                                }
                             })),
                     ),
             );

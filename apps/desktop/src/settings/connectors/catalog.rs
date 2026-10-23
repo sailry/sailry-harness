@@ -2,13 +2,13 @@
 use super::*;
 use sailry_protocol::plugin::{Info, Mcp, Reference};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Member {
     Account(String),
     Server(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Key {
     pub package: String,
     pub member: Member,

@@ -19,13 +19,29 @@ pub(super) enum Operation {
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = sailry_connectors, no_json)]
 pub(super) struct Dispatch {
+    node: Option<sailry_protocol::NodeId>,
     connection: connector::Id,
     revision: u64,
     operation: Operation,
 }
 
+impl Dispatch {
+    pub(super) fn new(
+        row: &Connection,
+        operation: Operation,
+        node: Option<sailry_protocol::NodeId>,
+    ) -> Self {
+        Self {
+            node,
+            connection: row.id,
+            revision: row.revision,
+            operation,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Item {
+pub(super) enum Item {
     Action(Operation, &'static str),
     Separator,
 }
@@ -38,7 +54,7 @@ pub(super) fn checkable(row: &Connection) -> bool {
         )
 }
 
-fn items(row: &Connection, kind: Option<&Type>) -> Vec<Item> {
+pub(super) fn items(row: &Connection, kind: Option<&Type>) -> Vec<Item> {
     if row.state == connector::State::Connecting {
         return Vec::new();
     }
@@ -96,6 +112,11 @@ impl Workspace {
     }
 
     pub(super) fn connector_menu(&self, row: &Connection, cx: &mut Context<Self>) -> AnyElement {
+        let node = self
+            .connectors
+            .binding
+            .as_ref()
+            .map(|binding| binding.client.target());
         let actions = self.connector_items(row);
         let row = row.clone();
         let owner = cx.entity();
@@ -124,11 +145,7 @@ impl Workspace {
                             PopupMenuItem::new(tr(key))
                         };
                         let owner = owner.clone();
-                        let dispatch = Dispatch {
-                            connection: row.id,
-                            revision: row.revision,
-                            operation,
-                        };
+                        let dispatch = Dispatch::new(&row, operation, node);
                         menu.item(item.on_click(move |_, window, cx| {
                             owner.update(cx, |this, cx| {
                                 this.connector_action(&dispatch, window, cx)
@@ -160,11 +177,14 @@ impl Workspace {
             };
             menu.items.push(MenuItem::action(
                 tr(key),
-                Dispatch {
-                    connection: row.id,
-                    revision: row.revision,
+                Dispatch::new(
+                    row,
                     operation,
-                },
+                    self.connectors
+                        .binding
+                        .as_ref()
+                        .map(|binding| binding.client.target()),
+                ),
             ));
         }
         NativeMenu::from(menu).show(position, window, cx);
@@ -176,6 +196,26 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if dispatch.node.is_none()
+            || dispatch.node
+                != self
+                    .provider_link
+                    .as_ref()
+                    .map(|live| live.binding.client.target())
+            || dispatch.node
+                != self
+                    .connectors
+                    .binding
+                    .as_ref()
+                    .map(|binding| binding.client.target())
+        {
+            failure(
+                Fault::new(ErrorCode::RevisionConflict, "connection target changed"),
+                window,
+                cx,
+            );
+            return;
+        }
         let Some(row) = self
             .connectors
             .rows
@@ -276,6 +316,7 @@ impl Workspace {
             )),
             _ => None,
         };
+        let node = dispatch.node;
         if let Some((title, button, detail)) = confirmation {
             crate::prompts::confirm(
                 &tr(title),
@@ -285,7 +326,30 @@ impl Workspace {
                 cx,
                 move |window, cx| {
                     owner.update(cx, |this, cx| {
-                        this.connector_command(command.clone(), window, cx)
+                        if node.is_some()
+                            && this
+                                .provider_link
+                                .as_ref()
+                                .map(|live| live.binding.client.target())
+                                == node
+                            && this
+                                .connectors
+                                .binding
+                                .as_ref()
+                                .map(|binding| binding.client.target())
+                                == node
+                        {
+                            this.connector_command(command.clone(), window, cx);
+                        } else {
+                            failure(
+                                Fault::new(
+                                    ErrorCode::RevisionConflict,
+                                    "connection target changed",
+                                ),
+                                window,
+                                cx,
+                            );
+                        }
                     });
                 },
             );

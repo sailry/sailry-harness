@@ -528,3 +528,6 @@ impl Render for Workspace {
         .into_any_element()
     }
 }
+
+#[cfg(test)]
+mod test_support;

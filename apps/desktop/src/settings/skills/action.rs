@@ -1,9 +1,38 @@
 use super::*;
+use std::collections::BTreeMap;
+
+pub(super) type Key = (sailry_protocol::NodeId, String);
 
 pub(super) struct Action {
     pub(super) binding: Binding,
     request: Request,
     pub(super) pending: bool,
+}
+
+fn admit(actions: &mut BTreeMap<Key, Action>, binding: Binding, command: Command) -> Option<Key> {
+    let name = match &command {
+        Command::SetPluginEnabled { name, .. } | Command::RemovePlugin { name, .. } => name.clone(),
+        _ => return None,
+    };
+    let key = (binding.client.target(), name);
+    let std::collections::btree_map::Entry::Vacant(entry) = actions.entry(key.clone()) else {
+        return None;
+    };
+    entry.insert(Action {
+        request: binding.client.prepare(command),
+        binding,
+        pending: false,
+    });
+    Some(key)
+}
+
+fn start(actions: &mut BTreeMap<Key, Action>, key: &Key) -> Option<(Binding, Request)> {
+    let action = actions.get_mut(key)?;
+    if action.pending {
+        return None;
+    }
+    action.pending = true;
+    Some((action.binding.clone(), action.request.clone()))
 }
 
 impl Workspace {
@@ -13,28 +42,17 @@ impl Workspace {
         command: Command,
         cx: &mut Context<Self>,
     ) {
-        if self.skill_state.action.is_some() {
-            return;
+        if let Some(key) = admit(&mut self.skill_state.actions, binding, command) {
+            self.send_skill_action(&key, cx);
         }
-        self.skill_state.action = Some(Action {
-            request: binding.client.prepare(command),
-            binding,
-            pending: false,
-        });
-        self.send_skill_action(cx);
     }
 
-    pub(super) fn send_skill_action(&mut self, cx: &mut Context<Self>) {
-        let Some(action) = &mut self.skill_state.action else {
+    pub(super) fn send_skill_action(&mut self, key: &Key, cx: &mut Context<Self>) {
+        let Some((binding, request)) = start(&mut self.skill_state.actions, key) else {
             return;
         };
-        if action.pending {
-            return;
-        }
-        action.pending = true;
+        let key = key.clone();
         self.skill_state.error = None;
-        let binding = action.binding.clone();
-        let request = action.request.clone();
         let id = request.id;
         let job = binding
             .runtime
@@ -43,7 +61,7 @@ impl Workspace {
             let result = job.await;
             _ = owner.update(cx, |owner, cx| {
                 let state = &mut owner.skill_state;
-                let Some(action) = &mut state.action else {
+                let Some(action) = state.actions.get_mut(&key) else {
                     return;
                 };
                 if action.request.id != id {
@@ -52,12 +70,12 @@ impl Workspace {
                 action.pending = false;
                 match result {
                     Ok(Ok(Output::Plugin(_) | Output::Plugins(_))) => {
-                        state.action = None;
+                        state.actions.remove(&key);
                         state.error = None;
                     }
                     Ok(Err(error)) => {
                         if !uncertain(&error) {
-                            state.action = None;
+                            state.actions.remove(&key);
                         }
                         state.error = Some(error_key(&error));
                     }
@@ -70,3 +88,6 @@ impl Workspace {
         cx.notify();
     }
 }
+
+#[cfg(test)]
+mod tests;

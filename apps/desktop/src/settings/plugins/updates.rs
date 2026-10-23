@@ -143,10 +143,16 @@ impl State {
             .get(name)
             .is_some_and(|entry| entry.candidate.is_some())
     }
-    pub(super) fn busy(&self) -> bool {
+    pub(in crate::settings) fn busy(&self) -> bool {
         self.check.is_some() || self.batch.is_some()
     }
-    pub(super) fn selecting(&self) -> bool {
+    pub(super) fn pending_package(&self, name: &str) -> bool {
+        self.batch.as_ref().is_some_and(|batch| {
+            batch.plans.contains_key(name)
+                || batch.entries.iter().any(|entry| entry.current.name == name)
+        })
+    }
+    pub(in crate::settings) fn selecting(&self) -> bool {
         self.dialog.is_some()
     }
     pub(in crate::settings) fn checking(&self) -> bool {
@@ -339,8 +345,6 @@ impl Workspace {
             && state.read(cx).retryable()
         {
             state.update(cx, |state, cx| state.send(window, cx));
-        } else {
-            self.send_plugin_action(window, cx);
         }
     }
 }

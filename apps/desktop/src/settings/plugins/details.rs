@@ -44,6 +44,7 @@ pub(crate) struct Details {
     stop: CancellationToken,
     task: Option<Task<()>>,
     removal: Option<Entity<dialog::Editor>>,
+    dialog: crate::ui::overlays::Owned,
 }
 
 impl Drop for Details {
@@ -151,10 +152,14 @@ fn mount(
                             .is_none_or(|live| live.binding.client.target() != node))
                 {
                     details.stop.cancel();
-                    window.dispatch_action(
-                        Box::new(super::super::CloseOwnedDetails(cx.entity_id())),
-                        cx,
-                    );
+                    if matches!(details.target, Target::Installed(_)) {
+                        details.dialog.close(window, cx);
+                    } else {
+                        window.dispatch_action(
+                            Box::new(super::super::CloseOwnedDetails(cx.entity_id())),
+                            cx,
+                        );
+                    }
                 }
             },
         )
@@ -178,6 +183,7 @@ fn mount(
             stop,
             task: None,
             removal: None,
+            dialog: Default::default(),
         }
     });
     details.update(cx, |_, cx| {
@@ -204,10 +210,14 @@ fn mount(
     if details.read(cx).info.is_none() {
         details.update(cx, |details, cx| details.load(cx));
     }
-    window.dispatch_action(
-        Box::new(super::super::OpenDetails(details.clone().into())),
-        cx,
-    );
+    if matches!(details.read(cx).target, Target::Installed(_)) {
+        view::open(details.clone(), window, cx);
+    } else {
+        window.dispatch_action(
+            Box::new(super::super::OpenDetails(details.clone().into())),
+            cx,
+        );
+    }
     details
 }
 
@@ -216,6 +226,14 @@ pub(super) fn dismiss(window: &mut Window, cx: &mut App) {
 }
 
 impl Details {
+    fn dismiss(&mut self, window: &mut Window, cx: &mut App) {
+        if matches!(self.target, Target::Installed(_)) {
+            self.dialog.close(window, cx);
+        } else {
+            dismiss(window, cx);
+        }
+    }
+
     fn configure(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.stop.is_cancelled() || self.error.is_some() || self.pending(cx) {
             return;
@@ -238,12 +256,12 @@ impl Details {
         };
         let binding = self.binding.clone();
         self.stop.cancel();
-        dismiss(window, cx);
+        self.dismiss(window, cx);
         super::super::extensions::modal::open(owner, binding, info, window, cx);
     }
 
     fn pending(&self, cx: &App) -> bool {
-        self.updates.read(cx).busy()
+        self.updates.read(cx).pending_package(self.name())
             || self
                 .removal
                 .as_ref()
@@ -289,12 +307,11 @@ impl Details {
                     window,
                     cx,
                     move |window, cx| {
-                        let active = details
-                            .update(cx, |details, _| !details.stop.is_cancelled())
-                            .unwrap_or(false);
-                        if active {
-                            dismiss(window, cx);
-                        }
+                        _ = details.update(cx, |details, cx| {
+                            if !details.stop.is_cancelled() {
+                                details.dismiss(window, cx);
+                            }
+                        });
                     },
                 );
                 cx.observe(&editor, |_, _, cx| cx.notify()).detach();

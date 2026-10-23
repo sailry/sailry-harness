@@ -5,10 +5,12 @@ use sailry_protocol::{
     plugin::{Info, Mcp, Reference, mcp::Check},
 };
 
+mod menu;
 mod view;
+pub(super) use menu::controls;
 
 pub(super) struct Details {
-    owner: Entity<Workspace>,
+    owner: WeakEntity<Workspace>,
     binding: Binding,
     key: Option<catalog::Key>,
     package: String,
@@ -17,7 +19,7 @@ pub(super) struct Details {
     requests: BTreeMap<String, Request>,
     drafts: BTreeMap<String, bool>,
     stop: CancellationToken,
-    scroll: ScrollHandle,
+    dialog: crate::ui::overlays::Owned,
 }
 
 struct Checked {
@@ -44,36 +46,64 @@ pub(super) fn open(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let Some(binding) = owner.read(cx).connectors.binding.clone() else {
-        return;
-    };
-    let details = cx.new(|cx| {
-        cx.observe_in(&owner, window, |details: &mut Details, _, window, cx| {
-            if !details.active(cx) {
-                details.stop.cancel();
-                window.dispatch_action(
-                    Box::new(super::super::CloseOwnedDetails(cx.entity_id())),
-                    cx,
-                );
-            }
-            details.reconcile(cx);
-            cx.notify();
+    let service = owner
+        .read(cx)
+        .service_catalog(cx)
+        .into_iter()
+        .find(|service| {
+            key.as_ref()
+                .map_or(service.package.name == package, |key| service.key == *key)
+        });
+    let details = if let Some(service) = service {
+        owner.update(cx, |workspace, cx| {
+            workspace.service_controller(&service, window, cx)
         })
+    } else {
+        let Some(binding) = owner.read(cx).connectors.binding.clone() else {
+            return;
+        };
+        create(owner, binding, key, package, window, cx)
+    };
+    view::open(details, window, cx);
+}
+
+pub(super) fn create(
+    owner: Entity<Workspace>,
+    binding: Binding,
+    key: Option<catalog::Key>,
+    package: String,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Details> {
+    cx.new(|cx| {
+        cx.observe_in(
+            &owner,
+            window,
+            |details: &mut Details, workspace, window, cx| {
+                if !details.active(cx) {
+                    details.stop.cancel();
+                    details.dialog.close(window, cx);
+                } else if workspace.read(cx).section != super::super::Section::Connectors {
+                    details.dialog.close(window, cx);
+                }
+                details.reconcile(cx);
+                cx.notify();
+            },
+        )
         .detach();
         Details {
-            owner,
+            owner: owner.downgrade(),
             binding,
-            key,
             package,
+            key,
             checks: BTreeMap::new(),
             pending: BTreeSet::new(),
             requests: BTreeMap::new(),
             drafts: BTreeMap::new(),
             stop: CancellationToken::new(),
-            scroll: ScrollHandle::new(),
+            dialog: Default::default(),
         }
-    });
-    window.dispatch_action(Box::new(super::super::OpenDetails(details.into())), cx);
+    })
 }
 
 fn current(
@@ -87,7 +117,10 @@ fn current(
 
 impl Details {
     fn loading(&self, cx: &App) -> bool {
-        let owner = self.owner.read(cx);
+        let Some(owner) = self.owner.upgrade() else {
+            return false;
+        };
+        let owner = owner.read(cx);
         owner.connectors.loading
             || owner
                 .plugin_catalog
@@ -117,12 +150,11 @@ impl Details {
 
     fn active(&self, cx: &App) -> bool {
         !self.stop.is_cancelled()
-            && self
-                .owner
-                .read(cx)
-                .provider_link
-                .as_ref()
-                .is_some_and(|live| live.binding.client.target() == self.binding.client.target())
+            && self.owner.upgrade().is_some_and(|owner| {
+                owner.read(cx).provider_link.as_ref().is_some_and(|live| {
+                    live.binding.client.target() == self.binding.client.target()
+                })
+            })
     }
 
     fn service(&self, cx: &App) -> Option<catalog::Service> {
@@ -130,6 +162,7 @@ impl Details {
             return None;
         }
         self.owner
+            .upgrade()?
             .read(cx)
             .service_catalog(cx)
             .into_iter()
@@ -146,14 +179,20 @@ impl Details {
         self.active(cx)
             && current(
                 self.binding.client.target(),
-                self.owner
-                    .read(cx)
-                    .provider_link
-                    .as_ref()
-                    .map(|live| live.binding.client.target()),
+                self.owner.upgrade().and_then(|owner| {
+                    owner
+                        .read(cx)
+                        .provider_link
+                        .as_ref()
+                        .map(|live| live.binding.client.target())
+                }),
                 package,
                 self.service(cx).as_ref(),
             )
+    }
+
+    fn notify_list(&self, cx: &mut App) {
+        _ = self.owner.update(cx, |_, cx| cx.notify());
     }
 
     fn check(&mut self, server: Mcp, window: &mut Window, cx: &mut Context<Self>) {
@@ -187,6 +226,7 @@ impl Details {
                 }
                 details.pending.remove(&name);
                 if !details.accepts(&expected, cx) {
+                    details.notify_list(cx);
                     cx.notify();
                     return;
                 }
@@ -202,6 +242,7 @@ impl Details {
                             .service(cx)
                             .is_none_or(|service| !checked.current(&service))
                         {
+                            details.notify_list(cx);
                             cx.notify();
                             return;
                         }
@@ -217,10 +258,12 @@ impl Details {
                     Ok(None) => (),
                     _ => crate::feedback::error("", &tr("connector_check_failed"), window, cx),
                 }
+                details.notify_list(cx);
                 cx.notify();
             });
         })
         .detach();
+        self.notify_list(cx);
         cx.notify();
     }
 
@@ -296,17 +339,21 @@ impl Details {
                     _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
                 }
                 details.reconcile(cx);
+                details.notify_list(cx);
                 cx.notify();
             });
         })
         .detach();
+        self.notify_list(cx);
         cx.notify();
     }
 
     fn configure(&self, info: Info, server: String, window: &mut Window, cx: &mut App) {
-        if self.active(cx) {
+        if self.active(cx)
+            && let Some(owner) = self.owner.upgrade()
+        {
             super::super::mcp::configure_server(
-                self.owner.clone(),
+                owner,
                 self.binding.clone(),
                 info,
                 server,
