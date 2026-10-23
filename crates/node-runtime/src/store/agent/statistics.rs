@@ -4,15 +4,6 @@ mod compaction;
 mod observations;
 pub(in crate::store) mod report;
 
-// Expressions match the covering index; summaries do not materialize message bodies.
-const TOTALS: &str = "SELECT count(*),
-    coalesce(sum(max(0,json_extract(e.body,'$.usage_metadata.prompt_token_count'))),0),
-    coalesce(sum(max(0,json_extract(e.body,'$.usage_metadata.candidates_token_count'))),0),
-    coalesce(sum(max(0,coalesce(json_extract(e.body,'$.usage_metadata.cache_read_input_token_count'),0))),0),
-    coalesce(sum(max(0,coalesce(json_extract(e.body,'$.usage_metadata.thinking_token_count'),0))),0)
-    FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn
-    WHERE h.session=?1 AND json_type(e.body,'$.usage_metadata')='object'";
-
 pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fault> {
     check_session(db, session)?;
     let turns = db
@@ -42,37 +33,23 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
     let last_compaction = compaction::latest(db, session)?;
     let first_token_us = observation.as_ref().and_then(|value| value.first_token_us);
     let observations = observations::read(db, session)?;
-    db.query_row(TOTALS, [session.to_string()], |row| {
-        let responses = row.get::<_, i64>(0)? as u64;
-        let usage = if responses > 0 {
-            Some(Usage {
-                input: row.get::<_, i64>(1)? as u64,
-                output: row.get::<_, i64>(2)? as u64,
-                cached_input: row.get::<_, i64>(3)? as u64,
-                reasoning: row.get::<_, i64>(4)? as u64,
-            })
-        } else {
-            None
-        };
-        Ok(Statistics {
-            observations: observations.clone(),
-            turns: turns as u64,
-            responses,
-            usage,
-            context_tokens,
-            context_estimate,
-            context_limit,
-            context_model: context_model.clone(),
-            context_timestamp_ms,
-            budget: budget.clone(),
-            last_compaction: last_compaction.clone(),
-            first_token_us,
-            cost: metrics.cost.clone(),
-            generation: metrics.generation.clone(),
-            delegated: delegated.clone(),
-        })
+    Ok(Statistics {
+        observations,
+        turns: turns as u64,
+        responses: metrics.responses,
+        usage: metrics.tokens,
+        context_tokens,
+        context_estimate,
+        context_limit,
+        context_model,
+        context_timestamp_ms,
+        budget,
+        last_compaction,
+        first_token_us,
+        cost: metrics.cost,
+        generation: metrics.generation,
+        delegated,
     })
-    .map_err(storage_error)
 }
 
 pub(super) fn parents(db: &Connection, turn: TurnId) -> Result<Vec<SessionId>, Fault> {

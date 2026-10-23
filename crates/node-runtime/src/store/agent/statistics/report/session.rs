@@ -3,7 +3,7 @@ use super::*;
 
 // Keep the pricing columns aligned with query::ROWS. Frozen providers belong to the original turn,
 // including inherited history, not the viewing session's current configuration.
-const ROWS: &str = "WITH selected AS (
+pub(in crate::store::agent::statistics) const ROWS: &str = "WITH selected AS (
     SELECT turn,0 AS delegated FROM conversation_turns WHERE session=?1
     UNION
     SELECT d.turn,1 FROM agent_delegations d

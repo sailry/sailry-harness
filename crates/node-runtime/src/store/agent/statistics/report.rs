@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 mod pricing;
 mod query;
 mod session;
+#[cfg(test)]
+pub(super) use session::ROWS as SESSION_ROWS;
 pub(super) use session::read as session;
 #[cfg(test)]
 mod tests;

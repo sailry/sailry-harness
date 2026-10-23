@@ -353,7 +353,9 @@ fn reads_indexed_totals() {
         fixture.append([entry]);
     }
     let db = &fixture.database.connection;
-    let mut plan = db.prepare(&format!("EXPLAIN QUERY PLAN {TOTALS}")).unwrap();
+    let mut plan = db
+        .prepare(&format!("EXPLAIN QUERY PLAN {}", report::SESSION_ROWS))
+        .unwrap();
     let details = plan
         .query_map([fixture.session.to_string()], |row| row.get::<_, String>(3))
         .unwrap()
