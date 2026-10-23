@@ -56,12 +56,13 @@ fn current_exchange(
     turn: TurnId,
     end: &str,
 ) -> Result<bool, Fault> {
+    let visible = history::VISIBLE_EVENT;
     let boundary: Option<(i64, String)> = db.query_row(
-        "SELECT e.sequence,e.turn FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+        &format!("SELECT e.sequence,e.turn FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN turns t ON t.id=e.turn JOIN agent_runs r ON r.turn=t.id
-         WHERE h.session=?1 AND e.id=?2 AND t.kind='task'
+         WHERE h.session=?1 AND e.id=?2 AND t.kind='task' AND {visible}
          AND ((e.turn=?3 AND json_extract(r.body,'$.status')='running')
-           OR json_extract(r.body,'$.status') NOT IN ('queued','running','stopping'))",
+           OR json_extract(r.body,'$.status') NOT IN ('queued','running','stopping'))"),
         params![session.to_string(), end, turn.to_string()], |row| Ok((row.get(0)?, row.get(1)?))
     ).optional().map_err(storage_error)?;
     let Some((sequence, owner)) = boundary else {

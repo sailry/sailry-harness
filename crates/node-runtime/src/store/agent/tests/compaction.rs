@@ -261,6 +261,30 @@ fn accepts_complete_batches() {
         &fixture.events,
     )
     .unwrap();
+    let mut telemetry = AdkEvent::new("timing-fixture");
+    telemetry.author = "system".into();
+    telemetry.provider_metadata.insert(
+        "sailry_execution_phases".into(),
+        serde_json::to_string(&sailry_protocol::conversation::observation::Phases::default())
+            .unwrap(),
+    );
+    history::append(
+        &mut fixture.database,
+        fixture.session,
+        turn,
+        telemetry.clone(),
+        &fixture.events,
+    )
+    .unwrap();
+    assert!(
+        context::validate(
+            &fixture.database.connection,
+            fixture.session,
+            turn,
+            &summary(&telemetry),
+        )
+        .is_err()
+    );
     assert_eq!(
         context::history(&fixture.database.connection, fixture.session, turn)
             .unwrap()
@@ -298,6 +322,15 @@ fn accepts_complete_batches() {
         &fixture.events,
     )
     .unwrap();
+    assert!(
+        context::validate(
+            &fixture.database.connection,
+            fixture.session,
+            turn,
+            &summary(&telemetry),
+        )
+        .is_err()
+    );
     history::append(
         &mut fixture.database,
         fixture.session,
