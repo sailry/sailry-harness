@@ -48,7 +48,6 @@ fn severity(level: tracing::Level) -> oslog::Level {
         // Essential lifecycle diagnostics should survive after the process exits.
         tracing::Level::INFO => oslog::Level::Default,
         // Apple's warning and error APIs both use Error; Fault is for bugs.
-        // The original WARN/ERROR level remains visible in the shared message.
         tracing::Level::WARN | tracing::Level::ERROR => oslog::Level::Error,
     }
 }
@@ -74,6 +73,7 @@ mod tests {
             assert_eq!(category(area.name()), area.name());
         }
         assert_eq!(category("link"), "link");
+        assert_eq!(category("client"), "client");
         assert_eq!(category("unexpected"), "logging");
         assert_eq!(category(""), "logging");
         assert_eq!(Application::Desktop.subsystem(), "ai.sailry.desktop");

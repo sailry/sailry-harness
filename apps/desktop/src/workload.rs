@@ -36,11 +36,14 @@ pub(super) fn run(output: &Path) {
             .unwrap(),
     );
     let (remote, server, sessions) = runtime.block_on(fixture::prepare(directory.path()));
-    crate::run(Scenario {
+    let status = crate::run(Scenario {
         profile: directory.path().join("local"),
         output: output.to_owned(),
         sessions,
     });
+    if status != std::process::ExitCode::SUCCESS {
+        fail("Desktop startup failed");
+    }
     runtime.block_on(remote.shutdown()).unwrap();
     drop(server);
 }

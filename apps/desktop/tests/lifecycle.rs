@@ -12,6 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "../../../crates/node-runtime/tests/logging/parse.rs"]
+mod parse;
+
 struct Desktop {
     child: Child,
     output: Receiver<String>,
@@ -172,6 +175,45 @@ fn validates_options() {
     ]);
     assert!(!invalid.wait().success());
     assert!(!profile.exists());
+}
+
+#[test]
+fn flushes_failed_startup() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("desktop");
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let node = runtime.block_on(Node::start_empty(&profile)).unwrap();
+    let identity = node.id();
+    let mut desktop = Desktop::spawn(&profile);
+    assert_eq!(desktop.wait().code(), Some(1));
+    let records = std::fs::read_dir(profile.join("logs/desktop"))
+        .unwrap()
+        .flat_map(|entry| {
+            std::fs::read_to_string(entry.unwrap().path())
+                .unwrap()
+                .lines()
+                .map(parse::line)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert!(records.iter().any(|record| {
+        record["area"] == "node"
+            && record["reason"] == "startup"
+            && record["phase"] == "failed"
+            && record["code"] == "busy"
+    }));
+    let client = Client::new(node.local());
+    let Output::Snapshot(snapshot) = runtime
+        .block_on(client.execute(client.prepare(NodeCommand::Snapshot)))
+        .unwrap()
+    else {
+        panic!("snapshot expected");
+    };
+    assert_eq!(
+        snapshot.node, identity,
+        "failed startup leaves the owner running"
+    );
+    runtime.block_on(node.shutdown()).unwrap();
 }
 
 #[test]

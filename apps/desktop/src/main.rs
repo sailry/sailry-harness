@@ -91,6 +91,6 @@ fn tr(key: &str) -> SharedString {
     rust_i18n::t!(key).to_string().into()
 }
 
-fn main() {
-    application::launch();
+fn main() -> std::process::ExitCode {
+    application::launch()
 }

@@ -67,6 +67,14 @@ const FIELDS: &[&str] = &[
     "request_mode",
     "transport",
     "connection_reused",
+    "communication_outcome",
+    "execution_outcome",
+    "recovery_decision",
+    "wait_ms",
+    "end_to_end_us",
+    "rtt_ms",
+    "generation",
+    "sequence",
     "fallback_reason",
     "continuation",
     "stream",
@@ -96,6 +104,33 @@ impl Fields {
         if FIELDS.contains(&field.name()) {
             self.0.insert(field.name().into(), value);
         }
+    }
+
+    fn format(&self, include_area: bool) -> Result<String, fmt::Error> {
+        let mut text = String::new();
+        for key in FIELDS {
+            if !include_area && *key == "area" {
+                continue;
+            }
+            let Some(value) = self.0.get(*key) else {
+                continue;
+            };
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            write!(text, "{key}=")?;
+            match value {
+                Value::String(value)
+                    if !value.chars().any(|character| {
+                        character.is_whitespace() || matches!(character, '"' | '\\' | '=')
+                    }) && serde_json::from_str::<Value>(value).is_err() =>
+                {
+                    text.push_str(value);
+                }
+                value => write!(text, "{value}")?,
+            }
+        }
+        Ok(text)
     }
 }
 impl Visit for Fields {
@@ -140,25 +175,14 @@ where
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
             self.application,
         );
-        for key in FIELDS {
-            let Some(value) = fields.0.get(*key) else {
-                continue;
-            };
-            write!(line, " {key}=")?;
-            match value {
-                Value::String(value)
-                    if !value.chars().any(|character| {
-                        character.is_whitespace() || matches!(character, '"' | '\\' | '=')
-                    }) && serde_json::from_str::<Value>(value).is_err() =>
-                {
-                    line.push_str(value);
-                }
-                value => write!(line, "{value}")?,
-            }
+        let body = fields.format(true)?;
+        if !body.is_empty() {
+            write!(line, " {body}")?;
         }
-        // Both outputs receive this exact line only after the privacy allowlist.
+        // Native time, severity, subsystem and category already have dedicated metadata.
+        // Both bodies still come from the same privacy allowlist and value escaping.
         let area = fields.0.get("area").and_then(Value::as_str).unwrap_or("");
-        self.sink.emit(level, area, &line);
+        self.sink.emit(level, area, &fields.format(false)?);
         writeln!(writer, "{line}")
     }
 }

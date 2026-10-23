@@ -5,6 +5,15 @@ use uuid::Uuid;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NodeId(pub [u8; 32]);
 
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for byte in self.0 {
+            write!(formatter, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
 macro_rules! identifier {
     ($($name:ident),+ $(,)?) => { $(
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -89,5 +98,17 @@ mod tests {
             serde_json::from_str::<RequestId>(&serde_json::to_string(&id).unwrap()).unwrap(),
             id
         );
+    }
+
+    #[test]
+    fn displays_complete_public_identity() {
+        let node = NodeId(std::array::from_fn(|index| index as u8));
+        assert_eq!(
+            node.to_string(),
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
+        let wire = serde_json::to_value(node).unwrap();
+        assert_eq!(wire, serde_json::json!((0..32).collect::<Vec<_>>()));
+        assert_eq!(serde_json::from_value::<NodeId>(wire).unwrap(), node);
     }
 }

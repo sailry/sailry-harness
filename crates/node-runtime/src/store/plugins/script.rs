@@ -126,13 +126,44 @@ impl Ingress {
                     Err(fault) => Err(fault),
                 };
                 if let Err(error) = result {
-                    tracing::warn!(code = ?error.code, "plugin diagnostic could not be persisted");
+                    persist_failed(self.node, caller, report, info, &error);
                 }
             }
         }
         fault
     }
 }
+
+fn persist_failed(
+    node: NodeId,
+    caller: NodeId,
+    report: &notification::SystemDiagnostic,
+    info: &plugin::Info,
+    error: &Fault,
+) {
+    use crate::logging::{Area, Context, Entry, Phase};
+    let mut entry = Entry::new(Area::Plugin, Phase::Failed);
+    entry.context = Context {
+        node: Some(node),
+        caller: Some(caller),
+        request: report.request,
+        incident: Some(report.incident),
+        package: Some(info.summary.reference()),
+        session: report.session,
+        turn: report.turn,
+        worktree: report.worktree,
+        ..Default::default()
+    };
+    entry.operation = Some("diagnostic_persist");
+    entry.stage = Some("store");
+    entry.source_kind = Some("plugin_callback");
+    entry.code = Some(error.code);
+    entry.emit_warn();
+}
+
+#[cfg(test)]
+#[path = "script/tests.rs"]
+mod tests;
 
 pub(super) async fn run(
     ingress: Arc<Ingress>,

@@ -176,7 +176,7 @@ impl format::Sink for Capture {
 }
 
 #[test]
-fn shares_sanitized_lines_with_native_sink() {
+fn shares_sanitized_fields_with_native_sink() {
     let directory = tempfile::tempdir().unwrap();
     let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
     let capture = Capture::default();
@@ -199,15 +199,10 @@ fn shares_sanitized_lines_with_native_sink() {
     let text = std::fs::read_to_string(latest_file(directory.path()).unwrap().unwrap()).unwrap();
     let emitted = capture.0.lock().unwrap();
     assert_eq!(emitted.len(), 2);
-    assert_eq!(
-        text.lines().collect::<Vec<_>>(),
-        emitted
-            .iter()
-            .map(|value| value.line.as_str())
-            .collect::<Vec<_>>()
-    );
     assert_eq!(emitted[0].level, tracing::Level::WARN);
     assert_eq!(emitted[0].area, "model");
+    assert_eq!(emitted[1].level, tracing::Level::INFO);
+    assert_eq!(emitted[1].area, "model");
     assert!(!text.contains("PRIVATE_"));
     assert!(
         !text
@@ -215,6 +210,23 @@ fn shares_sanitized_lines_with_native_sink() {
             .any(|character| character.is_control() && character != '\n')
     );
     let records = lines(directory.path());
+    for (record, emission) in records.iter().zip(emitted.iter()) {
+        let mut native = parse::line(&format!(
+            "1970-01-01T00:00:00Z {} host {}",
+            emission.level, emission.line
+        ));
+        let mut file = record.clone();
+        assert!(native.get("area").is_none());
+        for key in ["timestamp", "level", "application", "area"] {
+            native.as_object_mut().unwrap().remove(key);
+            file.as_object_mut().unwrap().remove(key);
+        }
+        assert_eq!(native, file, "both sinks preserve the same safe fields");
+        assert!(!emission.line.contains("PRIVATE_"));
+        assert!(!emission.line.contains("1970-"));
+        assert!(!emission.line.contains(" WARN "));
+        assert!(!emission.line.contains(" host "));
+    }
     assert_eq!(
         records[0]["provider_name"],
         "Safe \"quoted\" name=fixture\\value"
@@ -229,6 +241,48 @@ fn shares_sanitized_lines_with_native_sink() {
     assert!(text.contains("budget=-1"));
     assert!(text.contains("budget=0"));
     assert!(text.contains("model=\"false\""));
+}
+
+#[test]
+fn records_correlated_recovery_metadata() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
+    let incident = sailry_protocol::RequestId::new();
+    let call = sailry_protocol::RequestId::new();
+    tracing::dispatcher::with_default(&dispatch, || {
+        let mut entry = Entry::new(Area::Model, Phase::Retrying);
+        entry.context.incident = Some(incident);
+        entry.context.call = Some(call);
+        entry.communication_outcome = Some("completed");
+        entry.execution_outcome = Some("unknown");
+        entry.recovery_decision = Some("snapshot");
+        entry.wait_ms = Some(1000);
+        entry.end_to_end_us = Some(3500);
+        entry.rtt_ms = Some(2);
+        entry.generation = Some(4);
+        entry.sequence = Some(19);
+        entry.emit();
+        entry.phase = Phase::Selected;
+        entry.emit();
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records.len(), 2);
+    for (record, phase) in records.iter().zip(["retrying", "selected"]) {
+        assert_eq!(record["phase"], phase);
+        assert_eq!(record["level"], "INFO");
+        assert_eq!(record["incident"], incident.to_string());
+        assert_eq!(record["call"], call.to_string());
+        assert_eq!(record["communication_outcome"], "completed");
+        assert_eq!(record["execution_outcome"], "unknown");
+        assert_eq!(record["recovery_decision"], "snapshot");
+        assert_eq!(record["wait_ms"], 1000);
+        assert_eq!(record["end_to_end_us"], 3500);
+        assert_eq!(record["rtt_ms"], 2);
+        assert_eq!(record["generation"], 4);
+        assert_eq!(record["sequence"], 19);
+    }
 }
 
 #[test]

@@ -16,12 +16,13 @@ pub enum Area {
     Artifact,
     Desktop,
     Link,
+    Client,
     Turn,
     Logging,
 }
 impl Area {
     #[cfg(any(target_os = "macos", test))]
-    pub(super) const ALL: [Self; 11] = [
+    pub(super) const ALL: [Self; 12] = [
         Self::Node,
         Self::Command,
         Self::Run,
@@ -31,6 +32,7 @@ impl Area {
         Self::Artifact,
         Self::Desktop,
         Self::Link,
+        Self::Client,
         Self::Turn,
         Self::Logging,
     ];
@@ -46,6 +48,7 @@ impl Area {
             Self::Artifact => "artifact",
             Self::Desktop => "desktop",
             Self::Link => "link",
+            Self::Client => "client",
             Self::Turn => "turn",
             Self::Logging => "logging",
         }
@@ -55,6 +58,8 @@ impl Area {
 pub enum Phase {
     Begin,
     Admitted,
+    Retrying,
+    Selected,
     Completed,
     Continued,
     Failed,
@@ -66,6 +71,8 @@ impl Phase {
         match self {
             Self::Begin => "begin",
             Self::Admitted => "admitted",
+            Self::Retrying => "retrying",
+            Self::Selected => "selected",
             Self::Completed => "completed",
             Self::Continued => "continued",
             Self::Failed => "failed",
@@ -80,6 +87,7 @@ pub struct Context {
     pub node: Option<NodeId>,
     pub caller: Option<NodeId>,
     pub request: Option<RequestId>,
+    pub incident: Option<RequestId>,
     pub session: Option<SessionId>,
     pub turn: Option<TurnId>,
     pub worktree: Option<WorktreeId>,
@@ -113,6 +121,14 @@ pub struct Entry {
     pub request_mode: Option<&'static str>,
     pub transport: Option<&'static str>,
     pub connection_reused: Option<bool>,
+    pub communication_outcome: Option<&'static str>,
+    pub execution_outcome: Option<&'static str>,
+    pub recovery_decision: Option<&'static str>,
+    pub wait_ms: Option<u64>,
+    pub end_to_end_us: Option<u64>,
+    pub rtt_ms: Option<u64>,
+    pub generation: Option<u64>,
+    pub sequence: Option<u64>,
     pub fallback_reason: Option<&'static str>,
     pub continuation: Option<&'static str>,
     pub stream: Option<bool>,
@@ -155,6 +171,14 @@ impl Entry {
             request_mode: None,
             transport: None,
             connection_reused: None,
+            communication_outcome: None,
+            execution_outcome: None,
+            recovery_decision: None,
+            wait_ms: None,
+            end_to_end_us: None,
+            rtt_ms: None,
+            generation: None,
+            sequence: None,
             fallback_reason: None,
             continuation: None,
             stream: None,
@@ -189,15 +213,6 @@ impl Entry {
     }
     fn write(&self, level: Option<tracing::Level>) {
         let id = |value: Option<String>| value.unwrap_or_default();
-        let node = |value: Option<NodeId>| {
-            value.map(|value| {
-                value
-                    .0
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>()
-            })
-        };
         let context = &self.context;
         let package = context.package.as_ref();
         let code = self
@@ -212,7 +227,8 @@ impl Entry {
             .unwrap_or_default();
         macro_rules! emit { ($level:expr) => { tracing::event!(target: "sailry", $level,
             area = self.area.name(), phase = self.phase.name(),
-            node = id(node(context.node)), caller = id(node(context.caller)),
+            node = id(context.node.map(|value| value.to_string())), caller = id(context.caller.map(|value| value.to_string())),
+            incident = id(context.incident.map(|value| value.to_string())),
             request = id(context.request.map(|value| value.to_string())), session = id(context.session.map(|value| value.to_string())),
             turn = id(context.turn.map(|value| value.to_string())), worktree = id(context.worktree.map(|value| value.to_string())),
             provider = id(context.provider.map(|value| value.to_string())), provider_name = context.provider_name.as_deref().unwrap_or_default(), model = context.model.as_deref().unwrap_or_default(),
@@ -224,6 +240,8 @@ impl Entry {
             cause_code = self.cause_code.unwrap_or_default(), cause_component = self.cause_component.unwrap_or_default(), cause_category = self.cause_category.unwrap_or_default(), upstream_status = self.upstream_status,
             attempt = self.attempt, limit = self.limit, request_mode = self.request_mode.unwrap_or_default(), stream = self.stream, budget = self.budget,
             transport = self.transport.unwrap_or_default(), connection_reused = self.connection_reused, fallback_reason = self.fallback_reason.unwrap_or_default(), continuation = self.continuation.unwrap_or_default(),
+            communication_outcome = self.communication_outcome.unwrap_or_default(), execution_outcome = self.execution_outcome.unwrap_or_default(), recovery_decision = self.recovery_decision.unwrap_or_default(),
+            wait_ms = self.wait_ms, end_to_end_us = self.end_to_end_us, rtt_ms = self.rtt_ms, generation = self.generation, sequence = self.sequence,
             parse_layer = self.parse_layer.unwrap_or_default(), parse_category = self.parse_category.unwrap_or_default(), parse_cause = self.parse_cause.unwrap_or_default(), parse_field = self.parse_field.unwrap_or_default(), parse_event = self.parse_event.as_deref().unwrap_or_default(), parse_line = self.parse_line, parse_column = self.parse_column,
             code = code.as_str(), status = status.as_str(), duration_us = self.duration_us, first_token_us = self.first_token_us, bytes = self.bytes, count = self.count, durable = self.durable,
             elapsed_us = self.elapsed_us, last_content_us = self.last_content_us,

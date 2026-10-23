@@ -9,11 +9,12 @@ use gpui_kit::{
     App, AppContext as _, Styled as _, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
     WindowOptions, point, px, size, transparent_black,
 };
+use std::process::ExitCode;
 
-pub(crate) fn launch() {
+pub(crate) fn launch() -> ExitCode {
     let _ = rustls::crypto::ring::default_provider().install_default();
     if updater::run_helper() {
-        return;
+        return ExitCode::SUCCESS;
     }
     #[cfg(feature = "workload-tests")]
     {
@@ -25,22 +26,24 @@ pub(crate) fn launch() {
         let _ = workload::setup(|| {
             workload::run(&output);
         });
-        if workload::failed() {
-            std::process::exit(1);
-        }
+        return if workload::failed() {
+            ExitCode::FAILURE
+        } else {
+            ExitCode::SUCCESS
+        };
     }
     #[cfg(not(feature = "workload-tests"))]
-    run();
+    run()
 }
 
-pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenario) {
+pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenario) -> ExitCode {
     #[cfg(not(feature = "workload-tests"))]
     let launch = match startup::parse(std::env::args_os().skip(1)) {
         Ok(Some(launch)) => launch,
-        Ok(None) => return,
+        Ok(None) => return ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("sailry-desktop: {error}");
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
     };
     #[cfg(feature = "workload-tests")]
@@ -73,17 +76,17 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
                 Ok(report) => println!("{report}"),
                 Err(error) => {
                     eprintln!("sailry-desktop: {error}");
-                    std::process::exit(1);
+                    return ExitCode::FAILURE;
                 }
             }
-            return;
+            return ExitCode::SUCCESS;
         }
         startup::Launch::Preview => None,
         startup::Launch::Node(options) => match backend::Owner::start(options) {
             Ok(owner) => Some(owner),
             Err(error) => {
                 eprintln!("sailry-desktop: {error}");
-                std::process::exit(1);
+                return ExitCode::FAILURE;
             }
         },
     };
@@ -155,6 +158,7 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
         })
         .detach();
     });
+    ExitCode::SUCCESS
 }
 
 pub(crate) fn window_options(cx: &App) -> WindowOptions {

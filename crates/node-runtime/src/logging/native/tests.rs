@@ -64,18 +64,18 @@ fn observes_synthetic_console_messages() {
             String::from_utf8_lossy(&output.stderr)
         );
         let records: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
-        let found = lines.lines().all(|line| {
+        let expected = [
+            (format!("phase=begin reason={nonce}"), "Default"),
+            (format!("phase=interrupted reason={nonce}"), "Error"),
+            (format!("phase=failed reason={nonce}"), "Error"),
+        ];
+        let found = expected.iter().all(|(message, level)| {
             records.iter().any(|record| {
-                record["eventMessage"] == line
+                record["eventMessage"] == *message
                     && record["subsystem"] == "ai.sailry.host"
                     && record["category"] == "logging"
                     && record["processID"] == std::process::id()
-                    && record["messageType"]
-                        == if line.contains(" INFO ") {
-                            "Default"
-                        } else {
-                            "Error"
-                        }
+                    && record["messageType"] == *level
             })
         });
         if found {
