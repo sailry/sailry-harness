@@ -5,6 +5,7 @@ use sailry_protocol::plugin::connector::{Attempt, Input, Kind, LoginState};
 use std::{collections::BTreeMap, sync::atomic::Ordering};
 mod confidential;
 mod expiration;
+mod history;
 mod lifecycle;
 mod migration;
 mod redirects;
