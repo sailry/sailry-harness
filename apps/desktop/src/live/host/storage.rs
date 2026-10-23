@@ -93,7 +93,6 @@ impl Monitor {
                                                     .min_w_0()
                                                     .truncate()
                                                     .text_sm()
-                                                    .when(current, |label| label.font_semibold())
                                                     .debug_selector(move || {
                                                         format!("host-partition-label-{index}")
                                                     })

@@ -264,12 +264,15 @@ impl Render for State {
                                                 )),
                                             ),
                                     )
-                                    .child(emblem::render(
+                                    .child(emblem::grid(
                                         name,
+                                        row.info
+                                            .extension
+                                            .as_ref()
+                                            .and_then(|extension| extension.tint),
                                         emblem::glyph(&row.info),
                                         row.info.icon.as_deref(),
                                         px(32.),
-                                        cx,
                                     ))
                                     .child(
                                         v_flex()

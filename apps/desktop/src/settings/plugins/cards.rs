@@ -193,12 +193,13 @@ impl Workspace {
                     let name = name.clone();
                     move || format!("plugin-icon-{name}")
                 })
-                .child(emblem::render(
+                .child(emblem::grid(
                     &plugin.name,
+                    info.and_then(|info| info.extension.as_ref())
+                        .and_then(|extension| extension.tint),
                     info.and_then(emblem::glyph),
                     info.and_then(|info| info.icon.as_deref()),
                     px(48.),
-                    cx,
                 ))
                 .into_any_element(),
             cx,

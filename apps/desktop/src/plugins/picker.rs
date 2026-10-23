@@ -65,8 +65,30 @@ struct Rows {
     query: String,
     loading: bool,
     empty: String,
+    mode: Mode,
 }
 impl Rows {
+    fn enabled(&self, _: &App) -> Vec<IndexPath> {
+        self.visible
+            .iter()
+            .enumerate()
+            .flat_map(|(section, rows)| {
+                rows.iter()
+                    .enumerate()
+                    .filter(|(_, row)| !row.disabled)
+                    .map(move |(row, _)| IndexPath::new(row).section(section))
+            })
+            .collect()
+    }
+
+    fn height(&self) -> f32 {
+        if self.mode == Mode::Command && self.all.iter().any(|row| !row.detail.is_empty()) {
+            48.
+        } else {
+            crate::command_picker::ROW_HEIGHT
+        }
+    }
+
     fn filter(&mut self) {
         let query = self.query.to_lowercase();
         self.visible.clear();
@@ -75,10 +97,12 @@ impl Rows {
                 .to_lowercase()
                 .contains(&query)
         }) {
-            if self
-                .visible
-                .last()
-                .is_none_or(|group| group[0].group != row.group)
+            if self.visible.is_empty()
+                || (self.mode == Mode::List
+                    && self
+                        .visible
+                        .last()
+                        .is_some_and(|group| group[0].group != row.group))
             {
                 self.visible.push(Vec::new());
             }
@@ -90,7 +114,7 @@ impl Rows {
             .enumerate()
             .find_map(|(section, rows)| {
                 rows.iter()
-                    .position(|row| row.checked && !row.disabled)
+                    .position(|row| self.mode == Mode::List && row.checked && !row.disabled)
                     .map(|row| IndexPath::new(row).section(section))
             })
             .or_else(|| {
@@ -121,11 +145,19 @@ impl ListDelegate for Rows {
     fn perform_search(
         &mut self,
         query: &str,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) -> Task<()> {
         self.query = query.into();
         self.filter();
+        let selected = self.selected;
+        let owner = cx.weak_entity();
+        window.defer(cx, move |window, cx| {
+            let _ = owner.update(cx, |list, cx| {
+                list.set_selected_index(selected, window, cx);
+                cx.notify();
+            });
+        });
         cx.notify();
         Task::ready(())
     }
@@ -139,7 +171,8 @@ impl ListDelegate for Rows {
         cx: &mut Context<ListState<Self>>,
     ) -> Option<impl IntoElement> {
         let group = &self.visible.get(section)?.first()?.group;
-        (!group.is_empty()).then(|| crate::command_picker::heading(group.clone(), cx))
+        (self.mode == Mode::List && !group.is_empty())
+            .then(|| crate::command_picker::heading(group.clone(), cx))
     }
     fn render_item(
         &mut self,
@@ -149,23 +182,28 @@ impl ListDelegate for Rows {
     ) -> Option<ListItem> {
         let row = self.visible.get(index.section)?.get(index.row)?.clone();
         let selector = row.id.clone();
-        Some(
-            crate::command_picker::row(
-                (
-                    SharedString::from(self.id.clone()),
-                    index.section * 1000 + index.row,
-                ),
-                row.checked,
-                row.disabled,
-                cx,
-            )
-            .on_mouse_enter(cx.listener(move |list, _, window, cx| {
+        let item = crate::command_picker::row(
+            (
+                SharedString::from(self.id.clone()),
+                index.section * 1000 + index.row,
+            ),
+            row.checked,
+            row.disabled,
+            cx,
+        )
+        .when(!row.disabled, |item| {
+            item.on_mouse_enter(cx.listener(move |list, _, window, cx| {
                 if list.selected_index() != Some(index) {
                     list.set_selected_index(Some(index), window, cx);
                     cx.notify();
                 }
             }))
-            .child(
+        });
+        if self.mode == Mode::Command {
+            return Some(command::row(item, row, self.height(), cx));
+        }
+        Some(
+            item.child(
                 h_flex()
                     .gap_2()
                     .w_full()
@@ -223,37 +261,11 @@ impl ListDelegate for Rows {
                 .send(json!({"picker":self.id,"kind":"select","id":row.id,"value":row.value}));
         }
     }
-    fn cancel(&mut self, _: &mut Window, cx: &mut Context<ListState<Self>>) {
-        self.events
-            .read(cx)
-            .send(json!({"picker":self.id,"kind":"close"}));
-    }
 }
 struct Retained {
-    control: Control,
+    list: Entity<ListState<Rows>>,
+    _enter: Subscription,
     previous: Option<ReturnFocus>,
-}
-
-#[derive(Clone)]
-enum Control {
-    List(Entity<ListState<Rows>>),
-    Command(Entity<component::command::CommandState>),
-}
-
-impl Control {
-    fn focus_handle(&self, cx: &App) -> FocusHandle {
-        match self {
-            Self::List(list) => list.read(cx).focus_handle(cx),
-            Self::Command(command) => command.read(cx).focus_handle(cx),
-        }
-    }
-
-    fn focus(&self, window: &mut Window, cx: &mut App) {
-        match self {
-            Self::List(list) => list.update(cx, |list, cx| list.focus(window, cx)),
-            Self::Command(command) => command.update(cx, |command, cx| command.focus(window, cx)),
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -270,7 +282,7 @@ impl Retained {
         let Some(previous) = self.previous.take() else {
             return;
         };
-        let focus = self.control.focus_handle(cx);
+        let focus = self.list.read(cx).focus_handle(cx);
         window.defer(cx, move |window, cx| {
             if !focus.is_focused(window) && window.focused(cx).is_some() {
                 return;
@@ -296,7 +308,8 @@ fn previous(pickers: &Pickers, window: &Window, cx: &App) -> Option<ReturnFocus>
         let state = owner.upgrade()?;
         state
             .read(cx)
-            .control
+            .list
+            .read(cx)
             .focus_handle(cx)
             .is_focused(window)
             .then(|| owner.clone())
@@ -350,22 +363,20 @@ fn render(
         |window, cx| {
             opened = true;
             let previous = previous(pickers, window, cx);
-            let control = if props.mode == Mode::Command {
-                Control::Command(cx.new(|cx| component::command::CommandState::new(window, cx)))
-            } else {
-                let mut rows = Rows {
-                    id: id.clone(),
-                    events: events.clone(),
-                    all: Vec::new(),
-                    visible: Vec::new(),
-                    selected: None,
-                    query: String::new(),
-                    loading: false,
-                    empty: String::new(),
-                };
-                rows.filter();
-                Control::List(cx.new(|cx| ListState::new(rows, window, cx).searchable(true)))
+            let mut rows = Rows {
+                id: id.clone(),
+                events: events.clone(),
+                all: Vec::new(),
+                visible: Vec::new(),
+                selected: None,
+                query: String::new(),
+                loading: false,
+                empty: String::new(),
+                mode: props.mode,
             };
+            rows.filter();
+            let list = cx.new(|cx| ListState::new(rows, window, cx).searchable(true));
+            let enter = crate::command_picker::intercept(&list, Rows::enabled, cx);
             let registry = Rc::downgrade(pickers);
             let released_id = id.clone();
             let entity = cx.entity_id();
@@ -382,7 +393,11 @@ fn render(
                 state.restore(window, cx);
             })
             .detach();
-            Retained { control, previous }
+            Retained {
+                list,
+                previous,
+                _enter: enter,
+            }
         },
     );
     pickers.borrow_mut().insert(id.clone(), state.downgrade());
@@ -390,36 +405,31 @@ fn render(
         let owner = state.downgrade();
         window.defer(cx, move |window, cx| {
             if let Some(owner) = owner.upgrade() {
-                let control = owner.read(cx).control.clone();
-                control.focus(window, cx);
+                let list = owner.read(cx).list.clone();
+                list.update(cx, |list, cx| list.focus(window, cx));
             }
         });
     }
-    let control = state.read(cx).control.clone();
-    match control {
-        Control::List(list) => {
-            list.update(cx, |list, cx| {
-                let rows = list.delegate_mut();
-                let changed = rows.loading != props.loading
-                    || rows.empty != props.empty
-                    || rows.all != props.items
-                    || opened;
-                rows.loading = props.loading;
-                rows.empty = props.empty;
-                if rows.all != props.items || opened {
-                    rows.all = props.items;
-                    rows.filter();
-                    let selected = rows.selected;
-                    list.set_selected_index(selected, window, cx);
-                }
-                if changed {
-                    cx.notify();
-                }
-            });
-            popup(id, props.title, list, events, window, cx)
+    let list = state.read(cx).list.clone();
+    list.update(cx, |list, cx| {
+        let rows = list.delegate_mut();
+        let changed = rows.loading != props.loading
+            || rows.empty != props.empty
+            || rows.all != props.items
+            || opened;
+        rows.loading = props.loading;
+        rows.empty = props.empty;
+        if rows.all != props.items || opened {
+            rows.all = props.items;
+            rows.filter();
+            let selected = rows.selected;
+            list.set_selected_index(selected, window, cx);
         }
-        Control::Command(command) => command::popup(id, props, command, events, window, cx),
-    }
+        if changed {
+            cx.notify();
+        }
+    });
+    popup(id, props.title, list, events, window, cx)
 }
 
 fn popup(
@@ -433,12 +443,13 @@ fn popup(
     let focus = list.read(cx).focus_handle(cx);
     let width = crate::command_picker::width(window);
     let rows = list.read(cx).delegate();
-    let height = crate::command_picker::height(
+    let height = crate::command_picker::extent(
         rows.visible.iter().map(Vec::len).sum(),
         rows.visible
             .iter()
-            .filter(|group| !group[0].group.is_empty())
+            .filter(|group| rows.mode == Mode::List && !group[0].group.is_empty())
             .count(),
+        rows.height(),
         window,
     );
     base::Dialog::new(cx)

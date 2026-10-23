@@ -14,7 +14,11 @@ pub(crate) const GROUP_HEIGHT: f32 = 28.;
 const EMPTY_HEIGHT: f32 = 48.;
 
 pub(crate) fn height(rows: usize, groups: usize, window: &Window) -> Pixels {
-    px((rows as f32 * ROW_HEIGHT + groups as f32 * GROUP_HEIGHT + 16.).max(EMPTY_HEIGHT))
+    extent(rows, groups, ROW_HEIGHT, window)
+}
+
+pub(crate) fn extent(rows: usize, groups: usize, row_height: f32, window: &Window) -> Pixels {
+    px((rows as f32 * row_height + groups as f32 * GROUP_HEIGHT + 16.).max(EMPTY_HEIGHT))
         .min(body_height(window))
         + search_height(window)
 }
@@ -31,6 +35,63 @@ pub(crate) fn list<D: ListDelegate>(
         .text_sm()
         .line_height(relative(1.25))
         .search_placeholder(placeholder)
+}
+
+pub(crate) fn intercept<D: ListDelegate>(
+    state: &Entity<ListState<D>>,
+    enabled: fn(&D, &App) -> Vec<IndexPath>,
+    cx: &mut App,
+) -> Subscription {
+    let owner = state.downgrade();
+    // Pinned Kit's searchable List keeps its input private and consumes Enter
+    // without forwarding confirmation; its navigation also includes disabled
+    // rows. Retain Command's enabled-row navigation only for this focused input.
+    cx.intercept_keystrokes(move |event, window, cx| {
+        let reverse = match event.keystroke.key.as_str() {
+            "enter" if !event.keystroke.modifiers.shift => None,
+            "up" if event.keystroke.modifiers == Modifiers::default() => Some(true),
+            "down" if event.keystroke.modifiers == Modifiers::default() => Some(false),
+            _ => return,
+        };
+        let Some(state) = owner.upgrade() else {
+            return;
+        };
+        if !state.read(cx).focus_handle(cx).is_focused(window) {
+            return;
+        }
+        state.update(cx, |state, cx| {
+            if state.delegate().loading(cx) {
+                return;
+            }
+            if let Some(reverse) = reverse {
+                let choices = enabled(state.delegate(), cx);
+                let selected = next(&choices, state.selected_index(), reverse);
+                state.set_selected_index(selected, window, cx);
+                state.scroll_to_selected_item(window, cx);
+                cx.notify();
+            } else {
+                state
+                    .delegate_mut()
+                    .confirm(event.keystroke.modifiers.secondary(), window, cx);
+            }
+        });
+        cx.stop_propagation();
+    })
+}
+
+fn next(choices: &[IndexPath], selected: Option<IndexPath>, reverse: bool) -> Option<IndexPath> {
+    if choices.is_empty() {
+        return None;
+    }
+    let index = selected.and_then(|selected| choices.iter().position(|index| *index == selected));
+    Some(
+        choices[match (index, reverse) {
+            (Some(index), true) => (index + choices.len() - 1) % choices.len(),
+            (Some(index), false) => (index + 1) % choices.len(),
+            (None, true) => choices.len() - 1,
+            (None, false) => 0,
+        }],
+    )
 }
 
 pub(crate) fn row(id: impl Into<ElementId>, checked: bool, disabled: bool, cx: &App) -> ListItem {
@@ -104,4 +165,32 @@ pub(crate) fn frame(
                 .overflow_hidden()
                 .child(content),
         )
+}
+
+#[cfg(test)]
+mod navigation {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn wraps_enabled_rows() {
+        let first = IndexPath::new(1);
+        let last = IndexPath::new(3).section(1);
+        let choices = [first, last];
+        assert_eq!(next(&choices, Some(first), false), Some(last));
+        assert_eq!(next(&choices, Some(last), false), Some(first));
+        assert_eq!(next(&choices, Some(first), true), Some(last));
+        assert_eq!(next(&choices, Some(last), true), Some(first));
+    }
+
+    #[test]
+    fn starts_at_enabled_edges() {
+        let choices = [IndexPath::new(1), IndexPath::new(3)];
+        for selected in [None, Some(IndexPath::new(0))] {
+            assert_eq!(next(&choices, selected, false), Some(choices[0]));
+            assert_eq!(next(&choices, selected, true), Some(choices[1]));
+        }
+        assert_eq!(next(&[], None, false), None);
+        assert_eq!(next(&[], Some(choices[0]), true), None);
+    }
 }

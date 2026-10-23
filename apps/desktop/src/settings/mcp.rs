@@ -130,12 +130,12 @@ impl Workspace {
             format!("mcp-edit-{name}"),
             plugins::metadata::title(info),
             detail,
-            crate::plugins::emblem::render(
+            crate::plugins::emblem::grid(
                 name,
+                info.extension.as_ref().and_then(|extension| extension.tint),
                 crate::plugins::emblem::glyph(info).or(Some(&icon)),
                 info.icon.as_deref(),
                 px(48.),
-                cx,
             ),
             cx,
         )

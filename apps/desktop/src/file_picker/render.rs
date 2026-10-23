@@ -3,7 +3,11 @@ mod grid;
 mod list;
 mod sidebar;
 mod toolbar;
-use gpui_kit::component::{dialog::DialogFooter, table::DataTable, tooltip::Tooltip};
+use gpui_kit::component::{
+    dialog::{DialogClose, DialogFooter},
+    table::DataTable,
+    tooltip::Tooltip,
+};
 pub(super) use list::{Rows, kind};
 impl Render for Picker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -183,7 +187,6 @@ impl Picker {
             .unwrap_or_default();
         let label = path.clone();
         let tooltip = path.clone();
-        let cancel = picker.clone();
         let confirm = picker.clone();
         DialogFooter::new()
             .w_full()
@@ -218,12 +221,14 @@ impl Picker {
                     ),
             )
             .child(
-                Button::new("directory-cancel")
-                    .label(tr("settings_cancel"))
-                    .debug_selector(|| "directory-cancel".into())
-                    .on_click(move |_, window, cx| {
-                        cancel.update(cx, |picker, cx| picker.close(window, cx))
-                    }),
+                div()
+                    .flex_shrink_0()
+                    .child(DialogClose::new().trigger(|button| {
+                        button
+                            .label(tr("settings_cancel"))
+                            .accessibility_label(tr("settings_cancel"))
+                            .debug_selector(|| "directory-cancel".into())
+                    })),
             )
             .child(
                 Button::new("directory-confirm")

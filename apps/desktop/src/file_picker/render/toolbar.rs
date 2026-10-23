@@ -113,7 +113,14 @@ impl Picker {
             .min_w_0()
             .overflow_hidden()
             .when(self.editing_address, |body| {
-                body.child(
+                body.on_mouse_down_out(cx.listener(|picker, _, window, cx| {
+                    picker.editing_address = false;
+                    if picker.address.read(cx).focus_handle(cx).is_focused(window) {
+                        picker.focus.focus(window, cx);
+                    }
+                    cx.notify();
+                }))
+                .child(
                     Input::new(&self.address)
                         .small()
                         .disabled(self.busy)

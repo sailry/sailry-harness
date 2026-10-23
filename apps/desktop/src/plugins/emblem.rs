@@ -95,7 +95,7 @@ fn tile(size: Pixels, cx: &App) -> Div {
         })
 }
 
-/// Marketplace identity artwork leaves navigation's existing palette unchanged.
+/// Resource identity artwork leaves navigation's existing palette unchanged.
 pub(crate) fn grid(
     name: &str,
     tint: Option<sailry_protocol::plugin::Tint>,
@@ -148,7 +148,7 @@ pub(crate) fn surface(
                     .top_0()
                     .w(px(1.))
                     .h_full()
-                    .bg(gpui_kit::hsla(0., 0., 1., 0.1))
+                    .bg(gpui_kit::hsla(0., 0., 1., 0.04))
                     .into_any_element(),
                 gpui_kit::div()
                     .absolute()
@@ -156,7 +156,7 @@ pub(crate) fn surface(
                     .left_0()
                     .h(px(1.))
                     .w_full()
-                    .bg(gpui_kit::hsla(0., 0., 1., 0.1))
+                    .bg(gpui_kit::hsla(0., 0., 1., 0.04))
                     .into_any_element(),
             ]
         }))
@@ -179,11 +179,11 @@ fn fallback(name: &str) -> sailry_protocol::plugin::Tint {
 fn gradient(tint: sailry_protocol::plugin::Tint) -> (u32, u32) {
     use sailry_protocol::plugin::Tint;
     match tint {
-        Tint::Blue => (0x45b8ff, 0x1d6ef0),
-        Tint::Violet => (0xa98bff, 0x6440dc),
-        Tint::Teal => (0x3fd3b4, 0x0f8c7c),
-        Tint::Amber => (0xffc65c, 0xe07a18),
-        Tint::Gray => (0xa2a7b2, 0x565b66),
+        Tint::Blue => (0x3da9fc, 0x2580f4),
+        Tint::Violet => (0x9b7cf8, 0x7250e3),
+        Tint::Teal => (0x35c5a9, 0x199b87),
+        Tint::Amber => (0xf9b74e, 0xe68926),
+        Tint::Gray => (0x9398a3, 0x656a75),
     }
 }
 

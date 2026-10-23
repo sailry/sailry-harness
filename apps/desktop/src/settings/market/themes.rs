@@ -336,7 +336,10 @@ impl Market {
                     .object_fit(ObjectFit::Cover)
                     .into_any_element()
             } else {
-                div().size_full().into_any_element()
+                Skeleton::new()
+                    .size_full()
+                    .rounded_none()
+                    .into_any_element()
             };
             let id = entry.id.clone();
             let key = if update {
