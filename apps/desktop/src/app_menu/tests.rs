@@ -45,7 +45,6 @@ fn registers_help_actions() {
     let expected = [
         Website.boxed_clone(),
         Feedback.boxed_clone(),
-        crate::input_diagnostics::CopyInputDiagnostics.boxed_clone(),
         Logs.boxed_clone(),
     ];
     assert_eq!(help.items.len(), expected.len());
@@ -55,7 +54,7 @@ fn registers_help_actions() {
         };
         assert_eq!(action.as_any().type_id(), expected.as_any().type_id());
     }
-    let MenuItem::Action { disabled, .. } = &help.items[3] else {
+    let MenuItem::Action { disabled, .. } = &help.items[2] else {
         panic!("logs action expected")
     };
     assert_eq!(
