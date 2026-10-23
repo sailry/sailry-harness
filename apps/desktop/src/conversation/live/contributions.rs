@@ -63,16 +63,10 @@ impl View {
         groups
     }
 
-    pub(crate) fn account_usage(&self, cx: &App) -> Option<AnyElement> {
+    pub(super) fn registered_footer(&self, cx: &App) -> Vec<super::super::usage::Group> {
         if !self.node.connected {
-            return None;
+            return Vec::new();
         }
-        let groups = self.registered_footer(cx);
-        (!groups.is_empty())
-            .then(|| super::super::usage::render_groups(&groups, "sidebar-account-usage", cx))
-    }
-
-    fn registered_footer(&self, cx: &App) -> Vec<super::super::usage::Group> {
         let entries = self
             .contributions
             .read(cx)

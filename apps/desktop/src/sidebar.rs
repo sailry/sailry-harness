@@ -557,22 +557,12 @@ impl Shell {
     fn sidebar_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let live = self.live.is_some();
         let metrics = crate::preferences::data(cx).sidebar_metrics;
-        let account = (self.page == Page::Conversation)
-            .then(|| {
-                self.current_chat()
-                    .and_then(|chat| chat.read(cx).account_usage(cx))
-            })
-            .flatten();
-        let visible = metrics || account.is_some();
         v_flex()
             .debug_selector(|| "sidebar-footer".into())
             .flex_shrink_0()
             .px_3()
-            .when(visible, |footer| {
+            .when(metrics, |footer| {
                 footer.child(Separator::horizontal().w_auto().mx_neg_3())
-            })
-            .when_some(account, |footer, account| {
-                footer.child(h_flex().py_2().w_full().min_w_0().child(account))
             })
             .when(metrics, |footer| {
                 footer.child(

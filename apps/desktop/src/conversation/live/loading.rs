@@ -14,7 +14,7 @@ impl View {
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .justify_end()
+            .justify_start()
             .child(
                 v_flex()
                     .w_full()
