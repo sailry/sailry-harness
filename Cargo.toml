@@ -199,6 +199,7 @@ strip = "symbols"
 opt-level = "z"
 debug = "limited"
 split-debuginfo = "unpacked"
+incremental = false
 
 # Keep text geometry and layout hot paths optimized during desktop development.
 [profile.dev.package]

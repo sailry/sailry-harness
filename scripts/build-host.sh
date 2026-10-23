@@ -8,6 +8,8 @@ case "$task_profile" in debug) task_cargo_profile=dev ;; release) task_cargo_pro
 case "$task_target" in x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|x86_64-apple-darwin|aarch64-apple-darwin) ;; *) echo 'Unsupported Host target' >&2; exit 1 ;; esac
 task_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$task_root"
+task_build="${CARGO_TARGET_DIR:-$task_root/target}"
+export CARGO_TARGET_DIR="$task_build"
 task_native="$(rustc -vV | awk '/^host: / {print $2}')"
 if [[ "$task_target" == *linux-gnu ]]; then
   task_ar="$(command -v llvm-ar || true)"
@@ -30,12 +32,12 @@ if [[ "$task_target" == *linux-gnu ]]; then
   export "PKG_CONFIG_SYSROOT_DIR_$task_environment=$task_sysroot"
   export "PKG_CONFIG_LIBDIR_$task_environment=$task_sysroot/usr/lib/$task_triplet/pkgconfig:$task_sysroot/usr/share/pkgconfig"
   "$task_zigbuild" zigbuild --locked -p sailry-host --profile "$task_cargo_profile" \
-    --target "$task_target.2.34" --target-dir target/host-cross
-  task_binary="$task_root/target/host-cross/$task_target/$task_profile/sailry-host"
+    --target "$task_target.2.34" --target-dir "$task_build"
+  task_binary="$task_build/$task_target/$task_profile/sailry-host"
 else
   test "$task_target" = "$task_native"
   cargo build --locked -p sailry-host --profile "$task_cargo_profile"
-  task_binary="$task_root/target/$task_profile/sailry-host"
+  task_binary="$task_build/$task_profile/sailry-host"
 fi
 task_output="$task_root/target/host-artifacts/$task_target"
 mkdir -p "$task_output"

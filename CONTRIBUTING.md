@@ -106,27 +106,30 @@ just ci affected --candidate --base <base-commit> --head <candidate-commit>
 The checkout must match the candidate. Equal base and head require `--all`;
 `origin/main` after a push is therefore not a useful comparison baseline.
 `--event pull_request` selects merge-base comparison. The runner does not switch
-worktrees or stash changes. Keep a persistent target directory per build lane;
-`--target-dir /absolute/path` selects it and `--jobs N` controls build concurrency.
+worktrees or stash changes. Local builds and tests share the repository's root
+`target` directory; builds from another worktree select that same directory with
+`CARGO_TARGET_DIR`. An explicit `--target-dir` selects the shared cache, and
+`--jobs N` controls build concurrency.
 The recipes and CI share command definitions; these entries do not install hooks.
 
 Select checks from affected behavior and dependency boundaries. Reuse passing
 results while their inputs remain unchanged. Explain which tests ran and any
 coverage gap; do not describe a fixture or compile check as live acceptance.
-Keep Cargo's default incremental compilation enabled for local development;
-the CI-only environment overrides are not local build settings. Run the affected
-tests first, not the complete platform matrix for each edit.
-When several contributors or agents share a checkout, designate one Cargo owner
-per target directory. Use a separate worktree and `CARGO_TARGET_DIR` for independent
-builds; do not launch competing builds against the same target or change its build
-environment between them. Keep `PKG_CONFIG_PATH`, SDK, target and Rust flags stable
-for a build lane. Do not delete another lane's artifacts to resolve a lock wait.
-Reuse fixed-purpose paths such as `.runtime/worktrees/<purpose>` and one persistent
-target per lane across iterations; do not append run IDs, timestamps or UUIDs to
-create replacement caches or source checkouts. An invalid reusable directory may
-be cleared and regenerated only by its owner after the affected work has stopped
-and its contents have been inspected. Cleanup must preserve plugin and theme
-repositories and their worktrees, active lanes, user profiles and unrelated source.
+Development profiles disable incremental state to avoid accumulating large
+per-revision snapshots; ordinary dependency and build caches remain shared.
+Other workspaces using this cache set `CARGO_INCREMENTAL=0` as well. Run the
+affected tests first, not the complete platform matrix for each edit.
+Designate one Cargo owner across local contributors and agents, including other
+worktrees. Do not launch competing builds or create a per-task target directory.
+Cargo's standard target-triple directories keep platform outputs separate within
+the shared cache. Keep `PKG_CONFIG_PATH`, SDK, target and Rust flags stable between
+commands, and honor the same explicit `CARGO_TARGET_DIR` when one is selected.
+Reuse fixed-purpose paths such as `.runtime/worktrees/<purpose>`; do not append
+run IDs, timestamps or UUIDs to create replacement caches or source checkouts.
+An invalid reusable cache may be cleared and regenerated only after its owner
+has stopped and its contents have been inspected. Cleanup must preserve plugin
+and theme repositories, source worktrees, active resources, user profiles and
+unrelated source.
 Disposable test profiles and atomic staging files still need their existing
 isolation and lifetime cleanup; they are not persistent build caches.
 

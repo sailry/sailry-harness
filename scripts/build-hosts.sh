@@ -6,6 +6,8 @@ task_profile="${1:-debug}"
 case "$task_profile" in debug) task_cargo_profile=dev ;; release) task_cargo_profile=release ;; *) echo 'Usage: scripts/build-hosts.sh [debug|release]' >&2; exit 1 ;; esac
 task_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$task_root"
+task_build="${CARGO_TARGET_DIR:-$task_root/target}"
+export CARGO_TARGET_DIR="$task_build"
 task_native="$(rustc -vV | awk '/^host: / {print $2}')"
 task_llvm_ar="$(command -v llvm-ar || true)"
 task_llvm_strip="$(command -v llvm-strip || true)"
@@ -44,15 +46,15 @@ for task_target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
 done
 "$task_zigbuild" zigbuild --locked -p sailry-host --profile "$task_cargo_profile" \
   --target x86_64-unknown-linux-gnu.2.34 --target aarch64-unknown-linux-gnu.2.34 \
-  --target-dir target/host-cross
+  --target-dir "$task_build"
 cargo build --locked -p sailry-host --profile "$task_cargo_profile"
 for task_target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu "$task_native"; do
   task_output="$task_root/target/host-artifacts/$task_target"
   mkdir -p "$task_output"
   if test "$task_target" = "$task_native"; then
-    cp "target/$task_profile/sailry-host" "$task_output/sailry-host"
+    cp "$task_build/$task_profile/sailry-host" "$task_output/sailry-host"
   else
-    cp "target/host-cross/$task_target/$task_profile/sailry-host" "$task_output/sailry-host"
+    cp "$task_build/$task_target/$task_profile/sailry-host" "$task_output/sailry-host"
   fi
   "$task_llvm_strip" --strip-debug "$task_output/sailry-host"
   if [[ "$task_target" == *apple-darwin ]]; then codesign --force --sign - "$task_output/sailry-host"; fi
