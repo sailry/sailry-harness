@@ -187,6 +187,9 @@ async fn records_observed_cancellation_cause() {
     let records = capture.records();
     assert_eq!(records.len(), 2);
     let fields = &records[1]["fields"];
+    let call = records[0]["fields"]["call"].as_str().unwrap();
+    assert!(call.parse::<sailry_protocol::RequestId>().is_ok());
+    assert_eq!(fields["call"], call);
     assert_eq!(fields["phase"], "cancelled");
     assert_eq!(fields["code"], "cancelled");
     assert_eq!(fields["cause_code"], "model.request_cancelled");

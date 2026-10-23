@@ -8,6 +8,9 @@ const DISCARDED: &str = "Discarded draft";
 const RECOVERED: &str = "Recovered answer";
 const FAILURE: &str = "Upstream temporarily unavailable";
 
+#[path = "retry/observations.rs"]
+mod observations;
+
 fn http(fixture: &Fixture) {
     fixture
         .node
@@ -587,8 +590,44 @@ async fn shares_opening_and_partial_retry_budget() {
                 .all(|entry| continued.entries.contains(entry))
         );
         unique_entries(&continued);
+        let stats = crate::observations::statistics(&fixture.client, fixture.session.id).await;
+        assert_eq!(stats.observations.calls, 2);
+        let recovered = stats
+            .observations
+            .recent
+            .iter()
+            .find(|call| call.turn == turn)
+            .unwrap();
+        let next = stats
+            .observations
+            .recent
+            .iter()
+            .find(|call| call.turn == continuation)
+            .unwrap();
+        assert_ne!(recovered.id, next.id);
+        assert_eq!(recovered.attempts.len(), 5);
+        let profile = fixture.node.profile().to_owned();
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
+        use sailry_protocol::conversation::observation::Outcome;
+        assert_eq!(
+            observations::records(
+                &profile,
+                turn,
+                &[
+                    Outcome::Failed,
+                    Outcome::Failed,
+                    Outcome::Failed,
+                    Outcome::Failed,
+                    Outcome::Succeeded
+                ]
+            ),
+            recovered.id
+        );
+        assert_eq!(
+            observations::records(&profile, continuation, &[Outcome::Succeeded]),
+            next.id
+        );
     }
 }
 

@@ -684,18 +684,25 @@ fn preserves_structured_stream_diagnostics() {
 
 #[tokio::test]
 async fn retries_raw_http_without_retranslation() {
+    use adk_core::model_observation as observed;
+    use std::sync::{Arc, Mutex};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
     let _ = rustls::crypto::ring::default_provider().install_default();
-    for status in [429, 503] {
+    for statuses in [
+        vec![Some(429_u16)],
+        vec![Some(503), Some(503), Some(503)],
+        vec![Some(503), Some(200)],
+        vec![None, Some(200)],
+    ] {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/", listener.local_addr().unwrap());
-        let count = if status == 503 { 3 } else { 1 };
+        let responses = statuses.clone();
         let server = tokio::spawn(async move {
             let mut requests = Vec::new();
-            for _ in 0..count {
+            for status in responses {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut request = Vec::new();
                 let mut bytes = [0; 1024];
@@ -705,7 +712,9 @@ async fn retries_raw_http_without_retranslation() {
                     request.extend_from_slice(&bytes[..count]);
                 }
                 requests.push(request);
-                socket.write_all(format!("HTTP/1.1 {status} Fixture\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+                if let Some(status) = status {
+                    socket.write_all(format!("HTTP/1.1 {status} Fixture\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+                }
             }
             assert!(requests.iter().all(|request| request == &requests[0]));
         });
@@ -719,19 +728,83 @@ async fn retries_raw_http_without_retranslation() {
             key: None,
             secrets: vec![],
         };
-        let (response, _observation) = transport::send(
-            &transport::client().unwrap(),
-            prepared,
-            &endpoint,
-            &declaration,
-            &credentials,
-            &CancellationToken::new(),
-            usize::MAX,
-            2,
+        let context = super::super::call::identity(Default::default());
+        let call = context.call.unwrap();
+        let records = Arc::new(Mutex::new(Vec::new()));
+        let captured = records.clone();
+        let observer: observed::Observer = Arc::new(move |event| {
+            let call = super::super::call::current().unwrap().call.unwrap();
+            captured.lock().unwrap().push((call, event));
+        });
+        let response = super::super::call::scope(
+            context,
+            observed::scope(observer, async {
+                let (response, observation) = transport::send(
+                    &transport::client().unwrap(),
+                    prepared,
+                    &endpoint,
+                    &declaration,
+                    &credentials,
+                    &CancellationToken::new(),
+                    usize::MAX,
+                    2,
+                )
+                .await?;
+                if response.status().is_success() {
+                    observation.finish(observed::Outcome::Succeeded);
+                }
+                Ok::<_, transport::Failure>(response)
+            }),
         )
         .await
         .unwrap();
-        assert_eq!(response.status().as_u16(), status);
+        assert_eq!(
+            response.status().as_u16(),
+            statuses.last().copied().flatten().unwrap()
+        );
         server.await.unwrap();
+        let records = records.lock().unwrap();
+        assert!(records.iter().all(|(identity, _)| *identity == call));
+        let finished: Vec<_> = records
+            .iter()
+            .filter_map(|(_, event)| match &event.kind {
+                observed::Kind::Finished {
+                    outcome, failure, ..
+                } => Some((event.attempt, *outcome, *failure)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(finished.len(), statuses.len());
+        for (index, ((attempt, outcome, failure), status)) in
+            finished.into_iter().zip(statuses).enumerate()
+        {
+            assert_eq!(attempt, index as u64 + 1);
+            if status == Some(200) {
+                assert_eq!(outcome, observed::Outcome::Succeeded);
+                assert!(failure.is_none());
+                continue;
+            }
+            assert_eq!(outcome, observed::Outcome::Failed);
+            let failure = failure.unwrap();
+            assert_eq!(failure.component, adk_core::ErrorComponent::Model);
+            assert_eq!(failure.upstream_status, status);
+            assert_eq!(
+                failure.category,
+                if status == Some(429) {
+                    adk_core::ErrorCategory::RateLimited
+                } else {
+                    adk_core::ErrorCategory::Unavailable
+                }
+            );
+            assert_eq!(
+                failure.code,
+                match status {
+                    Some(429) => "model.plugin.rate_limited",
+                    Some(503) => "model.plugin.unavailable",
+                    None => "model.plugin.connection",
+                    _ => unreachable!(),
+                }
+            );
+        }
     }
 }

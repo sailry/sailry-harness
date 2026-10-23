@@ -1,13 +1,14 @@
 use super::*;
 mod authorization;
+mod call;
 mod cloud;
 mod diagnostics;
 mod errors;
 mod features;
 pub(super) mod history;
 mod hosted;
-mod opencode;
 pub(super) mod observation;
+mod opencode;
 pub(super) mod plugin;
 mod reasoning;
 pub(crate) mod registry;

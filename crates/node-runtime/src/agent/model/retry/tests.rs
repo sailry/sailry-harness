@@ -1,4 +1,5 @@
 use super::*;
+use sailry_protocol::RequestId;
 
 #[test]
 fn retains_only_last_cause_and_typed_stop() {
@@ -75,4 +76,63 @@ fn preserves_completed_provider_tool_boundary() {
         classification::Failure::new(&error).class,
         classification::Class::Terminal(Stop::LocalFailure)
     ));
+}
+
+#[test]
+fn retains_recovery_context_and_safe_cause() {
+    use crate::logging::{Area, Entry, Phase, Span};
+    let mut base = Entry::new(Area::Model, Phase::Begin);
+    base.context.call = Some(RequestId::new());
+    let mut error = AdkError::new(
+        adk_core::ErrorComponent::Model,
+        adk_core::ErrorCategory::Unavailable,
+        "model.fixture.failed",
+        "PRIVATE_PROVIDER_MESSAGE",
+    )
+    .with_upstream_status(503);
+    error
+        .details
+        .metadata
+        .insert("transport".into(), "websocket".into());
+    let notice = Retry {
+        attempt: 4,
+        fallback: true,
+        limit: Some(4),
+        delay_ms: Some(250),
+        transport: Some(Transport::WebSocket),
+        status: Some(503),
+        code: Some("PRIVATE_PROVIDER_CODE".into()),
+        error: Some("PRIVATE_PROVIDER_MESSAGE".into()),
+    };
+    let entry = diagnostic(&base, &error, &notice);
+    assert!(matches!(entry.phase, Phase::Retrying));
+    assert_eq!(entry.context.call, base.context.call);
+    assert_eq!(entry.wait_ms, Some(250));
+    assert_eq!(entry.transport, Some("websocket"));
+    assert_eq!(entry.reason, Some("backoff"));
+    assert_eq!(entry.recovery_decision, Some("fallback"));
+    assert_eq!(entry.fallback_reason, Some("attempts_exhausted"));
+    assert_eq!(entry.cause_code, Some("model.fixture.failed"));
+    assert_eq!(entry.cause_category, Some("unavailable"));
+    assert_eq!(entry.upstream_status, Some(503));
+    let mut final_call = Span::new(base.clone());
+    final_call.entry.recovery_decision = Some(decision(Stop::AttemptsExhausted));
+    classify(&mut final_call.entry, &error);
+    super::super::diagnostics::finish(
+        &mut final_call,
+        &terminal(error, Stop::AttemptsExhausted),
+        false,
+    );
+    assert!(matches!(final_call.entry.phase, Phase::Failed));
+    assert_eq!(final_call.entry.context.call, base.context.call);
+    assert_eq!(
+        final_call.entry.recovery_decision,
+        Some("attempts_exhausted")
+    );
+    assert_eq!(final_call.entry.cause_code, entry.cause_code);
+    let mut success = Span::new(base);
+    success.entry.recovery_decision = Some("succeeded");
+    success.finish(Phase::Completed, None);
+    assert!(matches!(success.entry.phase, Phase::Completed));
+    assert_eq!(success.entry.context.call, entry.context.call);
 }

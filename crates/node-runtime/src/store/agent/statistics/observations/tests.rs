@@ -2,6 +2,8 @@ use super::*;
 use crate::store::agent::{history, runs, tests::fixture::Fixture};
 use sailry_protocol::conversation::observation::Phases;
 
+mod requests;
+
 fn phase(value: Phases) -> AdkEvent {
     let mut event = filler();
     event.provider_metadata.insert(

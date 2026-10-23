@@ -32,7 +32,27 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
         let encoded = row.get::<_, String>(1).map_err(storage_error)?;
         let mut request: Request = serde_json::from_str(&encoded).map_err(storage_error)?;
         request.context_limit = row.get(2).map_err(storage_error)?;
-        calls.insert(request.id.clone(), (sequence, request));
+        let (_, current) = calls.entry(request.id.clone()).or_insert_with(|| {
+            let mut current = request.clone();
+            current.attempts.clear();
+            (sequence, current)
+        });
+        // Each event may contain a subset of this v1 request's attempts. The
+        // same reducer also accepts repeated snapshots without double counting.
+        for attempt in request.attempts {
+            if let Some(previous) = current
+                .attempts
+                .iter_mut()
+                .find(|value| value.index == attempt.index)
+            {
+                if previous.elapsed_us.is_none() || attempt.elapsed_us.is_some() {
+                    *previous = attempt;
+                }
+            } else {
+                current.attempts.push(attempt);
+            }
+        }
+        current.attempts.sort_by_key(|attempt| attempt.index);
     }
     let scalar = |expression: &str| -> Result<u64, Fault> {
         let value: i64 = db.query_row(&format!(

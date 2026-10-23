@@ -5,17 +5,23 @@ use sailry_protocol::conversation::{
     Usage,
     observation::{Attempt, Outcome, Request},
 };
-use std::{collections::BTreeMap, sync::Mutex, time::Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Mutex,
+    time::Instant,
+};
 mod categories;
 
 pub(super) const KEY: &str = "sailry_model_observation";
 
 pub(in crate::agent) struct Capture {
     request: Request,
+    context: crate::logging::Context,
     active: Option<u64>,
     starts: BTreeMap<u64, Instant>,
-    offset: u64,
-    persisted: Option<String>,
+    diagnostics: Vec<crate::logging::Entry>,
+    announced: bool,
+    persisted: BTreeSet<u64>,
     timeline: Option<Arc<crate::agent::observation::Timeline>>,
     sources: Arc<Mutex<Vec<Source>>>,
 }
@@ -30,12 +36,13 @@ impl Capture {
     pub(super) fn new(
         turn: TurnId,
         model: String,
+        context: crate::logging::Context,
         timeline: Option<Arc<crate::agent::observation::Timeline>>,
         sources: Arc<Mutex<Vec<Source>>>,
     ) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             request: Request {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: context.call.expect("model call identity").to_string(),
                 turn,
                 model,
                 context_limit: None,
@@ -43,10 +50,12 @@ impl Capture {
                 boundary: None,
                 attempts: Vec::new(),
             },
+            context,
             active: None,
             starts: BTreeMap::new(),
-            offset: 0,
-            persisted: None,
+            diagnostics: Vec::new(),
+            announced: false,
+            persisted: BTreeSet::new(),
             timeline,
             sources,
         }))
@@ -58,20 +67,35 @@ impl Capture {
 
     pub(super) fn observer(capture: &Arc<Mutex<Self>>) -> wire::Observer {
         let capture = capture.clone();
-        {
+        let offset = {
             let mut value = capture.lock().unwrap_or_else(|poison| poison.into_inner());
-            value.offset = value.request.attempts.len() as u64;
             value.active = None;
-        }
+            value
+                .request
+                .attempts
+                .last()
+                .map_or(0, |attempt| attempt.index)
+        };
         Arc::new(move |event| {
             let mut value = capture.lock().unwrap_or_else(|poison| poison.into_inner());
-            value.observe(event);
+            value.observe(event, offset);
         })
     }
 
-    fn observe(&mut self, event: wire::Event) {
-        let index = self.offset.saturating_add(event.attempt);
+    fn observe(&mut self, event: wire::Event, offset: u64) {
+        let index = offset.saturating_add(event.attempt);
+        if self.persisted.contains(&index) {
+            return;
+        }
         if let wire::Kind::Started { transport, reused } = event.kind {
+            if self
+                .request
+                .attempts
+                .iter()
+                .any(|attempt| attempt.index == index)
+            {
+                return;
+            }
             self.active = Some(index);
             self.starts.insert(index, Instant::now());
             self.request.attempts.push(Attempt {
@@ -93,6 +117,12 @@ impl Capture {
                 cache_reported: false,
                 reasoning_reported: false,
             });
+            self.diagnostics.push(diagnostic(
+                &self.context,
+                self.request.attempts.last().unwrap(),
+                crate::logging::Phase::Begin,
+                None,
+            ));
             return;
         }
         let Some(attempt) = self
@@ -103,6 +133,11 @@ impl Capture {
         else {
             return;
         };
+        // A terminal response may still supply usage and transport metadata
+        // before the enclosing scope returns. Only its end is idempotent.
+        if attempt.elapsed_us.is_some() && matches!(event.kind, wire::Kind::Finished { .. }) {
+            return;
+        }
         match event.kind {
             wire::Kind::Prepared { body } => {
                 attempt.complete_context = body
@@ -123,7 +158,11 @@ impl Capture {
                 attempt.headers_us = Some(micros(elapsed));
                 attempt.reused = reused;
             }
-            wire::Kind::Finished { elapsed, outcome } => {
+            wire::Kind::Finished {
+                elapsed,
+                outcome,
+                failure,
+            } => {
                 if let Some(timeline) = &self.timeline
                     && let Some(start) = self.starts.get(&index)
                 {
@@ -144,6 +183,13 @@ impl Capture {
                     wire::Outcome::Failed => Outcome::Failed,
                     wire::Outcome::Cancelled => Outcome::Cancelled,
                 };
+                let phase = match outcome {
+                    wire::Outcome::Succeeded => crate::logging::Phase::Completed,
+                    wire::Outcome::Failed => crate::logging::Phase::Failed,
+                    wire::Outcome::Cancelled => crate::logging::Phase::Cancelled,
+                };
+                self.diagnostics
+                    .push(diagnostic(&self.context, attempt, phase, failure));
             }
             wire::Kind::Started { .. } => {}
         }
@@ -153,6 +199,9 @@ impl Capture {
         let Some(index) = self.active else {
             return;
         };
+        if self.persisted.contains(&index) {
+            return;
+        }
         let Some(attempt) = self
             .request
             .attempts
@@ -194,36 +243,128 @@ impl Capture {
         ingress: &Arc<Ingress>,
         session: SessionId,
     ) -> adk_core::Result<()> {
-        let request = capture
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .request
-            .clone();
-        let snapshot = serde_json::to_string(&request).expect("request observation serializes");
-        if capture
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .persisted
-            .as_ref()
-            == Some(&snapshot)
-        {
-            return Ok(());
+        // Call after response consumption and its observation scope have ended,
+        // so terminal callbacks and final response usage have both arrived.
+        let (pending, diagnostics) = {
+            let mut capture = capture.lock().unwrap_or_else(|poison| poison.into_inner());
+            (capture.pending(), capture.diagnostics())
+        };
+        // ADK callbacks only project into memory. Native diagnostics may perform
+        // I/O, so emit outside the callback, lock and model observation scope.
+        for entry in diagnostics {
+            entry.emit();
         }
-        let mut event = adk_core::Event::new(request.turn.to_string());
-        event.author = "system".into();
-        event.provider_metadata.insert(KEY.into(), snapshot.clone());
-        ingress
-            .sessions(request.turn)
-            .append_event(&session.to_string(), event)
-            .await?;
-        capture
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .persisted = Some(snapshot);
+        for request in pending {
+            let event = event(&request);
+            // Stable event IDs let the canonical history owner deduplicate an
+            // overlapping finalizer or an uncertain append acknowledgement.
+            ingress
+                .sessions(request.turn)
+                .append_event(&session.to_string(), event)
+                .await?;
+            let mut capture = capture.lock().unwrap_or_else(|poison| poison.into_inner());
+            capture.announced = true;
+            capture
+                .persisted
+                .extend(request.attempts.iter().map(|attempt| attempt.index));
+        }
         Ok(())
     }
+
+    fn pending(&self) -> Vec<Request> {
+        let mut records = Vec::new();
+        let record = |attempts| Request {
+            id: self.request.id.clone(),
+            turn: self.request.turn,
+            model: self.request.model.clone(),
+            context_limit: self.request.context_limit,
+            timestamp_ms: self.request.timestamp_ms,
+            boundary: self.request.boundary,
+            attempts,
+        };
+        if !self.announced {
+            records.push(record(Vec::new()));
+        }
+        for attempt in &self.request.attempts {
+            if attempt.elapsed_us.is_none() || self.persisted.contains(&attempt.index) {
+                continue;
+            }
+            records.push(record(vec![attempt.clone()]));
+        }
+        records
+    }
+
+    fn diagnostics(&mut self) -> Vec<crate::logging::Entry> {
+        let mut records = std::mem::take(&mut self.diagnostics);
+        for entry in &mut records {
+            if matches!(entry.phase, crate::logging::Phase::Begin) {
+                continue;
+            }
+            if let Some(attempt) = self
+                .request
+                .attempts
+                .iter()
+                .find(|attempt| Some(attempt.index) == entry.attempt)
+            {
+                entry.connection_reused = attempt.reused;
+                entry.upstream_status = entry.upstream_status.or(attempt.status.map(u64::from));
+                entry.duration_us = attempt.elapsed_us;
+            }
+        }
+        records
+    }
+}
+
+fn diagnostic(
+    context: &crate::logging::Context,
+    attempt: &Attempt,
+    phase: crate::logging::Phase,
+    failure: Option<wire::Failure>,
+) -> crate::logging::Entry {
+    let mut entry = crate::logging::Entry::new(crate::logging::Area::Model, phase);
+    entry.context = context.clone();
+    entry.operation = Some("model_attempt");
+    entry.source_kind = Some("deferred_observation");
+    entry.stage = Some("transport");
+    entry.attempt = Some(attempt.index);
+    entry.transport = Some(if attempt.transport == "http" {
+        "http"
+    } else {
+        "websocket"
+    });
+    entry.connection_reused = attempt.reused;
+    entry.upstream_status = attempt.status.map(u64::from);
+    entry.duration_us = attempt.elapsed_us;
+    if attempt.elapsed_us.is_some() && attempt.outcome == Outcome::Cancelled {
+        entry.code = Some(ErrorCode::Cancelled);
+    }
+    if let Some(failure) = failure {
+        super::diagnostics::failure(&mut entry, failure);
+    }
+    entry
+}
+
+fn event(request: &Request) -> adk_core::Event {
+    let mut event = adk_core::Event::new(request.turn.to_string());
+    // Retried appends must have identical content as well as a stable ID.
+    event.timestamp = chrono::DateTime::from_timestamp_millis(request.timestamp_ms)
+        .expect("capture timestamp is valid");
+    let suffix = request
+        .attempts
+        .first()
+        .map_or_else(|| "request".into(), |attempt| attempt.index.to_string());
+    event.id = format!("model:{}:{suffix}", request.id);
+    event.author = "system".into();
+    event.provider_metadata.insert(
+        KEY.into(),
+        serde_json::to_string(request).expect("request observation serializes"),
+    );
+    event
 }
 
 fn micros(duration: std::time::Duration) -> u64 {
     duration.as_micros().try_into().unwrap_or(u64::MAX)
 }
+
+#[cfg(test)]
+mod tests;

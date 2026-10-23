@@ -5,11 +5,27 @@ use serde_json::{Map, Value};
 const RESPONSES_PARSE: &str = "model.openai_responses.parse";
 const PARSE_METADATA: &str = "openai_responses_parse";
 
+pub(super) fn finish(span: &mut crate::logging::Span, error: &AdkError, cancelled: bool) {
+    use crate::logging::Phase;
+    use sailry_protocol::ErrorCode;
+    cause(&mut span.entry, error);
+    let code = if cancelled || error.category == ErrorCategory::Cancelled {
+        ErrorCode::Cancelled
+    } else {
+        super::error(error).code
+    };
+    span.finish(
+        match code {
+            ErrorCode::Cancelled => Phase::Cancelled,
+            ErrorCode::OutcomeUnknown => Phase::Interrupted,
+            _ => Phase::Failed,
+        },
+        Some(code),
+    );
+}
+
 pub(in crate::agent) fn cause(entry: &mut crate::logging::Entry, error: &AdkError) {
-    entry.cause_code = Some(error.code);
-    entry.cause_component = Some(component(error.component));
-    entry.cause_category = Some(category(error.category));
-    entry.upstream_status = error.details.upstream_status_code.map(u64::from);
+    failure(entry, error.into());
     if error.code != RESPONSES_PARSE
         || error.component != ErrorComponent::Model
         || error.category != ErrorCategory::Internal
@@ -29,6 +45,19 @@ pub(in crate::agent) fn cause(entry: &mut crate::logging::Entry, error: &AdkErro
     entry.parse_event = parsed.event;
     entry.parse_line = Some(parsed.line);
     entry.parse_column = Some(parsed.column);
+}
+
+pub(super) fn failure(
+    entry: &mut crate::logging::Entry,
+    failure: adk_core::model_observation::Failure,
+) {
+    entry.cause_code = Some(failure.code);
+    entry.cause_component = Some(component(failure.component));
+    entry.cause_category = Some(category(failure.category));
+    entry.upstream_status = failure
+        .upstream_status
+        .map(u64::from)
+        .or(entry.upstream_status);
 }
 
 struct Parse {

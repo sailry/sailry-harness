@@ -36,58 +36,56 @@ impl Failure {
     pub(super) fn model(self) -> adk_core::AdkError {
         match self {
             Self::Request(fault) => super::response::fault(fault),
-            Self::Network(error) => {
-                let (category, code, message) = if error.is_timeout() {
-                    (
-                        adk_core::ErrorCategory::Timeout,
-                        "model.plugin.timeout",
-                        "model HTTP request timed out",
-                    )
-                } else if error.is_body() {
-                    (
-                        adk_core::ErrorCategory::Unavailable,
-                        "model.plugin.stream_read",
-                        "model response stream could not be read",
-                    )
-                } else {
-                    (
-                        adk_core::ErrorCategory::Unavailable,
-                        "model.plugin.connection",
-                        "model connection failed",
-                    )
-                };
-                let kind = if error.is_timeout() {
-                    "timeout"
-                } else if error.is_connect() {
-                    "connection"
-                } else if error.is_builder() {
-                    "build"
-                } else {
-                    "network"
-                };
-                let mut failure = adk_core::AdkError::new(
-                    adk_core::ErrorComponent::Model,
-                    category,
-                    code,
-                    message,
-                )
-                .with_source(Fault::new(ErrorCode::Unavailable, message));
-                failure
-                    .details
-                    .metadata
-                    .insert("transport".into(), "http".into());
-                failure.details.metadata.insert(
-                    "transport_phase".into(),
-                    if error.is_body() { "stream" } else { "request" }.into(),
-                );
-                failure
-                    .details
-                    .metadata
-                    .insert("transport_error_kind".into(), kind.into());
-                failure
-            }
+            Self::Network(error) => network_cause(&error),
         }
     }
+}
+
+fn network_cause(error: &reqwest::Error) -> adk_core::AdkError {
+    let (category, code, message) = if error.is_timeout() {
+        (
+            adk_core::ErrorCategory::Timeout,
+            "model.plugin.timeout",
+            "model HTTP request timed out",
+        )
+    } else if error.is_body() {
+        (
+            adk_core::ErrorCategory::Unavailable,
+            "model.plugin.stream_read",
+            "model response stream could not be read",
+        )
+    } else {
+        (
+            adk_core::ErrorCategory::Unavailable,
+            "model.plugin.connection",
+            "model connection failed",
+        )
+    };
+    let kind = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connection"
+    } else if error.is_builder() {
+        "build"
+    } else {
+        "network"
+    };
+    let mut failure =
+        adk_core::AdkError::new(adk_core::ErrorComponent::Model, category, code, message)
+            .with_source(Fault::new(ErrorCode::Unavailable, message));
+    failure
+        .details
+        .metadata
+        .insert("transport".into(), "http".into());
+    failure.details.metadata.insert(
+        "transport_phase".into(),
+        if error.is_body() { "stream" } else { "request" }.into(),
+    );
+    failure
+        .details
+        .metadata
+        .insert("transport_error_kind".into(), kind.into());
+    failure
 }
 
 pub(super) struct Credentials {
@@ -253,10 +251,17 @@ pub(super) async fn send(
             Ok(response) => {
                 observed.headers(response.status().as_u16(), None);
                 if !response.status().is_success() {
-                    observed.finish(adk_core::model_observation::Outcome::Failed);
+                    let status = response.status().as_u16();
+                    observed.fail(&super::response::classified(
+                        super::response::http_class(status),
+                        "model endpoint returned an unsuccessful HTTP status",
+                        None,
+                        Some(status),
+                        &[],
+                    ));
                 }
             }
-            Err(_) => observed.finish(adk_core::model_observation::Outcome::Failed),
+            Err(error) => observed.fail(&network_cause(error)),
         }
         let retry = match &result {
             Ok(response) => response.status().is_server_error(),

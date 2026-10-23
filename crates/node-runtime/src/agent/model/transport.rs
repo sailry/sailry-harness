@@ -111,9 +111,16 @@ impl Capabilities {
                 }
                 let mut entry = crate::logging::Entry::new(
                     crate::logging::Area::Model,
-                    crate::logging::Phase::Completed,
+                    crate::logging::Phase::Selected,
                 );
-                entry.context = identity.clone();
+                entry.context = super::call::current().unwrap_or_else(|| identity.clone());
+                // Preconnect has no logical generation; request selections reuse
+                // the identity scoped around both generation and stream polling.
+                entry.stage = Some(if entry.context.call.is_some() {
+                    "request"
+                } else {
+                    "preconnect"
+                });
                 entry.operation = Some("transport");
                 match event {
                     TransportEvent::Http => entry.transport = Some("sse"),
@@ -149,18 +156,30 @@ pub(crate) fn configure_fixture(registry: &registry::Registry, options: WsOption
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn logs_one_fallback_selection() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+    #[tokio::test]
+    async fn logs_one_fallback_selection() {
+        use std::collections::BTreeMap;
         use tracing_subscriber::{Layer, layer::SubscriberExt};
-        struct Count(Arc<AtomicUsize>);
-        impl<S: tracing::Subscriber> Layer<S> for Count {
+        #[derive(Default)]
+        struct Fields(BTreeMap<String, String>);
+        impl tracing::field::Visit for Fields {
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                self.0.insert(field.name().into(), value.into());
+            }
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                self.0.insert(field.name().into(), format!("{value:?}"));
+            }
+        }
+        struct Records(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
+        impl<S: tracing::Subscriber> Layer<S> for Records {
             fn on_event(
                 &self,
-                _: &tracing::Event<'_>,
+                event: &tracing::Event<'_>,
                 _: tracing_subscriber::layer::Context<'_, S>,
             ) {
-                self.0.fetch_add(1, Ordering::Relaxed);
+                let mut fields = Fields::default();
+                event.record(&mut fields);
+                self.0.lock().unwrap().push(fields.0);
             }
         }
         let provider: Provider = serde_json::from_value(serde_json::json!({
@@ -172,20 +191,36 @@ mod tests {
         let options = capabilities
             .options(&provider, "fixture", sailry_protocol::SessionId::new())
             .unwrap();
-        let count = Arc::new(AtomicUsize::new(0));
+        let records = Arc::new(Mutex::new(Vec::new()));
         let dispatch =
-            tracing::Dispatch::new(tracing_subscriber::registry().with(Count(count.clone())));
-        tracing::dispatcher::with_default(&dispatch, || {
-            (options.observe)(TransportEvent::Fallback {
-                refusal: WsRefusal::Definitive,
+            tracing::Dispatch::new(tracing_subscriber::registry().with(Records(records.clone())));
+        let identity = super::super::call::identity(crate::logging::Context::default());
+        super::super::call::scope(identity.clone(), async {
+            tracing::dispatcher::with_default(&dispatch, || {
+                (options.observe)(TransportEvent::Fallback {
+                    refusal: WsRefusal::Definitive,
+                });
+                assert!((options.enabled)());
+                (options.observe)(TransportEvent::HttpCompleted {
+                    refusal: WsRefusal::Definitive,
+                });
+                assert!(!(options.enabled)());
             });
-            assert!((options.enabled)());
-            (options.observe)(TransportEvent::HttpCompleted {
-                refusal: WsRefusal::Definitive,
-            });
-            assert!(!(options.enabled)());
-        });
-        assert_eq!(count.load(Ordering::Relaxed), 1);
+        })
+        .await;
+        {
+            let records = records.lock().unwrap();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0]["call"], identity.call.unwrap().to_string());
+            assert_eq!(records[0]["phase"], "selected");
+            assert_eq!(records[0]["stage"], "request");
+            assert_eq!(records[0]["fallback_reason"], "refused");
+        }
+        tracing::dispatcher::with_default(&dispatch, || (options.observe)(TransportEvent::Http));
+        let records = records.lock().unwrap();
+        assert_eq!(records[1]["call"], "");
+        assert_eq!(records[1]["phase"], "selected");
+        assert_eq!(records[1]["stage"], "preconnect");
     }
 
     #[test]

@@ -149,8 +149,9 @@ impl Llm for Model {
             let status = received.status().as_u16();
             let headers =
                 transport::headers(received.headers(), &credentials).map_err(|error| {
-                    observation.finish(adk_core::model_observation::Outcome::Failed);
-                    response::fault(error)
+                    let error = response::fault(error);
+                    observation.fail(&error);
+                    error
                 })?;
             let (sender, receiver) = mpsc::channel(1);
             let cancelled = stop.clone();
@@ -180,13 +181,13 @@ impl Llm for Model {
                             }
                             error
                         });
-                observation.finish(if cancelled.is_cancelled() {
-                    adk_core::model_observation::Outcome::Cancelled
-                } else if result.is_ok() {
-                    adk_core::model_observation::Outcome::Succeeded
+                if cancelled.is_cancelled() {
+                    observation.finish(adk_core::model_observation::Outcome::Cancelled);
+                } else if let Err(error) = &result {
+                    observation.fail(error);
                 } else {
-                    adk_core::model_observation::Outcome::Failed
-                });
+                    observation.finish(adk_core::model_observation::Outcome::Succeeded);
+                }
                 let _ = sender.send(result).await;
             });
             let stream: LlmResponseStream = Box::pin(Output { receiver, stop });
@@ -660,13 +661,13 @@ async fn read_catalog(
         Ok(catalog)
     }.await;
     if let Some(observation) = observation {
-        observation.finish(if stop.is_cancelled() {
-            adk_core::model_observation::Outcome::Cancelled
-        } else if result.is_ok() {
-            adk_core::model_observation::Outcome::Succeeded
+        if stop.is_cancelled() {
+            observation.finish(adk_core::model_observation::Outcome::Cancelled);
+        } else if let Err(error) = &result {
+            observation.fail(&response::fault(error.clone()));
         } else {
-            adk_core::model_observation::Outcome::Failed
-        });
+            observation.finish(adk_core::model_observation::Outcome::Succeeded);
+        }
     }
     if let Err(error) = &result {
         // Only typed failure metadata is logged, never bodies, headers or grant fields.

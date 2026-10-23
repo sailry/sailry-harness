@@ -2,7 +2,7 @@
 use super::*;
 use sailry_protocol::conversation::observation::Outcome;
 
-async fn statistics(client: &Client, session: SessionId) -> Statistics {
+pub(super) async fn statistics(client: &Client, session: SessionId) -> Statistics {
     let mut stream = client.subscribe_conversation(session).await.unwrap();
     let mut projection = sailry_client::conversation::Projection::new(client.target(), session, 0);
     loop {

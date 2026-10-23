@@ -55,18 +55,34 @@ impl Llm for Model {
         let stop = self.stop.clone();
         let limit = self.limit;
         let persistent = self.persistent;
+        let mut identity = super::call::current().unwrap_or_default();
+        identity.node = Some(ingress.node);
+        identity.turn = turn;
+        identity.session = Some(session);
+        identity.model = Some(inner.name().into());
+        let identity = super::call::identity(identity);
         let (mut output, responses) = mpsc::channel(0);
         let capture = turn.map(|turn| {
             let capture = observation::Capture::new(
                 turn,
                 inner.name().into(),
+                identity.clone(),
                 ingress.agents.timeline(turn),
                 ingress.agents.sources(turn),
             );
             ingress.agents.observe_model(turn, capture.clone());
             capture
         });
+        let context = identity.clone();
         let producer = async move {
+            let mut entry = crate::logging::Entry::new(
+                crate::logging::Area::Model,
+                crate::logging::Phase::Begin,
+            );
+            entry.context = context;
+            entry.operation = Some("model_recovery");
+            entry.stage = Some("session");
+            let mut recovery = crate::logging::Span::new(entry).cancel_when(stop.clone());
             let mut budget = budget::Budget::default();
             let committed = AtomicBool::new(false);
             let published = AtomicBool::new(false);
@@ -125,17 +141,26 @@ impl Llm for Model {
                     Err(error) => error,
                 };
                 if stop.is_cancelled() || committed.load(Ordering::Relaxed) {
+                    recovery.entry.recovery_decision = Some(if stop.is_cancelled() {
+                        "cancelled"
+                    } else {
+                        "response_committed"
+                    });
                     break Err(error);
                 }
                 let error = interrupted(error);
                 let failure = classification::Failure::new(&error);
                 let (attempt, finite, at, delay, fallback) =
                     match budget.next(&failure, limit, persistent) {
-                        budget::Decision::Stop(reason) => break Err(terminal(error, reason)),
+                        budget::Decision::Stop(reason) => {
+                            recovery.entry.recovery_decision = Some(decision(reason));
+                            break Err(terminal(error, reason));
+                        }
                         budget::Decision::Exhausted => {
                             if failure.transport != Some(Transport::WebSocket)
                                 || !ingress.model_clients.fallback(session)
                             {
+                                recovery.entry.recovery_decision = Some("attempts_exhausted");
                                 break Err(terminal(error, Stop::AttemptsExhausted));
                             }
                             budget.fallback();
@@ -173,23 +198,7 @@ impl Llm for Model {
                     code: failure.code,
                     error: Some(super::error(&error).message),
                 };
-                let mut entry = crate::logging::Entry::new(
-                    crate::logging::Area::Model,
-                    crate::logging::Phase::Failed,
-                );
-                entry.operation = Some("model_retry");
-                entry.stage = Some("session");
-                entry.attempt = Some(attempt);
-                entry.limit = finite;
-                entry.context = crate::logging::Context {
-                    node: Some(ingress.node),
-                    turn,
-                    session: Some(session),
-                    model: Some(inner.name().into()),
-                    ..Default::default()
-                };
-                super::cause(&mut entry, &error);
-                entry.emit();
+                diagnostic(&recovery.entry, &error, &notice).emit();
                 if let Some(turn) = turn {
                     let mut event = Event::new(turn.to_string());
                     event.author = "system".into();
@@ -220,15 +229,34 @@ impl Llm for Model {
                     _ = tokio::time::sleep_until(at) => {},
                 }
             };
-            if let Err(error) = result {
-                let _ = output.send(Err(error)).await;
+            match result {
+                Ok(()) => {
+                    recovery.entry.recovery_decision = Some("succeeded");
+                    recovery.finish(crate::logging::Phase::Completed, None);
+                }
+                Err(error) => {
+                    classify(&mut recovery.entry, &error);
+                    recovery
+                        .entry
+                        .recovery_decision
+                        .get_or_insert(if stop.is_cancelled() {
+                            "cancelled"
+                        } else {
+                            "failed"
+                        });
+                    super::diagnostics::finish(&mut recovery, &error, stop.is_cancelled());
+                    let _ = output.send(Err(error)).await;
+                }
             }
         };
         // Poll the producer inside its stream so dropping a turn also drops its
         // request, private recovery buffer, observer and backoff timer.
         let producer =
             futures::stream::once(producer).filter_map(|()| futures::future::ready(None));
-        Ok(Box::pin(futures::stream::select(responses, producer)))
+        Ok(super::call::stream(
+            identity,
+            Box::pin(futures::stream::select(responses, producer)),
+        ))
     }
 }
 
@@ -347,6 +375,57 @@ fn cancelled() -> AdkError {
         "model.request_cancelled",
         "model request cancelled",
     )
+}
+
+fn decision(reason: Stop) -> &'static str {
+    match reason {
+        Stop::AttemptsExhausted => "attempts_exhausted",
+        Stop::RateLimited => "rate_limited",
+        Stop::ServerOverloaded => "server_overloaded",
+        Stop::InvalidRequest => "invalid_request",
+        Stop::InvalidPrompt => "invalid_prompt",
+        Stop::ContextWindowExceeded => "context_window_exceeded",
+        Stop::QuotaExceeded => "quota_exceeded",
+        Stop::UsageNotIncluded => "usage_not_included",
+        Stop::UsageLimitReached => "usage_limit_reached",
+        Stop::ResponseIncomplete => "response_incomplete",
+        Stop::FlexUnavailable => "flex_unavailable",
+        Stop::PolicyViolation => "policy_violation",
+        Stop::LocalFailure => "local_failure",
+    }
+}
+
+fn classify(entry: &mut crate::logging::Entry, error: &AdkError) {
+    let failure = classification::Failure::new(error);
+    entry.transport = failure.transport.map(|transport| match transport {
+        Transport::Http => "http",
+        Transport::WebSocket => "websocket",
+    });
+    entry.reason = Some(match failure.class {
+        classification::Class::Terminal(_) => "terminal",
+        classification::Class::Backoff => "backoff",
+        classification::Class::Advice(_) => "server_advice",
+        classification::Class::Connection => "connection",
+    });
+    super::cause(entry, error);
+}
+
+fn diagnostic(
+    base: &crate::logging::Entry,
+    error: &AdkError,
+    notice: &Retry,
+) -> crate::logging::Entry {
+    let mut entry = base.clone();
+    entry.phase = crate::logging::Phase::Retrying;
+    entry.operation = Some("model_retry");
+    entry.stage = Some("session");
+    entry.attempt = Some(notice.attempt);
+    entry.limit = notice.limit;
+    entry.wait_ms = notice.delay_ms;
+    entry.recovery_decision = Some(if notice.fallback { "fallback" } else { "retry" });
+    entry.fallback_reason = notice.fallback.then_some("attempts_exhausted");
+    classify(&mut entry, error);
+    entry
 }
 
 #[cfg(test)]
