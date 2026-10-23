@@ -31,7 +31,9 @@ impl Checkpoint {
                 .get(self.index..)
                 .is_some_and(|contents| matches(contents, &self.retained))
         {
-            return Err(invalid(
+            return Err(invalid_at(
+                Stage::History,
+                Reason::HistoryMismatch,
                 "model context does not match the persisted summary",
             ));
         }
@@ -265,6 +267,11 @@ mod tests {
         });
         request.contents[3] = changed;
         assert!(tail(&request, &events, &preamble, "current").is_none());
+        let error = checkpoint.apply(&mut request, &preamble).unwrap_err();
+        assert_eq!(
+            failure::classify(&error),
+            (Stage::History, Reason::HistoryMismatch)
+        );
     }
 
     #[test]

@@ -2,35 +2,27 @@
 use super::*;
 use sailry_protocol::conversation::compaction::{Failure, Reason, Source, Stage};
 
+const CLASSIFICATION: &str = "sailry.compaction.classification";
+
+pub(super) fn annotate(
+    mut error: adk_core::AdkError,
+    stage: Stage,
+    reason: Reason,
+) -> adk_core::AdkError {
+    error
+        .details
+        .metadata
+        .insert(CLASSIFICATION.into(), json!([stage, reason]));
+    error
+}
+
 pub(super) fn classify(error: &adk_core::AdkError) -> (Stage, Reason) {
-    if error.message == "context summary request failed" {
-        use adk_core::ErrorCategory;
-        return (
-            Stage::Request,
-            match error.category {
-                ErrorCategory::Timeout => Reason::RequestTimeout,
-                ErrorCategory::RateLimited => Reason::RateLimited,
-                ErrorCategory::Unauthorized | ErrorCategory::Forbidden => {
-                    Reason::AuthorizationFailed
-                }
-                _ if error.details.upstream_status_code.is_some() => Reason::ServiceRejected,
-                _ => Reason::RequestFailed,
-            },
-        );
-    }
-    match error.message.as_str() {
-        "context summary was truncated" => (Stage::Summary, Reason::TruncatedSummary),
-        "context summary could not be saved" => (Stage::Persistence, Reason::PersistenceFailed),
-        "context summary is empty" => (Stage::Summary, Reason::EmptySummary),
-        "model context does not match the persisted summary"
-        | "persisted context summary is missing" => (Stage::History, Reason::HistoryMismatch),
-        "context summary request failed" => (Stage::Request, Reason::RequestFailed),
-        "context summary was not completed" | "context summary stream ended before completion" => {
-            (Stage::Summary, Reason::IncompleteResponse)
-        }
-        "context summary returned non-text output" => (Stage::Summary, Reason::UnexpectedOutput),
-        _ => (Stage::Unknown, Reason::Unknown),
-    }
+    error
+        .details
+        .metadata
+        .get(CLASSIFICATION)
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or((Stage::Unknown, Reason::Unknown))
 }
 
 /// Keep the standard error fields when an adapter embeds a JSON response body.
@@ -131,7 +123,11 @@ mod tests {
             (Stage::Persistence, Reason::PersistenceFailed)
         );
         assert_eq!(
-            classify(&invalid("context summary was truncated")),
+            classify(&invalid_at(
+                Stage::Summary,
+                Reason::TruncatedSummary,
+                "context summary was truncated"
+            )),
             (Stage::Summary, Reason::TruncatedSummary)
         );
         assert!(
@@ -140,6 +136,21 @@ mod tests {
             )))
             .message
             .contains("private")
+        );
+    }
+
+    #[test]
+    fn ignores_diagnostic_wording() {
+        let mut error = invalid_at(
+            Stage::Summary,
+            Reason::TruncatedSummary,
+            "context summary was truncated",
+        );
+        error.message = "Updated diagnostic wording".into();
+        assert_eq!(classify(&error), (Stage::Summary, Reason::TruncatedSummary));
+        assert_eq!(
+            classify(&invalid("context summary was truncated")),
+            (Stage::Unknown, Reason::Unknown)
         );
     }
 

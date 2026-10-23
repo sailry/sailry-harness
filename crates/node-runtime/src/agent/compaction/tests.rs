@@ -257,8 +257,12 @@ async fn rejects_invalid_summaries() {
     truncated.finish_reason = Some(FinishReason::MaxTokens);
     let mut failed = complete("Summary");
     failed.error_message = Some("Summary rejected by the provider".into());
-    for (responses, rejected) in [
-        (vec![complete("")], false),
+    for (responses, rejected, classification) in [
+        (
+            vec![complete("")],
+            false,
+            (Stage::Summary, Reason::EmptySummary),
+        ),
         (
             vec![LlmResponse {
                 content: Some(Content::new("model").with_text("partial")),
@@ -266,16 +270,30 @@ async fn rejects_invalid_summaries() {
                 ..Default::default()
             }],
             false,
+            (Stage::Summary, Reason::IncompleteResponse),
         ),
-        (vec![complete("Summary")], true),
-        (vec![tool], false),
-        (vec![truncated], false),
-        (vec![failed], false),
+        (
+            vec![complete("Summary")],
+            true,
+            (Stage::Request, Reason::RateLimited),
+        ),
+        (
+            vec![tool],
+            false,
+            (Stage::Summary, Reason::UnexpectedOutput),
+        ),
+        (
+            vec![truncated],
+            false,
+            (Stage::Summary, Reason::TruncatedSummary),
+        ),
+        (vec![failed], false, (Stage::Request, Reason::RequestFailed)),
     ] {
         let (summarizer, model) = summarizer(responses, rejected);
         let result = summarizer.summarize_events(&history).await;
         assert!(result.is_err());
         let error = result.unwrap_err();
+        assert_eq!(failure::classify(&error), classification);
         assert!(!error.to_string().contains("private"));
         let fault = model::error(error);
         assert!(!fault.message.contains("private"));

@@ -195,15 +195,26 @@ impl Context {
         offset: usize,
         invocation: &str,
     ) -> adk_core::Result<()> {
-        let index = tail(request, history, &self.preamble, invocation)
-            .ok_or_else(|| invalid("model context does not match the persisted summary"))?;
+        let index = tail(request, history, &self.preamble, invocation).ok_or_else(|| {
+            invalid_at(
+                Stage::History,
+                Reason::HistoryMismatch,
+                "model context does not match the persisted summary",
+            )
+        })?;
         let content = summary
             .actions
             .compaction
             .as_ref()
             .map(|value| &value.compacted_content)
             .or_else(|| summary.content())
-            .ok_or_else(|| invalid("persisted context summary is missing"))?;
+            .ok_or_else(|| {
+                invalid_at(
+                    Stage::History,
+                    Reason::HistoryMismatch,
+                    "persisted context summary is missing",
+                )
+            })?;
         let checkpoint = Checkpoint::new(request, index, content.clone(), offset);
         request.contents.splice(1..index, [content.clone()]);
         request.previous_response_id = None;
@@ -272,7 +283,13 @@ impl Context {
                         .provider_metadata
                         .contains_key(crate::store::agent::compaction::END_EVENT)
                 })
-                .ok_or_else(|| invalid("persisted context summary is missing"))?;
+                .ok_or_else(|| {
+                    invalid_at(
+                        Stage::History,
+                        Reason::HistoryMismatch,
+                        "persisted context summary is missing",
+                    )
+                })?;
             self.saved(&mut request, &history.events[1..], summary, 0, invocation)?;
             offset = self
                 .checkpoint
@@ -347,7 +364,11 @@ impl Context {
                 };
                 if warn {
                     self.notice(
-                        &invalid("model context does not match the persisted summary"),
+                        &invalid_at(
+                            Stage::History,
+                            Reason::HistoryMismatch,
+                            "model context does not match the persisted summary",
+                        ),
                         SummaryMode::Automatic,
                         true,
                     )
@@ -364,8 +385,15 @@ impl Context {
         let result = match result {
             Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
                 // Verify canonical matching before persisting a new boundary.
-                tail(&request, &history.events[cut..], &self.preamble, invocation)
-                    .ok_or_else(|| invalid("model context does not match the persisted summary"))?;
+                tail(&request, &history.events[cut..], &self.preamble, invocation).ok_or_else(
+                    || {
+                        invalid_at(
+                            Stage::History,
+                            Reason::HistoryMismatch,
+                            "model context does not match the persisted summary",
+                        )
+                    },
+                )?;
                 match self
                     .service
                     .append_event(&self.session.to_string(), summary.clone())

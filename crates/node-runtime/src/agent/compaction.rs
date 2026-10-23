@@ -6,6 +6,7 @@ use adk_core::{
 };
 use adk_session::SessionService;
 use async_trait::async_trait;
+use sailry_protocol::conversation::compaction::{Reason, Stage};
 use serde_json::json;
 
 const SUMMARY_BYTES: usize = 32 * 1024;
@@ -429,7 +430,11 @@ impl Summarizer {
                 timing,
             } = response;
             if text.trim().is_empty() {
-                return Err(invalid("context summary is empty"));
+                return Err(invalid_at(
+                    Stage::Summary,
+                    Reason::EmptySummary,
+                    "context summary is empty",
+                ));
             }
             text.push_str(&verbatim);
             let mut event = Event::new(self.turn.to_string());
@@ -540,7 +545,11 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
     while let Some(response) = stream.next().await {
         let response = response.map_err(request_error)?;
         if response.interrupted {
-            return Err(invalid("context summary was not completed"));
+            return Err(invalid_at(
+                Stage::Summary,
+                Reason::IncompleteResponse,
+                "context summary was not completed",
+            ));
         }
         if response.error_code.is_some() || response.error_message.is_some() {
             let message = match (response.error_code, response.error_message) {
@@ -551,13 +560,21 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
             return Err(request_error(adk_core::AdkError::model(message)));
         }
         if response.finish_reason == Some(FinishReason::MaxTokens) {
-            return Err(invalid("context summary was truncated"));
+            return Err(invalid_at(
+                Stage::Summary,
+                Reason::TruncatedSummary,
+                "context summary was truncated",
+            ));
         }
         if response
             .finish_reason
             .is_some_and(|reason| reason != FinishReason::Stop)
         {
-            return Err(invalid("context summary was not completed"));
+            return Err(invalid_at(
+                Stage::Summary,
+                Reason::IncompleteResponse,
+                "context summary was not completed",
+            ));
         }
         if let Some(content) = response.content {
             let mut chunk = String::new();
@@ -567,7 +584,13 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
                     Part::Thinking { .. } => {}
                     Part::ServerToolCall { server_tool_call }
                         if commentary(&server_tool_call, response.partial) => {}
-                    _ => return Err(invalid("context summary returned non-text output")),
+                    _ => {
+                        return Err(invalid_at(
+                            Stage::Summary,
+                            Reason::UnexpectedOutput,
+                            "context summary returned non-text output",
+                        ));
+                    }
                 }
             }
             if !chunk.is_empty() {
@@ -589,7 +612,11 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
         complete |= response.turn_complete || response.finish_reason == Some(FinishReason::Stop);
     }
     if !complete {
-        return Err(invalid("context summary stream ended before completion"));
+        return Err(invalid_at(
+            Stage::Summary,
+            Reason::IncompleteResponse,
+            "context summary stream ended before completion",
+        ));
     }
     Ok(Summary {
         text,
@@ -614,24 +641,41 @@ fn commentary(value: &serde_json::Value, partial: bool) -> bool {
 }
 
 fn request_error(error: adk_core::AdkError) -> adk_core::AdkError {
+    use adk_core::ErrorCategory;
     let component = error.component;
     let category = error.category;
     let code = error.code;
     let status = error.details.upstream_status_code;
+    let reason = match category {
+        ErrorCategory::Timeout => Reason::RequestTimeout,
+        ErrorCategory::RateLimited => Reason::RateLimited,
+        ErrorCategory::Unauthorized | ErrorCategory::Forbidden => Reason::AuthorizationFailed,
+        _ if status.is_some() => Reason::ServiceRejected,
+        _ => Reason::RequestFailed,
+    };
     // Model adapters have already removed captured credentials. Preserve their
     // public diagnostic, not the provider metadata or source error chain.
     let mut cause = model::error(&error);
     cause.message = failure::diagnostic(&cause.message);
     let safe = adk_core::AdkError::new(component, category, code, "context summary request failed")
         .with_source(cause);
-    match status {
+    let safe = match status {
         Some(status) => safe.with_upstream_status(status),
         None => safe,
-    }
+    };
+    failure::annotate(safe, Stage::Request, reason)
 }
 
 fn save_error(_error: adk_core::AdkError) -> adk_core::AdkError {
-    invalid("context summary could not be saved")
+    invalid_at(
+        Stage::Persistence,
+        Reason::PersistenceFailed,
+        "context summary could not be saved",
+    )
+}
+
+fn invalid_at(stage: Stage, reason: Reason, message: &'static str) -> adk_core::AdkError {
+    failure::annotate(invalid(message), stage, reason)
 }
 
 fn invalid(message: &'static str) -> adk_core::AdkError {
