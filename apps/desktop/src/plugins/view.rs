@@ -157,7 +157,14 @@ impl Render for Panel {
                         )
                         .into_any_element()
                 } else {
-                    div().w_full().h_64().into_any_element()
+                    div()
+                        .w_full()
+                        .h_64()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(spinner::Spinner::new())
+                        .into_any_element()
                 });
                 v_flex()
                     .id("plugin-panel-loading")

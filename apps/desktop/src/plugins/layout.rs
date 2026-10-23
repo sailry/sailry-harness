@@ -100,8 +100,16 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 .children(args.take_children())
                 .into_any_element()
         })
-        .component("Loading", |_, _, _| {
-            div().absolute().size_0().into_any_element()
+        .component("Loading", |args, _, _| {
+            div()
+                .id(args.id().to_owned())
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(spinner::Spinner::new())
+                .into_any_element()
         })
         .component("EmptyState", |mut args, _, cx| {
             let icon = args
