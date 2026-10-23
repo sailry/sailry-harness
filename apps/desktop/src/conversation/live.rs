@@ -741,13 +741,7 @@ impl Render for View {
                         let owner = owner.clone();
                         cx.defer(move |cx| {
                             let _ = owner.update(cx, |view, cx| {
-                                let compact = bounds.size.width < px(680.);
-                                let icons = bounds.size.width < px(440.);
-                                let changed =
-                                    view.compact_composer != compact || view.icon_context != icons;
-                                view.compact_composer = compact;
-                                view.icon_context = icons;
-                                if view.navigation.resize(bounds.size.width) || changed {
+                                if view.navigation.resize(bounds.size.width) {
                                     cx.notify();
                                 }
                             });

@@ -89,6 +89,7 @@ impl View {
             .trigger(
                 Button::new("composer-settings")
                     .ghost()
+                    .flex_shrink_0()
                     .rounded_full()
                     .icon(if full {
                         permission::icon(current)

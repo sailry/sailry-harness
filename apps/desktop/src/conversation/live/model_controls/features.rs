@@ -1,7 +1,7 @@
 //! Declared model choices share the revision-checked composer configuration.
 use super::*;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-use sailry_protocol::conversation::features::Feature;
+use sailry_protocol::conversation::features::{Feature, FeatureOption};
 use std::collections::BTreeMap;
 
 pub(in crate::conversation::live) fn retain(
@@ -19,10 +19,14 @@ pub(in crate::conversation::live) fn retain(
         .collect()
 }
 
-pub(super) fn labels(
-    features: &[Feature],
-    selected: &BTreeMap<String, String>,
-) -> Vec<SharedString> {
+pub(super) struct Choice {
+    pub id: SharedString,
+    pub label: SharedString,
+    pub icon: Option<Icon>,
+    pub fast: bool,
+}
+
+pub(super) fn selected(features: &[Feature], selected: &BTreeMap<String, String>) -> Vec<Choice> {
     features
         .iter()
         .filter_map(|feature| {
@@ -31,9 +35,30 @@ pub(super) fn labels(
                 .options
                 .iter()
                 .find(|option| option.id == *selected)?;
-            Some(option.name.as_ref().unwrap_or(&option.id).clone().into())
+            Some(Choice {
+                id: feature.id.clone().into(),
+                label: label(feature, option),
+                icon: if fast(feature, option) {
+                    Some(Icon::new(gpui_kit::assets::IconName::Zap))
+                } else {
+                    feature.icon.as_ref().map(crate::assets::icons::icon)
+                },
+                fast: fast(feature, option),
+            })
         })
         .collect()
+}
+
+fn fast(feature: &Feature, option: &FeatureOption) -> bool {
+    feature.id == "speed" && option.id == "fast"
+}
+
+fn label(feature: &Feature, option: &FeatureOption) -> SharedString {
+    if fast(feature, option) {
+        tr("composer_feature_fast")
+    } else {
+        option.name.as_ref().unwrap_or(&option.id).clone().into()
+    }
 }
 
 pub(super) fn control(
@@ -42,19 +67,20 @@ pub(super) fn control(
     disabled: bool,
     owner: WeakEntity<View>,
 ) -> AnyElement {
-    let label = if feature.options.len() == 1 {
-        feature.options[0]
-            .name
-            .as_ref()
-            .unwrap_or(&feature.options[0].id)
+    let label = if let [option] = feature.options.as_slice() {
+        label(feature, option)
     } else {
-        feature.name.as_ref().unwrap_or(&feature.id)
+        feature.name.as_ref().unwrap_or(&feature.id).clone().into()
     };
-    let icon = feature
-        .icon
-        .as_ref()
-        .map(crate::assets::icons::icon)
-        .unwrap_or_else(|| IconName::Settings2.into());
+    let icon = if feature.options.len() == 1 && fast(feature, &feature.options[0]) {
+        Icon::new(gpui_kit::assets::IconName::Zap)
+    } else {
+        feature
+            .icon
+            .as_ref()
+            .map(crate::assets::icons::icon)
+            .unwrap_or_else(|| IconName::Settings2.into())
+    };
     let button = Button::new(SharedString::from(format!("model-feature-{}", feature.id)))
         .rounded_full()
         .text()
@@ -100,7 +126,7 @@ pub(super) fn control(
                 let id = feature.id.clone();
                 let value = option.id.clone();
                 menu.item(
-                    PopupMenuItem::new(option.name.as_ref().unwrap_or(&option.id).clone())
+                    PopupMenuItem::new(self::label(&feature, option))
                         .checked(selected.as_deref() == Some(option.id.as_str()))
                         .on_click(move |_, window, cx| {
                             let _ = owner.update(cx, |view, cx| {

@@ -25,11 +25,28 @@ impl View {
                     || !self.configured()
                     || (self.binding.project.is_some() && self.binding.worktree.is_none())
                     || !self.attachments.sendable()));
+        let owner = cx.weak_entity();
         let toolbar = h_flex()
             .debug_selector(|| "composer-toolbar".into())
+            .w_full()
+            .min_w_0()
             .min_h_8()
             .gap_1()
             .flex_wrap()
+            .on_prepaint(move |bounds, _, cx| {
+                let owner = owner.clone();
+                cx.defer(move |cx| {
+                    let _ = owner.update(cx, |view, cx| {
+                        let compact = bounds.size.width < px(680.);
+                        let icons = bounds.size.width < px(440.);
+                        if view.compact_composer != compact || view.icon_context != icons {
+                            view.compact_composer = compact;
+                            view.icon_context = icons;
+                            cx.notify();
+                        }
+                    });
+                });
+            })
             .when(!self.sidebar, |bar| {
                 bar.child(
                     h_flex()
@@ -155,6 +172,7 @@ impl View {
             context,
             Some(self.reference_picker(cx)),
             self.sidebar,
+            cx.entity_id(),
             cx,
         )
     }
@@ -196,7 +214,7 @@ impl View {
                 }
             })
             .child(
-                super::references::inline::textarea(&self.input, &self.references.selected)
+                gpui_kit::component::input::Textarea::new(&self.input)
                     .appearance(false)
                     .bordered(false)
                     .aria_label(tr("composer"))

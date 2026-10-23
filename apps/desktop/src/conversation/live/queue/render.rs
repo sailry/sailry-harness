@@ -244,7 +244,7 @@ impl Render for Panel {
                     .into_any_element()
             });
             presentation::editor(
-                super::super::references::inline::textarea(&editing.input, &editing.references)
+                gpui_kit::component::input::Textarea::new(&editing.input)
                     .readonly(
                         self.child
                             || self.pending

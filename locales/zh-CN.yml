@@ -1213,6 +1213,7 @@ composer_effort: 推理强度
 composer_model_settings: 模型与强度
 composer_feature_description: "可能消耗更多额度或产生额外费用"
 composer_feature_off: "关闭"
+composer_feature_fast: "快速"
 composer_effort_reset: 恢复默认强度
 composer_effort_unavailable: 默认
 composer_compression_hint: 上下文压缩进度：暂无运行数据（UI 预览）
@@ -1220,8 +1221,8 @@ composer_context_usage: "%{used} / %{limit}"
 composer_context_thousand: "%{value}K"
 composer_context_million: "%{value}M"
 composer_context_unknown: 上下文用量待更新
-composer_mode_code: "build"
-composer_mode_plan: "plan"
+composer_mode_code: "构建"
+composer_mode_plan: "计划"
 composer_mode_code_description: 编写代码、修改文件并验证结果
 composer_mode_plan_description: 分析需求、制定方案，不修改文件
 composer_branch_main: main

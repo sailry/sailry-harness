@@ -95,6 +95,11 @@ impl View {
                         .min_w_0()
                         .gap_3()
                         .flex_wrap()
+                        .opacity(0.)
+                        .group_hover(
+                            super::super::layout::composer_group(cx.entity_id()),
+                            |style| style.opacity(1.),
+                        )
                         .when(!footer.is_empty(), |metrics| {
                             metrics.child(super::super::usage::render_groups(
                                 &footer,

@@ -62,25 +62,46 @@ mod feature_choices {
 
     #[test]
     fn labels_follow_declared_order() {
+        let labels = |selected: &BTreeMap<_, _>| {
+            super::super::features::selected(&declarations(), selected)
+                .into_iter()
+                .map(|choice| choice.label)
+                .collect::<Vec<_>>()
+        };
         let selected = BTreeMap::from([
             ("speed".into(), "fast".into()),
             ("format".into(), "compact".into()),
         ]);
         assert_eq!(
-            super::super::features::labels(&declarations(), &selected),
-            vec![SharedString::from("Fast"), SharedString::from("Compact")]
+            labels(&selected),
+            vec![tr("composer_feature_fast"), SharedString::from("Compact")]
         );
         let mut selected = selected;
         selected.insert("speed".into(), "future-choice".into());
         assert_eq!(selected.len(), 2);
-        assert_eq!(
-            super::super::features::labels(&declarations(), &selected)[0],
-            "future-choice"
-        );
+        assert_eq!(labels(&selected)[0], "future-choice");
         selected.remove("speed");
-        assert_eq!(
-            super::super::features::labels(&declarations(), &selected),
-            vec![SharedString::from("Compact")]
+        assert_eq!(labels(&selected), vec![SharedString::from("Compact")]);
+    }
+
+    #[test]
+    fn fast_glyph_uses_the_declared_choice() {
+        let mut features = declarations();
+        let selected = BTreeMap::from([("speed".into(), "fast".into())]);
+        assert!(super::super::features::selected(&features, &selected)[0].fast);
+        assert!(
+            super::super::features::selected(&features, &selected)[0]
+                .icon
+                .is_some()
         );
+        features[0].id = "custom-speed".into();
+        let custom = BTreeMap::from([("custom-speed".into(), "fast".into())]);
+        assert!(!super::super::features::selected(&features, &custom)[0].fast);
+        assert!(
+            super::super::features::selected(&features, &custom)[0]
+                .icon
+                .is_none()
+        );
+        assert!(super::super::features::selected(&features, &selected).is_empty());
     }
 }

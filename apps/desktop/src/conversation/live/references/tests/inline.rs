@@ -1,6 +1,4 @@
-use super::super::inline::{
-    active, active_content, content, draft_icon, icon, links, marker, token,
-};
+use super::super::inline::{active, active_content, content, icon, links, marker, token};
 use super::*;
 
 #[test]
@@ -56,7 +54,6 @@ fn picker_skills_keep_a_distinct_icon() {
             label: name.into(),
         };
         assert_eq!(icon(&reference), "reicon:school/book");
-        assert_eq!(draft_icon(&reference), None);
     }
     assert_ne!(
         icon(&Reference {
@@ -64,20 +61,6 @@ fn picker_skills_keep_a_distinct_icon() {
             label: "Reports".into(),
         }),
         "reicon:school/book"
-    );
-    assert!(
-        draft_icon(&Reference {
-            target: Target::Plugin("reports".into()),
-            label: "Reports".into(),
-        })
-        .is_none()
-    );
-    assert!(
-        draft_icon(&Reference {
-            target: Target::File("notes.md".into()),
-            label: "Notes".into(),
-        })
-        .is_some()
     );
 }
 

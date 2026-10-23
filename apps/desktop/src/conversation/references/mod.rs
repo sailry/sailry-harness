@@ -12,9 +12,7 @@ pub(in crate::conversation) use catalog::Trigger;
 use catalog::{Item, Key, Page};
 pub(crate) use catalog::{Kind, Reference};
 use gpui_kit::base::input::{InlineToken, InlineTokenClickEvent, InputContent};
-use gpui_kit::component::input::{InputToken, Textarea, TextareaState};
-use gpui_kit::component::{Icon, IndexPath, list::ListState};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::{IndexPath, list::ListState};
 use gpui_kit::*;
 use view::Items;
 
@@ -72,21 +70,6 @@ pub(in crate::conversation) fn content(
             .expect("preview reference source matches");
     }
     content
-}
-
-pub(in crate::conversation) fn textarea(
-    input: &Entity<TextareaState>,
-    references: &[Reference],
-) -> Textarea {
-    let references = references.to_vec();
-    Textarea::new(input).token(move |context, _, _| {
-        InputToken::new(context).when_some(
-            references
-                .iter()
-                .find(|reference| context.token().id() == &id(reference)),
-            |token, reference| token.icon(Icon::new(reference.icon())),
-        )
-    })
 }
 
 pub(crate) struct State {

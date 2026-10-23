@@ -150,7 +150,7 @@ impl Shell {
                         }
                     })
                     .child(
-                        super::references::textarea(&input, &conversation.options.references)
+                        gpui_kit::component::input::Textarea::new(&input)
                             .appearance(false)
                             .bordered(false)
                             .aria_label(tr("composer"))
@@ -167,6 +167,7 @@ impl Shell {
             Some(self.composer_context(cx).into_any_element()),
             Some(self.composer_references(cx).into_any_element()),
             false,
+            cx.entity_id(),
             cx,
         )
     }

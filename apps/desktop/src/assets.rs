@@ -162,7 +162,8 @@ gpui_kit::assets::icon_assets!(
         Server,
         Tag,
         Plug,
-        BrainCircuit
+        BrainCircuit,
+        Zap
     ]
 );
 
@@ -637,6 +638,7 @@ mod tests {
             "icons/cloud.svg",
             "icons/plug.svg",
             "icons/brain-circuit.svg",
+            "icons/zap.svg",
         ] {
             let expected = SettingsAssets.load(path).unwrap().unwrap();
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);

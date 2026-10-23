@@ -270,15 +270,7 @@ impl Render for Panel {
                 )
                 .on_click(cx.listener(|panel, _, window, cx| panel.save(window, cx)));
             presentation::editor(
-                super::super::references::textarea(
-                    &input,
-                    &self
-                        .entries
-                        .iter()
-                        .find(|entry| entry.target(self.session) == target)
-                        .map(|entry| entry.options.references.clone())
-                        .unwrap_or_default(),
-                ),
+                gpui_kit::component::input::Textarea::new(&input),
                 false,
                 [cancel.into_any_element(), save.into_any_element()],
             )

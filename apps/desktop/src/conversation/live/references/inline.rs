@@ -4,8 +4,6 @@ use super::*;
 use crate::conversation::highlights;
 use crate::conversation::prompt::Link;
 use gpui_kit::base::input::{InlineToken, InlineTokenClickEvent, InlineTokenError, InputContent};
-use gpui_kit::component::input::{InputToken, Textarea};
-use gpui_kit::prelude::FluentBuilder as _;
 
 pub(in crate::conversation::live) fn marker(reference: &Reference) -> String {
     format!("@{}", reference.label.trim_start_matches('@'))
@@ -52,28 +50,6 @@ pub(in crate::conversation::live) fn active_content(
         })
         .cloned()
         .collect()
-}
-
-pub(in crate::conversation::live) fn textarea(
-    input: &Entity<TextareaState>,
-    references: &[Reference],
-) -> Textarea {
-    let icons: BTreeMap<_, _> = references
-        .iter()
-        .filter_map(|reference| draft_icon(reference).map(|icon| (id(reference), icon)))
-        .collect();
-    Textarea::new(input).token(move |context, _, _| {
-        InputToken::new(context).when_some(icons.get(context.token().id()), |token, icon| {
-            token.icon(Icon::default().path(icon.clone()))
-        })
-    })
-}
-
-pub(super) fn draft_icon(reference: &Reference) -> Option<SharedString> {
-    match reference.target {
-        Target::Plugin(_) | Target::Skill { .. } => None,
-        _ => Some(icon(reference)),
-    }
 }
 
 pub(in crate::conversation::live) fn links(text: &str, references: &[Reference]) -> Vec<Link> {

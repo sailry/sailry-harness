@@ -184,6 +184,41 @@ impl View {
             .into_iter()
             .flat_map(|entry| entry.segments(cx))
             .collect::<Vec<_>>();
+        let (fast_badges, feature_badges): (Vec<_>, Vec<_>) = features::selected(
+            &self.available_features(),
+            &self
+                .config
+                .as_ref()
+                .map(|config| config.features.clone())
+                .unwrap_or_default(),
+        )
+        .into_iter()
+        .filter(|choice| !self.icon_context || choice.icon.is_some())
+        .partition(|choice| choice.fast);
+        let mut accessibility_label = format!("{}: {}", tr("composer_model_settings"), model);
+        for choice in fast_badges.iter().chain(&feature_badges) {
+            accessibility_label.push_str(" · ");
+            accessibility_label.push_str(choice.label.as_ref());
+        }
+        let badge = |choice: features::Choice| {
+            let text = choice.icon.is_none();
+            let label = choice.label;
+            let tip = label.clone();
+            div()
+                .id(SharedString::from(format!(
+                    "model-feature-summary-{}",
+                    choice.id
+                )))
+                .flex_shrink_0()
+                .text_color(cx.theme().primary)
+                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                .children(
+                    choice
+                        .icon
+                        .map(|icon| icon.size_4().text_color(cx.theme().foreground)),
+                )
+                .when(text, |badge| badge.child(label))
+        };
         let button = Button::new("live-chat-model")
             .custom(crate::theme::subtle_button(cx))
             .rounded_full()
@@ -191,7 +226,7 @@ impl View {
             .min_w_0()
             .flex_shrink_1()
             .debug_selector(|| "live-chat-model".into())
-            .accessibility_label(tr("composer_model_settings"))
+            .accessibility_label(accessibility_label)
             .child(
                 h_flex()
                     .min_w_0()
@@ -221,6 +256,7 @@ impl View {
                             )
                         },
                     )
+                    .children(fast_badges.into_iter().map(&badge))
                     .child(
                         div()
                             .relative()
@@ -258,24 +294,7 @@ impl View {
                                 .child(fit.probe(fit::Part::Effort, Some(label), view)),
                         )
                     })
-                    .children(
-                        features::labels(
-                            &self.available_features(),
-                            &self
-                                .config
-                                .as_ref()
-                                .map(|config| config.features.clone())
-                                .unwrap_or_default(),
-                        )
-                        .into_iter()
-                        .filter(|_| !self.icon_context)
-                        .map(|label| {
-                            div()
-                                .flex_shrink_0()
-                                .text_color(cx.theme().primary)
-                                .child(label)
-                        }),
-                    )
+                    .children(feature_badges.into_iter().map(badge))
                     .children(segments.into_iter().filter(|_| !self.icon_context)),
             )
             .disabled(self.configuration_blocked() || !self.can_pick_model());

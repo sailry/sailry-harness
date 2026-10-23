@@ -192,7 +192,7 @@ impl View {
                 }
             })
             .child(
-                references::inline::textarea(&editing.input, &message.references)
+                gpui_kit::component::input::Textarea::new(&editing.input)
                     .appearance(false)
                     .bordered(false)
                     .p_0()
