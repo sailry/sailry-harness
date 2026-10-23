@@ -3,6 +3,13 @@ use super::*;
 use sailry_protocol::conversation::observation::{Category, RECENT_LIMIT, Request, Summary};
 use std::collections::BTreeMap;
 
+// Resolve the latest observation once per turn, not once per event in its history.
+const PHASES: &str = "SELECT json_extract(e.body,'$.event_metadata.sailry_execution_phases')
+     FROM conversation_turns h JOIN agent_events e ON e.sequence=(
+         SELECT max(latest.sequence) FROM agent_events latest WHERE latest.turn=h.turn
+         AND json_type(latest.body,'$.event_metadata.sailry_execution_phases')='text')
+     WHERE h.session=?1";
+
 pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault> {
     let mut result = Summary::default();
     let mut calls = BTreeMap::<String, (u64, Request)>::new();
@@ -63,12 +70,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
             Ok((name, u64::try_from(count).map_err(storage_error)?))
         })
         .collect::<Result<_, Fault>>()?;
-    let mut phases = db.prepare(
-        "SELECT json_extract(e.body,'$.event_metadata.sailry_execution_phases') FROM conversation_turns h
-         JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1
-         AND e.sequence=(SELECT max(latest.sequence) FROM agent_events latest WHERE latest.turn=e.turn
-         AND json_type(latest.body,'$.event_metadata.sailry_execution_phases')='text')"
-    ).map_err(storage_error)?;
+    let mut phases = db.prepare(PHASES).map_err(storage_error)?;
     let mut rows = phases.query([session.to_string()]).map_err(storage_error)?;
     let mut recorded = 0u64;
     while let Some(row) = rows.next().map_err(storage_error)? {
@@ -150,3 +152,6 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
     result.recent.reverse();
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests;
