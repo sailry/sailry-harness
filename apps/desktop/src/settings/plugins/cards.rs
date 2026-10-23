@@ -313,25 +313,27 @@ impl Workspace {
                         let view_owner = menu_owner.clone();
                         let view_plugin = menu_plugin.clone();
                         let menu = menu
-                            .item(PopupMenuItem::new(tr("plugins_information")).on_click(
-                                move |_, window, cx| {
-                                    if view_owner
-                                        .read(cx)
-                                        .provider_link
-                                        .as_ref()
-                                        .is_none_or(|live| live.binding.client.target() != node)
-                                    {
-                                        return;
-                                    }
-                                    details::open(
-                                        view_owner.clone(),
-                                        view_plugin.clone(),
-                                        sailry_link::CancellationToken::new(),
-                                        window,
-                                        cx,
-                                    );
-                                },
-                            ))
+                            .item(
+                                PopupMenuItem::new(tr("plugins_information"))
+                                    .icon(gpui_kit::assets::IconName::Info)
+                                    .on_click(move |_, window, cx| {
+                                        if view_owner
+                                            .read(cx)
+                                            .provider_link
+                                            .as_ref()
+                                            .is_none_or(|live| live.binding.client.target() != node)
+                                        {
+                                            return;
+                                        }
+                                        details::open(
+                                            view_owner.clone(),
+                                            view_plugin.clone(),
+                                            sailry_link::CancellationToken::new(),
+                                            window,
+                                            cx,
+                                        );
+                                    }),
+                            )
                             .when_some(configure_info, |menu, info| {
                                 menu.item(
                                     PopupMenuItem::new(tr("plugins_configure"))
@@ -366,7 +368,7 @@ impl Workspace {
                             } else if online {
                                 "plugins_check_updates"
                             } else {
-                                "plugins_update"
+                                "settings_update"
                             }))
                             .icon(IconName::Redo)
                             .disabled(busy || !update_ready || (online && update_busy))

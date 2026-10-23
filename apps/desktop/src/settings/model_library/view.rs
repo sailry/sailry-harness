@@ -5,7 +5,9 @@ use gpui_kit::component::{
     input::Input,
     list::List,
     select::Select,
+    spinner::Spinner,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 
 impl Render for Library {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -50,25 +52,19 @@ impl Render for Library {
         let mut results = Group::new("model_library_results")
             .heading(false)
             .empty(IconName::Search, "model_library_empty");
-        if self.searched.is_none() {
-            results = results.child(if self.loading {
-                div().w_full().h_24().into_any_element()
-            } else {
-                div()
-                    .h_24()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        crate::feedback::retry("model-library-retry")
-                            .debug_selector(|| "model-library-retry".into())
-                            .disabled(!self.available(cx))
-                            .on_click(cx.listener(|library, _, window, cx| {
-                                library.search(false, window, cx)
-                            })),
-                    )
-                    .into_any_element()
-            });
+        if self.loading && self.items.is_empty() {
+            results = results.child(div().w_full().h_24());
+        } else if self.searched.is_none() {
+            results = results.child(
+                div().h_24().flex().items_center().justify_center().child(
+                    crate::feedback::retry("model-library-retry")
+                        .debug_selector(|| "model-library-retry".into())
+                        .disabled(!self.available(cx))
+                        .on_click(
+                            cx.listener(|library, _, window, cx| library.search(false, window, cx)),
+                        ),
+                ),
+            );
         }
         if !self.items.is_empty() {
             let height = (window.rem_size() * (self.items.len() as f32 * rows::ROW_HEIGHT))
@@ -80,11 +76,24 @@ impl Render for Library {
                     .child(List::new(&self.list).h_full()),
             );
         }
-        v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_4()
-            .child(controls)
-            .child(results)
+        v_flex().w_full().min_w_0().gap_4().child(controls).child(
+            div()
+                .relative()
+                .w_full()
+                .child(results)
+                .when(self.loading, |card| {
+                    card.child(
+                        div()
+                            .id("model-library-loading")
+                            .debug_selector(|| "model-library-loading".into())
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(Spinner::new()),
+                    )
+                }),
+        )
     }
 }

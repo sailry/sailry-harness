@@ -121,7 +121,7 @@ impl Drop for State {
 }
 
 impl State {
-    pub(super) fn candidate(&self, current: &Summary) -> Option<&Info> {
+    pub(in crate::settings) fn candidate(&self, current: &Summary) -> Option<&Info> {
         let entry = self
             .entries
             .get(&current.name)
@@ -146,7 +146,7 @@ impl State {
     pub(in crate::settings) fn busy(&self) -> bool {
         self.check.is_some() || self.batch.is_some()
     }
-    pub(super) fn pending_package(&self, name: &str) -> bool {
+    pub(in crate::settings) fn pending_package(&self, name: &str) -> bool {
         self.batch.as_ref().is_some_and(|batch| {
             batch.plans.contains_key(name)
                 || batch.entries.iter().any(|entry| entry.current.name == name)
@@ -469,7 +469,7 @@ impl State {
         cx.notify();
     }
 
-    pub(super) fn apply(
+    pub(in crate::settings) fn apply(
         &mut self,
         name: Option<&str>,
         window: &mut Window,

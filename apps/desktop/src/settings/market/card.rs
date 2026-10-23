@@ -79,35 +79,66 @@ pub(super) fn row(
         )
 }
 
-pub(super) fn status(installed: bool) -> AnyElement {
-    div()
-        .when(installed, |view| {
-            view.child(tag::Tag::secondary().small().child(tr("market_installed")))
-        })
-        .into_any_element()
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Action {
+    Install,
+    Installed,
+    Update,
 }
 
-pub(super) fn action(id: String, installed: bool, cx: &App) -> Button {
-    let key = if installed {
-        "market_manage"
-    } else {
-        "market_install"
-    };
+impl Action {
+    pub(super) fn new(installed: bool, update: bool) -> Self {
+        match (installed, update) {
+            (false, _) => Self::Install,
+            (true, true) => Self::Update,
+            (true, false) => Self::Installed,
+        }
+    }
+
+    pub(super) fn label(self) -> &'static str {
+        if self == Self::Update {
+            "market_update"
+        } else {
+            "market_install"
+        }
+    }
+}
+
+pub(super) fn action(id: String, action: Action, cx: &App) -> Button {
     Button::new(SharedString::from(id))
         .ghost()
         .small()
         .size_8()
         .flex_shrink_0()
         .rounded_md()
-        .icon(if installed {
-            IconName::Settings2
+        .icon(if action == Action::Update {
+            IconName::Redo
         } else {
             IconName::Download
         })
-        .text_color(cx.theme().muted_foreground)
-        .when(!installed, |button| button.bg(cx.theme().secondary))
-        .tooltip(tr(key))
-        .accessibility_label(tr(key))
+        .text_color(if action == Action::Update {
+            cx.theme().primary
+        } else {
+            cx.theme().muted_foreground
+        })
+        .bg(cx.theme().secondary)
+        .disabled(action == Action::Installed)
+        .tooltip(tr(action.label()))
+        .accessibility_label(tr(action.label()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn installation_controls_available_actions() {
+        assert_eq!(Action::new(false, false), Action::Install);
+        assert_eq!(Action::new(false, true), Action::Install);
+        assert_eq!(Action::new(true, false), Action::Installed);
+        assert_eq!(Action::new(true, true), Action::Update);
+    }
 }
 
 pub(super) fn skeleton(cx: &App) -> AnyElement {

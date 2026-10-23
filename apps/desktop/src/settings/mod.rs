@@ -14,7 +14,7 @@ mod hooks;
 mod market;
 mod models;
 mod navigation;
-pub(crate) use navigation::{OpenManagement, OpenSection, OpenTheme};
+pub(crate) use navigation::{OpenManagement, OpenSection};
 mod mcp;
 mod model_library;
 mod plugins;

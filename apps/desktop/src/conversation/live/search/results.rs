@@ -169,29 +169,31 @@ impl ListDelegate for Results {
             found.snippet.clone()
         };
         Some(
-            ListItem::new(index.row).h_20().child(
-                v_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1()
-                    .debug_selector(move || format!("live-search-result-{}", index.row))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(if found.author == "user" {
-                                tr("user")
-                            } else {
-                                tr("chat_search_assistant")
-                            }),
-                    )
-                    .child(
-                        Label::new(snippet)
-                            .highlights(found.snippet[found.highlight.clone()].to_owned())
-                            .text_sm()
-                            .line_clamp(2),
-                    ),
-            ),
+            ListItem::new(index.row)
+                .h_20()
+                .min_w_0()
+                .rounded(cx.theme().radius)
+                // Kit's virtual List has no gap option; row margins are measured.
+                .mb(px(1.))
+                .px_2()
+                .py_2()
+                .accessibility_label(found.snippet.clone())
+                .child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .debug_selector(move || format!("live-search-result-{}", index.row))
+                        .child(
+                            Label::new(snippet)
+                                .highlights(found.snippet[found.highlight.clone()].to_owned())
+                                .w_full()
+                                .min_w_0()
+                                .text_sm()
+                                .line_height(relative(1.25))
+                                .whitespace_normal()
+                                .line_clamp(3),
+                        ),
+                ),
         )
     }
 

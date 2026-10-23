@@ -2,6 +2,8 @@ use super::*;
 use sailry_link::CancellationToken;
 use sailry_protocol::plugin::skills::{ArchiveFormat, ImportDiscovery, Imported};
 use std::io::Write;
+#[path = "imports/documents.rs"]
+mod documents;
 
 fn archive(format: ArchiveFormat) -> Vec<u8> {
     let body = "---\nname: analysis\ndescription: Inspect a sample\n---\nArchive body\n";

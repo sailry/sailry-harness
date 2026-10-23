@@ -15,10 +15,19 @@ use gpui_kit::{
     prelude::FluentBuilder as _,
 };
 use sailry_protocol::{
-    Secret,
+    RequestId, Secret,
     backup::{Destination, Kind, Local, Schedule, Update},
     plugin::settings::SecretUpdate,
 };
+
+mod draft;
+use draft::Draft;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Mode {
+    Schedule,
+    Storage,
+}
 
 fn destination(settings: &Settings) -> Destination {
     settings.destination.clone().unwrap_or(Destination {
@@ -70,6 +79,7 @@ fn storage(
 
 pub(super) struct Editor {
     owner: WeakEntity<Panel>,
+    mode: Mode,
     tab: usize,
     settings: Settings,
     time: Entity<TimeFieldState>,
@@ -79,11 +89,15 @@ pub(super) struct Editor {
     task: Option<Task<()>>,
     pub(super) conflict: bool,
     error: Option<&'static str>,
+    submitted: Option<RequestId>,
+    closed: bool,
+    dialog: crate::ui::overlays::Owned,
 }
 
 pub(super) fn create(
     owner: WeakEntity<Panel>,
     settings: Settings,
+    mode: Mode,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Editor> {
@@ -195,6 +209,7 @@ pub(super) fn create(
         .detach();
         Editor {
             owner,
+            mode,
             tab: storage_tab(&settings),
             schedule_enabled: settings
                 .schedule
@@ -207,58 +222,114 @@ pub(super) fn create(
             task: None,
             conflict: false,
             error: None,
+            submitted: None,
+            closed: false,
+            dialog: Default::default(),
         }
     })
 }
 
 pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
-    let Some(editor) = owner.read(cx).editor.clone() else {
+    if owner.read(cx).locked() {
+        return;
+    }
+    let Some(settings) = owner.read(cx).settings.clone() else {
         return;
     };
+    let editor = create(owner.downgrade(), settings, Mode::Storage, window, cx);
+    editor.update(cx, |_, cx| {
+        cx.observe_in(&owner, window, |editor, owner, window, cx| {
+            if !owner.read(cx).active {
+                editor.closed = true;
+                editor.dialog.close(window, cx);
+            }
+            cx.notify();
+        })
+        .detach();
+    });
+    owner.update(cx, |panel, cx| {
+        panel.storage = Some(editor.clone());
+        cx.notify();
+    });
+    let active = editor.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = editor.clone();
         let cancel = editor.clone();
+        let confirm = editor.clone();
+        let save = editor.clone();
+        let state = editor.read(cx);
+        let retry = state.retry(cx);
+        let pending = state
+            .owner
+            .upgrade()
+            .is_some_and(|owner| owner.read(cx).pending);
         dialog
             .form_title(tr("backup_destination"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(600.)))
             .overlay_closable(false)
-            .on_cancel(move |_, window, cx| {
-                dismiss(&cancel, window, cx);
-                true
+            .on_ok(move |_, window, cx| {
+                confirm.update(cx, |editor, cx| editor.save(window, cx));
+                false
+            })
+            .on_close(move |_, window, cx| {
+                dismiss(&close, window, cx);
             })
             .child(editor.clone())
             .footer(
-                DialogFooter::new().child(
-                    Button::new("backup-editor-close")
-                        .debug_selector(|| "backup-editor-close".into())
-                        .label(tr("close"))
-                        .on_click(move |_, window, cx| {
-                            dismiss(&close, window, cx);
-                            window.close_dialog(cx);
-                        }),
-                ),
+                DialogFooter::new()
+                    .w_full()
+                    .gap_2()
+                    .child(
+                        Button::new("backup-editor-cancel")
+                            .debug_selector(|| "backup-editor-cancel".into())
+                            .label(tr("settings_cancel"))
+                            .on_click(move |_, window, cx| {
+                                dismiss(&cancel, window, cx);
+                                window.close_dialog(cx);
+                            }),
+                    )
+                    .child(
+                        Button::new("backup-editor-save")
+                            .debug_selector(|| "backup-editor-save".into())
+                            .primary()
+                            .label(tr(if retry {
+                                "plugins_retry"
+                            } else {
+                                "settings_save"
+                            }))
+                            .loading(pending && retry)
+                            .disabled(
+                                state.closed
+                                    || state.conflict
+                                    || pending
+                                    || (state.locked(cx) && !retry),
+                            )
+                            .on_click(move |_, window, cx| {
+                                save.update(cx, |editor, cx| editor.save(window, cx));
+                            }),
+                    ),
             )
+    });
+    active.update(cx, |editor, cx| {
+        crate::ui::overlays::Owned::bind(editor, |editor| &mut editor.dialog, window, cx)
     });
 }
 
 fn dismiss(editor: &Entity<Editor>, window: &mut Window, cx: &mut App) {
-    let owner = editor.update(cx, |editor, _| {
+    let owner = editor.update(cx, |editor, cx| {
         editor.task = None;
         editor.error = None;
+        editor.closed = true;
+        editor.dialog.dismissed();
+        editor.erase(window, cx);
         editor.owner.upgrade()
     });
     if let Some(owner) = owner {
         owner.update(cx, |panel, cx| {
-            if panel.editor.as_ref() != Some(editor) {
+            if panel.storage.as_ref() != Some(editor) {
                 return;
             }
-            // Discard only the unsubmitted draft. An admitted save still reports
-            // through Panel and updates this replacement from its real result.
-            panel.editor = panel.settings.clone().map(|settings| {
-                let editor = create(cx.weak_entity(), settings, window, cx);
-                cx.observe(&editor, |_, _, cx| cx.notify()).detach();
-                editor
-            });
+            panel.storage = None;
             cx.notify();
         });
     }
@@ -271,113 +342,121 @@ impl Editor {
             .map(|(_, input)| input.read(cx).value().to_string())
             .collect()
     }
-    fn update(&self, cx: &App) -> Result<Update, &'static str> {
+    fn draft(&self, cx: &App) -> Draft {
         let values = self.values(cx);
-        if !values[7].is_empty() || !values[8].is_empty() {
-            sailry_protocol::backup::validate_passphrase(&values[7])
-                .map_err(|_| "backup_passphrase_invalid")?;
-            if values[7] != values[8] {
-                return Err("backup_passphrase_mismatch");
-            }
-        }
-        let destination = Destination {
-            kind: if self.tab == 1 {
-                Kind::S3
-            } else {
-                Kind::Webdav
-            },
-            endpoint: values[0].trim().into(),
-            root: values[1].trim().into(),
-            bucket: values[2].trim().into(),
-            region: values[3].trim().into(),
-        };
-        let directory = values[9].trim();
         let time = self.time.read(cx).time();
-        let schedule = Schedule {
-            enabled: self.schedule_enabled,
-            timezone: values[10].trim().to_owned(),
-            hour: time.hour() as u8,
-            minute: time.minute() as u8,
-        };
-        if self.schedule_enabled && schedule.timezone.is_empty() {
-            return Err("backup_invalid");
+        Draft {
+            tab: self.tab,
+            destination: Destination {
+                kind: if self.tab == 1 {
+                    Kind::S3
+                } else {
+                    Kind::Webdav
+                },
+                endpoint: values[0].trim().into(),
+                root: values[1].trim().into(),
+                bucket: values[2].trim().into(),
+                region: values[3].trim().into(),
+            },
+            directory: values[9].trim().into(),
+            identity: values[4].clone(),
+            secret: values[5].clone(),
+            session_token: values[6].clone(),
+            passphrase: values[7].clone(),
+            confirmation: values[8].clone(),
+            schedule: Schedule {
+                enabled: self.schedule_enabled,
+                timezone: values[10].trim().into(),
+                hour: time.hour() as u8,
+                minute: time.minute() as u8,
+            },
+            remove_credentials: self.remove_credentials,
         }
-        let credential = |value: &str| {
-            if !value.is_empty() {
-                SecretUpdate::Replace(Secret::new(value.into()))
-            } else if self.remove_credentials {
-                SecretUpdate::Clear
-            } else {
-                SecretUpdate::Keep
-            }
-        };
-        let mut settings = self.settings.clone();
-        storage(&mut settings, self.tab, destination, directory)?;
-        settings.schedule = (self.settings.schedule.is_some()
-            || schedule.enabled
-            || schedule.timezone != "UTC"
-            || schedule.hour != 3
-            || schedule.minute != 0)
-            .then_some(schedule);
-        Ok(Update {
-            settings,
-            identity: credential(&values[4]),
-            secret: credential(&values[5]),
-            session_token: if self.tab == 0 {
-                SecretUpdate::Clear
-            } else {
-                credential(&values[6])
-            },
-            passphrase: if !values[7].is_empty() {
-                SecretUpdate::Replace(Secret::new(values[7].clone()))
-            } else {
-                SecretUpdate::Keep
-            },
-        })
+    }
+    fn update(&self, cx: &App) -> Result<Update, &'static str> {
+        self.draft(cx).update(&self.settings, self.mode)
     }
     fn dirty(&self, cx: &App) -> bool {
-        let values = self.values(cx);
-        let destination = destination(&self.settings);
-        let schedule = self.settings.schedule.clone().unwrap_or(Schedule {
-            enabled: false,
-            timezone: "UTC".into(),
-            hour: 3,
-            minute: 0,
+        self.draft(cx).dirty(&self.settings, self.mode)
+    }
+    fn locked(&self, cx: &App) -> bool {
+        self.closed
+            || self
+                .owner
+                .upgrade()
+                .is_none_or(|owner| owner.read(cx).locked())
+    }
+    fn retry(&self, cx: &App) -> bool {
+        self.owner.upgrade().is_some_and(|owner| {
+            owner
+                .read(cx)
+                .request
+                .as_ref()
+                .is_some_and(|request| Some(request.id) == self.submitted)
+        })
+    }
+    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        if self.closed
+            || self.conflict
+            || !owner.read(cx).active
+            || owner.read(cx).storage.as_ref() != Some(&cx.entity())
+        {
+            return;
+        }
+        if self.retry(cx) {
+            owner.update(cx, |panel, cx| panel.retry(window, cx));
+            return;
+        }
+        if self.locked(cx) {
+            return;
+        }
+        let update = match self.update(cx) {
+            Ok(update) => update,
+            Err(key) => {
+                self.error = Some(key);
+                cx.notify();
+                return;
+            }
+        };
+        if !self.dirty(cx) {
+            self.closed = true;
+            self.dialog.close(window, cx);
+            owner.update(cx, |panel, cx| {
+                panel.storage = None;
+                cx.notify();
+            });
+            return;
+        }
+        self.submitted = owner.update(cx, |panel, cx| {
+            panel
+                .submit(Command::SaveBackupSettings(update), window, cx)
+                .then(|| panel.request.as_ref().expect("submitted backup request").id)
         });
-        let time = self.time.read(cx).time();
-        self.remove_credentials
-            || values[4..9].iter().any(|value| !value.is_empty())
-            || self.tab != storage_tab(&self.settings)
-            || values[..4]
-                .iter()
-                .zip([
-                    destination.endpoint,
-                    destination.root,
-                    destination.bucket,
-                    destination.region,
-                ])
-                .any(|(value, saved)| value.trim() != saved)
-            || (self.tab == 2)
-                != self
-                    .settings
-                    .local
-                    .as_ref()
-                    .is_some_and(|local| local.enabled)
-            || values[9].trim()
-                != self
-                    .settings
-                    .local
-                    .as_ref()
-                    .map(|local| local.directory.as_str())
-                    .unwrap_or_default()
-            || (self.tab < 2) != self.settings.online_enabled
-            || self.schedule_enabled != schedule.enabled
-            || values[10].trim() != schedule.timezone
-            || time.hour() != u32::from(schedule.hour)
-            || time.minute() != u32::from(schedule.minute)
+        self.error = None;
+        cx.notify();
+    }
+    pub(super) fn submitted(&self, request: RequestId) -> bool {
+        self.submitted == Some(request)
+    }
+    pub(super) fn saved(
+        &mut self,
+        settings: Settings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.accept(settings, window, cx);
+        self.closed = true;
+        self.dialog.close(window, cx);
     }
     fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.error = None;
+        if self.mode == Mode::Storage || self.closed {
+            cx.notify();
+            return;
+        }
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(350))
@@ -389,6 +468,9 @@ impl Editor {
         cx.notify();
     }
     fn flush(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.mode != Mode::Schedule || self.closed {
+            return false;
+        }
         let Some(owner) = self.owner.upgrade() else {
             return false;
         };
@@ -405,13 +487,7 @@ impl Editor {
             Ok(update) => update,
             Err(_) => return false,
         };
-        if !self.dirty(cx)
-            || (update.settings == self.settings
-                && !self.remove_credentials
-                && self.fields[4..9]
-                    .iter()
-                    .all(|(_, input)| input.read(cx).value().is_empty()))
-        {
+        if !self.dirty(cx) {
             return true;
         }
         owner.update(cx, |panel, cx| {
@@ -434,7 +510,7 @@ impl Editor {
         self.conflict = false;
         self.error = None;
         self.erase(window, cx);
-        if self.dirty(cx) {
+        if self.mode == Mode::Schedule && self.dirty(cx) {
             self.changed(window, cx);
         }
         cx.notify();
@@ -510,9 +586,7 @@ impl Editor {
             self.error = None;
         } else if rebase {
             // Explicit reload retains the user's destination and temporary credential draft.
-            self.settings.revision = settings.revision;
-            self.settings.credentials_configured = settings.credentials_configured;
-            self.settings.passphrase_configured = settings.passphrase_configured;
+            self.settings = settings.clone();
             self.conflict = false;
             self.error = None;
         } else {
@@ -642,9 +716,7 @@ impl Render for Editor {
                     .selected_index(self.tab)
                     .on_click(cx.listener(|editor, index, window, cx| {
                         editor.tab = *index;
-                        editor.task = None;
-                        editor.flush(window, cx);
-                        cx.notify();
+                        editor.changed(window, cx);
                     }))
                     .children(["backup_webdav", "backup_s3", "backup_local"].map(|key| {
                         Tab::new()

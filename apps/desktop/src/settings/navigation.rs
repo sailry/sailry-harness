@@ -186,9 +186,14 @@ impl Shell {
                             cx,
                         );
                     }
-                    Kind::Skill => {
-                        super::skills::open_management(info, skill.as_deref(), window, cx)
-                    }
+                    Kind::Skill => super::skills::open_management(
+                        shell.settings.clone(),
+                        binding,
+                        info,
+                        skill.as_deref(),
+                        window,
+                        cx,
+                    ),
                     Kind::Mcp => {
                         super::connectors::open_management(shell.settings.clone(), info, window, cx)
                     }

@@ -214,7 +214,11 @@ results describe available sources, not installed packages.
 
 `ReadSkillDocument {source}` returns `{skill, content}` without installing or executing
 instructions. Its `DocumentSource` is an already resolved Git commit and candidate
-path, a verified registry coordinate, or an actual bundled package and skill name.
+path, a verified registry coordinate, an actual bundled package and skill name,
+or an installed package reference and declared skill name. Installed documents
+use the exact retained package and configuration revision with the existing
+immutable resource reader, including after update, disablement or removal;
+they do not reread the editable source or grant execution authority.
 Git directory links must first use discovery to select the real skill; display IDs
 are not repository paths. Registry documents reuse namespace, signature and archive
 verification. The existing single-document resource budget applies. This read does
@@ -565,7 +569,11 @@ observations and their `context_limit`, `context_model` and `context_timestamp_m
 plus an optional post-compaction `context_estimate`. The separate `budget` is the
 current effective policy, including its model, capacity, compaction trigger and
 output reserve; it must not replace an older observation's capacity. Exact
-integers cross this script boundary as decimal strings. `last_compaction` is a
+integers cross this script boundary as decimal strings. Recent model
+observations retain their request and turn identities; the optional `turn_index`
+is the one-based task round in this conversation, not a model-call count. It is
+derived from canonical visible history and stays absent for non-task requests.
+Multiple requests or recovery attempts in a turn share that round. `last_compaction` is a
 canonical reference independent of the loaded history page. Its `id`, `turn` and
 `turn_sequence` can be passed as
 `revealComposerEntry({entry: id, turn, turn_sequence})` to locate it in the captured

@@ -8,12 +8,9 @@ use gpui_kit::component::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Operation {
     Configure,
-    Tools,
     Check,
-    Connect,
-    Plugin,
+    Authorize,
     Remove,
-    Enable,
 }
 
 #[derive(Clone, PartialEq, Action)]
@@ -25,7 +22,7 @@ pub(in crate::settings::connectors) struct Dispatch {
     operation: Operation,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Item {
     Account(super::super::menu::Operation, &'static str),
     Service(Operation, &'static str, bool),
@@ -40,69 +37,82 @@ fn items(service: &catalog::Service) -> Vec<Item> {
             "connector_configure",
             service.info.is_some(),
         ));
-        if let [server] = service.servers.as_slice() {
-            entries.push(Item::Service(
-                Operation::Check,
-                "connector_probe",
-                view::checkable(service, server),
-            ));
-        }
-    }
-    if let Some(account) = &service.account {
-        for entry in super::super::menu::items(account, service.kind.as_ref()) {
-            match entry {
-                super::super::menu::Item::Action(operation, label) => {
-                    if !service.servers.is_empty()
-                        && matches!(
-                            operation,
-                            super::super::menu::Operation::Edit
-                                | super::super::menu::Operation::Probe
-                        )
-                    {
-                        continue;
-                    }
-                    entries.push(Item::Account(operation, label));
-                }
-                super::super::menu::Item::Separator if !entries.is_empty() => {
-                    entries.push(Item::Separator)
-                }
-                _ => (),
-            }
-        }
-    } else if service.kind.is_some() {
-        entries.push(Item::Service(
-            Operation::Connect,
-            "connector_connect",
-            service.enabled(),
+    } else if let Some(account) = &service.account
+        && super::super::menu::items(account, service.kind.as_ref()).contains(
+            &super::super::menu::Item::Action(
+                super::super::menu::Operation::Edit,
+                "connector_configure",
+            ),
+        )
+    {
+        entries.push(Item::Account(
+            super::super::menu::Operation::Edit,
+            "connector_configure",
         ));
     }
-    if service.info.is_some() {
+    let mut connection = Vec::new();
+    if !service.servers.is_empty() {
+        connection.push(Item::Service(
+            Operation::Check,
+            "connector_probe",
+            service
+                .servers
+                .iter()
+                .any(|server| view::checkable(service, server)),
+        ));
+    } else if let Some(account) = &service.account
+        && super::super::menu::items(account, service.kind.as_ref()).contains(
+            &super::super::menu::Item::Action(
+                super::super::menu::Operation::Probe,
+                "connector_probe",
+            ),
+        )
+    {
+        connection.push(Item::Account(
+            super::super::menu::Operation::Probe,
+            "connector_probe",
+        ));
+    }
+    if service.account.is_some()
+        || service
+            .kind
+            .as_ref()
+            .is_some_and(|kind| !kind.declaration.auth.is_empty())
+    {
+        connection.push(Item::Service(
+            Operation::Authorize,
+            "connector_authorize",
+            service.account.is_some() || service.enabled(),
+        ));
+    }
+    append(&mut entries, connection);
+    if service
+        .info
+        .as_ref()
+        .is_some_and(|info| info.mcp_source.is_some())
+    {
+        append(
+            &mut entries,
+            vec![Item::Service(Operation::Remove, "settings_delete", true)],
+        );
+    }
+    entries
+}
+
+fn append(entries: &mut Vec<Item>, group: Vec<Item>) {
+    if !group.is_empty() {
         if !entries.is_empty() {
             entries.push(Item::Separator);
         }
-        entries.push(Item::Service(Operation::Tools, "plugins_information", true));
-        if service
-            .info
-            .as_ref()
-            .is_some_and(|info| info.mcp_source.is_some())
-        {
-            if service
-                .info
-                .as_ref()
-                .is_some_and(|info| !info.summary.enabled)
-            {
-                entries.push(Item::Service(Operation::Enable, "connector_enable", true));
-            }
-            entries.push(Item::Service(Operation::Remove, "plugins_uninstall", true));
-        } else {
-            entries.push(Item::Service(
-                Operation::Plugin,
-                "connector_view_plugin",
-                true,
-            ));
-        }
+        entries.extend(group);
     }
-    entries
+}
+
+pub(super) fn restorable(service: &catalog::Service) -> bool {
+    service
+        .info
+        .as_ref()
+        .is_some_and(|info| info.mcp_source.is_some() && !info.summary.enabled)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -149,8 +159,6 @@ pub(in crate::settings::connectors) fn controls(
     service: &catalog::Service,
     online: bool,
     account_busy: bool,
-    package_busy: bool,
-    package_retry: bool,
     cx: &App,
 ) -> AnyElement {
     let state = details.read(cx);
@@ -232,20 +240,14 @@ pub(in crate::settings::connectors) fn controls(
     let actions = items(service)
         .into_iter()
         .map(|entry| match entry {
-            Item::Service(Operation::Enable, label, enabled) => Item::Service(
-                Operation::Enable,
-                if package_retry {
-                    "plugins_retry"
-                } else {
-                    label
-                },
-                enabled && (!package_busy || package_retry),
-            ),
             Item::Service(operation, label, enabled)
                 if matches!(operation, Operation::Check | Operation::Configure)
                     && service.servers.len() == 1 =>
             {
                 Item::Service(operation, label, enabled && !single_busy)
+            }
+            Item::Service(Operation::Authorize, label, enabled) => {
+                Item::Service(Operation::Authorize, label, enabled && !account_busy)
             }
             other => other,
         })
@@ -346,19 +348,7 @@ impl Workspace {
                     )
                 }
                 Item::Service(operation, label, enabled) => MenuItem::action(
-                    tr(
-                        if operation == Operation::Enable
-                            && self
-                                .plugin_catalog
-                                .retries()
-                                .iter()
-                                .any(|name| name == &service.package.name)
-                        {
-                            "plugins_retry"
-                        } else {
-                            label
-                        },
-                    ),
+                    tr(label),
                     Dispatch {
                         node,
                         key: service.key.clone(),
@@ -366,16 +356,7 @@ impl Workspace {
                         operation,
                     },
                 )
-                .disabled(
-                    !enabled
-                        || (operation == Operation::Enable
-                            && self.plugin_catalog.busy_package(&service.package.name, cx)
-                            && !self
-                                .plugin_catalog
-                                .retries()
-                                .iter()
-                                .any(|name| name == &service.package.name)),
-                ),
+                .disabled(!enabled),
                 Item::Separator => MenuItem::Separator,
             };
             menu.items.push(item);
@@ -419,19 +400,6 @@ impl Workspace {
             return;
         };
         if !items(&service).iter().any(|entry| matches!(entry, Item::Service(operation, _, true) if *operation == action.operation)) { return; }
-        if action.operation == Operation::Enable {
-            if self
-                .plugin_catalog
-                .retries()
-                .iter()
-                .any(|name| name == &service.package.name)
-            {
-                self.send_plugin_action(&service.package.name, window, cx);
-            } else if let Some(info) = &service.info {
-                self.toggle_plugin(&info.summary, true, window, cx);
-            }
-            return;
-        }
         let details = self.service_controller(&service, window, cx);
         let owner = cx.entity();
         let operation = action.operation;
@@ -448,7 +416,9 @@ impl Workspace {
             }
             match operation {
                 Operation::Configure => {
-                    if let ([server], Some(info)) = (service.servers.as_slice(), &service.info) {
+                    if !restorable(&service)
+                        && let ([server], Some(info)) = (service.servers.as_slice(), &service.info)
+                    {
                         details.update(cx, |details, cx| {
                             details.configure(info.clone(), server.name.clone(), window, cx)
                         });
@@ -456,26 +426,24 @@ impl Workspace {
                         view::open(details, window, cx);
                     }
                 }
-                Operation::Tools => view::open(details, window, cx),
                 Operation::Check => {
-                    if let [server] = service.servers.as_slice() {
-                        details.update(cx, |details, cx| details.check(server.clone(), window, cx));
-                    }
+                    details.update(cx, |details, cx| {
+                        for server in service
+                            .servers
+                            .iter()
+                            .filter(|server| view::checkable(&service, server))
+                        {
+                            details.check(server.clone(), window, cx);
+                        }
+                    });
                 }
-                Operation::Connect => {
-                    if let Some(kind) = service.kind {
+                Operation::Authorize => {
+                    if service.account.is_some() {
+                        view::authorize(details, window, cx);
+                    } else if let Some(kind) = service.kind {
                         editor::connect(owner, kind, window, cx);
                     }
                 }
-                Operation::Plugin => window.dispatch_action(
-                    Box::new(crate::settings::OpenManagement {
-                        node: details.read(cx).binding.client.target(),
-                        name: service.package.name,
-                        skill: None,
-                    }),
-                    cx,
-                ),
-                Operation::Enable => (),
                 Operation::Remove => {
                     if let Some(info) = service.info {
                         super::super::super::plugins::dialog::open(

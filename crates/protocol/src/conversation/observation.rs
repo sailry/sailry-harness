@@ -33,6 +33,9 @@ pub struct Summary {
 pub struct Request {
     pub id: String,
     pub turn: TurnId,
+    /// One-based task round in this conversation, derived from visible history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_index: Option<u64>,
     pub model: String,
     pub context_limit: Option<u32>,
     pub timestamp_ms: i64,
@@ -106,6 +109,21 @@ pub struct Phases {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn defaults_unprojected_turn_index() {
+        let wire = serde_json::json!({
+            "id": "call", "turn": TurnId::new(), "model": "fixture",
+            "context_limit": null, "timestamp_ms": 1, "boundary": null,
+            "attempts": []
+        });
+        let mut request: Request = serde_json::from_value(wire).unwrap();
+        assert_eq!(request.turn_index, None);
+        request.turn_index = Some(u64::MAX);
+        let decoded: Request =
+            serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+        assert_eq!(decoded, request);
+    }
 
     #[test]
     fn defaults_unrecorded_response_time() {

@@ -15,12 +15,19 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
     let mut calls = BTreeMap::<String, (u64, Request)>::new();
     let mut composition = BTreeMap::new();
     let mut query = db.prepare(
-        "SELECT h.sequence,json_extract(e.body,'$.event_metadata.sailry_model_observation'),
+        "WITH rounds AS (
+           SELECT t.id,row_number() OVER (ORDER BY t.rowid) AS turn_index
+           FROM conversation_turns membership JOIN turns t ON t.id=membership.turn
+           WHERE membership.session=?1 AND t.kind='task'
+           AND EXISTS(SELECT 1 FROM agent_events event WHERE event.turn=t.id)
+         )
+         SELECT h.sequence,json_extract(e.body,'$.event_metadata.sailry_model_observation'),
           (SELECT json_extract(model.value,'$.context') FROM agent_runs r
            JOIN turns t ON t.id=r.turn
            JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision,
            json_each(r.provider,'$.models') model WHERE r.turn=e.turn
-           AND json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1)
+           AND json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
+          (SELECT turn_index FROM rounds WHERE rounds.id=e.turn)
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND json_type(e.body,'$.event_metadata.sailry_model_observation')='text'
          ORDER BY h.sequence"
@@ -32,6 +39,12 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Summary, Fault
         let encoded = row.get::<_, String>(1).map_err(storage_error)?;
         let mut request: Request = serde_json::from_str(&encoded).map_err(storage_error)?;
         request.context_limit = row.get(2).map_err(storage_error)?;
+        request.turn_index = row
+            .get::<_, Option<i64>>(3)
+            .map_err(storage_error)?
+            .map(u64::try_from)
+            .transpose()
+            .map_err(storage_error)?;
         let (_, current) = calls.entry(request.id.clone()).or_insert_with(|| {
             let mut current = request.clone();
             current.attempts.clear();

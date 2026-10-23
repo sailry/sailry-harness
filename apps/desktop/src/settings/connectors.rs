@@ -496,11 +496,6 @@ impl Workspace {
                 self.connectors.pending.contains(&account.id)
                     || account.state == connector::State::Connecting
             }),
-            self.plugin_catalog.busy_package(&service.package.name, cx),
-            self.plugin_catalog
-                .retries()
-                .iter()
-                .any(|name| name == &service.package.name),
             cx,
         ));
         let context = service.clone();

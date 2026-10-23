@@ -58,6 +58,7 @@ pub(in crate::settings) struct Market {
     skill_cache: skills::cache::Cache,
     skill_details: Vec<details::skills::Snapshot>,
     themes: themes::State,
+    updates: Entity<super::plugins::updates::State>,
     pending: Option<Loading>,
     stop: CancellationToken,
     detail_stop: CancellationToken,
@@ -85,12 +86,14 @@ pub(super) fn create(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Market> {
+    let updates = super::plugins::updates::bind(binding.clone(), cx);
     let state = cx.new(|cx| {
         crate::feedback::observe(window, cx, |state: &Market, _| {
             state.error.into_iter().collect()
         });
         cx.observe(&owner, |_, _, cx| cx.notify()).detach();
         cx.observe(&themes, |_, _, cx| cx.notify()).detach();
+        cx.observe(&updates, |_, _, cx| cx.notify()).detach();
         let query =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr("market_search_plugins")));
         cx.subscribe_in(&query, window, |state: &mut Market, _, event, _, cx| {
@@ -111,6 +114,7 @@ pub(super) fn create(
             skill_cache: Default::default(),
             skill_details: Vec::new(),
             themes: themes::State::new(themes, cx),
+            updates,
             page: None,
             paging: Default::default(),
             scroll: ScrollHandle::new(),
@@ -132,8 +136,15 @@ impl Market {
         cx: &App,
     ) -> Option<sailry_protocol::plugin::Summary> {
         let owner = self.owner.upgrade()?;
+        let owner = owner.read(cx);
+        if owner
+            .provider_link
+            .as_ref()
+            .is_none_or(|live| live.binding.client.target() != self.binding.client.target())
+        {
+            return None;
+        }
         owner
-            .read(cx)
             .plugin_catalog
             .packages
             .iter()
@@ -141,15 +152,19 @@ impl Market {
             .cloned()
     }
 
-    fn manage(&self, name: String, skill: Option<String>, window: &mut Window, cx: &mut App) {
-        window.dispatch_action(
-            Box::new(super::OpenManagement {
-                node: self.binding.client.target(),
-                name,
-                skill,
-            }),
-            cx,
-        );
+    fn update(&self, name: &str, window: &mut Window, cx: &mut App) {
+        if !self.connected(cx) || self.updates.read(cx).busy() || self.updates.read(cx).selecting()
+        {
+            return;
+        }
+        let Some(current) = self.installed(name, cx) else {
+            return;
+        };
+        if self.updates.read(cx).candidate(&current).is_none() {
+            return;
+        }
+        self.updates
+            .update(cx, |state, cx| state.apply(Some(name), window, cx));
     }
     pub(in crate::settings) fn begin_details(&mut self) -> CancellationToken {
         self.detail_stop.cancel();

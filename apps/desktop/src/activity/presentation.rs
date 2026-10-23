@@ -5,10 +5,7 @@ use crate::tr;
 use gpui_kit::SharedString;
 use sailry_client::activity::{Kind, Notice, Target};
 use sailry_protocol::{
-    conversation::{
-        Status,
-        compaction::{Failure, Reason, Source, Stage},
-    },
+    conversation::{Status, compaction::Source},
     notification::{Cause, Details},
 };
 
@@ -62,43 +59,30 @@ pub(super) fn status(status: Status) -> SharedString {
     })
 }
 
-pub(super) fn failure(failure: &Failure) -> Vec<SharedString> {
-    let stage = match failure.stage {
-        Stage::History => "compact_stage_history",
-        Stage::Budget => "compact_stage_budget",
-        Stage::Request => "compact_stage_request",
-        Stage::Summary => "compact_stage_summary",
-        Stage::Persistence => "compact_stage_persistence",
-        Stage::Unknown => "compact_stage_unknown",
+/// Preserve the original public text; classifications do not synthesize a body.
+pub(super) fn content<'a>(notice: &'a Notice) -> Vec<&'a str> {
+    let mut values = Vec::new();
+    let mut push = |value: &'a str| {
+        if !value.trim().is_empty() && !values.contains(&value) {
+            values.push(value);
+        }
     };
-    let (reason, suggestion) = match failure.reason {
-        Reason::HistoryMismatch => ("compact_reason_history", "compact_suggest_report"),
-        Reason::NoFittingPrefix => ("compact_reason_budget", "compact_suggest_context"),
-        Reason::RequestTimeout => ("compact_reason_timeout", "compact_suggest_retry"),
-        Reason::RateLimited => ("compact_reason_rate", "compact_suggest_wait"),
-        Reason::AuthorizationFailed => ("compact_reason_auth", "compact_suggest_auth"),
-        Reason::ServiceRejected => ("compact_reason_rejected", "compact_suggest_retry"),
-        Reason::EmptySummary => ("compact_reason_empty", "compact_suggest_retry"),
-        Reason::RequestFailed => ("compact_reason_request", "compact_suggest_retry"),
-        Reason::TruncatedSummary => ("compact_reason_truncated", "compact_suggest_context"),
-        Reason::IncompleteResponse => ("compact_reason_incomplete", "compact_suggest_retry"),
-        Reason::UnexpectedOutput => ("compact_reason_output", "compact_suggest_retry"),
-        Reason::SummaryTooLarge => ("compact_reason_size", "compact_suggest_context"),
-        Reason::NoReduction => ("compact_reason_reduction", "compact_suggest_context"),
-        Reason::PersistenceFailed => ("compact_reason_persistence", "compact_suggest_retry"),
-        Reason::Unknown => ("compact_reason_unknown", "compact_suggest_retry"),
-    };
-    let mut lines = vec![tr(stage), tr(reason)];
-    if let Some(status) = failure.status {
-        lines.push(format!("HTTP {status}").into());
+    push(&notice.message);
+    match &notice.details {
+        Some(Details::Text { body }) => push(body),
+        Some(Details::Diagnostic(diagnostic)) => {
+            if let Cause::Compaction(failure) = &diagnostic.cause
+                && let Some(cause) = &failure.cause
+            {
+                push(cause);
+            }
+        }
+        _ => (),
     }
-    lines.push(tr(if failure.continued {
-        "compact_task_continued"
-    } else {
-        "compact_task_stopped"
-    }));
-    lines.push(tr(suggestion));
-    lines
+    if let Some(error) = &notice.error {
+        push(&error.message);
+    }
+    values
 }
 
 pub(super) fn timestamp(milliseconds: i64) -> SharedString {

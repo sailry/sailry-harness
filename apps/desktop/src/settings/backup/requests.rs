@@ -45,10 +45,20 @@ impl Panel {
                             });
                         }
                         if panel.editor.is_none() {
-                            let editor =
-                                editor::create(cx.weak_entity(), settings.clone(), window, cx);
+                            let editor = editor::create(
+                                cx.weak_entity(),
+                                settings.clone(),
+                                editor::Mode::Schedule,
+                                window,
+                                cx,
+                            );
                             cx.observe(&editor, |_, _, cx| cx.notify()).detach();
                             panel.editor = Some(editor);
+                        }
+                        if let Some(editor) = &panel.storage {
+                            editor.update(cx, |editor, cx| {
+                                editor.observe(&settings, panel.rebase, window, cx)
+                            });
                         }
                         panel.settings = Some(settings);
                         panel.error = None;
@@ -138,6 +148,7 @@ impl Panel {
         let Some(request) = self.request.clone() else {
             return;
         };
+        let request_id = request.id;
         let session_command = matches!(
             request.command,
             Command::ArchiveSessions { .. }
@@ -172,6 +183,19 @@ impl Panel {
                                     editor.accept(settings.clone(), window, cx)
                                 });
                             }
+                            if let Some(editor) = &panel.storage {
+                                let submitted = editor.read(cx).submitted(request_id);
+                                editor.update(cx, |editor, cx| {
+                                    if submitted {
+                                        editor.saved(settings.clone(), window, cx);
+                                    } else {
+                                        editor.observe(&settings, false, window, cx);
+                                    }
+                                });
+                                if submitted {
+                                    panel.storage = None;
+                                }
+                            }
                             panel.settings = Some(settings);
                         }
                         if panel.active {
@@ -184,11 +208,13 @@ impl Panel {
                         if !uncertain {
                             panel.request = None;
                         }
-                        if !session_command && let Some(editor) = panel.editor.as_ref() {
-                            editor.update(cx, |editor, cx| {
-                                editor.conflict = error.code == ErrorCode::RevisionConflict;
-                                cx.notify();
-                            });
+                        if !session_command {
+                            for editor in panel.editor.iter().chain(&panel.storage) {
+                                editor.update(cx, |editor, cx| {
+                                    editor.conflict = error.code == ErrorCode::RevisionConflict;
+                                    cx.notify();
+                                });
+                            }
                         }
                         panel.error = Some(if uncertain {
                             if session_command {

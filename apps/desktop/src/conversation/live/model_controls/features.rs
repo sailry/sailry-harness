@@ -83,7 +83,7 @@ pub(super) fn control(
     };
     let button = Button::new(SharedString::from(format!("model-feature-{}", feature.id)))
         .rounded_full()
-        .text()
+        .ghost()
         .small()
         .size_6()
         .icon(icon)

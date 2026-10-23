@@ -27,9 +27,19 @@ pub struct Candidate {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum DocumentSource {
-    Git { source: Resolved, path: String },
+    Git {
+        source: Resolved,
+        path: String,
+    },
     Registry(RegistryResolved),
-    Bundled { package: String, skill: String },
+    Bundled {
+        package: String,
+        skill: String,
+    },
+    Installed {
+        package: super::Reference,
+        skill: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,5 +124,25 @@ impl Provenance {
             Self::Git(source) => Some(source),
             Self::Registry { .. } | Self::Imported { .. } => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retains_installed_coordinates() {
+        let source = DocumentSource::Installed {
+            package: super::super::Reference {
+                name: "example".into(),
+                digest: "a".repeat(64),
+                settings_revision: u64::MAX,
+            },
+            skill: "analysis".into(),
+        };
+        let encoded = serde_json::to_value(&source).unwrap();
+        let decoded: DocumentSource = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, source);
     }
 }

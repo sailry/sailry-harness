@@ -1,6 +1,6 @@
 mod export;
 mod gallery;
-mod import;
+pub(in crate::settings) mod import;
 mod menu;
 pub(super) mod opacity;
 pub(in crate::settings) mod updates;

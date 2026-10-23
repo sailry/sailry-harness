@@ -5,8 +5,7 @@ use gpui_kit::component::scroll::ScrollableElement;
 
 pub(in crate::settings) mod rows;
 
-pub(super) mod skills;
-pub(super) mod themes;
+pub(in crate::settings) mod skills;
 
 pub(in crate::settings) fn panel(
     summary: AnyElement,

@@ -8,12 +8,13 @@ use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
         collapsible::Collapsible,
+        description_list::{DescriptionItem, DescriptionList},
         tab::{Tab, TabBar},
     },
     prelude::FluentBuilder as _,
 };
 use sailry_client::activity::{Id, Notice};
-use sailry_protocol::notification::{Cause, Details};
+use sailry_protocol::notification::Details;
 
 impl Shell {
     pub(crate) fn open_notification_center(
@@ -124,84 +125,126 @@ impl Shell {
         let source = self.notice_source(notice);
         let time = notice.timestamp_ms.map(presentation::timestamp);
         let title = presentation::heading(notice);
-        let trigger = Button::new(format!("{key}-open"))
-            .text()
+        let group: SharedString = key.clone().into();
+        let available = self.notice_available(notice, cx);
+        let action = tr(match notice.target() {
+            Target::Session(_) => "notification_open_conversation",
+            Target::Terminal(_) => "notification_open_terminal",
+            Target::Notification(_) => "notification_open_source",
+        });
+        let trigger = h_flex()
+            .id(format!("{key}-header"))
+            .group(group.clone())
             .w_full()
             .min_w_0()
-            .h_auto()
-            .py_3()
-            .px_0()
-            .justify_start()
-            .accessibility_label(title.clone())
+            .items_center()
+            .gap_2()
             .child(
-                h_flex()
+                Button::new(format!("{key}-open"))
+                    .text()
                     .flex_1()
                     .min_w_0()
-                    .items_center()
-                    .gap_3()
+                    .h_auto()
+                    .py_3()
+                    .px_0()
+                    .justify_start()
+                    .accessibility_label(title.clone())
                     .child(
-                        notifications::glyph(notice.kind, cx)
-                            .size_5()
-                            .flex_shrink_0(),
-                    )
-                    .child(
-                        v_flex()
+                        h_flex()
                             .flex_1()
                             .min_w_0()
-                            .items_start()
-                            .gap_1()
+                            .items_center()
+                            .gap_3()
                             .child(
-                                div()
-                                    .w_full()
-                                    .truncate()
-                                    .when(!notice.read, |title| title.font_medium())
-                                    .child(title),
+                                notifications::glyph(notice.kind, cx)
+                                    .size_5()
+                                    .flex_shrink_0(),
                             )
                             .child(
-                                div()
-                                    .w_full()
-                                    .truncate()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(source),
-                            ),
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .items_start()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .truncate()
+                                            .when(!notice.read, |title| title.font_medium())
+                                            .child(title.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .truncate()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(source),
+                                    ),
+                            )
+                            .when_some(time, |row, time| {
+                                row.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(time),
+                                )
+                            })
+                            .when(!notice.read, |row| {
+                                row.child(
+                                    div()
+                                        .size_1p5()
+                                        .flex_shrink_0()
+                                        .rounded_full()
+                                        .bg(cx.theme().primary),
+                                )
+                            }),
                     )
-                    .when_some(time, |row, time| {
-                        row.child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(time),
-                        )
-                    })
-                    .when(!notice.read, |row| {
-                        row.child(
-                            div()
-                                .size_1p5()
-                                .flex_shrink_0()
-                                .rounded_full()
-                                .bg(cx.theme().primary),
-                        )
-                    })
-                    .child(
-                        Icon::new(if expanded {
-                            IconName::ChevronDown
-                        } else {
-                            IconName::ChevronRight
-                        })
-                        .size_4()
-                        .flex_shrink_0()
-                        .text_color(cx.theme().muted_foreground),
-                    ),
+                    .on_click(cx.listener(move |shell, _, window, cx| {
+                        if !shell.activity.expanded.remove(&id) {
+                            shell.activity.expanded.insert(id);
+                            shell.read_notice(id, window, cx);
+                        }
+                        cx.notify();
+                    })),
             )
-            .on_click(cx.listener(move |shell, _, window, cx| {
-                if !shell.activity.expanded.remove(&id) {
-                    shell.activity.expanded.insert(id);
-                    shell.read_notice(id, window, cx);
-                }
-                cx.notify();
-            }));
+            .when(available, |row| {
+                row.child(
+                    Button::new(format!("center-action-{id:?}"))
+                        .ghost()
+                        .small()
+                        .icon(IconName::ExternalLink)
+                        .tooltip(action.clone())
+                        .accessibility_label(action)
+                        .opacity(if expanded { 1. } else { 0. })
+                        .group_hover(group, |style| style.opacity(1.))
+                        .focus_visible(|style| style.opacity(1.))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(move |shell, _, window, cx| {
+                            cx.stop_propagation();
+                            shell.open_activity(id.node, id.target, window, cx);
+                        })),
+                )
+            })
+            .child(
+                Button::new(format!("{key}-toggle"))
+                    .ghost()
+                    .small()
+                    .icon(if expanded {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .accessibility_label(title)
+                    .on_click(cx.listener(move |shell, _, window, cx| {
+                        if !shell.activity.expanded.remove(&id) {
+                            shell.activity.expanded.insert(id);
+                            shell.read_notice(id, window, cx);
+                        }
+                        cx.notify();
+                    })),
+            );
         card_list::frame(
             key,
             Collapsible::new()
@@ -218,32 +261,23 @@ impl Shell {
         let mut body = v_flex()
             .w_full()
             .min_w_0()
-            .gap_3()
+            .gap_4()
             .border_t_1()
             .border_color(cx.theme().border)
             .pt_3()
             .pb_4()
             .pl_8()
             .text_sm();
-        if !notice.message.trim().is_empty()
-            && notice.message.trim() != presentation::heading(notice).as_ref()
-        {
-            body = body.child(notice.message.clone());
+        for (index, content) in presentation::content(notice).into_iter().enumerate() {
+            body = body.child(div().w_full().min_w_0().whitespace_normal().child(
+                gpui_kit::base::SelectableText::new(
+                    format!("center-content-{:?}-{index}", notice.id),
+                    content.to_owned(),
+                ),
+            ));
         }
         match &notice.details {
-            Some(Details::Diagnostic(diagnostic)) => match &diagnostic.cause {
-                Cause::Compaction(failure) => {
-                    for text in presentation::failure(failure) {
-                        body =
-                            body.child(div().text_color(cx.theme().muted_foreground).child(text));
-                    }
-                }
-                Cause::Execution { code } => {
-                    body = body.child(tr(crate::conversation::live::failure_key(
-                        &sailry_protocol::Fault::new(*code, ""),
-                    )));
-                }
-            },
+            Some(Details::Diagnostic(_)) => (),
             Some(Details::Task(task)) => {
                 body = body.child(detail_line(
                     "notification_result",
@@ -262,11 +296,6 @@ impl Shell {
                             .into(),
                         cx,
                     ));
-                }
-                if let Some(code) = task.error {
-                    body = body.child(tr(crate::conversation::live::failure_key(
-                        &sailry_protocol::Fault::new(code, ""),
-                    )));
                 }
             }
             Some(Details::Terminal(terminal)) => {
@@ -292,30 +321,23 @@ impl Shell {
                 }
             }
             Some(Details::Power { code }) => {
-                body = body
-                    .child(tr("power_request_unavailable"))
-                    .child(code.to_string());
+                body = body.child(code.to_string());
             }
-            Some(Details::Text { body: text }) => {
-                if text.trim() != notice.message.trim()
-                    && text.trim() != presentation::heading(notice).as_ref()
-                {
-                    body = body.child(text.clone());
-                }
-            }
+            Some(Details::Text { .. }) => (),
             None => {}
         }
-        let mut facts = v_flex().w_full().min_w_0().gap_2().child(detail_line(
-            "notification_source",
-            self.notice_source(notice),
-            cx,
-        ));
+        let mut facts = DescriptionList::new()
+            .columns(1)
+            .bordered(true)
+            .large()
+            .label_width(rems(6.))
+            .child(
+                DescriptionItem::new(tr("notification_source")).value(self.notice_source(notice)),
+            );
         if let Some(time) = notice.timestamp_ms {
-            facts = facts.child(detail_line(
-                "notification_time",
-                presentation::timestamp(time),
-                cx,
-            ));
+            facts = facts.child(
+                DescriptionItem::new(tr("notification_time")).value(presentation::timestamp(time)),
+            );
         }
         if let Some(session) = notice.session {
             let title = self
@@ -323,27 +345,9 @@ impl Shell {
                 .and_then(|snapshot| snapshot.sessions.iter().find(|entry| entry.id == session))
                 .map(|entry| sessions::title(entry))
                 .unwrap_or_else(|| session.to_string().into());
-            facts = facts.child(detail_line("conversation", title, cx));
+            facts = facts.child(DescriptionItem::new(tr("settings_conversation")).value(title));
         }
         body = body.child(facts);
-        let id = notice.id;
-        let available = self.notice_available(notice, cx);
-        body = body.child(
-            h_flex().gap_3().child(div().w_16().flex_shrink_0()).child(
-                Button::new(format!("center-action-{id:?}"))
-                    .primary()
-                    .small()
-                    .label(tr(match notice.target() {
-                        Target::Session(_) => "notification_open_conversation",
-                        Target::Terminal(_) => "notification_open_terminal",
-                        Target::Notification(_) => "notification_open_source",
-                    }))
-                    .disabled(!available)
-                    .on_click(cx.listener(move |shell, _, window, cx| {
-                        shell.open_activity(id.node, id.target, window, cx)
-                    })),
-            ),
-        );
         if let Some(report) = presentation::report(notice) {
             body = body.child(self.technical_details(notice.id, report, cx));
         }
@@ -387,13 +391,12 @@ impl Shell {
                     .border_1()
                     .border_color(cx.theme().border)
                     .rounded(cx.theme().radius)
-                    .child(
+                    .child(crate::conversation::surface::list_scroll(
+                        format!("center-report-{id:?}"),
                         div()
-                            .id(format!("center-report-{id:?}"))
                             .w_full()
                             .min_w_0()
-                            .max_h_64()
-                            .overflow_y_scroll()
+                            .flex_shrink_0()
                             .p_3()
                             .pr_12()
                             .text_xs()
@@ -403,7 +406,7 @@ impl Shell {
                                 format!("center-report-text-{id:?}"),
                                 report,
                             )),
-                    )
+                    ))
                     .child(
                         div().absolute().top_2().right_2().child(
                             Button::new(format!("center-copy-{id:?}"))

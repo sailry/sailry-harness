@@ -4,9 +4,18 @@ use crate::settings::group::{Group, Row};
 use crate::theme::DialogStyle as _;
 
 pub(super) fn open(details: Entity<Details>, window: &mut Window, cx: &mut App) {
+    mount(details, false, window, cx);
+}
+
+pub(super) fn authorize(details: Entity<Details>, window: &mut Window, cx: &mut App) {
+    mount(details, true, window, cx);
+}
+
+fn mount(details: Entity<Details>, authorization: bool, window: &mut Window, cx: &mut App) {
     if !details.read(cx).active(cx) {
         return;
     }
+    details.update(cx, |details, _| details.authorization = authorization);
     let active = details.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = details.clone();
@@ -40,6 +49,9 @@ impl Render for Details {
                 })
                 .into_any_element();
         };
+        if self.authorization {
+            return self.authentication(&service, cx);
+        }
         v_flex()
             .id("connector-details")
             .w_full()
@@ -53,6 +65,9 @@ impl Render for Details {
             )
             .when(!service.enabled(), |content| {
                 content.child(Tag::new().child(tr("connector_package_disabled")))
+            })
+            .when(menu::restorable(&service), |content| {
+                content.child(self.restore(&service, cx))
             })
             .when(
                 service.kind.is_some() || service.account.is_some(),
@@ -73,6 +88,60 @@ impl Render for Details {
 }
 
 impl Details {
+    fn restore(&self, service: &catalog::Service, cx: &mut Context<Self>) -> AnyElement {
+        let Some(owner) = self.owner.upgrade() else {
+            return div().into_any_element();
+        };
+        let name = service.package.name.clone();
+        let retry = owner
+            .read(cx)
+            .plugin_catalog
+            .retries()
+            .iter()
+            .any(|package| *package == name);
+        let busy = owner.read(cx).plugin_catalog.busy_package(&name, cx);
+        let expected = service.package.clone();
+        let node = self.binding.client.target();
+        let restore = self.owner.clone();
+        Button::new("connector-enable")
+            .small()
+            .label(tr(if retry {
+                "plugins_retry"
+            } else {
+                "connector_enable"
+            }))
+            .disabled(busy && !retry)
+            .on_click(move |_, window, cx| {
+                _ = restore.update(cx, |owner, cx| {
+                    if owner
+                        .provider_link
+                        .as_ref()
+                        .is_none_or(|live| live.binding.client.target() != node)
+                    {
+                        return;
+                    }
+                    let service = owner
+                        .service_catalog(cx)
+                        .into_iter()
+                        .find(|service| service.package == expected);
+                    let Some(service) = service.filter(menu::restorable) else {
+                        return;
+                    };
+                    if owner
+                        .plugin_catalog
+                        .retries()
+                        .iter()
+                        .any(|package| package == &name)
+                    {
+                        owner.send_plugin_action(&name, window, cx);
+                    } else if let Some(info) = service.info {
+                        owner.toggle_plugin(&info.summary, true, window, cx);
+                    }
+                });
+            })
+            .into_any_element()
+    }
+
     fn authentication(&self, service: &catalog::Service, cx: &mut Context<Self>) -> AnyElement {
         let mut group = Group::new("connector_authentication");
         if let Some(account) = &service.account {

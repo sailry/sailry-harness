@@ -88,7 +88,6 @@ impl Market {
         cx: &mut Context<Self>,
     ) {
         if self.installed(&entry.name, cx).is_some() {
-            self.manage(entry.name, None, window, cx);
             return;
         }
         if self.busy(cx) {
@@ -268,7 +267,11 @@ impl Market {
                     .grid_cols(2)
                     .gap_3()
                     .children(visible.into_iter().map(|entry| {
-                        let known = packages.iter().any(|package| package.name == entry.name);
+                        let current = packages.iter().find(|package| package.name == entry.name);
+                        let update = current.is_some_and(|current| {
+                            self.updates.read(cx).candidate(current).is_some()
+                        });
+                        let operation = card::Action::new(current.is_some(), update);
                         let info = owner
                             .as_ref()
                             .and_then(|owner| owner.read(cx).plugin_catalog.metadata.as_ref())
@@ -305,10 +308,21 @@ impl Market {
                         );
                         let action = card::action(
                             format!("market-action-{}", entry.id),
-                            known,
+                            operation,
                             cx,
                         )
-                        .disabled(!connected || !known && busy)
+                        .disabled(
+                            !connected
+                                || operation == card::Action::Installed
+                                || match operation {
+                                    card::Action::Install => busy,
+                                    card::Action::Update => {
+                                        self.updates.read(cx).busy()
+                                            || self.updates.read(cx).selecting()
+                                    }
+                                    card::Action::Installed => false,
+                                },
+                        )
                         .loading(
                             matches!(&self.pending,Some(Loading::Repository(id)) if *id==entry.id),
                         )
@@ -317,29 +331,22 @@ impl Market {
                             let source = self.source;
                             move |state, _, window, cx| {
                                 cx.stop_propagation();
-                                if known {
-                                    state.manage(entry.name.clone(), None, window, cx);
-                                } else {
-                                    state.install(source, entry.clone(), window, cx);
+                                match operation {
+                                    card::Action::Update => state.update(&entry.name, window, cx),
+                                    card::Action::Install => {
+                                        state.install(source, entry.clone(), window, cx)
+                                    }
+                                    card::Action::Installed => (),
                                 }
                             }
                         }));
-                        card::row(
-                            format!("market-card-{}", entry.id),
-                            summary,
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .child(card::status(known))
-                                .child(action),
-                            cx,
-                        )
-                        .accessibility_label(title)
-                        .disabled(!connected)
-                        .on_click(cx.listener({
-                            let entry = entry.clone();
-                            move |state, _, window, cx| state.details(entry.clone(), window, cx)
-                        }))
+                        card::row(format!("market-card-{}", entry.id), summary, action, cx)
+                            .accessibility_label(title)
+                            .disabled(!connected)
+                            .on_click(cx.listener({
+                                let entry = entry.clone();
+                                move |state, _, window, cx| state.details(entry.clone(), window, cx)
+                            }))
                     })),
             )
             .into_any_element()

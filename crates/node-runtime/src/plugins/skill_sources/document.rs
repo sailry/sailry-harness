@@ -7,6 +7,7 @@ impl Host {
     pub(crate) async fn read_skill_document(
         &self,
         source: &DocumentSource,
+        installed: Option<Info>,
         stop: CancellationToken,
     ) -> Result<Document, Fault> {
         if let DocumentSource::Registry(source) = source {
@@ -21,6 +22,32 @@ impl Host {
             }
             DocumentSource::Registry(_) => {
                 unreachable!("registry documents use their shared cache")
+            }
+            DocumentSource::Installed { package, skill } => {
+                let info = installed
+                    .filter(|info| info.summary.reference() == *package)
+                    .ok_or_else(|| Fault::new(ErrorCode::Internal, "skill package expected"))?;
+                let selected = info
+                    .skills
+                    .iter()
+                    .find(|declared| declared.name == *skill)
+                    .cloned()
+                    .ok_or_else(|| Fault::new(ErrorCode::NotFound, "skill is not declared"))?;
+                let resources = super::super::resources::Resources::new(
+                    self.clone(),
+                    vec![info],
+                    Default::default(),
+                    stop,
+                );
+                let text = resources
+                    .read(&format!("{}:{skill}", package.name), "SKILL.md")
+                    .await?;
+                let mut document = parse(text.content.as_bytes())?;
+                if document.skill.name != selected.name {
+                    return Err(Fault::invalid("installed skill identity does not match"));
+                }
+                document.skill = selected;
+                Ok(document)
             }
             DocumentSource::Git { source, path } => {
                 let selected = source::Selection::resolved(source, path)?;

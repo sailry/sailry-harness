@@ -5,8 +5,10 @@ use gpui_kit::component::{
     accordion::Accordion,
     dialog::{DialogClose, DialogFooter},
     group_box::{GroupBox, GroupBoxVariants},
+    spinner::Spinner,
 };
 use gpui_kit::prelude::FluentBuilder as _;
+use sailry_link::CancellationToken;
 use std::path::PathBuf;
 use theme::package::Loaded;
 
@@ -56,9 +58,11 @@ pub(super) fn load(path: PathBuf, window: &mut Window, cx: &mut App) {
 
 pub(super) fn preview(loaded: Loaded, window: &mut Window, cx: &mut App) {
     open(
-        theme::Package::preview(&loaded),
+        Some(theme::Package::preview(&loaded)),
         Some(loaded),
         None,
+        None,
+        CancellationToken::new(),
         window,
         cx,
     );
@@ -70,16 +74,52 @@ pub(super) fn details(
     window: &mut Window,
     cx: &mut App,
 ) {
-    open(package, None, Some(updates), window, cx);
+    open(
+        Some(package),
+        None,
+        Some(updates),
+        None,
+        CancellationToken::new(),
+        window,
+        cx,
+    );
+}
+
+pub(in crate::settings) fn catalog(
+    package: Option<theme::Package>,
+    selection: Option<theme::market::Selection>,
+    updates: Entity<updates::State>,
+    stop: CancellationToken,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<Entity<Import>> {
+    if stop.is_cancelled() {
+        return None;
+    }
+    if package.is_none() && selection.is_none() {
+        crate::feedback::error("", &tr("appearance_unavailable"), window, cx);
+        return None;
+    }
+    Some(open(
+        package,
+        None,
+        Some(updates),
+        selection,
+        stop,
+        window,
+        cx,
+    ))
 }
 
 fn open(
-    package: theme::Package,
+    package: Option<theme::Package>,
     loaded: Option<Loaded>,
     updates: Option<Entity<updates::State>>,
+    source: Option<theme::market::Selection>,
+    stop: CancellationToken,
     window: &mut Window,
     cx: &mut App,
-) {
+) -> Entity<Import> {
     let importing = loaded.is_some();
     let view = cx.new(|_| Import {
         package,
@@ -87,23 +127,39 @@ fn open(
         busy: false,
         error: None,
         license_open: false,
+        source,
+        updates: updates.clone(),
+        stop,
+        loading: false,
+        read: None,
+        dialog: Default::default(),
+        closed: false,
     });
-    view.update(cx, |_, cx| {
+    view.update(cx, |view, cx| {
         crate::feedback::observe(window, cx, |view, _| view.error.into_iter().collect());
         if let Some(updates) = &updates {
             cx.observe(updates, |_, _, cx| cx.notify()).detach();
         }
+        view.load(window, cx);
     });
+    let result = view.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let busy = view.read(cx).busy;
+        let id = view.read(cx).id().to_owned();
+        let installed = cx
+            .global::<theme::Catalog>()
+            .packages
+            .iter()
+            .any(|package| package.id == id);
         let replacing = importing
             && cx
                 .global::<theme::Catalog>()
                 .packages
                 .iter()
-                .any(|package| package.id == view.read(cx).package.id);
+                .any(|package| package.id == id);
         let save = view.clone();
-        let id = view.read(cx).package.id.clone();
+        let install = view.clone();
+        let close = view.clone();
         let update = updates
             .as_ref()
             .is_some_and(|updates| updates.read(cx).available(&id));
@@ -117,13 +173,19 @@ fn open(
                     .min_w_0()
                     .truncate()
                     .debug_selector(|| "theme-preview-title".into())
-                    .child(view.read(cx).package.name.clone()),
+                    .child(view.read(cx).name()),
                 cx,
             )
             .w((window.viewport_size().width - px(48.)).min(px(640.)))
             .close_button(!busy)
             .keyboard(!busy)
             .overlay_closable(!busy)
+            .on_close(move |_, _, cx| {
+                close.update(cx, |view, cx| {
+                    view.dismiss(cx);
+                    view.dialog.dismissed();
+                });
+            })
             .child(view.clone())
             .footer(
                 DialogFooter::new()
@@ -160,7 +222,7 @@ fn open(
                                 }),
                         )
                     })
-                    .when(!importing, |footer| {
+                    .when(!importing && installed, |footer| {
                         let apply = id.clone();
                         footer.child(
                             Button::new("theme-details-apply")
@@ -170,7 +232,22 @@ fn open(
                                 }),
                         )
                     })
-                    .when(update || pending, |footer| {
+                    .when(
+                        !importing && !installed && view.read(cx).source.is_some(),
+                        |footer| {
+                            footer.child(
+                                Button::new("theme-details-install")
+                                    .primary()
+                                    .label(tr("market_install"))
+                                    .disabled(pending || view.read(cx).package.is_none())
+                                    .loading(pending)
+                                    .on_click(move |_, window, cx| {
+                                        install.update(cx, |view, cx| view.install(window, cx))
+                                    }),
+                            )
+                        },
+                    )
+                    .when(installed && (update || pending), |footer| {
                         let updates = updates.clone().expect("theme updates are bound");
                         footer.child(
                             Button::new("theme-details-update")
@@ -185,17 +262,143 @@ fn open(
                     }),
             )
     });
+    result.update(cx, |view, cx| {
+        crate::ui::overlays::Owned::bind(view, |view| &mut view.dialog, window, cx)
+    });
+    result
 }
 
-struct Import {
-    package: theme::Package,
+pub(in crate::settings) struct Closed;
+
+pub(in crate::settings) struct Import {
+    package: Option<theme::Package>,
     loaded: Option<Loaded>,
     busy: bool,
     error: Option<&'static str>,
     license_open: bool,
+    source: Option<theme::market::Selection>,
+    updates: Option<Entity<updates::State>>,
+    stop: CancellationToken,
+    loading: bool,
+    read: Option<Task<()>>,
+    dialog: crate::ui::overlays::Owned,
+    closed: bool,
+}
+
+impl EventEmitter<Closed> for Import {}
+
+impl Drop for Import {
+    fn drop(&mut self) {
+        self.stop.cancel();
+    }
 }
 
 impl Import {
+    pub(in crate::settings) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dismiss(cx);
+        self.dialog.close(window, cx);
+    }
+
+    fn dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.closed {
+            return;
+        }
+        self.closed = true;
+        self.stop.cancel();
+        self.read = None;
+        cx.emit(Closed);
+    }
+
+    fn id(&self) -> &str {
+        self.package.as_ref().map_or_else(
+            || {
+                self.source
+                    .as_ref()
+                    .expect("theme details have a source")
+                    .entry
+                    .id
+                    .as_str()
+            },
+            |package| package.id.as_str(),
+        )
+    }
+
+    fn name(&self) -> SharedString {
+        self.package.as_ref().map_or_else(
+            || {
+                self.source
+                    .as_ref()
+                    .expect("theme details have a source")
+                    .entry
+                    .name
+                    .clone()
+                    .into()
+            },
+            |package| package.name.clone(),
+        )
+    }
+
+    fn load(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if self.package.is_some() || self.read.is_some() || self.stop.is_cancelled() {
+            return;
+        }
+        let Some(source) = self.source.clone() else {
+            return;
+        };
+        let Some(service) = self
+            .updates
+            .as_ref()
+            .and_then(|updates| updates.read(cx).service.clone())
+        else {
+            self.error = Some("appearance_load_failed");
+            cx.notify();
+            return;
+        };
+        self.loading = true;
+        self.error = None;
+        let stop = self.stop.clone();
+        let cancelled = stop.clone();
+        let runtime = cx.global::<crate::backend::Services>().runtime.clone();
+        let job = runtime.spawn(async move { service.download(source, &cancelled).await });
+        self.read = Some(cx.spawn(async move |view, cx| {
+            let result = job.await;
+            _ = view.update(cx, |view, cx| {
+                if stop.is_cancelled() {
+                    return;
+                }
+                view.loading = false;
+                view.read = None;
+                match result {
+                    Ok(Ok(prepared)) => {
+                        view.package = Some(theme::Package::preview(&prepared.loaded))
+                    }
+                    _ => view.error = Some("appearance_load_failed"),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn install(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.stop.is_cancelled() || self.package.is_none() {
+            return;
+        }
+        let (Some(source), Some(updates)) = (&self.source, &self.updates) else {
+            return;
+        };
+        if cx
+            .global::<theme::Catalog>()
+            .packages
+            .iter()
+            .any(|package| package.id == source.entry.id)
+            || updates.read(cx).pending(&source.entry.id)
+        {
+            return;
+        }
+        updates.update(cx, |state, cx| state.install(source.clone(), window, cx));
+    }
+
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -272,8 +475,24 @@ impl Import {
 
 impl Render for Import {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(manifest) = self.package.manifest.as_ref() else {
-            return theme::preview(&self.package, cx.theme().is_dark(), cx).into_any_element();
+        let Some(package) = self.package.as_ref() else {
+            return div()
+                .w_full()
+                .h_24()
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(self.loading, |body| body.child(Spinner::new()))
+                .when(!self.loading, |body| {
+                    body.child(
+                        crate::feedback::retry("theme-details-retry")
+                            .on_click(cx.listener(|view, _, window, cx| view.load(window, cx))),
+                    )
+                })
+                .into_any_element();
+        };
+        let Some(manifest) = package.manifest.as_ref() else {
+            return theme::preview(package, cx.theme().is_dark(), cx).into_any_element();
         };
         let license = &manifest.license;
         let width = (window.viewport_size().width - px(48.)).min(px(640.));
@@ -320,7 +539,7 @@ impl Render for Import {
                             .child(
                                 div()
                                     .debug_selector(move || selector.into())
-                                    .child(theme::preview(&self.package, dark, cx)),
+                                    .child(theme::preview(package, dark, cx)),
                             )
                             .child(
                                 div()

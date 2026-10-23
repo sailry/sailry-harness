@@ -44,21 +44,13 @@ fn preserves_declared_services_and_exposes_independent_actions() {
         Some(Toggle::Server("server".into()))
     );
     let actions = items(&service);
-    assert!(actions.contains(&Item::Service(
-        Operation::Configure,
-        "connector_configure",
-        true
-    )));
-    assert!(actions.contains(&Item::Service(Operation::Check, "connector_probe", true)));
-    assert!(actions.contains(&Item::Service(
-        Operation::Plugin,
-        "connector_view_plugin",
-        true
-    )));
-    assert!(
-        !actions
-            .iter()
-            .any(|item| matches!(item, Item::Service(Operation::Remove, _, _)))
+    assert_eq!(
+        actions,
+        [
+            Item::Service(Operation::Configure, "connector_configure", true),
+            Item::Separator,
+            Item::Service(Operation::Check, "connector_probe", true),
+        ]
     );
 }
 
@@ -80,10 +72,15 @@ fn account_switch_never_changes_server_enablement() {
         switch_target(&service),
         Some(Toggle::Account(service.account.as_ref().unwrap().id))
     );
-    assert!(items(&service).iter().any(|item| matches!(
-        item,
-        Item::Account(crate::settings::connectors::menu::Operation::Disconnect, _)
-    )));
+    assert_eq!(
+        items(&service),
+        [
+            Item::Service(Operation::Configure, "connector_configure", true),
+            Item::Separator,
+            Item::Service(Operation::Check, "connector_probe", true),
+            Item::Service(Operation::Authorize, "connector_authorize", true),
+        ]
+    );
 }
 
 #[test]
@@ -134,11 +131,7 @@ fn preserves_manual_server_target_after_login() {
 fn restores_only_disabled_manual_packages() {
     let mut service = service();
     service.info.as_mut().unwrap().summary.enabled = false;
-    assert!(
-        !items(&service)
-            .iter()
-            .any(|entry| matches!(entry, Item::Service(Operation::Enable, _, _)))
-    );
+    assert!(!restorable(&service));
     service.info.as_mut().unwrap().mcp_source = Some(
         serde_json::from_value(serde_json::json!({
             "type":"stdio","command":"fixture","args":[],"env":[]
@@ -146,18 +139,108 @@ fn restores_only_disabled_manual_packages() {
         .unwrap(),
     );
     service.servers[0].allowed = false;
-    assert!(items(&service).contains(&Item::Service(Operation::Enable, "connector_enable", true)));
+    assert!(restorable(&service));
+    assert_eq!(
+        items(&service),
+        [
+            Item::Service(Operation::Configure, "connector_configure", true),
+            Item::Separator,
+            Item::Service(Operation::Check, "connector_probe", false),
+            Item::Separator,
+            Item::Service(Operation::Remove, "settings_delete", true),
+        ]
+    );
     assert_eq!(
         switch_target(&service),
         Some(Toggle::Server("server".into()))
     );
     assert!(!service.servers[0].allowed);
     service.info.as_mut().unwrap().summary.enabled = true;
-    assert!(
-        !items(&service)
-            .iter()
-            .any(|entry| matches!(entry, Item::Service(Operation::Enable, _, _)))
-    );
+    assert!(!restorable(&service));
     service.info = None;
     assert!(switch_target(&service).is_none());
+    assert!(!restorable(&service));
+}
+
+#[test]
+fn groups_authentication_without_mcp_configuration() {
+    let mut service = service();
+    service.servers.clear();
+    service.kind = Some(
+        serde_json::from_value(serde_json::json!({
+            "package":service.package,"enabled":true,
+            "declaration":{
+                "id":"account","display":{"label":"Account"},"accounts":"single",
+                "origins":["https://example.com"],"auth":[{"kind":"secret","fields":["token"]}],
+                "fields":[{"name":"token","title":"Token","secret":true}],"inject":[]
+            }
+        }))
+        .unwrap(),
+    );
+    assert_eq!(
+        items(&service),
+        [Item::Service(
+            Operation::Authorize,
+            "connector_authorize",
+            true,
+        )]
+    );
+    service.account = Some(
+        serde_json::from_value(serde_json::json!({
+            "id":sailry_protocol::RequestId::new(), "package":service.package,
+            "connector":"account", "method":"secret", "revision":1,
+            "enabled":true,"state":"connected","can_disconnect":true,
+            "identity":null,"expires_at_ms":null,"checked_at_ms":null,
+            "fields":{},"configured":["token"]
+        }))
+        .unwrap(),
+    );
+    assert_eq!(
+        items(&service),
+        [
+            Item::Account(
+                super::super::super::menu::Operation::Edit,
+                "connector_configure"
+            ),
+            Item::Separator,
+            Item::Account(
+                super::super::super::menu::Operation::Probe,
+                "connector_probe"
+            ),
+            Item::Service(Operation::Authorize, "connector_authorize", true),
+        ]
+    );
+    service.kind = None;
+    assert_eq!(
+        items(&service),
+        [Item::Service(
+            Operation::Authorize,
+            "connector_authorize",
+            true,
+        )]
+    );
+    service.account = None;
+    assert!(items(&service).is_empty());
+}
+
+#[test]
+fn offers_one_check_for_multiple_servers() {
+    let mut service = service();
+    service.servers[0].availability = Availability::ConnectionRequired;
+    service.servers.push(Mcp {
+        name: "sibling".into(),
+        availability: Availability::ServerDisabled,
+        ..service.servers[0].clone()
+    });
+    let expected = [
+        Item::Service(Operation::Configure, "connector_configure", true),
+        Item::Separator,
+        Item::Service(Operation::Check, "connector_probe", true),
+    ];
+    assert_eq!(items(&service), expected);
+    service.servers[1].availability = Availability::ConnectionRequired;
+    assert_eq!(
+        items(&service).last(),
+        Some(&Item::Service(Operation::Check, "connector_probe", false))
+    );
 }

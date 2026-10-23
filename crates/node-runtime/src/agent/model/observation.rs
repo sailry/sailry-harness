@@ -44,6 +44,7 @@ impl Capture {
             request: Request {
                 id: context.call.expect("model call identity").to_string(),
                 turn,
+                turn_index: None,
                 model,
                 context_limit: None,
                 timestamp_ms: chrono::Utc::now().timestamp_millis(),
@@ -310,6 +311,7 @@ impl Capture {
         let record = |attempts| Request {
             id: self.request.id.clone(),
             turn: self.request.turn,
+            turn_index: None,
             model: self.request.model.clone(),
             context_limit: self.request.context_limit,
             timestamp_ms: self.request.timestamp_ms,

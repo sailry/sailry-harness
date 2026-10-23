@@ -15,7 +15,6 @@ use gpui_kit::{
 use sailry_protocol::{Command, ErrorCode, Fault, Output, Request, plugin::Info};
 
 mod action;
-mod details;
 pub(in crate::settings) mod install;
 mod preview;
 pub(super) use preview::Skill;
@@ -44,6 +43,8 @@ impl State {
 }
 
 pub(in crate::settings) fn open_management(
+    owner: Entity<Workspace>,
+    binding: Binding,
     info: Info,
     name: Option<&str>,
     window: &mut Window,
@@ -54,7 +55,7 @@ pub(in crate::settings) fn open_management(
         .or_else(|| info.skills.first())
         .cloned();
     if let Some(skill) = selected {
-        details::open(info, skill, window, cx);
+        super::market::details::skills::open_installed(owner, binding, info, skill, window, cx);
     }
 }
 
@@ -262,6 +263,8 @@ impl Workspace {
         let binding = live.binding.clone();
         let remove_binding = binding.clone();
         let owner = cx.entity();
+        let details_owner = owner.clone();
+        let details_binding = binding.clone();
         let title = skill.name.clone();
         let detail_info = info.clone();
         let detail_skill = skill.clone();
@@ -280,6 +283,11 @@ impl Workspace {
             .updates
             .as_ref()
             .is_some_and(|state| state.read(cx).has_candidate(&summary.name));
+        let update_busy = self
+            .plugin_catalog
+            .updates
+            .as_ref()
+            .is_some_and(|state| state.read(cx).busy() || state.read(cx).selecting());
         let icon = sailry_protocol::plugin::desktop::Icon::Name("reicon:school/book".into());
         let content = resource_card::summary(
             format!("skill-details-{id}"),
@@ -292,32 +300,26 @@ impl Workspace {
             cx,
         )
         .on_click(move |_, window, cx| {
-            details::open(detail_info.clone(), detail_skill.clone(), window, cx)
+            if details_owner
+                .read(cx)
+                .provider_link
+                .as_ref()
+                .is_none_or(|live| live.binding.client.target() != node)
+            {
+                return;
+            }
+            super::market::details::skills::open_installed(
+                details_owner.clone(),
+                details_binding.clone(),
+                detail_info.clone(),
+                detail_skill.clone(),
+                window,
+                cx,
+            )
         });
         let actions = h_flex()
             .items_center()
             .gap_2()
-            .when(available, |row| {
-                row.child(
-                    Button::new(SharedString::from(format!("skill-update-{id}")))
-                        .small()
-                        .label(tr("market_update"))
-                        .disabled(
-                            busy || self.plugin_catalog.updates.as_ref().is_some_and(|state| {
-                                state.read(cx).busy() || state.read(cx).selecting()
-                            }),
-                        )
-                        .on_click(cx.listener(move |owner, _, window, cx| {
-                            if owner
-                                .provider_link
-                                .as_ref()
-                                .is_some_and(|live| live.binding.client.target() == node)
-                            {
-                                owner.update_plugins(Some(&update), window, cx);
-                            }
-                        })),
-                )
-            })
             .child(
                 resource_card::menu(format!("skill-menu-{id}"), card_id.clone().into())
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
@@ -327,13 +329,50 @@ impl Workspace {
                         let title = title.clone();
                         let target = reimport.clone();
                         let reimport_owner = owner.clone();
+                        let update_owner = owner.clone();
+                        let update = update.clone();
+                        let details_owner = owner.clone();
+                        let details_binding = binding.clone();
                         let info = menu_info.clone();
                         let skill = menu_skill.clone();
-                        menu.item(PopupMenuItem::new(tr("plugins_information")).on_click(
-                            move |_, window, cx| {
-                                details::open(info.clone(), skill.clone(), window, cx);
-                            },
-                        ))
+                        menu.item(
+                            PopupMenuItem::new(tr("plugins_information"))
+                                .icon(gpui_kit::assets::IconName::Info)
+                                .on_click(move |_, window, cx| {
+                                    if details_owner
+                                        .read(cx)
+                                        .provider_link
+                                        .as_ref()
+                                        .is_none_or(|live| live.binding.client.target() != node)
+                                    {
+                                        return;
+                                    }
+                                    super::market::details::skills::open_installed(
+                                        details_owner.clone(),
+                                        details_binding.clone(),
+                                        info.clone(),
+                                        skill.clone(),
+                                        window,
+                                        cx,
+                                    );
+                                }),
+                        )
+                        .when(available, |menu| {
+                            menu.item(
+                                PopupMenuItem::new(tr("settings_update"))
+                                    .icon(IconName::Redo)
+                                    .disabled(busy || update_busy)
+                                    .on_click(move |_, window, cx| {
+                                        update_owner.update(cx, |owner, cx| {
+                                            if owner.provider_link.as_ref().is_some_and(|live| {
+                                                live.binding.client.target() == node
+                                            }) {
+                                                owner.update_plugins(Some(&update), window, cx);
+                                            }
+                                        });
+                                    }),
+                            )
+                        })
                         .when_some(imported, |menu, kind| {
                             menu.item(
                                 PopupMenuItem::new(tr("skill_source_reimport"))
@@ -421,7 +460,7 @@ impl Workspace {
     }
 }
 
-fn provenance(info: &Info) -> String {
+pub(in crate::settings) fn provenance(info: &Info) -> String {
     match &info.skill {
         Some(sailry_protocol::plugin::skills::Provenance::Git(source)) => source
             .source

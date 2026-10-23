@@ -5,7 +5,7 @@ mod installation;
 mod tests;
 mod transfer;
 
-pub(crate) use catalog::{Catalog, Entry, Selection};
+pub(crate) use catalog::{Catalog, Selection};
 #[cfg(test)]
 use installation::Installed;
 use sailry_link::CancellationToken;

@@ -88,18 +88,13 @@ impl View {
                 form,
                 cx,
             ))
-            .when(!footer.is_empty() || !statistics.is_empty(), |bar| {
-                bar.child(
-                    h_flex()
-                        .ml_auto()
+            .when(
+                self.session.is_some() && (!footer.is_empty() || !statistics.is_empty()),
+                |bar| {
+                    let metrics = h_flex()
                         .min_w_0()
                         .gap_3()
                         .flex_wrap()
-                        .opacity(0.)
-                        .group_hover(
-                            super::super::layout::composer_group(cx.entity_id()),
-                            |style| style.opacity(1.),
-                        )
                         .when(!footer.is_empty(), |metrics| {
                             metrics.child(super::super::usage::render_groups(
                                 &footer,
@@ -117,9 +112,10 @@ impl View {
                                     cx,
                                 )
                             })
-                        }),
-                )
-            })
+                        });
+                    bar.child(metrics.ml_auto())
+                },
+            )
             .into_any_element()
     }
 }

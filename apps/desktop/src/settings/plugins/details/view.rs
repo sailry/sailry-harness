@@ -1,44 +1,21 @@
 use super::*;
-use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
     badge::Badge,
-    menu::{DropdownMenu, PopupMenuItem},
     tab::{Tab as KitTab, TabBar},
 };
 use sailry_protocol::plugin::Origin;
-
-pub(super) fn open(details: Entity<Details>, window: &mut Window, cx: &mut App) {
-    let active = details.clone();
-    window.open_dialog(cx, move |dialog, window, cx| {
-        let close = details.clone();
-        dialog
-            .floating_surface(cx)
-            .w((window.viewport_size().width - px(48.)).min(px(720.)))
-            .max_h(window.viewport_size().height * 0.85)
-            .p_6()
-            .on_close(move |_, _, cx| {
-                close.update(cx, |details, _| {
-                    details.stop.cancel();
-                    details.dialog.dismissed();
-                });
-            })
-            .child(details.clone())
-    });
-    active.update(cx, |details, cx| {
-        crate::ui::overlays::Owned::bind(details, |details| &mut details.dialog, window, cx)
-    });
-}
 
 fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
     let owner = cx.entity();
     let info = details.info.as_ref();
     let installed = matches!(details.target, Target::Installed(_));
     let managed = details.catalog_installed(cx);
+    let catalog_update = managed
+        .as_ref()
+        .is_some_and(|current| details.updates.read(cx).candidate(current).is_some());
     let update = info.is_some_and(|info| {
         installed && details.updates.read(cx).candidate(&info.summary).is_some()
     });
-    let configurable =
-        installed && info.is_some_and(super::super::super::extensions::modal::configurable);
     let disabled =
         managed.is_none() && (details.pending(cx) || details.error.is_some() || !details.ready());
     let title = info.map(metadata::title).unwrap_or_else(|| {
@@ -64,9 +41,7 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
         version.as_deref(),
         installed || managed.is_some(),
     );
-    let manage = managed.is_some();
     let primary = owner.clone();
-    let more = owner.clone();
     let tabs = owner.clone();
     let extension = info.and_then(|info| info.extension.as_ref());
     v_flex()
@@ -106,30 +81,28 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                         ),
                 )
                 .when(
-                    manage || (!installed && details.installable()) || update || configurable,
+                    !installed && (managed.is_some() || details.installable()),
                     |row| {
                         row.child(
                             Button::new("plugin-details-primary")
                                 .small()
-                                .disabled(disabled || (update && details.updates.read(cx).busy()))
-                                .when(update || !installed, |button| button.primary())
-                                .label(tr(if manage {
-                                    "market_manage"
-                                } else if update {
+                                .disabled(
+                                    disabled
+                                        || (managed.is_some() && !catalog_update)
+                                        || (catalog_update
+                                            && (details.updates.read(cx).busy()
+                                                || details.updates.read(cx).selecting())),
+                                )
+                                .primary()
+                                .label(tr(if catalog_update {
                                     "market_update"
-                                } else if installed {
-                                    "plugins_configure"
                                 } else {
                                     "market_install"
                                 }))
                                 .on_click(move |_, window, cx| {
                                     primary.update(cx, |details, cx| {
-                                        if manage {
-                                            details.manage(window, cx);
-                                        } else if update {
+                                        if catalog_update {
                                             details.update(window, cx);
-                                        } else if installed {
-                                            details.configure(window, cx);
                                         } else {
                                             details.submit(window, cx);
                                         }
@@ -137,39 +110,7 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                                 }),
                         )
                     },
-                )
-                .when(installed, |row| {
-                    row.child(
-                        Button::new("plugin-details-more")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Ellipsis)
-                            .accessibility_label(tr("market_details_more"))
-                            .disabled(disabled)
-                            .dropdown_menu(move |menu, _, _| {
-                                let configure = more.clone();
-                                let more = more.clone();
-                                menu.when(update && configurable, |menu| {
-                                    menu.item(PopupMenuItem::new(tr("plugins_configure")).on_click(
-                                        move |_, window, cx| {
-                                            configure.update(cx, |details, cx| {
-                                                details.configure(window, cx)
-                                            });
-                                        },
-                                    ))
-                                })
-                                .item(
-                                    PopupMenuItem::new(tr("market_details_uninstall")).on_click(
-                                        move |_, window, cx| {
-                                            more.update(cx, |details, cx| {
-                                                details.submit(window, cx)
-                                            })
-                                        },
-                                    ),
-                                )
-                            }),
-                    )
-                }),
+                ),
         )
         .when_some(
             info.and_then(metadata::description).or_else(|| {
@@ -256,23 +197,21 @@ fn repository_owner(repository: &str) -> Option<String> {
 impl Details {
     fn update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.stop.is_cancelled()
-            || self.pending(cx)
-            || self.error.is_some()
             || self.updates.read(cx).busy()
+            || self.updates.read(cx).selecting()
         {
             return;
         }
-        let Target::Installed(expected) = &self.target else {
+        let Some(current) = self
+            .catalog_installed(cx)
+            .filter(|current| self.updates.read(cx).candidate(current).is_some())
+        else {
             return;
         };
-        if self.updates.read(cx).candidate(expected).is_none() {
-            return;
-        }
-        let name = expected.name.clone();
         self.stop.cancel();
-        self.dismiss(window, cx);
+        dismiss(window, cx);
         self.updates
-            .update(cx, |state, cx| state.apply(Some(&name), window, cx));
+            .update(cx, |state, cx| state.apply(Some(&current.name), window, cx));
     }
 
     fn information(&self, cx: &App) -> AnyElement {
@@ -427,17 +366,6 @@ impl Render for Details {
         } else {
             div().into_any_element()
         };
-        if matches!(self.target, Target::Installed(_)) {
-            return v_flex()
-                .w_full()
-                .min_w_0()
-                .pt_4()
-                .gap_4()
-                .child(header(self, cx))
-                .child(div().px_7().child(self.information(cx)))
-                .child(div().px_7().child(content))
-                .into_any_element();
-        }
         crate::settings::market::details::panel(
             header(self, cx),
             self.information(cx),

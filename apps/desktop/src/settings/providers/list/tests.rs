@@ -151,22 +151,16 @@ fn reports_live_remaining_only() {
 }
 
 #[test]
-fn displays_current_account_label() {
-    let mut value = channel(Preset::ChatGptOAuth);
-    value.account_label = Some("account@example.test".into());
-    assert_eq!(
-        badge(&value, AuthKind::OAuth).as_ref(),
-        "account@example.test"
-    );
-    assert_eq!(
-        badge(&value, AuthKind::ApiKey),
-        crate::tr(AuthKind::ApiKey.key())
-    );
-    value.account_label = None;
-    assert_eq!(
-        badge(&value, AuthKind::OAuth),
-        crate::tr(AuthKind::OAuth.key())
-    );
+fn prefers_account_identity_over_type() {
+    for preset in [Preset::ChatGptOAuth, Preset::Plugin, Preset::CompatibleChat] {
+        let mut value = channel(preset);
+        value.account_label = Some("account@example.test".into());
+        assert_eq!(subtitle(&value).as_ref(), "account@example.test");
+        for label in [None, Some(String::new()), Some("  ".into())] {
+            value.account_label = label;
+            assert_eq!(subtitle(&value), value.label());
+        }
+    }
 }
 
 mod lines {

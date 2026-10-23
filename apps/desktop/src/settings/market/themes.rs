@@ -2,12 +2,46 @@ use super::*;
 use crate::theme::{self, market as service};
 use std::{collections::BTreeMap, sync::Arc};
 
+const PREVIEW_RATIO: f32 = 5. / 2.;
+
 pub(super) struct State {
     columns: u16,
     pub(super) service: Option<Arc<service::Service>>,
     pub(super) listing: Option<service::Listing>,
     pub(super) updates: Entity<crate::settings::appearance::updates::State>,
     previews: BTreeMap<(String, bool), Arc<Image>>,
+    selected: Selection,
+    dialog: Option<WeakEntity<crate::settings::appearance::import::Import>>,
+}
+
+#[derive(Default)]
+struct Selection {
+    opened: Option<(String, EntityId)>,
+}
+
+impl Selection {
+    fn select(&mut self, id: String, owner: EntityId) {
+        self.opened = Some((id, owner));
+    }
+
+    fn contains(&self, id: &str) -> bool {
+        self.opened
+            .as_ref()
+            .is_some_and(|(selected, _)| selected == id)
+    }
+
+    fn close(&mut self, owner: EntityId) -> bool {
+        if self
+            .opened
+            .as_ref()
+            .is_some_and(|(_, current)| *current == owner)
+        {
+            self.opened = None;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl State {
@@ -18,8 +52,91 @@ impl State {
             updates,
             listing: None,
             previews: BTreeMap::new(),
+            selected: Default::default(),
+            dialog: None,
         }
     }
+}
+
+fn open(
+    market: Entity<Market>,
+    id: String,
+    stop: CancellationToken,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if stop.is_cancelled() {
+        return;
+    }
+    let (source, updates, previous, workspace) = {
+        let state = market.read(cx);
+        (
+            state
+                .themes
+                .listing
+                .as_ref()
+                .filter(|listing| !listing.unavailable)
+                .and_then(|listing| listing.selection(&id)),
+            state.themes.updates.clone(),
+            state.themes.dialog.as_ref().and_then(WeakEntity::upgrade),
+            state.owner.upgrade(),
+        )
+    };
+    if let Some(previous) = previous {
+        previous.update(cx, |view, cx| view.close(window, cx));
+    }
+    let package = cx
+        .global::<theme::Catalog>()
+        .packages
+        .iter()
+        .find(|package| package.id == id)
+        .cloned();
+    let Some(view) =
+        crate::settings::appearance::import::catalog(package, source, updates, stop, window, cx)
+    else {
+        return;
+    };
+    if let Some(workspace) = workspace {
+        let expected = workspace.read(cx).section;
+        let node = market.read(cx).binding.client.target();
+        view.update(cx, |_, cx| {
+            cx.observe_in(&workspace, window, move |view, workspace, window, cx| {
+                let workspace = workspace.read(cx);
+                if workspace.section != expected
+                    || workspace
+                        .provider_link
+                        .as_ref()
+                        .is_none_or(|live| live.binding.client.target() != node)
+                {
+                    view.close(window, cx);
+                }
+            })
+            .detach();
+        });
+    }
+    let owner = view.entity_id();
+    market.update(cx, |market, cx| {
+        market.themes.selected.select(id, owner);
+        market.themes.dialog = Some(view.downgrade());
+        cx.subscribe(
+            &view,
+            move |market, _, _: &crate::settings::appearance::import::Closed, cx| {
+                if market.themes.selected.close(owner) {
+                    market.themes.dialog = None;
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        cx.observe_release(&view, move |market, _, cx| {
+            if market.themes.selected.close(owner) {
+                market.themes.dialog = None;
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.notify();
+    });
 }
 
 fn image(bytes: Vec<u8>) -> Option<Arc<Image>> {
@@ -111,7 +228,6 @@ impl Market {
             .iter()
             .any(|package| package.id == selection.entry.id)
         {
-            window.dispatch_action(Box::new(crate::settings::OpenTheme(selection.entry.id)), cx);
             return;
         }
         self.themes
@@ -121,7 +237,6 @@ impl Market {
 
     pub(super) fn theme_cards(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let catalog = cx.global::<theme::Catalog>();
-        let selected = &catalog.packages[catalog.selected].id;
         let query = self.query.read(cx).value().trim().to_lowercase();
         let entries: Vec<_> = self
             .themes
@@ -163,27 +278,20 @@ impl Market {
         let mut cards = Vec::new();
         for package in locals {
             let id = package.id.clone();
-            let current = *selected == id;
+            let current = self.themes.selected.contains(&id);
             cards.push(Self::theme_card(
                 id.clone(),
                 package.name.clone(),
-                if id == "builtin" {
-                    tr("market_theme_builtin").to_string()
-                } else {
-                    String::new()
-                },
                 theme::preview(package, cx.theme().is_dark(), cx)
                     .h_full()
                     .into_any_element(),
-                Button::new(SharedString::from(format!("market-theme-apply-{id}")))
-                    .small()
-                    .label(tr("market_manage"))
-                    .on_click(move |_, window, cx| {
-                        cx.stop_propagation();
-                        window
-                            .dispatch_action(Box::new(crate::settings::OpenTheme(id.clone())), cx);
-                    }),
-                true,
+                card::action(
+                    format!("market-theme-install-{id}"),
+                    card::Action::Installed,
+                    cx,
+                )
+                .size_6()
+                .disabled(true),
                 current,
                 cx,
             ));
@@ -194,7 +302,7 @@ impl Market {
                 .iter()
                 .find(|package| package.id == entry.id);
             let installed = package.is_some();
-            let current = *selected == entry.id;
+            let current = self.themes.selected.contains(&entry.id);
             let selection = self
                 .themes
                 .listing
@@ -222,34 +330,28 @@ impl Market {
             };
             let id = entry.id.clone();
             let pending = self.themes.updates.read(cx).pending(&id);
-            let action = Button::new(SharedString::from(format!("market-theme-action-{id}")))
-                .small()
-                .label(tr(if installed {
-                    "market_manage"
-                } else {
-                    "market_install"
-                }))
-                .disabled(!installed && (pending || selection.is_none()))
-                .loading(pending)
-                .on_click(cx.listener(move |state, _, window, cx| {
-                    cx.stop_propagation();
-                    if installed {
-                        window
-                            .dispatch_action(Box::new(crate::settings::OpenTheme(id.clone())), cx);
-                    } else if let Some(selection) = selection.clone() {
-                        state.install_theme(selection, window, cx);
-                    }
-                }));
+            let action = card::action(
+                format!("market-theme-action-{id}"),
+                card::Action::new(installed, false),
+                cx,
+            )
+            .size_6()
+            .disabled(installed || pending || selection.is_none())
+            .loading(pending && !installed)
+            .on_click(cx.listener(move |state, _, window, cx| {
+                cx.stop_propagation();
+                if installed {
+                    return;
+                }
+                if let Some(selection) = selection.clone() {
+                    state.install_theme(selection, window, cx);
+                }
+            }));
             cards.push(Self::theme_card(
                 entry.id.clone(),
                 entry.name.clone().into(),
-                entry
-                    .description(&rust_i18n::locale())
-                    .unwrap_or_default()
-                    .to_owned(),
                 preview,
                 action,
-                installed,
                 current,
                 cx,
             ));
@@ -293,11 +395,9 @@ impl Market {
     fn theme_card(
         id: String,
         name: SharedString,
-        description: String,
         preview: AnyElement,
         action: Button,
-        installed: bool,
-        current: bool,
+        selected: bool,
         cx: &Context<Self>,
     ) -> AnyElement {
         let target = id.clone();
@@ -309,7 +409,7 @@ impl Market {
             .overflow_hidden()
             .rounded(cx.theme().radius_lg)
             .border_1()
-            .border_color(if current {
+            .border_color(if selected {
                 cx.theme().primary
             } else {
                 cx.theme().border
@@ -324,7 +424,7 @@ impl Market {
                         div()
                             .relative()
                             .w_full()
-                            .aspect_ratio(16. / 10.)
+                            .aspect_ratio(PREVIEW_RATIO)
                             .flex_shrink_0()
                             .overflow_hidden()
                             .rounded_t(cx.theme().radius_lg)
@@ -337,33 +437,11 @@ impl Market {
                             .w_full()
                             .min_w_0()
                             .flex_shrink_0()
-                            .py_3()
-                            .px(px(14.))
-                            .gap_3()
+                            .p_3()
+                            .gap_2()
                             .items_center()
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .gap_1()
-                                    .child(div().text_sm().truncate().font_medium().child(name))
-                                    .when(!description.is_empty(), |view| {
-                                        view.child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .truncate()
-                                                .child(description),
-                                        )
-                                    }),
-                            )
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(card::status(installed))
-                                    .child(action.flex_shrink_0()),
-                            ),
+                            .child(div().flex_1().min_w_0().text_sm().truncate().child(name))
+                            .child(action.flex_shrink_0()),
                     ),
             )
             .on_click(cx.listener(move |state, _, window, cx| {
@@ -371,7 +449,7 @@ impl Market {
                 let market = cx.entity();
                 let target = target.clone();
                 window.defer(cx, move |window, cx| {
-                    details::themes::open(market, target, selection, window, cx)
+                    open(market, target, selection, window, cx)
                 });
             }))
             .into_any_element()
@@ -400,5 +478,22 @@ mod tests {
         ] {
             assert_eq!(column_count(px(width)), expected);
         }
+    }
+
+    #[test]
+    fn dialog_identity_owns_selection() {
+        let mut selection = Selection::default();
+        let first = EntityId::from(1);
+        let second = EntityId::from(2);
+        assert!(!selection.contains("default"));
+        selection.select("ink".into(), first);
+        assert!(selection.contains("ink"));
+        selection.select("paper".into(), second);
+        assert!(!selection.contains("ink"));
+        assert!(!selection.close(first));
+        assert!(selection.contains("paper"));
+        assert!(selection.close(second));
+        assert!(!selection.contains("paper"));
+        assert!(!selection.close(second));
     }
 }

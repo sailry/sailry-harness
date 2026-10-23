@@ -32,7 +32,6 @@ enum Target {
 }
 
 pub(crate) struct Details {
-    owner: WeakEntity<Workspace>,
     binding: Binding,
     target: Target,
     info: Option<Info>,
@@ -43,8 +42,6 @@ pub(crate) struct Details {
     error: Option<&'static str>,
     stop: CancellationToken,
     task: Option<Task<()>>,
-    removal: Option<Entity<dialog::Editor>>,
-    dialog: crate::ui::overlays::Owned,
 }
 
 impl Drop for Details {
@@ -152,14 +149,10 @@ fn mount(
                             .is_none_or(|live| live.binding.client.target() != node))
                 {
                     details.stop.cancel();
-                    if matches!(details.target, Target::Installed(_)) {
-                        details.dialog.close(window, cx);
-                    } else {
-                        window.dispatch_action(
-                            Box::new(super::super::CloseOwnedDetails(cx.entity_id())),
-                            cx,
-                        );
-                    }
+                    window.dispatch_action(
+                        Box::new(super::super::CloseOwnedDetails(cx.entity_id())),
+                        cx,
+                    );
                 }
             },
         )
@@ -171,7 +164,6 @@ fn mount(
             cx.observe(&market, |_, _, cx| cx.notify()).detach();
         }
         Details {
-            owner: owner.downgrade(),
             updates: update_state,
             tab: Tab::Overview,
             scroll: ScrollHandle::new(),
@@ -182,8 +174,6 @@ fn mount(
             error: None,
             stop,
             task: None,
-            removal: None,
-            dialog: Default::default(),
         }
     });
     details.update(cx, |_, cx| {
@@ -210,14 +200,10 @@ fn mount(
     if details.read(cx).info.is_none() {
         details.update(cx, |details, cx| details.load(cx));
     }
-    if matches!(details.read(cx).target, Target::Installed(_)) {
-        view::open(details.clone(), window, cx);
-    } else {
-        window.dispatch_action(
-            Box::new(super::super::OpenDetails(details.clone().into())),
-            cx,
-        );
-    }
+    window.dispatch_action(
+        Box::new(super::super::OpenDetails(details.clone().into())),
+        cx,
+    );
     details
 }
 
@@ -226,51 +212,12 @@ pub(super) fn dismiss(window: &mut Window, cx: &mut App) {
 }
 
 impl Details {
-    fn dismiss(&mut self, window: &mut Window, cx: &mut App) {
-        if matches!(self.target, Target::Installed(_)) {
-            self.dialog.close(window, cx);
-        } else {
-            dismiss(window, cx);
-        }
-    }
-
-    fn configure(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.stop.is_cancelled() || self.error.is_some() || self.pending(cx) {
-            return;
-        }
-        let Target::Installed(expected) = &self.target else {
-            return;
-        };
-        let Some(info) = self
-            .info
-            .clone()
-            .filter(super::super::extensions::modal::configurable)
-        else {
-            return;
-        };
-        if info.summary.reference() != expected.reference() {
-            return;
-        }
-        let Some(owner) = self.owner.upgrade() else {
-            return;
-        };
-        let binding = self.binding.clone();
-        self.stop.cancel();
-        self.dismiss(window, cx);
-        super::super::extensions::modal::open(owner, binding, info, window, cx);
-    }
-
     fn pending(&self, cx: &App) -> bool {
         self.updates.read(cx).pending_package(self.name())
-            || self
-                .removal
-                .as_ref()
-                .is_some_and(|editor| editor.read(cx).pending())
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.catalog_installed(cx).is_some() {
-            self.manage(window, cx);
             return;
         }
         if self.stop.is_cancelled() || !self.ready() || self.error.is_some() || self.pending(cx) {
@@ -294,47 +241,24 @@ impl Details {
         if self.external.is_some() {
             return;
         }
-        match &self.target {
-            Target::Installed(expected) => {
-                if let Some(editor) = &self.removal {
-                    editor.update(cx, |editor, cx| editor.prompt(window, cx));
-                    return;
-                }
-                let details = cx.weak_entity();
-                let editor = dialog::remove(
-                    self.binding.clone(),
-                    expected.clone(),
-                    window,
-                    cx,
-                    move |window, cx| {
-                        _ = details.update(cx, |details, cx| {
-                            if !details.stop.is_cancelled() {
-                                details.dismiss(window, cx);
-                            }
-                        });
-                    },
-                );
-                cx.observe(&editor, |_, _, cx| cx.notify()).detach();
-                self.removal = Some(editor);
-                cx.notify();
-            }
-            Target::Catalog {
-                market,
-                entry,
-                source,
-                ..
-            } => {
-                let Some(market) = market.upgrade() else {
-                    return;
-                };
-                let entry = entry.as_ref().clone();
-                let source = *source;
-                // Dismiss Details before acquisition opens its own dialog.
-                self.stop.cancel();
-                dismiss(window, cx);
-                market.update(cx, |market, cx| market.install(source, entry, window, cx));
-            }
-        }
+        let Target::Catalog {
+            market,
+            entry,
+            source,
+            ..
+        } = &self.target
+        else {
+            return;
+        };
+        let Some(market) = market.upgrade() else {
+            return;
+        };
+        let entry = entry.as_ref().clone();
+        let source = *source;
+        // Dismiss Details before acquisition opens its own dialog.
+        self.stop.cancel();
+        dismiss(window, cx);
+        market.update(cx, |market, cx| market.install(source, entry, window, cx));
     }
 
     fn catalog_installed(&self, cx: &App) -> Option<Summary> {
@@ -343,19 +267,6 @@ impl Details {
         };
         let market = market.upgrade()?;
         market.read(cx).installed(&entry.name, cx)
-    }
-
-    fn manage(&self, window: &mut Window, cx: &mut App) {
-        if let Some(summary) = self.catalog_installed(cx) {
-            window.dispatch_action(
-                Box::new(super::super::OpenManagement {
-                    node: self.binding.client.target(),
-                    name: summary.name,
-                    skill: None,
-                }),
-                cx,
-            );
-        }
     }
 
     fn name(&self) -> &str {

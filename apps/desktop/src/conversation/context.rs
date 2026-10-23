@@ -88,16 +88,7 @@ impl Shell {
             .child(div().flex_1())
             .when(
                 !self.conversations[&(host, self.session)].turns.is_empty(),
-                |bar| {
-                    bar.child(
-                        div()
-                            .opacity(0.)
-                            .group_hover(super::layout::composer_group(cx.entity_id()), |style| {
-                                style.opacity(1.)
-                            })
-                            .child(self.composer_usage(cx)),
-                    )
-                },
+                |bar| bar.child(self.composer_usage(cx)),
             )
     }
 

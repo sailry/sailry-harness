@@ -20,6 +20,7 @@ pub(super) struct Details {
     drafts: BTreeMap<String, bool>,
     stop: CancellationToken,
     dialog: crate::ui::overlays::Owned,
+    authorization: bool,
 }
 
 struct Checked {
@@ -102,6 +103,7 @@ pub(super) fn create(
             drafts: BTreeMap::new(),
             stop: CancellationToken::new(),
             dialog: Default::default(),
+            authorization: false,
         }
     })
 }

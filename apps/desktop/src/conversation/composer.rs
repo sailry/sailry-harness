@@ -167,7 +167,6 @@ impl Shell {
             Some(self.composer_context(cx).into_any_element()),
             Some(self.composer_references(cx).into_any_element()),
             false,
-            cx.entity_id(),
             cx,
         )
     }

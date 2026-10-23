@@ -46,6 +46,7 @@ fn merges_recovered_attempts_across_rebuilds() {
     let request = Request {
         id: RequestId::new().to_string(),
         turn,
+        turn_index: None,
         model: "fixture".into(),
         context_limit: None,
         timestamp_ms: 1,
@@ -152,6 +153,7 @@ fn merges_recovered_attempts_across_rebuilds() {
     assert_eq!(summary.composition[0].tokens, Some(9));
     let call = &summary.recent[0];
     assert_eq!(call.id, request.id);
+    assert_eq!(call.turn_index, Some(1));
     assert_eq!(
         call.attempts,
         vec![
@@ -190,4 +192,86 @@ fn merges_recovered_attempts_across_rebuilds() {
         );
     }
     assert_eq!(fixture.read(None, 20).page, page);
+}
+
+#[test]
+fn indexes_visible_rounds_before_limiting_requests() {
+    let mut fixture = Fixture::new();
+    let record = |turn| Request {
+        id: RequestId::new().to_string(),
+        turn,
+        // Current membership, not historical metadata, owns this projection.
+        turn_index: Some(999),
+        model: "fixture".into(),
+        context_limit: None,
+        timestamp_ms: 1,
+        boundary: None,
+        attempts: vec![attempt(1, Outcome::Succeeded)],
+    };
+    let first = fixture.queued();
+    complete(&mut fixture, first, [observed(&record(first)), response()]);
+    let source = fixture.session;
+    let other = fixture.fork(source, first);
+    fixture.session = other.id;
+    let unrelated = fixture.queued();
+    complete(&mut fixture, unrelated, [response()]);
+    fixture.session = source;
+    let second = fixture.queued();
+    let mut recovered = record(second);
+    recovered.attempts = vec![attempt(1, Outcome::Failed), attempt(2, Outcome::Succeeded)];
+    complete(
+        &mut fixture,
+        second,
+        [observed(&record(second)), observed(&recovered), response()],
+    );
+    let expected = super::super::super::read(&fixture.database.connection, source).unwrap();
+    assert_eq!(expected.turns, 2);
+    assert_eq!(expected.observations.calls, 3);
+    assert_eq!(
+        expected
+            .observations
+            .recent
+            .iter()
+            .map(|value| value.turn_index)
+            .collect::<Vec<_>>(),
+        [Some(1), Some(2), Some(2)]
+    );
+    let fork = fixture.fork(source, second);
+    history::rebuild(&mut fixture.database.connection).unwrap();
+    for session in [source, fork.id] {
+        assert_eq!(
+            super::super::super::read(&fixture.database.connection, session).unwrap(),
+            expected
+        );
+    }
+    let third = fixture.queued();
+    let events = (0..RECENT_LIMIT + 2)
+        .map(|_| observed(&record(third)))
+        .chain([response()]);
+    complete(&mut fixture, third, events);
+    let maintenance = fixture.queued();
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE turns SET kind='compaction' WHERE id=?1",
+            [maintenance.to_string()],
+        )
+        .unwrap();
+    complete(
+        &mut fixture,
+        maintenance,
+        [observed(&record(maintenance)), response()],
+    );
+    // An admitted task without history is not a recorded conversation round.
+    let _pending = fixture.queued();
+    let bounded = super::super::super::read(&fixture.database.connection, source).unwrap();
+    assert_eq!(bounded.turns, 3);
+    assert_eq!(bounded.observations.recent.len(), RECENT_LIMIT);
+    assert_eq!(bounded.observations.recent.last().unwrap().turn_index, None);
+    assert!(
+        bounded.observations.recent[..RECENT_LIMIT - 1]
+            .iter()
+            .all(|value| value.turn == third && value.turn_index == Some(3))
+    );
 }

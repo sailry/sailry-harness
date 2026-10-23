@@ -360,7 +360,7 @@ impl Ingress {
                     | sailry_protocol::Command::DiscoverSkills { .. }
                     | sailry_protocol::Command::DiscoverRegistrySkill { .. }
             ) {
-                return self.discover_skills(request).await;
+                return self.discover_skills(caller, request, internal).await;
             }
             if matches!(
                 request.command,

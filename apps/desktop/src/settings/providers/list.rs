@@ -64,7 +64,6 @@ impl Workspace {
 
     pub(super) fn provider_row(&self, channel: &Channel, cx: &mut Context<Self>) -> AnyElement {
         let id = channel.id;
-        let real = self.provider_link.is_some();
         let busy = self
             .provider_link
             .as_ref()
@@ -73,6 +72,12 @@ impl Workspace {
         let auth = AuthKind::of(channel, authentication);
         let expanded = self.providers.expanded == Some(id);
         let theme = cx.theme();
+        let subtitle = summary::subtitle(channel);
+        let subtitle = if self.provider_link.is_some() {
+            subtitle
+        } else {
+            format!("{} · {subtitle}", tr("preview")).into()
+        };
         let details = v_flex()
             .id(("provider-details", id))
             .debug_selector(move || format!("provider-details-{id}"))
@@ -84,32 +89,12 @@ impl Workspace {
             .when(!channel.enabled, |text| text.opacity(0.45))
             .on_click(cx.listener(move |this, _, _, cx| this.expand_provider(id, cx)))
             .child(
-                h_flex()
+                div()
+                    .debug_selector(move || format!("provider-name-{id}"))
                     .min_w_0()
-                    .gap_2()
-                    .child(
-                        div()
-                            .debug_selector(move || format!("provider-name-{id}"))
-                            .min_w_0()
-                            .truncate()
-                            .font_medium()
-                            .child(channel.name.clone()),
-                    )
-                    .child(
-                        Tag::secondary()
-                            .xsmall()
-                            .flex_shrink_0()
-                            .child(summary::badge(channel, auth)),
-                    )
-                    .when(!real, |line| {
-                        line.child(
-                            Tag::secondary()
-                                .xsmall()
-                                .outline()
-                                .flex_shrink_0()
-                                .child(tr("preview")),
-                        )
-                    }),
+                    .truncate()
+                    .font_medium()
+                    .child(channel.name.clone()),
             )
             .child(
                 div()
@@ -118,7 +103,7 @@ impl Workspace {
                     .truncate()
                     .text_sm()
                     .text_color(theme.muted_foreground)
-                    .child(channel.label()),
+                    .child(subtitle),
             );
         let summary = match Status::of(channel, authentication) {
             Some(status) => div()

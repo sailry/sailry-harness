@@ -6,7 +6,7 @@ use sailry_protocol::{
 };
 
 pub(super) struct Details {
-    market: WeakEntity<Market>,
+    target: Target,
     binding: Binding,
     entry: skillcatalog::Entry,
     resolved: Option<Resolved>,
@@ -17,6 +17,14 @@ pub(super) struct Details {
     stop: CancellationToken,
     task: Option<Task<()>>,
     scroll: ScrollHandle,
+}
+
+enum Target {
+    Catalog(WeakEntity<Market>),
+    Installed {
+        package: sailry_protocol::plugin::Reference,
+        version: Option<String>,
+    },
 }
 
 #[derive(Clone)]
@@ -61,7 +69,7 @@ pub(in crate::settings) fn open(
         });
         cx.observe(&market, |_, _, cx| cx.notify()).detach();
         Details {
-            market: market.downgrade(),
+            target: Target::Catalog(market.downgrade()),
             binding,
             entry,
             resolved: cached.as_ref().and_then(|cached| cached.resolved.clone()),
@@ -79,6 +87,87 @@ pub(in crate::settings) fn open(
         Box::new(super::super::super::OpenDetails(details.into())),
         cx,
     );
+}
+
+pub(in crate::settings) fn open_installed(
+    owner: Entity<Workspace>,
+    binding: Binding,
+    info: sailry_protocol::plugin::Info,
+    skill: sailry_protocol::plugin::Skill,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(provenance) = info.skill.as_ref() else {
+        return;
+    };
+    let (url, version) = match provenance {
+        protocol::Provenance::Git(source) => (Some(source.source.repository.clone()), None),
+        protocol::Provenance::Registry { registry } => (
+            Some(format!(
+                "https://skillhub.cn/skills/{}/{}",
+                registry.namespace, registry.slug
+            )),
+            Some(registry.version.clone()),
+        ),
+        protocol::Provenance::Imported { .. } => (None, None),
+    };
+    let entry = skillcatalog::Entry {
+        id: format!("{}:{}", info.summary.name, skill.name),
+        package: Some(info.summary.name.clone()),
+        name: skill.name,
+        display_name: skill.display_name,
+        icon: None,
+        display_locales: skill.display_locales,
+        description: Some(skill.description),
+        description_locales: Default::default(),
+        origin: crate::settings::skills::provenance(&info),
+        url,
+        source: None,
+        bundled: false,
+    };
+    let package = info.summary.reference();
+    let node = binding.client.target();
+    let details = cx.new(|cx| {
+        crate::feedback::observe(window, cx, |state: &Details, _| {
+            state.error.into_iter().collect()
+        });
+        cx.observe_in(
+            &owner,
+            window,
+            move |details: &mut Details, owner, window, cx| {
+                let workspace = owner.read(cx);
+                if workspace.section != crate::settings::Section::Skills
+                    || workspace
+                        .provider_link
+                        .as_ref()
+                        .is_none_or(|live| live.binding.client.target() != node)
+                {
+                    details.selection.cancel();
+                    details.stop.cancel();
+                    window.dispatch_action(
+                        Box::new(crate::settings::CloseOwnedDetails(cx.entity_id())),
+                        cx,
+                    );
+                }
+            },
+        )
+        .detach();
+        Details {
+            target: Target::Installed { package, version },
+            binding,
+            entry,
+            resolved: None,
+            document: None,
+            loading: false,
+            error: None,
+            selection: CancellationToken::new(),
+            stop: CancellationToken::new(),
+            task: None,
+            scroll: ScrollHandle::new(),
+        }
+    });
+    details.update(cx, |state, cx| state.load(cx));
+    window.dispatch_action(Box::new(crate::settings::OpenDetails(details.into())), cx);
 }
 
 fn candidate<'a>(
@@ -190,6 +279,13 @@ async fn read(
 }
 
 impl Details {
+    fn market(&self) -> Option<Entity<Market>> {
+        match &self.target {
+            Target::Catalog(market) => market.upgrade(),
+            Target::Installed { .. } => None,
+        }
+    }
+
     fn load(&mut self, cx: &mut Context<Self>) {
         if self.selection.is_cancelled() {
             return;
@@ -203,7 +299,26 @@ impl Details {
         let binding = self.binding.clone();
         let entry = self.entry.clone();
         let runtime = binding.runtime.clone();
-        let job = runtime.spawn(async move { read(&binding, &entry, &cancelled).await });
+        let package = match &self.target {
+            Target::Installed { package, .. } => Some(package.clone()),
+            Target::Catalog(_) => None,
+        };
+        let job = runtime.spawn(async move {
+            if let Some(package) = package {
+                tokio::select! {
+                    biased;
+                    _ = cancelled.cancelled() => None,
+                    result = binding.client.execute(binding.client.prepare(Command::ReadSkillDocument {
+                        source: protocol::DocumentSource::Installed { package, skill: entry.name },
+                    })) => Some(result.and_then(|output| match output {
+                        Output::SkillDocument(document) => Ok((None, Some(document))),
+                        _ => Err(Fault::new(sailry_protocol::ErrorCode::Internal, "unexpected skill document response")),
+                    })),
+                }
+            } else {
+                read(&binding, &entry, &cancelled).await
+            }
+        });
         self.task = Some(cx.spawn(async move |state, cx| {
             let result = job.await;
             _ = state.update(cx, |state, cx| {
@@ -213,7 +328,7 @@ impl Details {
                 state.loading = false;
                 match result {
                     Ok(Some(Ok((resolved, document)))) => {
-                        if let Some(market) = state.market.upgrade() {
+                        if let Some(market) = state.market() {
                             market.update(cx, |market, _| {
                                 market
                                     .skill_details
@@ -243,12 +358,15 @@ impl Details {
     }
 
     fn install(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(market) = self.market.upgrade() else {
+        let Some(market) = self.market() else {
             return;
         };
         let Some(owner) = market.read(cx).owner.upgrade() else {
             return;
         };
+        if market.read(cx).installed_skill(&self.entry, cx).is_some() {
+            return;
+        }
         let known = owner.read(cx).plugin_catalog.packages.clone();
         match &self.resolved {
             Some(Resolved::Git(discovery)) => {
@@ -268,52 +386,66 @@ impl Details {
             }
         }
     }
+
+    fn update(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(market) = self.market() else {
+            return;
+        };
+        let Some(current) = market.read(cx).installed_skill(&self.entry, cx) else {
+            return;
+        };
+        market.update(cx, |market, cx| {
+            market.update(&current.summary.name, window, cx)
+        });
+    }
 }
 
 impl Render for Details {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let installed = self.market.upgrade().is_some_and(|market| {
-            market.read(cx).owner.upgrade().is_some_and(|owner| {
-                owner
+        let current = self
+            .market()
+            .and_then(|market| market.read(cx).installed_skill(&self.entry, cx));
+        let installed = matches!(self.target, Target::Installed { .. }) || current.is_some();
+        let update = self.market().is_some_and(|market| {
+            current.as_ref().is_some_and(|current| {
+                market
                     .read(cx)
-                    .plugin_catalog
-                    .metadata
-                    .as_ref()
-                    .is_some_and(|metadata| {
-                        metadata
-                            .read(cx)
-                            .entries
-                            .values()
-                            .any(|info| super::super::skills::installed(&self.entry, info))
-                    })
+                    .updates
+                    .read(cx)
+                    .candidate(&current.summary)
+                    .is_some()
             })
         });
-        let connected = self
-            .market
-            .upgrade()
-            .is_some_and(|market| market.read(cx).connected(cx));
-        let action = (self.entry.source.is_some() || installed).then(|| {
-            Button::new("skill-details-install")
-                .small()
-                .primary()
-                .label(tr(if installed {
-                    "market_manage"
-                } else {
-                    "market_install"
-                }))
-                .disabled(!connected || !installed && (self.loading || self.error.is_some()))
-                .on_click(cx.listener(move |state, _, window, cx| {
-                    if installed {
-                        if let Some(market) = state.market.upgrade() {
-                            market.update(cx, |market, cx| {
-                                market.manage_skill(&state.entry, window, cx)
-                            });
-                        }
-                    } else {
-                        state.install(window, cx);
-                    }
-                }))
+        let updating = self.market().is_some_and(|market| {
+            market.read(cx).updates.read(cx).busy() || market.read(cx).updates.read(cx).selecting()
         });
+        let connected = self
+            .market()
+            .is_some_and(|market| market.read(cx).connected(cx));
+        let action = (matches!(self.target, Target::Catalog(_))
+            && (self.entry.source.is_some() || installed))
+            .then(|| {
+                Button::new("skill-details-install")
+                    .small()
+                    .primary()
+                    .label(tr(if update {
+                        "market_update"
+                    } else {
+                        "market_install"
+                    }))
+                    .disabled(
+                        !connected
+                            || installed && (!update || updating)
+                            || !installed && (self.loading || self.error.is_some()),
+                    )
+                    .on_click(cx.listener(move |state, _, window, cx| {
+                        if update {
+                            state.update(window, cx);
+                        } else if !installed {
+                            state.install(window, cx);
+                        }
+                    }))
+            });
         let summary = super::summary(
             self.document
                 .as_ref()
@@ -353,14 +485,19 @@ impl Render for Details {
             )
             .into_any_element(),
         ];
-        if let Some(Resolved::Registry(discovery)) = &self.resolved {
+        let version = match (&self.target, &self.resolved) {
+            (Target::Installed { version, .. }, _) => version.as_deref(),
+            (_, Some(Resolved::Registry(discovery))) => Some(discovery.source.version.as_str()),
+            _ => None,
+        };
+        if let Some(version) = version {
             information.push(
                 rows::row(
                     "skill-version".into(),
                     IconName::Tag,
                     tr("market_details_version"),
                     None,
-                    discovery.source.version.clone(),
+                    version.to_owned(),
                     cx,
                 )
                 .into_any_element(),

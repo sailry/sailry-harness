@@ -511,6 +511,11 @@ mod tests {
             exact(json!({"tokens":u64::MAX}))["tokens"],
             u64::MAX.to_string()
         );
+        assert_eq!(
+            exact(json!({"observations":{"recent":[{"turn_index":u64::MAX}]}}))["observations"]["recent"]
+                [0]["turn_index"],
+            u64::MAX.to_string()
+        );
     }
 
     #[test]

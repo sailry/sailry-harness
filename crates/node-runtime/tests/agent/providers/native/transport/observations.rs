@@ -18,6 +18,8 @@ async fn records_response_starts_on_both_transports() {
                 let statistics =
                     crate::observations::statistics(&fixture.client, fixture.session.id).await;
                 let observation = statistics.observations.recent.last().unwrap();
+                assert_eq!(observation.turn, turn);
+                assert_eq!(observation.turn_index, Some(index + 1));
                 let attempt = observation.attempts.last().unwrap();
                 let received = attempt.response_us.expect("API response receipt");
                 assert!(received <= attempt.first_text_us.unwrap());
@@ -59,6 +61,9 @@ async fn retains_receipts_without_changing_outcomes() {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let statistics = crate::observations::statistics(&fixture.client, fixture.session.id).await;
         let observation = statistics.observations.recent.last().unwrap();
+        assert_eq!(statistics.turns, 1);
+        assert_eq!(observation.turn, turn);
+        assert_eq!(observation.turn_index, Some(1));
         assert_eq!(observation.attempts.len(), 2);
         assert_eq!(observation.attempts[0].outcome, Outcome::Failed);
         assert!(observation.attempts[0].response_us.is_some());

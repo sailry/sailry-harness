@@ -30,14 +30,6 @@ impl AuthKind {
             Self::OAuth
         }
     }
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::OAuth => "provider_auth_oauth",
-            Self::ApiKey => "provider_auth_key",
-            Self::Plugin => "provider_auth_plugin",
-        }
-    }
 }
 
 /// Problems the list can prove from saved configuration alone.
@@ -99,17 +91,16 @@ pub(super) fn remaining(window: &quota::Window, now: u64) -> Option<f32> {
         .then(|| window.remaining_basis_points() as f32 / 100.)
 }
 
-/// Public account metadata replaces only the login badge, never an API key label.
-pub(super) fn badge(channel: &Channel, kind: AuthKind) -> gpui_kit::SharedString {
-    if kind != AuthKind::ApiKey
-        && let Some(label) = channel
-            .account_label
-            .as_ref()
-            .filter(|label| !label.is_empty())
+/// Scoped public account identity takes precedence over the existing channel type.
+pub(super) fn subtitle(channel: &Channel) -> gpui_kit::SharedString {
+    if let Some(label) = channel
+        .account_label
+        .as_ref()
+        .filter(|label| !label.trim().is_empty())
     {
         return label.clone().into();
     }
-    crate::tr(kind.key())
+    channel.label()
 }
 
 /// One usage column line; the remaining details appear on hover.

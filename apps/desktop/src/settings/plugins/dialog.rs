@@ -7,8 +7,6 @@ use sailry_protocol::{
 };
 pub(super) mod upload;
 
-type Removed = Box<dyn FnOnce(&mut Window, &mut App)>;
-
 pub(super) struct Editor {
     binding: Binding,
     original: Option<Summary>,
@@ -23,7 +21,6 @@ pub(super) struct Editor {
     request: Option<Request>,
     pending: bool,
     closed: bool,
-    on_removed: Option<Removed>,
     task: Option<Task<()>>,
 }
 
@@ -88,21 +85,6 @@ fn create(
     Some(result)
 }
 
-pub(super) fn remove(
-    binding: Binding,
-    original: Summary,
-    window: &mut Window,
-    cx: &mut App,
-    on_removed: impl FnOnce(&mut Window, &mut App) + 'static,
-) -> Entity<Editor> {
-    let editor = new(binding, Some(original), None, true, Vec::new(), cx);
-    editor.update(cx, |editor, cx| {
-        editor.on_removed = Some(Box::new(on_removed));
-        editor.prompt(window, cx);
-    });
-    editor
-}
-
 fn new(
     binding: Binding,
     original: Option<Summary>,
@@ -125,16 +107,11 @@ fn new(
         request: None,
         pending: false,
         closed: false,
-        on_removed: None,
         task: None,
     })
 }
 
 impl Editor {
-    pub(super) fn pending(&self) -> bool {
-        self.pending
-    }
-
     fn start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.loading || self.pending || self.request.is_some() || self.closed {
             return;
@@ -356,9 +333,6 @@ impl Editor {
                             }
                             editor.closed = true;
                             editor.request = None;
-                            if let Some(on_removed) = editor.on_removed.take() {
-                                on_removed(window, cx);
-                            }
                         }
                         Ok(Err(error)) => {
                             if !live::uncertain(&error) {

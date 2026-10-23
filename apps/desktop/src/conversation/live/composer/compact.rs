@@ -64,7 +64,7 @@ impl View {
             .into_any_element()
     }
 
-    pub(super) fn composer_settings(&self, cx: &App) -> AnyElement {
+    pub(super) fn composer_settings(&self) -> AnyElement {
         let panel = self.composer_settings.clone();
         let opening = panel.clone();
         let model = self.model_controls.clone();
@@ -74,7 +74,6 @@ impl View {
             .map(|config| config.permission)
             .or(self.draft_permission)
             .unwrap_or(sailry_protocol::Permission::Ask);
-        let full = current == sailry_protocol::Permission::Full;
         let mode = self.current_mode();
         let hint = format!(
             "{} · {} · {}",
@@ -91,18 +90,9 @@ impl View {
                     .ghost()
                     .flex_shrink_0()
                     .rounded_full()
-                    .icon(if full {
-                        permission::icon(current)
-                    } else {
-                        mode::icon(mode)
-                    })
-                    .when(full, |button| button.text_color(cx.theme().danger))
+                    .icon(IconName::Settings2)
                     .when(!self.icon_context, |button| {
-                        button.label(tr(if full {
-                            permission::label(current)
-                        } else {
-                            mode::label(mode)
-                        }))
+                        button.label(tr("composer_settings"))
                     })
                     .tooltip(hint.clone())
                     .accessibility_label(hint)

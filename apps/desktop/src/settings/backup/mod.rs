@@ -34,6 +34,7 @@ pub(super) struct Panel {
     stop: Option<CancellationToken>,
     generation: u64,
     editor: Option<Entity<editor::Editor>>,
+    storage: Option<Entity<editor::Editor>>,
     sessions: Vec<sailry_protocol::Session>,
     records_open: bool,
     error: Option<&'static str>,
@@ -91,6 +92,7 @@ impl Panel {
             stop: None,
             generation: 0,
             editor: None,
+            storage: None,
             sessions: Vec::new(),
             records_open: false,
             error: None,
@@ -102,6 +104,7 @@ impl Panel {
     fn deactivate(&mut self, cx: &mut Context<Self>) {
         self.active = false;
         self.editor = None;
+        self.storage = None;
         self.generation += 1;
         if let Some(stop) = self.stop.take() {
             stop.cancel();
