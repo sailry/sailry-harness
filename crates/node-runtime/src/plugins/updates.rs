@@ -79,7 +79,7 @@ impl Host {
             ));
         }
         let source = descend(root(worktree)?, &components(path, true)?)?;
-        let bytes = package::read(&source, "plugin.json", 64 * 1024)?
+        let bytes = package::read(&source, "plugin.json", manifest::MAX_BYTES)?
             .ok_or_else(|| sailry_protocol::Fault::invalid("plugin.json is required"))?;
         let manifest = manifest::parse(&bytes)?;
         if manifest.name != name {

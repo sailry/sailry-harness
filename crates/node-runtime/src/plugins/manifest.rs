@@ -9,6 +9,8 @@ mod cards;
 mod providers;
 
 pub(super) const SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+// Tool schemas, localized metadata and result projections share one manifest.
+pub(super) const MAX_BYTES: usize = 256 * 1024;
 const FIELDS: &[&str] = &[
     "$schema",
     "name",
@@ -31,6 +33,9 @@ pub(super) struct Manifest {
 }
 
 pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
+    if bytes.len() > MAX_BYTES {
+        return Err(Fault::invalid("plugin manifest exceeds its size limit"));
+    }
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|_| sailry_protocol::Fault::invalid("invalid plugin manifest JSON"))?;
     let object = value
@@ -319,7 +324,7 @@ mod tests {
         let value = json!({"$schema":SCHEMA, "name":"metadata", "version":"0.1.0".repeat(200),
             "description":"description ".repeat(600)});
         let bytes = serde_json::to_vec(&value).unwrap();
-        assert!(bytes.len() < 64 * 1024);
+        assert!(bytes.len() < MAX_BYTES);
         let manifest = parse(&bytes).unwrap();
         assert_eq!(manifest.version.as_deref(), value["version"].as_str());
         assert_eq!(
@@ -327,6 +332,18 @@ mod tests {
             value["description"].as_str()
         );
         assert!(manifest.issues.is_empty());
+    }
+
+    #[test]
+    fn enforces_byte_limit() {
+        let mut bytes = serde_json::to_vec(&json!({"$schema":SCHEMA,"name":"bounded"})).unwrap();
+        bytes.resize(MAX_BYTES, b' ');
+        assert_eq!(parse(&bytes).unwrap().name, "bounded");
+        bytes.push(b' ');
+        assert_eq!(
+            parse(&bytes).err().unwrap().code,
+            sailry_protocol::ErrorCode::InvalidRequest
+        );
     }
 
     #[test]

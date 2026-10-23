@@ -110,9 +110,10 @@ pub(super) fn inspect_root(
     stop: CancellationToken,
 ) -> Result<Info, Fault> {
     let directory = crate::files::path::root(&package_root(root, path, links)?)?;
-    let bytes = package::read(&directory, "plugin.json", 64 * 1024)?.ok_or_else(|| {
-        sailry_protocol::Fault::invalid("plugin.json is required at the selected directory")
-    })?;
+    let bytes =
+        package::read(&directory, "plugin.json", manifest::MAX_BYTES)?.ok_or_else(|| {
+            sailry_protocol::Fault::invalid("plugin.json is required at the selected directory")
+        })?;
     let mut tree = package::Tree::default();
     tree.stop = stop;
     tree.walk(&directory, None, "", 0)?;

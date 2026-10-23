@@ -89,7 +89,7 @@ fn inspect(
 }
 
 fn read(directory: &cap_std::fs::Dir, path: &str) -> Result<Option<serde_json::Value>, Fault> {
-    package::read(directory, path, 64 * 1024)?
+    package::read(directory, path, manifest::MAX_BYTES)?
         .map(|bytes| {
             serde_json::from_slice(&bytes)
                 .map_err(|_| Fault::invalid("invalid repository plugin metadata"))

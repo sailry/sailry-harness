@@ -215,11 +215,6 @@ fn parse(index: Index) -> Result<Data, Fault> {
         validate_name(&package.id)?;
         let bytes = serde_json::to_vec(&package.manifest)
             .map_err(|_| sailry_protocol::Fault::invalid("invalid official plugin manifest"))?;
-        if bytes.len() > 64 * 1024 {
-            return Err(sailry_protocol::Fault::invalid(
-                "official plugin manifest exceeds its size limit",
-            ));
-        }
         let manifest = manifest::parse(&bytes)?;
         if manifest.name != package.id
             || !manifest.issues.is_empty()

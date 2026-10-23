@@ -31,6 +31,37 @@ mod manifest_loading {
     use super::*;
 
     #[test]
+    fn enforces_byte_limit() {
+        let (_directory, host, source) = fixture();
+        let mut bytes = manifest("example").into_bytes();
+        bytes.resize(manifest::MAX_BYTES, b' ');
+        for oversized in [false, true] {
+            if oversized {
+                bytes.push(b' ');
+            }
+            fs::write(source.join("plugin.json"), &bytes).unwrap();
+            for result in [
+                host.inspect(
+                    &source,
+                    "",
+                    "example",
+                    sailry_link::CancellationToken::new(),
+                ),
+                host.install(&source, "", "example"),
+            ] {
+                if oversized {
+                    assert_eq!(
+                        result.unwrap_err().code,
+                        sailry_protocol::ErrorCode::InvalidRequest
+                    );
+                } else {
+                    assert_eq!(result.unwrap().summary.name, "example");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn validates_catalog_metadata() {
         for (icon, valid) in [
             ("dev.sailry.platform/icon.png", true),

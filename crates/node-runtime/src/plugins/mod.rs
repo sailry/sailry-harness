@@ -279,7 +279,7 @@ impl Host {
             ));
         }
         let source = descend(root(worktree)?, &components(path, true)?)?;
-        let bytes = package::read(&source, "plugin.json", 64 * 1024)?
+        let bytes = package::read(&source, "plugin.json", manifest::MAX_BYTES)?
             .ok_or_else(|| sailry_protocol::Fault::invalid("plugin.json is required"))?;
         let manifest = manifest::parse(&bytes)?;
         if manifest.name != name {
@@ -313,9 +313,10 @@ impl Host {
             let tree = write(&staged)?;
             let digest = tree.digest();
             // Parse the copied bytes, not a path that may have changed during staging.
-            let bytes = package::read(&staged, "plugin.json", 64 * 1024)?.ok_or_else(|| {
-                sailry_protocol::Fault::invalid("staged plugin manifest is unavailable")
-            })?;
+            let bytes =
+                package::read(&staged, "plugin.json", manifest::MAX_BYTES)?.ok_or_else(|| {
+                    sailry_protocol::Fault::invalid("staged plugin manifest is unavailable")
+                })?;
             let manifest = manifest::parse(&bytes)?;
             if manifest.name != name {
                 return Err(sailry_protocol::Fault::invalid(

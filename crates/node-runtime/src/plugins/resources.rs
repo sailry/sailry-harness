@@ -252,7 +252,8 @@ impl Host {
                 "admitted plugin package changed or is unavailable",
             ));
         }
-        let bytes = package::read(&directory, "plugin.json", 64 * 1024)?.ok_or_else(unavailable)?;
+        let bytes = package::read(&directory, "plugin.json", manifest::MAX_BYTES)?
+            .ok_or_else(unavailable)?;
         if manifest::parse(&bytes)?.name != reference.name {
             return Err(unavailable());
         }

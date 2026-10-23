@@ -132,7 +132,7 @@ pub(super) fn manifest(
         ));
     }
     let blob = fetched.repository.find_blob(entry.id()).map_err(failure)?;
-    if blob.size() > 64 * 1024 {
+    if blob.size() > manifest::MAX_BYTES {
         return Err(Fault::invalid("plugin manifest exceeds its size limit"));
     }
     Ok((blob.content().to_vec(), fetched.source.clone()))

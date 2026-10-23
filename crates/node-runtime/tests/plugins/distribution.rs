@@ -6,6 +6,74 @@ use std::sync::Arc;
 mod refresh;
 
 #[tokio::test]
+async fn loads_large_bundled_manifests() {
+    for remote in [false, true] {
+        let (_directory, node, controller, client, _) = fixture(remote).await;
+        for (name, bytes) in [
+            (
+                "files",
+                include_bytes!("../../../../plugins/files/plugin.json").as_slice(),
+            ),
+            (
+                "git",
+                include_bytes!("../../../../plugins/git/plugin.json").as_slice(),
+            ),
+        ] {
+            assert!(
+                bytes.len() > 64 * 1024,
+                "regression requires a large manifest"
+            );
+            let manifest: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            let expected: plugin::Extension =
+                serde_json::from_value(manifest["extensions"][plugin::NAMESPACE].clone()).unwrap();
+            let installed = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);
+            assert_eq!(installed.origin, Some(plugin::Origin::Bundled));
+            assert!(
+                installed.issues.is_empty(),
+                "{name}: {:?}",
+                installed.issues
+            );
+            assert_eq!(installed.extension.as_ref(), Some(&expected));
+            let Output::CatalogDetails(plugin::catalog::Details::Plugin(details)) = execute(
+                &client,
+                Command::ReadCatalogPluginInfo {
+                    source: plugin::catalog::Source::Official,
+                    id: name.into(),
+                    bundled: true,
+                },
+            )
+            .await
+            else {
+                panic!("catalog details expected");
+            };
+            assert_eq!(details.extension.as_ref(), Some(&expected));
+            let Output::PluginView(bundle) = execute(
+                &client,
+                Command::ReadPluginView {
+                    surface: plugin::desktop::Surface::Workspace,
+                    package: installed.summary.reference(),
+                },
+            )
+            .await
+            else {
+                panic!("plugin view expected");
+            };
+            assert!(bundle.valid());
+            assert_eq!(bundle.package, installed.summary.reference());
+            let desktop = expected.desktop.unwrap();
+            assert_eq!(bundle.entry, desktop.entry.unwrap());
+            assert_eq!(
+                bundle.files.len() + bundle.images.len(),
+                desktop.resources.len()
+            );
+            assert!(bundle.files.contains_key(&bundle.entry));
+        }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn catalog_preserves_localized_metadata() {
     let index: serde_json::Value =
         serde_json::from_str(include_str!("../../../../plugins/catalog.json")).unwrap();

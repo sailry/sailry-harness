@@ -1,6 +1,6 @@
 //! Skills and plugins share Git acquisition, without changing their package validators.
 use super::github::cancelled;
-use super::{Host, io_error};
+use super::{Host, io_error, manifest};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault,
@@ -168,7 +168,7 @@ fn manifest_archive(
     let mut entry = archive
         .by_name(&name)
         .map_err(|_| Fault::invalid("plugin.json is required"))?;
-    if entry.is_dir() || entry.is_symlink() || entry.size() > 64 * 1024 {
+    if entry.is_dir() || entry.is_symlink() || entry.size() > manifest::MAX_BYTES as u64 {
         return Err(Fault::invalid(
             "selected plugin manifest must be a bounded regular file",
         ));
@@ -180,7 +180,7 @@ fn manifest_archive(
     let mut bytes = Vec::new();
     entry
         .by_ref()
-        .take(64 * 1024 + 1)
+        .take(manifest::MAX_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| Fault::invalid("invalid plugin ZIP data"))?;
     if bytes.len() as u64 != size {
