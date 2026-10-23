@@ -81,10 +81,10 @@ impl Drop for Market {
 pub(super) fn create(
     owner: Entity<Workspace>,
     binding: crate::settings::providers::Binding,
+    themes: Entity<super::appearance::updates::State>,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Market> {
-    let themes = owner.read(cx).theme_updates.clone();
     let state = cx.new(|cx| {
         crate::feedback::observe(window, cx, |state: &Market, _| {
             state.error.into_iter().collect()

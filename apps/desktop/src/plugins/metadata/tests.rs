@@ -336,6 +336,140 @@ fn cache() -> Metadata {
     Metadata::new(Arc::new(Client::new(Reads::new(Vec::new()))), runtime)
 }
 
+fn connected(name: &str) -> Info {
+    let mut value = info(name);
+    value.extension = Some(serde_json::from_value(serde_json::json!({
+        "api_version": "v1", "connectors": [{
+            "id":"account", "display":{"label":"Account"}, "accounts":"single",
+            "origins":["https://example.com"], "auth":[{"kind":"secret","fields":["token"]}],
+            "fields":[{"name":"token","title":"Token","secret":true}],
+            "inject":[{"server":"server","header":"Authorization","field":"token","prefix":"Bearer "}]
+        }]
+    })).unwrap());
+    value.mcp = ["server", "anonymous"]
+        .map(|name| sailry_protocol::plugin::Mcp {
+            name: name.into(),
+            host: None,
+            transport: sailry_protocol::plugin::McpTransport::StreamableHttp,
+            allowed: true,
+            availability: sailry_protocol::plugin::mcp::Availability::Available,
+        })
+        .into();
+    value
+}
+
+#[test]
+fn invalidates_availability_at_unchanged_revisions() {
+    use sailry_protocol::plugin::mcp::Availability;
+    let mut cache = cache();
+    let github = connected("github");
+    let unrelated = connected("other");
+    cache.expected = vec![github.summary.clone(), unrelated.summary.clone()];
+    cache.entries = BTreeMap::from([
+        ("github".into(), github.clone()),
+        ("other".into(), unrelated.clone()),
+    ]);
+    let stale = cache.stop.child_token();
+    let unaffected = cache.stop.child_token();
+    for (summary, stop) in [
+        (github.summary.clone(), stale.clone()),
+        (unrelated.summary.clone(), unaffected.clone()),
+    ] {
+        cache.reads.insert(
+            summary.name.clone(),
+            Read {
+                expected: summary,
+                stop,
+                pending: true,
+                _task: None,
+            },
+        );
+    }
+    let expected = cache.reset(&BTreeSet::from(["github".into()]));
+    assert_eq!(expected, [github.summary.clone()]);
+    assert!(stale.is_cancelled());
+    assert!(!unaffected.is_cancelled());
+    assert!(!cache.reads.contains_key("github"));
+    assert!(cache.reads["other"].pending);
+    assert_eq!(cache.entries["other"], unrelated);
+    let projected = &cache.entries["github"];
+    assert_eq!(projected.summary, github.summary);
+    assert_eq!(projected.extension, github.extension);
+    assert_eq!(projected.mcp_source, github.mcp_source);
+    assert_eq!(projected.mcp[0].availability, Availability::Unavailable);
+    assert_eq!(projected.mcp[1].availability, Availability::Available);
+}
+
+#[test]
+fn rejects_reads_from_previous_authorization() {
+    use sailry_protocol::plugin::mcp::Availability;
+    let mut cache = cache();
+    let previous = connected("github");
+    cache.expected = vec![previous.summary.clone()];
+    cache.entries.insert("github".into(), previous.clone());
+    let stale = cache.stop.child_token();
+    cache.reads.insert(
+        "github".into(),
+        Read {
+            expected: previous.summary.clone(),
+            stop: stale.clone(),
+            pending: true,
+            _task: None,
+        },
+    );
+    assert_eq!(
+        cache.reset(&BTreeSet::from(["github".into()])),
+        [previous.summary.clone()]
+    );
+    let mut current = previous.clone();
+    current.mcp[0].availability = Availability::ConnectionRequired;
+    let fresh = cache.stop.child_token();
+    assert!(cache.apply(
+        Batch {
+            results: vec![("github".into(), Ok(current.clone()))],
+            diagnostics: Default::default(),
+            retrying: false,
+        },
+        &fresh
+    ));
+    assert!(!cache.apply(
+        Batch {
+            results: vec![("github".into(), Ok(previous))],
+            diagnostics: Default::default(),
+            retrying: false,
+        },
+        &stale
+    ));
+    assert_eq!(cache.entries["github"], current);
+}
+
+#[test]
+fn refreshes_pending_reads_and_retains_api_declarations() {
+    let mut cache = cache();
+    let pending = info("github");
+    let api = info("figma");
+    cache.expected = vec![pending.summary.clone(), api.summary.clone()];
+    cache.entries.insert("figma".into(), api.clone());
+    cache.errors.insert("github".into(), "plugins_read_failed");
+    let stale = cache.stop.child_token();
+    cache.reads.insert(
+        "github".into(),
+        Read {
+            expected: pending.summary.clone(),
+            stop: stale.clone(),
+            pending: true,
+            _task: None,
+        },
+    );
+    assert_eq!(
+        cache.reset(&BTreeSet::from(["github".into(), "figma".into()])),
+        [pending.summary]
+    );
+    assert!(stale.is_cancelled());
+    assert!(!cache.errors.contains_key("github"));
+    assert_eq!(cache.entries["figma"], api);
+}
+
 #[test]
 fn clears_only_recovered_errors() {
     let mut cache = cache();

@@ -2,7 +2,10 @@ use gpui_kit::*;
 use sailry_client::Client;
 use sailry_link::CancellationToken;
 use sailry_protocol::plugin::{Info, Reference, Summary};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 mod loading;
 #[cfg(test)]
@@ -63,7 +66,7 @@ pub(crate) fn description(info: &Info) -> Option<String> {
         .or_else(|| info.summary.description.clone())
 }
 
-/// Read-only presentation cache keyed by the authoritative Node summary.
+/// Presentation cache for immutable declarations and current Node availability.
 pub(crate) struct Metadata {
     client: Arc<Client>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -176,6 +179,45 @@ impl Metadata {
         self.retry(None, cx);
     }
 
+    pub(crate) fn invalidate(&mut self, packages: &BTreeSet<String>, cx: &mut Context<Self>) {
+        let expected = self.reset(packages);
+        self.load(expected, cx);
+    }
+
+    fn reset(&mut self, packages: &BTreeSet<String>) -> Vec<Summary> {
+        let expected = self
+            .expected
+            .iter()
+            .filter(|summary| packages.contains(&summary.name))
+            .filter(|summary| {
+                self.entries
+                    .get(&summary.name)
+                    .is_none_or(|info| info.summary != **summary || !info.mcp.is_empty())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for summary in &expected {
+            self.reads.remove(&summary.name);
+            self.errors.remove(&summary.name);
+            self.diagnostics.remove(&summary.name);
+            if let Some(info) = self.entries.get_mut(&summary.name) {
+                let bound = info
+                    .mcp
+                    .iter()
+                    .filter(|server| has_connector(info, &server.name))
+                    .map(|server| server.name.clone())
+                    .collect::<BTreeSet<_>>();
+                for server in &mut info.mcp {
+                    if bound.contains(&server.name) {
+                        server.availability =
+                            sailry_protocol::plugin::mcp::Availability::Unavailable;
+                    }
+                }
+            }
+        }
+        expected
+    }
+
     pub(super) fn retry(&mut self, name: Option<&str>, cx: &mut Context<Self>) {
         let retry: Vec<_> = self
             .errors
@@ -233,7 +275,11 @@ impl Metadata {
             })
             .cloned()
             .collect();
-        for expected in missing {
+        self.load(missing, cx);
+    }
+
+    fn load(&mut self, expected: Vec<Summary>, cx: &mut Context<Self>) {
+        for expected in expected {
             let client = self.client.clone();
             let stop = self.stop.child_token();
             let (sender, mut receiver) = tokio::sync::mpsc::channel(1);

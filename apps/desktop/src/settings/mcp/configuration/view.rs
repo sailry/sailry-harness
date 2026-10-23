@@ -1,6 +1,6 @@
 use super::*;
 use crate::theme::DialogStyle as _;
-use gpui_kit::component::{dialog::DialogFooter, input::Editor as CodeEditor};
+use gpui_kit::component::{Size, dialog::DialogFooter, input::Editor as CodeEditor};
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
     let active = editor.clone();
@@ -87,7 +87,19 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
 }
 
 impl Render for Editor {
-    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let document = self.document.read(cx);
+        // Kit's code editor exposes its measured rows; auto-grow is a textarea-only mode.
+        let rows = document
+            .display_map()
+            .wrap_row_count()
+            .max(document.text().len_lines(ropey::LineType::LF))
+            .max(4);
+        let line_height = document
+            .line_height()
+            .unwrap_or(cx.theme().mono_font_size * 1.5);
+        let height = (line_height * rows as f32 + Size::default().input_py() * 2.)
+            .min(window.viewport_size().height * 0.55);
         div()
             .id("mcp-configuration")
             .debug_selector(|| "mcp-configuration".into())
@@ -96,7 +108,7 @@ impl Render for Editor {
                     .debug_selector(|| "mcp-configuration-document".into())
                     .child(
                         CodeEditor::new(&self.document)
-                            .h(px(360.).min(window.viewport_size().height * 0.55))
+                            .h(height)
                             .readonly(self.locked())
                             .aria_label(tr("mcp_configuration")),
                     ),

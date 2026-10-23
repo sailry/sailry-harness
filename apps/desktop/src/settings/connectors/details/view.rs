@@ -276,7 +276,8 @@ impl Details {
         let checked = self
             .checks
             .get(&name)
-            .filter(|checked| checked.package == service.package);
+            .filter(|checked| checked.current(service))
+            .map(|checked| &checked.result);
         let tools = Group::new("plugins_tools")
             .empty(
                 IconName::Settings2,

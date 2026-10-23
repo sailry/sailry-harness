@@ -115,6 +115,7 @@ fn mount(
             dialog
                 .floating_surface(cx)
                 .w((window.viewport_size().width - px(48.)).min(px(520.)))
+                .max_h(window.viewport_size().height * 0.85)
                 .p_6()
         };
         dialog
@@ -507,7 +508,6 @@ impl Editor {
             .child(
                 v_flex()
                     .w_full()
-                    .min_h(px(300.))
                     .gap_3()
                     .child(content)
                     .when(registration, |element| {

@@ -12,12 +12,23 @@ pub(super) struct Details {
     binding: Binding,
     key: Option<catalog::Key>,
     package: String,
-    checks: BTreeMap<String, Check>,
+    checks: BTreeMap<String, Checked>,
     pending: BTreeSet<String>,
     requests: BTreeMap<String, Request>,
     drafts: BTreeMap<String, bool>,
     stop: CancellationToken,
     scroll: ScrollHandle,
+}
+
+struct Checked {
+    result: Check,
+    account: Option<Connection>,
+}
+
+impl Checked {
+    fn current(&self, service: &catalog::Service) -> bool {
+        self.result.package == service.package && self.account == service.account
+    }
 }
 
 impl Drop for Details {
@@ -93,7 +104,7 @@ impl Details {
             });
             if service.info.is_some() {
                 self.checks.retain(|server, checked| {
-                    checked.package == service.package
+                    checked.current(&service)
                         && service
                             .servers
                             .iter()
@@ -153,6 +164,7 @@ impl Details {
             return;
         }
         let package = service.package;
+        let account = service.account;
         let binding = self.binding.clone();
         let expected = package.clone();
         let name = server.name;
@@ -182,6 +194,17 @@ impl Details {
                     Ok(Some(Ok(Output::PluginMcpChecked(checked))))
                         if checked.package == expected && checked.server == name =>
                     {
+                        let checked = Checked {
+                            result: checked,
+                            account,
+                        };
+                        if details
+                            .service(cx)
+                            .is_none_or(|service| !checked.current(&service))
+                        {
+                            cx.notify();
+                            return;
+                        }
                         details.checks.insert(name, checked);
                         crate::feedback::toast(
                             window,

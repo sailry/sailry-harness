@@ -97,6 +97,20 @@ impl Service {
     }
 }
 
+pub(super) fn changed_accounts(
+    previous: &[Connection],
+    current: &[Connection],
+) -> BTreeSet<String> {
+    previous
+        .iter()
+        .filter(|account| current.iter().find(|other| other.id == account.id) != Some(*account))
+        .chain(current.iter().filter(|account| {
+            previous.iter().find(|other| other.id == account.id) != Some(*account)
+        }))
+        .map(|account| account.package.name.clone())
+        .collect()
+}
+
 pub(super) fn collect(
     types: &[Type],
     accounts: &[Connection],

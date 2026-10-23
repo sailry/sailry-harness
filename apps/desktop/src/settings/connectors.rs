@@ -199,6 +199,17 @@ impl Workspace {
                         }
                         match message {
                             Message::Rows(changes) => {
+                                let changed = catalog::changed_accounts(
+                                    &this.connectors.rows,
+                                    &changes.connections,
+                                );
+                                if !changed.is_empty()
+                                    && let Some(metadata) = &this.plugin_catalog.metadata
+                                {
+                                    metadata.update(cx, |metadata, cx| {
+                                        metadata.invalidate(&changed, cx)
+                                    });
+                                }
                                 this.connectors.rows = changes.connections;
                                 this.connectors.types = changes.types;
                                 commands::reconcile(

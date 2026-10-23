@@ -77,17 +77,19 @@ fn mount(
         crate::feedback::observe(window, cx, |editor: &Editor, _| {
             editor.submission.error.into_iter().collect()
         });
+        let document = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language("json")
+                .line_number(true)
+        });
+        cx.observe(&document, |_, _, cx| cx.notify()).detach();
         Editor {
             binding,
             owner: None,
             package: info.summary.reference(),
             server,
             original: None,
-            document: cx.new(|cx| {
-                EditorState::new(window, cx)
-                    .language("json")
-                    .line_number(true)
-            }),
+            document,
             loading: false,
             loaded: false,
             closed: false,

@@ -62,6 +62,7 @@ impl Workspace {
             self.plugin_catalog.market = Some(market::create(
                 cx.entity(),
                 self.provider_link.as_ref().unwrap().binding.clone(),
+                self.theme_updates.clone(),
                 window,
                 cx,
             ));

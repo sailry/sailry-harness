@@ -46,6 +46,51 @@ fn rejects_results_after_node_or_revision_changes() {
 }
 
 #[test]
+fn discards_checks_after_account_changes() {
+    let mut service = service();
+    let account: Connection = serde_json::from_value(serde_json::json!({
+        "id": sailry_protocol::RequestId::new(), "package": service.package,
+        "connector": "account", "method": "secret", "revision": 1,
+        "enabled": true, "state": "connected", "can_disconnect": true,
+        "identity": null, "expires_at_ms": null, "checked_at_ms": null,
+        "fields": {}, "configured": ["token"]
+    }))
+    .unwrap();
+    service.account = Some(account.clone());
+    let checked = Checked {
+        result: Check {
+            package: service.package.clone(),
+            server: "server".into(),
+            tools: Vec::new(),
+        },
+        account: Some(account.clone()),
+    };
+    assert!(checked.current(&service));
+    for changed in [
+        Connection {
+            revision: 2,
+            ..account.clone()
+        },
+        Connection {
+            enabled: false,
+            ..account.clone()
+        },
+        Connection {
+            state: connector::State::NotConnected,
+            ..account.clone()
+        },
+    ] {
+        service.account = Some(changed);
+        assert!(!checked.current(&service));
+    }
+    service.account = None;
+    assert!(!checked.current(&service));
+    service.account = Some(account);
+    service.package.settings_revision += 1;
+    assert!(!checked.current(&service));
+}
+
+#[test]
 fn permits_explicit_checks_before_agent_enablement() {
     let service = service();
     let mut server = Mcp {

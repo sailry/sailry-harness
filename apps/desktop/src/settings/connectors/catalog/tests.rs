@@ -73,6 +73,64 @@ fn directory(types: &[Type], accounts: &[Connection], infos: &[Info]) -> Vec<Ser
 }
 
 #[test]
+fn tracks_account_changes_without_package_revisions() {
+    let info = info("github", &["server"]);
+    let kind = kind(&info, "account", &["server"]);
+    let connected = account(&kind);
+    let mut disconnected = connected.clone();
+    disconnected.state = connector::State::NotConnected;
+    disconnected.configured.clear();
+    let package = BTreeSet::from(["github".into()]);
+    assert_eq!(
+        changed_accounts(&[disconnected.clone()], &[connected.clone()]),
+        package
+    );
+    assert_eq!(
+        changed_accounts(&[connected.clone()], &[disconnected]),
+        package
+    );
+    for changed in [
+        Connection {
+            revision: connected.revision + 1,
+            ..connected.clone()
+        },
+        Connection {
+            enabled: false,
+            ..connected.clone()
+        },
+        Connection {
+            state: connector::State::Expired,
+            ..connected.clone()
+        },
+    ] {
+        assert_eq!(changed_accounts(&[connected.clone()], &[changed]), package);
+    }
+}
+
+#[test]
+fn scopes_snapshots_to_changed_accounts() {
+    let github = info("github", &["server"]);
+    let figma = info("figma", &[]);
+    let accounts = [
+        account(&kind(&github, "account", &["server"])),
+        account(&kind(&figma, "account", &[])),
+    ];
+    assert!(changed_accounts(&accounts, &[accounts[1].clone(), accounts[0].clone()]).is_empty());
+    assert_eq!(
+        changed_accounts(&[], &accounts),
+        BTreeSet::from(["figma".into(), "github".into()])
+    );
+    assert_eq!(
+        changed_accounts(&accounts, &[accounts[1].clone()]),
+        BTreeSet::from(["github".into()])
+    );
+    assert_eq!(
+        changed_accounts(&[accounts[1].clone()], &accounts),
+        BTreeSet::from(["github".into()])
+    );
+}
+
+#[test]
 fn includes_api_services_before_login() {
     let infos = [info("google", &[]), info("figma", &[])];
     let types = infos
