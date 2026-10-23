@@ -110,16 +110,9 @@ impl super::Files {
         attachment: attachment::Attachment,
         stop: sailry_link::CancellationToken,
     ) -> Result<Vec<u8>, Fault> {
-        let permit = tokio::select! {
-            _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "attachment read cancelled")),
-            permit = tokio::time::timeout(std::time::Duration::from_secs(5), self.capacity.clone().acquire_owned()) => permit
-                .map_err(|_| Fault::new(ErrorCode::Busy, "attachment read capacity deadline exceeded"))?
-                .map_err(|_| Fault::new(ErrorCode::Unavailable, "attachment reader is unavailable"))?,
-        };
         let cancelled = stop.child_token();
         let _guard = cancelled.clone().drop_guard();
         let worker = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             let control = super::Control {
                 cancelled,
                 deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),

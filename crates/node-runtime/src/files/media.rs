@@ -13,13 +13,7 @@ impl Files {
         relative: String,
         stop: CancellationToken,
     ) -> Result<Vec<u8>, Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity exhausted"))?;
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             let control = Control {
                 cancelled: stop,
                 deadline: Instant::now() + Duration::from_secs(5),
@@ -44,13 +38,7 @@ impl Files {
         path: String,
         limit: u64,
     ) -> Result<Generated, Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "file write capacity exhausted"))?;
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             path::entry_components(&path)?;
             path::create_parents(&root, &path)?;
             Ok(Generated {
@@ -68,13 +56,7 @@ impl Files {
         bytes: Vec<u8>,
         stop: CancellationToken,
     ) -> Result<String, Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "file write capacity exhausted"))?;
         tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             if stop.is_cancelled() {
                 return Err(Fault::new(ErrorCode::Cancelled, "media save cancelled"));
             }

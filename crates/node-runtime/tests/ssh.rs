@@ -8,6 +8,8 @@ use sailry_protocol::{
 };
 use std::{sync::atomic::Ordering, time::Duration};
 
+#[path = "ssh/concurrency.rs"]
+mod concurrency;
 #[path = "ssh/server.rs"]
 mod server;
 

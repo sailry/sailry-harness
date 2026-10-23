@@ -12,7 +12,7 @@ fn spec() -> attachment::Spec {
 }
 
 #[tokio::test]
-async fn waits_for_capacity_and_cancels() {
+async fn reads_independent_attachments() {
     let temp = tempfile::tempdir().unwrap();
     let profile = temp.path().canonicalize().unwrap();
     let (attachment, target) = prepare(Some(&profile), spec()).unwrap();
@@ -20,18 +20,14 @@ async fn waits_for_capacity_and_cancels() {
         .write(&b""[..], 0, &attachment.spec.revision, &|_| {})
         .unwrap();
     let files = super::super::Files::new();
-    let permit = files.capacity.clone().acquire_many_owned(4).await.unwrap();
     let stop = sailry_link::CancellationToken::new();
-    let read = files.attachment(Some(profile.clone()), attachment.clone(), stop.clone());
-    tokio::pin!(read);
-    assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(10), &mut read)
-            .await
-            .is_err()
-    );
-    drop(permit);
-    assert!(read.await.unwrap().is_empty());
-    let _permit = files.capacity.clone().acquire_many_owned(4).await.unwrap();
+    let results = futures::future::join_all(
+        (0..8).map(|_| files.attachment(Some(profile.clone()), attachment.clone(), stop.clone())),
+    )
+    .await;
+    for result in results {
+        assert!(result.unwrap().is_empty());
+    }
     stop.cancel();
     assert_eq!(
         files

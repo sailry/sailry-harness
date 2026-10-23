@@ -42,20 +42,15 @@ use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::OpenOptions;
 use sailry_link::CancellationToken;
 use sailry_protocol::*;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 #[derive(Clone)]
 pub(crate) struct Files {
-    capacity: Arc<Semaphore>,
     ocr: Option<Arc<crate::ocr::Service>>,
 }
 
 impl Files {
     pub(crate) fn new() -> Self {
-        Self {
-            capacity: Arc::new(Semaphore::new(4)),
-            ocr: None,
-        }
+        Self { ocr: None }
     }
 
     pub(crate) fn with_ocr(mut self, ocr: Arc<crate::ocr::Service>) -> Self {
@@ -80,52 +75,21 @@ impl Files {
         closed: CancellationToken,
         access: Access,
     ) -> Result<Output, Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity exhausted"))?;
         let searching = matches!(
             &command,
             Command::FindFiles { .. } | Command::SearchFiles { .. }
         );
         let budget = Duration::from_secs(if searching { 20 } else { 5 });
-        self.inspect_permitted(
-            root,
-            command,
-            closed,
-            access,
-            permit,
-            Instant::now() + budget,
-        )
-        .await
-    }
-
-    pub(crate) async fn inspect_when_ready(
-        &self,
-        root: PathBuf,
-        command: Command,
-        closed: CancellationToken,
-    ) -> Result<Output, Fault> {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let permit = tokio::select! {
-            biased;
-            _ = closed.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "file read cancelled")),
-            permit = tokio::time::timeout(deadline.saturating_duration_since(Instant::now()), self.capacity.clone().acquire_owned()) => permit
-                .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity deadline exceeded"))?
-                .map_err(|_| Fault::new(ErrorCode::Unavailable, "file reader is unavailable"))?,
-        };
-        self.inspect_permitted(root, command, closed, Access::Restricted, permit, deadline)
+        self.inspect_until(root, command, closed, access, Instant::now() + budget)
             .await
     }
 
-    async fn inspect_permitted(
+    async fn inspect_until(
         &self,
         root: PathBuf,
         command: Command,
         closed: CancellationToken,
         access: Access,
-        permit: OwnedSemaphorePermit,
         deadline: Instant,
     ) -> Result<Output, Fault> {
         let cancelled = closed.child_token();
@@ -136,7 +100,6 @@ impl Files {
             Command::FindFiles { .. } | Command::SearchFiles { .. }
         );
         let worker = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             let control = Control {
                 cancelled,
                 deadline,
@@ -202,15 +165,9 @@ impl Files {
         expected: String,
         closed: CancellationToken,
     ) -> Result<String, Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity exhausted"))?;
         let cancelled = closed.child_token();
         let _guard = cancelled.clone().drop_guard();
         let worker = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             let control = Control {
                 cancelled,
                 deadline: Instant::now() + Duration::from_secs(5),
@@ -232,16 +189,10 @@ impl Files {
         offset: usize,
         closed: CancellationToken,
     ) -> Result<office::Inspection, Fault> {
-        let permit = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "file read capacity exhausted"))?;
         let cancelled = closed.child_token();
         let _guard = cancelled.clone().drop_guard();
         let ocr = self.ocr.clone();
         let worker = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             let control = Control::new(cancelled);
             control.check()?;
             let result =
@@ -397,6 +348,7 @@ pub(crate) fn io_error(error: std::io::Error) -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
 
     fn read_command() -> Command {
         Command::ReadFile {
@@ -405,93 +357,75 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn waits_for_read_capacity() {
-        let files = Files::new();
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().canonicalize().unwrap();
-        std::fs::write(root.join("AGENTS.md"), "Before release").unwrap();
-        let permit = files.capacity.clone().acquire_many_owned(4).await.unwrap();
-        let read = files.inspect_when_ready(root.clone(), read_command(), CancellationToken::new());
-        tokio::pin!(read);
-        tokio::select! {
-            biased;
-            result = &mut read => panic!("read did not wait for capacity: {result:?}"),
-            _ = tokio::task::yield_now() => {}
-        }
-        std::fs::write(root.join("AGENTS.md"), "After release").unwrap();
-        drop(permit);
-        let Output::FileContent(content) = read.await.unwrap() else {
-            panic!("file content expected");
-        };
-        assert_eq!(content.text, "After release");
-        assert_eq!(files.capacity.available_permits(), 4);
+    #[test]
+    fn admits_independent_reads() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let files = Files::new();
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().canonicalize().unwrap();
+            std::fs::write(root.join("AGENTS.md"), "Shared content").unwrap();
+            let (release, blocked) = std::sync::mpsc::channel();
+            let (entered, ready) = tokio::sync::oneshot::channel();
+            let blocker = tokio::task::spawn_blocking(move || {
+                entered.send(()).unwrap();
+                let _ = blocked.recv();
+            });
+            ready.await.unwrap();
+            let mut reads = (0..8)
+                .map(|_| files.inspect(root.clone(), read_command(), CancellationToken::new()))
+                .collect::<FuturesUnordered<_>>();
+            // All workers remain pending behind the runtime's blocking worker.
+            // Independent file requests must still be admitted together.
+            assert!(reads.next().now_or_never().is_none());
+            release.send(()).unwrap();
+            while let Some(result) = reads.next().await {
+                let Output::FileContent(content) = result.unwrap() else {
+                    panic!("file content expected");
+                };
+                assert_eq!(content.text, "Shared content");
+            }
+            blocker.await.unwrap();
+        });
     }
 
     #[tokio::test]
-    async fn cancels_queued_read() {
-        let files = Files::new();
-        let permit = files.capacity.clone().acquire_many_owned(4).await.unwrap();
-        let stop = CancellationToken::new();
-        let read = files.inspect_when_ready(PathBuf::new(), read_command(), stop.clone());
-        tokio::pin!(read);
-        tokio::select! {
-            biased;
-            result = &mut read => panic!("read did not wait for capacity: {result:?}"),
-            _ = tokio::task::yield_now() => {}
-        }
-        stop.cancel();
-        assert_eq!(read.await.unwrap_err().code, ErrorCode::Cancelled);
-        assert_eq!(files.capacity.available_permits(), 0);
-        drop(permit);
-        assert_eq!(files.capacity.available_permits(), 4);
-    }
-
-    #[tokio::test]
-    async fn expires_queued_read() {
-        let files = Files::new();
-        let permit = files.capacity.clone().acquire_many_owned(4).await.unwrap();
-        let read =
-            files.inspect_when_ready(PathBuf::new(), read_command(), CancellationToken::new());
-        tokio::pin!(read);
-        tokio::select! {
-            biased;
-            result = &mut read => panic!("read did not wait for capacity: {result:?}"),
-            _ = tokio::task::yield_now() => {}
-        }
-        let error = read.await.unwrap_err();
-        assert_eq!(error.code, ErrorCode::Busy);
-        assert_eq!(error.message, "file read capacity deadline exceeded");
-        assert_eq!(files.capacity.available_permits(), 0);
-        drop(permit);
-        assert_eq!(files.capacity.available_permits(), 4);
-    }
-
-    #[tokio::test]
-    async fn rejects_unavailable_reads() {
-        let files = Files::new();
-        let permit = files.capacity.clone().acquire_many_owned(4).await.unwrap();
-        let command = Command::ListDirectory {
-            worktree: WorktreeId::new(),
-            path: String::new(),
-            after: None,
-        };
-        assert_eq!(
-            files
-                .inspect(PathBuf::new(), command.clone(), CancellationToken::new())
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
-        );
-        drop(permit);
+    async fn rejects_closed_reads() {
         let closed = CancellationToken::new();
         closed.cancel();
         assert!(
-            files
-                .inspect(PathBuf::new(), command, closed)
+            Files::new()
+                .inspect(PathBuf::new(), read_command(), closed)
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn expires_pending_reads() {
+        let error = Files::new()
+            .inspect_until(
+                PathBuf::new(),
+                read_command(),
+                CancellationToken::new(),
+                Access::Restricted,
+                Instant::now() - Duration::from_secs(1),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Busy);
+        assert_eq!(error.message, "file read deadline exceeded");
+    }
+
+    #[test]
+    fn cancels_read_control() {
+        let stop = CancellationToken::new();
+        let control = Control::new(stop.clone());
+        stop.cancel();
+        assert_eq!(control.check().unwrap_err().code, ErrorCode::Cancelled);
     }
 }

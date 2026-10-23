@@ -16,7 +16,6 @@ impl Inputs {
     pub(crate) async fn stage(self, stop: CancellationToken) -> Result<tempfile::TempDir, Fault> {
         let cancelled = stop.child_token();
         let _guard = cancelled.clone().drop_guard();
-        // The command pool already holds its capacity permit; no independent task queue.
         tokio::task::spawn_blocking(move || {
             let control = super::super::Control {
                 cancelled,

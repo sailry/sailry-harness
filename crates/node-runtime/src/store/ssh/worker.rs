@@ -95,7 +95,7 @@ impl Worker {
         } else {
             None
         };
-        if cancellation.is_none() && (self.active.len() >= 8 || self.closed.is_cancelled()) {
+        if cancellation.is_none() && self.closed.is_cancelled() {
             return Err(Box::new(execution));
         }
         let stop = CancellationToken::new();

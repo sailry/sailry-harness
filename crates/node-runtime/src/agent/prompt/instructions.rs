@@ -94,7 +94,7 @@ pub(super) async fn read(
         return Err(cancelled());
     }
     let output = files
-        .inspect_when_ready(
+        .inspect(
             root.to_path_buf(),
             Command::ReadFile {
                 worktree,
