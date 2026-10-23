@@ -167,7 +167,7 @@ async fn correlates_recovery_without_logging_events() {
     let driver = async {
         receive(&mut receiver, |view| view.connected).await;
         for cursor in 1..=16 {
-            feed.changes.send_replace(Ok(Update::Event(EventEnvelope {
+            let _ = feed.changes.send_replace(Ok(Update::Event(EventEnvelope {
                 node: feed.node,
                 cursor,
                 event: Event::DefaultsChanged(Defaults {
@@ -182,19 +182,20 @@ async fn correlates_recovery_without_logging_events() {
             })
             .await;
         }
-        feed.changes.send_replace(Ok(Update::ResetRequired));
+        let _ = feed.changes.send_replace(Ok(Update::ResetRequired));
         receive(&mut receiver, |view| {
             view.snapshot
                 .as_ref()
                 .is_some_and(|snapshot| snapshot.cursor == 20)
         })
         .await;
-        feed.changes.send_replace(Err(Fault::new(
+        let _ = feed.changes.send_replace(Err(Fault::new(
             ErrorCode::Unavailable,
             "PRIVATE_CONNECTION_ERROR",
         )));
         receive(&mut receiver, |view| view.error.is_some()).await;
-        feed.changes
+        let _ = feed
+            .changes
             .send_replace(Ok(Update::Snapshot(snapshot(feed.node, 30))));
         receive(&mut receiver, |view| {
             view.connected
@@ -277,7 +278,7 @@ async fn correlates_recovery_without_logging_events() {
 #[tokio::test]
 async fn stops_after_authorization_failure() {
     let feed = Feed::new();
-    feed.changes.send_replace(Err(Fault::new(
+    let _ = feed.changes.send_replace(Err(Fault::new(
         ErrorCode::PermissionDenied,
         "PRIVATE_AUTH_ERROR",
     )));
