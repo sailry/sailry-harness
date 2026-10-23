@@ -4,8 +4,8 @@ use sailry_protocol::plugin::{Info, Mcp, Reference};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Member {
-    Account(String),
-    Server(String),
+    Account(connector::Id),
+    Mcp,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -34,33 +34,32 @@ impl Service {
         self.kind
             .as_ref()
             .map(|kind| title(&kind.declaration.display))
-            .or_else(|| {
-                self.info.as_ref().map(|info| {
-                    let label = crate::plugins::metadata::title(info);
-                    match &self.key.member {
-                        Member::Server(server) if info.mcp.len() > 1 => {
-                            format!("{label} · {server}")
-                        }
-                        _ => label,
-                    }
-                })
+            .or_else(|| self.info.as_ref().map(crate::plugins::metadata::title))
+            .unwrap_or_else(|| {
+                self.account
+                    .as_ref()
+                    .map(|account| account.connector.clone())
+                    .unwrap_or_else(|| self.package.name.clone())
             })
-            .unwrap_or_else(|| match &self.key.member {
-                Member::Account(id) | Member::Server(id) => id.clone(),
+    }
+
+    pub fn manual(&self) -> bool {
+        self.key.member == Member::Mcp
+    }
+
+    pub fn allowed(&self, server: &Mcp) -> bool {
+        // Only a canonically connected, disabled dedicated account is the old
+        // second switch. Missing, expired and pending authorization retain the
+        // server policy and expose their canonical reason separately.
+        server.allowed
+            && self.account.as_ref().is_none_or(|account| {
+                account.enabled || account.state != connector::State::Connected
             })
     }
 
     pub fn enabled(&self) -> bool {
         self.kind.as_ref().is_none_or(|kind| kind.enabled)
             && self.info.as_ref().is_none_or(|info| info.summary.enabled)
-    }
-
-    pub fn tools(&self) -> impl Iterator<Item = &sailry_protocol::tool::Declaration> {
-        self.info
-            .iter()
-            .flat_map(|info| &info.extension)
-            .flat_map(|extension| &extension.tools)
-            .filter(|tool| tool.server.is_none())
     }
 
     pub fn matches(&self, method: filter::Method, query: &str) -> bool {
@@ -117,83 +116,67 @@ pub(super) fn collect(
     metadata: &BTreeMap<String, Info>,
 ) -> Vec<Service> {
     let mut services = Vec::new();
-    for kind in types {
-        let info = metadata
-            .get(&kind.package.name)
-            .filter(|info| info.summary.reference() == kind.package);
+    for info in metadata.values().filter(|info| info.mcp_source.is_some()) {
+        let package = info.summary.reference();
+        let kind = types.iter().find(|kind| {
+            kind.package == package
+                && info.mcp.iter().any(|server| {
+                    crate::plugins::metadata::binds_server(&kind.declaration, &server.name)
+                })
+        });
         let account = accounts.iter().find(|account| {
-            account.package == kind.package && account.connector == kind.declaration.id
+            account.package.name == package.name
+                && kind.is_none_or(|kind| account.connector == kind.declaration.id)
         });
         services.push(Service {
             key: Key {
-                package: kind.package.name.clone(),
-                member: Member::Account(kind.declaration.id.clone()),
+                package: package.name.clone(),
+                member: Member::Mcp,
             },
-            package: kind.package.clone(),
-            kind: Some(kind.clone()),
+            package,
+            kind: kind.cloned(),
             account: account.cloned(),
+            info: Some(info.clone()),
+            servers: info.mcp.clone(),
+        });
+    }
+    for account in accounts {
+        // A custom MCP owns its dedicated authorization. Ordinary MCP
+        // declarations remain plugin capabilities, not connection instances.
+        if metadata
+            .get(&account.package.name)
+            .is_some_and(|info| info.mcp_source.is_some())
+        {
+            continue;
+        }
+        let kind = types.iter().find(|kind| {
+            kind.package.name == account.package.name && kind.declaration.id == account.connector
+        });
+        let package = kind
+            .map(|kind| kind.package.clone())
+            .unwrap_or_else(|| account.package.clone());
+        let info = metadata
+            .get(&package.name)
+            .filter(|info| info.summary.reference() == package);
+        services.push(Service {
+            key: Key {
+                package: package.name.clone(),
+                member: Member::Account(account.id),
+            },
+            package,
+            kind: kind.cloned(),
+            account: Some(account.clone()),
             info: info.cloned(),
             servers: info
                 .into_iter()
                 .flat_map(|info| &info.mcp)
                 .filter(|server| {
-                    crate::plugins::metadata::binds_server(&kind.declaration, &server.name)
+                    kind.is_some_and(|kind| {
+                        crate::plugins::metadata::binds_server(&kind.declaration, &server.name)
+                    })
                 })
                 .cloned()
                 .collect(),
-        });
-    }
-    for info in metadata.values() {
-        let package = info.summary.reference();
-        if types
-            .iter()
-            .any(|kind| kind.package.name == package.name && kind.package != package)
-        {
-            continue;
-        }
-        for server in &info.mcp {
-            if types.iter().any(|kind| {
-                kind.package == package
-                    && crate::plugins::metadata::binds_server(&kind.declaration, &server.name)
-            }) {
-                continue;
-            }
-            services.push(Service {
-                key: Key {
-                    package: package.name.clone(),
-                    member: Member::Server(server.name.clone()),
-                },
-                package: package.clone(),
-                kind: None,
-                account: None,
-                info: Some(info.clone()),
-                servers: vec![server.clone()],
-            });
-        }
-    }
-    // Removed declarations do not erase retained accounts or their management actions.
-    for account in accounts {
-        if services.iter().any(|service| {
-            service
-                .account
-                .as_ref()
-                .is_some_and(|current| current.id == account.id)
-        }) {
-            continue;
-        }
-        services.push(Service {
-            key: Key {
-                package: account.package.name.clone(),
-                member: Member::Account(account.connector.clone()),
-            },
-            package: account.package.clone(),
-            kind: None,
-            account: Some(account.clone()),
-            info: metadata
-                .get(&account.package.name)
-                .filter(|info| info.summary.reference() == account.package)
-                .cloned(),
-            servers: Vec::new(),
         });
     }
     services.sort_by_cached_key(|service| service.label().to_lowercase());

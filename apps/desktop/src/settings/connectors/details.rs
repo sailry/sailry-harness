@@ -1,4 +1,4 @@
-//! Service details compose existing account and MCP owners without probing on entry.
+//! Row actions retain the existing MCP command and uncertain-result ownership.
 use super::*;
 use sailry_protocol::{
     NodeId,
@@ -6,21 +6,16 @@ use sailry_protocol::{
 };
 
 mod menu;
-mod view;
 pub(super) use menu::controls;
 
 pub(super) struct Details {
     owner: WeakEntity<Workspace>,
     binding: Binding,
-    key: Option<catalog::Key>,
-    package: String,
-    checks: BTreeMap<String, Checked>,
+    key: catalog::Key,
     pending: BTreeSet<String>,
     requests: BTreeMap<String, Request>,
     drafts: BTreeMap<String, bool>,
     stop: CancellationToken,
-    dialog: crate::ui::overlays::Owned,
-    authorization: bool,
 }
 
 struct Checked {
@@ -40,70 +35,30 @@ impl Drop for Details {
     }
 }
 
-pub(super) fn open(
-    owner: Entity<Workspace>,
-    key: Option<catalog::Key>,
-    package: String,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let service = owner
-        .read(cx)
-        .service_catalog(cx)
-        .into_iter()
-        .find(|service| {
-            key.as_ref()
-                .map_or(service.package.name == package, |key| service.key == *key)
-        });
-    let details = if let Some(service) = service {
-        owner.update(cx, |workspace, cx| {
-            workspace.service_controller(&service, window, cx)
-        })
-    } else {
-        let Some(binding) = owner.read(cx).connectors.binding.clone() else {
-            return;
-        };
-        create(owner, binding, key, package, window, cx)
-    };
-    view::open(details, window, cx);
-}
-
 pub(super) fn create(
     owner: Entity<Workspace>,
     binding: Binding,
-    key: Option<catalog::Key>,
-    package: String,
+    key: catalog::Key,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Details> {
     cx.new(|cx| {
-        cx.observe_in(
-            &owner,
-            window,
-            |details: &mut Details, workspace, window, cx| {
-                if !details.active(cx) {
-                    details.stop.cancel();
-                    details.dialog.close(window, cx);
-                } else if workspace.read(cx).section != super::super::Section::Connectors {
-                    details.dialog.close(window, cx);
-                }
-                details.reconcile(cx);
-                cx.notify();
-            },
-        )
+        cx.observe_in(&owner, window, |details: &mut Details, _, _, cx| {
+            if !details.active(cx) {
+                details.stop.cancel();
+            }
+            details.reconcile(cx);
+            cx.notify();
+        })
         .detach();
         Details {
             owner: owner.downgrade(),
             binding,
-            package,
             key,
-            checks: BTreeMap::new(),
             pending: BTreeSet::new(),
             requests: BTreeMap::new(),
             drafts: BTreeMap::new(),
             stop: CancellationToken::new(),
-            dialog: Default::default(),
-            authorization: false,
         }
     })
 }
@@ -118,34 +73,12 @@ fn current(
 }
 
 impl Details {
-    fn loading(&self, cx: &App) -> bool {
-        let Some(owner) = self.owner.upgrade() else {
-            return false;
-        };
-        let owner = owner.read(cx);
-        owner.connectors.loading
-            || owner
-                .plugin_catalog
-                .metadata
-                .as_ref()
-                .is_some_and(|metadata| !metadata.read(cx).settled())
-    }
-
     fn reconcile(&mut self, cx: &App) {
         if let Some(service) = self.service(cx) {
             self.requests.retain(|server, request| {
                 self.pending.contains(server)
                     || matches!(&request.command, Command::SetPluginMcpAllowed { package, .. } if *package == service.package)
             });
-            if service.info.is_some() {
-                self.checks.retain(|server, checked| {
-                    checked.current(&service)
-                        && service
-                            .servers
-                            .iter()
-                            .any(|current| current.name == *server)
-                });
-            }
             retain_drafts(&mut self.drafts, &self.pending, &self.requests, &service);
         }
     }
@@ -168,13 +101,7 @@ impl Details {
             .read(cx)
             .service_catalog(cx)
             .into_iter()
-            .find(|service| {
-                self.key
-                    .as_ref()
-                    .map_or(service.package.name == self.package, |key| {
-                        service.key == *key
-                    })
-            })
+            .find(|service| service.key == self.key)
     }
 
     fn accepts(&self, package: &Reference, cx: &App) -> bool {
@@ -248,7 +175,6 @@ impl Details {
                             cx.notify();
                             return;
                         }
-                        details.checks.insert(name, checked);
                         crate::feedback::toast(
                             window,
                             tr("connector_checked"),
@@ -326,9 +252,8 @@ impl Details {
                 if !uncertain {
                     details.requests.remove(&name);
                 }
-                match result {
+                let error = match result {
                     Ok(Ok(Output::Plugin(info))) if info.summary.name == expected.name => {
-                        details.checks.remove(&name);
                         details.drafts.remove(&name);
                         crate::feedback::toast(
                             window,
@@ -336,11 +261,18 @@ impl Details {
                             notification::Notification::success(tr("connector_saved")),
                             cx,
                         );
+                        None
                     }
-                    Ok(Err(error)) => failure(error, window, cx),
-                    _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
-                }
+                    Ok(Err(error)) => Some(error),
+                    _ => Some(Fault::new(
+                        ErrorCode::OutcomeUnknown,
+                        "MCP policy result is unavailable",
+                    )),
+                };
                 details.reconcile(cx);
+                if let Some(error) = error {
+                    failure(error, window, cx);
+                }
                 details.notify_list(cx);
                 cx.notify();
             });
@@ -348,6 +280,28 @@ impl Details {
         .detach();
         self.notify_list(cx);
         cx.notify();
+    }
+
+    fn retry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(service) = self.service(cx) else {
+            return;
+        };
+        let Some((server, allowed)) = self.requests.values().find_map(|request| {
+            let Command::SetPluginMcpAllowed {
+                server, allowed, ..
+            } = &request.command
+            else {
+                return None;
+            };
+            service
+                .servers
+                .iter()
+                .find(|current| current.name == *server)
+                .map(|server| (server.clone(), *allowed))
+        }) else {
+            return;
+        };
+        self.set_allowed(server, allowed, window, cx);
     }
 
     fn configure(&self, info: Info, server: String, window: &mut Window, cx: &mut App) {
@@ -364,6 +318,15 @@ impl Details {
             );
         }
     }
+}
+
+fn checkable(service: &catalog::Service, server: &Mcp) -> bool {
+    use sailry_protocol::plugin::mcp::Availability;
+    service.enabled()
+        && matches!(
+            server.availability,
+            Availability::Available | Availability::ServerDisabled
+        )
 }
 
 fn same_toggle(request: &Request, expected: &Reference, name: &str, value: bool) -> bool {

@@ -4,6 +4,7 @@ mod commands;
 mod consent;
 mod details;
 mod editor;
+pub(in crate::settings) use editor::manage;
 mod filter;
 mod menu;
 use super::{Workspace, providers::Binding};
@@ -108,7 +109,16 @@ pub(in crate::settings) fn open_management(
     cx: &mut App,
 ) {
     owner.update(cx, |owner, cx| owner.warm_connectors(window, cx));
-    details::open(owner, None, info.summary.name, window, cx);
+    if info.mcp_source.is_some() {
+        if let (Some(binding), Some(server)) = (
+            owner.read(cx).connectors.binding.clone(),
+            info.mcp.first().map(|server| server.name.clone()),
+        ) {
+            super::mcp::configure_server(owner, binding, info, server, window, cx);
+        }
+    } else {
+        editor::manage(owner, info.summary.reference(), window, cx);
+    }
 }
 
 fn availability(value: sailry_protocol::plugin::mcp::Availability) -> Option<&'static str> {
@@ -130,6 +140,12 @@ fn status(service: &catalog::Service) -> Option<&'static str> {
     if !service.enabled() {
         return Some("connector_package_disabled");
     }
+    if service.manual() {
+        return service
+            .servers
+            .iter()
+            .find_map(|server| availability(server.availability));
+    }
     if let Some(account) = &service.account {
         if !account.enabled {
             return Some("connector_account_disabled");
@@ -138,6 +154,7 @@ fn status(service: &catalog::Service) -> Option<&'static str> {
             connector::State::NotConnected => return Some("connector_not_connected"),
             connector::State::Expired => return Some("connector_expired"),
             connector::State::NeedsConfirmation => return Some("connector_confirmation"),
+            connector::State::Connecting => return Some("provider_login_waiting"),
             connector::State::Failed => return Some("connector_failed"),
             _ => (),
         }
@@ -266,7 +283,15 @@ impl Workspace {
             .iter()
             .map(|service| service.key.clone())
             .collect::<BTreeSet<_>>();
-        self.connectors.services.retain(|key, _| keys.contains(key));
+        self.connectors.services.retain(|key, _| {
+            keys.contains(key)
+                || (key.member == catalog::Member::Mcp
+                    && self
+                        .plugin_catalog
+                        .packages
+                        .iter()
+                        .any(|package| package.name == key.package))
+        });
         let services = catalog
             .into_iter()
             .filter(|service| service.matches(method, &query))
@@ -407,14 +432,7 @@ impl Workspace {
             .binding
             .clone()
             .expect("service inventory is bound");
-        let controller = details::create(
-            cx.entity(),
-            binding,
-            Some(service.key.clone()),
-            service.package.name.clone(),
-            window,
-            cx,
-        );
+        let controller = details::create(cx.entity(), binding, service.key.clone(), window, cx);
         self.connectors
             .services
             .insert(service.key.clone(), controller.clone());
@@ -508,121 +526,6 @@ impl Workspace {
                     cx.stop_propagation();
                     this.connectors.focus.focus(window, cx);
                     this.service_context(&context, event.position, window, cx);
-                }),
-            )
-            .into_any_element()
-    }
-
-    fn connector_row(&self, row: &Connection, cx: &mut Context<Self>) -> AnyElement {
-        let declaration = self
-            .connectors
-            .types
-            .iter()
-            .find(|kind| {
-                kind.package.name == row.package.name && kind.declaration.id == row.connector
-            })
-            .map(|kind| &kind.declaration);
-        let label = declaration
-            .map(|declaration| title(&declaration.display))
-            .unwrap_or_else(|| row.connector.clone());
-        let account = row
-            .identity
-            .as_ref()
-            .map(|identity| identity.name.clone())
-            .unwrap_or_default();
-        let status = match row.state {
-            connector::State::NotConnected => Some("connector_not_connected"),
-            connector::State::Expired => Some("connector_expired"),
-            connector::State::NeedsConfirmation => Some("connector_confirmation"),
-            connector::State::Failed => Some("connector_failed"),
-            _ => None,
-        };
-        let row_id = row.id.to_string();
-        let node = self
-            .connectors
-            .binding
-            .as_ref()
-            .map(|binding| binding.client.target());
-        let command = Command::SetConnectionEnabled {
-            connection: row.id,
-            expected_revision: row.revision,
-            enabled: !row.enabled,
-        };
-        let icon = declaration
-            .and_then(|declaration| declaration.display.icon.as_ref())
-            .map(crate::assets::icons::icon)
-            .unwrap_or_else(|| Icon::new(gpui_kit::assets::IconName::Plug));
-        let text = v_flex()
-            .min_w_0()
-            .flex_1()
-            .gap_1()
-            .child(
-                h_flex()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .child(div().truncate().child(label.clone()))
-                    .when(!account.is_empty(), |element| {
-                        element.child(Tag::secondary().child(account).xsmall().flex_shrink_0())
-                    })
-                    .when_some(status, |element, key| {
-                        element.child(Tag::new().child(tr(key)).xsmall().flex_shrink_0())
-                    }),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(tr(filter::key(row.method))),
-            );
-        let content = super::entry::Entry::new(
-            row_id.clone(),
-            h_flex()
-                .gap_3()
-                .items_center()
-                .child(crate::plugins::emblem::surface(&label, None, px(36.)).child(icon.size_5()))
-                .child(text),
-        )
-        .control(
-            h_flex()
-                .gap_2()
-                .when(
-                    row.state == connector::State::Connecting
-                        || self.connectors.pending.contains(&row.id),
-                    |element| element.child(Spinner::new().small()),
-                )
-                .child(
-                    Switch::new(format!("connector-enabled-{row_id}"))
-                        .checked(row.enabled)
-                        .accessibility_label(tr("connector_account_enabled"))
-                        .disabled(
-                            row.state == connector::State::Connecting
-                                || self.connectors.pending.contains(&row.id),
-                        )
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            if node.is_some()
-                                && this
-                                    .provider_link
-                                    .as_ref()
-                                    .map(|live| live.binding.client.target())
-                                    == node
-                            {
-                                this.connector_command(command.clone(), window, cx);
-                            }
-                        })),
-                )
-                .child(self.connector_menu(row, cx)),
-        );
-        let row = row.clone();
-        div()
-            .id(SharedString::from(format!("connector-context-{row_id}")))
-            .child(content)
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    cx.stop_propagation();
-                    this.connectors.focus.focus(window, cx);
-                    this.connector_context(&row, event.position, window, cx);
                 }),
             )
             .into_any_element()

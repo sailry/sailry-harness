@@ -352,31 +352,25 @@ impl RenderOnce for Authorization {
             .code()
             .map(|(code, dim)| Self::render_code(code, dim, cx));
         let status = self.status(window, cx);
-        let (secondary, primary) = self.actions();
+        let (secondary, mut primary) = self.actions();
+        let links = secondary
+            .into_iter()
+            .chain(
+                matches!(self.flow, Flow::Device { .. } | Flow::Browser { .. })
+                    .then(|| primary.take())
+                    .flatten(),
+            )
+            .collect::<Vec<_>>();
         let theme = cx.theme();
         let busy = self.busy;
         let cancelling = self.cancelling;
-        // Browser flows replace the cancel button with Copy link; dismissal stays on the close button.
-        let secondary = secondary.map_or_else(
-            || {
-                Button::new("authorization-cancel")
-                    .debug_selector(|| "authorization-cancel".into())
-                    .flex_1()
-                    .loading(cancelling)
-                    .disabled(cancelling)
-                    .label(tr("authorization_cancel"))
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(dialog::Cancel), cx);
-                    })
-            },
-            |(key, handler)| {
-                Button::new("authorization-secondary")
-                    .debug_selector(|| "authorization-secondary".into())
-                    .flex_1()
-                    .label(tr(key))
-                    .on_click(move |_, window, cx| handler(window, cx))
-            },
-        );
+        let cancel = Button::new("authorization-cancel")
+            .debug_selector(|| "authorization-cancel".into())
+            .flex_1()
+            .loading(cancelling)
+            .disabled(cancelling)
+            .label(tr("authorization_cancel"))
+            .on_click(|_, window, cx| window.dispatch_action(Box::new(dialog::Cancel), cx));
         v_flex()
             .id("authorization")
             .debug_selector(|| "authorization".into())
@@ -425,12 +419,32 @@ impl RenderOnce for Authorization {
             .when_some(self.extra.take(), |body, extra| {
                 body.child(div().mt_4().w_full().child(extra))
             })
+            .when(!links.is_empty(), |body| {
+                body.child(
+                    h_flex()
+                        .mt_3()
+                        .gap_2()
+                        .children(
+                            links
+                                .into_iter()
+                                .enumerate()
+                                .map(|(index, (key, handler))| {
+                                    Button::new(("authorization-link", index))
+                                        .ghost()
+                                        .small()
+                                        .label(tr(key))
+                                        .disabled(cancelling)
+                                        .on_click(move |_, window, cx| handler(window, cx))
+                                }),
+                        ),
+                )
+            })
             .child(
                 h_flex()
                     .mt(px(22.))
                     .w_full()
                     .gap_2()
-                    .child(secondary)
+                    .child(cancel)
                     .when_some(primary, |row, (key, handler)| {
                         row.child(
                             Button::new("authorization-primary")

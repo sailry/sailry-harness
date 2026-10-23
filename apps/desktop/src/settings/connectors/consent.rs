@@ -19,6 +19,43 @@ pub(super) fn detail(connection: &Connection) -> String {
     detail
 }
 
+pub(super) fn confirm(
+    owner: Entity<Workspace>,
+    node: sailry_protocol::NodeId,
+    account: Connection,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let command = Command::ConfirmConnectorConsent {
+        connection: account.id,
+        expected_revision: account.revision,
+        accept: true,
+    };
+    crate::prompts::confirm(
+        &tr("connector_confirmation"),
+        &detail(&account),
+        tr("connector_confirm"),
+        window,
+        cx,
+        move |window, cx| {
+            owner.update(cx, |owner, cx| {
+                if owner
+                    .provider_link
+                    .as_ref()
+                    .is_some_and(|live| live.binding.client.target() == node)
+                    && owner
+                        .connectors
+                        .binding
+                        .as_ref()
+                        .is_some_and(|binding| binding.client.target() == node)
+                {
+                    owner.connector_command(command.clone(), window, cx);
+                }
+            });
+        },
+    );
+}
+
 fn difference(change: &Change) -> String {
     let (key, values) = match change {
         Change::Origins { previous, current } => (

@@ -36,59 +36,24 @@ fn fixture(method: Kind, fields: bool) -> (Connection, Type) {
 }
 
 #[test]
-fn configures_credentials_without_extra_authorization() {
-    for method in [Kind::Secret, Kind::Application] {
-        let (row, kind) = fixture(method, true);
+fn uses_one_management_menu_for_every_method() {
+    for method in [
+        Kind::Secret,
+        Kind::Application,
+        Kind::Oauth2,
+        Kind::McpOauth,
+        Kind::LocalCli,
+    ] {
+        let (row, kind) = fixture(method, false);
         assert_eq!(
             items(&row, Some(&kind)),
             [
                 Item::Action(Operation::Edit, "connector_configure"),
                 Item::Action(Operation::Probe, "connector_probe"),
-                Item::Separator,
-                Item::Action(Operation::Disconnect, "connector_disconnect"),
-                Item::Action(Operation::Remove, "settings_delete"),
+                Item::Action(Operation::Remove, "connector_remove"),
             ]
         );
     }
-}
-
-#[test]
-fn separates_configuration_from_authorization() {
-    for method in [Kind::Oauth2, Kind::McpOauth, Kind::LocalCli] {
-        let (row, kind) = fixture(method, true);
-        assert_eq!(
-            items(&row, Some(&kind)),
-            [
-                Item::Action(Operation::Edit, "connector_configure"),
-                Item::Action(
-                    if method == Kind::LocalCli {
-                        Operation::Bind
-                    } else {
-                        Operation::Reconnect
-                    },
-                    if method == Kind::LocalCli {
-                        "connector_bind"
-                    } else {
-                        "connector_authorize"
-                    }
-                ),
-                Item::Action(Operation::Probe, "connector_probe"),
-                Item::Separator,
-                Item::Action(Operation::Disconnect, "connector_disconnect"),
-                Item::Action(Operation::Remove, "settings_delete"),
-            ]
-        );
-    }
-    let (row, kind) = fixture(Kind::LocalCli, false);
-    assert_eq!(
-        items(&row, Some(&kind))[0],
-        Item::Action(Operation::Bind, "connector_bind")
-    );
-    let (row, mut kind) = fixture(Kind::LocalCli, true);
-    kind.declaration.fields[0].secret = true;
-    assert!(
-        !items(&row, Some(&kind)).contains(&Item::Action(Operation::Edit, "connector_configure"))
-    );
 }
 
 #[test]
@@ -105,10 +70,6 @@ fn checks_only_backend_supported_states() {
             State::NeedsConfirmation,
         ] {
             row.state = state;
-            row.can_disconnect = matches!(
-                state,
-                State::Connected | State::Failed | State::Expired | State::NeedsConfirmation
-            );
             let expected =
                 enabled && matches!(state, State::Connected | State::Failed | State::Expired);
             assert_eq!(checkable(&row), expected, "{enabled}/{state:?}");
@@ -117,62 +78,37 @@ fn checks_only_backend_supported_states() {
                 actions.contains(&Item::Action(Operation::Probe, "connector_probe")),
                 expected
             );
-            if state == State::Connecting {
-                assert!(actions.is_empty());
-            } else {
-                assert!(actions.contains(&Item::Action(Operation::Edit, "connector_configure")));
-                assert_eq!(
-                    actions.contains(&Item::Action(Operation::Disconnect, "connector_disconnect")),
-                    row.can_disconnect
-                );
-            }
+            assert!(actions.contains(&Item::Action(Operation::Edit, "connector_configure")));
+            assert!(actions.contains(&Item::Action(Operation::Remove, "connector_remove")));
         }
     }
 }
 
 #[test]
-fn prioritizes_required_consent() {
-    let (mut row, kind) = fixture(Kind::Oauth2, true);
-    row.state = State::NeedsConfirmation;
+fn keeps_disabled_configuration_accessible() {
+    let (row, mut kind) = fixture(Kind::McpOauth, false);
+    kind.enabled = false;
     assert_eq!(
         items(&row, Some(&kind)),
         [
-            Item::Action(Operation::Confirm, "connector_confirm"),
             Item::Action(Operation::Edit, "connector_configure"),
-            Item::Separator,
-            Item::Action(Operation::Disconnect, "connector_disconnect"),
-            Item::Action(Operation::Remove, "settings_delete"),
+            Item::Action(Operation::Remove, "connector_remove"),
         ]
-    );
-    row.can_disconnect = false;
-    assert!(
-        !items(&row, Some(&kind))
-            .contains(&Item::Action(Operation::Disconnect, "connector_disconnect"))
     );
 }
 
 #[test]
-fn hides_unavailable_recovery_actions() {
+fn removes_orphans_without_disconnecting_other_accounts() {
     let (mut row, _) = fixture(Kind::Secret, false);
     row.state = State::NotConnected;
+    row.can_disconnect = true;
+    assert_eq!(
+        items(&row, None),
+        [Item::Action(Operation::Remove, "connector_remove")]
+    );
     row.can_disconnect = false;
     assert_eq!(
         items(&row, None),
-        [Item::Action(Operation::Remove, "settings_delete")]
-    );
-}
-
-#[test]
-fn disconnects_retained_credentials_without_a_connection() {
-    let (mut row, kind) = fixture(Kind::Oauth2, true);
-    row.state = State::NotConnected;
-    assert!(
-        items(&row, Some(&kind))
-            .contains(&Item::Action(Operation::Disconnect, "connector_disconnect"))
-    );
-    row.can_disconnect = false;
-    assert!(
-        !items(&row, Some(&kind))
-            .contains(&Item::Action(Operation::Disconnect, "connector_disconnect"))
+        [Item::Action(Operation::Remove, "connector_remove")]
     );
 }

@@ -1,4 +1,4 @@
-//! List controls reuse the account and server command owners.
+//! One set of row controls routes to the existing account and MCP command owners.
 use super::*;
 use gpui_kit::component::{
     menu::{DropdownMenu, PopupMenuItem},
@@ -9,7 +9,6 @@ use gpui_kit::component::{
 enum Operation {
     Configure,
     Check,
-    Authorize,
     Remove,
 }
 
@@ -24,95 +23,66 @@ pub(in crate::settings::connectors) struct Dispatch {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Item {
-    Account(super::super::menu::Operation, &'static str),
+    Account(super::super::menu::Operation, &'static str, bool),
     Service(Operation, &'static str, bool),
-    Separator,
+}
+
+impl Item {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Account(_, label, _) | Self::Service(_, label, _) => label,
+        }
+    }
+
+    fn enabled(self) -> bool {
+        match self {
+            Self::Account(_, _, enabled) | Self::Service(_, _, enabled) => enabled,
+        }
+    }
 }
 
 fn items(service: &catalog::Service) -> Vec<Item> {
-    let mut entries = Vec::new();
-    if !service.servers.is_empty() {
-        entries.push(Item::Service(
-            Operation::Configure,
-            "connector_configure",
-            service.info.is_some(),
-        ));
-    } else if let Some(account) = &service.account
-        && super::super::menu::items(account, service.kind.as_ref()).contains(
-            &super::super::menu::Item::Action(
-                super::super::menu::Operation::Edit,
+    if service.manual() {
+        return vec![
+            Item::Service(
+                Operation::Configure,
                 "connector_configure",
+                service.info.is_some(),
             ),
-        )
-    {
-        entries.push(Item::Account(
-            super::super::menu::Operation::Edit,
-            "connector_configure",
-        ));
-    }
-    let mut connection = Vec::new();
-    if !service.servers.is_empty() {
-        connection.push(Item::Service(
-            Operation::Check,
-            "connector_probe",
-            service
-                .servers
-                .iter()
-                .any(|server| view::checkable(service, server)),
-        ));
-    } else if let Some(account) = &service.account
-        && super::super::menu::items(account, service.kind.as_ref()).contains(
-            &super::super::menu::Item::Action(
-                super::super::menu::Operation::Probe,
+            Item::Service(
+                Operation::Check,
                 "connector_probe",
+                service
+                    .servers
+                    .iter()
+                    .any(|server| checkable(service, server)),
             ),
+            Item::Service(
+                Operation::Remove,
+                "connector_remove",
+                service.info.is_some(),
+            ),
+        ];
+    }
+    let Some(account) = &service.account else {
+        return Vec::new();
+    };
+    use super::super::menu::{Item as Entry, Operation as Account};
+    let available = super::super::menu::items(account, service.kind.as_ref());
+    [
+        (Account::Edit, "connector_configure"),
+        (Account::Probe, "connector_probe"),
+        (Account::Remove, "connector_remove"),
+    ]
+    .into_iter()
+    .map(|(operation, label)| {
+        Item::Account(
+            operation,
+            label,
+            available.contains(&Entry::Action(operation, label)),
         )
-    {
-        connection.push(Item::Account(
-            super::super::menu::Operation::Probe,
-            "connector_probe",
-        ));
-    }
-    if service.account.is_some()
-        || service
-            .kind
-            .as_ref()
-            .is_some_and(|kind| !kind.declaration.auth.is_empty())
-    {
-        connection.push(Item::Service(
-            Operation::Authorize,
-            "connector_authorize",
-            service.account.is_some() || service.enabled(),
-        ));
-    }
-    append(&mut entries, connection);
-    if service
-        .info
-        .as_ref()
-        .is_some_and(|info| info.mcp_source.is_some())
-    {
-        append(
-            &mut entries,
-            vec![Item::Service(Operation::Remove, "settings_delete", true)],
-        );
-    }
-    entries
-}
-
-fn append(entries: &mut Vec<Item>, group: Vec<Item>) {
-    if !group.is_empty() {
-        if !entries.is_empty() {
-            entries.push(Item::Separator);
-        }
-        entries.extend(group);
-    }
-}
-
-pub(super) fn restorable(service: &catalog::Service) -> bool {
-    service
-        .info
-        .as_ref()
-        .is_some_and(|info| info.mcp_source.is_some() && !info.summary.enabled)
+    })
+    .collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -122,35 +92,17 @@ enum Toggle {
 }
 
 fn switch_target(service: &catalog::Service) -> Option<Toggle> {
-    service.info.as_ref()?;
-    let manual = service
-        .info
-        .as_ref()
-        .is_some_and(|info| info.mcp_source.is_some());
-    let server = match &service.key.member {
-        catalog::Member::Server(name) => service.servers.iter().find(|server| server.name == *name),
-        catalog::Member::Account(_) if manual => {
-            let kind = service.kind.as_ref()?;
-            let bound = service
-                .servers
-                .iter()
-                .filter(|server| {
-                    crate::plugins::metadata::binds_server(&kind.declaration, &server.name)
-                })
-                .collect::<Vec<_>>();
-            match bound.as_slice() {
-                [server] => Some(*server),
-                _ => None,
-            }
-        }
-        catalog::Member::Account(_) => {
-            return service
-                .account
-                .as_ref()
-                .map(|account| Toggle::Account(account.id));
-        }
-    };
-    server.map(|server| Toggle::Server(server.name.clone()))
+    match service.key.member {
+        catalog::Member::Account(id) => service
+            .account
+            .as_ref()
+            .filter(|account| account.id == id)
+            .map(|account| Toggle::Account(account.id)),
+        catalog::Member::Mcp => match service.servers.as_slice() {
+            [server] => Some(Toggle::Server(server.name.clone())),
+            _ => None,
+        },
+    }
 }
 
 pub(in crate::settings::connectors) fn controls(
@@ -206,12 +158,17 @@ pub(in crate::settings::connectors) fn controls(
             .clone();
         let busy = state.pending.contains(&server.name);
         let uncertain = state.requests.contains_key(&server.name);
-        let checked = state
-            .drafts
-            .get(&server.name)
-            .copied()
-            .unwrap_or(server.allowed);
+        let checked = if busy {
+            state
+                .drafts
+                .get(&server.name)
+                .copied()
+                .unwrap_or_else(|| service.allowed(&server))
+        } else {
+            service.allowed(&server)
+        };
         let toggle = details.clone();
+        let recovery = details.clone();
         controls = controls
             .when(busy, |controls| controls.child(Spinner::new().small()))
             .child(
@@ -224,34 +181,20 @@ pub(in crate::settings::connectors) fn controls(
                             details.set_allowed(server.clone(), *allowed, window, cx)
                         });
                     }),
-            );
-    } else {
-        controls = controls.child(
-            Switch::new(format!("{id}-enabled"))
-                .checked(false)
-                .disabled(true)
-                .accessibility_label(tr("connector_connect")),
-        );
+            )
+            .when(uncertain && !busy, |controls| {
+                controls.child(
+                    crate::feedback::retry(format!("{id}-retry"))
+                        .small()
+                        .disabled(!online)
+                        .on_click(move |_, window, cx| {
+                            recovery.update(cx, |details, cx| details.retry(window, cx));
+                        }),
+                )
+            });
     }
-    let single_busy = match service.servers.as_slice() {
-        [server] => state.pending.contains(&server.name),
-        _ => false,
-    };
-    let actions = items(service)
-        .into_iter()
-        .map(|entry| match entry {
-            Item::Service(operation, label, enabled)
-                if matches!(operation, Operation::Check | Operation::Configure)
-                    && service.servers.len() == 1 =>
-            {
-                Item::Service(operation, label, enabled && !single_busy)
-            }
-            Item::Service(Operation::Authorize, label, enabled) => {
-                Item::Service(Operation::Authorize, label, enabled && !account_busy)
-            }
-            other => other,
-        })
-        .collect::<Vec<_>>();
+    let busy = account_busy || !state.pending.is_empty();
+    let actions = items(service);
     let captured = service.clone();
     let menu_owner = owner.downgrade();
     controls
@@ -262,23 +205,22 @@ pub(in crate::settings::connectors) fn controls(
                 .icon(IconName::Ellipsis)
                 .accessibility_label(tr("more"))
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-                    actions.iter().fold(menu.min_w(px(160.)), |menu, entry| {
-                        let (label, enabled) = match *entry {
-                            Item::Account(_, label) => (label, online && !account_busy),
-                            Item::Service(_, label, enabled) => (label, enabled && online),
-                            Item::Separator => return menu.separator(),
-                        };
-                        let entry = *entry;
-                        let service = captured.clone();
-                        let owner = menu_owner.clone();
-                        menu.item(PopupMenuItem::new(tr(label)).disabled(!enabled).on_click(
-                            move |_, window, cx| {
-                                if let Some(owner) = owner.upgrade() {
-                                    dispatch(&owner, node, &service, entry, window, cx);
-                                }
-                            },
-                        ))
-                    })
+                    actions
+                        .iter()
+                        .copied()
+                        .fold(menu.min_w(px(160.)), |menu, entry| {
+                            let service = captured.clone();
+                            let owner = menu_owner.clone();
+                            menu.item(
+                                PopupMenuItem::new(tr(entry.label()))
+                                    .disabled(!entry.enabled() || !online || busy)
+                                    .on_click(move |_, window, cx| {
+                                        if let Some(owner) = owner.upgrade() {
+                                            dispatch(&owner, node, &service, entry, window, cx);
+                                        }
+                                    }),
+                            )
+                        })
                 }),
         )
         .into_any_element()
@@ -292,8 +234,11 @@ fn dispatch(
     window: &mut Window,
     cx: &mut App,
 ) {
+    if !entry.enabled() {
+        return;
+    }
     match entry {
-        Item::Account(operation, _) => {
+        Item::Account(operation, _, _) => {
             if let Some(account) = &service.account {
                 let action = super::super::menu::Dispatch::new(account, operation, Some(node));
                 owner.update(cx, |workspace, cx| {
@@ -312,7 +257,6 @@ fn dispatch(
                 workspace.service_action(&action, window, cx)
             });
         }
-        Item::Separator => (),
     }
 }
 
@@ -335,10 +279,18 @@ impl Workspace {
         else {
             return;
         };
+        let online = self
+            .provider_link
+            .as_ref()
+            .is_some_and(|live| live.connected);
+        let busy = service.account.as_ref().is_some_and(|account| {
+            self.connectors.pending.contains(&account.id)
+                || account.state == connector::State::Connecting
+        });
         let mut menu = Menu::new("");
         for entry in items(service) {
             let item = match entry {
-                Item::Account(operation, label) => {
+                Item::Account(operation, label, enabled) => {
                     let Some(account) = &service.account else {
                         continue;
                     };
@@ -346,6 +298,7 @@ impl Workspace {
                         tr(label),
                         super::super::menu::Dispatch::new(account, operation, Some(node)),
                     )
+                    .disabled(!enabled || !online || busy)
                 }
                 Item::Service(operation, label, enabled) => MenuItem::action(
                     tr(label),
@@ -356,8 +309,7 @@ impl Workspace {
                         operation,
                     },
                 )
-                .disabled(!enabled),
-                Item::Separator => MenuItem::Separator,
+                .disabled(!enabled || !online || busy),
             };
             menu.items.push(item);
         }
@@ -399,12 +351,15 @@ impl Workspace {
             );
             return;
         };
-        if !items(&service).iter().any(|entry| matches!(entry, Item::Service(operation, _, true) if *operation == action.operation)) { return; }
+        if !items(&service).iter().any(|entry| matches!(entry, Item::Service(operation, _, true) if *operation == action.operation)) { return }
         let details = self.service_controller(&service, window, cx);
+        if !details.read(cx).pending.is_empty() {
+            return;
+        }
         let owner = cx.entity();
         let operation = action.operation;
-        // Form mounting may read Workspace; release its update lease first.
         let node = action.node;
+        // Form mounting may read Workspace; release its update lease first.
         window.defer(cx, move |window, cx| {
             if owner
                 .read(cx)
@@ -416,34 +371,21 @@ impl Workspace {
             }
             match operation {
                 Operation::Configure => {
-                    if !restorable(&service)
-                        && let ([server], Some(info)) = (service.servers.as_slice(), &service.info)
-                    {
+                    if let (Some(server), Some(info)) = (service.servers.first(), &service.info) {
                         details.update(cx, |details, cx| {
                             details.configure(info.clone(), server.name.clone(), window, cx)
                         });
-                    } else {
-                        view::open(details, window, cx);
                     }
                 }
-                Operation::Check => {
-                    details.update(cx, |details, cx| {
-                        for server in service
-                            .servers
-                            .iter()
-                            .filter(|server| view::checkable(&service, server))
-                        {
-                            details.check(server.clone(), window, cx);
-                        }
-                    });
-                }
-                Operation::Authorize => {
-                    if service.account.is_some() {
-                        view::authorize(details, window, cx);
-                    } else if let Some(kind) = service.kind {
-                        editor::connect(owner, kind, window, cx);
+                Operation::Check => details.update(cx, |details, cx| {
+                    for server in service
+                        .servers
+                        .iter()
+                        .filter(|server| checkable(&service, server))
+                    {
+                        details.check(server.clone(), window, cx);
                     }
-                }
+                }),
                 Operation::Remove => {
                     if let Some(info) = service.info {
                         super::super::super::plugins::dialog::open(

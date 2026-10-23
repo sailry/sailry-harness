@@ -16,7 +16,7 @@ fn service() -> catalog::Service {
     catalog::Service {
         key: catalog::Key {
             package: package.name.clone(),
-            member: catalog::Member::Server("server".into()),
+            member: catalog::Member::Mcp,
         },
         package,
         kind: None,
@@ -100,7 +100,7 @@ fn permits_explicit_checks_before_agent_enablement() {
         allowed: false,
         availability: Availability::ServerDisabled,
     };
-    assert!(view::checkable(&service, &server));
+    assert!(checkable(&service, &server));
     for unavailable in [
         Availability::PackageDisabled,
         Availability::ConfigurationRequired,
@@ -111,7 +111,7 @@ fn permits_explicit_checks_before_agent_enablement() {
         Availability::Unavailable,
     ] {
         server.availability = unavailable;
-        assert!(!view::checkable(&service, &server));
+        assert!(!checkable(&service, &server));
     }
 }
 

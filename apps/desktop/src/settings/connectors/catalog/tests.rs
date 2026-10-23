@@ -130,199 +130,149 @@ fn scopes_snapshots_to_changed_accounts() {
     );
 }
 
-#[test]
-fn includes_api_services_before_login() {
-    let infos = [info("google", &[]), info("figma", &[])];
-    let types = infos
-        .iter()
-        .map(|info| kind(info, &info.summary.name, &[]))
-        .collect::<Vec<_>>();
-    let services = directory(&types, &[], &infos);
-    assert_eq!(services.len(), 2);
-    assert!(
-        services
-            .iter()
-            .all(|service| service.account.is_none() && service.servers.is_empty())
-    );
-    assert!(
-        services
-            .iter()
-            .all(|service| service.matches(filter::Method::Secret, ""))
-    );
-}
-
-#[test]
-fn combines_explicit_token_and_oauth_bindings() {
-    let info = info("github", &["github", "oauth"]);
-    let mut kind = kind(&info, "account", &["github"]);
-    kind.declaration.auth.push(connector::Auth::McpOauth {
-        server: "oauth".into(),
-        client: None,
-    });
-    let account = account(&kind);
-    let services = directory(&[kind], &[account.clone()], &[info]);
-    assert_eq!(services.len(), 1);
-    assert_eq!(services[0].account.as_ref().unwrap().id, account.id);
-    assert_eq!(
-        services[0].account.as_ref().unwrap().configured,
-        account.configured
-    );
-    assert_eq!(
-        services[0]
-            .servers
-            .iter()
-            .map(|server| server.name.as_str())
-            .collect::<Vec<_>>(),
-        ["github", "oauth"]
-    );
-}
-
-#[test]
-fn preserves_independent_server_statuses() {
-    let mut info = info("service", &["read", "write"]);
-    info.mcp[1].allowed = false;
-    info.mcp[1].availability = Availability::ServerDisabled;
-    let kind = kind(&info, "account", &["read", "write"]);
-    let services = directory(&[kind], &[], &[info]);
-    assert_eq!(services.len(), 1);
-    assert!(services[0].servers[0].allowed);
-    assert!(!services[0].servers[1].allowed);
-    assert_eq!(services[0].servers[0].availability, Availability::Available);
-    assert_eq!(
-        services[0].servers[1].availability,
-        Availability::ServerDisabled
-    );
-}
-
-#[test]
-fn keeps_no_auth_and_manual_servers_accountless() {
-    let standard = info("no-auth", &["server"]);
-    let mut manual = info("manual", &["server"]);
-    manual.mcp_source = Some(
-        serde_json::from_value(json!({
-            "type":"stdio","command":"fixture","args":[],"env":[]
-        }))
-        .unwrap(),
-    );
-    let services = directory(&[], &[], &[standard, manual]);
-    assert_eq!(services.len(), 2);
-    assert!(
-        services
-            .iter()
-            .all(|service| service.kind.is_none() && service.account.is_none())
-    );
-    assert!(
-        services
-            .iter()
-            .all(|service| super::super::status(service).is_none())
-    );
-}
-
-#[test]
-fn leaves_optional_manual_auth_without_an_account() {
-    let mut info = info("mcp-manual", &["server"]);
+fn manual(name: &str) -> Info {
+    let mut info = info(name, &["server"]);
     info.mcp_source = Some(
         serde_json::from_value(json!({
             "type":"streamable-http","url":"https://example.com/mcp","headers":[]
         }))
         .unwrap(),
     );
+    info
+}
+
+#[test]
+fn excludes_unadded_and_plugin_internal_services() {
+    let infos = [info("api", &[]), info("ordinary-mcp", &["server"])];
+    let types = infos
+        .iter()
+        .map(|info| kind(info, "account", &[]))
+        .collect::<Vec<_>>();
+    assert!(directory(&types, &[], &infos).is_empty());
+    assert!(directory(&[], &[], &[info("computer-capability", &["server"])]).is_empty());
+}
+
+#[test]
+fn retains_real_ids_with_shared_labels() {
+    let info = info("service", &[]);
+    let kind = kind(&info, "account", &[]);
+    let first = account(&kind);
+    let mut second = first.clone();
+    second.id = RequestId::new();
+    let services = directory(&[kind], &[first.clone(), second.clone()], &[info]);
+    assert_eq!(services.len(), 2);
+    assert_ne!(services[0].key, services[1].key);
+    assert!(
+        services
+            .iter()
+            .any(|service| service.key.member == Member::Account(first.id))
+    );
+    assert!(
+        services
+            .iter()
+            .any(|service| service.key.member == Member::Account(second.id))
+    );
+}
+
+#[test]
+fn keeps_bound_capabilities_inside_the_account() {
+    let info = info("service", &["read", "write"]);
+    let kind = kind(&info, "account", &["read", "write"]);
+    let account = account(&kind);
+    let services = directory(&[kind], &[account.clone()], &[info]);
+    assert_eq!(services.len(), 1);
+    assert_eq!(services[0].account.as_ref().unwrap(), &account);
+    assert_eq!(services[0].servers.len(), 2);
+    assert!(!services[0].manual());
+}
+
+#[test]
+fn keeps_anonymous_instances_accountless() {
+    let services = directory(&[], &[], &[manual("mcp-anonymous")]);
+    assert_eq!(services.len(), 1);
+    assert_eq!(services[0].key.member, Member::Mcp);
+    assert!(services[0].account.is_none());
+    assert!(services[0].kind.is_none());
+    assert!(services[0].allowed(&services[0].servers[0]));
+    assert!(super::super::status(&services[0]).is_none());
+}
+
+#[test]
+fn merges_authorization_into_the_original_instance() {
+    let info = manual("mcp-custom");
     let mut kind = kind(&info, "server", &["server"]);
     kind.declaration.auth = vec![connector::Auth::McpOauth {
         server: "server".into(),
         client: None,
     }];
-    let services = directory(&[kind], &[], &[info]);
-    assert_eq!(services.len(), 1);
-    assert!(services[0].account.is_none());
-    assert_eq!(services[0].label(), "manual");
-    assert!(super::super::status(&services[0]).is_none());
+    let before = directory(&[kind.clone()], &[], &[info.clone()]);
+    let mut account = account(&kind);
+    account.method = connector::Kind::McpOauth;
+    let after = directory(&[kind], &[account.clone()], &[info]);
+    assert_eq!(before.len(), 1);
+    assert_eq!(after.len(), 1);
+    assert_eq!(before[0].key, after[0].key);
+    assert_eq!(after[0].account.as_ref().unwrap().id, account.id);
+    assert_eq!(after[0].label(), "custom");
 }
 
 #[test]
-fn never_merges_matching_names_across_packages() {
-    let first = info("first", &["server"]);
-    let second = info("second", &["server"]);
-    let kind = kind(&first, "account", &["server"]);
-    let account = account(&kind);
-    let services = directory(&[kind], &[account], &[first, second]);
+fn never_merges_instances_by_url_or_display() {
+    let first = manual("mcp-first");
+    let second = manual("mcp-second");
+    assert_eq!(first.mcp_source, second.mcp_source);
+    let services = directory(&[], &[], &[first, second]);
     assert_eq!(services.len(), 2);
-    let second = services
-        .iter()
-        .find(|service| service.package.name == "second")
-        .unwrap();
-    assert!(second.kind.is_none() && second.account.is_none());
-    assert_eq!(second.servers.len(), 1);
+    assert_ne!(services[0].key, services[1].key);
+    assert_ne!(services[0].package.name, services[1].package.name);
 }
 
 #[test]
-fn retains_disabled_configuration_and_management() {
-    let mut info = info("service", &["server"]);
-    info.summary.enabled = false;
-    info.mcp[0].availability = Availability::PackageDisabled;
-    let kind = kind(&info, "account", &["server"]);
-    let account = account(&kind);
-    let services = directory(&[kind], &[account.clone()], &[info]);
-    assert_eq!(services.len(), 1);
-    let service = &services[0];
-    assert!(!service.enabled());
-    assert!(service.info.is_some());
-    assert_eq!(service.account.as_ref().unwrap(), &account);
-    assert_eq!(
-        super::super::status(service),
-        Some("connector_package_disabled")
-    );
+fn preserves_disabled_and_unavailable_accounts() {
+    let info = info("service", &[]);
+    let kind = kind(&info, "account", &[]);
+    for state in [
+        connector::State::Connected,
+        connector::State::NotConnected,
+        connector::State::Expired,
+        connector::State::Connecting,
+        connector::State::NeedsConfirmation,
+    ] {
+        let mut account = account(&kind);
+        account.enabled = false;
+        account.state = state;
+        let services = directory(&[kind.clone()], &[account.clone()], &[info.clone()]);
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].account.as_ref().unwrap(), &account);
+    }
 }
 
 #[test]
-fn does_not_join_mixed_package_revisions() {
-    let mut info = info("service", &["server"]);
-    let kind = kind(&info, "account", &["server"]);
-    info.summary.settings_revision += 1;
-    let services = directory(&[kind], &[], &[info]);
-    assert_eq!(services.len(), 1);
-    let account = services
-        .iter()
-        .find(|service| service.kind.is_some())
-        .unwrap();
-    assert!(account.info.is_none() && account.servers.is_empty());
-}
-
-#[test]
-fn retains_accounts_after_declaration_removal() {
+fn retains_removed_declarations_by_account_id() {
     let info = info("service", &[]);
     let account = account(&kind(&info, "removed", &[]));
     let services = directory(&[], &[account.clone()], &[info]);
     assert_eq!(services.len(), 1);
     assert!(services[0].kind.is_none());
+    assert_eq!(services[0].key.member, Member::Account(account.id));
     assert_eq!(services[0].account.as_ref().unwrap().id, account.id);
 }
 
 #[test]
-fn exposes_declared_api_tools_without_probing() {
-    let mut info = info("api", &[]);
-    info.extension = Some(
-        serde_json::from_value(json!({
-            "api_version":"v1","tools":[
-                {"name":"read","description":"Read account data"},
-                {"name":"remote","server":"server","description":"Declared MCP output"}
-            ]
-        }))
-        .unwrap(),
-    );
-    let kind = kind(&info, "account", &[]);
-    let services = directory(&[kind], &[], &[info]);
+fn never_joins_mixed_configuration_revisions() {
+    let mut info = info("service", &["server"]);
+    let kind = kind(&info, "account", &["server"]);
+    let account = account(&kind);
+    info.summary.settings_revision += 1;
+    let services = directory(&[kind], &[account.clone()], &[info]);
     assert_eq!(services.len(), 1);
+    assert_eq!(services[0].account.as_ref().unwrap().id, account.id);
+    assert!(services[0].info.is_none());
     assert!(services[0].servers.is_empty());
-    assert!(services[0].account.is_none());
-    let tools = services[0].tools().collect::<Vec<_>>();
-    assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name, "read");
-    assert_eq!(tools[0].description.as_deref(), Some("Read account data"));
 }
 
 #[test]
-fn keeps_selection_stable_across_configuration_changes() {
+fn keeps_selection_through_configuration_changes() {
     let mut info = info("service", &["server"]);
     let mut kind = kind(&info, "account", &["server"]);
     let mut account = account(&kind);
@@ -335,5 +285,58 @@ fn keeps_selection_stable_across_configuration_changes() {
     let after = directory(&[kind], &[account.clone()], &[info]);
     assert_eq!(before[0].key, after[0].key);
     assert_eq!(after[0].account.as_ref().unwrap().id, account.id);
-    assert_ne!(before[0].package, after[0].package);
+    assert_eq!(
+        super::super::status(&after[0]),
+        Some("connector_package_disabled")
+    );
+}
+
+#[test]
+fn exposes_only_valid_legacy_switch_disablement() {
+    let info = manual("mcp-custom");
+    let kind = kind(&info, "server", &["server"]);
+    let mut account = account(&kind);
+    account.enabled = false;
+    account.can_disconnect = false;
+    let service = directory(&[kind], &[account.clone()], &[info]).remove(0);
+    assert!(!service.allowed(&service.servers[0]));
+    for (state, availability, reason) in [
+        (
+            connector::State::NotConnected,
+            Availability::ConnectionRequired,
+            "connector_not_connected",
+        ),
+        (
+            connector::State::Connecting,
+            Availability::ConnectionRequired,
+            "connector_not_connected",
+        ),
+        (
+            connector::State::Expired,
+            Availability::AuthorizationExpired,
+            "connector_expired",
+        ),
+        (
+            connector::State::NeedsConfirmation,
+            Availability::ConsentRequired,
+            "connector_confirmation",
+        ),
+    ] {
+        let mut changed = service.clone();
+        changed.account.as_mut().unwrap().state = state;
+        changed.servers[0].availability = availability;
+        assert!(changed.allowed(&changed.servers[0]));
+        assert_eq!(super::super::status(&changed), Some(reason));
+    }
+    let mut disabled = service.clone();
+    disabled.account.as_mut().unwrap().enabled = true;
+    disabled.info.as_mut().unwrap().summary.enabled = false;
+    disabled.servers[0].availability = Availability::PackageDisabled;
+    assert!(disabled.allowed(&disabled.servers[0]));
+    assert_eq!(
+        super::super::status(&disabled),
+        Some("connector_package_disabled")
+    );
+    disabled.servers[0].allowed = false;
+    assert!(!disabled.allowed(&disabled.servers[0]));
 }

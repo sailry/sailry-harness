@@ -16,6 +16,7 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
         let close = editor.clone();
         let details = editor.clone();
         let reload = editor.clone();
+        let authorization = editor.clone();
         let state = editor.read(cx);
         dialog
             .form_title(
@@ -43,25 +44,36 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                         .gap_2()
                         .flex_wrap()
                         .when_some(
-                            state
-                                .original
-                                .as_ref()
-                                .filter(|info| plugins::metadata::has_connector(info, "server")),
+                            state.original.as_ref().filter(|info| {
+                                state.owner.is_some()
+                                    && info.mcp.iter().any(|server| {
+                                        plugins::metadata::has_connector(info, &server.name)
+                                    })
+                            }),
                             |row, _| {
                                 row.child(
                                     Button::new("mcp-authorize")
                                         .ghost()
-                                        .label(tr("settings_connectors"))
+                                        .label(tr("connector_authentication"))
                                         .debug_selector(|| "mcp-authorize".into())
                                         .disabled(state.locked())
                                         .on_click(move |_, window, cx| {
-                                            window.close_dialog(cx);
-                                            window.dispatch_action(
-                                                Box::new(crate::settings::OpenSection(
-                                                    crate::settings::Section::Connectors,
-                                                )),
-                                                cx,
-                                            );
+                                            let target = {
+                                                let state = authorization.read(cx);
+                                                state.owner.clone().zip(
+                                                    state
+                                                        .original
+                                                        .as_ref()
+                                                        .map(|info| info.summary.reference()),
+                                                )
+                                            };
+                                            if let Some((owner, package)) = target {
+                                                // Keep transport drafts beneath the existing
+                                                // authorization form for this instance.
+                                                super::super::super::connectors::manage(
+                                                    owner, package, window, cx,
+                                                );
+                                            }
                                         }),
                                 )
                             },

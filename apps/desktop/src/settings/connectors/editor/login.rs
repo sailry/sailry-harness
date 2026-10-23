@@ -21,6 +21,20 @@ impl Editor {
         if self.pending || self.closed || (!registration && !self.required(cx)) {
             return;
         }
+        if let Some(account) = self
+            .connection
+            .as_ref()
+            .filter(|account| account.state == connector::State::NeedsConfirmation)
+        {
+            super::super::consent::confirm(
+                self.owner.clone(),
+                self.binding.client.target(),
+                account.clone(),
+                window,
+                cx,
+            );
+            return;
+        }
         let Some(kind) = self.kind().cloned() else {
             return;
         };
@@ -359,7 +373,7 @@ mod tests {
             Kind::McpOauth,
             Kind::LocalCli,
         ] {
-            assert_eq!(submit_key(method, true), "settings_save");
+            assert_eq!(submit_key(method, true, true), "settings_save");
             assert_eq!(success_key(method, true), "connector_saved");
             assert_eq!(
                 updates(method, true, false),
@@ -372,7 +386,7 @@ mod tests {
                 Kind::LocalCli => ("connector_bind", "connector_bound"),
                 _ => ("settings_save", "connector_saved"),
             };
-            assert_eq!(submit_key(method, false), submit);
+            assert_eq!(submit_key(method, false, false), submit);
             assert_eq!(success_key(method, false), success);
         }
     }

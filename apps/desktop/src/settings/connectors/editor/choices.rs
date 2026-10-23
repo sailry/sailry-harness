@@ -11,13 +11,17 @@ impl Editor {
             .types
             .iter()
             .enumerate()
-            .filter(|(_, kind)| {
-                !owner.connectors.rows.iter().any(|row| {
-                    row.package.name == kind.package.name && row.connector == kind.declaration.id
-                })
-            })
             .filter_map(|(index, kind)| {
-                let label = title(&kind.declaration.display);
+                let info = metadata
+                    .and_then(|metadata| metadata.entries.get(&kind.package.name))
+                    .filter(|info| info.summary.reference() == kind.package);
+                let manual = info.is_some_and(|info| info.mcp_source.is_some());
+                let added = manual || existing(kind, &owner.connectors.rows).is_some();
+                let label = if manual {
+                    crate::plugins::metadata::title(info.expect("manual instance"))
+                } else {
+                    title(&kind.declaration.display)
+                };
                 let description = metadata
                     .and_then(|metadata| metadata.entries.get(&kind.package.name))
                     .filter(|info| info.summary.digest == kind.package.digest)
@@ -58,7 +62,7 @@ impl Editor {
                         .h_auto()
                         .p_3()
                         .justify_start()
-                        .disabled(self.pending || !kind.enabled)
+                        .disabled(self.pending || (!kind.enabled && !added))
                         .accessibility_label(accessibility)
                         .child(
                             h_flex()
@@ -88,10 +92,15 @@ impl Editor {
                                                     .child(description),
                                             )
                                         }),
-                                ),
+                                )
+                                .when(added, |row| {
+                                    row.child(
+                                        Tag::secondary().xsmall().child(tr("connector_added")),
+                                    )
+                                }),
                         )
                         .on_click(
-                            cx.listener(move |this, _, window, cx| this.choose(index, window, cx)),
+                            cx.listener(move |this, _, window, cx| this.pick(index, window, cx)),
                         ),
                 )
             })
@@ -117,5 +126,78 @@ impl Editor {
                     .children(rows),
             )
             .into_any_element()
+    }
+    fn pick(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending {
+            return;
+        }
+        let Some(kind) = self.types.get(index).cloned() else {
+            return;
+        };
+        let info = self
+            .owner
+            .read(cx)
+            .plugin_catalog
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.read(cx).entries.get(&kind.package.name))
+            .filter(|info| info.summary.reference() == kind.package && info.mcp_source.is_some())
+            .cloned();
+        if let Some(info) = info
+            && let Some(server) = info.mcp.first().map(|server| server.name.clone())
+        {
+            let owner = self.owner.clone();
+            let binding = self.binding.clone();
+            self.closed = true;
+            self.stop.cancel();
+            window.close_dialog(cx);
+            window.defer(cx, move |window, cx| {
+                super::super::super::mcp::configure_server(
+                    owner, binding, info, server, window, cx,
+                );
+            });
+        } else {
+            self.choose(index, window, cx);
+        }
+    }
+}
+
+pub(super) fn existing<'a>(kind: &Type, accounts: &'a [Connection]) -> Option<&'a Connection> {
+    accounts.iter().find(|account| {
+        account.package.name == kind.package.name && account.connector == kind.declaration.id
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn added_services_resolve_the_original_account() {
+        let package =
+            serde_json::json!({"name":"service-id","digest":"current","settings_revision":9});
+        let kind: Type = serde_json::from_value(serde_json::json!({
+            "package":package,"declaration":{"id":"account-id","display":{"label":"Shared name"},
+                "accounts":"single","origins":["https://example.com"],
+                "auth":[{"kind":"secret","fields":["token"]}],"fields":[],"inject":[]}
+        }))
+        .unwrap();
+        let mut account: Connection = serde_json::from_value(serde_json::json!({
+            "id":sailry_protocol::RequestId::new(),"package":package,"connector":"account-id",
+            "method":"secret","revision":2,"enabled":false,"state":"expired",
+            "identity":null,"expires_at_ms":null,"checked_at_ms":null,"fields":{},"configured":[]
+        }))
+        .unwrap();
+        account.package.digest = "previous".into();
+        let original = account.id;
+        let mut other = account.clone();
+        other.id = sailry_protocol::RequestId::new();
+        other.package.name = "other-service-id".into();
+        let accounts = [other, account];
+        assert_eq!(existing(&kind, &accounts).unwrap().id, original);
+        let mut different = kind.clone();
+        different.declaration.id = "other-account-id".into();
+        assert!(existing(&different, &accounts).is_none());
     }
 }

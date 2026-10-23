@@ -20,24 +20,36 @@ pub(super) fn open(
     window: &mut Window,
     cx: &mut App,
 ) {
-    mount(owner, connection, None, false, window, cx);
+    mount(owner, connection, None, None, window, cx);
 }
-pub(super) fn connect(owner: Entity<Workspace>, kind: Type, window: &mut Window, cx: &mut App) {
-    mount(owner, None, Some(kind), false, window, cx);
-}
-pub(super) fn reconnect(
+pub(in crate::settings) fn manage(
     owner: Entity<Workspace>,
-    connection: Connection,
+    package: sailry_protocol::plugin::Reference,
     window: &mut Window,
     cx: &mut App,
 ) {
-    mount(owner, Some(connection), None, true, window, cx);
+    owner.update(cx, |owner, cx| owner.warm_connectors(window, cx));
+    let workspace = owner.read(cx);
+    let connection = workspace
+        .connectors
+        .rows
+        .iter()
+        .find(|account| account.package.name == package.name)
+        .cloned();
+    let kind = workspace
+        .connectors
+        .types
+        .iter()
+        .find(|kind| kind.package == package)
+        .cloned();
+    mount(owner, connection, kind, Some(package), window, cx);
 }
+
 fn mount(
     owner: Entity<Workspace>,
     connection: Option<Connection>,
     selected: Option<Type>,
-    reconnect: bool,
+    target: Option<sailry_protocol::plugin::Reference>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -54,6 +66,10 @@ fn mount(
     }
     let types = owner.read(cx).connectors.types.clone();
     let editing = connection.is_some();
+    let directory = !editing && selected.is_none() && target.is_none();
+    let target = target
+        .or_else(|| connection.as_ref().map(|account| account.package.clone()))
+        .or_else(|| selected.as_ref().map(|kind| kind.package.clone()));
     let form = cx.new(|cx: &mut Context<Editor>| {
         let mut editor = Editor {
             owner,
@@ -61,6 +77,8 @@ fn mount(
             types,
             connection,
             selected: None,
+            target,
+            directory,
             method: 0,
             fields: BTreeMap::new(),
             query: cx.new(|cx| InputState::new(window, cx).placeholder(tr("connector_search"))),
@@ -76,7 +94,7 @@ fn mount(
             closed: false,
             dialog: Default::default(),
             editing,
-            reconnecting: reconnect,
+            reconnecting: false,
         };
         cx.observe(&editor.query, |_, _, cx| cx.notify()).detach();
         cx.observe_in(&editor.owner, window, |editor, _, window, cx| {
@@ -96,13 +114,6 @@ fn mount(
             })
         {
             editor.choose(index, window, cx);
-        }
-        if reconnect
-            && editor
-                .method()
-                .is_some_and(|auth| matches!(auth, Auth::Oauth2 { .. } | Auth::McpOauth { .. }))
-        {
-            editor.submit(false, window, cx);
         }
         editor
     });
@@ -140,6 +151,8 @@ pub(super) struct Editor {
     types: Vec<Type>,
     connection: Option<Connection>,
     selected: Option<usize>,
+    target: Option<sailry_protocol::plugin::Reference>,
+    directory: bool,
     method: usize,
     fields: BTreeMap<String, Entity<InputState>>,
     query: Entity<InputState>,
@@ -165,7 +178,20 @@ impl Drop for Editor {
 
 impl Editor {
     fn configuring(&self) -> bool {
-        self.editing && !self.reconnecting
+        let Some(method) = self.method().map(Auth::kind) else {
+            return false;
+        };
+        configuring(
+            method,
+            self.connection.as_ref().map(|account| account.state),
+            self.kind().is_some_and(|kind| {
+                kind.declaration
+                    .fields
+                    .iter()
+                    .any(|field| editable(field, method))
+            }),
+            self.reconnecting,
+        )
     }
 
     fn reconcile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -180,6 +206,32 @@ impl Editor {
             self.stop.cancel();
             self.dialog.close(window, cx);
             return;
+        }
+        if self.selected.is_none() {
+            self.types = self.owner.read(cx).connectors.types.clone();
+        }
+        if self.selected.is_none()
+            && let Some(target) = &self.target
+            && let Some(index) = self.types.iter().position(|kind| {
+                kind.package.name == target.name
+                    && self
+                        .connection
+                        .as_ref()
+                        .is_none_or(|account| account.connector == kind.declaration.id)
+            })
+        {
+            self.choose(index, window, cx);
+        }
+        if let Some(connection) = &self.connection
+            && let Some(current) = self
+                .owner
+                .read(cx)
+                .connectors
+                .rows
+                .iter()
+                .find(|account| account.id == connection.id)
+        {
+            self.connection = Some(current.clone());
         }
         if self.pending || self.closed {
             return;
@@ -205,6 +257,15 @@ impl Editor {
             .and_then(|kind| kind.declaration.auth.get(self.method))
     }
     fn choose(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending || index >= self.types.len() {
+            return;
+        }
+        if self.connection.is_none() {
+            self.connection =
+                choices::existing(&self.types[index], &self.owner.read(cx).connectors.rows)
+                    .cloned();
+            self.editing = self.connection.is_some();
+        }
         self.selected = Some(index);
         self.method = self
             .connection
@@ -252,18 +313,25 @@ impl Editor {
         }
         cx.notify();
     }
-    fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.editing {
-            window.close_dialog(cx);
-        } else {
-            self.selected = None;
-            self.fields.clear();
-            self.cli = None;
-            cx.notify();
-        }
+    fn back(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.selected = None;
+        self.target = None;
+        self.connection = None;
+        self.editing = false;
+        self.reconnecting = false;
+        self.fields.clear();
+        self.cli = None;
+        cx.notify();
     }
+
     fn required(&self, cx: &App) -> bool {
-        if self.closed {
+        if self.closed
+            || !self.owner.read(cx).connectors.received
+            || self
+                .connection
+                .as_ref()
+                .is_some_and(|account| self.owner.read(cx).connectors.pending.contains(&account.id))
+        {
             return false;
         }
         let Some(kind) = self.kind() else {
@@ -271,6 +339,13 @@ impl Editor {
         };
         if !kind.enabled && !self.configuring() {
             return false;
+        }
+        if self
+            .connection
+            .as_ref()
+            .is_some_and(|account| account.state == connector::State::NeedsConfirmation)
+        {
+            return true;
         }
         if !self.configuring() {
             if self
@@ -410,7 +485,11 @@ impl Editor {
 
     fn normal(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(kind) = self.kind() else {
-            return self.choices(cx);
+            return if self.target.is_some() {
+                Spinner::new().into_any_element()
+            } else {
+                self.choices(cx)
+            };
         };
         let auth = self.method().expect("selected connector method");
         let title = title(&kind.declaration.display);
@@ -418,12 +497,13 @@ impl Editor {
         let header = h_flex()
             .gap_3()
             .items_center()
-            .when(!self.editing, |header| {
+            .when(self.directory, |header| {
                 header.child(
                     Button::new("connector-back")
                         .ghost()
                         .small()
                         .icon(IconName::ArrowLeft)
+                        .disabled(self.pending || self.request.is_some())
                         .on_click(cx.listener(|this, _, window, cx| this.back(window, cx))),
                 )
             })
@@ -438,7 +518,7 @@ impl Editor {
             .children(kind.declaration.auth.iter().map(|auth| {
                 Tab::new()
                     .label(tr(filter::key(auth.kind())))
-                    .disabled(self.editing)
+                    .disabled(self.editing || self.pending || self.request.is_some())
             }))
             .on_click(cx.listener(|this, index, window, cx| {
                 this.method = *index;
@@ -490,6 +570,12 @@ impl Editor {
                 _ => self.field_form(kind),
             }
         };
+        let reacquire = self.configuring()
+            && matches!(auth.kind(), Kind::Oauth2 | Kind::McpOauth | Kind::LocalCli);
+        let confirming = self
+            .connection
+            .as_ref()
+            .is_some_and(|account| account.state == connector::State::NeedsConfirmation);
         let registration = matches!(
             auth,
             Auth::Application {
@@ -505,11 +591,47 @@ impl Editor {
                 kind.declaration.auth.len() > 1 && !self.editing,
                 |element| element.child(methods),
             )
+            .when_some(
+                self.connection
+                    .as_ref()
+                    .and_then(|account| account.identity.as_ref()),
+                |body, identity| {
+                    body.child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(identity.name.clone()),
+                    )
+                },
+            )
             .child(
                 v_flex()
                     .w_full()
                     .gap_3()
                     .child(content)
+                    .when(reacquire, |element| {
+                        element.child(
+                            Button::new("connector-reacquire")
+                                .ghost()
+                                .small()
+                                .label(tr(if auth.kind() == Kind::LocalCli {
+                                    "connector_bind"
+                                } else {
+                                    "connector_reauthorize"
+                                }))
+                                .disabled(self.pending || !kind.enabled)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.reconnecting = true;
+                                    if this
+                                        .method()
+                                        .is_some_and(|method| method.kind() == Kind::LocalCli)
+                                    {
+                                        this.inspect(window, cx);
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                    })
                     .when(registration, |element| {
                         element.child(
                             Button::new("connector-register")
@@ -534,13 +656,16 @@ impl Editor {
                         Button::new("connector-cancel")
                             .ghost()
                             .label(tr("authorization_cancel"))
-                            .disabled(self.pending)
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
                         Button::new("connector-submit")
                             .primary()
-                            .label(tr(submit_key(auth.kind(), self.configuring())))
+                            .label(tr(if confirming {
+                                "connector_confirm"
+                            } else {
+                                submit_key(auth.kind(), self.configuring(), self.editing)
+                            }))
                             .loading(self.pending)
                             .disabled(self.pending || !self.required(cx))
                             .on_click(
@@ -552,11 +677,25 @@ impl Editor {
     }
 }
 
-fn submit_key(method: Kind, configuring: bool) -> &'static str {
+fn configuring(
+    method: Kind,
+    state: Option<connector::State>,
+    fields: bool,
+    reacquire: bool,
+) -> bool {
+    state.is_some()
+        && fields
+        && !reacquire
+        && (!matches!(method, Kind::Oauth2 | Kind::McpOauth)
+            || state == Some(connector::State::Connected))
+}
+
+fn submit_key(method: Kind, configuring: bool, existing: bool) -> &'static str {
     if configuring {
         return "settings_save";
     }
     match method {
+        Kind::Oauth2 | Kind::McpOauth if existing => "connector_reauthorize",
         Kind::Oauth2 | Kind::McpOauth => "connector_authorize",
         Kind::LocalCli => "connector_bind",
         Kind::Secret | Kind::Application => "settings_save",
@@ -572,5 +711,46 @@ impl Render for Editor {
         } else {
             self.normal(cx)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{configuring, submit_key};
+    use sailry_protocol::plugin::connector::{Kind, State};
+
+    #[test]
+    fn existing_oauth_requires_an_explicit_action() {
+        for method in [Kind::Oauth2, Kind::McpOauth] {
+            assert!(!configuring(method, Some(State::Connected), false, false));
+            assert!(configuring(method, Some(State::Connected), true, false));
+            assert!(!configuring(method, Some(State::Connected), true, true));
+            assert_eq!(submit_key(method, false, true), "connector_reauthorize");
+            assert_eq!(submit_key(method, false, false), "connector_authorize");
+            for state in [
+                State::Expired,
+                State::NotConnected,
+                State::NeedsConfirmation,
+            ] {
+                assert!(!configuring(method, Some(state), true, false));
+            }
+        }
+    }
+
+    #[test]
+    fn preserves_token_and_cli_actions() {
+        for method in [Kind::Secret, Kind::Application] {
+            assert!(configuring(method, Some(State::Connected), true, false));
+            assert_eq!(submit_key(method, true, true), "settings_save");
+            assert_eq!(submit_key(method, false, false), "settings_save");
+        }
+        assert!(!configuring(
+            Kind::LocalCli,
+            Some(State::Connected),
+            false,
+            false
+        ));
+        assert_eq!(submit_key(Kind::LocalCli, false, true), "connector_bind");
+        assert!(!configuring(Kind::Secret, None, true, false));
     }
 }
