@@ -90,6 +90,38 @@ class Inputs(unittest.TestCase):
 
 
 class Staging(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "Requires POSIX open-file replacement")
+    def test_replaces_open_executables_before_signing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "cache"
+            original = source / helper.APP / "Contents/MacOS/OpenComputerUse"
+            original.parent.mkdir(parents=True)
+            original.write_bytes(b"updated helper")
+            original.chmod(0o751)
+            (source / helper.RECEIPT).write_text(json.dumps({"version": 1, "files": []}))
+            output = directory / "Sailry.app/Contents/Helpers"
+            binary = output / helper.APP / "Contents/MacOS/OpenComputerUse"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"running helper")
+
+            with binary.open("rb") as running:
+                inode = os.fstat(running.fileno()).st_ino
+
+                def sign(staged, identity):
+                    target = staged / helper.APP / "Contents/MacOS/OpenComputerUse"
+                    self.assertNotEqual(target.stat().st_ino, inode)
+                    self.assertEqual(target.stat().st_mode & 0o777, 0o751)
+                    self.assertEqual(target.read_bytes(), b"updated helper")
+                    target.write_bytes(b"signed helper")
+
+                with patch.object(helper, "build", return_value=source), patch.object(helper, "sign", side_effect=sign):
+                    path = helper.stage("aarch64-apple-darwin", output, source, identity="-")
+                self.assertEqual(running.read(), b"running helper")
+                self.assertEqual(path.read_bytes(), b"signed helper")
+                self.assertEqual(path.stat().st_mode & 0o777, 0o751)
+                self.assertNotEqual(path.stat().st_ino, inode)
+
     def test_moves_desktop_receipt_and_cleans_legacy(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

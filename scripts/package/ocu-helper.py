@@ -13,6 +13,7 @@ import shutil
 import struct
 import subprocess
 import tarfile
+import tempfile
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -202,6 +203,25 @@ def sign(output, identity, timestamp=False):
     run("codesign", "--verify", "--deep", "--strict", app)
 
 
+def copy(source, destination):
+    source, destination = Path(source), Path(destination)
+    NATIVE.ordinary(source)
+    if destination.is_symlink():
+        raise ValueError("Computer-use helper destination is a symlink")
+    pending = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix=".ocu-", dir=destination.parent, delete=False) as temporary:
+            pending = Path(temporary.name)
+        shutil.copy2(source, pending)
+        # A persistent app agent can still map the previous signed executable.
+        # Publish a new inode before signing; never overwrite its mapped pages.
+        os.replace(pending, destination)
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
+    return str(destination)
+
+
 def stage(target, output, cache, development=False, identity=None):
     source = build(target, cache, development)
     output.mkdir(parents=True, exist_ok=True)
@@ -216,9 +236,9 @@ def stage(target, output, cache, development=False, identity=None):
         if destination.is_symlink():
             raise ValueError("Computer-use helper destination is a symlink")
         if path.is_dir():
-            shutil.copytree(path, destination, dirs_exist_ok=True)
+            shutil.copytree(path, destination, dirs_exist_ok=True, copy_function=copy)
         else:
-            shutil.copyfile(path, destination)
+            copy(path, destination)
     if identity is not None:
         if specification(target)[1]["platform"] != "macos":
             raise ValueError("Computer-use helper signing requires macOS")
