@@ -141,7 +141,9 @@ Map<String, dynamic> view({
   bool connected = true,
 }) => {
   'connected': connected,
-  'calls': calls,
+  'calls': [
+    for (final call in calls) {'hidden': false, 'details': true, ...call},
+  ],
   'snapshot': {
     'page': {
       'runs': [
@@ -820,6 +822,7 @@ void main() {
           'source': {'entry': 'tool', 'index': 0},
           'response': {'entry': 'tool', 'index': 1},
           'state': 'returned',
+          'output': {'preview': 'Exact tool output'},
         },
       ],
     );

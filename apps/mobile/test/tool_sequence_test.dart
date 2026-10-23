@@ -42,6 +42,11 @@ class Transcript {
       'source': {'entry': id, 'index': 0},
       'response': {'entry': id, 'index': 1},
       'state': state,
+      'details': true,
+      'output': {'preview': 'Output $id'},
+      'resolved': {
+        'output': {'preview': 'Output $id'},
+      },
       if (standalone || todo) 'grouping': 'standalone',
       if (todo)
         'progress': {
@@ -188,13 +193,31 @@ void main() {
           'stderr': {'text': 'diagnostic output'},
         },
       };
-      void replace(int index, Map<String, dynamic> value) {
+      void replace(
+        int index,
+        Map<String, dynamic> value, {
+        Map<String, dynamic>? command,
+        Map<String, dynamic>? failure,
+      }) {
         (transcript.entries[index]['parts'] as List)[1]['data']['result'] =
             value;
+        transcript.calls[index]['failure'] = failure;
+        (transcript.calls[index]['resolved'] as Map)['command'] = command;
+        transcript.calls[index]['output'] = failure == null
+            ? (transcript.calls[index]['resolved'] as Map)['output']
+            : null;
       }
 
-      replace(0, result({'kind': 'exited', 'data': 7}));
-      replace(1, result({'kind': 'exited', 'data': 1}));
+      replace(
+        0,
+        result({'kind': 'exited', 'data': 7}),
+        command: {'kind': 'exited', 'data': 7},
+      );
+      replace(
+        1,
+        result({'kind': 'exited', 'data': 1}),
+        command: {'kind': 'exited', 'data': 1},
+      );
       final projection = ValueNotifier(transcript.view());
       addTearDown(projection.dispose);
       await mount(tester, projection);
@@ -202,14 +225,20 @@ void main() {
       final exit = tr('toolExitCode').replaceAll('{code}', '1');
       expect(find.text(exit), findsOneWidget);
       expect(find.text(tr('toolFailed')), findsNothing);
-      for (final failure in [
-        result({'kind': 'timed_out'}),
-        result({'kind': 'signal', 'data': 9}),
-        {
-          'error': {'code': 'unavailable', 'message': 'command launch failed'},
-        },
+      for (final (failure, outcome) in [
+        (result({'kind': 'timed_out'}), {'kind': 'timed_out'}),
+        (result({'kind': 'signal', 'data': 9}), {'kind': 'signal', 'data': 9}),
+        (
+          {
+            'error': {
+              'code': 'unavailable',
+              'message': 'command launch failed',
+            },
+          },
+          null,
+        ),
       ]) {
-        replace(0, failure);
+        replace(0, failure, failure: {}, command: outcome);
         projection.value = transcript.view(status: 'running');
         await tester.pumpAndSettle();
         expect(find.text(tr('toolFailed')), findsNothing);
@@ -228,7 +257,16 @@ void main() {
         {'kind': 'unknown', 'data': 'wait failed'},
         {'kind': 'exited', 'data': 2},
       ]) {
-        replace(0, result(outcome));
+        replace(
+          0,
+          result(outcome),
+          command: outcome,
+          failure: switch (outcome['kind']) {
+            'cancelled' => {'code': 'cancelled'},
+            'unknown' => {'code': 'outcome_unknown'},
+            _ => null,
+          },
+        );
         projection.value = transcript.view();
         await tester.pumpAndSettle();
         expect(find.text(tr('toolFailed')), findsNothing);

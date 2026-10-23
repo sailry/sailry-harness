@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../resources/file_page.dart';
 import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
@@ -26,6 +28,7 @@ class ToolRecord extends StatefulWidget {
     required this.command,
     required this.enabled,
     this.continuing = false,
+    this.toolOutput,
   });
   final Map<String, FileDocument>? documents;
   final Map<String, dynamic> call;
@@ -35,12 +38,75 @@ class ToolRecord extends StatefulWidget {
   final ConversationCommand command;
   final bool enabled;
   final bool continuing;
+  final OutputLoader? toolOutput;
   @override
   State<ToolRecord> createState() => _ToolRecordState();
 }
 
 class _ToolRecordState extends State<ToolRecord> {
   bool _busy = false;
+  bool _expanded = false;
+  bool _loadingOutput = false;
+  bool _loadedOutput = false;
+  Map<String, dynamic>? _output;
+
+  Object _identity(Map<String, dynamic> call) {
+    final source = object(call['source']);
+    final response = object(call['response']);
+    return (
+      source['entry'],
+      source['index'],
+      response['entry'],
+      response['index'],
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant ToolRecord oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_identity(oldWidget.call) != _identity(widget.call)) {
+      _output = null;
+      _loadedOutput = false;
+      _loadingOutput = false;
+    }
+    if (_expanded) unawaited(_resolveOutput());
+  }
+
+  Future<void> _resolveOutput() async {
+    final load = widget.toolOutput;
+    if (!_expanded ||
+        widget.call['details'] != true ||
+        _loadedOutput ||
+        _loadingOutput ||
+        load == null) {
+      return;
+    }
+    if (widget.call['output_deferred'] != true) {
+      return;
+    }
+    final identity = _identity(widget.call);
+    final source = object(widget.call['source']);
+    _loadingOutput = true;
+    try {
+      final output = await load(
+        source['entry'] as String,
+        source['index'] as int,
+      );
+      if (mounted && identity == _identity(widget.call)) {
+        setState(() {
+          _output = output;
+          _loadedOutput = true;
+        });
+      }
+    } catch (error) {
+      if (mounted && _expanded && identity == _identity(widget.call)) {
+        showToast(context, failureLabel(error, translate: context.tr));
+      }
+    } finally {
+      if (mounted && identity == _identity(widget.call)) _loadingOutput = false;
+    }
+  }
+
   Future<void> _approve(String decision) async {
     if (_busy) return;
     setState(() {
@@ -76,6 +142,11 @@ class _ToolRecordState extends State<ToolRecord> {
     final question = object(call['question']);
     final pendingApproval = approval['state'] == 'pending';
     final pendingQuestion = object(question['state'])['kind'] == 'pending';
+    final details = call['details'] == true;
+    final expandable =
+        (details && hasToolContent(call)) ||
+        pendingApproval ||
+        question.isNotEmpty;
     final input = object(resolved['input']);
     final inputText = {
       for (final field in input.values) text(object(field)['text']),
@@ -91,6 +162,11 @@ class _ToolRecordState extends State<ToolRecord> {
             WorkDisclosure(
               key: PageStorageKey('tool-${source['entry']}-${source['index']}'),
               autoExpanded: false,
+              expandable: expandable,
+              onChanged: (expanded) {
+                _expanded = expanded;
+                if (expanded) unawaited(_resolveOutput());
+              },
               title: ToolHeading(
                 call: call,
                 page: widget.page,
@@ -117,12 +193,12 @@ class _ToolRecordState extends State<ToolRecord> {
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
-                  if (showResult)
+                  if (showResult && details)
                     ToolContent(
                       documents: widget.documents,
                       call: call,
                       result: result,
-                      arguments: arguments,
+                      output: _loadedOutput ? _output : null,
                       host: widget.host,
                       worktree: turnWorktree(
                         widget.page,

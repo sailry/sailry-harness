@@ -107,6 +107,15 @@ class Fixture {
                 'tool_calls': [
                   {
                     'index': 0,
+                    'id': 'ffi-title',
+                    'type': 'function',
+                    'function': {
+                      'name': 'set_session_title',
+                      'arguments': jsonEncode({'title': 'FFI conversation fixture'}),
+                    },
+                  },
+                  {
+                    'index': 1,
                     'id': 'ffi-call',
                     'type': 'function',
                     'function': {
@@ -124,7 +133,11 @@ class Fixture {
       await response.close();
       return;
     }
-    final file = jsonDecode(results.single['content'])['data'];
+    final file = jsonDecode(
+      results.singleWhere(
+        (message) => message['tool_call_id'] == 'ffi-call',
+      )['content'],
+    )['data'];
     check(
       file['path'] == 'tool.txt' &&
           file['offset'] == 0 &&
@@ -286,16 +299,29 @@ Future<Fixture> create(
     'canonical answer over FFI',
   );
   check(
-    (complete['calls'] as List).length == 1,
+    (complete['calls'] as List).length == 2,
     'shared call association over FFI',
   );
   checkStatistics(complete['snapshot']);
-  final call = complete['calls'][0];
+  final call = (complete['calls'] as List).singleWhere(
+    (call) => call['id'] == 'ffi-call',
+  );
   check(
     call['state'] == 'returned' &&
         call['id'] == 'ffi-call' &&
         call['name'] == fixture.readTool,
     'shared tool state over FFI',
+  );
+  check(
+    call['hidden'] == false && call['details'] == false,
+    'summary reads retain activity without ordinary disclosure',
+  );
+  final title = (complete['calls'] as List).singleWhere(
+    (call) => call['id'] == 'ffi-title',
+  );
+  check(
+    title['hidden'] == true && title['details'] == false,
+    'successful hidden maintenance has no activity row',
   );
   final response = call['response'];
   final entry = (complete['snapshot']['page']['entries'] as List).singleWhere(
@@ -311,6 +337,18 @@ Future<Fixture> create(
     'reference resolves to canonical tool output',
   );
   final pending = updates.next().then((_) => true, onError: (_) => true);
+  final selected = jsonDecode(
+    await updates
+        .toolOutput(
+          entry: call['source']['entry'],
+          index: call['source']['index'],
+        )
+        .timeout(const Duration(seconds: 2)),
+  );
+  check(
+    selected['preview'].contains('中文 tool result 🙂'),
+    'pending observation does not block shared selected output',
+  );
   await updates.close();
   await pending.timeout(const Duration(seconds: 2));
   var closed = false;

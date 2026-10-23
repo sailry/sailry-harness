@@ -2,38 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../../../content/code.dart';
 import '../../../runtime/json.dart';
-import 'command_result.dart';
 
-bool resultFailed(Map<String, dynamic> result, Map<String, dynamic> resolved) {
-  final error = result['error'];
-  final fault = object(error);
-  if (fault['code'] == 'cancelled' || fault['code'] == 'outcome_unknown') {
-    return false;
-  }
-  return (error is String ? error.isNotEmpty : fault.isNotEmpty) ||
-      result['isError'] == true ||
-      object(result['output'])['isError'] == true ||
-      objects(resolved['diagnostics']).any((item) => item['error'] == true) ||
-      commandFailed(result);
-}
+typedef OutputLoader =
+    Future<Map<String, dynamic>?> Function(String entry, int index);
 
-Object? contentValue(Object? value, String pointer) {
-  if (pointer.isEmpty) return value;
-  if (!pointer.startsWith('/')) return null;
-  for (final segment in pointer.substring(1).split('/')) {
-    final key = segment.replaceAll('~1', '/').replaceAll('~0', '~');
-    if (value is Map) {
-      value = value[key];
-    } else if (value is List) {
-      final index = int.tryParse(key);
-      if (index == null || index < 0 || index >= value.length) return null;
-      value = value[index];
-    } else {
-      return null;
-    }
-  }
-  return value;
-}
+bool toolFailed(Map<String, dynamic> call) =>
+    call['failure'] != null &&
+    !const [
+      'cancelled',
+      'outcome_unknown',
+    ].contains(object(call['failure'])['code']);
 
 String capturedLabel(BuildContext context, Object? value) {
   final label = object(value);

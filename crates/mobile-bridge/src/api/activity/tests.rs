@@ -33,6 +33,7 @@ async fn reading_plugin_notice_updates_the_execution_node() {
                 kind: Kind::Info,
                 session: None,
                 presentation: None,
+                details: None,
             },
         }))
         .await

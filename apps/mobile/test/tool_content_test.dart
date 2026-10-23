@@ -26,19 +26,17 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: ToolContent(
-            call: {'name': 'fixture_action', 'content': content},
+            call: {
+              'name': 'fixture_action',
+              'content': content,
+              'failure': <String, dynamic>{},
+            },
             result: {
               'result': {
-                'output': {
-                  'isError': true,
-                  'content': [
-                    {'type': 'text', 'text': 'Original diagnostic'},
-                  ],
-                  'sailry_content': content,
-                },
+                'error': 'Original diagnostic',
+                'sailry_content': content,
               },
             },
-            arguments: const {},
             host: HostConnection.test(
               id: 'node',
               label: 'Node',
@@ -110,11 +108,15 @@ void main() {
             MaterialApp(
               home: Scaffold(
                 body: ToolContent(
-                  call: {'name': 'fixture_action', 'content': content},
+                  call: {
+                    'name': 'fixture_action',
+                    'content': content,
+                    'failure': <String, dynamic>{},
+                    'texts': [literal, if (!noticeOnly) null],
+                  },
                   result: {
                     'result': wrapped ? {'output': payload} : payload,
                   },
-                  arguments: const {},
                   host: HostConnection.test(
                     id: 'node',
                     label: 'Node',
@@ -191,7 +193,6 @@ void main() {
             body: ToolContent(
               call: {'name': 'fixture_action', 'content': content},
               result: {'result': result},
-              arguments: const {},
               host: HostConnection.test(
                 id: 'node',
                 label: 'Node',
@@ -255,7 +256,15 @@ void main() {
           theme: theme,
           home: Scaffold(
             body: ToolContent(
-              call: const {'name': 'run_command'},
+              call: {
+                'name': 'run_command',
+                'resolved': {'command': outcome},
+                'failure': switch (outcome['kind']) {
+                  'cancelled' => {'code': 'cancelled'},
+                  'unknown' => {'code': 'outcome_unknown'},
+                  _ => failed ? <String, dynamic>{} : null,
+                },
+              },
               result: {
                 'result': {
                   'kind': 'command_result',
@@ -266,7 +275,6 @@ void main() {
                   },
                 },
               },
-              arguments: const {},
               host: host,
               worktree: 'tree',
             ),
@@ -293,7 +301,19 @@ void main() {
         theme: theme,
         home: Scaffold(
           body: ToolContent(
-            call: const {'name': 'run_command'},
+            call: const {
+              'name': 'run_command',
+              'resolved': {
+                'command': {'kind': 'exited', 'data': 1},
+              },
+              'content': {
+                'version': 1,
+                'blocks': [
+                  {'kind': 'text', 'path': '/data/stdout/text'},
+                ],
+              },
+              'texts': ['matched file'],
+            },
             result: const {
               'result': {
                 'kind': 'command_result',
@@ -304,7 +324,6 @@ void main() {
                 },
               },
             },
-            arguments: const {},
             host: HostConnection.test(
               id: 'node',
               label: 'Node',

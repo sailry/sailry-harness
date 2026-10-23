@@ -7,14 +7,53 @@ import '../../../content/diff.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
-import 'command_result.dart';
 import 'references.dart';
 import 'tool_display.dart';
+import 'command_result.dart';
 
 String toolLabel(String name, {Translator translate = tr}) =>
     hasLocalization('tool_$name') ? translate('tool_$name') : name;
 String rawText(Object? value) =>
     value is String ? value : const JsonEncoder.withIndent('  ').convert(value);
+
+/// Images and publications already occupy their existing answer rows.
+/// Only sections rendered inside the tool disclosure need a body here.
+bool hasToolContent(Map<String, dynamic> call) {
+  if (call['failure'] != null) return true;
+  final resolved = object(call['resolved']);
+  if (objects(resolved['diagnostics']).isNotEmpty) return true;
+  if (object(resolved['command']).isNotEmpty) return true;
+  final output = object(call['output']);
+  final body = object(output['body']);
+  if (call['output_deferred'] == true ||
+      text(output['preview']).isNotEmpty ||
+      objects(output['notices']).isNotEmpty ||
+      (output['paths'] is List && (output['paths'] as List).isNotEmpty) ||
+      object(output['table']).isNotEmpty ||
+      text(body['text']).isNotEmpty ||
+      text(body['path']).isNotEmpty ||
+      body['empty'] != null) {
+    return true;
+  }
+  final texts = call['texts'] is List ? call['texts'] as List : const [];
+  for (final (index, block) in objects(
+    object(call['content'])['blocks'],
+  ).indexed) {
+    switch (block['kind']) {
+      case 'text':
+        if ((index < texts.length && text(texts[index]).isNotEmpty) ||
+            objects(block['notices']).isNotEmpty) {
+          return true;
+        }
+        break;
+      case 'notice':
+      case 'table':
+      case 'diff':
+        return true;
+    }
+  }
+  return false;
+}
 
 class ToolContent extends StatelessWidget {
   const ToolContent({
@@ -22,12 +61,13 @@ class ToolContent extends StatelessWidget {
     this.documents,
     required this.call,
     required this.result,
-    required this.arguments,
     required this.host,
     required this.worktree,
+    this.output,
   });
   final Map<String, FileDocument>? documents;
-  final Map<String, dynamic> call, result, arguments;
+  final Map<String, dynamic> call, result;
+  final Map<String, dynamic>? output;
   final HostConnection host;
   final String worktree;
 
@@ -36,58 +76,45 @@ class ToolContent extends StatelessWidget {
     final muted = TextStyle(
       color: Theme.of(context).colorScheme.onSurfaceVariant,
     );
+    final error = TextStyle(color: Theme.of(context).colorScheme.error);
     final value = result['result'];
-    final output = object(value);
-    final data = object(output['data']);
-    final content = object(call['content']);
+    final returned = object(value);
     final resolved = object(call['resolved']);
-    final projection = object(resolved['output']);
+    final command = object(resolved['command']);
+    final projection = output ?? object(call['output']);
     final diagnostics = objects(resolved['diagnostics']);
-    final fault = output['error'];
-    final hasFailure = resultFailed(output, resolved);
-    final items = objects(content['blocks']);
-    final failure = output['isError'] == true
-        ? output
-        : object(output['output']);
-    final failureTexts = objects(failure['content'])
-        .where((item) => item['type'] == 'text')
-        .map((item) => text(item['text']))
-        .where((value) => value.trim().isNotEmpty)
-        .toList();
+    final observed = call['failure'] != null;
+    final fault = observed ? returned['error'] : null;
+    final failureTexts = observed
+        ? objects(returned['content'])
+              .where((item) => item['type'] == 'text')
+              .map((item) => text(item['text']))
+              .where((value) => value.trim().isNotEmpty)
+              .toList()
+        : const <String>[];
+    final items = objects(object(call['content'])['blocks']);
+    final texts = call['texts'] is List ? call['texts'] as List : const [];
     final structured =
-        content.isNotEmpty &&
+        items.isNotEmpty &&
         fault == null &&
         diagnostics.isEmpty &&
-        (!hasFailure ||
-            (failureTexts.isEmpty &&
-                items.every(
-                  (block) => ['text', 'notice'].contains(block['kind']),
-                )));
+        failureTexts.isEmpty;
     final paths = <String>{};
     final target = text(object(object(resolved['input'])['target'])['text']);
     if (target.isNotEmpty) paths.add(target);
-    if (projection['paths'] is List) {
-      paths.addAll((projection['paths'] as List).whereType<String>());
-    }
-    if (resolved['label'] == null && arguments['path'] is String) {
-      paths.add(arguments['path']);
-    }
-    if (output['kind'] == 'search_results') {
-      for (final match in objects(data['matches'])) {
-        if (match['path'] is String) paths.add(match['path']);
-      }
-    }
+    paths.addAll(
+      (object(resolved['output'])['paths'] as List? ?? const [])
+          .whereType<String>(),
+    );
+    paths.addAll(
+      (projection['paths'] as List? ?? const []).whereType<String>(),
+    );
     final blocks = <Widget>[];
     if (fault != null) {
       final message = fault is String ? fault : text(object(fault)['message']);
       if (message.isNotEmpty) {
         blocks.add(
-          SelectableText(
-            message,
-            style: hasFailure
-                ? TextStyle(color: Theme.of(context).colorScheme.error)
-                : muted,
-          ),
+          SelectableText(message, style: toolFailed(call) ? error : muted),
         );
       }
     } else if (diagnostics.isNotEmpty) {
@@ -95,19 +122,14 @@ class ToolContent extends StatelessWidget {
         blocks.add(
           CodeBlock(
             text(item['text']),
-            style: item['error'] == true
-                ? TextStyle(color: Theme.of(context).colorScheme.error)
-                : muted,
+            style: item['error'] == true ? error : muted,
           ),
         );
       }
-    } else if (hasFailure && !structured) {
+    } else if (failureTexts.isNotEmpty) {
       for (final message in failureTexts) {
         blocks.add(
-          SelectableText(
-            message,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
+          SelectableText(message, style: toolFailed(call) ? error : muted),
         );
       }
     }
@@ -118,12 +140,11 @@ class ToolContent extends StatelessWidget {
       }
       if (block['kind'] == 'table') blocks.add(_Table(block: block));
       if (block['kind'] == 'text') {
-        final payload = output.containsKey('sailry_content')
-            ? output
-            : object(output['output']);
-        final literal = contentValue(payload, text(block['path']));
-        if (literal is String && literal.isNotEmpty) {
-          blocks.add(CodeBlock(literal));
+        final literal = index < texts.length ? text(texts[index]) : '';
+        if (literal.isNotEmpty) {
+          blocks.add(
+            CodeBlock(literal, style: command.isNotEmpty ? muted : null),
+          );
         }
         for (final notice in objects(block['notices'])) {
           blocks.add(Text(capturedLabel(context, notice)));
@@ -132,21 +153,15 @@ class ToolContent extends StatelessWidget {
       if (block['kind'] == 'notice') {
         blocks.add(Text(capturedLabel(context, block['message'])));
       }
-      // Published files remain below the answer when tool work collapses.
-      // Authenticated result images are rendered once in the answer by LiveTimeline.
     }
     var projected = false;
-    if (!structured &&
-        !hasFailure &&
-        fault == null &&
-        diagnostics.isEmpty &&
-        projection.isNotEmpty) {
+    if (!structured && diagnostics.isEmpty && projection.isNotEmpty) {
       final body = object(projection['body']);
       final table = object(projection['table']);
       if (table.isNotEmpty) {
         blocks.add(_Table(block: table));
         projected = true;
-      } else if (body.isNotEmpty) {
+      } else if (text(body['text']).isNotEmpty || body['empty'] != null) {
         final literal = text(body['text']);
         final path = text(body['path']);
         if (path.isNotEmpty) paths.add(path);
@@ -158,12 +173,11 @@ class ToolContent extends StatelessWidget {
           );
         } else if (literal.isNotEmpty) {
           blocks.add(CodeBlock(literal, language: languageFor(path)));
-        } else if (body['empty'] != null) {
+        } else {
           blocks.add(Text(capturedLabel(context, body['empty'])));
         }
         projected = true;
-      } else if (text(projection['preview']).isNotEmpty ||
-          objects(projection['notices']).isNotEmpty) {
+      } else {
         if (text(projection['preview']).isNotEmpty) {
           blocks.add(CodeBlock(text(projection['preview'])));
         }
@@ -172,84 +186,31 @@ class ToolContent extends StatelessWidget {
           final label = capturedLabel(context, notice);
           if (notices.add(label)) blocks.add(Text(label));
         }
-        projected = true;
-      } else if (paths.isNotEmpty) {
-        projected = true;
+        projected =
+            blocks.isNotEmpty ||
+            paths.isNotEmpty ||
+            projection['preview_deferred'] == true;
       }
     }
-    if (!structured && !projected && blocks.isEmpty) {
-      if (output['kind'] == 'file_content') {
-        blocks.add(
-          CodeBlock(
-            text(data['text']),
-            style: muted,
-            language: languageFor(text(arguments['path'])),
-          ),
-        );
-      } else if (call['name'] == 'write_file' &&
-          output['kind'] == 'file_written') {
-        blocks.add(
-          CodeBlock(
-            text(arguments['text']),
-            style: muted,
-            language: languageFor(text(arguments['path'])),
-          ),
-        );
-      } else if (data['stdout'] != null || data['stderr'] != null) {
-        for (final key in ['stdout', 'stderr']) {
-          final capture = object(data[key]);
-          if (text(capture['text']).isNotEmpty) {
-            blocks.add(
-              CodeBlock(text(capture['text']), title: key, style: muted),
-            );
-          }
-          if (capture['truncated'] == true) {
-            blocks.add(Text(context.tr('resourcePartial')));
-          }
-        }
-        final outcome = commandOutcome(output);
-        final status = commandStatus(output, translate: context.tr);
-        if (status != null) {
-          blocks.add(
-            Text(
-              status,
-              style: commandFailed(output)
-                  ? TextStyle(color: Theme.of(context).colorScheme.error)
-                  : muted,
-            ),
-          );
-        }
-        if (outcome['kind'] == 'unknown') {
-          blocks.add(SelectableText(text(outcome['data']), style: muted));
-        }
-      } else if (output['kind'] == 'search_results') {
-        for (final match in objects(data['matches'])) {
-          blocks.add(
-            SelectableText(
-              '${match['path']}:${match['line_number']}  ${text(match['line'])}',
-            ),
-          );
-        }
-      } else if (output['kind'] == 'directory') {
-        for (final entry in objects(data['entries'])) {
-          blocks.add(
-            Text(
-              '${text(entry['name'])}${entry['kind'] == 'directory' ? '/' : ''}',
-            ),
-          );
-        }
-      } else {
-        blocks.add(
-          CodeBlock(
-            rawText(value),
-            language: value is String ? null : 'json',
-            style: muted,
-          ),
-        );
+    final commandLabel = commandStatus(command, translate: context.tr);
+    if (commandLabel != null) {
+      blocks.add(Text(commandLabel, style: toolFailed(call) ? error : muted));
+      if (command['kind'] == 'unknown' && text(command['data']).isNotEmpty) {
+        blocks.add(SelectableText(text(command['data']), style: muted));
       }
-      if (data['truncated'] == true) {
-        blocks.add(Text(context.tr('resourcePartial')));
-      }
+    }
+    if (!structured && !projected && blocks.isEmpty && observed) {
+      blocks.add(
+        value == null
+            ? Text(
+                context.tr('toolFailed'),
+                style: toolFailed(call) ? error : muted,
+              )
+            : CodeBlock(
+                rawText(value),
+                style: toolFailed(call) ? error : muted,
+              ),
+      );
     }
     String? copy;
     if (structured) {
@@ -259,20 +220,18 @@ class ToolContent extends StatelessWidget {
       if (!literal) {
         copy = rawText(value);
       } else {
-        final payload = output.containsKey('sailry_content')
-            ? output
-            : object(output['output']);
-        final text = items
-            .where((block) => block['kind'] == 'text')
-            .map((block) => contentValue(payload, block['path'] as String))
-            .whereType<String>()
-            .where((value) => value.isNotEmpty)
-            .join('\n');
+        final literals = <String>[
+          for (final (index, block) in items.indexed)
+            if (block['kind'] == 'text' &&
+                index < texts.length &&
+                text(texts[index]).isNotEmpty)
+              text(texts[index]),
+        ].join('\n');
         if (items.length > 1 ||
             items.any((block) => block['kind'] == 'notice') ||
-            text.isEmpty) {
-          copy = text.isNotEmpty
-              ? text
+            literals.isEmpty) {
+          copy = literals.isNotEmpty
+              ? literals
               : [
                   for (final block in items)
                     if (block['kind'] == 'notice')
@@ -283,7 +242,7 @@ class ToolContent extends StatelessWidget {
                 ].join('\n');
         }
       }
-    } else if (projected && !hasFailure) {
+    } else if (projected) {
       if (object(projection['table']).isNotEmpty) {
         copy = rawText(value);
       } else if (text(projection['preview']).isEmpty &&
@@ -307,12 +266,7 @@ class ToolContent extends StatelessWidget {
                 for (final path in paths)
                   {
                     'label': path,
-                    'target': {
-                      'kind': output['kind'] == 'directory'
-                          ? 'directory'
-                          : 'file',
-                      'data': path,
-                    },
+                    'target': {'kind': 'file', 'data': path},
                   },
               ],
             ),

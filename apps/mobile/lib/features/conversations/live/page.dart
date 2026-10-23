@@ -670,6 +670,17 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                 session: _session,
                                 host: widget.host,
                                 command: _command,
+                                toolOutput: (entry, index) async {
+                                  final updates = _updates;
+                                  if (_closed || updates == null) return null;
+                                  final output = jsonDecode(
+                                    await updates.toolOutput(
+                                      entry: entry,
+                                      index: index,
+                                    ),
+                                  );
+                                  return output == null ? null : object(output);
+                                },
                                 onOpenChild: _openChild,
                                 onTurnAction: _canUseHistory
                                     ? _turnAction

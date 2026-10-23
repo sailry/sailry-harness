@@ -11,12 +11,16 @@ class WorkDisclosure extends StatefulWidget {
     required this.child,
     required this.autoExpanded,
     this.framed = false,
+    this.expandable = true,
+    this.onChanged,
   });
 
   final Widget title;
   final Widget child;
   final bool autoExpanded;
   final bool framed;
+  final bool expandable;
+  final ValueChanged<bool>? onChanged;
 
   @override
   State<WorkDisclosure> createState() => _WorkDisclosureState();
@@ -52,6 +56,13 @@ class _WorkDisclosureState extends State<WorkDisclosure> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    if (!widget.expandable) {
+      return Container(
+        constraints: const BoxConstraints(minHeight: 40),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: widget.title,
+      );
+    }
     return Expansible(
       controller: _controller,
       headerBuilder: (context, animation) => Semantics(
@@ -60,6 +71,7 @@ class _WorkDisclosureState extends State<WorkDisclosure> {
           onTap: () {
             _chosen = !_controller.isExpanded;
             _controller.toggle();
+            widget.onChanged?.call(_controller.isExpanded);
           },
           child: Container(
             constraints: const BoxConstraints(minHeight: 40),

@@ -16,6 +16,7 @@ import '../../resources/file_page.dart';
 import 'presentation.dart';
 import 'tool_record.dart';
 import 'tool_sequence.dart';
+import 'tool_display.dart';
 export 'tool_record.dart' show ToolRecord;
 import 'disclosure.dart';
 import 'activity.dart';
@@ -51,6 +52,7 @@ class LiveTimeline extends StatefulWidget {
     this.sending = false,
     this.artifactActions,
     this.artifactChanges,
+    this.toolOutput,
   });
   final Map<String, dynamic> view;
   final Map<String, dynamic> session;
@@ -64,6 +66,7 @@ class LiveTimeline extends StatefulWidget {
   final bool sending;
   final ArtifactActions? artifactActions;
   final ValueListenable<Map<String, dynamic>>? artifactChanges;
+  final OutputLoader? toolOutput;
 
   @override
   State<LiveTimeline> createState() => _LiveTimelineState();
@@ -209,6 +212,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             command: command,
             enabled: connected,
             continuing: continuing,
+            toolOutput: widget.toolOutput,
           );
         case 'reference':
           return MessageReferences(
@@ -228,7 +232,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
         ...drafts.where((entry) => entry['turn'] == run['turn']),
       ];
       final active = activeRun(run);
-      final visible = _visibleParts(rows, calls);
+      final visible = visibleParts(rows, calls);
       final last = visible.lastOrNull;
       final waiting = calls.any(
         (call) =>
@@ -560,7 +564,7 @@ bool _modelRetry(Map<String, dynamic> part) {
 }
 
 /// Consecutive retry counters share a single visual row, like Desktop's blocks.
-List<(Map<String, dynamic>, int, Map<String, dynamic>)> _visibleParts(
+List<(Map<String, dynamic>, int, Map<String, dynamic>)> visibleParts(
   List<Map<String, dynamic>> entries,
   List<Map<String, dynamic>> calls,
 ) {
@@ -570,6 +574,11 @@ List<(Map<String, dynamic>, int, Map<String, dynamic>)> _visibleParts(
       objects(entry['parts']),
       objects(entry['citations']),
     )) {
+      final call = calls.where((call) {
+        final source = object(call['source']);
+        return source['entry'] == entry['id'] && source['index'] == index;
+      }).firstOrNull;
+      if (call?['hidden'] == true) continue;
       if (part['kind'] == 'text' && text(part['data']).trim().isEmpty) {
         continue;
       }

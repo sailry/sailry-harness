@@ -23,11 +23,6 @@ bool pendingTool(Map<String, dynamic> call) =>
     object(call['approval'])['state'] == 'pending' ||
     object(object(call['question'])['state'])['kind'] == 'pending';
 
-bool toolFailed(Map<String, dynamic> call, Map<String, dynamic> page) {
-  final result = object(toolPart(page, call['response'])['result']);
-  return resultFailed(result, object(call['resolved']));
-}
-
 class ToolHeading extends StatelessWidget {
   const ToolHeading({
     super.key,
@@ -47,21 +42,18 @@ class ToolHeading extends StatelessWidget {
   Widget build(BuildContext context) {
     final waiting = pending ?? pendingTool(call);
     final active = (running ?? call['state'] == 'running') && !waiting;
-    final result = object(toolPart(page, call['response'])['result']);
-    final ownFailure = toolFailed(call, page);
+    final ownFailure = toolFailed(call);
     final hasFailure =
         !waiting && call['state'] != 'running' && (failed ?? ownFailure);
     final resolved = object(call['resolved']);
     final capturedStatus = capturedLabel(context, resolved['status']);
-    final resultStatus = switch (object(result['error'])['code']) {
+    final resultStatus = switch (object(call['failure'])['code']) {
       'cancelled' => context.tr('toolCancelled'),
       'outcome_unknown' => context.tr('toolOutcomeUnknown'),
       _ =>
-        result['error'] != null || ownFailure
-            ? null
-            : capturedStatus.isNotEmpty
+        capturedStatus.isNotEmpty
             ? capturedStatus
-            : commandStatus(result, translate: context.tr),
+            : commandStatus(object(resolved['command']), translate: context.tr),
     };
     final status = waiting
         ? context.tr('conversationToolWaiting')
@@ -75,15 +67,8 @@ class ToolHeading extends StatelessWidget {
                 'interrupted' => 'conversationToolInterrupted',
                 _ => 'conversationToolWaiting',
               });
-    final args = object(toolPart(page, call['source'])['arguments']);
     final summary = text(object(object(resolved['input'])['summary'])['text']);
-    final target = resolved['label'] != null
-        ? (summary.isEmpty ? null : summary)
-        : [
-            args['path'],
-            args['command'],
-            args['query'],
-          ].whereType<String>().where((value) => value.isNotEmpty).firstOrNull;
+    final target = summary.isEmpty ? null : summary;
     final label = [
       resolved['label'] != null
           ? capturedLabel(context, resolved['label'])

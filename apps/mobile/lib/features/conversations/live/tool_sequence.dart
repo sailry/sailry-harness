@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'disclosure.dart';
 import 'tool_record.dart';
 import 'tool_heading.dart';
+import 'tool_display.dart';
 
 /// Groups consecutive activity without changing the shared Client's calls.
 class ToolSequence extends StatefulWidget {
@@ -49,7 +50,7 @@ class _ToolSequenceState extends State<ToolSequence> {
         page: latest.page,
         pending: pending,
         running: running,
-        failed: tools.any((tool) => toolFailed(tool.call, tool.page)),
+        failed: tools.any((tool) => toolFailed(tool.call)),
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(

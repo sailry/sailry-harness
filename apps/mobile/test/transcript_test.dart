@@ -179,9 +179,15 @@ void main() {
               'turn': 'turn',
               'name': 'read_file',
               'state': toolState,
+              'resolved': {
+                'input': {
+                  'summary': {'text': 'source.txt'},
+                },
+              },
               'source': {'entry': 'tool', 'index': 0},
               if (toolState == 'returned')
                 'response': {'entry': 'tool', 'index': 1},
+              if (toolState == 'returned') 'output': {'preview': 'Tool output'},
             },
         ],
       );
@@ -319,6 +325,8 @@ void main() {
                       'state': 'returned',
                       'presentation': 'content',
                       if (payload == payloads.first) 'content': content,
+                      if (payload.containsKey('error'))
+                        'failure': <String, dynamic>{},
                       'source': {'entry': 'tool', 'index': 0},
                       'response': {'entry': 'tool', 'index': 1},
                     },
@@ -335,8 +343,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(tr('completed')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('inspect_files'));
-      await tester.pumpAndSettle();
+      if (payload == payloads.first || payload.containsKey('error')) {
+        await tester.tap(find.text('inspect_files'));
+        await tester.pumpAndSettle();
+      }
       expect(find.byType(AttachmentView), findsOneWidget);
       expect(find.text('preview.png'), findsOneWidget);
       expect(find.text(tr('toolRaw')), findsNothing);
@@ -346,7 +356,7 @@ void main() {
       } else if (!payload.containsKey('error')) {
         expect(
           find.text(const JsonEncoder.withIndent('  ').convert(payload)),
-          findsOneWidget,
+          findsNothing,
         );
       }
       expect(

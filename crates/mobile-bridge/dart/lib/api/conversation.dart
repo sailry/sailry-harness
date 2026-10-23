@@ -20,4 +20,7 @@ abstract class ConversationUpdates implements RustOpaqueInterface {
   Future<void> loadThrough({required BigInt sequence});
 
   Future<String> next();
+
+  /// Resolve selected output without blocking the pending update reader.
+  Future<String> toolOutput({required String entry, required int index});
 }

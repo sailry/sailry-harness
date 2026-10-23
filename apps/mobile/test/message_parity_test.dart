@@ -9,7 +9,6 @@ import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/json.dart';
 import 'package:sailry_mobile/content/diff.dart';
-import 'package:sailry_mobile/features/conversations/live/tool_display.dart';
 
 import 'live_conversations_test.dart' as fixture;
 
@@ -77,7 +76,13 @@ void main() {
                 'turn': 'turn',
                 'state': pending ? 'waiting' : 'returned',
                 'presentation': 'details',
+                'details': !pending,
+                'failure': contract['failure'],
+                'output': contract['failure'] == null
+                    ? resolved['output']
+                    : null,
                 'content': object(contract['content']),
+                'texts': contract['texts'] ?? const [],
                 'resolved': resolved,
                 'source': {'entry': 'call', 'index': 0},
                 if (!pending) 'response': {'entry': 'result', 'index': 0},
@@ -106,7 +111,10 @@ void main() {
   for (final contract in contracts) {
     final name = text(contract['name']).split('_').last;
     testWidgets('captured $name contract', (tester) async {
-      await record(tester, contract);
+      await record(tester, {
+        ...contract,
+        if (name == 'failure') 'failure': <String, dynamic>{},
+      });
       expect(find.text(tr('toolRaw')), findsNothing);
       expect(find.text(tr('toolArguments')), findsNothing);
       switch (name) {
@@ -153,15 +161,9 @@ void main() {
   testWidgets('MCP failure is not a successful status', (tester) async {
     await record(tester, {
       'name': 'fixture_mcp',
+      'failure': <String, dynamic>{},
       'arguments': {},
-      'result': {
-        'output': {
-          'isError': true,
-          'content': [
-            {'type': 'text', 'text': 'Original MCP failure'},
-          ],
-        },
-      },
+      'result': {'error': 'Original MCP failure'},
     });
     expect(find.text('Original MCP failure'), findsOneWidget);
     expect(find.text(tr('conversationToolReturned')), findsNothing);
@@ -171,6 +173,7 @@ void main() {
     testWidgets('$code retains the original uncertain outcome', (tester) async {
       await record(tester, {
         'name': 'fixture_action',
+        'failure': {'code': code},
         'arguments': {},
         'result': {
           'error': {'code': code, 'message': 'Original outcome'},
@@ -190,27 +193,6 @@ void main() {
       );
     });
   }
-
-  test('literal content references decode escaped keys', () {
-    expect(
-      contentValue({
-        'escaped/key': {'~value': '资料 🙂'},
-      }, '/escaped~1key/~0value'),
-      '资料 🙂',
-    );
-    expect(
-      contentValue({
-        'values': ['first'],
-      }, '/values/0'),
-      'first',
-    );
-    expect(
-      contentValue({
-        'values': ['first'],
-      }, '/values/1'),
-      isNull,
-    );
-  });
 
   test('added diff preserves original text and coordinates', () {
     final lines = parseLines('Original 中文 🙂\nsecond\n', added: true);
@@ -310,6 +292,7 @@ void main() {
               'turn': 'turn',
               'state': 'returned',
               'presentation': 'content',
+              'details': true,
               'content': content,
               'source': {'entry': 'call', 'index': 0},
               'response': {'entry': 'result', 'index': 0},
@@ -348,6 +331,7 @@ void main() {
         },
       },
       'content': content,
+      'texts': [null, 'Verify the result 中文 🙂'],
       'result': {
         'goal': {
           'id': 'goal',
@@ -362,7 +346,7 @@ void main() {
     expect(find.text('已完成'), findsWidgets);
     expect(find.text('Verify the result 中文 🙂'), findsOneWidget);
   });
-  testWidgets('unpaired tool response remains inspectable', (tester) async {
+  testWidgets('unpaired summary follows shared disclosure', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -394,6 +378,8 @@ void main() {
                   'turn': 'turn',
                   'state': 'returned',
                   'presentation': 'summary',
+                  'details': false,
+                  'output': {'preview': 'Preserved response'},
                   'source': {'entry': 'result', 'index': 0},
                   'response': {'entry': 'result', 'index': 0},
                 },
@@ -407,8 +393,12 @@ void main() {
     await tester.tap(find.text(tr('completed')));
     await tester.pumpAndSettle();
     expect(find.text('fixture_tool'), findsOneWidget);
-    await tester.tap(find.text('fixture_tool'));
-    await tester.pumpAndSettle();
-    expect(find.text('Preserved response'), findsOneWidget);
+    expect(find.text('Preserved response'), findsNothing);
+    final timeline = tester.widget<LiveTimeline>(find.byType(LiveTimeline));
+    expect(
+      timeline
+          .view['snapshot']['page']['entries'][0]['parts'][0]['data']['result'],
+      'Preserved response',
+    );
   });
 }

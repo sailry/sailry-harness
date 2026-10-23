@@ -7,10 +7,12 @@ use sailry_client::{
 use sailry_protocol::SessionId;
 use std::sync::Arc;
 use tokio::{sync::watch, task::JoinHandle};
+mod tools;
 
 #[frb(opaque)]
 pub struct ConversationUpdates {
     receiver: Mutex<watch::Receiver<View>>,
+    current: watch::Receiver<View>,
     stop: CancellationToken,
     task: JoinHandle<()>,
     older: tokio::sync::mpsc::Sender<HistoryRequest>,
@@ -27,6 +29,7 @@ impl ConversationUpdates {
                 .await;
         });
         Self {
+            current: receiver.clone(),
             receiver: Mutex::new(receiver),
             stop,
             task,
@@ -41,9 +44,17 @@ impl ConversationUpdates {
             result = async {
                 let mut receiver = self.receiver.lock().await;
                 receiver.changed().await.map_err(error)?;
-                serde_json::to_string(&*receiver.borrow_and_update()).map_err(error)
+                tools::view(&receiver.borrow_and_update())
             } => result,
         }
+    }
+
+    /// Resolve selected output without blocking the pending update reader.
+    pub fn tool_output(&self, entry: String, index: u32) -> Result<String, String> {
+        if self.stop.is_cancelled() {
+            return Err("conversation subscription is closed".into());
+        }
+        tools::output(&self.current.borrow(), &entry, index as usize)
     }
 
     pub fn close(&self) {

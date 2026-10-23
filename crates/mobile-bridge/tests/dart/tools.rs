@@ -4,6 +4,30 @@ use sailry_node_runtime::Node;
 use sailry_protocol::{Command, Output, SessionId};
 use std::path::Path;
 
+#[test]
+#[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
+fn projects_tool_presentation() {
+    let directory = tempfile::tempdir().unwrap();
+    let project = directory.path().join("project");
+    std::fs::create_dir(&project).unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let node = runtime
+        .block_on(Node::start(directory.path().join("node")))
+        .unwrap();
+    let invitation = node.link().invite().unwrap();
+    let child = super::command(
+        "tool_presentation.dart",
+        directory.path(),
+        invitation.ticket(),
+    )
+    .env("SAILRY_PROJECT_PATH", project)
+    .spawn()
+    .unwrap();
+    let status = super::wait(child);
+    runtime.block_on(node.shutdown()).unwrap();
+    assert!(status.success());
+}
+
 pub(super) async fn sessions(
     directory: &Path,
     endpoint: &str,
