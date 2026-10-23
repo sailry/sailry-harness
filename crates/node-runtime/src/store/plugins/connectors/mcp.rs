@@ -2,6 +2,52 @@
 use super::*;
 use crate::plugins::authorization::Target;
 
+/// An explicit custom-server enable may restore only its existing valid account.
+/// Reads and ordinary package servers never change connection state here.
+pub(in crate::store::plugins) fn enable(
+    db: &Connection,
+    profile: Option<&std::path::Path>,
+    info: &Info,
+    server: &str,
+) -> Result<bool, Fault> {
+    if info.mcp_source.is_none() {
+        return Ok(false);
+    }
+    let mut changed = false;
+    for declaration in registry::declarations(info) {
+        let linked = declaration
+            .inject
+            .iter()
+            .any(|injection| injection.server.as_deref() == Some(server))
+            || declaration
+                .auth
+                .iter()
+                .any(|auth| matches!(auth, Auth::McpOauth { server: name, .. } if name == server));
+        if !linked {
+            continue;
+        }
+        for mut record in records(db)?.into_iter().filter(|record| {
+            record.plugin == info.summary.name && record.connector == declaration.id
+        }) {
+            if record.enabled
+                || record.method != Kind::McpOauth
+                || authorization(&record) != State::Connected
+            {
+                continue;
+            }
+            let current = bound(db, profile, info, &declaration, record.method)?;
+            if !consent::same(&record.plugin, record.bound.as_ref(), current.as_ref()) {
+                continue;
+            }
+            super::enabled(&mut record, true)?;
+            next(&mut record)?;
+            super::save(db, &record)?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
 pub(in crate::store) fn resolve(
     db: &Connection,
     profile: Option<&std::path::Path>,
@@ -117,3 +163,6 @@ pub(in crate::store) fn save(
     let record = super::renew(db, record.id, record.auth_revision, revision, issued)?;
     Ok(required(db, &record.plugin)?.summary)
 }
+
+#[cfg(test)]
+mod tests;

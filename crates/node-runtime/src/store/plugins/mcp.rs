@@ -31,6 +31,7 @@ pub(in crate::store) fn prepare(
 
 pub(super) fn set_allowed(
     db: &Connection,
+    profile: Option<&std::path::Path>,
     package: &plugin::Reference,
     server: &str,
     allowed: bool,
@@ -40,7 +41,8 @@ pub(super) fn set_allowed(
         return Err(Fault::new(ErrorCode::NotFound, "MCP server is unavailable"));
     }
     let mut saved = settings::stored(db, &info)?;
-    if saved.mcp_allowed.get(server).copied().unwrap_or(true) != allowed {
+    let enabled = allowed && connectors::mcp::enable(db, profile, &info, server)?;
+    if saved.mcp_allowed.get(server).copied().unwrap_or(true) != allowed || enabled {
         saved.mcp_allowed.insert(server.into(), allowed);
         settings::persist(db, &mut info, &saved)?;
     }
@@ -294,9 +296,23 @@ mod tests {
         db.execute_batch(include_str!("../schema.sql")).unwrap();
         super::super::save(&db, &info, true).unwrap();
         let original = info.clone();
-        let disabled = set_allowed(&db, &info.summary.reference(), "github", false).unwrap();
+        let disabled = set_allowed(
+            &db,
+            host.profile(),
+            &info.summary.reference(),
+            "github",
+            false,
+        )
+        .unwrap();
         assert_eq!(disabled.summary.settings_revision, 1);
-        let unchanged = set_allowed(&db, &disabled.summary.reference(), "github", false).unwrap();
+        let unchanged = set_allowed(
+            &db,
+            host.profile(),
+            &disabled.summary.reference(),
+            "github",
+            false,
+        )
+        .unwrap();
         assert_eq!(unchanged, disabled);
         let configuration = host
             .mcp_configuration(

@@ -55,18 +55,17 @@ pub(in crate::store::plugins) fn project(
                     availability = Availability::ConnectionRequired;
                     break;
                 };
-                availability = if !record.enabled {
-                    Availability::ConnectionDisabled
-                } else {
-                    match connectors::project(db, profile, record)?.state {
-                        ConnectionState::Connected => Availability::Available,
-                        ConnectionState::Expired => Availability::AuthorizationExpired,
-                        ConnectionState::NeedsConfirmation => Availability::ConsentRequired,
-                        ConnectionState::NotConnected | ConnectionState::Connecting => {
-                            Availability::ConnectionRequired
-                        }
-                        ConnectionState::Failed => Availability::Unavailable,
+                availability = match connectors::project(db, profile, record)?.state {
+                    ConnectionState::Connected if !record.enabled => {
+                        Availability::ConnectionDisabled
                     }
+                    ConnectionState::Connected => Availability::Available,
+                    ConnectionState::Expired => Availability::AuthorizationExpired,
+                    ConnectionState::NeedsConfirmation => Availability::ConsentRequired,
+                    ConnectionState::NotConnected | ConnectionState::Connecting => {
+                        Availability::ConnectionRequired
+                    }
+                    ConnectionState::Failed => Availability::Unavailable,
                 };
                 if availability != Availability::Available {
                     break;
@@ -218,8 +217,18 @@ mod tests {
         }
         account.enabled = false;
         connectors::save(&db, &account).unwrap();
+        assert_eq!(projected(), Availability::Unavailable);
+        account.state = State::Connected;
+        connectors::save(&db, &account).unwrap();
         assert_eq!(projected(), Availability::ConnectionDisabled);
-        let disabled = set_allowed(&db, &info.summary.reference(), "github", false).unwrap();
+        let disabled = set_allowed(
+            &db,
+            host.profile(),
+            &info.summary.reference(),
+            "github",
+            false,
+        )
+        .unwrap();
         assert_eq!(
             project(&db, host.profile(), disabled.clone()).unwrap().mcp[0].availability,
             Availability::ServerDisabled

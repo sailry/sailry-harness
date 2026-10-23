@@ -285,7 +285,7 @@ pub(in crate::store) fn project(
         {
             State::NotConnected
         }
-        _ => record.state,
+        _ => authorization(record),
     };
     Ok(Projection {
         id: record.id,
@@ -312,6 +312,32 @@ pub(in crate::store) fn project(
         configured: record.secrets.keys().cloned().collect(),
         consent,
     })
+}
+
+/// MCP grants have an opaque SDK-owned payload. Only the connection owner's
+/// explicit state and grant metadata determine whether authorization is usable.
+fn authorization(record: &Record) -> State {
+    if record.method != Kind::McpOauth {
+        return record.state;
+    }
+    if record.login.is_some() {
+        return State::Connecting;
+    }
+    if record.state != State::Connected {
+        return record.state;
+    }
+    match &record.grant {
+        None => State::NotConnected,
+        Some(grant) if grant.access.expose().is_empty() => State::NotConnected,
+        Some(grant)
+            if grant
+                .expires_at_ms
+                .is_some_and(|expires| expires <= crate::plugins::connectors::now()) =>
+        {
+            State::Expired
+        }
+        Some(_) => State::Connected,
+    }
 }
 
 pub(in crate::store) fn connections(
@@ -485,6 +511,14 @@ fn revoke(record: &mut Record) -> Result<(), Fault> {
     Ok(())
 }
 
+fn enabled(record: &mut Record, value: bool) -> Result<(), Fault> {
+    if record.enabled != value {
+        revoke(record)?;
+        record.enabled = value;
+    }
+    Ok(())
+}
+
 pub(in crate::store) fn execute(
     db: &Connection,
     profile: Option<&std::path::Path>,
@@ -567,10 +601,7 @@ pub(in crate::store) fn execute(
             }
         }
         Command::SetConnectionEnabled { enabled, .. } => {
-            if record.enabled != *enabled {
-                revoke(&mut record)?;
-                record.enabled = *enabled;
-            }
+            self::enabled(&mut record, *enabled)?;
         }
         Command::DisconnectConnection { .. } => {
             revoke(&mut record)?;

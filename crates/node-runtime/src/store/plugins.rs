@@ -434,7 +434,7 @@ pub(super) fn execute(
             server,
             allowed,
         } => {
-            let info = mcp::set_allowed(db, package, server, *allowed)?;
+            let info = mcp::set_allowed(db, profile, package, server, *allowed)?;
             let event = Event::PluginChanged(info.summary.clone());
             Ok((
                 Output::Plugin(mcp::project(db, profile, info)?),
