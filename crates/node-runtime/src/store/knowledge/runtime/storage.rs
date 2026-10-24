@@ -26,15 +26,6 @@ pub(in crate::store) fn changes(command: &Command) -> bool {
     )
 }
 
-pub(in crate::store) async fn prepare(
-    database: &mut Database,
-    request: &Request,
-    stop: &CancellationToken,
-    _events: &broadcast::Sender<EventEnvelope>,
-) -> Result<super::super::semantic::Plan, Fault> {
-    super::super::semantic::prepare(&database.connection, request, stop).await
-}
-
 pub(in crate::store) async fn register(
     database: &mut Database,
     stop: &CancellationToken,

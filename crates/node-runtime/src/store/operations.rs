@@ -58,6 +58,45 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
     let Some(storage) = ingress.storage.get() else {
         return;
     };
+    // Each search phase releases its read snapshot before embedding can run.
+    let job = match job {
+        Job::KnowledgeSemanticPlan {
+            request,
+            stop,
+            reply,
+        } => {
+            let result = storage
+                .read(move |connection| {
+                    Box::pin(async move {
+                        knowledge::semantic::prepare(connection, &request, &stop).await
+                    })
+                })
+                .await;
+            let _ = reply.send(result);
+            return;
+        }
+        Job::KnowledgeSemanticPage {
+            request,
+            plan,
+            selection,
+            stop,
+            reply,
+        } => {
+            let result = storage
+                .read(move |connection| {
+                    Box::pin(async move {
+                        knowledge::semantic::materialize(
+                            connection, &request, &plan, &selection, &stop,
+                        )
+                        .await
+                    })
+                })
+                .await;
+            let _ = reply.send(result);
+            return;
+        }
+        other => other,
+    };
     let readonly = match &job {
         Job::Read { .. }
         | Job::CheckPlugin { .. }
@@ -69,7 +108,6 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
         | Job::KnowledgeSources { .. }
         | Job::KnowledgeSourceCurrent { .. }
         | Job::KnowledgeSource { .. }
-        | Job::KnowledgeSemanticPage { .. }
         | Job::ConnectorTarget { .. }
         | Job::NetworkScope { .. }
         | Job::CodeApproved { .. }
@@ -214,33 +252,6 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
             } => Box::pin(async move {
                 let _ = reply.send(
                     knowledge::storage::record(&database.connection, &stored, &key, &stop).await,
-                );
-            }),
-            Job::KnowledgeSemanticPlan {
-                request,
-                stop,
-                reply,
-            } => Box::pin(async move {
-                let _ = reply.send(
-                    knowledge::runtime::storage::prepare(database, &request, &stop, events).await,
-                );
-            }),
-            Job::KnowledgeSemanticPage {
-                request,
-                plan,
-                selection,
-                stop,
-                reply,
-            } => Box::pin(async move {
-                let _ = reply.send(
-                    knowledge::semantic::materialize(
-                        &database.connection,
-                        &request,
-                        &plan,
-                        &selection,
-                        &stop,
-                    )
-                    .await,
                 );
             }),
             Job::KnowledgeRegister { stop, reply } => Box::pin(async move {

@@ -63,6 +63,8 @@ pub(in crate::store) async fn prepare(
         unreachable!()
     };
     let keyword = search::ranked(db, &context.package.name, keyword_query).await?;
+    #[cfg(test)]
+    tests::snapshots::pause("plan").await?;
     let eligible = eligible(db, &context.package, &collections, stop).await?;
     Ok(Plan {
         package: context.package.clone(),
@@ -571,7 +573,7 @@ pub(in crate::store) async fn materialize(
             page.next = Some(query.offset.saturating_add(page.entries.len() as u16));
             break;
         }
-        if let Some(stamp) = stamps.get(key.as_str()) {
+        let semantic_revision = if let Some(stamp) = stamps.get(key.as_str()) {
             let Some(stored) = plan
                 .collections
                 .iter()
@@ -604,9 +606,14 @@ pub(in crate::store) async fn materialize(
             {
                 return fallback(db, request).await;
             }
+            Some(record.revision)
         } else if !keyword.contains_key(key.as_str()) {
             return Err(denied("semantic result has no captured ranking"));
-        }
+        } else {
+            None
+        };
+        #[cfg(test)]
+        tests::snapshots::pause("page").await?;
         let mut read = request.clone();
         read.command = Command::ReadPluginValue { key: key.clone() };
         let (Output::PluginValue(entry), _) =
@@ -615,6 +622,7 @@ pub(in crate::store) async fn materialize(
             return Err(Fault::new(ErrorCode::Internal, "plugin entry expected"));
         };
         if !entry.present
+            || semantic_revision.is_some_and(|revision| revision != entry.revision)
             || keyword
                 .get(key.as_str())
                 .is_some_and(|revision| *revision != entry.revision)

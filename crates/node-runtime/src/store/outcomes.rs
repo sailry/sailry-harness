@@ -3,6 +3,70 @@ use turso::{Connection, params};
 
 use super::database::storage_error;
 
+#[cfg(test)]
+mod tests;
+
+/// Persist an already captured file outcome without invoking the file operation again.
+pub(super) async fn complete(
+    database: &mut super::Database,
+    caller: NodeId,
+    id: RequestId,
+    result: &sailry_link::Response,
+) -> Result<(), Fault> {
+    use super::database::conflict;
+    let body = serde_json::to_string(result).map_err(storage_error)?;
+    let write = database.write().await?;
+    for attempt in 0..=conflict::RETRIES {
+        let recorded = async {
+            let transaction = conflict::begin(&database.connection).await?;
+            let status: String = transaction
+                .prepare("SELECT status FROM requests WHERE caller=?1 AND id=?2")
+                .await.map_err(storage_error)?
+                .query_row(params![&caller.0[..], id.to_string()])
+                .await.map_err(storage_error)?
+                .get(0).map_err(storage_error)?;
+            if status != "admitted" {
+                return Err(storage_error("durable admission missing"));
+            }
+            #[cfg(test)]
+            tests::before_write().await?;
+            let changed = transaction.execute(
+                "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2 AND status='admitted'",
+                params![&caller.0[..], id.to_string(), body.as_str()],
+            ).await.map_err(storage_error)?;
+            if changed != 1 {
+                return Err(storage_error("durable admission missing"));
+            }
+            conflict::commit(transaction).await
+        }.await;
+        if let Err(error) = conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        if !conflict::again(&recorded, attempt).await {
+            return recorded;
+        }
+    }
+    unreachable!("the final attempt returns its result")
+}
+
+pub(super) fn failed(node: NodeId, caller: NodeId, id: RequestId, error: &Fault) {
+    let mut entry =
+        crate::logging::Entry::new(crate::logging::Area::Command, crate::logging::Phase::Failed);
+    entry.context.node = Some(node);
+    entry.context.caller = Some(caller);
+    entry.context.request = Some(id);
+    entry.operation = Some("record_outcome");
+    entry.stage = Some("receipt");
+    entry.code = Some(error.code);
+    entry.cause_code = Some(if super::database::conflict::is_conflict(error) {
+        "storage_conflict"
+    } else {
+        "receipt_failed"
+    });
+    entry.emit();
+}
+
 pub(super) async fn inspect(
     db: &Connection,
     caller: NodeId,

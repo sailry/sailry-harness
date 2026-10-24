@@ -1549,8 +1549,7 @@ impl Handler for Ingress {
                     .plugin
                     .clone()
                     .ok_or_else(|| Fault::invalid("plugin scope expected"))?;
-                self.check_request(caller, request.as_ref().clone(), false)
-                    .await?;
+                self.check_plugin(caller, request.as_ref().clone()).await?;
                 return self.installations.subscribe_for(
                     self.node,
                     caller,

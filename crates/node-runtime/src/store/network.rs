@@ -167,16 +167,16 @@ pub(super) async fn prepare(
                     "direct-only endpoint has no relay transport",
                 ));
             }
-            if db.network_request.lock().unwrap().is_some() {
-                return Err(Fault::new(
-                    ErrorCode::Busy,
-                    "network configuration is changing",
-                ));
-            }
             if settings.revision != *expected_revision {
                 return Err(Fault::new(
                     ErrorCode::RevisionConflict,
                     "network configuration changed",
+                ));
+            }
+            if db.network_request.lock().unwrap().is_some() {
+                return Err(Fault::new(
+                    ErrorCode::Busy,
+                    "network configuration is changing",
                 ));
             }
             let change = transport(desired);

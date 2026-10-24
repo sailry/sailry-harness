@@ -1,6 +1,7 @@
 use super::*;
 use sailry_protocol::{NodeId, TurnId};
 use serde_json::{Value, json};
+pub(super) mod snapshots;
 
 async fn database() -> Connection {
     let engine = crate::store::database::engine(std::path::Path::new(":memory:"))

@@ -104,6 +104,93 @@ async fn settings(client: &Client) -> sailry_protocol::network::Settings {
 }
 
 #[tokio::test]
+async fn concurrent_saves_preserve_one_revision() {
+    use sailry_protocol::RequestOutcome;
+    for remote in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let relays = Relays::start().await;
+        let scope = || NetworkScope::CustomRelays(vec![relays.urls[0].clone()]);
+        let node = Node::start_empty_with_network_roots(
+            root.path().join("node"),
+            scope(),
+            relays.roots.clone(),
+        )
+        .await
+        .unwrap();
+        let controller = Node::start_empty_with_network_roots(
+            root.path().join("controller"),
+            scope(),
+            relays.roots.clone(),
+        )
+        .await
+        .unwrap();
+        node.link().online().await.unwrap();
+        controller.link().online().await.unwrap();
+        let address = controller
+            .link()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.link().remote(address)
+        } else {
+            node.local()
+        });
+        let selections = [
+            Selection::Custom {
+                relays: vec![relays.urls[1].clone()],
+            },
+            Selection::Custom {
+                relays: relays.urls.clone(),
+            },
+        ];
+        let revision = settings(&client).await.revision;
+        let requests = selections.clone().map(|selection| {
+            client.prepare(Command::SaveNetworkSettings {
+                expected_revision: revision,
+                selection,
+            })
+        });
+        let (first, second) = tokio::join!(
+            client.dispatch(requests[0].clone()),
+            client.dispatch(requests[1].clone())
+        );
+        let (first, second) = (first.unwrap(), second.unwrap());
+        assert!(first.receipt.durable && second.receipt.durable);
+        let (first, second) = tokio::join!(first.completion, second.completion);
+        let outcomes = [first.unwrap(), second.unwrap()];
+        let mut accepted = None;
+        for (index, outcome) in outcomes.iter().enumerate() {
+            match outcome {
+                Ok(Output::NetworkSettings(saved)) => {
+                    assert!(accepted.replace(index).is_none(), "only one save may apply");
+                    assert_eq!(saved.revision, revision + 1);
+                    assert_eq!(saved.selection.as_ref(), Some(&selections[index]));
+                    assert_eq!(saved.effective, saved.selection);
+                }
+                Err(error) => assert_eq!(error.code, ErrorCode::RevisionConflict),
+                output => panic!("network save outcome expected: {output:?}"),
+            }
+        }
+        let accepted = accepted.expect("one save must apply");
+        let saved = settings(&client).await;
+        assert_eq!(saved.revision, revision + 1);
+        assert_eq!(saved.selection.as_ref(), Some(&selections[accepted]));
+        assert_eq!(saved.effective, saved.selection);
+        for (request, outcome) in requests.into_iter().zip(outcomes) {
+            assert_eq!(
+                client.outcome(&request).await.unwrap(),
+                RequestOutcome::Completed(Box::new(outcome.clone()))
+            );
+            assert_eq!(client.execute(request).await, outcome);
+        }
+        assert_eq!(settings(&client).await, saved);
+        node.shutdown().await.unwrap();
+        controller.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn switches_host_and_recovers_receipt() {
     use sailry_protocol::RequestOutcome;
     use std::time::Duration;

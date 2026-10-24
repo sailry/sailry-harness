@@ -29,6 +29,8 @@ pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((
         OR (action.key IN ('skip_summarization','escalate','input_screened') AND action.value=0)
     ))
 ),0)";
+#[cfg(test)]
+mod tests;
 mod web_search;
 
 pub(super) async fn append(
@@ -38,100 +40,101 @@ pub(super) async fn append(
     event: AdkEvent,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> adk_core::Result<()> {
-    let write = async || -> Result<(), Fault> {
-        let publication = database.publication.clone();
-        let transaction = database
-            .connection
-            .unchecked_transaction()
-            .await
-            .map_err(storage_error)?;
-        let prepared: Result<_, Fault> = async {
-            let Some(entry) = insert(&transaction, session, turn, event).await? else {
-                return Ok(None);
+    let permit = database.write().await.map_err(adk_error)?;
+    for attempt in 0..=crate::store::database::conflict::RETRIES {
+        let event = event.clone();
+        let write = async || -> Result<(), Fault> {
+            let publication = database.publication.clone();
+            let transaction = crate::store::database::conflict::begin(&database.connection).await?;
+            let prepared: Result<_, Fault> = async {
+                let Some(entry) = insert(&transaction, session, turn, event).await? else {
+                    return Ok(None);
+                };
+                let visible: bool = {
+                    let mut statement = transaction
+                        .prepare(&format!(
+                            "SELECT {VISIBLE_EVENT} FROM agent_events e WHERE e.sequence=?1"
+                        ))
+                        .await
+                        .map_err(storage_error)?;
+                    let row = statement
+                        .query_row([i64::try_from(entry.sequence).map_err(storage_error)?])
+                        .await
+                        .map_err(storage_error)?;
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    mapped.map_err(storage_error)?
+                };
+                let notice =
+                    super::super::notifications::system::compaction(&transaction, session, &entry)
+                        .await?;
+                let background = super::background::list(&transaction, session).await?;
+                let statistics = super::statistics::read(&transaction, session).await?;
+                let parents = {
+                    let mut selected = Vec::new();
+                    for value in super::statistics::parents(&transaction, turn)
+                        .await?
+                        .into_iter()
+                    {
+                        selected.push(
+                            (async |parent| {
+                                super::statistics::read(&transaction, parent)
+                                    .await
+                                    .map(|statistics| (parent, statistics))
+                            })(value)
+                            .await?,
+                        );
+                    }
+                    Ok::<_, Fault>(selected)
+                }?;
+                let envelope = changed(&transaction, database.node, session).await?;
+                let notices = super::super::database::record(
+                    &transaction,
+                    database.node,
+                    notice.into_iter().collect(),
+                )
+                .await?;
+                Ok(Some((
+                    entry, visible, background, statistics, parents, envelope, notices,
+                )))
+            }
+            .await;
+            let Some((entry, visible, background, statistics, parents, envelope, notices)) =
+                prepared?
+            else {
+                return Ok(());
             };
-            let visible: bool = {
-                let mut statement = transaction
-                    .prepare(&format!(
-                        "SELECT {VISIBLE_EVENT} FROM agent_events e WHERE e.sequence=?1"
-                    ))
-                    .await
-                    .map_err(storage_error)?;
-                let row = statement
-                    .query_row([i64::try_from(entry.sequence).map_err(storage_error)?])
-                    .await
-                    .map_err(storage_error)?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-                mapped.map_err(storage_error)?
-            };
-            let notice =
-                super::super::notifications::system::compaction(&transaction, session, &entry)
-                    .await?;
-            let background = super::background::list(&transaction, session).await?;
-            let statistics = super::statistics::read(&transaction, session).await?;
-            let parents = {
-                let mut selected = Vec::new();
-                for value in super::statistics::parents(&transaction, turn)
-                    .await?
-                    .into_iter()
-                {
-                    selected.push(
-                        (async |parent| {
-                            super::statistics::read(&transaction, parent)
-                                .await
-                                .map(|statistics| (parent, statistics))
-                        })(value)
-                        .await?,
-                    );
-                }
-                Ok::<_, Fault>(selected)
-            }?;
-            let envelope = changed(&transaction, database.node, session).await?;
-            let notices = super::super::database::record(
-                &transaction,
-                database.node,
-                notice.into_iter().collect(),
-            )
-            .await?;
-            Ok(Some((
-                entry, visible, background, statistics, parents, envelope, notices,
-            )))
-        }
-        .await;
-        let Some((entry, visible, background, statistics, parents, envelope, notices)) =
-            (match prepared {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    transaction.rollback().await.map_err(storage_error)?;
-                    return Err(error);
-                }
-            })
-        else {
-            transaction.rollback().await.map_err(storage_error)?;
-            return Ok(());
+            let publication = publication.lock().await;
+            crate::store::database::conflict::commit(transaction).await?;
+            publication.send(events, envelope);
+            for notice in notices {
+                publication.send(events, notice);
+            }
+            if visible {
+                database
+                    .feeds
+                    .publish(database.node, session, Change::Entry(entry));
+            }
+            database
+                .feeds
+                .publish(database.node, session, Change::Statistics(statistics));
+            super::background::publish(database, background).await;
+            for (parent, statistics) in parents {
+                database
+                    .feeds
+                    .publish(database.node, parent, Change::Statistics(statistics));
+            }
+            Ok(())
         };
-        let publication = publication.lock().await;
-        crate::store::database::conflict::commit(transaction).await?;
-        publication.send(events, envelope);
-        for notice in notices {
-            publication.send(events, notice);
+        let result = write().await;
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(permit);
+            return Err(adk_error(error));
         }
-        if visible {
-            database
-                .feeds
-                .publish(database.node, session, Change::Entry(entry));
+        if !crate::store::database::conflict::again(&result, attempt).await {
+            return result.map_err(adk_error);
         }
-        database
-            .feeds
-            .publish(database.node, session, Change::Statistics(statistics));
-        super::background::publish(database, background).await;
-        for (parent, statistics) in parents {
-            database
-                .feeds
-                .publish(database.node, parent, Change::Statistics(statistics));
-        }
-        Ok(())
-    };
-    write().await.map_err(adk_error)
+    }
+    unreachable!("the final attempt returns its result")
 }
 
 /// Insert into the caller's existing transaction; this is the same history owner.
@@ -179,6 +182,8 @@ pub(super) async fn insert(
             Err(error) => return Err(storage_error(error).into()),
         }
     };
+    #[cfg(test)]
+    tests::before_write().await?;
     super::presentation::preserve_failures(
         &mut event,
         previous.as_ref().map(|(_, body)| body.as_slice()),

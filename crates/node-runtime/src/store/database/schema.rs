@@ -425,7 +425,6 @@ pub(super) async fn validate_backup(connection: &Connection, node: NodeId) -> Re
         .map_err(|_| incompatible(path, "plugin search declarations cannot be read"))?;
     let expected = expected(DDL, &definitions).await?;
     verify_objects(connection, path, &expected).await?;
-    super::counters::validate(connection).await?;
     references(connection).await
 }
 

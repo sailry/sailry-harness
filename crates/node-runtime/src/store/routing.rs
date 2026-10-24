@@ -81,7 +81,8 @@ pub(super) fn lifecycle(command: &Command) -> bool {
     }
     matches!(
         command,
-        Command::StartSession(_)
+        Command::SaveNetworkSettings { .. }
+            | Command::StartSession(_)
             | Command::SubmitTurn { .. }
             | Command::SubmitTask { .. }
             | Command::ContinueTurn { .. }

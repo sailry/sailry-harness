@@ -47,8 +47,6 @@ async fn persists_intent_before_applying() {
         read(&db.connection, &link.handle()).await.unwrap(),
         settings
     );
-    release(&mut db, &request).await;
-    drop(execution);
     let stale = Request::new(
         id,
         Command::SaveNetworkSettings {
@@ -66,6 +64,13 @@ async fn persists_intent_before_applying() {
             .code,
         ErrorCode::RevisionConflict
     );
+    assert_eq!(*db.network_request.lock().unwrap(), Some(request.id));
+    assert_eq!(
+        read(&db.connection, &link.handle()).await.unwrap(),
+        settings
+    );
+    release(&mut db, &request).await;
+    drop(execution);
     db.close().await.unwrap();
     let db = Database::open(&path, id, None).await.unwrap();
     assert_eq!(

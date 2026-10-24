@@ -127,15 +127,6 @@ impl Ingress {
         self.submit(job).await
     }
 
-    pub(super) async fn check_request(
-        &self,
-        caller: NodeId,
-        request: Request,
-        _internal: bool,
-    ) -> Result<(), Fault> {
-        self.check_plugin(caller, request).await
-    }
-
     async fn recorded(
         &self,
         caller: NodeId,
@@ -227,8 +218,7 @@ impl Ingress {
                 }
                 // Restore the canonical receipt before inspecting mutable discovery or ownership.
                 if !self.recorded(caller, &request, internal).await? {
-                    self.check_request(caller, request.clone(), internal)
-                        .await?;
+                    self.check_plugin(caller, request.clone()).await?;
                     let root = self.worktree_root_with(startup.worktree, internal).await?;
                     self.code.validate(startup, &root).await?;
                 }
@@ -241,14 +231,12 @@ impl Ingress {
                     ));
                 }
                 if !self.recorded(caller, &request, internal).await? {
-                    self.check_request(caller, request.clone(), internal)
-                        .await?;
+                    self.check_plugin(caller, request.clone()).await?;
                     self.code.validate_install(install)?;
                 }
             }
             if request.plugin.is_some() && !request.command.durable() {
-                self.check_request(caller, request.clone(), internal)
-                    .await?;
+                self.check_plugin(caller, request.clone()).await?;
             }
             if matches!(
                 request.command,

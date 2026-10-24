@@ -88,15 +88,23 @@ pub(in crate::store) async fn creates(db: &Connection, request: &Request) -> Res
     Ok(!exists(db, &table(&context.package.name)).await?)
 }
 
-/// Reads validate the derived corpus without creating or repairing it.
+/// Queries check readiness; startup validates the complete derived corpus.
 pub(super) async fn check(db: &Connection, name: &str) -> Result<bool, Fault> {
-    let records = indexes::records(db, name).await?;
     let table = table(name);
     if !exists(db, &table).await? {
-        return if records.is_empty() {
-            Ok(false)
-        } else {
+        let indexed: bool = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM plugin_values WHERE name=?1 AND index_data IS NOT NULL)")
+            .await
+            .map_err(storage_error)?
+            .query_row([name])
+            .await
+            .map_err(storage_error)?
+            .get(0)
+            .map_err(storage_error)?;
+        return if indexed {
             Err(storage_error("plugin search index is missing"))
+        } else {
+            Ok(false)
         };
     }
     let indexed: bool = db.prepare("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='index' AND name=?1 AND tbl_name=?2)").await.map_err(storage_error)?
@@ -105,7 +113,6 @@ pub(super) async fn check(db: &Connection, name: &str) -> Result<bool, Fault> {
     if !indexed {
         return Err(storage_error("plugin search index is missing"));
     }
-    indexes::consistent(db, &table, &records).await?;
     Ok(true)
 }
 
@@ -196,7 +203,11 @@ pub(super) async fn read(db: &Connection, name: &str, query: &Search) -> Result<
     if (!query.terms.is_empty() && expression.is_empty()) || !check(db, name).await? {
         return Ok(page);
     }
-    let sql = statement(&table(name), query, "v.key,v.revision,v.value");
+    let sql = statement(
+        &table(name),
+        query,
+        "v.key,v.revision,v.value,v.index_data,f.field0,f.field1,f.cjk0,f.cjk1,f.tags,f.ordinal",
+    );
     let parameters = parameters(
         name,
         query,
@@ -211,6 +222,7 @@ pub(super) async fn read(db: &Connection, name: &str, query: &Search) -> Result<
             break;
         }
         let revision: i64 = row.get(1).map_err(storage_error)?;
+        indexes::hit(&row, 3)?;
         let body: Vec<u8> = row.get(2).map_err(storage_error)?;
         page.entries.push(Entry {
             key: row.get(0).map_err(storage_error)?,
@@ -249,7 +261,11 @@ pub(in crate::store) async fn ranked(
     if (!query.terms.is_empty() && expression.is_empty()) || !check(db, name).await? {
         return Ok(Vec::new());
     }
-    let sql = statement(&table(name), query, "v.key,v.revision");
+    let sql = statement(
+        &table(name),
+        query,
+        "v.key,v.revision,v.index_data,f.field0,f.field1,f.cjk0,f.cjk1,f.tags,f.ordinal",
+    );
     let mut rows = db
         .query(
             &sql,
@@ -265,6 +281,7 @@ pub(in crate::store) async fn ranked(
         .map_err(storage_error)?;
     let mut entries = Vec::new();
     while let Some(row) = rows.next().await.map_err(storage_error)? {
+        indexes::hit(&row, 2)?;
         let revision: i64 = row.get(1).map_err(storage_error)?;
         let revision = revision
             .try_into()

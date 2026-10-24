@@ -860,8 +860,11 @@ impl Database {
                     return Err(error);
                 }
                 if external {
-                    return result.map_err(|_| Fault::new(ErrorCode::OutcomeUnknown,
-                        "operation result could not be recorded; inspect the target before retrying"));
+                    return result.map_err(|error| {
+                        super::outcomes::failed(self.node, caller, request.id, &error);
+                        Fault::new(ErrorCode::OutcomeUnknown,
+                            "operation result could not be recorded; inspect the target before retrying")
+                    });
                 }
                 if !conflict::again(&result, attempt).await {
                     return result;
@@ -1106,6 +1109,25 @@ impl Database {
         events: &'a broadcast::Sender<EventEnvelope>,
     ) -> sailry_link::Pending<'a, Response> {
         Box::pin(async move {
+            if matches!(
+                request.command,
+                Command::WriteFile { .. } | Command::EditFile { .. } | Command::EditNotebook { .. }
+            ) {
+                self.relocations
+                    .lock()
+                    .unwrap()
+                    .remove(&(caller, request.id));
+                return match super::outcomes::complete(self, caller, request.id, &result).await {
+                    Ok(()) => result,
+                    Err(error) => {
+                        super::outcomes::failed(self.node, caller, request.id, &error);
+                        Err(Fault::new(
+                            ErrorCode::OutcomeUnknown,
+                            "operation result could not be recorded; inspect the target before retrying",
+                        ))
+                    }
+                };
+            }
             self.finish_external_with(caller, request, result, events, async |_, _| Ok(None))
                 .await
         })
@@ -1219,7 +1241,8 @@ impl Database {
             Ok::<_, Fault>((envelopes, delivered, publication))
         })().await;
         match recorded {
-            Err(_) => {
+            Err(cause) => {
+                super::outcomes::failed(self.node, caller, request.id, &cause);
                 let mut error = Fault::new(
                     ErrorCode::OutcomeUnknown,
                     "operation result could not be recorded; inspect the target before retrying",
@@ -1415,6 +1438,5 @@ pub(super) async fn validate_backup(db: &Connection, node: NodeId) -> Result<(),
     if integrity != "ok" {
         return Err(Fault::invalid("backup database integrity check failed"));
     }
-    schema::references(db).await.map_err(storage_error)?;
     Ok(())
 }

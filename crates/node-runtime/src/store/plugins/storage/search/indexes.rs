@@ -8,21 +8,56 @@ pub(super) async fn records(db: &Connection, name: &str) -> Result<Vec<(String, 
         let revision: i64 = row.get(1).map_err(storage_error)?;
         let present: bool = row.get(2).map_err(storage_error)?;
         let bytes: Vec<u8> = row.get(3).map_err(storage_error)?;
-        if !present || revision < 1 || bytes.len() > storage::MAX_INDEX_BYTES {
+        if !present || revision < 1 {
             return Err(storage_error("invalid stored plugin index metadata"));
         }
-        let index: Index = serde_json::from_slice(&bytes).map_err(|error| {
-            storage_error(format!(
-                "invalid stored plugin index JSON, line {}, column {}",
-                error.line(),
-                error.column()
-            ))
-        })?;
-        validate_index(&index)
-            .map_err(|_| storage_error("invalid stored plugin index metadata"))?;
+        let index = decode(&bytes)?;
         records.push((row.get(0).map_err(storage_error)?, index));
     }
     Ok(records)
+}
+
+fn decode(bytes: &[u8]) -> Result<Index, Fault> {
+    if bytes.len() > storage::MAX_INDEX_BYTES {
+        return Err(storage_error("invalid stored plugin index metadata"));
+    }
+    let index: Index = serde_json::from_slice(bytes).map_err(|error| {
+        storage_error(format!(
+            "invalid stored plugin index JSON, line {}, column {}",
+            error.line(),
+            error.column()
+        ))
+    })?;
+    validate_index(&index).map_err(|_| storage_error("invalid stored plugin index metadata"))?;
+    Ok(index)
+}
+
+pub(super) fn hit(row: &turso::Row, metadata: usize) -> Result<(), Fault> {
+    let bytes: Vec<u8> = row.get(metadata).map_err(storage_error)?;
+    matches(row, metadata + 1, &decode(&bytes)?)
+}
+
+fn matches(row: &turso::Row, start: usize, index: &Index) -> Result<(), Fault> {
+    let actual = (
+        row.get::<String>(start).map_err(storage_error)?,
+        row.get::<String>(start + 1).map_err(storage_error)?,
+        row.get::<String>(start + 2).map_err(storage_error)?,
+        row.get::<String>(start + 3).map_err(storage_error)?,
+        row.get::<String>(start + 4).map_err(storage_error)?,
+        row.get::<i64>(start + 5).map_err(storage_error)?,
+    );
+    let expected = (
+        crate::knowledge::text::field(&index.fields[0]),
+        crate::knowledge::text::field(&index.fields[1]),
+        crate::knowledge::text::index(&index.fields[0]),
+        crate::knowledge::text::index(&index.fields[1]),
+        serde_json::to_string(&index.tags).map_err(storage_error)?,
+        index.order,
+    );
+    if actual != expected {
+        return Err(storage_error("plugin search index is inconsistent"));
+    }
+    Ok(())
 }
 
 pub(super) async fn consistent(
@@ -42,27 +77,10 @@ pub(super) async fn consistent(
         let Some((key, index)) = expected.next() else {
             return Err(storage_error("plugin search index is inconsistent"));
         };
-        let actual = (
-            row.get::<String>(0).map_err(storage_error)?,
-            row.get::<String>(1).map_err(storage_error)?,
-            row.get::<String>(2).map_err(storage_error)?,
-            row.get::<String>(3).map_err(storage_error)?,
-            row.get::<String>(4).map_err(storage_error)?,
-            row.get::<String>(5).map_err(storage_error)?,
-            row.get::<i64>(6).map_err(storage_error)?,
-        );
-        let wanted = (
-            key.clone(),
-            crate::knowledge::text::field(&index.fields[0]),
-            crate::knowledge::text::field(&index.fields[1]),
-            crate::knowledge::text::index(&index.fields[0]),
-            crate::knowledge::text::index(&index.fields[1]),
-            serde_json::to_string(&index.tags).map_err(storage_error)?,
-            index.order,
-        );
-        if actual != wanted {
+        if row.get::<String>(0).map_err(storage_error)? != *key {
             return Err(storage_error("plugin search index is inconsistent"));
         }
+        matches(&row, 1, index)?;
     }
     if expected.next().is_some() {
         return Err(storage_error("plugin search index is inconsistent"));
@@ -72,7 +90,10 @@ pub(super) async fn consistent(
 
 pub(in crate::store) async fn validate(db: &Connection) -> Result<(), Fault> {
     for (name, _) in catalog(db, true).await? {
-        check(db, &name).await?;
+        let records = records(db, &name).await?;
+        if check(db, &name).await? {
+            consistent(db, &table(&name), &records).await?;
+        }
     }
     Ok(())
 }

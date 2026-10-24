@@ -57,12 +57,13 @@ async fn reads_preserve_index_errors() {
     db.execute(&format!("UPDATE {table} SET key='wrong'"), ())
         .await
         .unwrap();
-    assert_eq!(
+    assert_eq!(validate(&db).await.unwrap_err().code, ErrorCode::Internal);
+    assert!(
         read(&db, "arbitrary-package", &query())
             .await
-            .unwrap_err()
-            .code,
-        ErrorCode::Internal
+            .unwrap()
+            .entries
+            .is_empty()
     );
     db.execute_batch(&format!("DROP TABLE {table}"))
         .await
@@ -75,6 +76,51 @@ async fn reads_preserve_index_errors() {
         ErrorCode::Internal
     );
     assert!(!exists(&db, &table).await.unwrap());
+}
+
+#[tokio::test]
+async fn validates_returned_metadata_without_a_namespace_audit() {
+    let db = database().await;
+    let mut first = metadata();
+    first.fields[0] = "first".into();
+    insert(&db, "one", &json!(1), &first).await;
+    let mut second = metadata();
+    second.fields[0] = "second".into();
+    insert(&db, "two", &json!(2), &second).await;
+    db.execute(
+        "UPDATE plugin_values SET index_data=?1 WHERE key='two'",
+        [b"invalid unrelated metadata".as_slice()],
+    )
+    .await
+    .unwrap();
+    let query = Search {
+        terms: vec!["first".into()],
+        ..query()
+    };
+    assert_eq!(
+        read(&db, "arbitrary-package", &query)
+            .await
+            .unwrap()
+            .entries[0]
+            .key,
+        "one"
+    );
+    assert_eq!(
+        ranked(&db, "arbitrary-package", &query).await.unwrap(),
+        [("one".into(), 1)]
+    );
+    assert!(validate(&db).await.is_err());
+    db.execute(
+        &format!(
+            "UPDATE {} SET tags='[]' WHERE key='one'",
+            table("arbitrary-package")
+        ),
+        (),
+    )
+    .await
+    .unwrap();
+    assert!(read(&db, "arbitrary-package", &query).await.is_err());
+    assert!(ranked(&db, "arbitrary-package", &query).await.is_err());
 }
 
 #[tokio::test]
