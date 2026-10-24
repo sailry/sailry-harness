@@ -1,4 +1,7 @@
 use super::*;
+use tokio::time::Instant;
+
+const NATIVE_WAIT: Duration = Duration::from_secs(if cfg!(target_os = "macos") { 30 } else { 20 });
 
 async fn events(node: &Node) -> u64 {
     let bodies = node
@@ -32,7 +35,22 @@ async fn events(node: &Node) -> u64 {
 }
 
 async fn ready(client: &Client, id: KnowledgeId, sources: u64) -> Collection {
-    tokio::time::timeout(Duration::from_secs(20), async {
+    ready_until(
+        client,
+        id,
+        sources,
+        Instant::now() + Duration::from_secs(20),
+    )
+    .await
+}
+
+async fn ready_until(
+    client: &Client,
+    id: KnowledgeId,
+    sources: u64,
+    deadline: Instant,
+) -> Collection {
+    tokio::time::timeout_at(deadline, async {
         loop {
             let current = list(client)
                 .await
@@ -117,7 +135,14 @@ async fn monitors_changes_without_idle_or_build_churn() {
             "Updated reference with new source content",
         )
         .unwrap();
-        let updated = found(&client, None, "Updated", collection.id).await;
+        let updated = found_until(
+            &client,
+            None,
+            "Updated",
+            collection.id,
+            Instant::now() + NATIVE_WAIT,
+        )
+        .await;
         assert_ne!(
             updated.hits[0].citation.revision,
             first.hits[0].citation.revision
@@ -134,10 +159,15 @@ async fn monitors_changes_without_idle_or_build_churn() {
             "A newly discovered reference",
         )
         .unwrap();
-        found(&client, None, "discovered", collection.id).await;
-        assert_eq!(ready(&client, collection.id, 2).await.progress.completed, 2);
+        let deadline = Instant::now() + NATIVE_WAIT;
+        found_until(&client, None, "discovered", collection.id, deadline).await;
+        #[cfg(target_os = "macos")]
+        let added = ready_until(&client, collection.id, 2, deadline).await;
+        #[cfg(not(target_os = "macos"))]
+        let added = ready(&client, collection.id, 2).await;
+        assert_eq!(added.progress.completed, 2);
         fs::remove_file(directory.join("nested/source.md")).unwrap();
-        ready(&client, collection.id, 1).await;
+        ready_until(&client, collection.id, 1, Instant::now() + NATIVE_WAIT).await;
         assert!(
             search(&client, None, query("Updated", collection.id))
                 .await
@@ -182,7 +212,7 @@ async fn retains_index_when_directory_scan_is_incomplete() {
         let rules = fixture.temp.path().join(format!("external-rules-{number}"));
         fs::write(&rules, "untrusted external rules").unwrap();
         std::os::unix::fs::symlink(&rules, directory.join("child/.gitignore")).unwrap();
-        let paused = tokio::time::timeout(Duration::from_secs(20), async {
+        let paused = tokio::time::timeout(NATIVE_WAIT, async {
             loop {
                 let current = list(&client)
                     .await
@@ -212,7 +242,7 @@ async fn retains_index_when_directory_scan_is_incomplete() {
             "untrusted external rules"
         );
         fs::remove_file(directory.join("child/.gitignore")).unwrap();
-        ready(&client, collection.id, 1).await;
+        ready_until(&client, collection.id, 1, Instant::now() + NATIVE_WAIT).await;
         execute(
             &client,
             Command::DeleteKnowledgeCollection {

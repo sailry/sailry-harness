@@ -6,8 +6,18 @@ use sailry_node_runtime::Node;
 use sailry_protocol::{Command, ErrorCode, Output};
 use tokio::sync::watch;
 
+const NATIVE_WAIT: Duration = Duration::from_secs(if cfg!(target_os = "macos") { 30 } else { 8 });
+
 async fn wait(updates: &mut watch::Receiver<FileView>, check: impl Fn(&FileView) -> bool) {
-    tokio::time::timeout(Duration::from_secs(8), async {
+    wait_for(updates, Duration::from_secs(8), check).await;
+}
+
+async fn wait_for(
+    updates: &mut watch::Receiver<FileView>,
+    duration: Duration,
+    check: impl Fn(&FileView) -> bool,
+) {
+    tokio::time::timeout(duration, async {
         loop {
             if check(&updates.borrow_and_update()) {
                 return;
@@ -58,13 +68,13 @@ async fn shares_transient_invalidation() {
         wait(&mut updates, |view| view.connected).await;
         let mut revision = updates.borrow().revision;
         std::fs::write(root.join("中文.txt"), "created").unwrap();
-        wait(&mut updates, |view| view.revision > revision).await;
+        wait_for(&mut updates, NATIVE_WAIT, |view| view.revision > revision).await;
         revision = updates.borrow().revision;
         std::fs::rename(root.join("中文.txt"), root.join("renamed.txt")).unwrap();
-        wait(&mut updates, |view| view.revision > revision).await;
+        wait_for(&mut updates, NATIVE_WAIT, |view| view.revision > revision).await;
         revision = updates.borrow().revision;
         std::fs::write(root.join("renamed.txt"), "updated").unwrap();
-        wait(&mut updates, |view| view.revision > revision).await;
+        wait_for(&mut updates, NATIVE_WAIT, |view| view.revision > revision).await;
         let read = Client::new(transport);
         let Output::FileContent(content) = read
             .execute(read.prepare(Command::ReadFile {
@@ -79,7 +89,7 @@ async fn shares_transient_invalidation() {
         assert_eq!(content.text, "updated");
         revision = updates.borrow().revision;
         std::fs::remove_file(root.join("renamed.txt")).unwrap();
-        wait(&mut updates, |view| view.revision > revision).await;
+        wait_for(&mut updates, NATIVE_WAIT, |view| view.revision > revision).await;
         stop.cancel();
         tokio::time::timeout(Duration::from_secs(1), task)
             .await

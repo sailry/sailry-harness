@@ -209,7 +209,24 @@ async fn search(client: &Client, context: Option<&Context>, query: Query) -> Pag
 }
 
 async fn found(client: &Client, context: Option<&Context>, text: &str, id: KnowledgeId) -> Page {
-    tokio::time::timeout(Duration::from_secs(20), async {
+    found_until(
+        client,
+        context,
+        text,
+        id,
+        tokio::time::Instant::now() + Duration::from_secs(20),
+    )
+    .await
+}
+
+async fn found_until(
+    client: &Client,
+    context: Option<&Context>,
+    text: &str,
+    id: KnowledgeId,
+    deadline: tokio::time::Instant,
+) -> Page {
+    tokio::time::timeout_at(deadline, async {
         loop {
             let page = search(client, context, query(text, id)).await;
             if !page.hits.is_empty() && !page.indexing {

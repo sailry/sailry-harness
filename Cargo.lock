@@ -5794,7 +5794,7 @@ dependencies = [
  "log",
  "lsp-types",
  "markdown",
- "notify",
+ "notify 8.2.0",
  "num-traits",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
@@ -10417,9 +10417,28 @@ dependencies = [
  "libc",
  "log",
  "mio",
- "notify-types",
+ "notify-types 2.1.0",
  "walkdir",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "notify"
+version = "9.0.0-rc.6"
+source = "git+https://github.com/notify-rs/notify.git?rev=636af5497b1e15240c14653bc149cba936bc3fc1#636af5497b1e15240c14653bc149cba936bc3fc1"
+dependencies = [
+ "bitflags 2.13.1",
+ "inotify",
+ "kqueue",
+ "libc",
+ "log",
+ "mio",
+ "notify-types 2.2.0",
+ "objc2-core-foundation",
+ "objc2-core-services",
+ "walkdir",
+ "windows-sys 0.61.2",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -10441,6 +10460,14 @@ name = "notify-types"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42b8cfee0e339a0337359f3c88165702ac6e600dc01c0cc9579a92d62b08477a"
+dependencies = [
+ "bitflags 2.13.1",
+]
+
+[[package]]
+name = "notify-types"
+version = "2.2.0"
+source = "git+https://github.com/notify-rs/notify.git?rev=636af5497b1e15240c14653bc149cba936bc3fc1#636af5497b1e15240c14653bc149cba936bc3fc1"
 dependencies = [
  "bitflags 2.13.1",
 ]
@@ -10930,6 +10957,16 @@ checksum = "ca347214e24bc973fc025fd0d36ebb179ff30536ed1f80252706db19ee452009"
 dependencies = [
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "objc2-core-services"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "583300ad934cba24ff5292aee751ecc070f7ca6b39a574cc21b7b5e588e06a0b"
+dependencies = [
+ "libc",
+ "objc2-core-foundation",
 ]
 
 [[package]]
@@ -14820,7 +14857,7 @@ dependencies = [
  "lopdf",
  "lsp-types",
  "md-5 0.10.6",
- "notify",
+ "notify 9.0.0-rc.6",
  "objc2-app-kit 0.3.2",
  "objc2-application-services",
  "objc2-core-foundation",
@@ -20893,6 +20930,12 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "xz2"
