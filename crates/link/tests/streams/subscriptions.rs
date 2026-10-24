@@ -15,6 +15,45 @@ impl Subscription for Idle {
 }
 
 #[tokio::test]
+async fn revocation_ends_idle_reads() {
+    let fixture = Fixture::new().await;
+    let mut subscription = fixture
+        .remote()
+        .subscribe(Topic::Conversation(SessionId::new()))
+        .await
+        .unwrap();
+    assert!(matches!(
+        subscription.next().await,
+        Ok(Update::ResetRequired)
+    ));
+    let (entered, pending) = tokio::sync::oneshot::channel();
+    let reading = tokio::spawn(async move {
+        let mut next = subscription.next();
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(next.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        entered.send(()).unwrap();
+        next.await
+    });
+    pending.await.unwrap();
+    fixture
+        .execution
+        .handle()
+        .set_trust(fixture.caller, false)
+        .await
+        .unwrap();
+    let error = tokio::time::timeout(Duration::from_secs(5), reading)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::PermissionDenied);
+    fixture.close().await;
+}
+
+#[tokio::test]
 async fn accepts_commands_at_capacity() {
     let fixture = Fixture::new().await;
     let remote = fixture.remote();

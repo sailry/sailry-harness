@@ -30,12 +30,13 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection, peer: NodeId)
             }
         }
     }
-    streams.shutdown().await;
+    // Preserve the connection's terminal reason before dropping pending streams.
     if core.trusted(peer) {
         connection.close(0u32.into(), b"Link closed");
     } else {
         connection.close(1u32.into(), b"peer revoked");
     }
+    streams.shutdown().await;
 }
 
 async fn request(
