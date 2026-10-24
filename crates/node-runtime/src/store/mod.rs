@@ -1033,7 +1033,7 @@ impl Store {
 
                         Job::BindLink { link, reply } => Box::pin(async move {
                             *database.network_link.lock().unwrap() = Some(link.clone());
-                            // The worker owns this handle, not Ingress: no Arc ownership cycle.
+                            // Shutdown releases this shared back-reference after the worker drains.
                             ssh.link = Some(link.clone());
                             forwarder.link = Some(link);
                             let _ = reply.send(());
@@ -1450,9 +1450,18 @@ mapped }).await
             .worker
             .take()
             .expect("store owns its worker until shutdown");
-        worker
+        let result = worker
             .await
-            .map_err(|error| Error::Worker(error.to_string()))??;
+            .map_err(|error| Error::Worker(error.to_string()));
+        let link = self.ingress.storage.get().and_then(|storage| {
+            let mut slot = storage
+                .network_link
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            slot.take()
+        });
+        drop(link);
+        result??;
         if let Some(knowledge) = self.ingress.knowledge.get() {
             drop(knowledge.database().pause().await?);
         }
