@@ -39,7 +39,7 @@ pub(super) async fn read(db: &Connection, worktree: WorktreeId) -> Result<Settin
             .query_row([worktree.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if !exists {
@@ -55,11 +55,11 @@ pub(super) async fn read(db: &Connection, worktree: WorktreeId) -> Result<Settin
             .map_err(storage_error)?;
         match statement.query_row([worktree.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
@@ -124,7 +124,7 @@ pub(in crate::store) async fn frozen(db: &Connection, turn: TurnId) -> Result<Se
             .query_row([turn.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     serde_json::from_slice(&body).map_err(storage_error)

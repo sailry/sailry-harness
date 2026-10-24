@@ -9,7 +9,7 @@ pub(super) async fn config(db: &Connection, turn: TurnId) -> Result<SessionConfi
             .query_row([turn.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     serde_json::from_slice(&body).map_err(storage_error)

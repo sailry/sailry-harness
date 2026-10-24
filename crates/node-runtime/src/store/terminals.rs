@@ -54,11 +54,11 @@ async fn read(db: &Connection, id: TerminalId) -> Result<Option<Info>, Fault> {
             .map_err(storage_error)?;
         match statement.query_row([id.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
@@ -101,7 +101,7 @@ pub(super) async fn list(db: &Connection) -> Result<Vec<Info>, Fault> {
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -124,11 +124,11 @@ async fn record_update(db: &Connection, info: &Info, event: bool) -> Result<Opti
             .map_err(storage_error)?;
         match statement.query_row([info.id.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     if let Some(previous) = previous {
@@ -164,11 +164,11 @@ pub(super) async fn finish(
                     .map_err(storage_error)?;
                 match statement.query_row(params![terminal.to_string()]).await {
                     Ok(row) => {
-                        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        let mapped: turso::Result<_> = row.get(0);
                         Some(mapped.map_err(storage_error)?)
                     }
                     Err(turso::Error::QueryReturnedNoRows) => None,
-                    Err(error) => return Err(storage_error(error).into()),
+                    Err(error) => return Err(storage_error(error)),
                 }
             };
             if let Some(body) = body {
@@ -234,9 +234,10 @@ impl Database {
         let notice = if envelope.is_some() {
             (match previous.as_ref() {
                 Some(value) => Some(
-                    (async |previous| {
+                    async {
+                        let previous = value;
                         super::notifications::system::terminal(&transaction, previous, info).await
-                    })(value)
+                    }
                     .await,
                 ),
                 None => None,

@@ -238,7 +238,7 @@ async fn claims_drain_during_callbacks() {
             .prepare("SELECT count(*) FROM dispatch_jobs WHERE status='running'")
             .await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -664,7 +664,7 @@ async fn recovery_rejects_unknown_receipts() {
                     .prepare("SELECT body FROM dispatch_jobs WHERE id=?1")
                     .await?;
                 let row = statement.query_row([job.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -681,7 +681,7 @@ async fn recovery_rejects_unknown_receipts() {
                     .prepare("SELECT body FROM dispatch_jobs WHERE id=?1")
                     .await?;
                 let row = statement.query_row([job.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -763,7 +763,7 @@ async fn full_queue_rolls_back_fanout_preserving_schedule() {
     let count: i64 = (async {
         let mut statement = db.prepare("SELECT count(*) FROM dispatch_jobs").await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -782,7 +782,7 @@ async fn full_queue_rolls_back_fanout_preserving_schedule() {
     let events: i64 = (async {
         let mut statement = db.prepare("SELECT count(*) FROM dispatch_events").await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await

@@ -198,10 +198,11 @@ impl Worker {
             }
             let credential = (match provider.credential.as_ref() {
                 Some(value) => Some(
-                    (async |reference: &CredentialRef| {
+                    async {
+                        let reference: &CredentialRef = value;
                         super::providers::authentication::get(&database.connection, reference.id)
                             .await
-                    })(value)
+                    }
                     .await,
                 ),
                 None => None,
@@ -227,7 +228,8 @@ impl Worker {
             };
             let context = (match plugin.as_ref() {
                 Some(value) => Some(
-                    (async |plugin: &model_auth::Prepared| {
+                    async {
+                        let plugin: &model_auth::Prepared = value;
                         registration::prepare(
                             database,
                             &provider,
@@ -235,7 +237,7 @@ impl Worker {
                             &plugin.configuration.target,
                         )
                         .await
-                    })(value)
+                    }
                     .await,
                 ),
                 None => None,

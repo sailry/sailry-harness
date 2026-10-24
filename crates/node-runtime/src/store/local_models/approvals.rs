@@ -47,7 +47,7 @@ pub(in crate::store) async fn check(db: &Connection, request: &Request) -> Resul
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (body, binding, prepared) = record.ok_or_else(denied)?;

@@ -214,7 +214,7 @@ pub(in crate::store) async fn records(db: &Connection) -> Result<Vec<Record>, Fa
         let mut rows = query.query(()).await?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         Ok::<_, turso::Error>(values.into_iter())
@@ -233,11 +233,11 @@ pub(in crate::store) async fn read(db: &Connection, id: Id) -> Result<Record, Fa
             .map_err(storage_error)?;
         match statement.query_row([id.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     serde_json::from_slice(
@@ -842,11 +842,11 @@ pub(in crate::store) async fn resolve(
                 .await
             {
                 Ok(row) => {
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     Some(mapped.map_err(storage_error)?)
                 }
                 Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error).into()),
+                Err(error) => return Err(storage_error(error)),
             }
         };
         if revision != Some(record.auth_revision as i64) {

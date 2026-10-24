@@ -388,8 +388,7 @@ async fn offers_bundled_updates_on_catalog_failure() {
                             .query_row(parameters)
                             .await
                             .map_err(crate::plugins::database_fixture::fault)?;
-                        let value: turso::Result<_> =
-                            (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                        let value: turso::Result<_> = row.get::<Vec<u8>>(0);
                         value.map_err(crate::plugins::database_fixture::fault)
                     })
                 })

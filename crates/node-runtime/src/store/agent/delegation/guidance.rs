@@ -43,7 +43,7 @@ pub(in crate::store) async fn guide(
                 .query_row([origin.session.to_string()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         if !active {
@@ -81,7 +81,7 @@ pub(in crate::store) async fn queued_guidance(
             .query_row([source.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let request: Request = serde_json::from_slice(&body).map_err(storage_error)?;

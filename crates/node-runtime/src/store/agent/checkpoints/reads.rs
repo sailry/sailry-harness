@@ -26,12 +26,11 @@ pub(in crate::store) async fn list(
                         .await
                     {
                         Ok(row) => {
-                            let mapped: turso::Result<_> =
-                                (|row: &turso::Row| row.get::<i64>(0))(&row);
+                            let mapped: turso::Result<_> = row.get::<i64>(0);
                             Some(mapped.map_err(storage_error)?)
                         }
                         Err(turso::Error::QueryReturnedNoRows) => None,
-                        Err(error) => return Err(storage_error(error).into()),
+                        Err(error) => return Err(storage_error(error)),
                     }
                 }
                 .ok_or_else(|| {
@@ -59,7 +58,7 @@ pub(in crate::store) async fn list(
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<String>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -70,7 +69,13 @@ pub(in crate::store) async fn list(
     let files = {
         let mut selected = Vec::new();
         for value in ids.into_iter().take(usize::from(limit)) {
-            selected.push((async |id: CheckpointId| file(db, session, id).await)(value).await?);
+            selected.push(
+                async {
+                    let id: CheckpointId = value;
+                    file(db, session, id).await
+                }
+                .await?,
+            );
         }
         Ok::<_, Fault>(selected)
     }?;
@@ -154,7 +159,7 @@ async fn file(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (body, approval, caller, request) =

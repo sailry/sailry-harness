@@ -194,12 +194,12 @@ async fn adds_missing_language_settings_on_each_path() {
         let profile = directory.path().join("node");
         let path = profile.join("storage/node.turso");
         node.shutdown().await.unwrap();
-        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
+        let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
         assert!(
             (async {
                 let mut statement = db.prepare("SELECT plugin_defaults FROM node").await?;
                 let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<bool>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<bool>(0);
                 mapped
             })
             .await
@@ -213,7 +213,7 @@ async fn adds_missing_language_settings_on_each_path() {
                 .prepare("SELECT body FROM plugins WHERE name='web-search' AND installed=0")
                 .await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -290,7 +290,7 @@ async fn adds_missing_language_settings_on_each_path() {
                         .query_row(parameters)
                         .await
                         .map_err(crate::plugins::database_fixture::fault)?;
-                    let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let result: turso::Result<_> = row.get(0);
                     result.map_err(crate::plugins::database_fixture::fault)
                 })
             })
@@ -645,7 +645,7 @@ async fn retains_disabled_configuration_on_each_path() {
                 .query_row(())
                 .await
                 .unwrap();
-            let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let value: turso::Result<_> = row.get(0);
             let value = value.unwrap();
             crate::plugins::database_fixture::close(handle, db).await;
             value
@@ -757,7 +757,7 @@ async fn retains_disabled_configuration_on_each_path() {
                         .query_row(parameters)
                         .await
                         .map_err(crate::plugins::database_fixture::fault)?;
-                    let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let result: turso::Result<_> = row.get(0);
                     result.map_err(crate::plugins::database_fixture::fault)
                 })
             })
@@ -785,7 +785,7 @@ async fn retains_disabled_configuration_on_each_path() {
                         .query_row(parameters)
                         .await
                         .map_err(crate::plugins::database_fixture::fault)?;
-                    let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let result: turso::Result<_> = row.get(0);
                     result.map_err(crate::plugins::database_fixture::fault)
                 })
             })
@@ -965,12 +965,12 @@ async fn preserves_removed_rows_on_each_path() {
         let profile = directory.path().join("node");
         let path = profile.join("storage/node.turso");
         node.shutdown().await.unwrap();
-        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
+        let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
         for name in ["code", "web-search"] {
             let body: Vec<u8> = (async {
                 let mut statement = db.prepare("SELECT body FROM plugins WHERE name=?1").await?;
                 let row = statement.query_row([name]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await

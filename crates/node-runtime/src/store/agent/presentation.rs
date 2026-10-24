@@ -327,7 +327,7 @@ pub(super) async fn capture_names(
             }
             let title: Option<String> = (match (async { let mut statement = db.prepare("SELECT json_extract(body,'$.task.title') FROM agent_background WHERE session=?1 AND kind='agent' AND source=?2 ORDER BY sequence DESC,rowid DESC LIMIT 1").await?;
 let row = statement.query_row(turso::params![session.to_string(), target.to_string()]).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+let mapped: turso::Result<_> = row.get(0);
 mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) }).map_err(super::storage_error)?.flatten();
             let title = if title.is_some() {
                 title

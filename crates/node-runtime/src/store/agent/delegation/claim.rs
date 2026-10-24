@@ -39,7 +39,7 @@ pub(in crate::store::agent) async fn claim(
                 .query_row([owner.to_string()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         let active = u64::try_from(active).map_err(storage_error)?;
@@ -56,11 +56,11 @@ pub(in crate::store::agent) async fn claim(
              ORDER BY t.rowid LIMIT 1").await.map_err(storage_error)?;
             match statement.query_row([owner.to_string()]).await {
                 Ok(row) => {
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     Some(mapped.map_err(storage_error)?)
                 }
                 Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error).into()),
+                Err(error) => return Err(storage_error(error)),
             }
         };
         if next != Some(turn.to_string()) {

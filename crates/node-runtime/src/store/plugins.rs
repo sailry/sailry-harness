@@ -41,11 +41,11 @@ pub(super) async fn get(db: &Connection, name: &str) -> Result<Option<Info>, Fau
             .map_err(storage_error)?;
         match statement.query_row([name]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let stored: Option<Info> = body
@@ -63,7 +63,7 @@ pub(super) async fn list(db: &Connection) -> Result<Vec<Summary>, Fault> {
         let mut rows = query.query(()).await?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         Ok::<_, turso::Error>(values.into_iter())
@@ -88,11 +88,11 @@ async fn next(db: &Connection, name: &str) -> Result<u64, Fault> {
             .map_err(storage_error)?;
         match statement.query_row([name]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     previous
@@ -131,7 +131,7 @@ pub(super) async fn synchronize(
                 .await
                 .map_err(storage_error)?;
             let row = statement.query_row([name]).await.map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<bool>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<bool>(0);
             mapped.map_err(storage_error)?
         } {
             return Err(Fault::new(

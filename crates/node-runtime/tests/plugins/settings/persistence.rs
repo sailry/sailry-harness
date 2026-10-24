@@ -165,7 +165,7 @@ async fn recovers_saved_values() {
 let parameters = ();
 node.with_storage(move |db| Box::pin(async move {
 let row = db.prepare(sql).await.map_err(crate::plugins::database_fixture::fault)?.query_row(parameters).await.map_err(crate::plugins::database_fixture::fault)?;
-let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+let value: turso::Result<_> = row.get::<i64>(0);
 value.map_err(crate::plugins::database_fixture::fault)
 })).await }
             .unwrap(),
@@ -208,7 +208,7 @@ value.map_err(crate::plugins::database_fixture::fault)
 let parameters = ();
 node.with_storage(move |db| Box::pin(async move {
 let row = db.prepare(sql).await.map_err(crate::plugins::database_fixture::fault)?.query_row(parameters).await.map_err(crate::plugins::database_fixture::fault)?;
-let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+let value: turso::Result<_> = row.get::<i64>(0);
 value.map_err(crate::plugins::database_fixture::fault)
 })).await }
             .unwrap(),

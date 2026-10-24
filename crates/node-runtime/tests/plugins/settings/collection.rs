@@ -150,7 +150,7 @@ async fn rejects_unexpected_schema() {
     let node = Node::start(&profile).await.unwrap();
     node.shutdown().await.unwrap();
     let path = profile.join("storage/node.turso");
-    let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
+    let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
     db.execute_batch("ALTER TABLE plugins ADD COLUMN unexpected TEXT DEFAULT 'retained';")
         .await
         .unwrap();

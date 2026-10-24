@@ -217,7 +217,7 @@ async fn hybrid_improves_bilingual_recall_at_five() {
         let lexical = index
             .search(
                 &query,
-                &[binding.clone()],
+                std::slice::from_ref(&binding),
                 &[],
                 false,
                 &CancellationToken::new(),
@@ -228,7 +228,7 @@ async fn hybrid_improves_bilingual_recall_at_five() {
         let encoded = index
             .search(
                 &query,
-                &[binding.clone()],
+                std::slice::from_ref(&binding),
                 &[("granite-multi".to_owned(), vector.clone())],
                 false,
                 &CancellationToken::new(),
@@ -241,7 +241,7 @@ async fn hybrid_improves_bilingual_recall_at_five() {
         let combined = index
             .search(
                 &query,
-                &[binding.clone()],
+                std::slice::from_ref(&binding),
                 &[("granite-multi".to_owned(), vector)],
                 false,
                 &CancellationToken::new(),

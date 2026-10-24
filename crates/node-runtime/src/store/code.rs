@@ -60,11 +60,11 @@ pub(in crate::store) async fn startup_action(
             .await
         {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let binding: Option<super::agent::ApprovalBinding> = binding
@@ -144,7 +144,7 @@ pub(super) async fn prepare(database: &Database, request: &Request) -> Result<()
                     Some(mapped.map_err(storage_error)?)
                 }
                 Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error).into()),
+                Err(error) => return Err(storage_error(error)),
             }
         };
         let (body, binding) = record.ok_or_else(|| {
@@ -362,11 +362,11 @@ pub(super) async fn settings(db: &Connection) -> Result<sailry_protocol::code::S
             .map_err(storage_error)?;
         match statement.query_row(()).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))

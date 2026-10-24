@@ -101,11 +101,11 @@ pub(in crate::store) async fn read(
         let mut statement = db.prepare("SELECT d.body FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session=?1 ORDER BY t.rowid LIMIT 1").await.map_err(storage_error)?;
         match statement.query_row([session.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
@@ -122,7 +122,7 @@ pub(in crate::store) async fn read_only(
             .query_row([session.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let turn = turn.parse().map_err(storage_error)?;
@@ -137,11 +137,11 @@ pub(super) async fn origin(db: &Connection, turn: TurnId) -> Result<Option<Deleg
             .map_err(storage_error)?;
         match statement.query_row([turn.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
@@ -275,7 +275,7 @@ pub(super) async fn admit(
                 .query_row(params![parent.to_string(), entry.as_str(), index as i64])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         if exists {
@@ -391,7 +391,7 @@ pub(super) async fn admit(
                 .query_row([turn.id.to_string()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         let provider: Option<Provider> = provider

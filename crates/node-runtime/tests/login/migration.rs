@@ -60,7 +60,7 @@ async fn retains_legacy_accounts_and_captures() {
             let body: Vec<u8> = (async {
                 let mut statement = db.prepare("SELECT body FROM providers WHERE id=?1").await?;
                 let row = statement.query_row([provider.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -81,7 +81,7 @@ async fn retains_legacy_accounts_and_captures() {
                     .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
                     .await?;
                 let row = statement.query_row([turn.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -121,7 +121,7 @@ async fn retains_legacy_accounts_and_captures() {
             let unchanged: Vec<u8> = (async {
                 let mut statement = db.prepare("SELECT body FROM providers WHERE id=?1").await?;
                 let row = statement.query_row([provider.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -133,7 +133,7 @@ async fn retains_legacy_accounts_and_captures() {
                         .prepare("SELECT body FROM events WHERE cursor=?1")
                         .await?;
                     let row = statement.query_row([invalid]).await?;
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                    let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
                     mapped
                 })
                 .await
@@ -163,14 +163,14 @@ async fn retains_legacy_accounts_and_captures() {
             let saved = self::backups(&profile);
             let added = saved.difference(&backups).collect::<Vec<_>>();
             assert_eq!(added.len(), 1);
-            let (backup_handle, backup) = crate::database_fixture::open(&(added[0]), true).await;
+            let (backup_handle, backup) = crate::database_fixture::open(added[0], true).await;
             assert_eq!(
                 (async {
                     let mut statement = backup
                         .prepare("SELECT body FROM providers WHERE id=?1")
                         .await?;
                     let row = statement.query_row([provider.id.to_string()]).await?;
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                    let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
                     mapped
                 })
                 .await
@@ -183,7 +183,7 @@ async fn retains_legacy_accounts_and_captures() {
                         .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
                         .await?;
                     let row = statement.query_row([turn.id.to_string()]).await?;
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                    let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
                     mapped
                 })
                 .await
@@ -248,7 +248,7 @@ async fn retains_legacy_accounts_and_captures() {
                             .query_row(parameters)
                             .await
                             .map_err(crate::database_fixture::fault)?;
-                        let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        let value: turso::Result<_> = row.get(0);
                         value.map_err(crate::database_fixture::fault)
                     })
                 })

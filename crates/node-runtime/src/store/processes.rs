@@ -66,7 +66,7 @@ pub(super) async fn prepare(database: &Database, request: &Request) -> Result<Pr
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (worktree, state, kind, session) =
@@ -94,10 +94,11 @@ pub(super) async fn prepare(database: &Database, request: &Request) -> Result<Pr
                 let mut selected = Vec::new();
                 for value in attachments.iter() {
                     selected.push(
-                        (async |id: &sailry_protocol::AttachmentId| {
+                        async {
+                            let id: &sailry_protocol::AttachmentId = value;
                             super::attachments::turns::resolve(&database.connection, *turn, *id)
                                 .await
-                        })(value)
+                        }
                         .await?,
                     );
                 }

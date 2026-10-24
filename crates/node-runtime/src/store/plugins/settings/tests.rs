@@ -76,7 +76,7 @@ async fn unsupported_bindings_never_reuse_credentials() {
         let unchanged: Vec<u8> = (async {
             let mut statement = db.prepare("SELECT body FROM plugin_settings").await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await

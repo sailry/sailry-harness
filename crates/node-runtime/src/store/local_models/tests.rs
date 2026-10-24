@@ -94,7 +94,7 @@ async fn retains_registration_limits_and_identity() {
     let count: i64 = (async {
         let mut statement = db.prepare("SELECT COUNT(*) FROM local_models").await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await

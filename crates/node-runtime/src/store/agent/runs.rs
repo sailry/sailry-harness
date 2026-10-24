@@ -66,7 +66,7 @@ pub(super) async fn inherit(
             .query_row([source.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     insert(
@@ -97,7 +97,7 @@ async fn insert(
             .query_row(params![turn.session.to_string(), turn.revision as i64])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let hooks = match hooks {
@@ -118,7 +118,7 @@ async fn insert(
                 .query_row([turn.id.to_string()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<i64>(0);
             mapped.map_err(storage_error)?
         } as u64,
         revision: turn.revision,
@@ -161,11 +161,11 @@ pub(in crate::store) async fn get(db: &Connection, turn: TurnId) -> Result<Run, 
             .map_err(storage_error)?;
         match statement.query_row([turn.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     serde_json::from_slice(
@@ -189,7 +189,7 @@ pub(in crate::store) async fn visible(
             .query_row(params![session.to_string(), turn.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if !visible {
@@ -250,7 +250,7 @@ pub(super) async fn list(
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -437,7 +437,7 @@ async fn claim_with(
                 .query_row([queued.turn.id.to_string()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         },
         project: {
@@ -449,7 +449,7 @@ async fn claim_with(
                 .query_row([worktree.as_str()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Option<String>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Option<String>>(0);
             mapped.map_err(storage_error)?
         }
         .map(|id| id.parse().map_err(storage_error))
@@ -612,8 +612,11 @@ pub(super) async fn finish_with(
     let review_changes = if run.status == Status::Completed {
         (match review {
             Some(value) => Some(
-                (async |event| super::review::publish(&transaction, &run, event).await)(value)
-                    .await,
+                async {
+                    let event = value;
+                    super::review::publish(&transaction, &run, event).await
+                }
+                .await,
             ),
             None => None,
         })
@@ -731,7 +734,7 @@ pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
         let mut rows = query.query(()).await.map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()

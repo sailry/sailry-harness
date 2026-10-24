@@ -181,7 +181,7 @@ pub(in crate::store) async fn migrate(db: &Connection, info: &Info) -> Result<Ve
                         Some(mapped.map_err(storage_error)?)
                     }
                     Err(turso::Error::QueryReturnedNoRows) => None,
-                    Err(error) => return Err(storage_error(error).into()),
+                    Err(error) => return Err(storage_error(error)),
                 }
             };
             let Some((row, id, bytes)) = row else { break };
@@ -206,11 +206,11 @@ pub(in crate::store) async fn migrate(db: &Connection, info: &Info) -> Result<Ve
             let mut statement = db.prepare("SELECT config FROM defaults WHERE singleton=1 AND json_type(config,?1) IS NOT NULL AND json_type(config,?2) IS NULL").await.map_err(storage_error)?;
             match statement.query_row(params![source_path, target_path]).await {
                 Ok(row) => {
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     Some(mapped.map_err(storage_error)?)
                 }
                 Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error).into()),
+                Err(error) => return Err(storage_error(error)),
             }
         };
         if let Some(bytes) = previous {

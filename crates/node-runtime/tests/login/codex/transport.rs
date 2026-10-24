@@ -23,7 +23,7 @@ pub(super) async fn expire(fixture: &Fixture, provider: &Provider) {
                         .query_row(parameters)
                         .await
                         .map_err(crate::database_fixture::fault)?;
-                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let value: turso::Result<_> = row.get(0);
                     value.map_err(crate::database_fixture::fault)
                 })
             })

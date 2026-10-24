@@ -122,7 +122,7 @@ pub(super) async fn create(
             .query_row(params![turn.to_string(), call])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if exists {
@@ -217,7 +217,7 @@ async fn spec(db: &Connection, question: &Question) -> Result<Spec, Fault> {
             .query_row(params![question.turn.to_string(), question.entry.as_str()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -260,7 +260,7 @@ pub(super) async fn close(
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -293,7 +293,7 @@ pub(super) async fn list(
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -315,11 +315,11 @@ async fn get(db: &Connection, id: QuestionId) -> Result<Question, Fault> {
             .map_err(storage_error)?;
         match statement.query_row([id.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     serde_json::from_slice(

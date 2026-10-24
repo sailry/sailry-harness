@@ -72,11 +72,11 @@ pub(in crate::store) async fn required(db: &Connection, id: ArtifactId) -> Resul
             .map_err(storage_error)?;
         match statement.query_row([id.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let value: Summary = serde_json::from_slice(
@@ -157,7 +157,13 @@ async fn write(
         ));
     }
     let previous = (match draft.id {
-        Some(value) => Some((async |id| required(db, id).await)(value).await),
+        Some(value) => Some(
+            async {
+                let id = value;
+                required(db, id).await
+            }
+            .await,
+        ),
         None => None,
     })
     .transpose()?;
@@ -235,7 +241,7 @@ async fn write(
             .query_row(params![artifact.id.to_string(), artifact.revision])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if referenced {
@@ -290,7 +296,7 @@ async fn authorize(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (body, binding) =
@@ -315,7 +321,7 @@ async fn authorize(
             .query_row(params![approval.turn.to_string(), approval.entry])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let event: adk_core::Event = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -369,7 +375,7 @@ async fn read(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (body, digest, warnings) =
@@ -430,7 +436,7 @@ pub(in crate::store) async fn list(
                 .query_row([id.to_string()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<i64>(0);
             mapped.map_err(storage_error)?
         }
     } else {
@@ -449,7 +455,7 @@ pub(in crate::store) async fn list(
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -590,7 +596,7 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Fault> {
         let mut statement = db.prepare(if archives { "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL) OR EXISTS(SELECT 1 FROM artifact_revisions WHERE json_type(body,'$.kind') IS NULL)" }
         else { "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL)" }).await.map_err(storage_error)?;
         let row = statement.query_row(()).await.map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if missing {
@@ -639,7 +645,7 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Fault> {
     let missing: bool = {
         let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM artifacts a WHERE NOT EXISTS(SELECT 1 FROM artifact_revisions r WHERE r.artifact=a.id AND r.revision=json_extract(a.body,'$.revision')))").await.map_err(storage_error)?;
         let row = statement.query_row(()).await.map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if missing {

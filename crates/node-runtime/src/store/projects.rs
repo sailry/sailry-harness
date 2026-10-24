@@ -166,7 +166,7 @@ async fn insert(db: &Connection, project: &Project) -> Result<(), Fault> {
             .query_row([project.path.as_str()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if exists {
@@ -232,7 +232,7 @@ async fn get(db: &Connection, id: ProjectId) -> Result<Option<Project>, Fault> {
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     row.map(|(name, path, appearance)| {
@@ -262,7 +262,7 @@ async fn check(db: &Connection, expected: &Project) -> Result<(), Fault> {
             .query_row([expected.id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if removed {
@@ -276,11 +276,11 @@ async fn restore(db: &Connection, project: &mut Project) -> Result<(), Fault> {
         let mut statement = db.prepare("SELECT p.id FROM projects p JOIN removed_projects r ON r.project=p.id WHERE p.path=?1").await.map_err(storage_error)?;
         match statement.query_row([project.path.as_str()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     if let Some(id) = id {
@@ -322,7 +322,7 @@ pub(super) async fn update(
                 .query_row([expected.id.to_string()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         if used {
@@ -340,7 +340,7 @@ pub(super) async fn update(
                 .query_row([path.as_str()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         if duplicate {

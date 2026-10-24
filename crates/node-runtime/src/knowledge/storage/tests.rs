@@ -147,7 +147,13 @@ async fn filters_any_tags_before_bounded_vector_ranks() {
     let embeddings = [("bge-small-zh".to_owned(), vec![1., 0.])];
     let stop = CancellationToken::new();
     let unfiltered = index
-        .candidates(&query, &[binding.clone()], &embeddings, &[], &stop)
+        .candidates(
+            &query,
+            std::slice::from_ref(&binding),
+            &embeddings,
+            &[],
+            &stop,
+        )
         .await
         .unwrap();
     assert_eq!(unfiltered.len(), 100);
@@ -155,7 +161,7 @@ async fn filters_any_tags_before_bounded_vector_ranks() {
     let filtered = index
         .candidates(
             &query,
-            &[binding.clone()],
+            std::slice::from_ref(&binding),
             &embeddings,
             &["project".into(), "global".into()],
             &stop,
@@ -170,7 +176,7 @@ async fn filters_any_tags_before_bounded_vector_ranks() {
         index
             .candidates(
                 &wrong_all,
-                &[binding.clone()],
+                std::slice::from_ref(&binding),
                 &embeddings,
                 &["project".into()],
                 &stop

@@ -640,11 +640,8 @@ pub(super) fn execute<'a>(
         }),
         Operation::Attachment { turn, id, reply } => Box::pin(async move {
             let result = match calls::active(&database.connection, turn).await {
-                Ok(value) => {
-                    (async |_| {
-                        super::attachments::turns::resolve(&database.connection, turn, id).await
-                    })(value)
-                    .await
+                Ok(_run) => {
+                    super::attachments::turns::resolve(&database.connection, turn, id).await
                 }
                 Err(error) => Err(error),
             };
@@ -990,12 +987,7 @@ pub(super) fn execute<'a>(
         }),
         Operation::ContextUsage { session, reply } => Box::pin(async move {
             let result = match check_session(&database.connection, session).await {
-                Ok(value) => {
-                    (async |_| statistics::context_usage(&database.connection, session).await)(
-                        value,
-                    )
-                    .await
-                }
+                Ok(()) => statistics::context_usage(&database.connection, session).await,
                 Err(error) => Err(error),
             };
             let _ = reply.send(result);
@@ -1125,7 +1117,7 @@ fn adk_error(error: Fault) -> AdkError {
 }
 
 async fn check_session(db: &Connection, session: SessionId) -> Result<(), Fault> {
-    if {
+    let exists = {
         let mut statement = db
             .prepare("SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND state!='removed')")
             .await
@@ -1134,9 +1126,10 @@ async fn check_session(db: &Connection, session: SessionId) -> Result<(), Fault>
             .query_row([session.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<bool>(0))(&row);
+        let mapped: turso::Result<_> = row.get::<bool>(0);
         mapped.map_err(storage_error)?
-    } {
+    };
+    if exists {
         Ok(())
     } else {
         Err(Fault::new(

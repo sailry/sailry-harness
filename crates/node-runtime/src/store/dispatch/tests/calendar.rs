@@ -156,7 +156,7 @@ async fn full_queue_preserves_due_cursor() {
     let events: i64 = (async {
         let mut statement = db.prepare("SELECT count(*) FROM dispatch_events").await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await

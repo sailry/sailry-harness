@@ -463,7 +463,7 @@ async fn bounds_public_content_without_claiming_completeness() {
         .unwrap();
     assert!(serde_json::to_vec(&page).unwrap().len() <= 128 * 1024);
     assert_eq!(page["truncated"], true);
-    assert!(page["truncated_entries"].as_array().unwrap().len() > 0);
+    assert!(!page["truncated_entries"].as_array().unwrap().is_empty());
     assert!(page["missing"].as_array().unwrap().contains(&json!(turn)));
     let first = execute(
         &fixture.database,

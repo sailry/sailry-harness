@@ -107,7 +107,7 @@ pub(in crate::store::agent) async fn execute(
             .query_row([source.turn.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if run.session != source.session || caller.as_slice() != &source.caller.0[..] {

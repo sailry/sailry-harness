@@ -33,7 +33,7 @@ async fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
         {
             let mut rows = query.query(()).await.map_err(storage_error)?;
             while let Some(row) = rows.next().await.map_err(storage_error)? {
-                let body: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                let body: turso::Result<_> = row.get::<Vec<u8>>(0);
 
                 let reference: Option<plugin::Reference> =
                     serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error)?;
@@ -49,7 +49,7 @@ async fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
         {
             let mut rows = query.query(()).await.map_err(storage_error)?;
             while let Some(row) = rows.next().await.map_err(storage_error)? {
-                let body: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                let body: turso::Result<_> = row.get::<Vec<u8>>(0);
 
                 for reference in
                     serde_json::from_slice::<Vec<plugin::Reference>>(&body.map_err(storage_error)?)
@@ -68,7 +68,7 @@ async fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
         {
             let mut rows = query.query(()).await.map_err(storage_error)?;
             while let Some(row) = rows.next().await.map_err(storage_error)? {
-                let body: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                let body: turso::Result<_> = row.get::<String>(0);
 
                 retain(serde_json::from_str(&body.map_err(storage_error)?).map_err(storage_error)?);
             }
@@ -77,7 +77,7 @@ async fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
         {
             let mut rows = query.query(()).await.map_err(storage_error)?;
             while let Some(row) = rows.next().await.map_err(storage_error)? {
-                let body: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                let body: turso::Result<_> = row.get::<String>(0);
 
                 retain(serde_json::from_str(&body.map_err(storage_error)?).map_err(storage_error)?);
             }
@@ -120,7 +120,7 @@ async fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
             let mut rows = query.query(()).await?;
             let mut values = Vec::new();
             while let Some(row) = rows.next().await? {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<String>(0);
                 values.push(mapped);
             }
             Ok::<_, turso::Error>(values.into_iter())

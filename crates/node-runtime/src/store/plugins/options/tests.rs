@@ -149,7 +149,7 @@ async fn imports_only_current_explicit_preferences() {
                 .prepare("SELECT config FROM session_revisions WHERE session=?1 AND revision=1")
                 .await?;
             let row = statement.query_row([id.to_string()]).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await

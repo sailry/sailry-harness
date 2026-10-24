@@ -146,7 +146,7 @@ async fn fences_slots_retired_into_connections() {
                 .prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=1")
                 .await?;
             let row = statement.query_row([info.summary.name.as_str()]).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await

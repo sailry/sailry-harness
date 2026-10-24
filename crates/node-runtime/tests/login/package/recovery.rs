@@ -28,11 +28,11 @@ async fn preserves_legacy_grants_during_rehearsal() {
         drop(client);
         node.shutdown().await.unwrap();
         let path = profile.join("storage/node.turso");
-        let (db_handle, db) = crate::database_fixture::open(&(&path), false).await;
+        let (db_handle, db) = crate::database_fixture::open(&path, false).await;
         let bytes: Vec<u8> = (async {
             let mut statement = db.prepare("SELECT body FROM providers WHERE id=?1").await?;
             let row = statement.query_row([provider.id.to_string()]).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -67,11 +67,11 @@ async fn preserves_legacy_grants_during_rehearsal() {
                 .await
                 .is_err()
         );
-        let (db_handle, db) = crate::database_fixture::open(&(&path), false).await;
+        let (db_handle, db) = crate::database_fixture::open(&path, false).await;
         let unchanged: Vec<u8> = (async {
             let mut statement = db.prepare("SELECT body FROM providers WHERE id=?1").await?;
             let row = statement.query_row([provider.id.to_string()]).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -83,7 +83,7 @@ async fn preserves_legacy_grants_during_rehearsal() {
                     .prepare("SELECT count(*) FROM sqlite_master WHERE name='turns_session'")
                     .await?;
                 let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<i64>(0);
                 mapped
             })
             .await
@@ -144,11 +144,11 @@ async fn preserves_legacy_grants_during_rehearsal() {
         drop(client);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-        let (db_handle, db) = crate::database_fixture::open(&(&path), true).await;
+        let (db_handle, db) = crate::database_fixture::open(&path, true).await;
         let retained: Vec<u8> = (async {
             let mut statement = db.prepare("SELECT body FROM providers WHERE id=?1").await?;
             let row = statement.query_row([provider.id.to_string()]).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -168,7 +168,7 @@ async fn preserves_legacy_grants_during_rehearsal() {
                     .prepare("SELECT body FROM providers WHERE id=?1")
                     .await?;
                 let row = statement.query_row([provider.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
                 mapped
             })
             .await

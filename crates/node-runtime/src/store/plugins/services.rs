@@ -57,7 +57,7 @@ async fn owner(
     {
         let mut rows = query.query([installed]).await.map_err(storage_error)?;
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let row: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let row: turso::Result<_> = row.get::<Vec<u8>>(0);
 
             let info: Info =
                 serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;

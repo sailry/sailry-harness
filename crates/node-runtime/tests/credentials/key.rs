@@ -76,7 +76,7 @@ async fn restores_private_readback() {
                         .query_row(parameters)
                         .await
                         .map_err(crate::database_fixture::fault)?;
-                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let value: turso::Result<_> = row.get(0);
                     value.map_err(crate::database_fixture::fault)
                 })
             })
@@ -101,7 +101,7 @@ async fn restores_private_readback() {
                             .query_row(parameters)
                             .await
                             .map_err(crate::database_fixture::fault)?;
-                        let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        let value: turso::Result<_> = row.get::<i64>(0);
                         value.map_err(crate::database_fixture::fault)
                     })
                 })
@@ -210,7 +210,7 @@ async fn restores_private_readback() {
                     .prepare("SELECT count(*) FROM requests WHERE id=?1")
                     .await?;
                 let row = statement.query_row([id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await

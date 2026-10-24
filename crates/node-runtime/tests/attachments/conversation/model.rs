@@ -171,12 +171,12 @@ async fn materializes_inputs() {
                             let row = db
                                 .prepare(sql)
                                 .await
-                                .map_err(crate::file_fixture::database::fault)?
+                                .map_err(crate::database_fixture::fault)?
                                 .query_row(parameters)
                                 .await
-                                .map_err(crate::file_fixture::database::fault)?;
+                                .map_err(crate::database_fixture::fault)?;
                             let value = row.get(0);
-                            value.map_err(crate::file_fixture::database::fault)
+                            value.map_err(crate::database_fixture::fault)
                         })
                     })
                     .await

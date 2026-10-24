@@ -128,7 +128,7 @@ impl Fixture {
                     info.summary.settings_revision as i64
                 ])
                 .await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -237,7 +237,7 @@ async fn imports_credentials_and_preserves_captures() {
                         original.summary.settings_revision as i64
                     ])
                     .await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -467,7 +467,7 @@ async fn rejects_upgrade_without_writing() {
     let db = crate::store::database::connect(&handle).await.unwrap();
     assert_eq!((async { let mut statement = db.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('plugin_connections','turn_connections')").await?;
 let row = statement.query_row(()).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row|row.get::<i64>(0))(&row);
+let mapped: turso::Result<_> = row.get::<i64>(0);
 mapped }).await.unwrap(),0);
     assert_eq!(
         db.prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2")

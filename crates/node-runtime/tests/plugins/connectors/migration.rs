@@ -228,7 +228,7 @@ async fn preserves_credentials_and_microsoft_tenant() {
                                 .query_row(parameters)
                                 .await
                                 .map_err(crate::plugins::database_fixture::fault)?;
-                            let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                            let result: turso::Result<_> = row.get(0);
                             result.map_err(crate::plugins::database_fixture::fault)
                         })
                     })
@@ -242,7 +242,7 @@ async fn preserves_credentials_and_microsoft_tenant() {
             let after = backups(&profile);
             assert_eq!(after.len(), before.len() + 1);
             let (backup_handle, backup) = crate::plugins::database_fixture::open(
-                &(after.iter().find(|path| !before.contains(path)).unwrap()),
+                after.iter().find(|path| !before.contains(path)).unwrap(),
                 true,
             )
             .await;

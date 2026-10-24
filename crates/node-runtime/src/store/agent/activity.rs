@@ -11,7 +11,7 @@ pub(in crate::store) async fn catalog(
             .await
             .map_err(storage_error)?;
         let row = statement.query_row(()).await.map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+        let mapped: turso::Result<_> = row.get::<i64>(0);
         mapped.map_err(storage_error)?
     };
     let catalog = sailry_protocol::activity::Catalog {
@@ -22,8 +22,13 @@ pub(in crate::store) async fn catalog(
         sessions: {
             let mut selected = Vec::new();
             for value in super::super::sessions::ordered(db).await?.into_iter() {
-                selected
-                    .push((async |id| super::super::commands::session(db, id).await)(value).await?);
+                selected.push(
+                    async {
+                        let id = value;
+                        super::super::commands::session(db, id).await
+                    }
+                    .await?,
+                );
             }
             Ok::<_, Fault>(selected)
         }?,
@@ -48,11 +53,11 @@ pub(in crate::store) async fn read(db: &Connection, session: SessionId) -> Resul
          WHERE h.session=?1 ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,(json_extract(a.body,'$.status')='queued'),t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
         match statement.query_row([session.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let Some(body) = body else {
@@ -94,7 +99,7 @@ pub(in crate::store) async fn read(db: &Connection, session: SessionId) -> Resul
             .query_row([session.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     Ok(Summary {
@@ -152,7 +157,7 @@ async fn preview(db: &Connection, turn: TurnId) -> Result<Option<String>, Fault>
             )
             .await?;
         let row = statement.query_row([turn.to_string()]).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -213,11 +218,11 @@ pub(super) async fn assigned_title(
             .await
         {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     assigned
@@ -235,11 +240,11 @@ async fn title_source(db: &Connection, session: SessionId) -> Result<String, Fau
          ORDER BY t.rowid LIMIT 1").await.map_err(storage_error)?;
         match statement.query_row([session.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let Some(first) = first else {
@@ -248,15 +253,15 @@ async fn title_source(db: &Connection, session: SessionId) -> Result<String, Fau
     let message: Option<String> = { let mut statement = db.prepare("SELECT coalesce(json_extract(r.body,'$.command.data.message.text'),json_extract(r.body,'$.command.data.response.data.message.text'))
          FROM turns t LEFT JOIN agent_pending p ON p.turn=t.id JOIN requests r ON r.id=coalesce(p.request,t.request) AND r.caller=coalesce(p.caller,t.caller) WHERE t.id=?1").await.map_err(storage_error)?;
 match statement.query_row([first.as_str()]).await {
-Ok(row) => { let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row); Some(mapped.map_err(storage_error)?) },
+Ok(row) => { let mapped: turso::Result<_> = row.get(0); Some(mapped.map_err(storage_error)?) },
 Err(turso::Error::QueryReturnedNoRows) => None,
-Err(error) => return Err(storage_error(error).into()),
+Err(error) => return Err(storage_error(error)),
 } }.flatten();
     match message {
         Some(message) => Ok(message),
         None => (match (async { let mut statement = db.prepare("SELECT json_extract(e.body,'$.content.parts[0].text') FROM agent_events e WHERE turn=?1 AND json_extract(body,'$.author')='user' ORDER BY sequence LIMIT 1").await?;
 let row = statement.query_row([first.as_str()]).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Option<String>>(0))(&row);
+let mapped: turso::Result<_> = row.get::<Option<String>>(0);
 mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) }).map_err(storage_error).map(|message| message.flatten().unwrap_or_default()),
     }
 }

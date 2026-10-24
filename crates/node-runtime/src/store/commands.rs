@@ -138,9 +138,10 @@ pub(super) fn execute<'a>(
                 .filter(|context| context.invocation.is_some())
             {
                 Some(value) => Some(
-                    (async |context| {
+                    async {
+                        let context = value;
                         super::plugins::invocations::package(db, caller, context).await
-                    })(value)
+                    }
                     .await,
                 ),
                 None => None,
@@ -1055,11 +1056,11 @@ pub(super) fn execute<'a>(
                     .map_err(storage_error)?;
                 match statement.query_row(()).await {
                     Ok(row) => {
-                        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        let mapped: turso::Result<_> = row.get(0);
                         Some(mapped.map_err(storage_error)?)
                     }
                     Err(turso::Error::QueryReturnedNoRows) => None,
-                    Err(error) => return Err(storage_error(error).into()),
+                    Err(error) => return Err(storage_error(error)),
                 }
             };
             let defaults = Defaults {
@@ -1380,11 +1381,11 @@ pub(super) async fn insert_revision(db: &Connection, session: &Session) -> Resul
         let mut statement = db.prepare("SELECT config FROM session_revisions WHERE session=?1 ORDER BY revision DESC LIMIT 1").await.map_err(storage_error)?;
         match statement.query_row([session.id.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     db.execute(
@@ -1415,7 +1416,7 @@ pub(super) async fn defaults(db: &Connection) -> Result<Defaults, Fault> {
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     match row {
@@ -1449,7 +1450,7 @@ pub(super) async fn session(db: &Connection, id: SessionId) -> Result<Session, F
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (creation_order, project, revision, config, worktree, archived) =
@@ -1480,7 +1481,13 @@ async fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
     let sessions = {
         let mut selected = Vec::new();
         for value in super::sessions::ordered(db).await?.into_iter() {
-            selected.push((async |id| session(db, id).await)(value).await?);
+            selected.push(
+                async {
+                    let id = value;
+                    session(db, id).await
+                }
+                .await?,
+            );
         }
         Ok::<_, Fault>(selected)
     }?;
@@ -1491,7 +1498,7 @@ async fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
             .await
             .map_err(storage_error)?;
         let row = statement.query_row(()).await.map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+        let mapped: turso::Result<_> = row.get::<i64>(0);
         mapped.map_err(storage_error)?
     };
     Ok(Snapshot {

@@ -44,7 +44,7 @@ async fn captures_each_account_after_atomic_upgrade() {
             let (handle, mut database) = crate::database_fixture::open(&path, false).await;
             let transaction = database.transaction().await.unwrap();
             let db = &transaction;
-            let first = connection(&db, row.id).await;
+            let first = connection(db, row.id).await;
             let second_id = plugin::connector::Id::new();
             let mut second: serde_json::Value = serde_json::from_slice(&first).unwrap();
             second["id"] = json!(second_id);
@@ -59,7 +59,7 @@ async fn captures_each_account_after_atomic_upgrade() {
                     .prepare("SELECT sql FROM sqlite_master WHERE name='turn_connections'")
                     .await?;
                 let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -74,11 +74,11 @@ async fn captures_each_account_after_atomic_upgrade() {
                 .unwrap();
             db.execute_batch(&previous).await.unwrap();
             db.execute_batch("INSERT INTO turn_connections(turn,plugin,connector,connection,revision) SELECT turn,plugin,connector,connection,revision FROM captured_connections; DROP TABLE captured_connections").await.unwrap();
-            let captured = upgrades::capture(&db, turn).await;
+            let captured = upgrades::capture(db, turn).await;
             let plugins: Vec<u8> = (async {
                 let mut statement = db.prepare("SELECT plugins FROM turns WHERE id=?1").await?;
                 let row = statement.query_row([turn.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -101,7 +101,7 @@ async fn captures_each_account_after_atomic_upgrade() {
                         .prepare("SELECT sql FROM sqlite_master WHERE name='turn_connections'")
                         .await?;
                     let row = statement.query_row(()).await?;
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     mapped
                 })
                 .await
@@ -147,7 +147,7 @@ async fn captures_each_account_after_atomic_upgrade() {
             assert_eq!(upgrades::capture(db, turn).await, expected_capture);
             let retained: Vec<u8> = (async { let mut statement = db.prepare("SELECT plugins FROM turns WHERE id=?1").await?;
 let row = statement.query_row([turn.to_string()]).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+let mapped: turso::Result<_> = row.get(0);
 mapped }).await
                 .unwrap();
             assert_eq!(retained, plugins);

@@ -48,7 +48,13 @@ pub(super) async fn catalog(db: &Connection) -> Result<Catalog, Fault> {
 pub(super) async fn list(db: &Connection, request: &Request) -> Result<Vec<Collection>, Fault> {
     let entries = collections::load(db).await?;
     let package = (match request.plugin.as_ref() {
-        Some(value) => Some((async |context| sources::package(db, context).await)(value).await),
+        Some(value) => Some(
+            async {
+                let context = value;
+                sources::package(db, context).await
+            }
+            .await,
+        ),
         None => None,
     })
     .transpose()?;
@@ -62,7 +68,13 @@ pub(super) async fn list(db: &Connection, request: &Request) -> Result<Vec<Colle
 /// Query plans must intersect these durable grants before reading a derived index.
 pub(super) async fn allowed(db: &Connection, request: &Request) -> Result<Vec<Stored>, Fault> {
     let package = (match request.plugin.as_ref() {
-        Some(value) => Some((async |context| sources::package(db, context).await)(value).await),
+        Some(value) => Some(
+            async {
+                let context = value;
+                sources::package(db, context).await
+            }
+            .await,
+        ),
         None => None,
     })
     .transpose()?;

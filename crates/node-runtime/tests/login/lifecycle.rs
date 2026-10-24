@@ -123,7 +123,7 @@ async fn rolls_back_failed_save() {
                             .query_row(parameters)
                             .await
                             .map_err(crate::database_fixture::fault)?;
-                        let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        let value: turso::Result<_> = row.get(0);
                         value.map_err(crate::database_fixture::fault)
                     })
                 })
@@ -161,8 +161,7 @@ fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).
                                 .query_row(parameters)
                                 .await
                                 .map_err(crate::database_fixture::fault)?;
-                            let value: turso::Result<_> =
-                                (|row: &turso::Row| row.get::<i64>(0))(&row);
+                            let value: turso::Result<_> = row.get::<i64>(0);
                             value.map_err(crate::database_fixture::fault)
                         })
                     })

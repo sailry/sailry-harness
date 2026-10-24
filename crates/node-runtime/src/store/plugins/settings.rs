@@ -68,11 +68,11 @@ pub(super) async fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault
             .await
         {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     serde_json::from_slice(&body.ok_or_else(|| {
@@ -108,7 +108,7 @@ pub(in crate::store) async fn validate_revision(
             ])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if exists {
@@ -416,7 +416,7 @@ pub(super) async fn persist(db: &Connection, info: &mut Info, saved: &Stored) ->
             .query_row([info.summary.name.as_str()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     info.summary.settings_revision = next
@@ -516,11 +516,11 @@ async fn authorize_slots(
             .map_err(storage_error)?;
         match statement.query_row([info.summary.name.as_str()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let current: Option<Info> = body

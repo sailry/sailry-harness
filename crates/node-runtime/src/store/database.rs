@@ -615,16 +615,21 @@ impl Database {
                         .await
                         {
                             Ok(value) => {
-                                (async |source| self.worktree_root(source).await)(value).await
+                                async {
+                                    let source = value;
+                                    self.worktree_root(source).await
+                                }
+                                .await
                             }
                             Err(error) => Err(error),
                         } {
                             Ok(value) => {
-                                (async |source| {
+                                async {
+                                    let source = value;
                                     super::worktrees::project_root(&self.connection, project)
                                         .await
                                         .map(|root| (source, crate::workspaces::worktrees(&root)))
-                                })(value)
+                                }
                                 .await
                             }
                             Err(error) => Err(error),
@@ -634,10 +639,11 @@ impl Database {
                         let validation = if let Command::ManageFiles(action) = &request.command {
                             match crate::files::browser::targets(action) {
                                 Ok(value) => {
-                                    (async |paths: Vec<(std::path::PathBuf, String)>| {
+                                    async {
+                                        let paths: Vec<(std::path::PathBuf, String)> = value;
                                         self.begin_relocation(caller, request.id, &paths, access)
                                             .await
-                                    })(value)
+                                    }
                                     .await
                                 }
                                 Err(error) => Err(error),
@@ -664,11 +670,12 @@ impl Database {
                     mutations::Target::Worktrees { source, target } => {
                         match self.worktree_root(source).await {
                             Ok(value) => {
-                                (async |source| {
+                                async {
+                                    let source = value;
                                     self.worktree_root(target)
                                         .await
                                         .map(|target| (source, target))
-                                })(value)
+                                }
                                 .await
                             }
                             Err(error) => Err(error),

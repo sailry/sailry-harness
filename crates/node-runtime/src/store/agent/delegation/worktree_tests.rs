@@ -96,7 +96,7 @@ async fn rejects_foreign_or_missing_targets() {
                 .prepare("SELECT COUNT(*) FROM agent_delegations")
                 .await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await

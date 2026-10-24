@@ -80,7 +80,7 @@ async fn adds_missing_defaults_without_reinstalling_records() {
     let events: i64 = (async {
         let mut statement = db.prepare("SELECT count(*) FROM events").await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -92,7 +92,7 @@ async fn adds_missing_defaults_without_reinstalling_records() {
         (async {
             let mut statement = db.prepare("SELECT count(*) FROM events").await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<i64>(0);
             mapped
         })
         .await
@@ -124,7 +124,7 @@ async fn adds_missing_defaults_without_reinstalling_records() {
             .prepare("SELECT body FROM plugins WHERE name='web-search'")
             .await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -137,7 +137,7 @@ async fn adds_missing_defaults_without_reinstalling_records() {
         (async {
             let mut statement = db.prepare("SELECT count(*) FROM events").await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<i64>(0);
             mapped
         })
         .await
@@ -202,7 +202,7 @@ async fn refresh_preserves_configuration_and_private_records() {
             .prepare("SELECT body FROM plugin_settings WHERE plugin='code' AND revision=7")
             .await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -213,7 +213,7 @@ async fn refresh_preserves_configuration_and_private_records() {
             .prepare("SELECT value FROM plugin_values WHERE name='code' AND key='draft'")
             .await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -288,7 +288,7 @@ async fn skips_custom_unchanged_and_removed_packages() {
         let retained: Vec<u8> = (async {
             let mut statement = db.prepare("SELECT body FROM plugins WHERE name=?1").await?;
             let row = statement.query_row([name]).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -312,7 +312,7 @@ async fn skips_same_and_older_versions() {
         let events: i64 = (async {
             let mut statement = db.prepare("SELECT count(*) FROM events").await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -324,7 +324,7 @@ async fn skips_same_and_older_versions() {
             (async {
                 let mut statement = db.prepare("SELECT count(*) FROM events").await?;
                 let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<i64>(0);
                 mapped
             })
             .await
@@ -345,7 +345,7 @@ async fn refresh_rolls_back_and_remains_idempotent() {
         (async {
             let mut statement = db.prepare("SELECT count(*) FROM events").await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<i64>(0);
             mapped
         })
         .await
@@ -423,7 +423,7 @@ mapped }).await.unwrap()
         let mut rows = query.query(()).await?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         Ok::<_, turso::Error>(values.into_iter())

@@ -78,7 +78,7 @@ pub(in crate::store) async fn owned(
             .query_row([child.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let run: Run = serde_json::from_slice(&body).map_err(storage_error)?;

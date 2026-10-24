@@ -27,7 +27,7 @@ pub(super) async fn restore(
             .query_row([session.id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if busy {
@@ -73,7 +73,7 @@ pub(super) async fn restore(
             .query_row([session.id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let source = source.parse().map_err(storage_error)?;

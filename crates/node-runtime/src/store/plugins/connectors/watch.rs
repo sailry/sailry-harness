@@ -16,7 +16,7 @@ pub(in crate::store) async fn snapshot(
                 .await
                 .map_err(storage_error)?;
             let row = statement.query_row(()).await.map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<i64>(0);
             mapped.map_err(storage_error)?
         } as u64,
         types: types(db).await?,

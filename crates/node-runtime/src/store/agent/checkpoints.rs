@@ -228,11 +228,11 @@ pub(super) async fn capture(
             .await
         {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let approval: Approval = serde_json::from_slice(&body.ok_or_else(|| {
@@ -288,7 +288,7 @@ pub(super) async fn capture(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     if let Some((stored, content, after)) = previous {
@@ -324,7 +324,7 @@ async fn event(db: &Connection, approval: &Approval) -> Result<AdkEvent, Fault> 
             .query_row(params![approval.turn.to_string(), approval.entry.as_str()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     serde_json::from_slice(&body).map_err(storage_error)

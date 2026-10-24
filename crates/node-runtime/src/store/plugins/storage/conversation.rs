@@ -89,11 +89,11 @@ async fn anchor(
             .map_err(storage_error)?;
         match statement.query_row([session.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<String>(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     }
     .map(|turn| turn.parse().map_err(storage_error))
@@ -126,7 +126,7 @@ pub(in crate::store) async fn read(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (revision, restored, body) = row.unwrap_or((0, false, None));
@@ -287,7 +287,7 @@ pub(in crate::store) async fn sequence(db: &Connection) -> Result<i64, Fault> {
             .prepare("SELECT coalesce(max(sequence),0) FROM plugin_conversation_records")
             .await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await

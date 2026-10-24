@@ -80,7 +80,7 @@ pub(in crate::store) async fn record(
             .query_row(params![namespace.name.as_str(), key])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let Some(index) = index else {

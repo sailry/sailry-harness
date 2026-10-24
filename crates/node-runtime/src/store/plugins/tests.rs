@@ -140,7 +140,7 @@ async fn derives_origin_from_admitted_command() {
             let row = statement
                 .query_row([package.summary.digest.as_str()])
                 .await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -182,7 +182,7 @@ async fn derives_origin_from_admitted_command() {
             let row = statement
                 .query_row([package.summary.digest.as_str()])
                 .await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await

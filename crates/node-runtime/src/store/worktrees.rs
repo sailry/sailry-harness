@@ -17,11 +17,11 @@ pub(super) async fn project_root(
             .map_err(storage_error)?;
         match statement.query_row([project.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     path.map(Into::into)
@@ -39,7 +39,7 @@ pub(super) async fn present(db: &Connection, id: WorktreeId) -> Result<(), Fault
             .query_row([id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if removed {
@@ -84,7 +84,7 @@ pub(super) async fn finish(
                 .query_row([id_text.as_str()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         let changed = if referenced {
@@ -130,7 +130,7 @@ pub(super) async fn finish(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     if let Some((id, project)) = removed {
@@ -165,7 +165,7 @@ pub(super) async fn finish(
                     Some(mapped.map_err(storage_error)?)
                 }
                 Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error).into()),
+                Err(error) => return Err(storage_error(error)),
             }
         };
         if let Some((id, project, main)) = existing {
@@ -207,11 +207,11 @@ pub(super) async fn select(
     let result: turso::Result<String> = match id {
         Some(id) => (async { let mut statement = db.prepare("SELECT id FROM worktrees WHERE id=?1 AND project=?2 AND id NOT IN (SELECT worktree FROM removed_worktrees)").await?;
 let row = statement.query_row(params![id.to_string(), project.to_string()]).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+let mapped: turso::Result<_> = row.get(0);
 mapped }).await,
         None => (async { let mut statement = db.prepare("SELECT id FROM worktrees WHERE project=?1 AND main=1").await?;
 let row = statement.query_row([project.to_string()]).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+let mapped: turso::Result<_> = row.get(0);
 mapped }).await,
     };
     let value = match result {

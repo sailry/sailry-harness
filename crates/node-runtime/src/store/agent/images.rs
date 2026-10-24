@@ -69,7 +69,7 @@ pub(super) async fn resolve(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (turn, body) = row.ok_or_else(missing)?;

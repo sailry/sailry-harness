@@ -51,7 +51,7 @@ pub(in crate::store) async fn admit(
             .query_row([session.id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if session.config.mode != WorkMode::Code || child {
@@ -76,11 +76,11 @@ pub(in crate::store) async fn admit(
             let mut statement = db.prepare("SELECT t.id FROM turns t JOIN agent_runs a ON a.turn=t.id WHERE t.session=?1 ORDER BY t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
             match statement.query_row([session.id.to_string()]).await {
                 Ok(row) => {
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     Some(mapped.map_err(storage_error)?)
                 }
                 Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error).into()),
+                Err(error) => return Err(storage_error(error)),
             }
         };
         if run.origin.is_some()
@@ -153,11 +153,11 @@ pub(super) async fn check(db: &Connection, run: &Run) -> Result<Option<Fault>, F
             .map_err(storage_error)?;
         match statement.query_row([run.turn.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let Some(body) = body else { return Ok(None) };
@@ -169,7 +169,7 @@ pub(super) async fn check(db: &Connection, run: &Run) -> Result<Option<Fault>, F
             .query_row(params![run.session.to_string(), run.turn.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if pending {
@@ -196,7 +196,7 @@ pub(super) async fn recover(db: &Connection) -> Result<(), Fault> {
         let mut rows = query.query(()).await.map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<String>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -240,7 +240,7 @@ pub(in crate::store) async fn stopping(db: &Connection) -> Result<Vec<TurnId>, F
         let mut rows = query.query(()).await.map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<String>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -258,7 +258,7 @@ pub(in crate::store) async fn sessions(
         let mut rows = query.query([name]).await.map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<String>(0);
             values.push(mapped);
         }
         values.into_iter()

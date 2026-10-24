@@ -54,10 +54,11 @@ async fn preserves_only_encrypted_history() {
                 "{:?}",
                 page.runs
             );
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), index + 1);
-            fixture::payload(&requests[index].body, index);
-            drop(requests);
+            {
+                let requests = server.requests.lock().unwrap();
+                assert_eq!(requests.len(), index + 1);
+                fixture::payload(&requests[index].body, index);
+            }
             assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part| {
                 matches!(part, Part::Thinking(value) if value.contains("Legacy summary without encrypted content"))
             }));

@@ -205,7 +205,7 @@ async fn rebuilds_at_restart_without_source_changes() {
         let path = profile.join("storage/node.turso");
         drop(client);
         node.shutdown().await.unwrap();
-        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
+        let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
         let original = records(&db, &context.package.name).await;
         let definition = previous(&db, &context.package.name).await;
         crate::plugins::database_fixture::close(db_handle, db).await;
@@ -236,7 +236,7 @@ async fn rebuilds_at_restart_without_source_changes() {
         );
         drop(client);
         node.shutdown().await.unwrap();
-        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), true).await;
+        let (db_handle, db) = crate::plugins::database_fixture::open(&path, true).await;
         assert_eq!(records(&db, &context.package.name).await, original);
         let backups = profile.join("storage/backups");
         let files = fs::read_dir(&backups)
@@ -258,7 +258,7 @@ async fn rebuilds_at_restart_without_source_changes() {
                     .prepare("SELECT sql FROM sqlite_master WHERE name=?1")
                     .await?;
                 let row = statement.query_row([table.as_str()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<String>(0);
                 mapped
             })
             .await

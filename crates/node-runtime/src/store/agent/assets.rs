@@ -27,7 +27,7 @@ pub(in crate::store) async fn read(
                 .query_row(params![session.to_string(), before as i64])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         if !visible {
@@ -91,11 +91,11 @@ pub(in crate::store) async fn read(
                 .map_err(storage_error)?;
             match statement.query_row([run.worktree.to_string()]).await {
                 Ok(row) => {
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     Some(mapped.map_err(storage_error)?)
                 }
                 Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error).into()),
+                Err(error) => return Err(storage_error(error)),
             }
         };
         let items = extract::items(&entry, root.as_deref());

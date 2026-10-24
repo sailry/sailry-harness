@@ -104,7 +104,7 @@ async fn skip_receipts_and_preserve_write_replay() {
                     .prepare("SELECT count(*) FROM requests WHERE id=?1")
                     .await?;
                 let row = statement.query_row([request.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await

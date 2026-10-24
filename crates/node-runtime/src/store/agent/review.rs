@@ -73,7 +73,7 @@ pub(super) async fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) ->
             .query_row(params![turn.to_string(), source.as_str()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let source: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -107,7 +107,7 @@ pub(super) async fn locate(
             .query_row(params![turn.to_string(), call])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;

@@ -148,7 +148,7 @@ async fn measures_full_and_filtered_int8_scans() {
             index
                 .search(
                     &query,
-                    &[binding.clone()],
+                    std::slice::from_ref(&binding),
                     &[("granite-multi".to_owned(), vector.clone())],
                     false,
                     &CancellationToken::new(),
@@ -162,7 +162,7 @@ async fn measures_full_and_filtered_int8_scans() {
             let page = index
                 .search(
                     &query,
-                    &[binding.clone()],
+                    std::slice::from_ref(&binding),
                     &[("granite-multi".to_owned(), vector.clone())],
                     false,
                     &CancellationToken::new(),

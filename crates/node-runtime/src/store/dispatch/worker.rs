@@ -70,7 +70,7 @@ pub(in crate::store) async fn tick(
                 .await
                 .map_err(storage_error)?;
             let row = statement.query_row(()).await.map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         let publication = publication.lock().await;

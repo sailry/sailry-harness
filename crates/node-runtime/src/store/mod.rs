@@ -217,7 +217,7 @@ enum Job {
         result: Result<sailry_protocol::terminal::Info, Fault>,
         reply: oneshot::Sender<Result<(), Fault>>,
     },
-    Execute(external::Work),
+    Execute(Box<external::Work>),
     Shutdown,
     Completed(Box<external::Completed>),
     Installed {
@@ -893,7 +893,7 @@ impl Store {
                             .persist_request(access, caller, request, reply, None)
                             .await
                         {
-                            Some(work) => Job::Execute(work),
+                            Some(work) => Job::Execute(Box::new(work)),
                             None => continue,
                         }
                     }
@@ -934,15 +934,13 @@ impl Store {
                     | Job::Installed { completed, .. } => Some(completed),
                     _ => None,
                 };
-                if let Some(completed) = completed {
-                    if let Ok(output) = &completed.result {
-                        if let Err(error) = storage
-                            .prepare_plugin(&completed.request.command, output)
-                            .await
-                        {
-                            completed.result = Err(database::storage_error(error));
-                        }
-                    }
+                if let Some(completed) = completed
+                    && let Ok(output) = &completed.result
+                    && let Err(error) = storage
+                        .prepare_plugin(&completed.request.command, output)
+                        .await
+                {
+                    completed.result = Err(database::storage_error(error));
                 }
                 let mut database = storage.context(false).await?;
                 let package_change = matches!(&job, Job::Completed(_) | Job::Installed { .. });
@@ -1166,7 +1164,7 @@ impl Store {
                                 && let sailry_protocol::Command::RunCommand { turn, .. } = &completed.request.command
                                 && let Ok(worktree) = (async { let mut statement = database.connection.prepare("SELECT r.worktree FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1").await?;
 let row = statement.query_row([turn.to_string()]).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+let mapped: turso::Result<_> = row.get::<String>(0);
 mapped }).await
                                 && let Ok(worktree) = worktree.parse()
                             {
@@ -1215,7 +1213,7 @@ mapped }).await
                         }),
 
                         Job::Execute(work) => Box::pin(async move {
-                            let rejected = match work {
+                            let rejected = match *work {
                                 external::Work::Network(execution) => {
                                     network_work.submit(execution).err().map(|execution| {
                                         (execution.caller, execution.request, execution.reply)

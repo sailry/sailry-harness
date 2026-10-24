@@ -207,11 +207,11 @@ async fn sqlite_path(db: &Connection, turn: TurnId, path: String) -> Result<Stri
             .map_err(storage_error)?;
         match statement.query_row([run.worktree.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let root = root.ok_or_else(|| Fault::new(ErrorCode::NotFound, "worktree does not exist"))?;
@@ -294,7 +294,7 @@ pub(super) async fn ssh(
                     .query_row([previous.as_ref().unwrap().id.to_string()])
                     .await
                     .map_err(storage_error)?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped.map_err(storage_error)?
             };
             let body = zeroize::Zeroizing::new(body);

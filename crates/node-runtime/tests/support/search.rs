@@ -13,7 +13,6 @@ mod formatted;
 mod transport;
 
 pub enum Reply {
-    Wait(CancellationToken),
     Status(u16, Option<String>),
     Json(Value),
 }
@@ -22,6 +21,7 @@ pub struct Server {
     pub endpoint: String,
     pub requests: Arc<Mutex<Vec<(String, Value)>>>,
     replies: Arc<Mutex<BTreeMap<String, VecDeque<Reply>>>>,
+    pub releases: Arc<Mutex<BTreeMap<String, VecDeque<CancellationToken>>>>,
     pub holds: Arc<Mutex<BTreeSet<String>>>,
     pub(super) stalls: Arc<Mutex<BTreeSet<String>>>,
     pub held: CancellationToken,
@@ -43,12 +43,14 @@ impl Server {
             endpoint,
             requests: requests.clone(),
             replies: replies.clone(),
+            releases: Default::default(),
             holds: Default::default(),
             stalls: Default::default(),
             stop: stop.clone(),
             held: held.clone(),
             disconnected: disconnected.clone(),
         };
+        let releases = server.releases.clone();
         let holds = server.holds.clone();
         let stalls = server.stalls.clone();
         let held = server.held.clone();
@@ -57,9 +59,10 @@ impl Server {
             let mut connections = tokio::task::JoinSet::new();
             loop {
                 let (mut stream, _) = tokio::select! { _=stop.cancelled()=>break, result=listener.accept()=>result.unwrap() };
-                let (requests, replies, holds, stalls, held, disconnected) = (
+                let (requests, replies, releases, holds, stalls, held, disconnected) = (
                     requests.clone(),
                     replies.clone(),
+                    releases.clone(),
                     holds.clone(),
                     stalls.clone(),
                     held.clone(),
@@ -90,8 +93,13 @@ impl Server {
                         .unwrap()
                         .get_mut(&path)
                         .and_then(VecDeque::pop_front);
-                    let (status, retry, body) = match override_reply {
-                        Some(Reply::Wait(release)) => {
+                    let release = releases
+                        .lock()
+                        .unwrap()
+                        .get_mut(&path)
+                        .and_then(VecDeque::pop_front);
+                    let (status, retry, body) = match (release, override_reply) {
+                        (Some(release), _) => {
                             held.cancel();
                             let mut buffer = [0; 1];
                             tokio::select! {
@@ -100,21 +108,21 @@ impl Server {
                             }
                             (200, None, mapping(&path).to_string())
                         }
-                        Some(Reply::Status(status, retry)) => (
+                        (None, Some(Reply::Status(status, retry))) => (
                             status,
                             retry,
                             json!({"error":"private-response"}).to_string(),
                         ),
-                        Some(Reply::Json(body)) => (200, None, body.to_string()),
-                        None if path == "/mcp" => {
+                        (None, Some(Reply::Json(body))) => (200, None, body.to_string()),
+                        (None, None) if path == "/mcp" => {
                             let (status, body) = formatted::response(&method, &body, false);
                             (status, None, body)
                         }
-                        None if path == "/modern-mcp" => {
+                        (None, None) if path == "/modern-mcp" => {
                             let (status, body) = formatted::response(&method, &body, true);
                             (status, None, body)
                         }
-                        None => (200, None, mapping(&path).to_string()),
+                        (None, None) => (200, None, mapping(&path).to_string()),
                     };
                     let session =
                         (stage == Some("initialize") && status == 200).then_some("search-fixture");

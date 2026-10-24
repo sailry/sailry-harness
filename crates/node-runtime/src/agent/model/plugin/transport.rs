@@ -96,6 +96,11 @@ pub(super) struct Credentials {
     pub(super) origin: Option<adk_core::ProviderOrigin>,
 }
 
+pub(super) struct Limits {
+    pub(super) bytes: usize,
+    pub(super) retries: u64,
+}
+
 pub(super) fn public(value: &str, credentials: &Credentials) -> Result<(), Fault> {
     if credentials
         .secrets
@@ -128,10 +133,10 @@ pub(super) async fn send(
     declaration: &Declaration,
     credentials: &Credentials,
     stop: &CancellationToken,
-    budget: usize,
-    retries: u64,
+    limits: Limits,
 ) -> Result<(Response, adk_core::model_observation::AttemptGuard), Failure> {
-    let budget = budget.min(REQUEST_BYTES);
+    let Limits { bytes, retries } = limits;
+    let budget = bytes.min(REQUEST_BYTES);
     let endpoint = address(endpoint)?;
     let url = address(&prepared.url)?;
     let same_origin = url.origin() == endpoint.origin();

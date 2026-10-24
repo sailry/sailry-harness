@@ -218,7 +218,7 @@ async fn preserves_uncertain_source() {
                 Box::pin(async move {
                     db.execute_batch(sql)
                         .await
-                        .map_err(crate::file_fixture::database::fault)
+                        .map_err(crate::database_fixture::fault)
                 })
             })
             .await
@@ -282,7 +282,7 @@ async fn preserves_uncertain_source() {
                 Box::pin(async move {
                     db.execute_batch(sql)
                         .await
-                        .map_err(crate::file_fixture::database::fault)
+                        .map_err(crate::database_fixture::fault)
                 })
             })
             .await

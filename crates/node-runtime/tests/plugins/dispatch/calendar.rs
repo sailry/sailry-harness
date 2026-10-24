@@ -317,7 +317,7 @@ async fn invalid_schedule_does_not_block_other_deliveries() {
                     records[0].id.to_string()
                 ])
                 .await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await

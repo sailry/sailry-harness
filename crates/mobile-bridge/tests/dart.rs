@@ -1,7 +1,7 @@
 //! Host-side Dart FFI acceptance. Mobile device execution is a separate check.
 use configuration::support as agent_support;
 
-#[path = "../../node-runtime/tests/support/database.rs"]
+#[path = "../../node-runtime/tests/support/database/native.rs"]
 mod database_fixture;
 
 #[path = "dart/activity.rs"]

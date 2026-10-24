@@ -474,8 +474,10 @@ async fn bounds_requests_before_network_io() {
         &declaration,
         &credentials,
         &CancellationToken::new(),
-        usize::MAX,
-        0,
+        transport::Limits {
+            bytes: usize::MAX,
+            retries: 0,
+        },
     )
     .await
     .err()
@@ -746,8 +748,10 @@ async fn retries_raw_http_without_retranslation() {
                     &declaration,
                     &credentials,
                     &CancellationToken::new(),
-                    usize::MAX,
-                    2,
+                    transport::Limits {
+                        bytes: usize::MAX,
+                        retries: 2,
+                    },
                 )
                 .await?;
                 if response.status().is_success() {

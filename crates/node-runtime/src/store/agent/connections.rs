@@ -412,7 +412,7 @@ pub(super) async fn status(
                         .query_row([id.to_string()])
                         .await
                         .map_err(storage_error)?;
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     mapped.map_err(storage_error)?
                 }
             }

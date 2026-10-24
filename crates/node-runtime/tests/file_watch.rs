@@ -98,12 +98,12 @@ async fn shares_transient_invalidation() {
                     let row = db
                         .prepare(sql)
                         .await
-                        .map_err(crate::file_fixture::database::fault)?
+                        .map_err(crate::database_fixture::fault)?
                         .query_row(parameters)
                         .await
-                        .map_err(crate::file_fixture::database::fault)?;
-                    let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
-                    value.map_err(crate::file_fixture::database::fault)
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = row.get::<i64>(0);
+                    value.map_err(crate::database_fixture::fault)
                 })
             })
             .await

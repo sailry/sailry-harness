@@ -58,7 +58,7 @@ pub(in crate::store) async fn materialize_session(
             .query_row(params![session.to_string(), worktree.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if owned {
@@ -79,11 +79,11 @@ pub(in crate::store) async fn scratch(db: &Connection, root: &Path) -> Result<Wo
             .map_err(storage_error)?;
         match statement.query_row([path]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     if let Some(id) = existing {

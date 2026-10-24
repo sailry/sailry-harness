@@ -31,9 +31,11 @@ pub(crate) async fn owned<T>(
     }
 }
 
+type Interval = (u64, u64, Phase, Option<u64>);
+
 pub(crate) struct Timeline {
     origin: Instant,
-    spans: Mutex<Vec<(u64, u64, Phase, Option<u64>)>>,
+    spans: Mutex<Vec<Interval>>,
     next: AtomicU64,
     failures:
         Mutex<std::collections::BTreeMap<(String, String, String), sailry_protocol::tool::Failure>>,
@@ -136,7 +138,7 @@ impl Drop for Span {
 fn micros(value: Duration) -> u64 {
     value.as_micros().try_into().unwrap_or(u64::MAX)
 }
-fn reduce(duration: u64, spans: &[(u64, u64, Phase, Option<u64>)]) -> Phases {
+fn reduce(duration: u64, spans: &[Interval]) -> Phases {
     let mut points = vec![0, duration];
     for &(start, end, _, _) in spans {
         points.extend([start.min(duration), end.min(duration)]);

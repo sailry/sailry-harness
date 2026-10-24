@@ -44,7 +44,7 @@ pub(super) async fn validate(
             .query_row(params![session.to_string(), end.as_str(), turn.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if !valid && !current_exchange(db, session, turn, end).await? {
@@ -78,7 +78,7 @@ async fn current_exchange(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let Some((sequence, owner)) = boundary else {
@@ -98,7 +98,7 @@ async fn current_exchange(
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -173,7 +173,7 @@ pub(super) async fn read(
          WHERE h.session=?1 AND json_type(e.body,'$.actions.compaction')='object'
          ORDER BY h.sequence DESC LIMIT 1").await?;
 let row = statement.query_row([session.to_string()]).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+let mapped: turso::Result<_> = row.get(0);
 mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) })
         .map_err(|error| adk_error(storage_error(error)))?;
     let Some(body) = body else { return Ok(None) };
@@ -185,7 +185,7 @@ mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedN
         .ok_or_else(|| AdkError::session("context summary has no boundary"))?;
     let sequence: i64 = (async { let mut statement = db.prepare("SELECT h.sequence FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.id=?2").await?;
 let row = statement.query_row(params![session.to_string(), end.as_str()]).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+let mapped: turso::Result<_> = row.get(0);
 mapped }).await.map_err(|error| adk_error(storage_error(error)))?;
     let summary = event
         .actions

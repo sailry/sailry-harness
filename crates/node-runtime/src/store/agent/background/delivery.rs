@@ -159,7 +159,7 @@ async fn available(db: &Connection, session: SessionId) -> Result<bool, Fault> {
             .query_row([session.id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if blocked {
@@ -170,7 +170,7 @@ async fn available(db: &Connection, session: SessionId) -> Result<bool, Fault> {
         let mut rows = query.query([session.id.to_string()]).await?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         Ok::<_, turso::Error>(values.into_iter())
@@ -192,7 +192,7 @@ pub(in crate::store) async fn check(db: &Connection, run: &Run) -> Result<Option
             .query_row(params![run.session.to_string(), run.turn.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let user: bool = {
@@ -201,7 +201,7 @@ pub(in crate::store) async fn check(db: &Connection, run: &Run) -> Result<Option
             .query_row(params![run.session.to_string(), run.turn.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     Ok((!pending || user).then(|| {
@@ -257,7 +257,7 @@ async fn admit(
             .query_row([session.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if !eligible {

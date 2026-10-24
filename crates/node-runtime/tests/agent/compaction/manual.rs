@@ -655,11 +655,12 @@ async fn submits_estimated_oversized_original_input() {
                 .flat_map(|entry| &entry.parts)
                 .any(|part| matches!(part, Part::Text(text) if text == &original))
         );
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 2);
-        assert!(agent_support::compaction::is_summary(&requests[1]));
-        assert!(messages(&requests[1]).contains(&original));
-        drop(requests);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(agent_support::compaction::is_summary(&requests[1]));
+            assert!(messages(&requests[1]).contains(&original));
+        }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -696,19 +697,20 @@ async fn accepts_larger_complete_handoffs() {
             .unwrap();
         assert!(summary.starts_with(&handoff));
         assert_eq!(summaries(&after), 1);
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 3);
-        assert!(agent_support::compaction::is_summary(&requests[2]));
-        let transcript = requests[2]["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|message| message["role"] == "user")
-            .unwrap()["content"]
-            .as_str()
-            .unwrap();
-        assert!(handoff.len() > transcript.len());
-        assert!(
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            assert!(agent_support::compaction::is_summary(&requests[2]));
+            let transcript = requests[2]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|message| message["role"] == "user")
+                .unwrap()["content"]
+                .as_str()
+                .unwrap();
+            assert!(handoff.len() > transcript.len());
+            assert!(
             !after
                 .entries
                 .iter()
@@ -717,7 +719,7 @@ async fn accepts_larger_complete_handoffs() {
                     matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")
                 })
         );
-        drop(requests);
+        }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

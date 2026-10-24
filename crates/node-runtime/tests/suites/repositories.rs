@@ -1,8 +1,4 @@
-#[allow(
-    dead_code,
-    reason = "The native database fixture is shared with storage-only suites"
-)]
-#[path = "../support/database.rs"]
+#[path = "../support/database/error.rs"]
 mod database_fixture;
 
 #[path = "../git.rs"]

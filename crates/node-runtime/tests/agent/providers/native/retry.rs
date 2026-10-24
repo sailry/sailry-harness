@@ -876,14 +876,15 @@ async fn separates_raw_http_and_session_recovery() {
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert!(attempts(&page).is_empty());
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 5);
-        assert!(
-            requests
-                .iter()
-                .all(|request| request.body == requests[0].body)
-        );
-        drop(requests);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 5);
+            assert!(
+                requests
+                    .iter()
+                    .all(|request| request.body == requests[0].body)
+            );
+        }
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }

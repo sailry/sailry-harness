@@ -18,7 +18,7 @@ pub(super) async fn list(db: &Connection) -> Result<Vec<Profile>, Fault> {
         let mut rows = query.query(()).await.map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -35,11 +35,11 @@ pub(super) async fn read(db: &Connection, id: DatabaseId) -> Result<Option<Profi
             .map_err(storage_error)?;
         match statement.query_row([id.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
@@ -178,7 +178,7 @@ pub(super) async fn prepare(
                     .query_row([profile.id.to_string()])
                     .await
                     .map_err(storage_error)?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<String>(0);
                 mapped.map_err(storage_error)?
             })
         } else {
@@ -278,7 +278,7 @@ pub(super) async fn prepare(
             .query_row([id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+        let mapped: turso::Result<_> = row.get::<String>(0);
         mapped.map_err(storage_error)?
     };
     Ok(crate::databases::Operation {

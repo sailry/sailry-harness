@@ -28,9 +28,9 @@ pub(in crate::store) async fn pending(
 ) -> Result<Option<TurnId>, Fault> {
     { let mut statement = db.prepare("SELECT p.turn FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.recipient=?1 AND json_extract(a.body,'$.status')='queued' ORDER BY p.position LIMIT 1").await.map_err(storage_error)?;
 match statement.query_row([recipient.to_string()]).await {
-Ok(row) => { let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row); Some(mapped.map_err(storage_error)?) },
+Ok(row) => { let mapped: turso::Result<_> = row.get::<String>(0); Some(mapped.map_err(storage_error)?) },
 Err(turso::Error::QueryReturnedNoRows) => None,
-Err(error) => return Err(storage_error(error).into()),
+Err(error) => return Err(storage_error(error)),
 } }
     .map(|turn| turn.parse().map_err(storage_error))
     .transpose()
@@ -43,7 +43,7 @@ async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<boo
                 .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
                 .await?;
             let row = statement.query_row([turn.to_string()]).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped
         })
         .await
@@ -267,7 +267,7 @@ pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
         let mut rows = query.query(()).await?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<String>(0);
             values.push(mapped);
         }
         Ok::<_, turso::Error>(values.into_iter())
@@ -367,7 +367,7 @@ pub(in crate::store) async fn retain(
                 .query_row([run.session.to_string()])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
         if child {

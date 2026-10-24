@@ -75,7 +75,7 @@ async fn fills_fences_without_rewriting_captures() {
                     .prepare("SELECT body FROM plugin_connections WHERE id=?1")
                     .await?;
                 let row = statement.query_row([row.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -105,13 +105,13 @@ async fn fills_fences_without_rewriting_captures() {
                 .execute_batch("DROP INDEX plugin_connections_owner")
                 .await
                 .unwrap();
-            let captured = capture(&database, turn).await;
+            let captured = capture(database, turn).await;
             let plugins: Vec<u8> = (async {
                 let mut statement = database
                     .prepare("SELECT plugins FROM turns WHERE id=?1")
                     .await?;
                 let row = statement.query_row([turn.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await
@@ -132,7 +132,7 @@ async fn fills_fences_without_rewriting_captures() {
                         .prepare("SELECT body FROM plugin_connections WHERE id=?1")
                         .await?;
                     let row = statement.query_row([row.id.to_string()]).await?;
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     mapped
                 })
                 .await
@@ -170,8 +170,7 @@ async fn fills_fences_without_rewriting_captures() {
                                     .prepare("SELECT plugins FROM turns WHERE id=?1")
                                     .await?;
                                 let row = statement.query_row([turn.to_string()]).await?;
-                                let mapped: turso::Result<_> =
-                                    (|row: &turso::Row| row.get(0))(&row);
+                                let mapped: turso::Result<_> = row.get(0);
                                 mapped
                             })
                             .await
@@ -182,8 +181,7 @@ async fn fills_fences_without_rewriting_captures() {
                                     .prepare("SELECT body FROM plugin_connections WHERE id=?1")
                                     .await?;
                                 let row = statement.query_row([connection.to_string()]).await?;
-                                let mapped: turso::Result<_> =
-                                    (|row: &turso::Row| row.get(0))(&row);
+                                let mapped: turso::Result<_> = row.get(0);
                                 mapped
                             })
                             .await
@@ -211,7 +209,7 @@ async fn fills_fences_without_rewriting_captures() {
                     .prepare("SELECT body FROM plugin_connections WHERE id=?1")
                     .await?;
                 let row = statement.query_row([row.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await

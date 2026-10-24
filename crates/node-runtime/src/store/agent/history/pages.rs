@@ -40,7 +40,7 @@ pub(in crate::store) async fn read(
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()
@@ -72,7 +72,7 @@ pub(in crate::store) async fn read(
                 .await
                 .map_err(storage_error)?;
             while let Some(row) = rows.next().await.map_err(storage_error)? {
-                let row: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                let row: turso::Result<_> = row.get::<Vec<u8>>(0);
 
                 let run: Run =
                     serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;

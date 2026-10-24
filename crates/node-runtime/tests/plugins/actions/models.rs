@@ -233,7 +233,9 @@ async fn scopes_real_model_installation() {
             client
                 .execute(
                     client
-                        .prepare(Command::ReadLocalModels { kind: Some(sailry_protocol::models::Kind::Ocr) })
+                        .prepare(Command::ReadLocalModels {
+                            kind: Some(sailry_protocol::models::Kind::Ocr)
+                        })
                         .with_plugin(read_only.clone())
                 )
                 .await

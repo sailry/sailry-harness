@@ -247,7 +247,7 @@ async fn capacity(db: &Connection, table: &str, package: &str) -> Result<(), Fau
             .query_row([package])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if count >= MAX_ITEMS as i64 {
@@ -276,7 +276,7 @@ async fn budget(
                 .query_row(params![package, id])
                 .await
                 .map_err(storage_error)?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let mapped: turso::Result<_> = row.get(0);
             mapped.map_err(storage_error)?
         };
     if total as usize + encode(value)?.len() > 4 * 1024 * 1024 {
@@ -304,11 +304,11 @@ async fn get<T: DeserializeOwned>(
             .map_err(storage_error)?;
         match statement.query_row(params![package, id]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
@@ -342,7 +342,7 @@ async fn list<T: DeserializeOwned>(
         let mut rows = query.query([package]).await.map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()

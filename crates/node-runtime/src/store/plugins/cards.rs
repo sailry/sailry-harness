@@ -37,11 +37,11 @@ pub(in crate::store) async fn captured(
         let mut statement = db.prepare("SELECT h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 ORDER BY t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
         match statement.query_row([receipt.session.to_string()]).await {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     if latest.as_deref() != Some(receipt.turn.to_string().as_str()) {
@@ -62,7 +62,7 @@ pub(in crate::store) async fn captured(
             .await
             .map_err(storage_error)?;
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let row: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let row: turso::Result<_> = row.get::<Vec<u8>>(0);
 
             let event: adk_core::Event =
                 serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;

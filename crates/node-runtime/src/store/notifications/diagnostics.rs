@@ -16,9 +16,13 @@ pub(in crate::store) async fn report(
         return Ok((Output::NotificationsUpdated, None));
     }
     let session = (match report.session {
-        Some(value) => {
-            Some((async |id| super::super::commands::session(db, id).await)(value).await)
-        }
+        Some(value) => Some(
+            async {
+                let id = value;
+                super::super::commands::session(db, id).await
+            }
+            .await,
+        ),
         None => None,
     })
     .transpose()?;

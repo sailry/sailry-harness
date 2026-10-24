@@ -214,7 +214,7 @@ mod tests {
                     .prepare("SELECT settings_revision FROM plugins WHERE name='github'")
                     .await?;
                 let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<i64>(0);
                 mapped
             })
             .await
@@ -225,7 +225,7 @@ mod tests {
             (async {
                 let mut statement = db.prepare("SELECT count(*) FROM plugin_settings").await?;
                 let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<i64>(0);
                 mapped
             })
             .await

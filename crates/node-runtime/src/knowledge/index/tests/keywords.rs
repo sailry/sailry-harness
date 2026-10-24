@@ -7,7 +7,7 @@ async fn search(index: &Index, binding: &Binding, text: &str) -> Vec<String> {
     index
         .search(
             &input,
-            &[binding.clone()],
+            std::slice::from_ref(binding),
             &[],
             false,
             &CancellationToken::new(),

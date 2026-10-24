@@ -84,16 +84,20 @@ fn unavailable() -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{future::Future, task::Poll};
 
     #[tokio::test]
     async fn shares_information_with_concurrent_readers() {
         let host = Host::new();
-        let cached = host.cached.lock().unwrap();
         let reads = (0..12).map(|_| host.inspect(NodeId([1; 32])));
         let reads = futures::future::join_all(reads);
         let mut reads = std::pin::pin!(reads);
-        assert!(futures::poll!(&mut reads).is_pending());
-        drop(cached);
+        std::future::poll_fn(|context| {
+            let _cached = host.cached.lock().unwrap();
+            assert!(reads.as_mut().poll(context).is_pending());
+            Poll::Ready(())
+        })
+        .await;
         let results = reads.await;
         let first = results[0].as_ref().unwrap();
         for result in &results {

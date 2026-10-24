@@ -76,7 +76,7 @@ async fn changes(db: &Connection) -> i64 {
     (async {
         let mut statement = db.prepare("SELECT total_changes()").await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -117,7 +117,7 @@ async fn reads_captured_defaults_without_mutating_storage() {
             .prepare("SELECT value FROM plugin_values WHERE name='fixture' AND key='entry'")
             .await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await

@@ -143,7 +143,7 @@ async fn recovers_interrupted_accounts_on_restart() {
                     .prepare("SELECT body FROM plugin_connections WHERE id=?1")
                     .await?;
                 let row = statement.query_row([original.id.to_string()]).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 mapped
             })
             .await

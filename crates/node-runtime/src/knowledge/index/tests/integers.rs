@@ -30,7 +30,7 @@ async fn roundtrips_maximum_signed_values() {
     let page = index
         .search(
             &query,
-            &[binding.clone()],
+            std::slice::from_ref(&binding),
             &[],
             false,
             &CancellationToken::new(),
@@ -110,7 +110,7 @@ async fn rejects_out_of_range_query_filters() {
             index
                 .search(
                     &query,
-                    &[binding.clone()],
+                    std::slice::from_ref(&binding),
                     &[],
                     false,
                     &CancellationToken::new()

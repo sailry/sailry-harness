@@ -22,11 +22,11 @@ pub(super) async fn read(
             .await
         {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let attachment: Attachment =
@@ -53,11 +53,11 @@ pub(super) async fn discard(
             .await
         {
             Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let mapped: turso::Result<_> = row.get(0);
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     if owner.as_deref() != Some(&caller.0[..]) {
@@ -72,7 +72,7 @@ pub(super) async fn discard(
             .query_row([id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if used {
@@ -125,7 +125,7 @@ pub(super) async fn collect(db: &Connection, profile: Option<&Path>) {
             let mut rows = query.query(()).await.map_err(storage_error)?;
             let mut values = Vec::new();
             while let Some(row) = rows.next().await.map_err(storage_error)? {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<String>(0);
                 values.push(mapped);
             }
             values.into_iter()

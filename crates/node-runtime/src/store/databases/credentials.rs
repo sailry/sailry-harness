@@ -56,7 +56,7 @@ pub(super) async fn check(
             .query_row([id.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let expected = binding(db, connection).await?;
@@ -99,7 +99,7 @@ pub(in crate::store) async fn validate(db: &Connection) -> Result<(), Fault> {
     {
         let mut rows = query.query(()).await.map_err(storage_error)?;
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let row: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let row: turso::Result<_> = row.get::<Vec<u8>>(0);
 
             let _: Binding =
                 serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;

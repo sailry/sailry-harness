@@ -132,7 +132,7 @@ async fn stopped(db: &Connection, turn: sailry_protocol::TurnId) -> Result<bool,
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Option<String>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Option<String>>(0);
             values.push(mapped);
         }
         values.into_iter()

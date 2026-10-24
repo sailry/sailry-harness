@@ -529,9 +529,9 @@ async fn searches_independent_requests_together() {
     owner.fixture(Driver::Tavily, &server.url(Driver::Tavily));
     let release = CancellationToken::new();
     let ids: Vec<_> = (0..12).map(|_| RequestId::new()).collect();
-    server.respond(
-        "/tavily",
-        ids.iter().map(|_| Reply::Wait(release.clone())).collect(),
+    server.releases.lock().unwrap().insert(
+        "/tavily".into(),
+        ids.iter().map(|_| release.clone()).collect(),
     );
     let caller = NodeId([1; 32]);
     let pending: Vec<_> = ids

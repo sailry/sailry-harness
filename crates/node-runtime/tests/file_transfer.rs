@@ -67,12 +67,12 @@ impl Endpoint {
                 Box::pin(async move {
                     db.prepare("SELECT count(*) FROM requests")
                         .await
-                        .map_err(crate::file_fixture::database::fault)?
+                        .map_err(crate::database_fixture::fault)?
                         .query_row(())
                         .await
-                        .map_err(crate::file_fixture::database::fault)?
+                        .map_err(crate::database_fixture::fault)?
                         .get::<i64>(0)
-                        .map_err(crate::file_fixture::database::fault)
+                        .map_err(crate::database_fixture::fault)
                 })
             })
             .await

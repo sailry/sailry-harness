@@ -68,7 +68,7 @@ async fn restores(direct: bool) {
     // depending on capture permissions or a second media database.
     {
         let (handle, mut db) =
-            crate::file_fixture::database::open(&profile.join("storage/node.turso"), false).await;
+            crate::database_fixture::open(&profile.join("storage/node.turso"), false).await;
         let transaction = db.transaction().await.unwrap();
         for (_, turn) in &records {
             let rows = {

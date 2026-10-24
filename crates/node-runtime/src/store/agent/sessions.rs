@@ -355,7 +355,7 @@ pub(super) async fn get(
         let row = statement
             .query_row(params![turn.to_string(), session.to_string()])
             .await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -410,7 +410,7 @@ pub(super) async fn get(
             .await
             .map_err(|error| adk_error(storage_error(error)))?
         {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
             values.push(mapped);
         }
         values.into_iter()

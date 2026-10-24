@@ -61,12 +61,11 @@ impl Failure {
                 });
         let class = if local {
             Class::Terminal(Stop::LocalFailure)
-        } else if completed {
-            Class::Terminal(Stop::ResponseIncomplete)
-        } else if transport == Some(Transport::WebSocket)
-            && field("transport_phase") == Some("stream")
-            && !error.retry.should_retry
-            && event.is_none()
+        } else if completed
+            || (transport == Some(Transport::WebSocket)
+                && field("transport_phase") == Some("stream")
+                && !error.retry.should_retry
+                && event.is_none())
         {
             Class::Terminal(Stop::ResponseIncomplete)
         } else if let Some(status) = status.filter(|status| *status >= 400) {
@@ -90,10 +89,6 @@ impl Failure {
             Class::Terminal(Stop::FlexUnavailable)
         } else if error.code.starts_with("model.plugin.") && code.is_none() {
             plugin(error)
-        } else if error.code.starts_with("model.plugin.")
-            && field("transport_phase") == Some("stream")
-        {
-            stream(code)
         } else if field("transport_phase") == Some("stream") {
             stream(code)
         } else if field("transport_error_kind").is_some() {

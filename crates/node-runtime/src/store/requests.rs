@@ -197,12 +197,12 @@ impl Ingress {
     /// Called only outside the receiver that owns mutable execution services.
     pub(super) async fn handoff(&self, work: external::Work) {
         if let Some(storage) = self.storage.get()
-            && let Err(error) = self.sender.send(Job::Execute(work)).await
+            && let Err(error) = self.sender.send(Job::Execute(Box::new(work))).await
         {
             let Job::Execute(work) = error.0 else {
                 unreachable!()
             };
-            let (caller, request, reply) = external::reject(work);
+            let (caller, request, reply) = external::reject(*work);
             if let Ok(mut database) = storage.context(false).await {
                 let result = database
                     .finish_external(caller, &request, Err(unavailable()), &self.events)

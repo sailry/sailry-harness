@@ -63,7 +63,7 @@ async fn reads_public_values() {
                             .query_row(parameters)
                             .await
                             .map_err(crate::plugins::database_fixture::fault)?;
-                        let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        let value: turso::Result<_> = row.get::<i64>(0);
                         value.map_err(crate::plugins::database_fixture::fault)
                     })
                 })

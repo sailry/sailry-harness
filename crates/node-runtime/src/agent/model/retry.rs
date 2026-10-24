@@ -92,14 +92,11 @@ impl Llm for Model {
                         .lock()
                         .unwrap_or_else(|poison| poison.into_inner())
                         .empty()
-                }) {
-                    if let Some(capture) = &capture {
-                        if let Err(error) =
-                            observation::Capture::persist(capture, &ingress, session).await
-                        {
-                            break Err(error);
-                        }
-                    }
+                }) && let Some(capture) = &capture
+                    && let Err(error) =
+                        observation::Capture::persist(capture, &ingress, session).await
+                {
+                    break Err(error);
                 }
                 let observer = capture.as_ref().map(observation::Capture::observer);
                 let request_attempt = attempt(
@@ -124,12 +121,11 @@ impl Llm for Model {
                     _ = stop.cancelled() => Err(cancelled()),
                     result = observed => result,
                 };
-                if let Some(capture) = &capture {
-                    if let Err(error) =
+                if let Some(capture) = &capture
+                    && let Err(error) =
                         observation::Capture::persist(capture, &ingress, session).await
-                    {
-                        break Err(error);
-                    }
+                {
+                    break Err(error);
                 }
                 let error = match result {
                     Ok(terminal) => {

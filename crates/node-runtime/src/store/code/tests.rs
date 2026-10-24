@@ -68,7 +68,7 @@ impl Fixture {
             let mut rows = query.query(()).await?;
             let mut values = Vec::new();
             while let Some(row) = rows.next().await? {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
                 values.push(mapped);
             }
             Ok::<_, turso::Error>(values.into_iter())

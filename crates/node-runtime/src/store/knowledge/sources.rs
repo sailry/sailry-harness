@@ -108,7 +108,13 @@ pub(super) async fn validate(
         globset::Glob::new(pattern).map_err(|_| Fault::invalid("invalid knowledge source glob"))?;
     }
     let info = (match request.plugin.as_ref() {
-        Some(value) => Some((async |context| package(db, context).await)(value).await),
+        Some(value) => Some(
+            async {
+                let context = value;
+                package(db, context).await
+            }
+            .await,
+        ),
         None => None,
     })
     .transpose()?;
@@ -129,11 +135,11 @@ pub(super) async fn validate(
                     .map_err(storage_error)?;
                 match statement.query_row([worktree.to_string()]).await {
                     Ok(row) => {
-                        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        let mapped: turso::Result<_> = row.get(0);
                         Some(mapped.map_err(storage_error)?)
                     }
                     Err(turso::Error::QueryReturnedNoRows) => None,
-                    Err(error) => return Err(storage_error(error).into()),
+                    Err(error) => return Err(storage_error(error)),
                 }
             };
             let root = root.ok_or_else(|| {
@@ -218,11 +224,11 @@ pub(super) async fn validate(
                         .map_err(storage_error)?;
                     match statement.query_row([session.to_string()]).await {
                         Ok(row) => {
-                            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                            let mapped: turso::Result<_> = row.get(0);
                             Some(mapped.map_err(storage_error)?)
                         }
                         Err(turso::Error::QueryReturnedNoRows) => None,
-                        Err(error) => return Err(storage_error(error).into()),
+                        Err(error) => return Err(storage_error(error)),
                     }
                 };
                 let worktree = worktree

@@ -107,7 +107,7 @@ async fn preserves_names_and_rejects_changed_destinations() {
     let password: String = (async {
         let mut statement = db.prepare("SELECT password FROM database_profiles").await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -191,7 +191,7 @@ async fn resolves_tunnel_authority_instead_of_ssh_id() {
     let password: String = (async {
         let mut statement = db.prepare("SELECT password FROM database_profiles").await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -235,7 +235,7 @@ async fn defaults_only_self_describing_legacy_targets() {
             .prepare("SELECT password_target FROM database_profiles WHERE id=?1")
             .await?;
         let row = statement.query_row([tunnel.id.to_string()]).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -246,7 +246,7 @@ async fn defaults_only_self_describing_legacy_targets() {
             .prepare("SELECT count(*) FROM database_profiles WHERE password='preserved'")
             .await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -283,7 +283,7 @@ async fn upgrades_on_private_snapshot_and_preserves_passwords() {
             .prepare("SELECT password FROM database_profiles")
             .await?;
         let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped
     })
     .await
@@ -307,7 +307,7 @@ async fn upgrades_on_private_snapshot_and_preserves_passwords() {
         .unwrap();
     let missing:bool=(async { let mut statement = backup.prepare("SELECT NOT EXISTS(SELECT 1 FROM pragma_table_info('database_profiles') WHERE name='password_target')").await?;
 let row = statement.query_row(()).await?;
-let mapped: turso::Result<_> = (|row: &turso::Row|row.get(0))(&row);
+let mapped: turso::Result<_> = row.get(0);
 mapped }).await.unwrap();
     assert!(missing);
     assert_eq!(
@@ -316,7 +316,7 @@ mapped }).await.unwrap();
                 .prepare("SELECT password FROM database_profiles")
                 .await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<String>(0);
             mapped
         })
         .await

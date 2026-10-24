@@ -37,7 +37,7 @@ pub(super) async fn authorize(db: &Connection, request: &Request) -> Result<bool
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     let (body, binding, prepared) =

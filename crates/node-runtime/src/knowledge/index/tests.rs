@@ -57,7 +57,7 @@ async fn retains_cached_text_when_paused() {
     let page = index
         .search(
             &query(),
-            &[paused.clone()],
+            std::slice::from_ref(&paused),
             &[("bge-small-zh".to_owned(), vec![1., 0.])],
             false,
             &CancellationToken::new(),
@@ -98,7 +98,7 @@ async fn retains_cached_text_when_paused() {
             index
                 .search(
                     &query(),
-                    &[blocked.clone()],
+                    std::slice::from_ref(&blocked),
                     &[],
                     false,
                     &CancellationToken::new()
@@ -130,7 +130,7 @@ async fn retains_cached_text_when_paused() {
         index
             .search(
                 &query(),
-                &[stale.clone()],
+                std::slice::from_ref(&stale),
                 &[],
                 false,
                 &CancellationToken::new()
@@ -153,7 +153,7 @@ async fn retains_cached_text_when_paused() {
         index
             .search(
                 &query(),
-                &[resumed.clone()],
+                std::slice::from_ref(&resumed),
                 &[],
                 false,
                 &CancellationToken::new()
@@ -171,7 +171,7 @@ async fn retains_cached_text_when_paused() {
     let page = index
         .search(
             &query(),
-            &[resumed.clone()],
+            std::slice::from_ref(&resumed),
             &[("bge-small-zh".to_owned(), vec![1., 0.])],
             false,
             &CancellationToken::new(),
@@ -208,7 +208,7 @@ async fn clears_changed_sources_and_explicit_rebuilds() {
             index
                 .search(
                     &query(),
-                    &[changed.clone()],
+                    std::slice::from_ref(&changed),
                     &[],
                     false,
                     &CancellationToken::new()
@@ -265,7 +265,7 @@ async fn invalidates_links_when_chunk_boundaries_change() {
     let citation = index
         .search(
             &query(),
-            &[original.clone()],
+            std::slice::from_ref(&original),
             &[],
             false,
             &CancellationToken::new(),
@@ -287,7 +287,7 @@ async fn invalidates_links_when_chunk_boundaries_change() {
     let current = index
         .search(
             &query(),
-            &[changed.clone()],
+            std::slice::from_ref(&changed),
             &[],
             false,
             &CancellationToken::new(),
@@ -457,7 +457,7 @@ async fn filters_both_ranks_before_fusion() {
         let page = index
             .search(
                 &query,
-                &[selected.clone()],
+                std::slice::from_ref(&selected),
                 &[("bge-small-zh".to_owned(), vec![1., 0.])],
                 false,
                 &CancellationToken::new(),
@@ -480,7 +480,7 @@ async fn filters_both_ranks_before_fusion() {
     let page = index
         .search(
             &query,
-            &[selected.clone()],
+            std::slice::from_ref(&selected),
             &[("bge-small-zh".to_owned(), vec![1., 0.])],
             false,
             &CancellationToken::new(),
@@ -511,7 +511,7 @@ async fn falls_back_without_mixing_models() {
     let page = index
         .search(
             &query(),
-            &[changed.clone()],
+            std::slice::from_ref(&changed),
             &[("granite-multi".to_owned(), vec![1., 0., 0.])],
             true,
             &CancellationToken::new(),
@@ -543,7 +543,7 @@ async fn falls_back_without_mixing_models() {
         index
             .search(
                 &query(),
-                &[changed.clone()],
+                std::slice::from_ref(&changed),
                 &[],
                 false,
                 &CancellationToken::new()
@@ -588,7 +588,7 @@ async fn replaces_source_and_rolls_back_invalid_vectors() {
         index
             .search(
                 &query(),
-                &[binding.clone()],
+                std::slice::from_ref(&binding),
                 &[],
                 false,
                 &CancellationToken::new()
@@ -606,7 +606,7 @@ async fn replaces_source_and_rolls_back_invalid_vectors() {
     let page = index
         .search(
             &query(),
-            &[binding.clone()],
+            std::slice::from_ref(&binding),
             &[],
             false,
             &CancellationToken::new(),
@@ -621,7 +621,7 @@ async fn replaces_source_and_rolls_back_invalid_vectors() {
         index
             .search(
                 &query(),
-                &[binding.clone()],
+                std::slice::from_ref(&binding),
                 &[],
                 false,
                 &CancellationToken::new()
@@ -694,10 +694,10 @@ async fn removes_unregistered_collections_after_reopening() {
         (&kept, "向量 kept source"),
         (&removed, "向量 deleted source"),
     ] {
-        index.bind(&binding).await.unwrap();
+        index.bind(binding).await.unwrap();
         index
             .replace(
-                &binding,
+                binding,
                 &document("notes.md"),
                 &[part(text, Some(&[1., 0.]))],
             )
@@ -768,19 +768,19 @@ async fn pages_stable_candidates_and_observes_cancel() {
     query.limit = 1;
     let cancel = CancellationToken::new();
     let first = index
-        .search(&query, &[binding.clone()], &[], false, &cancel)
+        .search(&query, std::slice::from_ref(&binding), &[], false, &cancel)
         .await
         .unwrap();
     query.offset = first.next_offset.unwrap();
     let second = index
-        .search(&query, &[binding.clone()], &[], false, &cancel)
+        .search(&query, std::slice::from_ref(&binding), &[], false, &cancel)
         .await
         .unwrap();
     assert_ne!(first.hits[0].citation.chunk, second.hits[0].citation.chunk);
     query.offset = second.next_offset.unwrap();
     assert!(
         index
-            .search(&query, &[binding.clone()], &[], false, &cancel)
+            .search(&query, std::slice::from_ref(&binding), &[], false, &cancel)
             .await
             .unwrap()
             .next_offset
@@ -789,7 +789,7 @@ async fn pages_stable_candidates_and_observes_cancel() {
     query.limit = u16::MAX;
     query.offset = 0;
     let expanded = index
-        .search(&query, &[binding.clone()], &[], false, &cancel)
+        .search(&query, std::slice::from_ref(&binding), &[], false, &cancel)
         .await
         .unwrap();
     assert_eq!(expanded.hits.len(), 3);
@@ -797,7 +797,7 @@ async fn pages_stable_candidates_and_observes_cancel() {
     query.offset = 10_001;
     assert!(
         index
-            .search(&query, &[binding.clone()], &[], false, &cancel)
+            .search(&query, std::slice::from_ref(&binding), &[], false, &cancel)
             .await
             .unwrap()
             .hits
@@ -807,7 +807,7 @@ async fn pages_stable_candidates_and_observes_cancel() {
     query.offset = 0;
     assert_eq!(
         index
-            .search(&query, &[binding.clone()], &[], false, &cancel)
+            .search(&query, std::slice::from_ref(&binding), &[], false, &cancel)
             .await
             .unwrap_err()
             .code,
@@ -850,7 +850,7 @@ async fn filters_before_the_keyword_candidate_limit() {
     let page = index
         .search(
             &input,
-            &[allowed.clone()],
+            std::slice::from_ref(&allowed),
             &[],
             false,
             &CancellationToken::new(),

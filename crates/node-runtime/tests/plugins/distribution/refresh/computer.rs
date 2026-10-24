@@ -142,7 +142,7 @@ async fn preserves_choices_and_captures() {
                     .query_row(())
                     .await
                     .unwrap();
-                let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                let value: turso::Result<_> = row.get(0);
                 let value = value.unwrap();
                 crate::plugins::database_fixture::close(handle, db).await;
                 value
@@ -177,7 +177,7 @@ async fn preserves_choices_and_captures() {
                             .query_row(parameters)
                             .await
                             .map_err(crate::plugins::database_fixture::fault)?;
-                        let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        let result: turso::Result<_> = row.get(0);
                         result.map_err(crate::plugins::database_fixture::fault)
                     })
                 })

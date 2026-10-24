@@ -123,7 +123,7 @@ pub(super) async fn admit(db: &Connection, turn: &QueuedTurn, ready: bool) -> Re
             .query_row([turn.session.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if count >= CAPACITY {
@@ -204,7 +204,7 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Queue, F
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     }
     .unwrap_or((0, false));
@@ -429,7 +429,7 @@ pub(in crate::store) async fn stopping(
         let mut rows = query.query([selected.to_string()]).await?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await? {
-            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let mapped: turso::Result<_> = row.get::<String>(0);
             values.push(mapped);
         }
         Ok::<_, turso::Error>(values.into_iter())

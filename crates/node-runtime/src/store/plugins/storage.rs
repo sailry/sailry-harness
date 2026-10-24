@@ -246,7 +246,7 @@ async fn current(db: &Connection, name: &str, key: &str) -> Result<Option<Stored
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     row.map(|(revision, value)| {
@@ -290,7 +290,7 @@ async fn list(
     {
         let mut rows = query.query([name]).await.map_err(storage_error)?;
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let key: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let key: turso::Result<_> = row.get::<String>(0);
 
             let key = key.map_err(storage_error)?;
             if key.starts_with(prefix) && after.is_none_or(|after| key.as_str() > after) {
@@ -358,7 +358,7 @@ async fn write(
             .query_row(params![name, key])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     let old = old_body

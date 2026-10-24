@@ -105,12 +105,12 @@ async fn count(node: &Node, table: &str) -> i64 {
         Box::pin(async move {
             db.prepare(format!("SELECT count(*) FROM {table}"))
                 .await
-                .map_err(files::database::fault)?
+                .map_err(crate::database_fixture::fault)?
                 .query_row(())
                 .await
-                .map_err(files::database::fault)?
+                .map_err(crate::database_fixture::fault)?
                 .get::<i64>(0)
-                .map_err(files::database::fault)
+                .map_err(crate::database_fixture::fault)
         })
     })
     .await

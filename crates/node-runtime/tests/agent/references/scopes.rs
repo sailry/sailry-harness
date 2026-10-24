@@ -145,21 +145,22 @@ async fn reads_unassigned_history_in_resource_sessions() {
         assert_eq!(results[4]["error"]["code"], "not_found");
         assert_eq!(results[5]["error"]["code"], "not_found");
         assert_eq!(results[6]["error"]["code"], "revision_conflict");
-        let requests = reader.requests.lock().unwrap();
-        for name in ["list_sessions", "read_session", "search_session"] {
-            let declaration = requests[0]["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|tool| tool["function"]["name"] == name)
-                .unwrap();
-            assert!(
-                declaration["function"]["parameters"]["properties"]["session"]
-                    .get("enum")
-                    .is_none()
-            );
+        {
+            let requests = reader.requests.lock().unwrap();
+            for name in ["list_sessions", "read_session", "search_session"] {
+                let declaration = requests[0]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|tool| tool["function"]["name"] == name)
+                    .unwrap();
+                assert!(
+                    declaration["function"]["parameters"]["properties"]["session"]
+                        .get("enum")
+                        .is_none()
+                );
+            }
         }
-        drop(requests);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
