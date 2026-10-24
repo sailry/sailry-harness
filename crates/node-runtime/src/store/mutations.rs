@@ -1,6 +1,7 @@
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     path::PathBuf,
+    sync::Arc,
     thread::JoinHandle,
 };
 
@@ -25,6 +26,24 @@ pub(super) struct Roots {
 }
 
 impl Roots {
+    fn changed(&self, output: &Output, watches: &crate::files::watch::Watches) {
+        match output {
+            Output::EntryMoved { .. } => {
+                watches.changed(&self.source);
+                if self.target != self.source {
+                    watches.changed(&self.target);
+                }
+            }
+            Output::FileWritten(_)
+            | Output::FileRestored(_)
+            | Output::DirectoryCreated { .. }
+            | Output::EntryRenamed { .. }
+            | Output::EntryCopied { .. }
+            | Output::EntryTrashed { .. } => watches.changed(&self.target),
+            _ => {}
+        }
+    }
+
     pub fn entries(&self, command: &Command) -> Vec<(PathBuf, String)> {
         match command {
             Command::RenameEntry { from, to, .. }
@@ -71,6 +90,7 @@ pub(super) struct Worker {
 impl Worker {
     pub fn start(
         completed: mpsc::Sender<Job>,
+        watches: Arc<crate::files::watch::Watches>,
         execute: impl Fn(NodeId, &Roots, &Request) -> Response + Send + 'static,
     ) -> Result<Self, Error> {
         let (sender, mut receiver) = mpsc::channel::<Mutation>(CAPACITY);
@@ -87,6 +107,10 @@ impl Worker {
                             "resource operation panicked; inspect the target before retrying",
                         ))
                     });
+                    if let Ok(output) = &result {
+                        // A completed physical change remains visible if receipt persistence fails.
+                        mutation.roots.changed(output, &watches);
+                    }
                     // The store drains completions before closing its database and joining us.
                     if completed
                         .blocking_send(Job::Completed(Box::new(Completed {

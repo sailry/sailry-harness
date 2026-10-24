@@ -657,8 +657,10 @@ impl Store {
                 }
             }
             attachments::collect(&database.connection, attachment_profile.as_deref()).await;
-            let mut mutations =
-                match mutations::Worker::start(completed, move |caller, roots, request| {
+            let mut mutations = match mutations::Worker::start(
+                completed,
+                watches.clone(),
+                move |caller, roots, request| {
                     let root = &roots.target;
                     match &request.command {
                         sailry_protocol::Command::RemoveProject { expected } => {
@@ -699,16 +701,11 @@ impl Store {
                                 .map(sailry_protocol::Output::Attachment);
                         }
                         sailry_protocol::Command::RestoreFileCheckpoint { .. } => {
-                            let result = agent::checkpoints::restore::execute(
+                            return agent::checkpoints::restore::execute(
                                 &validation,
                                 root,
                                 &request.command,
                             );
-                            if result.is_ok() {
-                                // The file changed even if receipt persistence later fails.
-                                watches.changed(root);
-                            }
-                            return result;
                         }
                         sailry_protocol::Command::ApplyTurnHunk(selection) => {
                             return agent::checkpoints::hunks::execute(
@@ -855,13 +852,14 @@ impl Store {
                             result
                         })
                     }
-                }) {
-                    Ok(worker) => worker,
-                    Err(error) => {
-                        let _ = ready.send(Err(error));
-                        return database.close().await;
-                    }
-                };
+                },
+            ) {
+                Ok(worker) => worker,
+                Err(error) => {
+                    let _ = ready.send(Err(error));
+                    return database.close().await;
+                }
+            };
             let storage = Arc::new(database.into_storage());
             assert!(
                 storage_ready.set(storage.clone()).is_ok(),
