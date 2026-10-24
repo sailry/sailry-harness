@@ -90,6 +90,24 @@ class Inputs(unittest.TestCase):
 
 
 class Staging(unittest.TestCase):
+    def test_removes_swift_toolchain_search_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = Path(temporary) / "OpenComputerUse"
+            binary.write_bytes(b"native fixture")
+            toolchains = [
+                "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx",
+                "/Library/Developer/Toolchains/swift.xctoolchain/usr/lib/swift/macosx",
+            ]
+            retained = ["/usr/lib/swift", "@loader_path", "@executable_path/../Frameworks",
+                        "/opt/homebrew/lib", "/custom/swift-6.2/macosx"]
+            commands = "".join(f"cmd LC_RPATH\n cmdsize 128\n path {path} (offset 12)\n"
+                               for path in toolchains + retained + toolchains)
+            with patch.object(helper.subprocess, "check_output", return_value=commands), \
+                    patch.object(helper, "run") as run:
+                helper.relocate(binary)
+            self.assertEqual([call.args for call in run.call_args_list],
+                             [("install_name_tool", "-delete_rpath", path, binary) for path in toolchains])
+
     @unittest.skipUnless(os.name == "posix", "Requires POSIX open-file replacement")
     def test_replaces_open_executables_before_signing(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -108,16 +126,24 @@ class Staging(unittest.TestCase):
             with binary.open("rb") as running:
                 inode = os.fstat(running.fileno()).st_ino
 
+                def relocate(target):
+                    self.assertNotEqual(target.stat().st_ino, inode)
+                    self.assertEqual(target.read_bytes(), b"updated helper")
+                    target.write_bytes(b"portable helper")
+
                 def sign(staged, identity):
                     target = staged / helper.APP / "Contents/MacOS/OpenComputerUse"
                     self.assertNotEqual(target.stat().st_ino, inode)
                     self.assertEqual(target.stat().st_mode & 0o777, 0o751)
-                    self.assertEqual(target.read_bytes(), b"updated helper")
+                    self.assertEqual(target.read_bytes(), b"portable helper")
                     target.write_bytes(b"signed helper")
 
-                with patch.object(helper, "build", return_value=source), patch.object(helper, "sign", side_effect=sign):
+                with patch.object(helper, "build", return_value=source), \
+                        patch.object(helper, "relocate", side_effect=relocate), \
+                        patch.object(helper, "sign", side_effect=sign):
                     path = helper.stage("aarch64-apple-darwin", output, source, identity="-")
                 self.assertEqual(running.read(), b"running helper")
+                self.assertEqual(original.read_bytes(), b"updated helper")
                 self.assertEqual(path.read_bytes(), b"signed helper")
                 self.assertEqual(path.stat().st_mode & 0o777, 0o751)
                 self.assertNotEqual(path.stat().st_ino, inode)
@@ -140,7 +166,8 @@ class Staging(unittest.TestCase):
                 self.assertTrue(receipt.is_file())
                 (staged / helper.APP / "Contents/MacOS/OpenComputerUse").write_bytes(b"signed helper")
 
-            with patch.object(helper, "build", return_value=source), patch.object(helper, "sign", side_effect=sign):
+            with patch.object(helper, "build", return_value=source), patch.object(helper, "relocate"), \
+                    patch.object(helper, "sign", side_effect=sign):
                 path = helper.stage("aarch64-apple-darwin", output, source, identity="-")
             self.assertEqual(path.read_bytes(), b"signed helper")
             self.assertEqual(json.loads(receipt.read_text())["files"], helper.inventory(output))
@@ -158,7 +185,8 @@ class Staging(unittest.TestCase):
             (source / "open-computer-use.exe").write_bytes(b"helper fixture")
             for name, target in (("host/helpers", "aarch64-apple-darwin"),
                                  ("windows/helpers", "x86_64-pc-windows-msvc")):
-                with self.subTest(target=target), patch.object(helper, "build", return_value=source):
+                with self.subTest(target=target), patch.object(helper, "build", return_value=source), \
+                        patch.object(helper, "relocate"):
                     output = directory / name
                     helper.stage(target, output, source)
                     self.assertEqual(helper.receipt_path(output), output / helper.RECEIPT)

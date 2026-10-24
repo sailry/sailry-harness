@@ -191,6 +191,16 @@ def finalize(output):
         NATIVE.atomic(receipt, (json.dumps(value, indent=2) + "\n").encode())
 
 
+def relocate(binary):
+    NATIVE.ordinary(binary)
+    commands = subprocess.check_output(["otool", "-l", str(binary)], text=True)
+    paths = re.findall(r"cmd LC_RPATH\s+cmdsize \d+\s+path (.+?) \(offset \d+\)", commands)
+    for path in dict.fromkeys(paths):
+        if re.fullmatch(r"/.+\.xctoolchain/usr/lib/swift(?:-\d+(?:\.\d+)*)?/macosx", path):
+            # Swift also records its build toolchain, while runtime dylibs use /usr/lib/swift.
+            run("install_name_tool", "-delete_rpath", path, binary)
+
+
 def sign(output, identity, timestamp=False):
     app = output / APP
     binary = app / "Contents/MacOS/OpenComputerUse"
@@ -224,6 +234,7 @@ def copy(source, destination):
 
 def stage(target, output, cache, development=False, identity=None):
     source = build(target, cache, development)
+    asset = specification(target)[1]
     output.mkdir(parents=True, exist_ok=True)
     if output.is_symlink():
         raise ValueError("Computer-use helper destination is a symlink")
@@ -239,12 +250,15 @@ def stage(target, output, cache, development=False, identity=None):
             shutil.copytree(path, destination, dirs_exist_ok=True, copy_function=copy)
         else:
             copy(path, destination)
+    binary = executable(output, asset)
+    if asset["platform"] == "macos":
+        relocate(binary)
     if identity is not None:
-        if specification(target)[1]["platform"] != "macos":
+        if asset["platform"] != "macos":
             raise ValueError("Computer-use helper signing requires macOS")
         sign(output, identity)
     finalize(output)
-    return executable(output, specification(target)[1])
+    return binary
 
 
 def main():
