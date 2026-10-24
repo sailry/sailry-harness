@@ -85,32 +85,6 @@ pub(super) fn details(
     );
 }
 
-pub(in crate::settings) fn catalog(
-    package: Option<theme::Package>,
-    selection: Option<theme::market::Selection>,
-    updates: Entity<updates::State>,
-    stop: CancellationToken,
-    window: &mut Window,
-    cx: &mut App,
-) -> Option<Entity<Import>> {
-    if stop.is_cancelled() {
-        return None;
-    }
-    if package.is_none() && selection.is_none() {
-        crate::feedback::error("", &tr("appearance_unavailable"), window, cx);
-        return None;
-    }
-    Some(open(
-        package,
-        None,
-        Some(updates),
-        selection,
-        stop,
-        window,
-        cx,
-    ))
-}
-
 fn open(
     package: Option<theme::Package>,
     loaded: Option<Loaded>,
@@ -294,11 +268,6 @@ impl Drop for Import {
 }
 
 impl Import {
-    pub(in crate::settings) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.dismiss(cx);
-        self.dialog.close(window, cx);
-    }
-
     fn dismiss(&mut self, cx: &mut Context<Self>) {
         if self.closed {
             return;
