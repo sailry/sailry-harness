@@ -28,6 +28,20 @@ struct Active {
 }
 
 impl Watches {
+    /// Invalidate existing observers after a managed filesystem effect.
+    pub(crate) fn changed(&self, root: &Path) {
+        let active = {
+            let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+            if state.closed {
+                return;
+            }
+            state.roots.get(root).and_then(Weak::upgrade)
+        };
+        if let Some(active) = active {
+            invalidate(&active.changes, Ok(()));
+        }
+    }
+
     pub(crate) fn remove(&self, root: &Path) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(active) = state.roots.remove(root).and_then(|watch| watch.upgrade()) {
@@ -69,11 +83,7 @@ impl Watches {
                     }
                     // A backend rescan, queue coalescing, or ordinary event all invalidate
                     // the loaded view. Errors remain terminal instead of being overwritten.
-                    sink.send_if_modified(|state| {
-                        if state.is_err() { return false; }
-                        *state = event.map(|_| ()).map_err(|_| unavailable());
-                        true
-                    });
+                    invalidate(&sink, event.map(|_| ()).map_err(|_| unavailable()));
                 },
                 Config::default().with_follow_symlinks(false),
             ).map_err(|_| unavailable())?;
@@ -111,6 +121,16 @@ impl Watches {
         }
         state.roots.clear();
     }
+}
+
+fn invalidate(changes: &watch::Sender<Result<(), Fault>>, result: Result<(), Fault>) {
+    changes.send_if_modified(|state| {
+        if state.is_err() {
+            return false;
+        }
+        *state = result;
+        true
+    });
 }
 
 struct Events {
@@ -200,6 +220,14 @@ mod tests {
             backend: Mutex::new(None),
             changes,
         });
+        let root = PathBuf::from("project");
+        let watches = Watches::default();
+        watches
+            .0
+            .lock()
+            .unwrap()
+            .roots
+            .insert(root.clone(), Arc::downgrade(&active));
         let mut events = Events {
             changes: receiver,
             _active: active.clone(),
@@ -210,8 +238,10 @@ mod tests {
             closed: CancellationToken::new(),
         };
         events.next().await.unwrap();
+        watches.changed(Path::new("other"));
+        assert!(!events.changes.has_changed().unwrap());
         for _ in 0..10_000 {
-            let _ = active.changes.send_replace(Ok(()));
+            watches.changed(&root);
         }
         assert!(
             tokio::time::timeout(Duration::from_millis(20), events.next())
@@ -232,6 +262,7 @@ mod tests {
                 .is_err()
         );
         let _ = active.changes.send_replace(Err(unavailable()));
+        watches.changed(&root);
         assert_eq!(
             events.next().await.unwrap_err().code,
             ErrorCode::Unavailable
@@ -257,6 +288,7 @@ mod tests {
         drop(second);
         assert_eq!(Arc::strong_count(&active), 2);
         watches.shutdown();
+        watches.changed(&root);
         assert!(active.backend.lock().unwrap().is_none());
         assert_eq!(first.next().await.unwrap_err().code, ErrorCode::Unavailable);
         assert!(
@@ -281,6 +313,7 @@ mod tests {
             .unwrap();
         let active = watches.0.lock().unwrap().roots[&root].clone();
         drop(events);
+        watches.changed(&root);
         assert!(active.upgrade().is_none());
     }
 
@@ -297,6 +330,7 @@ mod tests {
         let active = watches.0.lock().unwrap().roots[&root].upgrade().unwrap();
         events.next().await.unwrap();
         watches.remove(&root);
+        watches.changed(&root);
         assert!(active.backend.lock().unwrap().is_none());
         assert_eq!(
             events.next().await.unwrap_err().code,

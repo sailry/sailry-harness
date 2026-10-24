@@ -699,11 +699,16 @@ impl Store {
                                 .map(sailry_protocol::Output::Attachment);
                         }
                         sailry_protocol::Command::RestoreFileCheckpoint { .. } => {
-                            return agent::checkpoints::restore::execute(
+                            let result = agent::checkpoints::restore::execute(
                                 &validation,
                                 root,
                                 &request.command,
                             );
+                            if result.is_ok() {
+                                // The file changed even if receipt persistence later fails.
+                                watches.changed(root);
+                            }
+                            return result;
                         }
                         sailry_protocol::Command::ApplyTurnHunk(selection) => {
                             return agent::checkpoints::hunks::execute(
