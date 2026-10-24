@@ -27,15 +27,14 @@ impl Ingress {
         exact: Option<TurnId>,
     ) -> Result<State, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ChildState {
-                parent,
-                child,
-                exact,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ChildState {
+            parent,
+            child,
+            exact,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::super::unavailable())?;
         response
             .await
             .map_err(|_| super::super::super::unavailable())?
@@ -43,13 +42,12 @@ impl Ingress {
 
     pub(crate) async fn pending_guidance(&self, recipient: TurnId) -> Result<bool, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::PendingGuidance {
-                recipient,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::PendingGuidance {
+            recipient,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::super::unavailable())?;
         response
             .await
             .map_err(|_| super::super::super::unavailable())?

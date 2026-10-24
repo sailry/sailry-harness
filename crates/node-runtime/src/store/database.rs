@@ -8,11 +8,12 @@ use turso::{Connection, params};
 use super::{commands, external::Work, mutations};
 use crate::Error;
 
+pub(in crate::store) mod conflict;
 mod context;
 mod driver;
 mod relocation;
 mod removal;
-pub(in crate::store) use context::{Facts, Storage};
+pub(in crate::store) use context::{Facts, Storage, WRITE_CONCURRENCY};
 pub(crate) use driver::{Exclusive, Handle, Lease, connect, open as engine};
 pub(in crate::store) mod counters;
 pub(super) mod schema;
@@ -192,9 +193,10 @@ impl Database {
             drop(connection);
             let handle = std::sync::Arc::new(Handle::new(path.to_owned(), database));
             let connection = handle.lease(false).await?;
+            let writes = handle.writes.clone();
             Ok(Self::context(
                 handle,
-                std::sync::Arc::new(Facts::new(node, profile)),
+                std::sync::Arc::new(Facts::new(node, profile, writes)),
                 connection,
             ))
         })
@@ -202,6 +204,76 @@ impl Database {
 
     pub(super) async fn close(self) -> Result<(), Error> {
         self.into_storage().close().await
+    }
+
+    pub(super) fn read<'a>(
+        &'a self,
+        caller: NodeId,
+        request: &'a Request,
+    ) -> sailry_link::Pending<'a, Response> {
+        Box::pin(async move {
+            let history = match &request.command {
+                Command::ReadConversation { session, .. } | Command::ReadTurn { session, .. } => {
+                    Some(*session)
+                }
+                _ => None,
+            };
+            let order = match history {
+                Some(_) => Some(self.publication.clone().lock().await),
+                None => None,
+            };
+            let transaction = self
+                .connection
+                .unchecked_transaction()
+                .await
+                .map_err(storage_error)?;
+            let sequence = if let Some(session) = history {
+                // Pin the SQL snapshot before capturing the matching feed watermark.
+                transaction
+                    .prepare("SELECT coalesce(max(cursor),0) FROM events")
+                    .await
+                    .map_err(storage_error)?
+                    .query_row(())
+                    .await
+                    .map_err(storage_error)?;
+                Some(self.feeds.sequence(session))
+            } else {
+                None
+            };
+            drop(order);
+            let result = async {
+                self.check_plugin(caller, request).await?;
+                self.check_removal_scope(&request.command).await?;
+                let (mut output, event) = commands::execute(
+                    &transaction,
+                    self.node,
+                    caller,
+                    self.profile.as_deref(),
+                    request,
+                )
+                .await?;
+                if event.is_some() {
+                    return Err(storage_error("a read produced a mutation event"));
+                }
+                match (&mut output, sequence) {
+                    (Output::Conversation(history), Some(sequence)) => history.sequence = sequence,
+                    (Output::TurnHistory(history), Some(sequence)) => history.sequence = sequence,
+                    _ => {}
+                }
+                Ok(output)
+            }
+            .await;
+            match result {
+                Ok(output) => {
+                    crate::store::database::conflict::commit(transaction).await?;
+                    Ok(output)
+                }
+                Err(error) => {
+                    transaction.rollback().await.map_err(storage_error)?;
+                    Err(error)
+                }
+            }
+        })
     }
 
     #[cfg(test)]
@@ -242,6 +314,24 @@ impl Database {
                 id: request.id,
                 durable: request.command.durable(),
             };
+            let plugin_command = super::plugins::command::resolve(self, &request).await;
+            if matches!(plugin_command, Ok(None)) && !super::routing::external(&request.command) {
+                let output = match self.execute(caller, &request, events).await {
+                    Ok(output) => output,
+                    Err(error) => {
+                        let _ = reply.send(Err(error));
+                        return None;
+                    }
+                };
+                let (completion, result) = oneshot::channel();
+                let _ = completion.send(output);
+                // Database-only admission and its outcome have committed together.
+                let _ = reply.send(Ok(Admission {
+                    receipt,
+                    completion: result,
+                }));
+                return None;
+            }
             let previous = match self.admit(caller, &request).await {
                 Ok(previous) => previous,
                 Err(error) => {
@@ -250,7 +340,6 @@ impl Database {
                 }
             };
             let (completion, result) = oneshot::channel();
-            let plugin_command = super::plugins::command::resolve(self, &request).await;
             // admit() has committed before this receipt can reach either transport.
             let _ = reply.send(Ok(Admission {
                 receipt,
@@ -438,6 +527,7 @@ impl Database {
                 match match super::processes::prepare(self, &request).await {
                     Ok(value) => {
                         (async |launch: super::processes::Prepared| {
+                            let publication = self.publication.clone();
                             let transaction = self
                                 .connection
                                 .unchecked_transaction()
@@ -446,7 +536,8 @@ impl Database {
                             let task =
                                 super::agent::background::command_started(&transaction, &request)
                                     .await?;
-                            transaction.commit().await.map_err(storage_error)?;
+                            let _publication = publication.lock().await;
+                            crate::store::database::conflict::commit(transaction).await?;
                             if let Some(task) = task {
                                 super::agent::background::publish(self, [task]).await;
                             }
@@ -706,7 +797,9 @@ impl Database {
                     }
                 }
             } else {
-                self.execute(caller, &request, events).await
+                self.execute(caller, &request, events)
+                    .await
+                    .unwrap_or_else(Err)
             };
             let _ = completion.send(output);
             None
@@ -718,106 +811,27 @@ impl Database {
         caller: NodeId,
         request: &Request,
     ) -> Result<Option<Response>, Fault> {
-        let encoded = zeroize::Zeroizing::new(encode(request)?);
-        if encoded.len() > MAX_FRAME_BYTES {
-            return Err(Fault::invalid("request exceeds the frame limit"));
-        }
         if !request.command.durable() {
             return Ok(None);
         }
-        let body = if matches!(
-            request.command,
-            Command::PutCredential { .. }
-                | Command::SaveSsh { .. }
-                | Command::SaveDatabase { .. }
-                | Command::CompleteProviderLogin { .. }
-                | Command::SavePluginSettings { .. }
-                | Command::StartConnectorLogin { .. }
-                | Command::UpdateConnection { .. }
-                | Command::SubmitConnectorInput { .. }
-                | Command::SavePluginMcp { .. }
-                | Command::InstallMcp { .. }
-                | Command::SaveProvider { .. }
-                | Command::ImportSession(_)
-        ) {
-            // Keep replay identity without making the admission ledger another secret store.
-            format!("credential-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
-        } else if matches!(
-            request.command,
-            Command::WriteFile { .. }
-                | Command::EditFile { .. }
-                | Command::EditNotebook { .. }
-                | Command::WriteArtifact(_)
-        ) {
-            // The ledger owns replay identity, not another copy of project content.
-            format!("file-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
-        } else if matches!(
-            request.command,
-            Command::RunCommand { .. }
-                | Command::RunSsh { .. }
-                | Command::QueryDatabase { .. }
-                | Command::UseExternalBrowser { .. }
-                | Command::UseBrowser { .. }
-                | Command::UseMedia { .. }
-        ) {
-            format!("command-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
-        } else {
-            encoded.to_vec()
-        };
-        let transaction = self
-            .connection
-            .unchecked_transaction()
-            .await
-            .map_err(storage_error)?;
-        let previous: Option<(Vec<u8>, String, Option<String>)> = (match (async {
-            let mut statement = transaction
-                .prepare("SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2")
-                .await?;
-            let row = statement
-                .query_row(params![&caller.0[..], request.id.to_string()])
-                .await?;
-            let mapped: turso::Result<_> =
-                (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
-            mapped
-        })
-        .await
-        {
-            Ok(value) => Ok(Some(value)),
-            Err(turso::Error::QueryReturnedNoRows) => Ok(None),
-            Err(error) => Err(error),
-        })
-        .map_err(storage_error)?;
-        if let Some((previous, status, result)) = previous {
-            let previous = (|| {
-                if previous != body {
-                    return Err(Fault::new(
-                        ErrorCode::Conflict,
-                        "request identifier was already used for different content",
-                    ));
-                }
-                if status == "completed" {
-                    return Ok(Some(super::outcomes::decode(
-                        &result.ok_or_else(|| storage_error("missing result"))?,
-                    )?));
-                }
-                Ok(Some(Err(Fault::new(
-                    ErrorCode::OutcomeUnknown,
-                    "request outcome requires reconciliation; automatic replay is disabled",
-                ))))
-            })();
-            // A replay must end its read transaction before returning to its caller.
-            transaction.rollback().await.map_err(storage_error)?;
-            return previous;
+        let write = self.write().await?;
+        for attempt in 0..=conflict::RETRIES {
+            let result = async {
+                let transaction = conflict::begin(&self.connection).await?;
+                let previous = admit_in(&transaction, caller, request).await?;
+                conflict::commit(transaction).await?;
+                Ok(previous)
+            }
+            .await;
+            if let Err(error) = conflict::rollback(&self.connection).await {
+                self.connection.hold_write(write);
+                return Err(error);
+            }
+            if !conflict::again(&result, attempt).await {
+                return result;
+            }
         }
-        transaction
-            .execute(
-                "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
-                params![&caller.0[..], request.id.to_string(), body],
-            )
-            .await
-            .map_err(storage_error)?;
-        transaction.commit().await.map_err(storage_error)?;
-        Ok(None)
+        unreachable!("the final attempt returns its result")
     }
 
     fn execute<'a>(
@@ -825,17 +839,56 @@ impl Database {
         caller: NodeId,
         request: &'a Request,
         events: &'a broadcast::Sender<EventEnvelope>,
-    ) -> sailry_link::Pending<'a, Response> {
+    ) -> sailry_link::Pending<'a, Result<Response, Fault>> {
         Box::pin(async move {
-            let approval = matches!(request.command, Command::ResolveApproval { .. });
-            if approval {
+            if matches!(request.command, Command::ResolveApproval { .. }) {
                 super::agent::approvals::prune(self, events).await?;
             }
-            let transaction = self
-                .connection
-                .unchecked_transaction()
-                .await
-                .map_err(storage_error)?;
+            let external = super::routing::external(&request.command);
+            let write = if request.command.durable() {
+                Some(self.write().await?)
+            } else {
+                None
+            };
+            let attempts = if external { 0 } else { conflict::RETRIES };
+            for attempt in 0..=attempts {
+                let result = self.execute_once(caller, request, events).await;
+                if let Err(error) = conflict::rollback(&self.connection).await {
+                    if let Some(write) = write {
+                        self.connection.hold_write(write);
+                    }
+                    return Err(error);
+                }
+                if external {
+                    return result.map_err(|_| Fault::new(ErrorCode::OutcomeUnknown,
+                        "operation result could not be recorded; inspect the target before retrying"));
+                }
+                if !conflict::again(&result, attempt).await {
+                    return result;
+                }
+            }
+            unreachable!("the final attempt returns its result")
+        })
+    }
+
+    fn execute_once<'a>(
+        &'a mut self,
+        caller: NodeId,
+        request: &'a Request,
+        events: &'a broadcast::Sender<EventEnvelope>,
+    ) -> sailry_link::Pending<'a, Result<Response, Fault>> {
+        Box::pin(async move {
+            let approval = matches!(request.command, Command::ResolveApproval { .. });
+            let publication = self.publication.clone();
+            let schema =
+                super::plugins::storage::search::creates(&self.connection, request).await?;
+            let transaction = conflict::begin_with(&self.connection, schema).await?;
+            if !super::routing::external(&request.command)
+                && let Some(previous) = admit_in(&transaction, caller, request).await?
+            {
+                conflict::rollback(&transaction).await?;
+                return Ok(previous);
+            }
             // Commands validate before mutation. A savepoint also rolls back partial business errors.
             transaction
                 .execute_batch("SAVEPOINT command")
@@ -843,7 +896,14 @@ impl Database {
                 .map_err(storage_error)?;
             let mut review_changes = super::agent::review::Changes::new();
             let mut model_configuration = None;
-            let outcome = if matches!(request.command, Command::PluginTransaction { .. }) {
+            let scope = async {
+                self.check_plugin(caller, request).await?;
+                self.check_removal_scope(&request.command).await
+            }
+            .await;
+            let outcome = if let Err(error) = scope {
+                Err(error)
+            } else if matches!(request.command, Command::PluginTransaction { .. }) {
                 super::plugins::transaction::execute(
                     &transaction,
                     self.node,
@@ -920,6 +980,9 @@ impl Database {
             let (mut result, changes) = match outcome {
                 Ok((output, changes)) => (Ok(output), changes),
                 Err(error) => {
+                    if conflict::is_conflict(&error) {
+                        return Err(error);
+                    }
                     review_changes.clear();
                     transaction
                         .execute_batch("ROLLBACK TO command")
@@ -988,7 +1051,8 @@ impl Database {
                 super::agent::approvals::fixture::wait(&self.approval_commit, true, &transaction)
                     .await;
             }
-            transaction.commit().await.map_err(storage_error)?;
+            let publication = publication.lock().await;
+            conflict::commit(transaction).await?;
             if let Some(prepared) = model_configuration {
                 self.local_models
                     .as_ref()
@@ -1022,7 +1086,7 @@ impl Database {
                     }
                     _ => {}
                 }
-                let _ = events.send(event);
+                publication.send(events, event);
             }
             if let Ok(output) = &result {
                 for (session, change) in review_changes {
@@ -1030,7 +1094,7 @@ impl Database {
                 }
                 super::agent::publish_command(self, output).await;
             }
-            result
+            Ok(result)
         })
     }
 
@@ -1065,6 +1129,7 @@ impl Database {
             .remove(&(caller, request.id));
         let mut background = Vec::new();
         let mut deliveries = Vec::new();
+        let publication = self.publication.clone();
         let recorded = (async || {
             let transaction = self.connection.unchecked_transaction().await.map_err(storage_error)?;
             let event = finish(&transaction, &mut result).await?;
@@ -1149,8 +1214,9 @@ impl Database {
                         super::agent::background::list(&transaction, turn.session).await?,
                     ))
                 })(value).await?); } Ok::<_,Fault>(selected) }?;
-            transaction.commit().await.map_err(storage_error)?;
-            Ok::<_, Fault>((envelopes, delivered))
+            let publication = publication.lock().await;
+            crate::store::database::conflict::commit(transaction).await?;
+            Ok::<_, Fault>((envelopes, delivered, publication))
         })().await;
         match recorded {
             Err(_) => {
@@ -1166,7 +1232,7 @@ impl Database {
                 }
                 Err(error)
             }
-            Ok((envelopes, delivered)) => {
+            Ok((envelopes, delivered, publication)) => {
                 super::agent::background::publish(self, background).await;
                 for (run, tasks) in delivered {
                     super::agent::publish_run(self, run).await;
@@ -1182,12 +1248,111 @@ impl Database {
                         }
                         _ => {}
                     }
-                    let _ = events.send(event);
+                    publication.send(events, event);
                 }
                 result
             }
         }
     }
+}
+
+async fn admit_in(
+    transaction: &Connection,
+    caller: NodeId,
+    request: &Request,
+) -> Result<Option<Response>, Fault> {
+    let encoded = zeroize::Zeroizing::new(encode(request)?);
+    if encoded.len() > MAX_FRAME_BYTES {
+        return Err(Fault::invalid("request exceeds the frame limit"));
+    }
+    if !request.command.durable() {
+        return Ok(None);
+    }
+    let body = if matches!(
+        request.command,
+        Command::PutCredential { .. }
+            | Command::SaveSsh { .. }
+            | Command::SaveDatabase { .. }
+            | Command::CompleteProviderLogin { .. }
+            | Command::SavePluginSettings { .. }
+            | Command::StartConnectorLogin { .. }
+            | Command::UpdateConnection { .. }
+            | Command::SubmitConnectorInput { .. }
+            | Command::SavePluginMcp { .. }
+            | Command::InstallMcp { .. }
+            | Command::SaveProvider { .. }
+            | Command::ImportSession(_)
+    ) {
+        // Keep replay identity without making the admission ledger another secret store.
+        format!("credential-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
+    } else if matches!(
+        request.command,
+        Command::WriteFile { .. }
+            | Command::EditFile { .. }
+            | Command::EditNotebook { .. }
+            | Command::WriteArtifact(_)
+    ) {
+        // The ledger owns replay identity, not another copy of project content.
+        format!("file-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
+    } else if matches!(
+        request.command,
+        Command::RunCommand { .. }
+            | Command::RunSsh { .. }
+            | Command::QueryDatabase { .. }
+            | Command::UseExternalBrowser { .. }
+            | Command::UseBrowser { .. }
+            | Command::UseMedia { .. }
+    ) {
+        format!("command-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()
+    } else {
+        encoded.to_vec()
+    };
+    let previous: Option<(Vec<u8>, String, Option<String>)> = (match (async {
+        let mut statement = transaction
+            .prepare("SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2")
+            .await?;
+        let row = statement
+            .query_row(params![&caller.0[..], request.id.to_string()])
+            .await?;
+        let mapped: turso::Result<_> =
+            (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+        mapped
+    })
+    .await
+    {
+        Ok(value) => Ok(Some(value)),
+        Err(turso::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error),
+    })
+    .map_err(storage_error)?;
+    if let Some((previous, status, result)) = previous {
+        let previous = (|| {
+            if previous != body {
+                return Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "request identifier was already used for different content",
+                ));
+            }
+            if status == "completed" {
+                return Ok(Some(super::outcomes::decode(
+                    &result.ok_or_else(|| storage_error("missing result"))?,
+                )?));
+            }
+            Ok(Some(Err(Fault::new(
+                ErrorCode::OutcomeUnknown,
+                "request outcome requires reconciliation; automatic replay is disabled",
+            ))))
+        })();
+        return previous;
+    }
+    transaction
+        .execute(
+            "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
+            params![&caller.0[..], request.id.to_string(), body],
+        )
+        .await
+        .map_err(storage_error)?;
+    Ok(None)
 }
 
 pub(super) async fn record(
@@ -1216,8 +1381,21 @@ pub(super) async fn record(
 pub(super) fn encode(value: &impl serde::Serialize) -> Result<Vec<u8>, Fault> {
     serde_json::to_vec(value).map_err(storage_error)
 }
-pub(super) fn storage_error(_: impl std::fmt::Display) -> Fault {
-    Fault::new(ErrorCode::Internal, "Node storage operation failed")
+pub(super) fn storage_error(error: impl std::fmt::Display + 'static) -> Fault {
+    let error = &error as &dyn std::any::Any;
+    let native = error.downcast_ref::<turso::Error>().or_else(|| {
+        match error.downcast_ref::<crate::Error>() {
+            Some(crate::Error::Database(error)) => Some(error),
+            _ => None,
+        }
+    });
+    if native.is_some_and(conflict::native) {
+        let mut fault = Fault::new(ErrorCode::Busy, "Node storage transaction conflicted");
+        fault.details = Some(FaultDetails::StorageConflict);
+        fault
+    } else {
+        Fault::new(ErrorCode::Internal, "Node storage operation failed")
+    }
 }
 
 pub(super) async fn validate_backup(db: &Connection, node: NodeId) -> Result<(), Fault> {

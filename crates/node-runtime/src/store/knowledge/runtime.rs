@@ -92,6 +92,7 @@ pub(in crate::store) async fn progress(
     progress: &Progress,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
+    let publication = database.publication.clone();
     let transaction = database
         .connection
         .unchecked_transaction()
@@ -99,9 +100,10 @@ pub(in crate::store) async fn progress(
         .map_err(storage_error)?;
     let changed = super::progress(&transaction, id, generation, progress).await?;
     let envelopes = record(&transaction, database.node, changed.into_iter().collect()).await?;
-    transaction.commit().await.map_err(storage_error)?;
+    let publication = publication.lock().await;
+    crate::store::database::conflict::commit(transaction).await?;
     for envelope in envelopes {
-        let _ = events.send(envelope);
+        publication.send(events, envelope);
     }
     Ok(())
 }

@@ -1,11 +1,13 @@
 //! Durable relay changes apply to the Node's existing endpoint after admission.
 use super::{
-    Job,
+    Ingress, Job,
     database::{Database, encode, storage_error},
     external::Completed,
 };
 use futures::FutureExt;
-use sailry_link::{CancellationToken, LinkHandle, NetworkScope, RelaySelection, Response};
+use sailry_link::{
+    Admission, CancellationToken, LinkHandle, NetworkScope, RelaySelection, Response,
+};
 use sailry_protocol::{
     network::{Selection, Settings},
     *,
@@ -91,6 +93,42 @@ async fn read(db: &Connection, link: &LinkHandle) -> Result<Settings, Fault> {
         effective,
         address: serde_json::to_string(&link.address()).map_err(storage_error)?,
     })
+}
+
+impl Ingress {
+    pub(super) async fn read_network(&self, request: Request) -> Result<Admission, Fault> {
+        if request.target != self.node || request.version != sailry_protocol::VERSION {
+            return Err(Fault::new(
+                ErrorCode::WrongTarget,
+                "Node or protocol version mismatch",
+            ));
+        }
+        if request.plugin.is_some() {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "network configuration requires a controller",
+            ));
+        }
+        let storage = self.storage.get().ok_or_else(super::unavailable)?;
+        let link = storage
+            .network_link
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(super::unavailable)?;
+        let settings = storage
+            .read(move |connection| Box::pin(async move { read(connection, &link).await }))
+            .await?;
+        let (reply, completion) = oneshot::channel();
+        let _ = reply.send(Ok(Output::NetworkSettings(settings)));
+        Ok(Admission {
+            receipt: Receipt {
+                id: request.id,
+                durable: false,
+            },
+            completion,
+        })
+    }
 }
 
 pub(super) struct Execution {

@@ -43,7 +43,7 @@ async fn captures_current_policy_without_changing_arguments() {
             Access::Unrestricted
         );
         authorize(
-            &mut fixture.database.connection,
+            &mut fixture.database,
             fixture.turn,
             &fixture.request,
             Some(&prepared(fixture.turn, Access::Unrestricted)),
@@ -93,7 +93,7 @@ async fn toggling_preserves_exact_approved_access() {
         );
         assert_eq!(
             authorize(
-                &mut fixture.database.connection,
+                &mut fixture.database,
                 fixture.turn,
                 &fixture.request,
                 Some(&prepared(fixture.turn, changed))
@@ -104,7 +104,7 @@ async fn toggling_preserves_exact_approved_access() {
             ErrorCode::PermissionDenied
         );
         authorize(
-            &mut fixture.database.connection,
+            &mut fixture.database,
             fixture.turn,
             &fixture.request,
             Some(&prepared(fixture.turn, access)),

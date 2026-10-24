@@ -201,8 +201,7 @@ impl SessionService for Sessions {
     async fn get(&self, request: GetRequest) -> adk_core::Result<Box<dyn AdkSession>> {
         let (reply, response) = oneshot::channel();
         self.ingress
-            .sender
-            .send(Job::Agent(Box::new(Operation::Get {
+            .submit(Job::Agent(Box::new(Operation::Get {
                 turn: self.turn,
                 request,
                 reply,
@@ -301,8 +300,7 @@ impl SessionService for Sessions {
         let session = session_id.parse().map_err(AdkError::session)?;
         let (reply, response) = oneshot::channel();
         self.ingress
-            .sender
-            .send(Job::Agent(Box::new(Operation::Append {
+            .submit(Job::Agent(Box::new(Operation::Append {
                 session,
                 turn: self.turn,
                 event,

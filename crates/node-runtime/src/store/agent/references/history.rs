@@ -63,14 +63,13 @@ impl Ingress {
         query: Query,
     ) -> Result<Value, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ReadHistory {
-                source,
-                query,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ReadHistory {
+            source,
+            query,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::super::unavailable())?;
         response
             .await
             .map_err(|_| super::super::super::unavailable())?

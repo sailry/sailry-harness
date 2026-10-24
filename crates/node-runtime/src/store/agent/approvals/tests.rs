@@ -193,64 +193,39 @@ async fn consumes_exact_arguments_once() {
         .is_err()
     );
     assert_eq!(
-        authorize(
-            &mut fixture.database.connection,
-            fixture.turn,
-            &fixture.request,
-            None
-        )
-        .await
-        .unwrap_err()
-        .code,
+        authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::PermissionDenied
     );
     fixture.approve(approval.id).await;
     let mut changed = fixture.request.clone();
     changed.args["text"] = json!("different content");
     assert_eq!(
-        authorize(
-            &mut fixture.database.connection,
-            fixture.turn,
-            &changed,
-            None
-        )
-        .await
-        .unwrap_err()
-        .code,
+        authorize(&mut fixture.database, fixture.turn, &changed, None)
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::PermissionDenied
     );
     let mut changed = fixture.request.clone();
     changed.tool_name = "another_tool".into();
     assert_eq!(
-        authorize(
-            &mut fixture.database.connection,
-            fixture.turn,
-            &changed,
-            None
-        )
-        .await
-        .unwrap_err()
-        .code,
+        authorize(&mut fixture.database, fixture.turn, &changed, None)
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::PermissionDenied
     );
-    authorize(
-        &mut fixture.database.connection,
-        fixture.turn,
-        &fixture.request,
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        authorize(
-            &mut fixture.database.connection,
-            fixture.turn,
-            &fixture.request,
-            None
-        )
+    authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
         .await
-        .unwrap_err()
-        .code,
+        .unwrap();
+    assert_eq!(
+        authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::PermissionDenied
     );
     assert_eq!(

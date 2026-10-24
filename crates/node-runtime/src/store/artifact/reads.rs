@@ -1,6 +1,6 @@
 //! Package verification runs on the resource worker, outside storage admission.
 use super::*;
-use crate::store::{Ingress, Job, unavailable};
+use crate::store::{Ingress, unavailable};
 use sailry_link::Admission;
 use tokio::sync::oneshot;
 
@@ -17,21 +17,7 @@ impl Ingress {
                 "Node or protocol version mismatch",
             ));
         }
-        let (reply, response) = oneshot::channel();
-        let job = Job::Request {
-            access: crate::files::Access::Restricted,
-            caller,
-            request: Box::new(request.clone()),
-            reply,
-        };
-        if internal {
-            self.send_internal(job).await?;
-        } else {
-            self.sender
-                .try_send(job)
-                .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
-        }
-        let admission = response.await.map_err(|_| unavailable())??;
+        let admission = self.read_request(caller, request.clone()).await?;
         let Output::Artifact(mut content) =
             admission.completion.await.map_err(|_| unavailable())??
         else {

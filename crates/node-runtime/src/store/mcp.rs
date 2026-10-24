@@ -132,6 +132,7 @@ pub(super) async fn execute(
             reply,
         } => {
             let result = (async || {
+                let publication = database.publication.clone();
                 let transaction = database
                     .connection
                     .unchecked_transaction()
@@ -151,9 +152,10 @@ pub(super) async fn execute(
                     vec![sailry_protocol::Event::PluginChanged(summary)],
                 )
                 .await?;
-                transaction.commit().await.map_err(storage_error)?;
+                let publication = publication.lock().await;
+                crate::store::database::conflict::commit(transaction).await?;
                 for envelope in envelopes {
-                    let _ = events.send(envelope);
+                    publication.send(events, envelope);
                 }
                 Ok(())
             })()
@@ -176,13 +178,13 @@ impl Ingress {
         Fault,
     > {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::McpCredentials(Operation::Preparation {
-                package,
-                server,
-                reply,
-            }))
-            .map_err(|_| unavailable())?;
+        self.submit(Job::McpCredentials(Operation::Preparation {
+            package,
+            server,
+            reply,
+        }))
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
     pub(crate) async fn computer_inputs(
@@ -197,13 +199,13 @@ impl Ingress {
         Fault,
     > {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::McpCredentials(Operation::ComputerPermissions {
-                caller,
-                request: Box::new(request),
-                reply,
-            }))
-            .map_err(|_| unavailable())?;
+        self.submit(Job::McpCredentials(Operation::ComputerPermissions {
+            caller,
+            request: Box::new(request),
+            reply,
+        }))
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
 
@@ -219,13 +221,13 @@ impl Ingress {
         Fault,
     > {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::McpCredentials(Operation::Resolve {
-                context,
-                server,
-                reply,
-            }))
-            .map_err(|_| unavailable())?;
+        self.submit(Job::McpCredentials(Operation::Resolve {
+            context,
+            server,
+            reply,
+        }))
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
 
@@ -237,8 +239,8 @@ impl Ingress {
             return Err(unavailable());
         }
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::McpCredentials(mcp::Operation::Load { target, reply }))
+        self.submit(Job::McpCredentials(mcp::Operation::Load { target, reply }))
+            .await
             .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
@@ -253,14 +255,14 @@ impl Ingress {
             return Err(unavailable());
         }
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::McpCredentials(mcp::Operation::Save {
-                target,
-                revision,
-                credentials,
-                reply,
-            }))
-            .map_err(|_| unavailable())?;
+        self.submit(Job::McpCredentials(mcp::Operation::Save {
+            target,
+            revision,
+            credentials,
+            reply,
+        }))
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
 }

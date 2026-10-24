@@ -44,7 +44,7 @@ fn generation(
     authentication: Authentication,
     tools: bool,
 ) -> Reply {
-    generation_for(request, authentication, tools, "fixture")
+    generation_for(request, authentication, tools, "fixture", true)
 }
 
 fn generation_for(
@@ -52,6 +52,7 @@ fn generation_for(
     authentication: Authentication,
     tools: bool,
     model: &str,
+    encrypted: bool,
 ) -> Reply {
     let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
     assert_eq!(body["model"], model);
@@ -109,12 +110,11 @@ fn generation_for(
                 assert_eq!(item["namespace"], "sailry");
             }
         }
-        assert!(
-            body["include"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("reasoning.encrypted_content"))
-        );
+        if encrypted {
+            assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
+        } else {
+            assert!(body.get("include").is_none());
+        }
         assert!(body.get("max_output_tokens").is_none());
     } else {
         assert_eq!(request.headers["authorization"], "Bearer renewed-access");
@@ -183,7 +183,12 @@ async fn configured(
         web_search: false,
         generates: vec![],
         efforts: vec![],
-        capabilities: None,
+        capabilities: (authentication == Authentication::ChatGpt).then(|| {
+            sailry_protocol::conversation::discovery::Capabilities {
+                reasoning: Some(true),
+                ..Default::default()
+            }
+        }),
         custom_efforts: false,
         default_effort: Effort::Default,
     }];
@@ -399,7 +404,7 @@ async fn runs_tools_from_minimal_catalog() {
                     "slug":"gpt-6.1-sol", "display_name":"GPT-6.1 Sol", "visibility":"list"
                 }]})),
                 "/responses" => {
-                    generation_for(request, Authentication::ChatGpt, true, "gpt-6.1-sol")
+                    generation_for(request, Authentication::ChatGpt, true, "gpt-6.1-sol", false)
                 }
                 _ => standard(request),
             }

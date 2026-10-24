@@ -88,7 +88,7 @@ async fn requires_exact_claim_for_plan_lifecycle() {
         forged.revision = "b".repeat(64);
         assert_eq!(
             authorize(
-                &mut fixture.database.connection,
+                &mut fixture.database,
                 fixture.turn,
                 &fixture.request,
                 Some(&Command::StartCodeServer { startup: forged })
@@ -104,7 +104,7 @@ async fn requires_exact_claim_for_plan_lifecycle() {
                 .unwrap()
         );
         let id = authorize(
-            &mut fixture.database.connection,
+            &mut fixture.database,
             fixture.turn,
             &fixture.request,
             Some(&Command::StartCodeServer {
@@ -199,7 +199,7 @@ async fn permits_project_and_full_with_plan_limits() {
             wrong.args["path"] = json!("elsewhere.rs");
             assert_eq!(
                 authorize(
-                    &mut fixture.database.connection,
+                    &mut fixture.database,
                     fixture.turn,
                     &wrong,
                     Some(&Command::StartCodeServer {

@@ -125,13 +125,13 @@ impl Ingress {
         surface: plugin::desktop::Surface,
     ) -> Result<Info, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::PluginView {
-                package,
-                surface,
-                reply,
-            })
-            .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
+        self.submit(Job::PluginView {
+            package,
+            surface,
+            reply,
+        })
+        .await
+        .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
         response.await.map_err(|_| unavailable())?
     }
 }

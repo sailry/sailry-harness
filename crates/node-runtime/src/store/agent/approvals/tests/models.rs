@@ -81,7 +81,7 @@ async fn removal_consumes_exact_claimed_command() {
     .unwrap();
     fixture.approve(approval.id).await;
     request.id = authorize(
-        &mut fixture.database.connection,
+        &mut fixture.database,
         fixture.turn,
         &fixture.request,
         Some(&command),

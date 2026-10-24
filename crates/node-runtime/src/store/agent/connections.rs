@@ -90,17 +90,16 @@ impl Ingress {
         captured: Vec<Resource>,
     ) -> Result<Command, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Connection {
-                turn,
-                package,
-                target,
-                action,
-                captured,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Connection {
+            turn,
+            package,
+            target,
+            action,
+            captured,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 }
@@ -300,16 +299,15 @@ impl Ingress {
         captured: Vec<Resource>,
     ) -> Result<std::collections::BTreeMap<Resource, bool>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ConnectionStatus {
-                turn,
-                package,
-                targets,
-                captured,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ConnectionStatus {
+            turn,
+            package,
+            targets,
+            captured,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
     pub(crate) async fn connection_names(
@@ -319,15 +317,14 @@ impl Ingress {
         captured: Vec<Resource>,
     ) -> Result<Vec<Option<String>>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ConnectionNames {
-                turn,
-                entries,
-                captured,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ConnectionNames {
+            turn,
+            entries,
+            captured,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
     pub(crate) async fn connection_trust(
@@ -338,16 +335,15 @@ impl Ingress {
         captured: Vec<Resource>,
     ) -> Result<ssh::Trust, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ConnectionTrust {
-                turn,
-                package,
-                inspection,
-                captured,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ConnectionTrust {
+            turn,
+            package,
+            inspection,
+            captured,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 }

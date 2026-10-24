@@ -316,14 +316,13 @@ impl Ingress {
         image: Image,
     ) -> Result<Vec<u8>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Image {
-                session,
-                image,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Image {
+            session,
+            image,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 
@@ -333,14 +332,13 @@ impl Ingress {
         turn: TurnId,
     ) -> adk_core::Result<compaction::History> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ContextHistory {
-                session,
-                turn,
-                reply,
-            })))
-            .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?;
+        self.submit(Job::Agent(Box::new(Operation::ContextHistory {
+            session,
+            turn,
+            reply,
+        })))
+        .await
+        .map_err(|_| AdkError::session("Node storage is closed"))?;
         response
             .await
             .map_err(|_| AdkError::session("Node storage is closed"))?
@@ -351,13 +349,12 @@ impl Ingress {
         session: SessionId,
     ) -> Result<Option<ContextUsage>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ContextUsage {
-                session,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ContextUsage {
+            session,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 
@@ -367,14 +364,13 @@ impl Ingress {
         id: AttachmentId,
     ) -> Result<attachment::Attachment, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Attachment {
-                turn,
-                id,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Attachment {
+            turn,
+            id,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 
@@ -393,14 +389,13 @@ impl Ingress {
         session: SessionId,
     ) -> Result<Box<dyn sailry_link::Subscription>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Subscribe {
-                session,
-                closed: self.closed.clone(),
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Subscribe {
+            session,
+            closed: self.closed.clone(),
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 
@@ -451,8 +446,7 @@ impl Ingress {
         token: sailry_link::CancellationToken,
     ) -> Result<Option<Invocation>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Claim { token, reply })))
+        self.submit(Job::Agent(Box::new(Operation::Claim { token, reply })))
             .await
             .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
@@ -478,29 +472,27 @@ impl Ingress {
         review: Option<AdkEvent>,
     ) -> Result<Status, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Finish {
-                turn,
-                status,
-                error,
-                owner,
-                review,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Finish {
+            turn,
+            status,
+            error,
+            owner,
+            review,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 
     pub(crate) async fn yield_guidance(&self, recipient: TurnId) -> Result<bool, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::YieldGuidance {
-                recipient,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::YieldGuidance {
+            recipient,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 
@@ -510,28 +502,49 @@ impl Ingress {
         token: sailry_link::CancellationToken,
     ) -> Result<Option<Invocation>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ClaimGuidance {
-                recipient,
-                token,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ClaimGuidance {
+            recipient,
+            token,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 
     pub(crate) async fn retain_guidance(&self, recipient: TurnId) -> Result<(), Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::RetainGuidance {
-                recipient,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::RetainGuidance {
+            recipient,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
+}
+
+pub(super) fn readonly(operation: &Operation) -> bool {
+    matches!(
+        operation,
+        Operation::Worktrees { .. }
+            | Operation::ReadHistory { .. }
+            | Operation::Connection { .. }
+            | Operation::ConnectionStatus { .. }
+            | Operation::ConnectionNames { .. }
+            | Operation::ConnectionTrust { .. }
+            | Operation::Attachment { .. }
+            | Operation::Image { .. }
+            | Operation::ChildState { .. }
+            | Operation::PendingGuidance { .. }
+            | Operation::Denials { .. }
+            | Operation::ConnectionAccess { .. }
+            | Operation::CommandAccess { .. }
+            | Operation::Subscribe { .. }
+            | Operation::ContextHistory { .. }
+            | Operation::ContextUsage { .. }
+            | Operation::Get { .. }
+    )
 }
 
 pub(super) fn execute<'a>(
@@ -694,6 +707,7 @@ pub(super) fn execute<'a>(
             let _ = reply.send(result);
         }),
         Operation::CommandFinished(completed) => Box::pin(async move {
+            let publication = database.publication.clone();
             let result = (async || -> Result<(), Fault> {
                 let tx = database
                     .connection
@@ -710,7 +724,8 @@ pub(super) fn execute<'a>(
                 let scheduled =
                     background::schedule(&tx, database.node, completed.snapshot.info.session)
                         .await?;
-                tx.commit().await.map_err(storage_error)?;
+                let _publication = publication.lock().await;
+                super::database::conflict::commit(tx).await?;
                 background::publish(database, task).await;
                 if let Some(turn) = scheduled {
                     feed::run(database, runs::get(&database.connection, turn.id).await?).await;
@@ -737,6 +752,7 @@ pub(super) fn execute<'a>(
             snapshot,
             reply,
         } => Box::pin(async move {
+            let publication = database.publication.clone();
             let result = (async || -> Result<(), Fault> {
                 let tx = database
                     .connection
@@ -744,7 +760,8 @@ pub(super) fn execute<'a>(
                     .await
                     .map_err(storage_error)?;
                 let tasks = background::consume_command(&tx, parent, &snapshot).await?;
-                tx.commit().await.map_err(storage_error)?;
+                let _publication = publication.lock().await;
+                super::database::conflict::commit(tx).await?;
                 background::publish(database, tasks).await;
                 Ok(())
             })()
@@ -757,6 +774,7 @@ pub(super) fn execute<'a>(
             turn,
             reply,
         } => Box::pin(async move {
+            let publication = database.publication.clone();
             let result = (async || -> Result<(), Fault> {
                 let tx = database
                     .connection
@@ -764,7 +782,8 @@ pub(super) fn execute<'a>(
                     .await
                     .map_err(storage_error)?;
                 let tasks = background::consume_child(&tx, parent, child, turn).await?;
-                tx.commit().await.map_err(storage_error)?;
+                let _publication = publication.lock().await;
+                super::database::conflict::commit(tx).await?;
                 background::publish(database, tasks).await;
                 Ok(())
             })()
@@ -816,6 +835,9 @@ pub(super) fn execute<'a>(
             }
         }),
         Operation::CancelInput { turn, call } => Box::pin(async move {
+            if controls.stopped.is_cancelled() {
+                return;
+            }
             if let Err(error) = elicitation::cancel(database, turn, &call, events).await {
                 eprintln!("MCP input persistence failed: {error}");
             }
@@ -870,6 +892,10 @@ pub(super) fn execute<'a>(
             let _ = reply.send(());
         }),
         Operation::CancelApproval { turn, call, owner } => Box::pin(async move {
+            if controls.stopped.is_cancelled() {
+                // Run completion owns the interrupted outcome during Node shutdown.
+                return;
+            }
             if let Err(error) = approvals::cancel(database, turn, &call, owner, events).await {
                 eprintln!("approval cancellation persistence failed: {error}");
             }
@@ -880,10 +906,8 @@ pub(super) fn execute<'a>(
             prepared,
             reply,
         } => Box::pin(async move {
-            let _ = reply.send(
-                approvals::authorize(&mut database.connection, turn, &request, prepared.as_ref())
-                    .await,
-            );
+            let _ =
+                reply.send(approvals::authorize(database, turn, &request, prepared.as_ref()).await);
         }),
         Operation::Denials { turn, reply } => Box::pin(async move {
             let _ = reply.send(approvals::results::read(&database.connection, turn).await);
@@ -911,28 +935,50 @@ pub(super) fn execute<'a>(
             closed,
             reply,
         } => Box::pin(async move {
-            let result = match read(&database.connection, session, None, 20).await {
-                Ok(value) => {
-                    (async |history| {
-                        let statistics = statistics::read(&database.connection, session).await?;
-                        database.feeds.subscribe(
-                            database.node,
-                            history,
-                            statistics,
-                            super::artifacts::list(
-                                &database.connection,
-                                session,
-                                None,
-                                sailry_protocol::artifact::MAX_PAGE_LIMIT,
-                            )
-                            .await?,
-                            closed,
-                        )
-                    })(value)
+            let publication = database.publication.clone();
+            let feeds = database.feeds.clone();
+            let node = database.node;
+            let result = async {
+                let publication = publication.lock().await;
+                let transaction = database
+                    .connection
+                    .transaction_with_behavior(turso::transaction::TransactionBehavior::Deferred)
                     .await
+                    .map_err(storage_error)?;
+                transaction
+                    .prepare("SELECT coalesce(max(cursor),0) FROM events")
+                    .await
+                    .map_err(storage_error)?
+                    .query_row(())
+                    .await
+                    .map_err(storage_error)?;
+                let reserved = feeds.reserve(session);
+                drop(publication);
+                let snapshot = async {
+                    let history = read(&transaction, session, None, 20).await?;
+                    let statistics = statistics::read(&transaction, session).await?;
+                    let artifacts = super::artifacts::list(
+                        &transaction,
+                        session,
+                        None,
+                        sailry_protocol::artifact::MAX_PAGE_LIMIT,
+                    )
+                    .await?;
+                    Ok::<_, Fault>((history, statistics, artifacts))
                 }
-                Err(error) => Err(error),
-            };
+                .await;
+                match snapshot {
+                    Ok((history, statistics, artifacts)) => {
+                        crate::store::database::conflict::commit(transaction).await?;
+                        reserved.subscribe(node, history, statistics, artifacts, closed)
+                    }
+                    Err(error) => {
+                        transaction.rollback().await.map_err(storage_error)?;
+                        Err(error)
+                    }
+                }
+            }
+            .await;
             let _ = reply.send(result);
         }),
         Operation::ContextHistory {

@@ -1,18 +1,23 @@
 //! Runtime facts outlive connections; each storage operation owns a short lease.
 use super::{Database, Handle, Lease, removal};
 use crate::{Error, store};
-use sailry_protocol::{NodeId, RequestId, WorktreeId};
+use sailry_protocol::{NodeId, RequestId, SessionId, WorktreeId};
 use std::{
     collections::BTreeMap,
     ops::Deref,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
+
+pub(in crate::store) const WRITE_CONCURRENCY: usize = 4;
 
 pub(in crate::store) struct Facts {
     pub node: NodeId,
     pub profile: Option<PathBuf>,
     pub feeds: store::agent::Feeds,
+    pub publication: store::publication::Publication,
+    pub writes: Arc<tokio::sync::Semaphore>,
+    orders: Mutex<BTreeMap<SessionId, Weak<tokio::sync::Mutex<()>>>>,
     pub model_clients: Arc<crate::agent::model::registry::Registry>,
     pub local_models: Option<Arc<crate::models::registry::Registry>>,
     pub approvals: Mutex<store::agent::approvals::Waiting>,
@@ -32,11 +37,18 @@ pub(in crate::store) struct Storage {
 }
 
 impl Facts {
-    pub(super) fn new(node: NodeId, profile: Option<PathBuf>) -> Self {
+    pub(super) fn new(
+        node: NodeId,
+        profile: Option<PathBuf>,
+        writes: Arc<tokio::sync::Semaphore>,
+    ) -> Self {
         Self {
             node,
             profile,
             feeds: Default::default(),
+            publication: Default::default(),
+            writes,
+            orders: Default::default(),
             model_clients: Default::default(),
             local_models: None,
             approvals: Default::default(),
@@ -48,6 +60,35 @@ impl Facts {
             #[cfg(any(test, feature = "test-support"))]
             approval_commit: Default::default(),
         }
+    }
+
+    pub(in crate::store) async fn write(
+        &self,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, sailry_protocol::Fault> {
+        self.writes.clone().acquire_owned().await.map_err(|_| {
+            sailry_protocol::Fault::new(
+                sailry_protocol::ErrorCode::Unavailable,
+                "Node storage is closing",
+            )
+        })
+    }
+
+    pub(in crate::store) async fn order(
+        &self,
+        session: SessionId,
+    ) -> tokio::sync::OwnedMutexGuard<()> {
+        let order = {
+            let mut orders = self.orders.lock().unwrap();
+            orders.retain(|_, order| order.strong_count() > 0);
+            if let Some(order) = orders.get(&session).and_then(Weak::upgrade) {
+                order
+            } else {
+                let order = Arc::new(tokio::sync::Mutex::new(()));
+                orders.insert(session, Arc::downgrade(&order));
+                order
+            }
+        };
+        order.lock_owned().await
     }
 }
 
@@ -63,6 +104,36 @@ impl Storage {
             self.facts.clone(),
             connection,
         ))
+    }
+
+    /// Related metadata and data reads share one native snapshot without a slot quota.
+    pub(in crate::store) async fn read<T: Send>(
+        &self,
+        read: impl for<'a> FnOnce(
+            &'a turso::Connection,
+        )
+            -> sailry_link::Pending<'a, Result<T, sailry_protocol::Fault>>
+        + Send,
+    ) -> Result<T, sailry_protocol::Fault> {
+        let mut connection = self
+            .handle
+            .lease(true)
+            .await
+            .map_err(super::storage_error)?;
+        let transaction = connection
+            .transaction_with_behavior(turso::transaction::TransactionBehavior::Deferred)
+            .await
+            .map_err(super::storage_error)?;
+        match read(&transaction).await {
+            Ok(value) => {
+                crate::store::database::conflict::commit(transaction).await?;
+                Ok(value)
+            }
+            Err(error) => {
+                transaction.rollback().await.map_err(super::storage_error)?;
+                Err(error)
+            }
+        }
     }
 
     pub(in crate::store) async fn close(&self) -> Result<(), Error> {

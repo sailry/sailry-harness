@@ -1,11 +1,15 @@
 //! Public Hub discovery captures the execution Node's current mirror settings.
 use super::Ingress;
 use sailry_link::Admission;
-use sailry_protocol::{Command, ErrorCode, Fault, Output, Request};
+use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request};
 use tokio::sync::oneshot;
 
 impl Ingress {
-    pub(super) async fn list_channel_presets(&self, request: Request) -> Result<Admission, Fault> {
+    pub(super) async fn list_channel_presets(
+        &self,
+        caller: NodeId,
+        request: Request,
+    ) -> Result<Admission, Fault> {
         if request.target != self.node || request.version != sailry_protocol::VERSION {
             return Err(Fault::new(
                 ErrorCode::WrongTarget,
@@ -18,21 +22,50 @@ impl Ingress {
                 refresh_partners: true
             }
         );
-        let (catalog, unavailable) = if refresh {
+        let mut listing = if refresh {
             let (catalog, unavailable) = self.presets.read(&self.closed).await?;
-            ((!unavailable).then_some(catalog), unavailable)
+            let (reply, response) = oneshot::channel();
+            self.sender
+                .try_send(super::Job::ChannelPresets {
+                    catalog: (!unavailable).then_some(catalog),
+                    unavailable,
+                    reply,
+                })
+                .map_err(|_| super::unavailable())?;
+            response.await.map_err(|_| super::unavailable())??
         } else {
-            (None, false)
+            let storage = self.storage.get().ok_or_else(super::unavailable)?;
+            let database = storage
+                .context(true)
+                .await
+                .map_err(super::database::storage_error)?;
+            let transaction = database
+                .connection
+                .unchecked_transaction()
+                .await
+                .map_err(super::database::storage_error)?;
+            let result = async {
+                database.check_plugin(caller, &request).await?;
+                super::providers::presets::list(&transaction, None, false).await
+            }
+            .await;
+            match result {
+                Ok(listing) => {
+                    transaction
+                        .commit()
+                        .await
+                        .map_err(super::database::storage_error)?;
+                    listing
+                }
+                Err(error) => {
+                    transaction
+                        .rollback()
+                        .await
+                        .map_err(super::database::storage_error)?;
+                    return Err(error);
+                }
+            }
         };
-        let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(super::Job::ChannelPresets {
-                catalog,
-                unavailable,
-                reply,
-            })
-            .map_err(|_| super::unavailable())?;
-        let mut listing = response.await.map_err(|_| super::unavailable())??;
         let host = self.plugins.clone();
         let stop = self.closed.clone();
         listing = tokio::task::spawn_blocking(move || {

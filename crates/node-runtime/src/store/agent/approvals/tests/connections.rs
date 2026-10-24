@@ -130,7 +130,7 @@ async fn freezes_connection_before_user_decision() {
         .unwrap();
     fixture.approve(approval.id).await;
     let error = authorize(
-        &mut fixture.database.connection,
+        &mut fixture.database,
         fixture.turn,
         &fixture.request,
         Some(&command(&changed)),
@@ -151,7 +151,7 @@ async fn freezes_connection_before_user_decision() {
     assert!(!claimed);
     // The original frozen command can be claimed, but the service rejects its stale revision.
     authorize(
-        &mut fixture.database.connection,
+        &mut fixture.database,
         fixture.turn,
         &fixture.request,
         Some(&command(&profile)),
@@ -198,7 +198,7 @@ async fn accepts_unchanged_target_and_rejects_unbound_history() {
         }
         fixture.approve(approval.id).await;
         let result = authorize(
-            &mut fixture.database.connection,
+            &mut fixture.database,
             fixture.turn,
             &fixture.request,
             Some(&command(&profile)),
@@ -226,7 +226,7 @@ async fn retains_revision_fence_across_workflow_steps() {
     .unwrap();
     fixture.approve(approval.id).await;
     authorize(
-        &mut fixture.database.connection,
+        &mut fixture.database,
         fixture.turn,
         &fixture.request,
         Some(&command(&profile)),

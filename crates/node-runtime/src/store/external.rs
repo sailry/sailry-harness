@@ -20,3 +20,18 @@ pub(super) struct Completed {
     pub result: Response,
     pub reply: oneshot::Sender<Response>,
 }
+
+/// Return ownership when an execution worker has not received this operation.
+pub(super) fn reject(work: Work) -> (NodeId, Request, oneshot::Sender<Response>) {
+    match work {
+        Work::Network(work) => (work.caller, work.request, work.reply),
+        Work::PluginExecution(work) => (work.caller, work.request, work.reply),
+        Work::Login(work) => (work.caller, work.request, work.reply),
+        Work::Process(work) => (work.caller, work.request, work.reply),
+        Work::Resources(work) => (work.caller, work.request, work.reply),
+        Work::Ssh(work) => (work.caller, work.request, work.reply),
+        Work::Database(work) => (work.caller, work.request, work.reply),
+        Work::Mutation(work) => (work.caller, work.request, work.reply),
+        Work::Session(work) => (work.caller, work.request, work.reply),
+    }
+}

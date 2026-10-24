@@ -5,7 +5,9 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{
+    OwnedRwLockReadGuard, OwnedRwLockWriteGuard, OwnedSemaphorePermit, RwLock, Semaphore,
+};
 use turso::{Connection, Database};
 
 #[cfg(test)]
@@ -15,12 +17,14 @@ mod tests;
 pub(crate) struct Handle {
     path: PathBuf,
     state: Arc<RwLock<Option<Database>>>,
+    pub(crate) writes: Arc<Semaphore>,
 }
 
 /// Keep the database open until this connection and its transaction have ended.
 pub(crate) struct Lease {
     connection: Connection,
     _open: OwnedRwLockReadGuard<Option<Database>>,
+    _write: Option<OwnedSemaphorePermit>,
 }
 
 /// Maintenance may inspect a drained database before closing its native handle.
@@ -42,6 +46,7 @@ impl Handle {
         Self {
             path,
             state: Arc::new(RwLock::new(Some(database))),
+            writes: Arc::new(Semaphore::new(super::WRITE_CONCURRENCY)),
         }
     }
 
@@ -59,7 +64,20 @@ impl Handle {
         Ok(Lease {
             connection,
             _open: guard,
+            _write: None,
         })
+    }
+
+    pub(crate) async fn writer(&self) -> Result<Lease, Error> {
+        let permit = self
+            .writes
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| Error::Stopped)?;
+        let mut connection = self.lease(false).await?;
+        connection._write = Some(permit);
+        Ok(connection)
     }
 
     pub(crate) async fn exclusive(&self) -> Result<Exclusive, Error> {
@@ -79,6 +97,11 @@ impl Handle {
 }
 
 impl Lease {
+    pub(in crate::store) fn hold_write(&mut self, permit: OwnedSemaphorePermit) {
+        assert!(self._write.is_none(), "one writer owns this connection");
+        self._write = Some(permit);
+    }
+
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
     }

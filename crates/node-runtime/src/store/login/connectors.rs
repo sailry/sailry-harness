@@ -552,6 +552,7 @@ async fn commit(
     if !replace && let Err(error) = &result {
         return Err(error.clone());
     }
+    let publication = database.publication.clone();
     let transaction = database
         .connection
         .unchecked_transaction()
@@ -618,7 +619,8 @@ async fn commit(
         }
     };
     let persist = async |transaction: turso::transaction::Transaction<'_>,
-                         record: &Record|
+                         record: &Record,
+                         publication: crate::store::publication::Publication|
            -> Result<connector::Connection, Fault> {
         connections::save(&transaction, record).await?;
         let projected =
@@ -630,14 +632,15 @@ async fn commit(
             .collect();
         let envelopes =
             super::super::database::record(&transaction, database.node, changed).await?;
-        transaction.commit().await.map_err(storage_error)?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
         for envelope in envelopes {
-            let _ = events.send(envelope);
+            publication.send(events, envelope);
         }
         Ok(projected)
     };
     match outcome {
-        Ok(()) => persist(transaction, &record).await,
+        Ok(()) => persist(transaction, &record, publication).await,
         Err(error) => {
             if replace
                 && let Some(login) = &baseline.login
@@ -651,7 +654,7 @@ async fn commit(
                     },
                 )?
             {
-                persist(transaction, &record).await?;
+                persist(transaction, &record, publication).await?;
             }
             Err(error)
         }

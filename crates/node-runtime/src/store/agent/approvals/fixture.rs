@@ -38,13 +38,12 @@ impl Ingress {
     ) -> Result<(Arc<Notify>, mpsc::Sender<()>), Fault> {
         let (gate, entered, release) = Commit::new(after_claim, fail);
         let (reply, ready) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ApprovalCommitFixture {
-                gate,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ApprovalCommitFixture {
+            gate,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::super::unavailable())?;
         ready
             .await
             .map_err(|_| super::super::super::unavailable())?;

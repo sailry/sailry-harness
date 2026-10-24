@@ -40,6 +40,7 @@ pub(in crate::store) async fn register(
     stop: &CancellationToken,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
+    let publication = database.publication.clone();
     let transaction = database
         .connection
         .unchecked_transaction()
@@ -48,9 +49,10 @@ pub(in crate::store) async fn register(
     let changed = super::super::semantic::startup(&transaction, stop).await?;
     let changes = changed.then_some(Event::KnowledgeCollectionsChanged);
     let envelopes = record(&transaction, database.node, changes.into_iter().collect()).await?;
-    transaction.commit().await.map_err(storage_error)?;
+    let publication = publication.lock().await;
+    crate::store::database::conflict::commit(transaction).await?;
     for envelope in envelopes {
-        let _ = events.send(envelope);
+        publication.send(events, envelope);
     }
     Ok(())
 }

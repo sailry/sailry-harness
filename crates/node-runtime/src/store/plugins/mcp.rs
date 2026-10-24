@@ -109,11 +109,11 @@ impl Ingress {
         package: plugin::Reference,
     ) -> Result<Option<Configuration>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::McpCredentials(
-                crate::store::mcp::Operation::Configuration { package, reply },
-            ))
-            .map_err(|_| unavailable())?;
+        self.submit(Job::McpCredentials(
+            crate::store::mcp::Operation::Configuration { package, reply },
+        ))
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
 

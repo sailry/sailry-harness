@@ -54,12 +54,12 @@ pub(super) async fn inspect(
 impl Ingress {
     async fn capture_channel(&self, provider: &Provider) -> Result<Provider, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::CaptureChannel {
-                provider: Box::new(provider.clone()),
-                reply,
-            })
-            .map_err(|_| unavailable())?;
+        self.submit(Job::CaptureChannel {
+            provider: Box::new(provider.clone()),
+            reply,
+        })
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
     pub(crate) async fn model_adapter(
@@ -68,13 +68,13 @@ impl Ingress {
         messages: bool,
     ) -> Result<sailry_protocol::plugin::model_adapter::Declaration, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::ModelAdapter {
-                provider: Box::new(provider.clone()),
-                messages,
-                reply,
-            })
-            .map_err(|_| unavailable())?;
+        self.submit(Job::ModelAdapter {
+            provider: Box::new(provider.clone()),
+            messages,
+            reply,
+        })
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
 
@@ -336,13 +336,13 @@ impl Ingress {
             return Ok(None);
         };
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::ChannelPresets {
-                catalog: None,
-                unavailable: false,
-                reply,
-            })
-            .map_err(|_| unavailable())?;
+        self.submit(Job::ChannelPresets {
+            catalog: None,
+            unavailable: false,
+            reply,
+        })
+        .await
+        .map_err(|_| unavailable())?;
         let listing = response.await.map_err(|_| unavailable())??;
         let entry = listing
             .entries
@@ -395,13 +395,13 @@ impl Ingress {
 
     async fn provider(&self, id: ProviderId, revision: u64) -> Result<Provider, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::Provider {
-                id,
-                revision,
-                reply,
-            })
-            .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
+        self.submit(Job::Provider {
+            id,
+            revision,
+            reply,
+        })
+        .await
+        .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
         response.await.map_err(|_| unavailable())?
     }
 }

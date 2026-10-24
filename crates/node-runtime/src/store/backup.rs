@@ -271,7 +271,7 @@ pub(super) async fn source(
     .await;
     let (plan, roots) = match prepared {
         Ok(prepared) => {
-            transaction.commit().await.map_err(storage_error)?;
+            crate::store::database::conflict::commit(transaction).await?;
             prepared
         }
         Err(error) => {

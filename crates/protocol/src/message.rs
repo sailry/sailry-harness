@@ -39,6 +39,9 @@ pub struct Fault {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FaultDetails {
+    /// The native storage engine reported transaction contention.
+    /// This detail does not authorize replaying external side effects.
+    StorageConflict,
     /// The plugin value owner rejected a key's expected revision before commit.
     PluginValueConflict,
     ModelRecovery {

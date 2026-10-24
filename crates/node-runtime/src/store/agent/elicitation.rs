@@ -152,8 +152,7 @@ pub(super) async fn validate_answer(
 impl Ingress {
     pub(crate) async fn cancel_input(&self, turn: TurnId, call: String) {
         let _ = self
-            .sender
-            .send(Job::Agent(Box::new(Operation::CancelInput { turn, call })))
+            .submit(Job::Agent(Box::new(Operation::CancelInput { turn, call })))
             .await;
     }
 }
@@ -164,41 +163,58 @@ pub(super) async fn cancel(
     call: &str,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let body: Option<Vec<u8>> = {
-        let mut statement = transaction
-            .prepare("SELECT body FROM agent_questions WHERE turn=?1 AND call=?2")
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .unchecked_transaction()
             .await
             .map_err(storage_error)?;
-        match statement.query_row(params![turn.to_string(), call]).await {
-            Ok(row) => {
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-                Some(mapped.map_err(storage_error)?)
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let body: Option<Vec<u8>> = {
+            let mut statement = transaction
+                .prepare("SELECT body FROM agent_questions WHERE turn=?1 AND call=?2")
+                .await
+                .map_err(storage_error)?;
+            match statement.query_row(params![turn.to_string(), call]).await {
+                Ok(row) => {
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
             }
-            Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+        };
+        let Some(body) = body else { return Ok(()) };
+        let mut question: question::Question =
+            serde_json::from_slice(&body).map_err(storage_error)?;
+        if question.state != question::State::Pending {
+            return Ok(());
         }
-    };
-    let Some(body) = body else { return Ok(()) };
-    let mut question: question::Question = serde_json::from_slice(&body).map_err(storage_error)?;
-    if question.state != question::State::Pending {
-        return Ok(());
+        question.state = question::State::Cancelled;
+        transaction
+            .execute(
+                "UPDATE agent_questions SET body=?2 WHERE id=?1",
+                params![question.id.to_string(), encode(&question)?],
+            )
+            .await
+            .map_err(storage_error)?;
+        let envelope = changed(&transaction, database.node, question.session).await?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        publication.send(events, envelope);
+        feed::command(database, &Output::Question(question)).await;
+        Ok(())
     }
-    question.state = question::State::Cancelled;
-    transaction
-        .execute(
-            "UPDATE agent_questions SET body=?2 WHERE id=?1",
-            params![question.id.to_string(), encode(&question)?],
-        )
-        .await
-        .map_err(storage_error)?;
-    let envelope = changed(&transaction, database.node, question.session).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    let _ = events.send(envelope);
-    feed::command(database, &Output::Question(question)).await;
-    Ok(())
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
+    }
+    result
 }

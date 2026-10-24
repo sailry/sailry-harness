@@ -39,6 +39,7 @@ pub(super) async fn append(
     events: &broadcast::Sender<EventEnvelope>,
 ) -> adk_core::Result<()> {
     let write = async || -> Result<(), Fault> {
+        let publication = database.publication.clone();
         let transaction = database
             .connection
             .unchecked_transaction()
@@ -108,10 +109,11 @@ pub(super) async fn append(
             transaction.rollback().await.map_err(storage_error)?;
             return Ok(());
         };
-        transaction.commit().await.map_err(storage_error)?;
-        let _ = events.send(envelope);
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        publication.send(events, envelope);
         for notice in notices {
-            let _ = events.send(notice);
+            publication.send(events, notice);
         }
         if visible {
             database

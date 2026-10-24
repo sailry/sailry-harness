@@ -124,8 +124,7 @@ async fn acquire(
             reporter(Phase::Inspecting, None);
             let (reply, response) = oneshot::channel();
             ingress
-                .sender
-                .send(Job::PluginPreparation {
+                .submit(Job::PluginPreparation {
                     name: name.clone(),
                     revision: *expected_revision,
                     reply,

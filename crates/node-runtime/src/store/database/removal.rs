@@ -199,6 +199,7 @@ impl Database {
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Result<(), Fault> {
         let mut result = result.map(Output::Terminal);
+        let publication = self.publication.clone();
         let changes = (async || {
             let transaction = self
                 .connection
@@ -212,7 +213,7 @@ impl Database {
             )
             .await?;
             if result.is_err() {
-                return Ok(Vec::new());
+                return Ok(None);
             }
             let info = super::super::terminals::required(&transaction, terminal).await?;
             if info.worktree != Some(worktree) || info.status != terminal::Status::Closed {
@@ -222,8 +223,9 @@ impl Database {
                 ));
             }
             let changes = record(&transaction, self.node, event.into_iter().collect()).await?;
-            transaction.commit().await.map_err(storage_error)?;
-            Ok(changes)
+            let publication = publication.lock().await;
+            crate::store::database::conflict::commit(transaction).await?;
+            Ok(Some((publication, changes)))
         })()
         .await
         .map_err(|_: Fault| {
@@ -233,8 +235,10 @@ impl Database {
             )
         })?;
         result?;
-        for event in changes {
-            let _ = events.send(event);
+        if let Some((publication, changes)) = changes {
+            for event in changes {
+                publication.send(events, event);
+            }
         }
         Ok(())
     }

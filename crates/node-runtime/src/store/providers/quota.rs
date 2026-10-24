@@ -166,9 +166,29 @@ pub(in crate::store) async fn observe(
     observation: Observation,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
+    let write = database.write().await?;
+    for attempt in 0..=crate::store::database::conflict::RETRIES {
+        let result = observe_once(database, &observation, events).await;
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        if !crate::store::database::conflict::again(&result, attempt).await {
+            return result;
+        }
+    }
+    unreachable!("the final attempt returns its result")
+}
+
+async fn observe_once(
+    database: &mut Database,
+    observation: &Observation,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<(), Fault> {
     if observation.credential.node != database.node {
         return Ok(());
     }
+    let publication = database.publication.clone();
     let node = database.node;
     let transaction = database
         .connection
@@ -180,11 +200,11 @@ pub(in crate::store) async fn observe(
     };
     let mut snapshot = Snapshot {
         provider: observation.provider,
-        credential: observation.credential,
+        credential: observation.credential.clone(),
         revision: observation.revision,
         observed_ms: observation.observed_ms,
-        five_hour: observation.five_hour,
-        seven_day: observation.seven_day,
+        five_hour: observation.five_hour.clone(),
+        seven_day: observation.seven_day.clone(),
     };
     if !matches(&transaction, node, &stored, &snapshot).await? {
         return Ok(());
@@ -224,9 +244,10 @@ pub(in crate::store) async fn observe(
         }]
     };
     let envelopes = record(&transaction, node, changes).await?;
-    transaction.commit().await.map_err(storage_error)?;
+    let publication = publication.lock().await;
+    crate::store::database::conflict::commit(transaction).await?;
     for envelope in envelopes {
-        let _ = events.send(envelope);
+        publication.send(events, envelope);
     }
     Ok(())
 }

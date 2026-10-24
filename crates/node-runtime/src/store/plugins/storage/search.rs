@@ -67,9 +67,25 @@ async fn exists(db: &Connection, table: &str) -> Result<bool, Fault> {
         .map_err(storage_error)
 }
 
-/// Admission can select its existing DDL transaction before the first corpus write.
-pub(in crate::store) async fn missing(db: &Connection, name: &str) -> Result<bool, Fault> {
-    Ok(!exists(db, &table(name)).await?)
+/// Only first-corpus creation uses Turso's required exclusive schema transaction.
+pub(in crate::store) async fn creates(db: &Connection, request: &Request) -> Result<bool, Fault> {
+    let index = match &request.command {
+        Command::WriteIndexedPluginValue { .. } => true,
+        Command::PluginTransaction { operations } => operations.iter().any(|operation| {
+            matches!(
+                operation,
+                sailry_protocol::plugin::transaction::Operation::Index { .. }
+            )
+        }),
+        _ => false,
+    };
+    if !index {
+        return Ok(false);
+    }
+    let Some(context) = &request.plugin else {
+        return Ok(false);
+    };
+    Ok(!exists(db, &table(&context.package.name)).await?)
 }
 
 /// Reads validate the derived corpus without creating or repairing it.

@@ -12,11 +12,49 @@ async fn statistics(client: &Client, session: SessionId) -> Statistics {
     snapshot.statistics
 }
 
+async fn settled(client: &Client, session: SessionId) -> Page {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut updates = client.subscribe_conversation(session).await.unwrap();
+        let mut projection = Projection::new(client.target(), session, 0);
+        loop {
+            projection.apply(0, updates.next().await.unwrap()).unwrap();
+            let Some(snapshot) = projection.snapshot() else {
+                continue;
+            };
+            let page = &snapshot.page;
+            let terminal = |run: &sailry_protocol::conversation::Run| {
+                !matches!(
+                    run.status,
+                    Status::Queued | Status::Running | Status::Stopping
+                )
+            };
+            if !page.background.is_empty()
+                && page.queue.items.is_empty()
+                && page.runs.iter().all(terminal)
+                && page.background.iter().all(|task| {
+                    use sailry_protocol::conversation::background::State;
+                    matches!(task.state, State::Consumed | State::Dismissed)
+                        || task.state == State::Delivered
+                            && task.delivery.is_some_and(|turn| {
+                                page.runs
+                                    .iter()
+                                    .any(|run| run.turn == turn && terminal(run))
+                            })
+                })
+            {
+                return page.as_ref().clone();
+            }
+        }
+    })
+    .await
+    .expect("background completion did not settle")
+}
+
 #[tokio::test]
 async fn publishes_child_usage_to_parent() {
     for remote in [false, true] {
         let release = CancellationToken::new();
-        let parent = Server::turn_tools(vec![
+        let parent = Server::tools(vec![
             (
                 crate::agent_support::plugin_tool("delegation", "spawn_agent"),
                 json!({"role":"review","task":"Measure the child","background":true}),
@@ -88,13 +126,40 @@ async fn publishes_child_usage_to_parent() {
             },
         )
         .await;
-        finished(&fixture.client, fixture.session.id, turn.id).await;
+        let completed = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let own: Vec<_> = completed
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == turn.id)
+            .filter_map(|entry| entry.usage.as_ref())
+            .collect();
+        assert_eq!(own.len(), 3);
+        assert_eq!(own.iter().map(|usage| usage.input).sum::<u64>(), 36);
+        assert_eq!(own.iter().map(|usage| usage.output).sum::<u64>(), 12);
+        let completed = settled(&fixture.client, fixture.session.id).await;
+        let notices = completed.runs.iter().filter(|run| run.notice).count() as u64;
+        assert!(notices <= 1);
+        assert!(
+            completed
+                .runs
+                .iter()
+                .filter(|run| run.notice)
+                .all(|run| run.status == Status::Completed)
+        );
+        let responses = 3 + notices;
+        assert_eq!(
+            fixture.parent.requests.lock().unwrap().len() as u64,
+            responses
+        );
         let parent = statistics(&fixture.client, fixture.session.id).await;
         let child = statistics(&fixture.client, child.id).await;
-        assert_eq!(parent.responses, 3);
+        assert_eq!(parent.responses, responses);
         assert_eq!(parent.context_tokens, Some(16));
-        assert_eq!(parent.generation.as_ref().unwrap().responses, 3);
-        assert_eq!(parent.generation.as_ref().unwrap().output_tokens, 12);
+        assert_eq!(parent.generation.as_ref().unwrap().responses, responses);
+        assert_eq!(
+            parent.generation.as_ref().unwrap().output_tokens,
+            responses * 4
+        );
         assert_eq!(
             parent.delegated,
             Metrics {
@@ -125,10 +190,14 @@ async fn publishes_child_usage_to_parent() {
             report.totals.tokens.as_ref().unwrap().input,
             parent.usage.as_ref().unwrap().input + parent.delegated.tokens.as_ref().unwrap().input
         );
-        assert_eq!(report.requests.items.len(), 4);
+        assert_eq!(report.requests.items.len() as u64, responses + 1);
         drop(updates);
         let id = fixture.node.id();
         fixture.node.shutdown().await.unwrap();
+        assert_eq!(
+            fixture.parent.requests.lock().unwrap().len() as u64,
+            responses
+        );
         fixture.controller.handle().disconnect(id).await;
         let profile = fixture.directory.path().join("node");
         let (database, mut db) =
@@ -162,15 +231,25 @@ async fn publishes_child_usage_to_parent() {
             fixture.node.local()
         });
         let restored = statistics(&fixture.client, fixture.session.id).await;
+        assert_eq!(
+            fixture.parent.requests.lock().unwrap().len() as u64,
+            responses
+        );
         assert_eq!(restored.usage, parent.usage);
         assert_eq!(restored.generation, parent.generation);
         assert_eq!(restored.context_tokens, parent.context_tokens);
         assert_eq!(restored.delegated.tokens, parent.delegated.tokens);
-        assert_eq!(restored.cost.as_ref().unwrap().usd_micros, 48);
+        assert_eq!(restored.cost.as_ref().unwrap().usd_micros, responses * 16);
         assert_eq!(restored.delegated.cost.as_ref().unwrap().usd_micros, 16);
         let report = fixture.client.read_usage(query).await.unwrap();
-        assert_eq!(report.totals.cost.as_ref().unwrap().usd_micros, 64);
-        assert_eq!(report.totals.cost.as_ref().unwrap().responses, 4);
+        assert_eq!(
+            report.totals.cost.as_ref().unwrap().usd_micros,
+            (responses + 1) * 16
+        );
+        assert_eq!(
+            report.totals.cost.as_ref().unwrap().responses,
+            responses + 1
+        );
         fixture.close().await;
     }
 }

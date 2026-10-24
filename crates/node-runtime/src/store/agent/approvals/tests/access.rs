@@ -132,7 +132,7 @@ async fn distinguishes_confined_and_unrestricted_authority() {
                 fixture.approve(approval.id).await;
             }
             authorize(
-                &mut fixture.database.connection,
+                &mut fixture.database,
                 fixture.turn,
                 &fixture.request,
                 Some(&prepared(fixture.turn, access)),
@@ -176,7 +176,7 @@ async fn stale_rules_cannot_authorize_native_escape() {
         put(&fixture.database.connection, &approval).await.unwrap();
         assert_eq!(
             authorize(
-                &mut fixture.database.connection,
+                &mut fixture.database,
                 fixture.turn,
                 &fixture.request,
                 Some(&prepared(fixture.turn, Access::Unrestricted))
@@ -263,7 +263,7 @@ async fn unrestricted_access_uses_admitted_permission() {
             fixture.approve(approval.id).await;
         }
         authorize(
-            &mut fixture.database.connection,
+            &mut fixture.database,
             fixture.turn,
             &fixture.request,
             Some(&prepared(fixture.turn, Access::Unrestricted)),
@@ -272,7 +272,7 @@ async fn unrestricted_access_uses_admitted_permission() {
         .unwrap();
         assert!(
             authorize(
-                &mut fixture.database.connection,
+                &mut fixture.database,
                 fixture.turn,
                 &fixture.request,
                 Some(&prepared(fixture.turn, Access::Unrestricted)),
@@ -310,7 +310,7 @@ async fn preserves_existing_command_approval() {
                 fixture.approve(approval.id).await;
             }
             authorize(
-                &mut fixture.database.connection,
+                &mut fixture.database,
                 fixture.turn,
                 &fixture.request,
                 Some(&prepared(fixture.turn, access)),

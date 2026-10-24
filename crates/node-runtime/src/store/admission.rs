@@ -3,7 +3,7 @@ use super::{Ingress, Job, unavailable};
 use sailry_link::{Admission, Pending};
 use sailry_protocol::{ErrorCode, Fault, NodeId, Request};
 use std::sync::{Arc, atomic::Ordering};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 pub(super) fn release_removed(
     commands: Arc<crate::process::background::Commands>,
@@ -77,35 +77,63 @@ pub(super) fn release_removed(
 }
 
 impl Ingress {
+    pub(super) async fn read_request(
+        &self,
+        caller: NodeId,
+        request: Request,
+    ) -> Result<Admission, Fault> {
+        if request.target != self.node || request.version != sailry_protocol::VERSION {
+            return Err(Fault::new(
+                ErrorCode::WrongTarget,
+                "Node or protocol version mismatch",
+            ));
+        }
+        let id = request.id;
+        let (reply, completion) = oneshot::channel();
+        self.submit(Job::Read {
+            caller,
+            request: Box::new(request),
+            reply,
+        })
+        .await?;
+        Ok(Admission {
+            receipt: sailry_protocol::Receipt { id, durable: false },
+            completion,
+        })
+    }
+
     pub(crate) async fn dispatch_internal(&self, request: Request) -> Result<Admission, Fault> {
         self.dispatch_request(self.node, request, true).await
     }
 
+    pub(super) fn submit(&self, job: Job) -> Pending<'_, Result<(), Fault>> {
+        Box::pin(async move {
+            if super::operations::accepts(&job) {
+                let ingress = self.clone();
+                self.operations
+                    .spawn_child(&sailry_link::CancellationToken::new(), async move {
+                        super::operations::execute(ingress, job).await;
+                    })
+                    .await
+                    .map_err(super::database::storage_error)?;
+                Ok(())
+            } else {
+                self.sender.send(job).await.map_err(|_| unavailable())
+            }
+        })
+    }
+
     pub(super) async fn send_internal(&self, job: Job) -> Result<(), Fault> {
-        tokio::select! {
-            biased;
-            _ = self.closed.cancelled() => Err(unavailable()),
-            result = self.sender.send(job) => result.map_err(|_| unavailable()),
-        }
+        self.submit(job).await
     }
 
     pub(super) async fn check_request(
         &self,
         caller: NodeId,
         request: Request,
-        internal: bool,
+        _internal: bool,
     ) -> Result<(), Fault> {
-        if !internal {
-            return self.check_plugin(caller, request).await;
-        }
-        let (reply, response) = oneshot::channel();
-        self.send_internal(Job::CheckPlugin {
-            caller,
-            request: Box::new(request),
-            reply,
-        })
-        .await?;
-        response.await.map_err(|_| unavailable())?
+        self.check_plugin(caller, request).await
     }
 
     async fn recorded(
@@ -173,6 +201,23 @@ impl Ingress {
             if !self.accepting.load(Ordering::Acquire) {
                 return Err(unavailable());
             }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::ReadNetworkSettings
+            ) {
+                return defer(move || self.read_network(request)).await;
+            }
+            if matches!(
+                request.command,
+                sailry_protocol::Command::ListChannelPresets {
+                    refresh_partners: false
+                }
+            ) {
+                return defer(move || self.list_channel_presets(caller, request)).await;
+            }
+            if super::routing::read(&request.command) {
+                return defer(move || self.read_request(caller, request)).await;
+            }
             if let sailry_protocol::Command::StartCodeServer { startup } = &request.command {
                 if request.target != self.node || request.version != sailry_protocol::VERSION {
                     return Err(Fault::new(
@@ -218,20 +263,20 @@ impl Ingress {
                 return self.dismiss_installation(caller, request);
             }
             if matches!(request.command, sailry_protocol::Command::ListBackups) {
-                return self.read_backup(request).await;
+                return defer(move || self.read_backup(request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::ReadArtifact { .. }
             ) {
-                return self.read_artifact(caller, request, internal).await;
+                return defer(move || self.read_artifact(caller, request, internal)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::FetchWeb(_)
                     | sailry_protocol::Command::CancelWebFetch { .. }
             ) {
-                return self.fetch_web(caller, request).await;
+                return defer(move || self.fetch_web(caller, request)).await;
             }
             if matches!(
                 request.command,
@@ -239,13 +284,13 @@ impl Ingress {
                     | sailry_protocol::Command::CancelWebSearch { .. }
                     | sailry_protocol::Command::TestSearchDriver { .. }
             ) {
-                return self.search_web(caller, request).await;
+                return defer(move || self.search_web(caller, request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::ListChannelPresets { .. }
             ) {
-                return self.list_channel_presets(request).await;
+                return defer(move || self.list_channel_presets(caller, request)).await;
             }
             if matches!(
                 request.command,
@@ -254,31 +299,31 @@ impl Ingress {
                     | sailry_protocol::Command::ResolveModel { .. }
                     | sailry_protocol::Command::RefreshLocalModel { .. }
             ) {
-                return self.model_catalog(request).await;
+                return defer(move || self.model_catalog(request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::SearchPluginValues(_)
             ) && self.knowledge.get().is_some()
             {
-                return self.read_storage_search(request).await;
+                return defer(move || self.read_storage_search(request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::QueryKnowledge(_)
                     | sailry_protocol::Command::ReadKnowledgeCitation(_)
             ) {
-                return self.read_knowledge(request).await;
+                return defer(move || self.read_knowledge(request)).await;
             }
             if matches!(request.command, sailry_protocol::Command::Decide(_)) {
-                return self.decide(request).await;
+                return defer(move || self.decide(request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::ReadLocalModels { .. }
                     | sailry_protocol::Command::CancelLocalModel { .. }
             ) {
-                return self.read_local_models(request).await;
+                return defer(move || self.read_local_models(request)).await;
             }
             if matches!(
                 request.command,
@@ -291,7 +336,7 @@ impl Ingress {
                     | sailry_protocol::Command::CancelCodeQuery { .. }
                     | sailry_protocol::Command::ReadCodeRules
             ) {
-                return self.read_code(caller, request).await;
+                return defer(move || self.read_code(caller, request)).await;
             }
             if matches!(
                 request.command,
@@ -323,26 +368,26 @@ impl Ingress {
                 sailry_protocol::Command::OpenPort { .. }
                     | sailry_protocol::Command::CancelPort { .. }
             ) {
-                return self.port(caller, request).await;
+                return defer(move || self.port(caller, request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::ReadPluginMcp { .. }
             ) {
-                return self.read_plugin_mcp(request).await;
+                return defer(move || self.read_plugin_mcp(request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::ReadPluginView { .. }
             ) {
-                return self.read_plugin_view(request).await;
+                return defer(move || self.read_plugin_view(request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::CheckPluginUpdate { .. }
                     | sailry_protocol::Command::CheckPluginUpdates { .. }
             ) {
-                return self.check_plugin_update(request).await;
+                return defer(move || self.check_plugin_update(request)).await;
             }
             if matches!(
                 request.command,
@@ -352,7 +397,7 @@ impl Ingress {
                     | sailry_protocol::Command::ReadCatalogPluginInfo { .. }
                     | sailry_protocol::Command::InspectPluginSource { .. }
             ) {
-                return self.plugin_catalog(request).await;
+                return defer(move || self.plugin_catalog(request)).await;
             }
             if matches!(
                 request.command,
@@ -360,26 +405,26 @@ impl Ingress {
                     | sailry_protocol::Command::DiscoverSkills { .. }
                     | sailry_protocol::Command::DiscoverRegistrySkill { .. }
             ) {
-                return self.discover_skills(caller, request, internal).await;
+                return defer(move || self.discover_skills(caller, request, internal)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::RequestProviderHttp { .. }
             ) {
-                return self.request_provider_http(caller, request).await;
+                return defer(move || self.request_provider_http(caller, request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::DiscoverModels(_)
                     | sailry_protocol::Command::ValidateProvider { .. }
             ) {
-                return self.discover_models(request).await;
+                return defer(move || self.discover_models(request)).await;
             }
             if matches!(
                 request.command,
                 sailry_protocol::Command::RefreshModelCatalog
             ) {
-                return self.refresh_catalog(request).await;
+                return defer(move || self.refresh_catalog(request)).await;
             }
             if matches!(
                 request.command,
@@ -389,7 +434,7 @@ impl Ingress {
                     | sailry_protocol::Command::ResizeTerminal { .. }
                     | sailry_protocol::Command::SetTerminalAppearance { .. }
             ) {
-                return self.terminal(caller, request).await;
+                return defer(move || self.terminal(caller, request)).await;
             }
             if matches!(
                 request.command,
@@ -407,7 +452,7 @@ impl Ingress {
                     | sailry_protocol::Command::DownloadImage { .. }
                     | sailry_protocol::Command::CancelFileTransfer { .. }
             ) {
-                return self.transfer(caller, request, internal).await;
+                return defer(move || self.transfer(caller, request, internal)).await;
             }
             if matches!(
                 request.command,
@@ -436,7 +481,7 @@ impl Ingress {
                     | sailry_protocol::Command::ReadGitCommit { .. }
                     | sailry_protocol::Command::ReadGitDiff { .. }
             ) {
-                return self.inspect_worktree(request, internal).await;
+                return defer(move || self.inspect_worktree(request, internal)).await;
             }
             if matches!(
                 request.command,
@@ -544,21 +589,36 @@ impl Ingress {
                 request.command,
                 sailry_protocol::Command::SavePythonSettings(_)
             );
-            let job = Job::Request {
-                access: crate::files::Access::request(&request, internal),
-                caller,
-                request: Box::new(request),
-                reply,
-            };
-            if internal {
-                self.send_internal(job).await?;
+            let storage = self.storage.get().ok_or_else(unavailable)?;
+            let order = if let Some(session) = super::routing::session(&request.command) {
+                Some(storage.order(session).await)
             } else {
-                self.sender.try_send(job).map_err(|error| match error {
-                    mpsc::error::TrySendError::Full(_) => {
-                        Fault::new(ErrorCode::Busy, "Node request queue is full")
-                    }
-                    mpsc::error::TrySendError::Closed(_) => unavailable(),
-                })?;
+                None
+            };
+            let access = crate::files::Access::request(&request, internal);
+            if super::routing::lifecycle(&request.command) {
+                self.sender
+                    .send(Job::Request {
+                        access,
+                        caller,
+                        request: Box::new(request),
+                        reply,
+                    })
+                    .await
+                    .map_err(|_| unavailable())?;
+            } else {
+                let ingress = self.clone();
+                self.operations
+                    .spawn_child(&sailry_link::CancellationToken::new(), async move {
+                        if let Some(work) = ingress
+                            .persist_request(access, caller, Box::new(request), reply, order)
+                            .await
+                        {
+                            ingress.handoff(work).await;
+                        }
+                    })
+                    .await
+                    .map_err(super::database::storage_error)?;
             }
             let result = response.await.map_err(|_| unavailable())?;
             self.dispatch.wake.notify_one();
@@ -573,4 +633,13 @@ impl Ingress {
             })
         })
     }
+}
+
+// Construct only the selected handler's future on its own poll boundary.
+#[inline(never)]
+fn defer<'a, F>(factory: impl FnOnce() -> F + Send + 'a) -> Pending<'a, Result<Admission, Fault>>
+where
+    F: std::future::Future<Output = Result<Admission, Fault>> + Send + 'a,
+{
+    Box::pin(async move { factory().await })
 }

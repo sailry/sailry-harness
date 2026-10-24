@@ -271,8 +271,8 @@ impl Ingress {
 
     async fn search_plan(&self) -> Result<Plan, Fault> {
         let (reply, response) = tokio::sync::oneshot::channel();
-        self.sender
-            .try_send(Job::SearchPlan { reply })
+        self.submit(Job::SearchPlan { reply })
+            .await
             .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }

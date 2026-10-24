@@ -290,44 +290,60 @@ pub(in crate::store) async fn yield_run(
     target: TurnId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<bool, Fault> {
-    let transaction = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let target = runs::get(&transaction, target).await?;
-    if target.kind != RunKind::Task || target.status != Status::Running {
-        return Ok(false);
-    }
-    // A later explicit Stop wins over admission; never revive a paused intent.
-    if read(&transaction, target.session).await?.paused {
-        return Ok(false);
-    }
-    let Some(source) = pending(&transaction, target.turn).await? else {
-        return Ok(false);
-    };
-    compatible(
-        &transaction,
-        &runs::get(&transaction, source).await?,
-        &target,
-    )
-    .await?;
-    let run = runs::handoff(&transaction, target.turn).await?;
-    let queue = read(&transaction, target.session).await?;
-    let envelope = super::super::changed(&transaction, database.node, target.session).await?;
-    let child = super::super::children::get(&transaction, &run).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    let _ = events.send(envelope);
-    database
-        .feeds
-        .publish(database.node, target.session, Change::Queue(queue));
-    super::super::feed::run(database, run).await;
-    if let Some(child) = child {
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .unchecked_transaction()
+            .await
+            .map_err(storage_error)?;
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let target = runs::get(&transaction, target).await?;
+        if target.kind != RunKind::Task || target.status != Status::Running {
+            return Ok(false);
+        }
+        // A later explicit Stop wins over admission; never revive a paused intent.
+        if read(&transaction, target.session).await?.paused {
+            return Ok(false);
+        }
+        let Some(source) = pending(&transaction, target.turn).await? else {
+            return Ok(false);
+        };
+        compatible(
+            &transaction,
+            &runs::get(&transaction, source).await?,
+            &target,
+        )
+        .await?;
+        let run = runs::handoff(&transaction, target.turn).await?;
+        let queue = read(&transaction, target.session).await?;
+        let envelope = super::super::changed(&transaction, database.node, target.session).await?;
+        let child = super::super::children::get(&transaction, &run).await?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        publication.send(events, envelope);
         database
             .feeds
-            .publish(database.node, child.origin.session, Change::Child(child));
+            .publish(database.node, target.session, Change::Queue(queue));
+        super::super::feed::run(database, run).await;
+        if let Some(child) = child {
+            database
+                .feeds
+                .publish(database.node, child.origin.session, Change::Child(child));
+        }
+        Ok(true)
     }
-    Ok(true)
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
+    }
+    result
 }
 
 pub(in crate::store) async fn retain(
@@ -335,33 +351,49 @@ pub(in crate::store) async fn retain(
     target: TurnId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let run = runs::get(&transaction, target).await?;
-    let child: bool = {
-        let mut statement = transaction.prepare("SELECT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session=?1)").await.map_err(storage_error)?;
-        let row = statement
-            .query_row([run.session.to_string()])
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .unchecked_transaction()
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-        mapped.map_err(storage_error)?
-    };
-    if child {
-        super::super::delegation::retain_guidance(&transaction, Some(target)).await?;
-    } else {
-        pause(&transaction, run.session, true).await?;
-        clear(&transaction, run.session, Some(target)).await?;
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let run = runs::get(&transaction, target).await?;
+        let child: bool = {
+            let mut statement = transaction.prepare("SELECT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session=?1)").await.map_err(storage_error)?;
+            let row = statement
+                .query_row([run.session.to_string()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
+        if child {
+            super::super::delegation::retain_guidance(&transaction, Some(target)).await?;
+        } else {
+            pause(&transaction, run.session, true).await?;
+            clear(&transaction, run.session, Some(target)).await?;
+        }
+        let queue = read(&transaction, run.session).await?;
+        let envelope = super::super::changed(&transaction, database.node, run.session).await?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        publication.send(events, envelope);
+        database
+            .feeds
+            .publish(database.node, run.session, Change::Queue(queue));
+        Ok(())
     }
-    let queue = read(&transaction, run.session).await?;
-    let envelope = super::super::changed(&transaction, database.node, run.session).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    let _ = events.send(envelope);
-    database
-        .feeds
-        .publish(database.node, run.session, Change::Queue(queue));
-    Ok(())
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
+    }
+    result
 }

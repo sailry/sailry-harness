@@ -38,46 +38,62 @@ pub(in crate::store) async fn tick(
     recover: bool,
 ) -> Result<Batch, Fault> {
     let timestamp = now();
-    let transaction = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let observers = if recover {
-        jobs::observers(&transaction, database.node).await?
-    } else {
-        vec![]
-    };
-    let mut changed = schedules::due(&transaction, timestamp).await?;
-    let (mut work, owners) = jobs::claim(&transaction, database.node, timestamp).await?;
-    work.extend(observers);
-    changed.extend(owners);
-    changed.sort();
-    changed.dedup();
-    let envelope = if changed.is_empty() {
-        None
-    } else {
-        Some(changed_event(&transaction, database.node, changed).await?)
-    };
-    let next_ms = schedules::next(&transaction, timestamp).await?;
-    let pending = {
-        let mut statement = transaction
-            .prepare("SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status='queued')")
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .unchecked_transaction()
             .await
             .map_err(storage_error)?;
-        let row = statement.query_row(()).await.map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-        mapped.map_err(storage_error)?
-    };
-    transaction.commit().await.map_err(storage_error)?;
-    if let Some(event) = envelope {
-        let _ = events.send(event);
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let observers = if recover {
+            jobs::observers(&transaction, database.node).await?
+        } else {
+            vec![]
+        };
+        let mut changed = schedules::due(&transaction, timestamp).await?;
+        let (mut work, owners) = jobs::claim(&transaction, database.node, timestamp).await?;
+        work.extend(observers);
+        changed.extend(owners);
+        changed.sort();
+        changed.dedup();
+        let envelope = if changed.is_empty() {
+            None
+        } else {
+            Some(changed_event(&transaction, database.node, changed).await?)
+        };
+        let next_ms = schedules::next(&transaction, timestamp).await?;
+        let pending = {
+            let mut statement = transaction
+                .prepare("SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status='queued')")
+                .await
+                .map_err(storage_error)?;
+            let row = statement.query_row(()).await.map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        if let Some(event) = envelope {
+            publication.send(events, event);
+        }
+        Ok(Batch {
+            work,
+            pending,
+            next_ms,
+        })
     }
-    Ok(Batch {
-        work,
-        pending,
-        next_ms,
-    })
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
+    }
+    result
 }
 
 pub(in crate::store) async fn finish(
@@ -86,16 +102,32 @@ pub(in crate::store) async fn finish(
     result: Result<(), Fault>,
     events: &broadcast::Sender<protocol::EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let package = jobs::finish(&transaction, id, result).await?;
-    let event = changed_event(&transaction, database.node, vec![package]).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    let _ = events.send(event);
-    Ok(())
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .unchecked_transaction()
+            .await
+            .map_err(storage_error)?;
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let package = jobs::finish(&transaction, id, result).await?;
+        let event = changed_event(&transaction, database.node, vec![package]).await?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        publication.send(events, event);
+        Ok(())
+    }
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
+    }
+    result
 }
 
 async fn changed_event(

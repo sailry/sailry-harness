@@ -137,6 +137,9 @@ impl Ingress {
     }
 
     async fn update_info(&self, name: &str, revision: u64) -> Result<Info, Fault> {
+        if self.closed.is_cancelled() {
+            return Err(unavailable());
+        }
         let (reply, response) = oneshot::channel();
         self.send_internal(Job::PluginUpdate {
             name: name.into(),

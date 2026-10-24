@@ -15,6 +15,8 @@ async fn publishes_only_completed_image() {
             "eof",
             "incomplete",
         ] {
+            let held = Arc::new(tokio::sync::Notify::new());
+            let ready = held.clone();
             let session = Arc::new(Mutex::new(None::<SessionId>));
             let captured = session.clone();
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
@@ -39,6 +41,7 @@ async fn publishes_only_completed_image() {
                 assert_eq!(request.headers["x-codex-routing-hint"], "model=fixture");
                 if !body["tools"].as_array().unwrap().iter().any(|tool| tool["type"] == "image_generation") {
                     server::input(request, &options, ACCESS);
+                    ready.notify_one();
                     return Reply::Hold;
                 }
                 assert_eq!(body["tools"], json!([{"type":"image_generation","output_format":"png"}]));
@@ -70,6 +73,12 @@ async fn publishes_only_completed_image() {
                 server::stream(vec![completed], true)
             }).await;
             let fixture = Fixture::packages(remote, &server, &["media"]).await;
+            fixture
+                .node
+                .set_model_transport_fixture(adk_model::openai::WsOptions {
+                    enabled: Arc::new(|| false),
+                    ..Default::default()
+                });
             let provider = configured(&fixture, None).await;
             assert!(provider.models[0].generates.is_empty());
             let mut companion = provider.clone();
@@ -155,10 +164,11 @@ async fn publishes_only_completed_image() {
                 panic!("media package expected")
             };
             assert!(package.issues.is_empty(), "{:?}", package.issues);
-            let before = server.requests.lock().unwrap().len();
             let (_, turn) = super::super::execution::submit(&fixture.client, &active).await;
             assert!(turn.plugins.contains(&package.summary.reference()));
-            server.wait_requests(before + 1).await;
+            tokio::time::timeout(Duration::from_secs(10), held.notified())
+                .await
+                .expect("main model request did not reach the held response");
             let path = "assets/generated/codex.png";
             let generated = fixture
                 .client
@@ -196,8 +206,17 @@ async fn publishes_only_completed_image() {
                 );
             } else {
                 let error = generated.unwrap_err();
-                assert_eq!(error.code, ErrorCode::Unavailable);
                 no_secrets(&error);
+                assert_eq!(
+                    error.code,
+                    if outcome == "eof" {
+                        ErrorCode::OutcomeUnknown
+                    } else {
+                        ErrorCode::Unavailable
+                    },
+                    "remote={remote} outcome={outcome} message={}",
+                    error.message
+                );
                 assert!(
                     !root.join(path).exists(),
                     "noncompleted image must not be published"

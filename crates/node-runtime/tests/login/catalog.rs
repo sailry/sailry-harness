@@ -355,7 +355,7 @@ async fn rejects_changed_accounts() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn bounds_and_cancels_queries() {
+async fn allows_concurrent_queries_and_cancellation() {
     for remote in [false, true] {
         let queries = AtomicUsize::new(0);
         let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
@@ -370,21 +370,13 @@ async fn bounds_and_cancels_queries() {
         let provider =
             execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
         let mut jobs = Vec::new();
-        for _ in 0..4 {
+        for _ in 0..5 {
             let client = fixture.client.clone();
             let request = client.prepare(command(&provider));
             jobs.push(tokio::spawn(async move { client.execute(request).await }));
         }
-        server.wait_requests(8).await;
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(command(&provider)))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
-        );
+        server.wait_requests(9).await;
+        assert!(jobs.iter().all(|job| !job.is_finished()));
         fixture
             .client
             .execute(fixture.client.prepare(Command::Snapshot))
@@ -394,17 +386,17 @@ async fn bounds_and_cancels_queries() {
             job.abort();
             let _ = job.await;
         }
-        server.wait_closed(4).await;
+        server.wait_closed(5).await;
         let client = fixture.client.clone();
         let request = client.prepare(command(&provider));
         let query = tokio::spawn(async move { client.execute(request).await });
-        server.wait_requests(9).await;
+        server.wait_requests(10).await;
         tokio::time::timeout(Duration::from_secs(5), fixture.node.shutdown())
             .await
             .unwrap()
             .unwrap();
         assert!(query.await.unwrap().is_err());
-        server.wait_closed(5).await;
+        server.wait_closed(6).await;
         fixture.controller.close().await.unwrap();
     }
 }

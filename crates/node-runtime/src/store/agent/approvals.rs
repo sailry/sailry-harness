@@ -32,14 +32,13 @@ impl Ingress {
         request: ToolConfirmationRequest,
     ) -> Result<sailry_protocol::process::Access, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::CommandAccess {
-                turn,
-                request,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::CommandAccess {
+            turn,
+            request,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 
@@ -55,20 +54,19 @@ impl Ingress {
             .agents
             .timeline(turn)
             .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Confirm {
-                turn,
-                owner: pending.owner,
-                deadline: pending.deadline,
-                request,
-                binding,
-                startup: None,
-                ssh: None,
-                prepared: None,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Confirm {
+            turn,
+            owner: pending.owner,
+            deadline: pending.deadline,
+            request,
+            binding,
+            startup: None,
+            ssh: None,
+            prepared: None,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         pending.wait(response).await
     }
 
@@ -87,20 +85,19 @@ impl Ingress {
             .agents
             .timeline(turn)
             .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Confirm {
-                turn,
-                owner: pending.owner,
-                deadline: pending.deadline,
-                request,
-                binding: Some(binding),
-                startup: Some(startup),
-                ssh: None,
-                prepared: None,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Confirm {
+            turn,
+            owner: pending.owner,
+            deadline: pending.deadline,
+            request,
+            binding: Some(binding),
+            startup: Some(startup),
+            ssh: None,
+            prepared: None,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         pending.wait(response).await
     }
 
@@ -118,20 +115,19 @@ impl Ingress {
             .agents
             .timeline(turn)
             .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Confirm {
-                turn,
-                owner: pending.owner,
-                deadline: pending.deadline,
-                request,
-                binding: Some(binding),
-                startup: None,
-                ssh,
-                prepared: Some(prepared),
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Confirm {
+            turn,
+            owner: pending.owner,
+            deadline: pending.deadline,
+            request,
+            binding: Some(binding),
+            startup: None,
+            ssh,
+            prepared: Some(prepared),
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         pending.wait(response).await
     }
 
@@ -142,15 +138,14 @@ impl Ingress {
         prepared: Option<Command>,
     ) -> Result<RequestId, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Authorize {
-                turn,
-                request,
-                prepared,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Authorize {
+            turn,
+            request,
+            prepared,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 
@@ -161,22 +156,20 @@ impl Ingress {
         prepared: Command,
     ) -> Result<(), Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ConnectionAccess {
-                turn,
-                request,
-                prepared,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ConnectionAccess {
+            turn,
+            request,
+            prepared,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 
     pub(crate) async fn denials(&self, turn: TurnId) -> Result<Vec<results::Denial>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Denials { turn, reply })))
+        self.submit(Job::Agent(Box::new(Operation::Denials { turn, reply })))
             .await
             .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
@@ -272,108 +265,124 @@ pub(super) async fn begin_for(
         ssh,
         prepared,
     } = capture;
-    let transaction = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let run = active(&transaction, turn).await?;
-    let call = call_id(request)?;
-    let (entry, index) = super::calls::locate(&transaction, turn, request).await?;
-    let mut source = if let Some(ssh) = ssh {
-        super::connections::validate_trust(&transaction, turn, binding, ssh).await?;
-        if permissions::config(&transaction, turn).await?.mode == WorkMode::Plan {
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .unchecked_transaction()
+            .await
+            .map_err(storage_error)?;
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let run = active(&transaction, turn).await?;
+        let call = call_id(request)?;
+        let (entry, index) = super::calls::locate(&transaction, turn, request).await?;
+        let mut source = if let Some(ssh) = ssh {
+            super::connections::validate_trust(&transaction, turn, binding, ssh).await?;
+            if permissions::config(&transaction, turn).await?.mode == WorkMode::Plan {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "planning turns cannot trust SSH host keys",
+                ));
+            }
+            ApprovalSource::User
+        } else if let Some(startup) = startup {
+            super::permissions::code_source(&transaction, turn, request, startup).await?
+        } else {
+            super::permissions::source(&transaction, turn, request).await?
+        };
+        if let Some(binding) = binding {
+            rules::validate(&transaction, turn, request, binding).await?;
+        }
+        let prepared = match prepared {
+            Some(command) => Prepared::new(command)?,
+            None => prepared::baseline(&transaction, turn, binding).await?,
+        };
+        let access = access::requested(&transaction, turn, request, binding).await?;
+        let escape = crate::process::sandbox::SUPPORTED
+            && access == Some(sailry_protocol::process::Access::Unrestricted);
+        if escape && source != ApprovalSource::Full {
+            source = ApprovalSource::User;
+        }
+        let can_remember = startup.is_none()
+            && ssh.is_none()
+            && binding.is_some()
+            && source == ApprovalSource::User
+            && !escape;
+        let prefix = binding
+            .and_then(|binding| rules::command(binding, request))
+            .and_then(prefix::offered)
+            .filter(|_| can_remember);
+        let mut choice = None;
+        if can_remember
+            && let Some(binding) = binding
+            && let Some((matched, remembered)) =
+                rules::matching(&transaction, &run, binding, request).await?
+        {
+            source = matched;
+            choice = Some(remembered);
+        }
+        let approval = Approval {
+            id: ApprovalId::new(),
+            session: run.session,
+            turn,
+            entry,
+            index,
+            state: if source == ApprovalSource::User {
+                ApprovalState::Pending
+            } else {
+                ApprovalState::Approved
+            },
+            source,
+            choice,
+            reason: None,
+            prefix,
+            can_remember,
+            access,
+            startup: startup.cloned(),
+            ssh: ssh.cloned(),
+        };
+        let exists: bool = {
+            let mut statement = transaction
+                .prepare("SELECT EXISTS(SELECT 1 FROM agent_approvals WHERE turn=?1 AND call=?2)")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row(params![turn.to_string(), call])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
+        if exists {
             return Err(Fault::new(
-                ErrorCode::PermissionDenied,
-                "planning turns cannot trust SSH host keys",
+                ErrorCode::Conflict,
+                "tool call already requested approval",
             ));
         }
-        ApprovalSource::User
-    } else if let Some(startup) = startup {
-        super::permissions::code_source(&transaction, turn, request, startup).await?
-    } else {
-        super::permissions::source(&transaction, turn, request).await?
-    };
-    if let Some(binding) = binding {
-        rules::validate(&transaction, turn, request, binding).await?;
+        transaction.execute("INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed,prepared) VALUES(?1,?2,?3,?4,?5,?6,0,?7)",
+            params![approval.id.to_string(), turn.to_string(), call, encode(&approval)?, encode(&binding)?, RequestId::new().to_string(), encode(&prepared)?]).await.map_err(storage_error)?;
+        let envelope = changed(&transaction, database.node, run.session).await?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        publication.send(events, envelope);
+        database.feeds.publish(
+            database.node,
+            run.session,
+            Change::Approval(approval.clone()),
+        );
+        Ok(approval)
     }
-    let prepared = match prepared {
-        Some(command) => Prepared::new(command)?,
-        None => prepared::baseline(&transaction, turn, binding).await?,
-    };
-    let access = access::requested(&transaction, turn, request, binding).await?;
-    let escape = crate::process::sandbox::SUPPORTED
-        && access == Some(sailry_protocol::process::Access::Unrestricted);
-    if escape && source != ApprovalSource::Full {
-        source = ApprovalSource::User;
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
     }
-    let can_remember = startup.is_none()
-        && ssh.is_none()
-        && binding.is_some()
-        && source == ApprovalSource::User
-        && !escape;
-    let prefix = binding
-        .and_then(|binding| rules::command(binding, request))
-        .and_then(prefix::offered)
-        .filter(|_| can_remember);
-    let mut choice = None;
-    if can_remember
-        && let Some(binding) = binding
-        && let Some((matched, remembered)) =
-            rules::matching(&transaction, &run, binding, request).await?
-    {
-        source = matched;
-        choice = Some(remembered);
-    }
-    let approval = Approval {
-        id: ApprovalId::new(),
-        session: run.session,
-        turn,
-        entry,
-        index,
-        state: if source == ApprovalSource::User {
-            ApprovalState::Pending
-        } else {
-            ApprovalState::Approved
-        },
-        source,
-        choice,
-        reason: None,
-        prefix,
-        can_remember,
-        access,
-        startup: startup.cloned(),
-        ssh: ssh.cloned(),
-    };
-    let exists: bool = {
-        let mut statement = transaction
-            .prepare("SELECT EXISTS(SELECT 1 FROM agent_approvals WHERE turn=?1 AND call=?2)")
-            .await
-            .map_err(storage_error)?;
-        let row = statement
-            .query_row(params![turn.to_string(), call])
-            .await
-            .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-        mapped.map_err(storage_error)?
-    };
-    if exists {
-        return Err(Fault::new(
-            ErrorCode::Conflict,
-            "tool call already requested approval",
-        ));
-    }
-    transaction.execute("INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed,prepared) VALUES(?1,?2,?3,?4,?5,?6,0,?7)",
-        params![approval.id.to_string(), turn.to_string(), call, encode(&approval)?, encode(&binding)?, RequestId::new().to_string(), encode(&prepared)?]).await.map_err(storage_error)?;
-    let envelope = changed(&transaction, database.node, run.session).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    let _ = events.send(envelope);
-    database.feeds.publish(
-        database.node,
-        run.session,
-        Change::Approval(approval.clone()),
-    );
-    Ok(approval)
+    result
 }
 
 pub(in crate::store) async fn resolve(
@@ -527,114 +536,128 @@ pub(super) async fn connection_access(
 }
 
 pub(super) async fn authorize(
-    db: &mut Connection,
+    database: &mut Database,
     turn: TurnId,
     request: &ToolConfirmationRequest,
     prepared: Option<&Command>,
 ) -> Result<RequestId, Fault> {
-    let transaction = db.transaction().await.map_err(storage_error)?;
-    active(&transaction, turn).await?;
-    let record: Option<(Vec<u8>, String, bool)> = {
-        let mut statement = transaction
-            .prepare("SELECT body,request,claimed FROM agent_approvals WHERE turn=?1 AND call=?2")
-            .await
-            .map_err(storage_error)?;
-        match statement
-            .query_row(params![turn.to_string(), call_id(request)?])
-            .await
-        {
-            Ok(row) => {
-                let mapped: turso::Result<_> =
-                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
-                Some(mapped.map_err(storage_error)?)
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database.connection.transaction().await.map_err(storage_error)?;
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        active(&transaction, turn).await?;
+        let record: Option<(Vec<u8>, String, bool)> = {
+            let mut statement = transaction
+                .prepare("SELECT body,request,claimed FROM agent_approvals WHERE turn=?1 AND call=?2")
+                .await
+                .map_err(storage_error)?;
+            match statement
+                .query_row(params![turn.to_string(), call_id(request)?])
+                .await
+            {
+                Ok(row) => {
+                    let mapped: turso::Result<_> =
+                        (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
             }
-            Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+        };
+        let Some((body, id, claimed)) = record else {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "tool call has no approval",
+            ));
+        };
+        let approval: Approval = serde_json::from_slice(&body).map_err(storage_error)?;
+        if approval.state != ApprovalState::Approved || claimed {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "tool approval is unavailable or already used",
+            ));
         }
-    };
-    let Some((body, id, claimed)) = record else {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "tool call has no approval",
-        ));
-    };
-    let approval: Approval = serde_json::from_slice(&body).map_err(storage_error)?;
-    if approval.state != ApprovalState::Approved || claimed {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "tool approval is unavailable or already used",
-        ));
-    }
-    let body: Vec<u8> = {
-        let mut statement = transaction
-            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
-            .await
-            .map_err(storage_error)?;
-        let row = statement
-            .query_row(params![turn.to_string(), approval.entry.as_str()])
-            .await
-            .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-        mapped.map_err(storage_error)?
-    };
-    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-    if !event
-        .content()
-        .and_then(|content| content.parts.get(approval.index))
-        .is_some_and(|part| matches_call(part, request))
-    {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "tool arguments differ from the approved call",
-        ));
-    }
-    prepared::check_connection(&transaction, &approval, prepared).await?;
-    access::check(&approval, prepared)?;
-    if let Some(startup) = &approval.startup {
-        if !matches!(prepared, Some(Command::StartCodeServer { startup: actual }) if actual == startup)
+        let body: Vec<u8> = {
+            let mut statement = transaction
+                .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row(params![turn.to_string(), approval.entry.as_str()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
+        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+        if !event
+            .content()
+            .and_then(|content| content.parts.get(approval.index))
+            .is_some_and(|part| matches_call(part, request))
         {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
-                "prepared language startup differs from approval",
+                "tool arguments differ from the approved call",
             ));
         }
-        super::super::code::grant(&transaction, startup).await?;
-    }
-    if let Some(ssh) = &approval.ssh
-        && !matches!(prepared, Some(Command::RunSsh { profile, expected_revision, .. } | Command::TransferSsh { profile, expected_revision, .. }) if *profile == ssh.profile && *expected_revision == ssh.expected_revision)
-    {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "prepared SSH connection differs from host key approval",
-        ));
-    }
-    rules::check_prepared(&approval, prepared)?;
-    let previous: Vec<u8> = {
-        let mut statement = transaction
-            .prepare("SELECT prepared FROM agent_approvals WHERE id=?1")
+        prepared::check_connection(&transaction, &approval, prepared).await?;
+        access::check(&approval, prepared)?;
+        if let Some(startup) = &approval.startup {
+            if !matches!(prepared, Some(Command::StartCodeServer { startup: actual }) if actual == startup)
+            {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "prepared language startup differs from approval",
+                ));
+            }
+            super::super::code::grant(&transaction, startup).await?;
+        }
+        if let Some(ssh) = &approval.ssh
+            && !matches!(prepared, Some(Command::RunSsh { profile, expected_revision, .. } | Command::TransferSsh { profile, expected_revision, .. }) if *profile == ssh.profile && *expected_revision == ssh.expected_revision)
+        {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "prepared SSH connection differs from host key approval",
+            ));
+        }
+        rules::check_prepared(&approval, prepared)?;
+        let previous: Vec<u8> = {
+            let mut statement = transaction
+                .prepare("SELECT prepared FROM agent_approvals WHERE id=?1")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row([approval.id.to_string()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
+        let baseline: Option<Prepared> = serde_json::from_slice(&previous).map_err(storage_error)?;
+        let mut captured = prepared.map(Prepared::new).transpose()?.flatten();
+        if let (Some(captured), Some(baseline)) = (&mut captured, baseline) {
+            captured.targets = baseline.targets;
+        }
+        transaction
+            .execute(
+                "UPDATE agent_approvals SET claimed=1,prepared=?2 WHERE id=?1",
+                params![approval.id.to_string(), encode(&captured)?],
+            )
             .await
             .map_err(storage_error)?;
-        let row = statement
-            .query_row([approval.id.to_string()])
-            .await
-            .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-        mapped.map_err(storage_error)?
-    };
-    let baseline: Option<Prepared> = serde_json::from_slice(&previous).map_err(storage_error)?;
-    let mut captured = prepared.map(Prepared::new).transpose()?.flatten();
-    if let (Some(captured), Some(baseline)) = (&mut captured, baseline) {
-        captured.targets = baseline.targets;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        id.parse().map_err(storage_error)
     }
-    transaction
-        .execute(
-            "UPDATE agent_approvals SET claimed=1,prepared=?2 WHERE id=?1",
-            params![approval.id.to_string(), encode(&captured)?],
-        )
-        .await
-        .map_err(storage_error)?;
-    transaction.commit().await.map_err(storage_error)?;
-    id.parse().map_err(storage_error)
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
+    }
+    result
 }
 
 pub(super) async fn close(

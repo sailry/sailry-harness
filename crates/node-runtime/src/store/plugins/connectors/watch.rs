@@ -1,9 +1,9 @@
 //! Subscribe before reading so package and connection commits cannot be lost.
 use super::*;
-use crate::store::{Ingress, Job, unavailable};
+use crate::store::{Ingress, unavailable};
 use sailry_link::{Pending, Subscription};
 use sailry_protocol::{EventEnvelope, NodeId, Update, plugin::connector::Changes};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::broadcast;
 
 pub(in crate::store) async fn snapshot(
     db: &Connection,
@@ -40,12 +40,15 @@ pub(in crate::store) async fn subscribe(
 }
 
 async fn state(ingress: &Ingress) -> Result<Changes, Fault> {
-    let (reply, response) = oneshot::channel();
+    let profile = ingress.profile.clone();
     ingress
-        .sender
-        .try_send(Job::ConnectorState { reply })
-        .map_err(|_| unavailable())?;
-    response.await.map_err(|_| unavailable())?
+        .storage
+        .get()
+        .ok_or_else(unavailable)?
+        .read(move |connection| {
+            Box::pin(async move { snapshot(connection, profile.as_deref()).await })
+        })
+        .await
 }
 
 struct Feed {

@@ -109,6 +109,7 @@ impl Database {
         download: Download,
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Result<catalog::Status, Fault> {
+        let publication = self.publication.clone();
         let node = self.node;
         let transaction = self
             .connection
@@ -164,9 +165,10 @@ impl Database {
             )
             .await?,
         );
-        transaction.commit().await.map_err(storage_error)?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
         for update in updates {
-            let _ = events.send(update);
+            publication.send(events, update);
         }
         Ok(status)
     }
@@ -192,8 +194,8 @@ impl Ingress {
             return Err(unavailable());
         }
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::Catalog { download, reply })
+        self.submit(Job::Catalog { download, reply })
+            .await
             .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
         let status = response.await.map_err(|_| unavailable())??;
         let (reply, completion) = oneshot::channel();

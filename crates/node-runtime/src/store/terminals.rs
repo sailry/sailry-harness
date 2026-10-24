@@ -202,13 +202,29 @@ impl Database {
         info: Info,
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Result<(), Fault> {
-        let transaction = self
-            .connection
-            .unchecked_transaction()
-            .await
-            .map_err(storage_error)?;
+        let write = self.write().await?;
+        for attempt in 0..=super::database::conflict::RETRIES {
+            let result = self.terminal_changed_once(&info, events).await;
+            if let Err(error) = super::database::conflict::rollback(&self.connection).await {
+                self.connection.hold_write(write);
+                return Err(error);
+            }
+            if !super::database::conflict::again(&result, attempt).await {
+                return result;
+            }
+        }
+        unreachable!("the final attempt returns its result")
+    }
+
+    async fn terminal_changed_once(
+        &self,
+        info: &Info,
+        events: &broadcast::Sender<EventEnvelope>,
+    ) -> Result<(), Fault> {
+        let publication = self.publication.clone();
+        let transaction = super::database::conflict::begin(&self.connection).await?;
         let previous = read(&transaction, info.id).await?;
-        let envelope = if let Some(event) = record_update(&transaction, &info, true).await? {
+        let envelope = if let Some(event) = record_update(&transaction, info, true).await? {
             super::database::record(&transaction, self.node, vec![event])
                 .await?
                 .pop()
@@ -219,7 +235,7 @@ impl Database {
             (match previous.as_ref() {
                 Some(value) => Some(
                     (async |previous| {
-                        super::notifications::system::terminal(&transaction, previous, &info).await
+                        super::notifications::system::terminal(&transaction, previous, info).await
                     })(value)
                     .await,
                 ),
@@ -232,12 +248,13 @@ impl Database {
         };
         let notices =
             super::database::record(&transaction, self.node, notice.into_iter().collect()).await?;
-        transaction.commit().await.map_err(storage_error)?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
         if let Some(event) = envelope {
-            let _ = events.send(event);
+            publication.send(events, event);
         }
         for notice in notices {
-            let _ = events.send(notice);
+            publication.send(events, notice);
         }
         Ok(())
     }

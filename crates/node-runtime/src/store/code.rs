@@ -385,7 +385,7 @@ pub(super) async fn initialize(
         enable(&transaction, enabled).await?;
     }
     let settings = settings(&transaction).await?;
-    transaction.commit().await.map_err(storage_error)?;
+    crate::store::database::conflict::commit(transaction).await?;
     Ok(settings)
 }
 pub(super) async fn save(

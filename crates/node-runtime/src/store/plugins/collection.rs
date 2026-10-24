@@ -140,7 +140,7 @@ async fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
             .map_err(storage_error)?;
     }
     // Disk cleanup follows the commit. Interrupted deletion leaves an orphan for the next run.
-    transaction.commit().await.map_err(storage_error)?;
+    crate::store::database::conflict::commit(transaction).await?;
     Ok(packages)
 }
 

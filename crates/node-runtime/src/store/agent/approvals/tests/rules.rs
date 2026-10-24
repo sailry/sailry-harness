@@ -487,14 +487,9 @@ async fn preserves_user_source_and_matches_owner() {
         .code,
         ErrorCode::Conflict
     );
-    let first = authorize(
-        &mut fixture.database.connection,
-        fixture.turn,
-        &fixture.request,
-        None,
-    )
-    .await
-    .unwrap();
+    let first = authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
+        .await
+        .unwrap();
     append_call(&mut fixture, "next-call").await;
     let automatic = begin_owned(&mut fixture, &binding).await;
     assert_eq!(automatic.source, ApprovalSource::SessionRule);
@@ -502,25 +497,15 @@ async fn preserves_user_source_and_matches_owner() {
     assert_eq!(automatic.state, ApprovalState::Approved);
     assert_ne!(automatic.id, approval.id);
     assert_ne!(
-        authorize(
-            &mut fixture.database.connection,
-            fixture.turn,
-            &fixture.request,
-            None
-        )
-        .await
-        .unwrap(),
+        authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
+            .await
+            .unwrap(),
         first
     );
     assert!(
-        authorize(
-            &mut fixture.database.connection,
-            fixture.turn,
-            &fixture.request,
-            None
-        )
-        .await
-        .is_err()
+        authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
+            .await
+            .is_err()
     );
 }
 
@@ -832,14 +817,9 @@ async fn keeps_unowned_tools_once_only() {
     )
     .await
     .unwrap();
-    authorize(
-        &mut fixture.database.connection,
-        fixture.turn,
-        &fixture.request,
-        None,
-    )
-    .await
-    .unwrap();
+    authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -927,7 +907,7 @@ async fn validates_prepared_prefix_before_claim() {
     };
     assert_eq!(
         authorize(
-            &mut fixture.database.connection,
+            &mut fixture.database,
             fixture.turn,
             &fixture.request,
             Some(&prepared)
@@ -953,7 +933,7 @@ async fn validates_prepared_prefix_before_claim() {
     };
     *command = "cargo test --lib".into();
     authorize(
-        &mut fixture.database.connection,
+        &mut fixture.database,
         fixture.turn,
         &fixture.request,
         Some(&prepared),

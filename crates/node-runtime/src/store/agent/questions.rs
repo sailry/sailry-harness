@@ -21,14 +21,13 @@ impl Ingress {
             .agents
             .timeline(turn)
             .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Ask {
-                turn,
-                request,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Ask {
+            turn,
+            request,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 }
@@ -53,41 +52,57 @@ pub(super) async fn begin(
     if request.tool_name == "ask_user" && spec.prompt.is_empty() {
         return Err(sailry_protocol::Fault::invalid("question prompt is empty"));
     }
-    let transaction = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let run = calls::active(&transaction, turn).await?;
-    if matches!(spec.input, question::Input::Plan) {
-        planning::validate(&transaction, turn, run.session).await?;
-    }
-    let (entry, index) = if request.tool_name == review::TOOL {
-        review::locate(&transaction, turn, request).await?
-    } else if request.tool_name == elicitation::TOOL {
-        elicitation::locate(&transaction, turn, request).await?
-    } else {
-        if matches!(
-            spec.input,
-            question::Input::Form { .. } | question::Input::Url { .. }
-        ) {
-            return Err(sailry_protocol::Fault::invalid(
-                "this input requires an MCP request",
-            ));
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .unchecked_transaction()
+            .await
+            .map_err(storage_error)?;
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let run = calls::active(&transaction, turn).await?;
+        if matches!(spec.input, question::Input::Plan) {
+            planning::validate(&transaction, turn, run.session).await?;
         }
-        calls::locate(&transaction, turn, request).await?
-    };
-    let call = calls::id(request)?;
-    let question = create(&transaction, &run, call, entry, index).await?;
-    let envelope = changed(&transaction, database.node, run.session).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    let _ = events.send(envelope);
-    database.feeds.publish(
-        database.node,
-        run.session,
-        Change::Question(question.clone()),
-    );
-    Ok(question)
+        let (entry, index) = if request.tool_name == review::TOOL {
+            review::locate(&transaction, turn, request).await?
+        } else if request.tool_name == elicitation::TOOL {
+            elicitation::locate(&transaction, turn, request).await?
+        } else {
+            if matches!(
+                spec.input,
+                question::Input::Form { .. } | question::Input::Url { .. }
+            ) {
+                return Err(sailry_protocol::Fault::invalid(
+                    "this input requires an MCP request",
+                ));
+            }
+            calls::locate(&transaction, turn, request).await?
+        };
+        let call = calls::id(request)?;
+        let question = create(&transaction, &run, call, entry, index).await?;
+        let envelope = changed(&transaction, database.node, run.session).await?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        publication.send(events, envelope);
+        database.feeds.publish(
+            database.node,
+            run.session,
+            Change::Question(question.clone()),
+        );
+        Ok(question)
+    }
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
+    }
+    result
 }
 
 pub(super) async fn create(

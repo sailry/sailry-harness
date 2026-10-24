@@ -1,6 +1,6 @@
 use sailry_link::Admission;
 use sailry_protocol::{Command, ErrorCode, Fault, Receipt, Request, VERSION};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 use super::{Ingress, Job, unavailable};
 
@@ -10,19 +10,16 @@ impl Ingress {
         caller: sailry_protocol::NodeId,
         request: Request,
     ) -> Result<(), Fault> {
+        if self.closed.is_cancelled() {
+            return Err(unavailable());
+        }
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::CheckPlugin {
-                caller,
-                request: Box::new(request),
-                reply,
-            })
-            .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(_) => {
-                    Fault::new(ErrorCode::Busy, "Node request queue is full")
-                }
-                mpsc::error::TrySendError::Closed(_) => unavailable(),
-            })?;
+        self.submit(Job::CheckPlugin {
+            caller,
+            request: Box::new(request),
+            reply,
+        })
+        .await?;
         response.await.map_err(|_| unavailable())?
     }
 
@@ -119,8 +116,8 @@ impl Ingress {
             if internal {
                 self.send_internal(Job::TerminalSettings { reply }).await?;
             } else {
-                self.sender
-                    .try_send(Job::TerminalSettings { reply })
+                self.submit(Job::TerminalSettings { reply })
+                    .await
                     .map_err(|_| {
                         Fault::new(ErrorCode::Busy, "Node request queue is unavailable")
                     })?;
@@ -192,8 +189,8 @@ impl Ingress {
         if internal {
             self.send_internal(Job::WorktreeRoot { id, reply }).await?;
         } else {
-            self.sender
-                .try_send(Job::WorktreeRoot { id, reply })
+            self.submit(Job::WorktreeRoot { id, reply })
+                .await
                 .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
         }
         response.await.map_err(|_| unavailable())?

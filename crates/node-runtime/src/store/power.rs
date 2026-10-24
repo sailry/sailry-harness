@@ -50,6 +50,7 @@ pub(super) async fn failed(
     code: i64,
     events: &tokio::sync::broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
+    let publication = database.publication.clone();
     let tx = database
         .connection
         .unchecked_transaction()
@@ -57,9 +58,10 @@ pub(super) async fn failed(
         .map_err(storage_error)?;
     let event = super::notifications::system::power(&tx, code).await?;
     let envelopes = super::database::record(&tx, database.node, vec![event]).await?;
-    tx.commit().await.map_err(storage_error)?;
+    let publication = publication.lock().await;
+    crate::store::database::conflict::commit(tx).await?;
     for envelope in envelopes {
-        let _ = events.send(envelope);
+        publication.send(events, envelope);
     }
     Ok(())
 }

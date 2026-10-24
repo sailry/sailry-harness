@@ -205,15 +205,14 @@ impl Ingress {
         ordinal: u64,
     ) -> Result<(), Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ClaimHook {
-                turn,
-                phase,
-                ordinal,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ClaimHook {
+            turn,
+            phase,
+            ordinal,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 
@@ -225,16 +224,15 @@ impl Ingress {
         result: Result<process::Outcome, Fault>,
     ) -> Result<(), Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::FinishHook {
-                turn,
-                phase,
-                ordinal,
-                result,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::FinishHook {
+            turn,
+            phase,
+            ordinal,
+            result,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
     }
 

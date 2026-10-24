@@ -185,53 +185,57 @@ async fn close(
     id: ApprovalId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let mut transaction = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let prepared: Result<_, Fault> = async {
-        let mut approval = get(&transaction, id).await?;
-        if approval.state != ApprovalState::Pending {
-            return Ok(None);
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .unchecked_transaction()
+            .await
+            .map_err(storage_error)?;
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let prepared: Result<_, Fault> = async {
+            let mut approval = get(&transaction, id).await?;
+            if approval.state != ApprovalState::Pending {
+                return Ok(None);
+            }
+            approval.state = ApprovalState::Cancelled;
+            put(&transaction, &approval).await?;
+            let envelope = changed(&transaction, database.node, approval.session).await?;
+            Ok(Some((approval, envelope)))
         }
-        approval.state = ApprovalState::Cancelled;
-        put(&transaction, &approval).await?;
-        let envelope = changed(&transaction, database.node, approval.session).await?;
-        Ok(Some((approval, envelope)))
+        .await;
+        let Some((approval, envelope)) = (match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                transaction.rollback().await.map_err(storage_error)?;
+                return Err(error);
+            }
+        }) else {
+            transaction.rollback().await.map_err(storage_error)?;
+            return Ok(());
+        };
+        #[cfg(any(test, feature = "test-support"))]
+        super::fixture::wait(&database.approval_commit, true, &transaction).await;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        if let Some((_, _, _, Some(reply))) = database.approvals.lock().unwrap().remove(&id) {
+            let _ = reply.send(Ok(Decision::Deny));
+        }
+        publication.send(events, envelope);
+        database
+            .feeds
+            .publish(database.node, approval.session, Change::Approval(approval));
+        Ok(())
     }
     .await;
-    let Some((approval, envelope)) = (match prepared {
-        Ok(prepared) => prepared,
-        Err(error) => {
-            transaction.rollback().await.map_err(storage_error)?;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
             return Err(error);
         }
-    }) else {
-        transaction.rollback().await.map_err(storage_error)?;
-        return Ok(());
-    };
-    #[cfg(any(test, feature = "test-support"))]
-    super::fixture::wait(&database.approval_commit, true, &transaction).await;
-    // Settle failed commits here rather than leaving a deferred rollback on
-    // the connection used by the next approval cleanup.
-    transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
-    if let Err(error) = transaction.commit().await {
-        if !database.connection.is_autocommit().map_err(storage_error)? {
-            database
-                .connection
-                .execute("ROLLBACK", ())
-                .await
-                .map_err(storage_error)?;
-        }
-        return Err(storage_error(error));
+        drop(write);
     }
-    if let Some((_, _, _, Some(reply))) = database.approvals.lock().unwrap().remove(&id) {
-        let _ = reply.send(Ok(Decision::Deny));
-    }
-    let _ = events.send(envelope);
-    database
-        .feeds
-        .publish(database.node, approval.session, Change::Approval(approval));
-    Ok(())
+    result
 }

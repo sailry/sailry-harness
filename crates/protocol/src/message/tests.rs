@@ -71,6 +71,31 @@ mod faults {
     }
 
     #[test]
+    fn round_trips_storage_conflict() {
+        let mut fault = Fault::new(ErrorCode::Busy, "fixture storage conflict");
+        fault.details = Some(FaultDetails::StorageConflict);
+        let value = serde_json::to_value(&fault).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "code": "busy",
+                "message": "fixture storage conflict",
+                "details": {"kind": "storage_conflict"},
+            }),
+        );
+        assert_eq!(serde_json::from_value::<Fault>(value).unwrap(), fault);
+        let output = Output::RequestOutcome {
+            id: RequestId::new(),
+            outcome: RequestOutcome::Completed(Box::new(Err(fault))),
+        };
+        assert_eq!(
+            serde_json::from_value::<Output>(serde_json::to_value(&output).unwrap()).unwrap(),
+            output,
+        );
+        assert_eq!(crate::VERSION, 1);
+    }
+
+    #[test]
     fn round_trips_removal_details() {
         let mut fault = Fault::new(ErrorCode::Busy, "fixture project has pending tasks");
         fault.details = Some(FaultDetails::ProjectRemoval {

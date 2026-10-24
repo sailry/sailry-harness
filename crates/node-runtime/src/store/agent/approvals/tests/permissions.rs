@@ -304,32 +304,17 @@ async fn consumes_automatic_authority_once() {
         let mut changed = fixture.request.clone();
         changed.args["text"] = json!("unapproved content");
         assert!(
-            authorize(
-                &mut fixture.database.connection,
-                fixture.turn,
-                &changed,
-                None
-            )
-            .await
-            .is_err()
+            authorize(&mut fixture.database, fixture.turn, &changed, None)
+                .await
+                .is_err()
         );
-        authorize(
-            &mut fixture.database.connection,
-            fixture.turn,
-            &fixture.request,
-            None,
-        )
-        .await
-        .unwrap();
-        assert!(
-            authorize(
-                &mut fixture.database.connection,
-                fixture.turn,
-                &fixture.request,
-                None
-            )
+        authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
             .await
-            .is_err()
+            .unwrap();
+        assert!(
+            authorize(&mut fixture.database, fixture.turn, &fixture.request, None)
+                .await
+                .is_err()
         );
     }
 }

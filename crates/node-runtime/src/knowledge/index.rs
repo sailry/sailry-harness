@@ -90,7 +90,11 @@ impl Index {
     }
 
     async fn lease(&self, readonly: bool) -> Result<Lease, Fault> {
-        self.db.lease(readonly).await.map_err(error)
+        if readonly {
+            self.db.lease(true).await.map_err(error)
+        } else {
+            self.db.writer().await.map_err(error)
+        }
     }
 
     pub(super) async fn bind(&self, binding: &Binding) -> Result<(), Fault> {

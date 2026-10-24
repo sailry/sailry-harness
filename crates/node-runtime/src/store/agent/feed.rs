@@ -12,6 +12,12 @@ mod tests;
 #[derive(Clone, Default)]
 pub(in crate::store) struct Feeds(Arc<Mutex<BTreeMap<SessionId, Feed>>>);
 
+pub(in crate::store) struct Reserved {
+    sequence: u64,
+    drafts: Vec<Draft>,
+    updates: broadcast::Receiver<Update>,
+}
+
 const MAX_FINALIZED: usize = 4096;
 // Per retained Part, including the serialized string's enclosing quotes.
 const PART_OVERHEAD: usize = 34;
@@ -208,6 +214,7 @@ impl Feeds {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn subscribe(
         &self,
         node: NodeId,
@@ -216,16 +223,38 @@ impl Feeds {
         artifacts: sailry_protocol::artifact::Page,
         closed: CancellationToken,
     ) -> Result<Box<dyn Subscription>, Fault> {
+        self.reserve(history.page.session)
+            .subscribe(node, history, statistics, artifacts, closed)
+    }
+
+    pub(in crate::store) fn reserve(&self, session: SessionId) -> Reserved {
         let mut feeds = self.0.lock().unwrap();
         Self::prune(&mut feeds);
+        let feed = feeds.entry(session).or_default();
+        Reserved {
+            sequence: feed.sequence,
+            drafts: feed.drafts.clone(),
+            updates: feed.updates.subscribe(),
+        }
+    }
+}
+
+impl Reserved {
+    pub(in crate::store) fn subscribe(
+        self,
+        node: NodeId,
+        history: History,
+        statistics: Statistics,
+        artifacts: sailry_protocol::artifact::Page,
+        closed: CancellationToken,
+    ) -> Result<Box<dyn Subscription>, Fault> {
         let History {
             mut page,
             mut missing,
             ..
         } = history;
-        let feed = feeds.entry(page.session).or_default();
         // Leave room for temporary output in the same bounded transport frame.
-        let drafts_size = serde_json::to_vec(&feed.drafts)
+        let drafts_size = serde_json::to_vec(&self.drafts)
             .expect("drafts are serializable")
             .len();
         let resources_size = serde_json::to_vec(&(&artifacts, &statistics))
@@ -242,15 +271,15 @@ impl Feeds {
             initial: Some(Update::ConversationSnapshot(
                 sailry_protocol::conversation::Snapshot {
                     node,
-                    sequence: feed.sequence,
+                    sequence: self.sequence,
                     page: Arc::new(page),
                     missing,
-                    drafts: feed.drafts.clone(),
+                    drafts: self.drafts,
                     statistics,
                     artifacts,
                 },
             )),
-            updates: feed.updates.subscribe(),
+            updates: self.updates,
             closed,
         }))
     }

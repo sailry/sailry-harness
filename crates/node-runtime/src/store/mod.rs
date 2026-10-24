@@ -24,6 +24,7 @@ mod models;
 mod mutations;
 mod network;
 mod notifications;
+mod operations;
 mod outcomes;
 mod plugins;
 mod ports;
@@ -31,10 +32,13 @@ mod power;
 mod processes;
 mod projects;
 mod providers;
+mod publication;
 mod python;
 mod reads;
+mod requests;
 mod resources;
 mod roles;
+mod routing;
 mod sandbox;
 mod search;
 mod sessions;
@@ -59,14 +63,28 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use crate::Error;
 use database::Database;
 
+const EVENT_CAPACITY: usize = 128;
+const CONTROL_CAPACITY: usize = 32;
+// External execution workers retain their existing bounded resource queues.
 const CAPACITY: usize = 128;
 
-#[cfg(any(test, feature = "test-support"))]
-type Fixture = Box<dyn for<'a> FnOnce(&'a mut turso::Connection) -> Pending<'a, ()> + Send>;
-
 enum Job {
-    #[cfg(any(test, feature = "test-support"))]
-    Fixture(Fixture),
+    Read {
+        caller: NodeId,
+        request: Box<Request>,
+        reply: oneshot::Sender<Result<sailry_protocol::Output, Fault>>,
+    },
+    CheckPlugin {
+        caller: NodeId,
+        request: Box<Request>,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
+    Request {
+        access: crate::files::Access,
+        caller: NodeId,
+        request: Box<Request>,
+        reply: oneshot::Sender<Result<Admission, Fault>>,
+    },
     PowerFailed(i64),
     #[cfg(test)]
     Barrier {
@@ -152,9 +170,6 @@ enum Job {
         reply: oneshot::Sender<Result<(), Fault>>,
     },
     McpCredentials(mcp::Operation),
-    ConnectorState {
-        reply: oneshot::Sender<Result<sailry_protocol::plugin::connector::Changes, Fault>>,
-    },
     ConnectorTarget {
         id: sailry_protocol::plugin::connector::Id,
         revision: u64,
@@ -202,12 +217,7 @@ enum Job {
         result: Result<sailry_protocol::terminal::Info, Fault>,
         reply: oneshot::Sender<Result<(), Fault>>,
     },
-    Request {
-        access: crate::files::Access,
-        caller: NodeId,
-        request: Box<Request>,
-        reply: oneshot::Sender<Result<Admission, Fault>>,
-    },
+    Execute(external::Work),
     Shutdown,
     Completed(Box<external::Completed>),
     Installed {
@@ -272,11 +282,6 @@ enum Job {
         startup: sailry_protocol::code::Startup,
         reply: oneshot::Sender<Result<bool, Fault>>,
     },
-    CheckPlugin {
-        caller: NodeId,
-        request: Box<Request>,
-        reply: oneshot::Sender<Result<(), Fault>>,
-    },
     PluginView {
         surface: sailry_protocol::plugin::desktop::Surface,
         package: sailry_protocol::plugin::Reference,
@@ -316,8 +321,6 @@ enum Job {
         download: crate::providers::catalog::Download,
         reply: oneshot::Sender<Result<sailry_protocol::conversation::catalog::Status, Fault>>,
     },
-    Peers(oneshot::Sender<Result<Vec<NodeId>, Fault>>),
-    Addresses(oneshot::Sender<Result<Vec<sailry_link::EndpointAddr>, Fault>>),
     Remember {
         address: sailry_link::EndpointAddr,
         reply: oneshot::Sender<Result<(), Fault>>,
@@ -364,6 +367,8 @@ pub(crate) struct Ingress {
     pub(crate) environment: Arc<crate::process::Environment>,
     sender: mpsc::Sender<Job>,
     events: broadcast::Sender<sailry_protocol::EventEnvelope>,
+    storage: Arc<OnceLock<Arc<database::Storage>>>,
+    operations: crate::tasks::Tasks,
     accepting: Arc<AtomicBool>,
     closing: Arc<AtomicBool>,
     pub(crate) agents: Arc<crate::agent::Controls>,
@@ -456,8 +461,9 @@ impl Store {
             environment,
             bundled,
         } = services;
-        let (sender, mut receiver) = mpsc::channel(CAPACITY);
-        let (events, _) = broadcast::channel(CAPACITY);
+        let operations = crate::tasks::Supervisor::start(32);
+        let (sender, mut receiver) = mpsc::channel(CONTROL_CAPACITY);
+        let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let accepting = Arc::new(AtomicBool::new(true));
         let closing = Arc::new(AtomicBool::new(false));
         let agents = Arc::new(crate::agent::Controls::default());
@@ -478,6 +484,8 @@ impl Store {
             });
         });
         let ingress = Arc::new(Ingress {
+            storage: Arc::default(),
+            operations: operations.tasks.clone(),
             power: power.clone(),
             node,
             profile: profile.clone(),
@@ -551,8 +559,6 @@ impl Store {
         let collection = plugins.clone();
         let git = ingress.git.clone();
         let commands = ingress.commands.clone();
-        let cleanup_commands = ingress.commands.clone();
-        let backup_resources = ingress.backup_resources.clone();
         let process_runtime = tokio::runtime::Handle::current();
         let cleanup_runtime = tokio::runtime::Handle::current();
         let attachment_profile = profile.clone();
@@ -597,6 +603,8 @@ impl Store {
         let model_clients = ingress.model_clients.clone();
         let dispatch_controls = ingress.dispatch.clone();
         let knowledge_databases = ingress.knowledge.clone();
+        let storage_ready = ingress.storage.clone();
+        let database_ingress = (*ingress).clone();
         let worker = tokio::spawn(async move {
             let mut database = match Database::open_with_plugins(
                 &path,
@@ -849,13 +857,41 @@ impl Store {
                         return database.close().await;
                     }
                 };
+            let storage = Arc::new(database.into_storage());
+            assert!(
+                storage_ready.set(storage.clone()).is_ok(),
+                "storage initializes once"
+            );
             if ready.send(Ok(())).is_err() {
                 mutations.join()?;
-                return database.close().await;
+                return storage.close().await;
             }
-            let storage = database.into_storage();
             while let Some(job) = receiver.recv().await {
+                if operations::accepts(&job) {
+                    let ingress = database_ingress.clone();
+                    let _ = operations
+                        .tasks
+                        .spawn_child(&CancellationToken::new(), async move {
+                            operations::execute(ingress, job).await
+                        })
+                        .await;
+                    continue;
+                }
                 let job = match job {
+                    Job::Request {
+                        access,
+                        caller,
+                        request,
+                        reply,
+                    } => {
+                        match database_ingress
+                            .persist_request(access, caller, request, reply, None)
+                            .await
+                        {
+                            Some(work) => Job::Execute(work),
+                            None => continue,
+                        }
+                    }
                     Job::BackupSnapshot {
                         revision,
                         cancel,
@@ -904,24 +940,16 @@ impl Store {
                     }
                 }
                 let mut database = storage.context(false).await?;
-                let package_change = match &job {
-                    Job::Completed(_) | Job::Installed { .. } => true,
-                    Job::Request { request, .. } => matches!(
-                        request.command,
-                        sailry_protocol::Command::SetPluginEnabled { .. }
-                            | sailry_protocol::Command::RemovePlugin { .. }
-                    ),
-                    _ => false,
-                };
+                let package_change = matches!(&job, Job::Completed(_) | Job::Installed { .. });
                 // Poll one operation at a time without accumulating every handler's
                 // async temporaries on the storage task's stack.
                 let handling: Pending<'_, ()> = {
-                    let mut database = &mut database;
+                    let database = &mut database;
                     let network_work = &mut network_work;
                     let forwarder = &mut forwarder;
                     let processes = &mut processes;
                     let plugin_work = &mut plugin_work;
-                    let mut installations = &mut installations;
+                    let installations = &mut installations;
                     let resource_work = &mut resource_work;
                     let logins = &mut logins;
                     let ssh = &mut ssh;
@@ -929,31 +957,16 @@ impl Store {
                     let mutations = &mut mutations;
                     let events = &events;
                     let agents = &agents;
-                    let power = &power;
                     let code_pool = &code_pool;
                     let cleanup_runtime = &cleanup_runtime;
-                    let searcher = &searcher;
                     let accepting = &accepting;
                     let closing = &closing;
                     let dispatch_controls = &dispatch_controls;
                     let installing = &installing;
-                    let cleanup_commands = &cleanup_commands;
-                    let attachment_profile = &attachment_profile;
-                    let backup_resources = &backup_resources;
                     match job {
-                        Job::PowerFailed(code) => Box::pin(async move {
-                            eprintln!(
-                                "native idle-sleep request failed: {code}; status: {:?}",
-                                power.status()
-                            );
-                            if let Err(error) = power::failed(&mut database, code, &events).await {
-                                eprintln!("power failure notification persistence failed: {error}");
-                            }
+                        Job::Agent(operation) => Box::pin(async move {
+                            agent::execute(database, *operation, events, agents).await;
                         }),
-                        #[cfg(any(test, feature = "test-support"))]
-                        Job::Fixture(work) => {
-                            Box::pin(async move { work(&mut database.connection).await })
-                        }
                         #[cfg(test)]
                         Job::Barrier { .. } => Box::pin(async move {
                             unreachable!("barriers run before connection acquisition")
@@ -961,143 +974,7 @@ impl Store {
                         Job::BackupSnapshot { .. } => Box::pin(async move {
                             unreachable!("backup runs before connection acquisition")
                         }),
-                        Job::BackupPlan { expected, reply } => Box::pin(async move {
-                            let _ = reply.send(backup::plan(&database.connection, expected).await);
-                        }),
-                        Job::LocalModels { models, reply } => Box::pin(async move {
-                            let _ = reply
-                                .send(local_models::models(&mut database, models, &events).await);
-                        }),
-                        Job::PythonSettings { reply } => Box::pin(async move {
-                            let _ = reply.send(python::read(&database.connection).await);
-                        }),
-                        Job::PluginPreparation {
-                            name,
-                            revision,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                plugins::prepare_enable(&database.connection, &name, revision)
-                                    .await,
-                            );
-                        }),
-                        Job::KnowledgeCatalog { reply } => Box::pin(async move {
-                            let _ = reply.send(knowledge::catalog(&database.connection).await);
-                        }),
-                        Job::KnowledgeAllowed { request, reply } => Box::pin(async move {
-                            let _ = reply
-                                .send(knowledge::allowed(&database.connection, &request).await);
-                        }),
-                        Job::KnowledgeProgress {
-                            id,
-                            generation,
-                            progress,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                knowledge::runtime::progress(
-                                    &mut database,
-                                    id,
-                                    generation,
-                                    &progress,
-                                    &events,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::KnowledgeSources {
-                            stored,
-                            after,
-                            limit,
-                            stop,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                knowledge::storage::page(
-                                    &database.connection,
-                                    &stored,
-                                    after.as_deref(),
-                                    limit,
-                                    &stop,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::KnowledgeSourceCurrent {
-                            stored,
-                            record,
-                            stop,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                knowledge::storage::unchanged(
-                                    &database.connection,
-                                    &stored,
-                                    &record,
-                                    &stop,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::KnowledgeSource {
-                            stored,
-                            key,
-                            stop,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                knowledge::storage::record(
-                                    &database.connection,
-                                    &stored,
-                                    &key,
-                                    &stop,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::KnowledgeSemanticPlan {
-                            request,
-                            stop,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                knowledge::runtime::storage::prepare(
-                                    &mut database,
-                                    &request,
-                                    &stop,
-                                    &events,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::KnowledgeSemanticPage {
-                            request,
-                            plan,
-                            selection,
-                            stop,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                knowledge::semantic::materialize(
-                                    &database.connection,
-                                    &request,
-                                    &plan,
-                                    &selection,
-                                    &stop,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::KnowledgeRegister { stop, reply } => Box::pin(async move {
-                            let _ = reply.send(
-                                knowledge::runtime::storage::register(
-                                    &mut database,
-                                    &stop,
-                                    &events,
-                                )
-                                .await,
-                            );
-                        }),
+
                         Job::Authorization {
                             reference,
                             provider,
@@ -1108,7 +985,7 @@ impl Store {
                             if accepting.load(Ordering::Acquire) {
                                 logins
                                     .authorize(
-                                        &mut database,
+                                        database,
                                         reference,
                                         provider,
                                         authentication,
@@ -1121,60 +998,21 @@ impl Store {
                             }
                         }),
                         Job::Login(progress) => Box::pin(async move {
-                            logins.progress(&mut database, *progress, &events).await;
+                            logins.progress(database, *progress, events).await;
                         }),
                         Job::ProviderQuota(observation) => Box::pin(async move {
-                            let _ = providers::quota::observe(&mut database, observation, &events)
-                                .await;
+                            if let Err(error) =
+                                providers::quota::observe(database, observation, events).await
+                            {
+                                eprintln!("provider quota persistence failed: {error}");
+                            }
                         }),
-                        Job::McpCredentials(operation) => Box::pin(async move {
-                            mcp::execute(&mut database, operation, &events).await
+                        Job::TerminalInfo(info) => Box::pin(async move {
+                            if let Err(error) = database.terminal_changed(info, events).await {
+                                eprintln!("terminal lifecycle persistence failed: {error}");
+                            }
                         }),
-                        Job::ConnectorState { reply } => Box::pin(async move {
-                            let _ = reply.send(
-                                plugins::connectors::watch::snapshot(
-                                    &database.connection,
-                                    database.profile.as_deref(),
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::ConnectorTarget {
-                            id,
-                            revision,
-                            checking,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                plugins::connectors::current_target(
-                                    &database.connection,
-                                    database.profile.as_deref(),
-                                    id,
-                                    revision,
-                                    checking,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::ConnectorGrant {
-                            id,
-                            revision,
-                            grant_revision,
-                            grant,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                plugins::connectors::save_grant(
-                                    &mut database,
-                                    id,
-                                    revision,
-                                    grant_revision,
-                                    grant,
-                                    &events,
-                                )
-                                .await,
-                            );
-                        }),
+
                         Job::SubscribeLogin {
                             caller,
                             id,
@@ -1187,10 +1025,7 @@ impl Store {
                                 logins.subscribe(caller, id)
                             });
                         }),
-                        Job::NetworkScope { fallback, reply } => Box::pin(async move {
-                            let _ =
-                                reply.send(network::scope(&database.connection, fallback).await);
-                        }),
+
                         Job::BindLink { link, reply } => Box::pin(async move {
                             *database.network_link.lock().unwrap() = Some(link.clone());
                             // The worker owns this handle, not Ingress: no Arc ownership cycle.
@@ -1198,63 +1033,32 @@ impl Store {
                             forwarder.link = Some(link);
                             let _ = reply.send(());
                         }),
-                        Job::Agent(operation) => Box::pin(async move {
-                            agent::execute(&mut database, *operation, &events, &agents).await;
-                        }),
-                        Job::TerminalInfo(info) => Box::pin(async move {
-                            if let Err(error) = database.terminal_changed(info, &events).await {
-                                eprintln!("terminal lifecycle persistence failed: {error}");
-                            }
-                        }),
-                        Job::ProjectRemovalPlan {
-                            caller,
-                            request,
-                            expected,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                database
-                                    .prepare_project_removal(caller, request, &expected)
-                                    .await,
-                            );
-                        }),
-                        Job::ProjectTerminalClosed {
-                            worktree,
-                            terminal,
-                            result,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                database
-                                    .project_terminal_closed(worktree, terminal, result, &events)
-                                    .await,
-                            );
-                        }),
+
                         Job::Shutdown => Box::pin(async move {
                             accepting.store(false, Ordering::Release);
                             closing.store(true, Ordering::Release);
                         }),
                         Job::Completed(completed) => Box::pin(async move {
                             code::observe(
-                                &database,
+                                database,
                                 &completed.request,
                                 &completed.result,
-                                &code_pool,
-                                &cleanup_runtime,
+                                code_pool,
+                                cleanup_runtime,
                             );
                             let result = database
                                 .finish_external(
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             if matches!(&result, Ok(sailry_protocol::Output::Plugin(_))) {
                                 dispatch_controls.wake.notify_one();
                             }
                             if result.is_ok() && code::configures(&completed.request.command) {
-                                code::refresh(&database.connection, &code_pool, &cleanup_runtime)
+                                code::refresh(&database.connection, code_pool, cleanup_runtime)
                                     .await;
                             }
                             let _ = completed.reply.send(result);
@@ -1270,14 +1074,14 @@ impl Store {
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             if matches!(&result, Ok(sailry_protocol::Output::Plugin(_))) {
                                 dispatch_controls.wake.notify_one();
                             }
                             if result.is_ok() && code::configures(&completed.request.command) {
-                                code::refresh(&database.connection, &code_pool, &cleanup_runtime)
+                                code::refresh(&database.connection, code_pool, cleanup_runtime)
                                     .await;
                             }
                             installing.installations.finish(
@@ -1293,13 +1097,13 @@ impl Store {
                             let _ = release.send(());
                         }),
                         Job::Network(completed) => Box::pin(async move {
-                            network::release(&mut database, &completed.request).await;
+                            network::release(database, &completed.request).await;
                             let result = database
                                 .finish_external(
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             let _ = completed.reply.send(result);
@@ -1311,7 +1115,7 @@ impl Store {
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             let _ = completed.reply.send(result);
@@ -1323,7 +1127,7 @@ impl Store {
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             let _ = completed.reply.send(result);
@@ -1343,7 +1147,7 @@ impl Store {
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             let _ = completed.reply.send(result);
@@ -1369,7 +1173,7 @@ mapped }).await
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             let _ = completed.reply.send(result);
@@ -1386,7 +1190,7 @@ mapped }).await
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             let _ = completed.reply.send(result);
@@ -1398,514 +1202,125 @@ mapped }).await
                                     completed.caller,
                                     &completed.request,
                                     completed.result,
-                                    &events,
+                                    events,
                                 )
                                 .await;
                             let _ = completed.reply.send(result);
                             databases.finished(completed.caller, completed.request.id);
                         }),
-                        Job::CodeApproved { startup, reply } => Box::pin(async move {
-                            let _ =
-                                reply.send(code::approved(&database.connection, &startup).await);
-                        }),
-                        Job::CheckPlugin {
-                            caller,
-                            request,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(database.check_plugin(caller, &request).await);
-                        }),
-                        Job::PluginView {
-                            package,
-                            surface,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                plugins::views::current(&database.connection, &package, surface)
-                                    .await,
-                            );
-                        }),
-                        Job::PluginUpdate {
-                            name,
-                            revision,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                plugins::updates::current(&database.connection, &name, revision)
-                                    .await,
-                            );
-                        }),
-                        Job::ProviderHttp {
-                            caller,
-                            request,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                providers::resources::prepare(&database, caller, &request)
-                                    .await
-                                    .map(Box::new),
-                            );
-                        }),
-                        Job::ModelAdapter {
-                            provider,
-                            messages,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                providers::adapters::read(
-                                    &database.connection,
-                                    &provider,
-                                    messages,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::CaptureChannel {
-                            mut provider,
-                            reply,
-                        } => Box::pin(async move {
-                            let captured = providers::presets::capture_read(
-                                &database.connection,
-                                &mut provider,
-                            )
-                            .await
-                            .and_then(|()| {
-                                crate::providers::login::capture(&mut provider)?;
-                                Ok(*provider)
-                            });
-                            let _ = reply.send(captured);
-                        }),
-                        Job::Provider {
-                            id,
-                            revision,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply
-                                .send(providers::inspect(&database.connection, id, revision).await);
-                        }),
-                        Job::ChannelPresets {
-                            catalog,
-                            unavailable,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                providers::presets::list(
-                                    &database.connection,
-                                    catalog.as_ref(),
-                                    unavailable,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::Catalog { download, reply } => Box::pin(async move {
-                            let _ = reply.send(database.cache_catalog(download, &events).await);
-                        }),
-                        Job::WorktreeRoot { id, reply } => Box::pin(async move {
-                            let _ = reply.send(database.worktree_root(id).await);
-                        }),
-                        Job::TerminalSettings { reply } => Box::pin(async move {
-                            let _ =
-                                reply.send(terminals::settings::read(&database.connection).await);
-                        }),
-                        Job::SearchPlan { reply } => Box::pin(async move {
-                            let _ = reply.send(search::plan(&database.connection).await);
-                        }),
-                        Job::TerminalOpening { id, reply } => Box::pin(async move {
-                            let _ = reply.send(database.terminal_opening(id).await);
-                        }),
-                        Job::ValidateRemoval { id, root, reply } => Box::pin(async move {
-                            let _ = reply.send(database.validate_removal(id, &root).await);
-                        }),
-                        Job::ValidateRelocation {
-                            paths,
-                            reply,
-                            access,
-                        } => Box::pin(async move {
-                            let _ = reply
-                                .send(database.validate_with(&paths, access).await.map(|_| ()));
-                        }),
-                        Job::RestoreCheckpoint {
-                            session,
-                            checkpoint,
-                            worktree,
-                            root,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                agent::checkpoints::restore::prepare(
-                                    &database, session, checkpoint, worktree, &root,
-                                )
-                                .await,
-                            );
-                        }),
-                        Job::PrepareHunk {
-                            selection,
-                            root,
-                            reply,
-                        } => Box::pin(async move {
-                            let _ = reply.send(
-                                agent::checkpoints::hunks::prepare(&database, &selection, &root)
-                                    .await,
-                            );
-                        }),
-                        Job::ResolveCredential {
-                            reference,
-                            provider,
-                            reply,
-                        } => Box::pin(async move {
-                            let result = if accepting.load(Ordering::Acquire) {
-                                database
-                                    .credential(
-                                        &reference,
-                                        provider,
-                                        sailry_protocol::Authentication::ApiKey,
-                                    )
-                                    .await
-                            } else {
-                                Err(unavailable())
-                            };
-                            let _ = reply.send(result);
-                        }),
-                        Job::Peers(reply) => Box::pin(async move {
-                            let _ = reply.send(database.peers().await);
-                        }),
-                        Job::Addresses(reply) => Box::pin(async move {
-                            let _ = reply.send(database.addresses().await);
-                        }),
-                        Job::Remember { address, reply } => Box::pin(async move {
-                            let result = if accepting.load(Ordering::Acquire) {
-                                database.remember(address).await
-                            } else {
-                                Err(unavailable())
-                            };
-                            let _ = reply.send(result);
-                        }),
-                        Job::SetTrust {
-                            peer,
-                            trusted,
-                            reply,
-                        } => Box::pin(async move {
-                            let result = if accepting.load(Ordering::Acquire) {
-                                database.set_trust(peer, trusted).await
-                            } else {
-                                Err(unavailable())
-                            };
-                            let _ = reply.send(result);
-                        }),
-                        Job::DispatchTick { recover, reply } => Box::pin(async move {
-                            let result = if accepting.load(Ordering::Acquire) {
-                                dispatch::tick(&mut database, &events, recover).await
-                            } else {
-                                Err(unavailable())
-                            };
-                            let _ = reply.send(result);
-                        }),
-                        Job::DispatchFinished { id, result, reply } => Box::pin(async move {
-                            let _ = reply
-                                .send(dispatch::finish(&mut database, id, result, &events).await);
-                        }),
-                        Job::Request {
-                            access,
-                            caller,
-                            request,
-                            reply,
-                        } => Box::pin(async move {
-                            let (reply, artifact_cleanup) = if matches!(
-                                request.command,
-                                sailry_protocol::Command::RemoveSession { .. }
-                                    | sailry_protocol::Command::RemoveSessions { .. }
-                            ) {
-                                let (send, cleanup) = oneshot::channel();
-                                (
-                                    admission::release_removed(
-                                        cleanup_commands.clone(),
-                                        attachment_profile.clone(),
-                                        backup_resources.clone(),
-                                        &cleanup_runtime,
-                                        reply,
-                                        cleanup,
-                                    ),
-                                    Some(send),
-                                )
-                            } else {
-                                (reply, None)
-                            };
-                            let (reply, power_completion) = if matches!(
-                                request.command,
-                                sailry_protocol::Command::SavePowerSettings(_)
-                            ) {
-                                let (complete, response) = oneshot::channel();
-                                (complete, Some((reply, response)))
-                            } else {
-                                (reply, None)
-                            };
-                            let code_settings = code::configures(&request.command);
-                            let (reply, code_completion) = if code_settings {
-                                let (complete, response) = oneshot::channel();
-                                (complete, Some((reply, response)))
-                            } else {
-                                (reply, None)
-                            };
-                            let search_settings = matches!(
-                                request.command,
-                                sailry_protocol::Command::SaveSearchSettings(_)
-                            );
-                            let launch = matches!(
-                                request.command,
-                                sailry_protocol::Command::SubmitTurn { .. }
-                                    | sailry_protocol::Command::SubmitTask { .. }
-                                    | sailry_protocol::Command::ResolveQuestion {
-                                        response:
-                                            sailry_protocol::conversation::question::Response::StartCoding {
-                                                ..
-                                            },
-                                        ..
-                                    }
-                                    | sailry_protocol::Command::ContinueTurn { .. }
-                                    | sailry_protocol::Command::PluginTransaction { .. }
-                                    | sailry_protocol::Command::StartSession(_)
-                                    | sailry_protocol::Command::ReplaceTurn { .. }
-                                    | sailry_protocol::Command::CompactContext { .. }
-                                    | sailry_protocol::Command::StartQueuedTurn { .. }
-                                    | sailry_protocol::Command::SendQueuedTurn { .. }
-                                    | sailry_protocol::Command::GuideQueuedTurn { .. }
-                                    | sailry_protocol::Command::GuideTurn { .. }
-                                    | sailry_protocol::Command::SetQueuePaused { .. }
-                                    | sailry_protocol::Command::SavePluginSettings { .. }
-                            );
-                            let guiding = match &request.command {
-                                sailry_protocol::Command::GuideTurn { recipient, .. }
-                                | sailry_protocol::Command::GuideQueuedTurn { recipient, .. } => {
-                                    Some(*recipient)
+
+                        Job::Execute(work) => Box::pin(async move {
+                            let rejected = match work {
+                                external::Work::Network(execution) => {
+                                    network_work.submit(execution).err().map(|execution| {
+                                        (execution.caller, execution.request, execution.reply)
+                                    })
                                 }
-                                _ => None,
-                            };
-                            let sending = match request.command {
-                                sailry_protocol::Command::SendQueuedTurn { turn, .. } => Some(turn),
-                                _ => None,
-                            };
-                            let stopping = match &request.command {
-                                sailry_protocol::Command::StopTurn { turn } => Some(*turn),
-                                sailry_protocol::Command::StopDispatchTurn { package, job } => {
-                                    dispatch::jobs::turn(&database.connection, &package.name, *job)
-                                        .await
-                                        .ok()
+                                external::Work::PluginExecution(execution) => {
+                                    plugin_work.submit(*execution).err().map(|execution| {
+                                        (execution.caller, execution.request, execution.reply)
+                                    })
                                 }
-                                _ => None,
-                            };
-                            let transaction_stops = match &request.command {
-                                sailry_protocol::Command::PluginTransaction { operations } => operations.iter().filter_map(|operation| {
-                                    if let sailry_protocol::plugin::transaction::Operation::Stop { turn } = operation {Some(*turn)} else {None}
-                                }).collect::<Vec<_>>(),
-                                _ => Vec::new(),
-                            };
-                            if !accepting.load(Ordering::Acquire) {
-                                let _ = reply.send(Err(unavailable()));
-                            } else if let Some(work) = database
-                                .dispatch_with(caller, *request, reply, &events, access)
-                                .await
-                            {
-                                let rejected = match work {
-                                    external::Work::Network(execution) => {
-                                        network_work.submit(execution).err().map(|execution| {
-                                            (execution.caller, execution.request, execution.reply)
-                                        })
-                                    }
-                                    external::Work::PluginExecution(execution) => {
-                                        plugin_work.submit(*execution).err().map(|execution| {
-                                            (execution.caller, execution.request, execution.reply)
-                                        })
-                                    }
-                                    external::Work::Login(operation) => {
-                                        logins.execute(&mut database, operation, &events).await;
-                                        None
-                                    }
-                                    external::Work::Resources(execution) => {
-                                        if installations::models::handles(
-                                            &execution.request.command,
-                                        ) {
-                                            installations::models::submit(
-                                                &mut installations,
-                                                &mut database,
-                                                &events,
-                                                installing.clone(),
-                                                execution,
-                                            )
-                                            .await
-                                            .err()
-                                            .map(
-                                                |execution| {
-                                                    (
-                                                        execution.caller,
-                                                        execution.request,
-                                                        execution.reply,
-                                                    )
-                                                },
-                                            )
-                                        } else if installations::language::handles(
-                                            &execution.request.command,
-                                        ) {
-                                            installations::language::submit(
-                                                &mut installations,
-                                                installing.clone(),
-                                                execution,
-                                            )
-                                            .err()
-                                            .map(
-                                                |execution| {
-                                                    (
-                                                        execution.caller,
-                                                        execution.request,
-                                                        execution.reply,
-                                                    )
-                                                },
-                                            )
-                                        } else {
-                                            resource_work.submit(execution).err().map(|execution| {
-                                                (
-                                                    execution.caller,
-                                                    execution.request,
-                                                    execution.reply,
-                                                )
-                                            })
-                                        }
-                                    }
-                                    external::Work::Process(execution) => {
-                                        processes.submit(execution).err().map(|execution| {
-                                            (execution.caller, execution.request, execution.reply)
-                                        })
-                                    }
-                                    external::Work::Ssh(execution) => {
-                                        ssh.submit(execution).err().map(|execution| {
-                                            (execution.caller, execution.request, execution.reply)
-                                        })
-                                    }
-                                    external::Work::Database(execution) => {
-                                        databases.submit(execution).err().map(|execution| {
-                                            (execution.caller, execution.request, execution.reply)
-                                        })
-                                    }
-                                    external::Work::Mutation(mutation) => {
-                                        if plugins::installing::handles(&mutation.request.command) {
-                                            plugins::installing::submit(
-                                                &mut installations,
-                                                installing.clone(),
-                                                mutation,
-                                            )
-                                            .err()
-                                            .map(
-                                                |execution| {
-                                                    (
-                                                        execution.caller,
-                                                        execution.request,
-                                                        execution.reply,
-                                                    )
-                                                },
-                                            )
-                                        } else {
-                                            mutations.submit(mutation).err().map(|mutation| {
-                                                (mutation.caller, mutation.request, mutation.reply)
-                                            })
-                                        }
-                                    }
-                                    external::Work::Session(transfer) => {
-                                        forwarder.submit(transfer).err().map(|transfer| {
-                                            (transfer.caller, transfer.request, transfer.reply)
-                                        })
-                                    }
-                                };
-                                if let Some((caller, request, reply)) = rejected {
-                                    network::release(&mut database, &request).await;
-                                    let result = database
-                                        .finish_external(
-                                            caller,
-                                            &request,
-                                            Err(Fault::new(
-                                                ErrorCode::Busy,
-                                                "Node operation queue is unavailable",
-                                            )),
-                                            &events,
+                                external::Work::Login(operation) => {
+                                    logins.execute(database, operation, events).await;
+                                    None
+                                }
+                                external::Work::Resources(execution) => {
+                                    if installations::models::handles(&execution.request.command) {
+                                        installations::models::submit(
+                                            installations,
+                                            database,
+                                            events,
+                                            installing.clone(),
+                                            execution,
                                         )
-                                        .await;
-                                    installing.installations.finish(caller, request.id, &result);
-                                    let _ = reply.send(result);
+                                        .await
+                                        .err()
+                                        .map(|execution| {
+                                            (execution.caller, execution.request, execution.reply)
+                                        })
+                                    } else if installations::language::handles(
+                                        &execution.request.command,
+                                    ) {
+                                        installations::language::submit(
+                                            installations,
+                                            installing.clone(),
+                                            execution,
+                                        )
+                                        .err()
+                                        .map(|execution| {
+                                            (execution.caller, execution.request, execution.reply)
+                                        })
+                                    } else {
+                                        resource_work.submit(execution).err().map(|execution| {
+                                            (execution.caller, execution.request, execution.reply)
+                                        })
+                                    }
                                 }
-                            }
-                            if let Some(cleanup) = artifact_cleanup {
-                                let _ =
-                                    cleanup.send(artifacts::cleanup(&database.connection).await);
-                            }
-                            if let Some((reply, completion)) = code_completion {
-                                let result =
-                                    completion.await.unwrap_or_else(|_| Err(unavailable()));
-                                if result.is_ok() {
-                                    code::refresh(
-                                        &database.connection,
-                                        &code_pool,
-                                        &cleanup_runtime,
+                                external::Work::Process(execution) => {
+                                    processes.submit(execution).err().map(|execution| {
+                                        (execution.caller, execution.request, execution.reply)
+                                    })
+                                }
+                                external::Work::Ssh(execution) => {
+                                    ssh.submit(execution).err().map(|execution| {
+                                        (execution.caller, execution.request, execution.reply)
+                                    })
+                                }
+                                external::Work::Database(execution) => {
+                                    databases.submit(execution).err().map(|execution| {
+                                        (execution.caller, execution.request, execution.reply)
+                                    })
+                                }
+                                external::Work::Mutation(mutation) => {
+                                    if plugins::installing::handles(&mutation.request.command) {
+                                        plugins::installing::submit(
+                                            installations,
+                                            installing.clone(),
+                                            mutation,
+                                        )
+                                        .err()
+                                        .map(|execution| {
+                                            (execution.caller, execution.request, execution.reply)
+                                        })
+                                    } else {
+                                        mutations.submit(mutation).err().map(|mutation| {
+                                            (mutation.caller, mutation.request, mutation.reply)
+                                        })
+                                    }
+                                }
+                                external::Work::Session(transfer) => {
+                                    forwarder.submit(transfer).err().map(|transfer| {
+                                        (transfer.caller, transfer.request, transfer.reply)
+                                    })
+                                }
+                            };
+                            if let Some((caller, request, reply)) = rejected {
+                                network::release(database, &request).await;
+                                let result = database
+                                    .finish_external(
+                                        caller,
+                                        &request,
+                                        Err(Fault::new(
+                                            ErrorCode::Busy,
+                                            "Node operation queue is unavailable",
+                                        )),
+                                        events,
                                     )
                                     .await;
-                                }
+                                installing.installations.finish(caller, request.id, &result);
                                 let _ = reply.send(result);
-                            }
-                            if let Some((reply, completion)) = power_completion {
-                                let mut result =
-                                    completion.await.unwrap_or_else(|_| Err(unavailable()));
-                                if result.is_ok() {
-                                    // Durable replay may contain an old saved value. Apply only current storage.
-                                    match power::read(&database.connection).await {
-                                        Ok(settings) => power.apply_settings(settings),
-                                        Err(error) => result = Err(error),
-                                    }
-                                }
-                                let _ = reply.send(result);
-                            }
-                            if search_settings
-                                && let Ok(settings) = search::read(&database.connection).await
-                            {
-                                searcher.configure(settings);
-                            }
-                            if let Some(turn) = stopping
-                                && agent::stopping(&database.connection, turn).await
-                            {
-                                agents.cancel(turn);
-                            }
-                            for turn in transaction_stops {
-                                if agent::stopping(&database.connection, turn).await {
-                                    agents.cancel(turn);
-                                }
-                            }
-                            if let Some(recipient) = guiding
-                                && let Err(error) = agents
-                                    .interrupt_model(recipient, async || {
-                                        agent::queue::guidance::yield_run(
-                                            &mut database,
-                                            recipient,
-                                            &events,
-                                        )
-                                        .await
-                                    })
-                                    .await
-                            {
-                                eprintln!(
-                                    "guidance could not interrupt the model response: {error}"
-                                );
-                            }
-                            if let Some(selected) = sending
-                                && let Ok(turns) =
-                                    agent::queue::stopping(&database.connection, selected).await
-                            {
-                                for turn in turns {
-                                    agents.cancel(turn);
-                                }
-                            }
-                            if launch {
-                                agents.wake.notify_waiters();
                             }
                         }),
+                        _ => {
+                            Box::pin(async move { unreachable!("SQL jobs execute independently") })
+                        }
                     }
                 };
                 handling.await;
+                if let Err(error) = database::conflict::rollback(&database.connection).await {
+                    eprintln!("storage lifecycle cleanup failed: {error}");
+                }
                 if package_change
                     && let Err(error) =
                         plugins::retain_python(&database.connection, &collection).await
@@ -1936,6 +1351,9 @@ mapped }).await
                     receiver.close();
                 }
             }
+            operations
+                .shutdown(std::time::Duration::from_secs(30))
+                .await?;
             tokio::task::spawn_blocking(move || mutations.join())
                 .await
                 .map_err(|error| Error::Worker(error.to_string()))??;
@@ -1979,8 +1397,7 @@ mapped }).await
     ) -> Result<sailry_link::NetworkScope, Fault> {
         let (reply, result) = oneshot::channel();
         self.ingress
-            .sender
-            .send(Job::NetworkScope { fallback, reply })
+            .submit(Job::NetworkScope { fallback, reply })
             .await
             .map_err(|_| unavailable())?;
         result.await.map_err(|_| unavailable())?
@@ -2194,10 +1611,16 @@ impl Handler for Ingress {
                     "snapshot response expected",
                 ));
             };
+            let cursor = snapshot.cursor;
             Ok(Box::new(Events {
                 initial: Some(Update::Snapshot(snapshot)),
                 receiver,
                 closed: self.closed.clone(),
+                storage: self.storage.get().cloned().ok_or_else(unavailable)?,
+                node: self.node,
+                cursor,
+                through: cursor,
+                pending: Default::default(),
             }) as Box<dyn Subscription>)
         })
     }
@@ -2224,16 +1647,12 @@ impl Ingress {
         + Send
         + 'static,
     ) -> Result<T, Fault> {
-        let (reply, response) = oneshot::channel();
-        self.send_internal(Job::Fixture(Box::new(move |connection| {
-            Box::pin(async move {
-                if !reply.is_closed() {
-                    let _ = reply.send(work(connection).await);
-                }
-            })
-        })))
-        .await?;
-        response.await.map_err(|_| unavailable())?
+        let storage = self.storage.get().ok_or_else(unavailable)?;
+        let mut database = storage
+            .context(false)
+            .await
+            .map_err(database::storage_error)?;
+        work(database.connection.connection_mut()).await
     }
 }
 
@@ -2245,14 +1664,14 @@ impl Ingress {
         checking: bool,
     ) -> Result<crate::plugins::connectors::Target, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::ConnectorTarget {
-                id,
-                revision,
-                checking,
-                reply,
-            })
-            .map_err(|_| unavailable())?;
+        self.submit(Job::ConnectorTarget {
+            id,
+            revision,
+            checking,
+            reply,
+        })
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
 
@@ -2264,15 +1683,15 @@ impl Ingress {
         grant: Option<crate::providers::login::plugin::Issued>,
     ) -> Result<u64, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::ConnectorGrant {
-                id,
-                revision,
-                grant_revision,
-                grant,
-                reply,
-            })
-            .map_err(|_| unavailable())?;
+        self.submit(Job::ConnectorGrant {
+            id,
+            revision,
+            grant_revision,
+            grant,
+            reply,
+        })
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
 
@@ -2296,13 +1715,13 @@ impl Ingress {
         provider: sailry_protocol::ProviderId,
     ) -> Result<(sailry_protocol::Credential, sailry_protocol::Secret), Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .try_send(Job::ResolveCredential {
-                reference,
-                provider,
-                reply,
-            })
-            .map_err(|_| unavailable())?;
+        self.submit(Job::ResolveCredential {
+            reference,
+            provider,
+            reply,
+        })
+        .await
+        .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
 }
@@ -2310,30 +1729,32 @@ impl Ingress {
 impl PeerStore for Ingress {
     fn addresses(&self) -> Pending<'_, Result<Vec<sailry_link::EndpointAddr>, Fault>> {
         Box::pin(async move {
-            let (reply, response) = oneshot::channel();
-            self.sender
-                .try_send(Job::Addresses(reply))
-                .map_err(|_| unavailable())?;
-            response.await.map_err(|_| unavailable())?
+            let storage = self.storage.get().ok_or_else(unavailable)?;
+            let database = storage
+                .context(true)
+                .await
+                .map_err(database::storage_error)?;
+            database.addresses().await
         })
     }
 
     fn remember(&self, address: sailry_link::EndpointAddr) -> Pending<'_, Result<(), Fault>> {
         Box::pin(async move {
             let (reply, response) = oneshot::channel();
-            self.sender
-                .try_send(Job::Remember { address, reply })
+            self.submit(Job::Remember { address, reply })
+                .await
                 .map_err(|_| unavailable())?;
             response.await.map_err(|_| unavailable())?
         })
     }
     fn peers(&self) -> Pending<'_, Result<Vec<NodeId>, Fault>> {
         Box::pin(async move {
-            let (reply, response) = oneshot::channel();
-            self.sender
-                .try_send(Job::Peers(reply))
-                .map_err(|_| unavailable())?;
-            response.await.map_err(|_| unavailable())?
+            let storage = self.storage.get().ok_or_else(unavailable)?;
+            let database = storage
+                .context(true)
+                .await
+                .map_err(database::storage_error)?;
+            database.peers().await
         })
     }
 
@@ -2343,13 +1764,13 @@ impl PeerStore for Ingress {
                 return Err(unavailable());
             }
             let (reply, response) = oneshot::channel();
-            self.sender
-                .try_send(Job::SetTrust {
-                    peer,
-                    trusted,
-                    reply,
-                })
-                .map_err(|_| unavailable())?;
+            self.submit(Job::SetTrust {
+                peer,
+                trusted,
+                reply,
+            })
+            .await
+            .map_err(|_| unavailable())?;
             response.await.map_err(|_| unavailable())?
         })
     }
@@ -2359,6 +1780,25 @@ struct Events {
     initial: Option<Update>,
     receiver: broadcast::Receiver<sailry_protocol::EventEnvelope>,
     closed: CancellationToken,
+    storage: Arc<database::Storage>,
+    node: NodeId,
+    cursor: u64,
+    through: u64,
+    pending: std::collections::VecDeque<sailry_protocol::EventEnvelope>,
+}
+
+impl Events {
+    async fn catch_up(&mut self, through: Option<u64>) -> Result<(), Fault> {
+        let node = self.node;
+        let after = self.cursor;
+        let (through, events) = self
+            .storage
+            .read(move |connection| Box::pin(publication::read(connection, node, after, through)))
+            .await?;
+        self.through = through;
+        self.pending.extend(events);
+        Ok(())
+    }
 }
 
 impl Subscription for Events {
@@ -2370,15 +1810,44 @@ impl Subscription for Events {
             if let Some(initial) = self.initial.take() {
                 return Ok(initial);
             }
-            let result = tokio::select! {
-                biased;
-                _ = self.closed.cancelled() => return Err(unavailable()),
-                result = self.receiver.recv() => result,
-            };
-            match result {
-                Ok(event) => Ok(Update::Event(event)),
-                Err(broadcast::error::RecvError::Lagged(_)) => Ok(Update::ResetRequired),
-                Err(broadcast::error::RecvError::Closed) => Err(unavailable()),
+            loop {
+                if let Some(event) = self.pending.pop_front() {
+                    if event.cursor != self.cursor.saturating_add(1) {
+                        self.pending.clear();
+                        self.cursor = self.through;
+                        return Ok(Update::ResetRequired);
+                    }
+                    self.cursor = event.cursor;
+                    return Ok(Update::Event(event));
+                }
+                if self.cursor < self.through {
+                    if self.catch_up(Some(self.through)).await.is_err() || self.pending.is_empty() {
+                        self.cursor = self.through;
+                        return Ok(Update::ResetRequired);
+                    }
+                    continue;
+                }
+                let result = tokio::select! {
+                    biased;
+                    _ = self.closed.cancelled() => return Err(unavailable()),
+                    result = self.receiver.recv() => result,
+                };
+                match result {
+                    Ok(event) if event.cursor <= self.cursor => continue,
+                    Ok(event) if event.cursor == self.cursor.saturating_add(1) => {
+                        self.cursor = event.cursor;
+                        return Ok(Update::Event(event));
+                    }
+                    Ok(event) => {
+                        self.through = event.cursor;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        if self.catch_up(None).await.is_err() {
+                            return Ok(Update::ResetRequired);
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return Err(unavailable()),
+                }
             }
         })
     }

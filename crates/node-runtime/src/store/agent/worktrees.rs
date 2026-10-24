@@ -7,8 +7,7 @@ mod tests;
 impl Ingress {
     pub(crate) async fn agent_worktrees(&self, turn: TurnId) -> Result<Vec<Worktree>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Worktrees { turn, reply })))
+        self.submit(Job::Agent(Box::new(Operation::Worktrees { turn, reply })))
             .await
             .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?

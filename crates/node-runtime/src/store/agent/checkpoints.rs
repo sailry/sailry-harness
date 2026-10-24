@@ -105,15 +105,14 @@ impl Ingress {
             ));
         }
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Checkpoint {
-                turn,
-                request: request.clone(),
-                before,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Checkpoint {
+            turn,
+            request: request.clone(),
+            before,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 }

@@ -348,6 +348,7 @@ async fn claim_with(
     recipient: Option<TurnId>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Option<Invocation>, Fault> {
+    let publication = database.publication.clone();
     let transaction = database
         .connection
         .unchecked_transaction()
@@ -391,12 +392,14 @@ async fn claim_with(
         put(&transaction, &run).await?;
         let envelope = changed(&transaction, database.node, run.session).await?;
         let queue = super::queue::read(&transaction, run.session).await?;
-        transaction.commit().await.map_err(storage_error)?;
-        let _ = events.send(envelope);
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        publication.send(events, envelope);
         database
             .feeds
             .publish(database.node, run.session, Change::Queue(queue));
         super::feed::run(database, run).await;
+        drop(publication);
         return Box::pin(claim_with(database, recipient, events)).await;
     }
     let queued = super::queue::message(&transaction, run.turn).await?;
@@ -495,8 +498,9 @@ async fn claim_with(
     let queue = super::queue::read(&transaction, run.session).await?;
     let envelope = changed(&transaction, database.node, run.session).await?;
     let child = super::children::get(&transaction, &run).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    let _ = events.send(envelope);
+    let publication = publication.lock().await;
+    crate::store::database::conflict::commit(transaction).await?;
+    publication.send(events, envelope);
     for (session, change) in review_changes {
         database.feeds.publish(database.node, session, change);
     }
@@ -543,6 +547,7 @@ pub(super) async fn finish_with(
     review: Option<AdkEvent>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Status, Fault> {
+    let publication = database.publication.clone();
     let mut run = get(&database.connection, turn).await?;
     let queued_child = run.started_ms.is_none()
         && run.finished_ms.is_none()
@@ -636,7 +641,8 @@ pub(super) async fn finish_with(
     let notices =
         super::super::database::record(&transaction, database.node, notice.into_iter().collect())
             .await?;
-    transaction.commit().await.map_err(storage_error)?;
+    let publication = publication.lock().await;
+    crate::store::database::conflict::commit(transaction).await?;
     let mut diagnostic = crate::logging::Entry::new(
         crate::logging::Area::Run,
         match status {
@@ -661,9 +667,9 @@ pub(super) async fn finish_with(
         .zip(run.finished_ms)
         .map(|(start, end)| end.saturating_sub(start).max(0) as u64 * 1000);
     diagnostic.emit();
-    let _ = events.send(envelope);
+    publication.send(events, envelope);
     for notice in notices {
-        let _ = events.send(notice);
+        publication.send(events, notice);
     }
     database
         .approvals

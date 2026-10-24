@@ -42,14 +42,13 @@ impl Ingress {
         token: sailry_link::CancellationToken,
     ) -> Result<Status, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::ClaimChild {
-                turn,
-                token,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::ClaimChild {
+            turn,
+            token,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 
@@ -60,15 +59,14 @@ impl Ingress {
         error: Option<Fault>,
     ) -> Result<Status, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::FinishQueuedChild {
-                turn,
-                status,
-                error,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::FinishQueuedChild {
+            turn,
+            status,
+            error,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 
@@ -81,17 +79,16 @@ impl Ingress {
         token: sailry_link::CancellationToken,
     ) -> Result<Invocation, Fault> {
         let (reply, response) = oneshot::channel();
-        self.sender
-            .send(Job::Agent(Box::new(Operation::Delegate {
-                turn,
-                request,
-                arguments,
-                message,
-                token,
-                reply,
-            })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
+        self.submit(Job::Agent(Box::new(Operation::Delegate {
+            turn,
+            request,
+            arguments,
+            message,
+            token,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
 }
@@ -259,195 +256,212 @@ pub(super) async fn admit(
             ));
         }
     }
-    let tx = database
-        .connection
-        .unchecked_transaction()
-        .await
-        .map_err(storage_error)?;
-    let run = calls::active(&tx, parent).await?;
-    let previous = super::super::commands::session(&tx, run.session).await?;
-    super::super::sessions::writable(&previous)?;
-    let (entry, index) = calls::locate(&tx, parent, request).await?;
-    let exists: bool = {
-        let mut statement = tx.prepare("SELECT EXISTS(SELECT 1 FROM agent_delegations WHERE parent_turn=?1 AND entry=?2 AND part=?3)").await.map_err(storage_error)?;
-        let row = statement
-            .query_row(params![parent.to_string(), entry.as_str(), index as i64])
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut tx = database
+            .connection
+            .unchecked_transaction()
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-        mapped.map_err(storage_error)?
-    };
-    if exists {
-        return Err(Fault::new(
-            ErrorCode::Conflict,
-            "child call was already admitted; execution was not replayed",
-        ));
-    }
-    let (mut session, role, created) = if args.session.is_some() {
-        let (session, role) = reuse::restore(&tx, &run, &previous, &args, has_role).await?;
-        (session, role, false)
-    } else {
-        let (mut session, role) =
-            fresh::capture(&tx, database.node, &run, &previous, &args).await?;
-        session.creation_order = super::super::sessions::insert(&tx, &session).await?;
-        super::super::media::freeze(&tx, session.id, Some(run.session)).await?;
-        (session, role, true)
-    };
-    let worktree = session.worktree;
-    if inherits_input && worktree != run.worktree {
-        return Err(sailry_protocol::Fault::invalid(
-            "selected input cannot be delegated to another worktree",
-        ));
-    }
-    let references = if created {
-        super::plugins::read(&tx, run.turn).await?
-    } else if let Some(binding) = &session.config.assistant {
-        super::plugins::assistant(&tx, binding).await?
-    } else {
-        super::plugins::capture(&tx).await?
-    };
-    let plugins = super::plugins::packages(&tx, &references).await?;
-    if !created && let Some(role) = &role {
-        let resources: Vec<_> = plugins
-            .iter()
-            .filter(|package| {
-                crate::plugins::conversation::owns_resources(
-                    session.config.assistant.as_ref(),
-                    package,
-                )
-            })
-            .cloned()
-            .collect();
-        for key in &role.skills {
-            crate::plugins::resources::skill(&resources, key)?;
+        tx.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let run = calls::active(&tx, parent).await?;
+        let previous = super::super::commands::session(&tx, run.session).await?;
+        super::super::sessions::writable(&previous)?;
+        let (entry, index) = calls::locate(&tx, parent, request).await?;
+        let exists: bool = {
+            let mut statement = tx.prepare("SELECT EXISTS(SELECT 1 FROM agent_delegations WHERE parent_turn=?1 AND entry=?2 AND part=?3)").await.map_err(storage_error)?;
+            let row = statement
+                .query_row(params![parent.to_string(), entry.as_str(), index as i64])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
+        if exists {
+            return Err(Fault::new(
+                ErrorCode::Conflict,
+                "child call was already admitted; execution was not replayed",
+            ));
         }
+        let (mut session, role, created) = if args.session.is_some() {
+            let (session, role) = reuse::restore(&tx, &run, &previous, &args, has_role).await?;
+            (session, role, false)
+        } else {
+            let (mut session, role) =
+                fresh::capture(&tx, database.node, &run, &previous, &args).await?;
+            session.creation_order = super::super::sessions::insert(&tx, &session).await?;
+            super::super::media::freeze(&tx, session.id, Some(run.session)).await?;
+            (session, role, true)
+        };
+        let worktree = session.worktree;
+        if inherits_input && worktree != run.worktree {
+            return Err(sailry_protocol::Fault::invalid(
+                "selected input cannot be delegated to another worktree",
+            ));
+        }
+        let references = if created {
+            super::plugins::read(&tx, run.turn).await?
+        } else if let Some(binding) = &session.config.assistant {
+            super::plugins::assistant(&tx, binding).await?
+        } else {
+            super::plugins::capture(&tx).await?
+        };
+        let plugins = super::plugins::packages(&tx, &references).await?;
+        if !created && let Some(role) = &role {
+            let resources: Vec<_> = plugins
+                .iter()
+                .filter(|package| {
+                    crate::plugins::conversation::owns_resources(
+                        session.config.assistant.as_ref(),
+                        package,
+                    )
+                })
+                .cloned()
+                .collect();
+            for key in &role.skills {
+                crate::plugins::resources::skill(&resources, key)?;
+            }
+        }
+        let plugin_settings = super::super::plugins::settings::capture(&tx, &plugins).await;
+        let (caller, request_id): (Vec<u8>, String) = {
+            let mut statement = tx
+                .prepare("SELECT caller,request FROM turns WHERE id=?1")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row([parent.to_string()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+            mapped.map_err(storage_error)?
+        };
+        let caller = NodeId(
+            caller
+                .try_into()
+                .map_err(|_| storage_error("invalid caller identity"))?,
+        );
+        let media = super::super::media::session_models(&tx, session.id).await?;
+        let origin = Delegation {
+            session: run.session,
+            turn: parent,
+            entry,
+            index,
+            role: role.as_ref().map(|role| role.id),
+        };
+        if created {
+            session.delegation = Some(Box::new(origin.clone()));
+        }
+        let turn = QueuedTurn {
+            id: TurnId::new(),
+            kind: RunKind::Task,
+            session: session.id,
+            request: request_id.parse().map_err(storage_error)?,
+            revision: session.revision,
+            config: session.config.clone(),
+            roles: session.roles.clone(),
+            plugins: references,
+        };
+        // The outer request owns durable admission; child rows only freeze scope and ancestry.
+        tx.execute(
+            "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles,rowid) VALUES(?1,'task',?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                turn.id.to_string(),
+                session.id.to_string(),
+                turn.revision as i64,
+                request_id,
+                &caller.0[..],
+                encode(&turn.plugins)?,
+                encode(&turn.roles)?, crate::store::database::counters::next(&tx, crate::store::database::counters::Namespace::Turns).await? as i64],
+        ).await
+        .map_err(storage_error)?;
+        super::super::plugins::connectors::capture(&tx, turn.id, &turn.plugins).await?;
+        insert(&tx, turn.id, &origin).await?;
+        // The supervisor owns the waiter before admission. Only the child claim may
+        // start execution; root workers can be waiting for these children.
+        super::super::attachments::turns::bind(&tx, turn.id, &message.attachments).await?;
+        runs::record(&tx, &turn, Status::Queued, true).await?;
+        runs::capture(&tx, &turn, false, &message).await?;
+        let provider: Option<Vec<u8>> = {
+            let mut statement = tx
+                .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row([turn.id.to_string()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
+        let provider: Option<Provider> = provider
+            .map(|body| serde_json::from_slice(&body).map_err(storage_error))
+            .transpose()?;
+        if let Some(provider) = &provider {
+            crate::store::providers::presets::verify(&tx, provider).await?;
+        }
+        let media = super::super::media::for_turn(media, provider.as_ref(), &turn.config);
+        let child_run = runs::get(&tx, turn.id).await?;
+        let summary = children::get(&tx, &child_run)
+            .await?
+            .expect("admitted child has an origin");
+        let background = super::background::child_started(
+            &tx,
+            &run,
+            &child_run,
+            args.title.as_deref().unwrap_or(&args.task),
+        )
+        .await?;
+        let queued = activity::queued(&tx, turn.clone()).await?;
+        let changes = created
+            .then(|| Event::SessionChanged(Box::new(session)))
+            .into_iter()
+            .chain(std::iter::once(queued))
+            .collect();
+        let envelopes = super::super::database::record(&tx, database.node, changes).await?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(tx).await?;
+        drop(write.take());
+        // Activate temporary output before returning the invocation to the runner.
+        super::feed::run(database, child_run).await;
+        super::background::publish(database, [background]).await;
+        database.feeds.publish(
+            database.node,
+            summary.origin.session,
+            Change::Child(summary),
+        );
+        for envelope in envelopes {
+            publication.send(events, envelope);
+        }
+        drop(publication);
+        Ok(Invocation {
+            instructions: super::super::captures::instructions(&database.connection, turn.id).await?,
+            hooks: super::super::hooks::frozen(&database.connection, turn.id).await?,
+            automatic: false,
+            notice: false,
+            notice_input: None,
+            notices: Vec::new(),
+            title: None,
+            project: previous.project,
+            connections: connections::catalog(&database.connection, turn.session).await?,
+            media,
+            turn,
+            caller,
+            worktree,
+            provider,
+            message,
+            child: Some(Child { role }),
+            plugins,
+            plugin_settings,
+        })
     }
-    let plugin_settings = super::super::plugins::settings::capture(&tx, &plugins).await;
-    let (caller, request_id): (Vec<u8>, String) = {
-        let mut statement = tx
-            .prepare("SELECT caller,request FROM turns WHERE id=?1")
-            .await
-            .map_err(storage_error)?;
-        let row = statement
-            .query_row([parent.to_string()])
-            .await
-            .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
-        mapped.map_err(storage_error)?
-    };
-    let caller = NodeId(
-        caller
-            .try_into()
-            .map_err(|_| storage_error("invalid caller identity"))?,
-    );
-    let media = super::super::media::session_models(&tx, session.id).await?;
-    let origin = Delegation {
-        session: run.session,
-        turn: parent,
-        entry,
-        index,
-        role: role.as_ref().map(|role| role.id),
-    };
-    if created {
-        session.delegation = Some(Box::new(origin.clone()));
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
     }
-    let turn = QueuedTurn {
-        id: TurnId::new(),
-        kind: RunKind::Task,
-        session: session.id,
-        request: request_id.parse().map_err(storage_error)?,
-        revision: session.revision,
-        config: session.config.clone(),
-        roles: session.roles.clone(),
-        plugins: references,
-    };
-    // The outer request owns durable admission; child rows only freeze scope and ancestry.
-    tx.execute(
-        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles,rowid) VALUES(?1,'task',?2,?3,?4,?5,?6,?7,?8)",
-        params![
-            turn.id.to_string(),
-            session.id.to_string(),
-            turn.revision as i64,
-            request_id,
-            &caller.0[..],
-            encode(&turn.plugins)?,
-            encode(&turn.roles)?, crate::store::database::counters::next(&tx, crate::store::database::counters::Namespace::Turns).await? as i64],
-    ).await
-    .map_err(storage_error)?;
-    super::super::plugins::connectors::capture(&tx, turn.id, &turn.plugins).await?;
-    insert(&tx, turn.id, &origin).await?;
-    // The supervisor owns the waiter before admission. Only the child claim may
-    // start execution; root workers can be waiting for these children.
-    super::super::attachments::turns::bind(&tx, turn.id, &message.attachments).await?;
-    runs::record(&tx, &turn, Status::Queued, true).await?;
-    runs::capture(&tx, &turn, false, &message).await?;
-    let provider: Option<Vec<u8>> = {
-        let mut statement = tx
-            .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
-            .await
-            .map_err(storage_error)?;
-        let row = statement
-            .query_row([turn.id.to_string()])
-            .await
-            .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
-        mapped.map_err(storage_error)?
-    };
-    let provider: Option<Provider> = provider
-        .map(|body| serde_json::from_slice(&body).map_err(storage_error))
-        .transpose()?;
-    if let Some(provider) = &provider {
-        crate::store::providers::presets::verify(&tx, provider).await?;
-    }
-    let media = super::super::media::for_turn(media, provider.as_ref(), &turn.config);
-    let child_run = runs::get(&tx, turn.id).await?;
-    let summary = children::get(&tx, &child_run)
-        .await?
-        .expect("admitted child has an origin");
-    let background = super::background::child_started(
-        &tx,
-        &run,
-        &child_run,
-        args.title.as_deref().unwrap_or(&args.task),
-    )
-    .await?;
-    let queued = activity::queued(&tx, turn.clone()).await?;
-    let changes = created
-        .then(|| Event::SessionChanged(Box::new(session)))
-        .into_iter()
-        .chain(std::iter::once(queued))
-        .collect();
-    let envelopes = super::super::database::record(&tx, database.node, changes).await?;
-    tx.commit().await.map_err(storage_error)?;
-    // Activate temporary output before returning the invocation to the runner.
-    super::feed::run(database, child_run).await;
-    super::background::publish(database, [background]).await;
-    database.feeds.publish(
-        database.node,
-        summary.origin.session,
-        Change::Child(summary),
-    );
-    for envelope in envelopes {
-        let _ = events.send(envelope);
-    }
-    Ok(Invocation {
-        instructions: super::super::captures::instructions(&database.connection, turn.id).await?,
-        hooks: super::super::hooks::frozen(&database.connection, turn.id).await?,
-        automatic: false,
-        notice: false,
-        notice_input: None,
-        notices: Vec::new(),
-        title: None,
-        project: previous.project,
-        connections: connections::catalog(&database.connection, turn.session).await?,
-        media,
-        turn,
-        caller,
-        worktree,
-        provider,
-        message,
-        child: Some(Child { role }),
-        plugins,
-        plugin_settings,
-    })
+    result
 }

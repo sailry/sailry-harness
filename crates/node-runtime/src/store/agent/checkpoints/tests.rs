@@ -120,7 +120,7 @@ async fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Requ
     )
     .await
     .unwrap();
-    let id = approvals::authorize(&mut fixture.database.connection, turn, &authorization, None)
+    let id = approvals::authorize(&mut fixture.database, turn, &authorization, None)
         .await
         .unwrap();
     let session = crate::store::commands::session(&fixture.database.connection, fixture.session)

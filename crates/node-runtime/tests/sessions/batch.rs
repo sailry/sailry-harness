@@ -200,7 +200,7 @@ async fn preserves_atomic_visibility_and_resources() {
             .await
             .unwrap();
         let current = synchronized(&client, &mut *updates, &mut projection).await;
-        let mut uncertain = Vec::new();
+        let mut unadmitted = Vec::new();
         for command in [
             Command::ArchiveSessions {
                 expected: expected(&current.sessions),
@@ -209,8 +209,8 @@ async fn preserves_atomic_visibility_and_resources() {
                 expected: expected(&current.sessions),
             },
         ] {
-            // Reuse the receipt-loss fixture: a failed receipt write rolls back
-            // this database-only mutation, but its admission must never replay.
+            // A failed receipt write rolls back the database-only mutation and
+            // admission together, so its original identity can be submitted safely.
             node.with_storage(|db| Box::pin(async move {
                 db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").await.map_err(crate::database_fixture::fault)
             })).await.unwrap();
@@ -218,7 +218,7 @@ async fn preserves_atomic_visibility_and_resources() {
             assert!(client.execute(request.clone()).await.is_err());
             assert_eq!(
                 client.outcome(&request).await.unwrap(),
-                RequestOutcome::Admitted
+                RequestOutcome::NotAdmitted
             );
             node.with_storage(|db| {
                 Box::pin(async move {
@@ -229,16 +229,12 @@ async fn preserves_atomic_visibility_and_resources() {
             })
             .await
             .unwrap();
-            assert_eq!(snapshot(&client).await.sessions, current.sessions);
-            assert_eq!(
-                client.execute(request.clone()).await.unwrap_err().code,
-                ErrorCode::OutcomeUnknown
-            );
-            uncertain.push(request);
+            let unchanged = snapshot(&client).await;
+            assert_eq!(unchanged.sessions, current.sessions);
+            assert_eq!(unchanged.cursor, current.cursor);
+            unadmitted.push(request);
         }
-        let remove = client.prepare(Command::RemoveSessions {
-            expected: expected(&current.sessions),
-        });
+        let remove = unadmitted.pop().unwrap();
         assert_eq!(
             client.outcome(&remove).await.unwrap(),
             RequestOutcome::NotAdmitted
@@ -300,14 +296,10 @@ async fn preserves_atomic_visibility_and_resources() {
         });
         assert!(snapshot(&client).await.sessions.is_empty());
         assert_eq!(client.execute(remove).await.unwrap(), result);
-        for request in uncertain {
+        for request in unadmitted {
             assert_eq!(
                 client.outcome(&request).await.unwrap(),
-                RequestOutcome::Unknown
-            );
-            assert_eq!(
-                client.execute(request).await.unwrap_err().code,
-                ErrorCode::OutcomeUnknown
+                RequestOutcome::NotAdmitted
             );
         }
         assert_eq!(

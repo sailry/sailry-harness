@@ -420,20 +420,36 @@ async fn save(
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Credential, Fault> {
     let node = database.node;
-    let transaction = database
-        .connection
-        .transaction()
-        .await
-        .map_err(storage_error)?;
-    let credential = authentication::put(&transaction, credential, secret).await?;
-    let mut changes = vec![authentication::changed(node, &credential)];
-    changes.extend(quota::reconcile(&transaction, node).await?);
-    let envelopes = record(&transaction, node, changes).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    for envelope in envelopes {
-        let _ = events.send(envelope);
+    let publication = database.publication.clone();
+    let mut write = Some(database.write().await?);
+    let result: Result<_, Fault> = async {
+        let mut transaction = database
+            .connection
+            .transaction()
+            .await
+            .map_err(storage_error)?;
+        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let credential = authentication::put(&transaction, credential, secret).await?;
+        let mut changes = vec![authentication::changed(node, &credential)];
+        changes.extend(quota::reconcile(&transaction, node).await?);
+        let envelopes = record(&transaction, node, changes).await?;
+        let publication = publication.lock().await;
+        crate::store::database::conflict::commit(transaction).await?;
+        drop(write.take());
+        for envelope in envelopes {
+            publication.send(events, envelope);
+        }
+        Ok(credential)
     }
-    Ok(credential)
+    .await;
+    if let Some(write) = write {
+        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        drop(write);
+    }
+    result
 }
 
 fn changed() -> Fault {

@@ -968,6 +968,7 @@ pub(in crate::store) async fn save_grant(
     issued: Option<crate::providers::login::plugin::Issued>,
     events: &tokio::sync::broadcast::Sender<sailry_protocol::EventEnvelope>,
 ) -> Result<u64, Fault> {
+    let publication = database.publication.clone();
     let node = database.node;
     let transaction = database
         .connection
@@ -984,9 +985,10 @@ pub(in crate::store) async fn save_grant(
         )],
     )
     .await?;
-    transaction.commit().await.map_err(storage_error)?;
+    let publication = publication.lock().await;
+    crate::store::database::conflict::commit(transaction).await?;
     for envelope in envelopes {
-        let _ = events.send(envelope);
+        publication.send(events, envelope);
     }
     Ok(record.grant_revision)
 }

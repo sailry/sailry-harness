@@ -1,7 +1,7 @@
 use super::*;
 
 async fn advance_backoff(client: &Client, turn: &QueuedTurn, server: &Server, before: usize) {
-    let policy = adk_model::retry::RetryConfig::default().with_max_retries(5);
+    let policy = adk_model::retry::RetryConfig::default().with_max_retries(1);
     let mut updates = client.subscribe_conversation(turn.session).await.unwrap();
     let mut projection =
         sailry_client::conversation::Projection::new(client.target(), turn.session, 0);
@@ -104,7 +104,25 @@ async fn requires_a_completed_answer() {
     })
     .await;
     let mut fixture = Fixture::empty(false, &server).await;
-    let provider = configured(&fixture, None).await;
+    fixture
+        .node
+        .set_model_transport_fixture(adk_model::openai::WsOptions {
+            enabled: Arc::new(|| false),
+            ..Default::default()
+        });
+    let mut provider = configured(&fixture, None).await;
+    provider.stream_max_retries = Some(1);
+    let Output::Provider(provider) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("provider expected")
+    };
     let authorization_requests = server.requests.lock().unwrap().len();
     for remote in [false, true] {
         fixture.client = Arc::new(Client::new(if remote {
@@ -159,10 +177,7 @@ async fn requires_a_completed_answer() {
                         .error
                         .is_some()
                 );
-                if outcome == "incomplete" {
-                    assert_eq!(answer(&page, turn.id), "Authorized Codex response");
-                }
-                if matches!(outcome, "absent" | "unknown" | "empty") {
+                if matches!(outcome, "incomplete" | "absent" | "unknown" | "empty") {
                     assert!(answer(&page, turn.id).is_empty());
                 }
             }
@@ -173,7 +188,7 @@ async fn requires_a_completed_answer() {
                 .flat_map(|entry| &entry.parts)
                 .filter_map(|part| match part {
                     Part::Resource(value) if value["type"] == "model_retry" => {
-                        assert_eq!(value["limit"], 5);
+                        assert_eq!(value["limit"], 1);
                         Some(value["attempt"].as_u64().unwrap())
                     }
                     _ => None,
@@ -191,7 +206,10 @@ async fn requires_a_completed_answer() {
                 assert_eq!(retries, [1], "{outcome}");
                 assert_eq!(requests, retries.len() + 1, "{outcome}");
             } else {
-                assert!(retries.is_empty(), "{outcome}");
+                assert!(
+                    retries.is_empty(),
+                    "remote={remote} outcome={outcome} retries={retries:?}"
+                );
                 assert_eq!(requests, 1, "{outcome}: inference must not replay");
             }
         }

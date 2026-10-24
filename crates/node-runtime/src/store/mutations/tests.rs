@@ -287,8 +287,7 @@ async fn capacity_includes_running() {
 }
 
 #[tokio::test]
-async fn ingress_rejects_overflow() {
-    assert_eq!(CAPACITY, 128);
+async fn bounds_control_without_blocking_reads() {
     let fixture = Fixture::start(mutations::execute).await;
     let (entered, waiting) = mpsc::unbounded_channel();
     let (release, released) = std::sync::mpsc::channel();
@@ -308,21 +307,14 @@ async fn ingress_rejects_overflow() {
         .unwrap();
     gate.entered.recv().await.unwrap();
 
-    let client = Arc::new(Client::new(Arc::new(Local::new(
-        fixture.identity.id(),
-        fixture.identity.id(),
-        fixture.store.ingress.clone(),
-    ))));
-    let mut queued = Vec::with_capacity(CAPACITY);
-    for index in 0..CAPACITY {
-        let client = client.clone();
-        let request = client.prepare(Command::WriteFile {
-            worktree: fixture.worktree,
-            path: format!("queued-{index}"),
-            text: "queued".into(),
-            expected_revision: None,
-        });
-        queued.push(tokio::spawn(async move { client.dispatch(request).await }));
+    let mut queued = Vec::new();
+    for _ in 0..super::super::CONTROL_CAPACITY {
+        let ingress = fixture.store.ingress.clone();
+        queued.push(tokio::spawn(async move {
+            ingress
+                .claim_run(sailry_link::CancellationToken::new())
+                .await
+        }));
     }
     tokio::time::timeout(Duration::from_secs(5), async {
         while fixture.store.ingress.sender.capacity() != 0 {
@@ -331,30 +323,36 @@ async fn ingress_rejects_overflow() {
     })
     .await
     .unwrap();
-
-    let overflow = client.prepare(Command::WriteFile {
-        worktree: fixture.worktree,
-        path: "overflow".into(),
-        text: "not written".into(),
-        expected_revision: None,
-    });
-    let error = match client.dispatch(overflow).await {
-        Ok(_) => panic!("overflow request was accepted"),
-        Err(error) => error,
+    let mut overflow = Box::pin(
+        fixture
+            .store
+            .ingress
+            .claim_run(sailry_link::CancellationToken::new()),
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut overflow)
+            .await
+            .is_err()
+    );
+    let output = tokio::time::timeout(
+        Duration::from_secs(2),
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::Snapshot)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let Output::Snapshot(snapshot) = output else {
+        panic!("snapshot expected")
     };
-    assert_eq!(error.code, ErrorCode::Busy);
-
+    assert_eq!(snapshot.node, fixture.identity.id());
+    assert_eq!(snapshot.worktrees[0].id, fixture.worktree);
     gate.release.send(()).unwrap();
     for task in queued {
-        task.await
-            .unwrap()
-            .unwrap()
-            .completion
-            .await
-            .unwrap()
-            .unwrap();
+        assert!(task.await.unwrap().unwrap().is_none());
     }
-    assert!(!fixture.directory.path().join("project/overflow").exists());
+    assert!(overflow.await.unwrap().is_none());
     fixture.store.shutdown().await.unwrap();
 }
 
