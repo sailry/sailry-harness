@@ -36,10 +36,10 @@ pub(in crate::conversation) fn group(
                 .min_w_0()
                 .gap_3()
                 .children(entries.iter().map(|entry| {
-                    if entry.declaration.handler.is_some() {
-                        if let Some(panel) = &panel {
-                            return panel.clone().into_any_element();
-                        }
+                    if entry.declaration.handler.is_some()
+                        && let Some(panel) = &panel
+                    {
+                        return panel.clone().into_any_element();
                     }
                     body(entry, cx).into_any_element()
                 }))

@@ -32,6 +32,11 @@ enum Target {
     },
 }
 
+pub(in crate::settings) struct Catalog {
+    pub(in crate::settings) source: Source,
+    pub(in crate::settings) entry: sailry_protocol::plugin::catalog::Entry,
+}
+
 pub(crate) struct Details {
     binding: Binding,
     target: Target,
@@ -103,8 +108,7 @@ pub(in crate::settings) fn open_catalog(
     owner: Entity<Workspace>,
     market: Entity<market::Market>,
     binding: Binding,
-    source: Source,
-    entry: sailry_protocol::plugin::catalog::Entry,
+    catalog: Catalog,
     stop: CancellationToken,
     window: &mut Window,
     cx: &mut App,
@@ -114,8 +118,8 @@ pub(in crate::settings) fn open_catalog(
         binding,
         Target::Catalog {
             market: market.downgrade(),
-            entry: Box::new(entry),
-            source,
+            entry: Box::new(catalog.entry),
+            source: catalog.source,
         },
         None,
         stop,

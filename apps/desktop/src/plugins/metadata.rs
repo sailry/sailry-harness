@@ -130,7 +130,7 @@ impl Metadata {
             return false;
         }
         self.reads
-            .retain(|_, read| expected.iter().any(|summary| *summary == read.expected));
+            .retain(|_, read| expected.contains(&read.expected));
         self.errors.retain(|name, _| {
             self.expected.iter().find(|summary| summary.name == *name)
                 == expected.iter().find(|summary| summary.name == *name)

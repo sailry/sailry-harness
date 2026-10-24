@@ -82,11 +82,11 @@ fn tracks_account_changes_without_package_revisions() {
     disconnected.configured.clear();
     let package = BTreeSet::from(["github".into()]);
     assert_eq!(
-        changed_accounts(&[disconnected.clone()], &[connected.clone()]),
+        changed_accounts(&[disconnected.clone()], std::slice::from_ref(&connected)),
         package
     );
     assert_eq!(
-        changed_accounts(&[connected.clone()], &[disconnected]),
+        changed_accounts(std::slice::from_ref(&connected), &[disconnected]),
         package
     );
     for changed in [
@@ -103,7 +103,10 @@ fn tracks_account_changes_without_package_revisions() {
             ..connected.clone()
         },
     ] {
-        assert_eq!(changed_accounts(&[connected.clone()], &[changed]), package);
+        assert_eq!(
+            changed_accounts(std::slice::from_ref(&connected), &[changed]),
+            package
+        );
     }
 }
 
@@ -179,7 +182,7 @@ fn keeps_bound_capabilities_inside_the_account() {
     let info = info("service", &["read", "write"]);
     let kind = kind(&info, "account", &["read", "write"]);
     let account = account(&kind);
-    let services = directory(&[kind], &[account.clone()], &[info]);
+    let services = directory(&[kind], std::slice::from_ref(&account), &[info]);
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].account.as_ref().unwrap(), &account);
     assert_eq!(services[0].servers.len(), 2);
@@ -205,7 +208,7 @@ fn merges_authorization_into_the_original_instance() {
         server: "server".into(),
         client: None,
     }];
-    let before = directory(&[kind.clone()], &[], &[info.clone()]);
+    let before = directory(&[kind.clone()], &[], std::slice::from_ref(&info));
     let mut account = account(&kind);
     account.method = connector::Kind::McpOauth;
     let after = directory(&[kind], &[account.clone()], &[info]);
@@ -241,7 +244,11 @@ fn preserves_disabled_and_unavailable_accounts() {
         let mut account = account(&kind);
         account.enabled = false;
         account.state = state;
-        let services = directory(&[kind.clone()], &[account.clone()], &[info.clone()]);
+        let services = directory(
+            std::slice::from_ref(&kind),
+            &[account.clone()],
+            std::slice::from_ref(&info),
+        );
         assert_eq!(services.len(), 1);
         assert_eq!(services[0].account.as_ref().unwrap(), &account);
     }
@@ -251,7 +258,7 @@ fn preserves_disabled_and_unavailable_accounts() {
 fn retains_removed_declarations_by_account_id() {
     let info = info("service", &[]);
     let account = account(&kind(&info, "removed", &[]));
-    let services = directory(&[], &[account.clone()], &[info]);
+    let services = directory(&[], std::slice::from_ref(&account), &[info]);
     assert_eq!(services.len(), 1);
     assert!(services[0].kind.is_none());
     assert_eq!(services[0].key.member, Member::Account(account.id));
@@ -264,7 +271,7 @@ fn never_joins_mixed_configuration_revisions() {
     let kind = kind(&info, "account", &["server"]);
     let account = account(&kind);
     info.summary.settings_revision += 1;
-    let services = directory(&[kind], &[account.clone()], &[info]);
+    let services = directory(&[kind], std::slice::from_ref(&account), &[info]);
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].account.as_ref().unwrap().id, account.id);
     assert!(services[0].info.is_none());

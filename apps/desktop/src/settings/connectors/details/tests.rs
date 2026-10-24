@@ -155,7 +155,7 @@ fn retains_choices_after_sibling_revision_conflicts() {
     }];
     let mut drafts = BTreeMap::from([("server".into(), false)]);
     retain_drafts(&mut drafts, &BTreeSet::new(), &BTreeMap::new(), &service);
-    assert_eq!(drafts["server"], false);
+    assert!(!drafts["server"]);
     service.servers[0].allowed = false;
     retain_drafts(&mut drafts, &BTreeSet::new(), &BTreeMap::new(), &service);
     assert!(drafts.is_empty());
@@ -166,5 +166,5 @@ fn keeps_drafts_during_metadata_refresh() {
     let service = service();
     let mut drafts = BTreeMap::from([("server".into(), false)]);
     retain_drafts(&mut drafts, &BTreeSet::new(), &BTreeMap::new(), &service);
-    assert_eq!(drafts["server"], false);
+    assert!(!drafts["server"]);
 }

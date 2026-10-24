@@ -345,7 +345,7 @@ impl Shell {
             let title = self
                 .activity_snapshot(notice.id.node)
                 .and_then(|snapshot| snapshot.sessions.iter().find(|entry| entry.id == session))
-                .map(|entry| sessions::title(entry))
+                .map(sessions::title)
                 .unwrap_or_else(|| session.to_string().into());
             facts = facts.child(DescriptionItem::new(tr("settings_conversation")).value(title));
         }

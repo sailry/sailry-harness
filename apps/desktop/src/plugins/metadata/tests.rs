@@ -387,7 +387,7 @@ fn invalidates_availability_at_unchanged_revisions() {
         );
     }
     let expected = cache.reset(&BTreeSet::from(["github".into()]));
-    assert_eq!(expected, [github.summary.clone()]);
+    assert_eq!(expected, std::slice::from_ref(&github.summary));
     assert!(stale.is_cancelled());
     assert!(!unaffected.is_cancelled());
     assert!(!cache.reads.contains_key("github"));
@@ -420,7 +420,7 @@ fn rejects_reads_from_previous_authorization() {
     );
     assert_eq!(
         cache.reset(&BTreeSet::from(["github".into()])),
-        [previous.summary.clone()]
+        std::slice::from_ref(&previous.summary)
     );
     let mut current = previous.clone();
     current.mcp[0].availability = Availability::ConnectionRequired;
@@ -616,7 +616,10 @@ fn retries_selected_failures_without_disrupting_pending_reads() {
             Fault::new(ErrorCode::Unavailable, "injected metadata failure"),
         );
     }
-    assert_eq!(cache.prepare_retry(Some("first")), [first.summary.clone()]);
+    assert_eq!(
+        cache.prepare_retry(Some("first")),
+        std::slice::from_ref(&first.summary)
+    );
     assert!(stops["first"].is_cancelled());
     assert!(!stops["second"].is_cancelled());
     assert!(!stops["pending"].is_cancelled());
@@ -637,7 +640,10 @@ fn retries_selected_failures_without_disrupting_pending_reads() {
     assert!(cache.prepare_retry(Some("first")).is_empty());
     assert!(!retry.is_cancelled());
     assert!(cache.reads["first"].pending);
-    assert_eq!(cache.prepare_retry(None), [second.summary.clone()]);
+    assert_eq!(
+        cache.prepare_retry(None),
+        std::slice::from_ref(&second.summary)
+    );
     assert!(stops["second"].is_cancelled());
     assert!(!stops["pending"].is_cancelled());
     assert_eq!(cache.entries["first"], first);

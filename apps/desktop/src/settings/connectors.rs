@@ -405,12 +405,7 @@ impl Workspace {
                 metadata
                     .entries
                     .iter()
-                    .filter(|(_, info)| {
-                        self.plugin_catalog
-                            .packages
-                            .iter()
-                            .any(|summary| *summary == info.summary)
-                    })
+                    .filter(|(_, info)| self.plugin_catalog.packages.contains(&info.summary))
                     .map(|(name, info)| (name.clone(), info.clone()))
                     .collect()
             })

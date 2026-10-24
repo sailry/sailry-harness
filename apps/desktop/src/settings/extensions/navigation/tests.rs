@@ -132,7 +132,7 @@ fn rejects_stale_routes_and_scopes() {
     let node = NodeId([1; 32]);
     let page = info(None);
     let entry = Entry::new(node, &page, &page.summary).unwrap();
-    assert!(!entry.available(NodeId([2; 32]), &[page.summary.clone()]));
+    assert!(!entry.available(NodeId([2; 32]), std::slice::from_ref(&page.summary)));
     assert!(!entry.available(node, &[]));
     let mut current = page.summary.clone();
     current.settings_revision += 1;

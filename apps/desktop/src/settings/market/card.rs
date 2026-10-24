@@ -124,20 +124,6 @@ pub(super) fn action(id: String, action: Action, _cx: &App) -> Button {
         .accessibility_label(tr(action.label()))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::prelude::v1::test;
-
-    #[test]
-    fn installation_controls_available_actions() {
-        assert_eq!(Action::new(false, false), Action::Install);
-        assert_eq!(Action::new(false, true), Action::Install);
-        assert_eq!(Action::new(true, false), Action::Installed);
-        assert_eq!(Action::new(true, true), Action::Update);
-    }
-}
-
 pub(super) fn skeleton(cx: &App) -> AnyElement {
     div()
         .grid()
@@ -164,4 +150,18 @@ pub(super) fn skeleton(cx: &App) -> AnyElement {
                 )
         }))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn installation_controls_available_actions() {
+        assert_eq!(Action::new(false, false), Action::Install);
+        assert_eq!(Action::new(false, true), Action::Install);
+        assert_eq!(Action::new(true, false), Action::Installed);
+        assert_eq!(Action::new(true, true), Action::Update);
+    }
 }

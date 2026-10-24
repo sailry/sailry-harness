@@ -221,7 +221,13 @@ impl Market {
                 return;
             }
             plugin_details::open_catalog(
-                owner, market, binding, source, entry, selection, window, cx,
+                owner,
+                market,
+                binding,
+                plugin_details::Catalog { source, entry },
+                selection,
+                window,
+                cx,
             );
         });
     }
