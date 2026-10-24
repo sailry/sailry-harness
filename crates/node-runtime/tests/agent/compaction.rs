@@ -12,6 +12,15 @@ mod manual;
 mod native;
 
 async fn submit(client: &Client, session: SessionId, text: String) -> (Request, TurnId, Page) {
+    submit_within(client, session, text, Duration::from_secs(10)).await
+}
+
+async fn submit_within(
+    client: &Client,
+    session: SessionId,
+    text: String,
+    budget: Duration,
+) -> (Request, TurnId, Page) {
     let request = client.prepare(Command::SubmitTurn {
         session,
         expected_revision: 1,
@@ -20,7 +29,7 @@ async fn submit(client: &Client, session: SessionId, text: String) -> (Request, 
     let Output::QueuedTurn(turn) = client.execute(request.clone()).await.unwrap() else {
         panic!("turn expected")
     };
-    let page = finished(client, session, turn.id).await;
+    let page = finished_within(client, session, turn.id, budget).await;
     assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
     (request, turn.id, page)
 }

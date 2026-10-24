@@ -53,6 +53,7 @@ export function unused() {{return {{}};}}
 async fn preconnects_each_turn() {
     for remote in [false, true] {
         for effort in [Effort::High, Effort::Max] {
+            let started = std::time::Instant::now();
             let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::Accept).await;
             let mut fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             fixture.provider.models[0].efforts = vec![effort];
@@ -81,7 +82,8 @@ async fn preconnects_each_turn() {
             };
             fixture.session = session;
             install(&fixture, false).await;
-            let lifetime = Duration::from_secs(1);
+            // Preparation must not expire its own preconnection before generation starts.
+            let lifetime = Duration::from_secs(5);
             fixture
                 .node
                 .set_model_transport_fixture(adk_model::openai::WsOptions {
@@ -105,8 +107,24 @@ async fn preconnects_each_turn() {
                 .unwrap_or_else(|_| {
                     panic!("turn {index} must preconnect (remote={remote}, effort={effort:?})")
                 });
-                assert_eq!(server.upgrades.lock().unwrap().len(), index + 1);
-                assert_eq!(server.requests.lock().unwrap().len(), index);
+                let upgrades = server.upgrades.lock().unwrap().len();
+                let requests = server.requests.lock().unwrap().len();
+                assert_eq!(
+                    upgrades,
+                    index + 1,
+                    "remote={remote}, effort={effort:?}, turn={index}, requests={requests}, handshakes={:?}",
+                    server
+                        .upgrades
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|request| request.received.duration_since(started))
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    requests, index,
+                    "remote={remote}, effort={effort:?}, turn={index}"
+                );
                 release.cancel();
                 let mut page = finished(&fixture.client, fixture.session.id, turn).await;
                 page.entries.retain(|entry| entry.turn == turn);

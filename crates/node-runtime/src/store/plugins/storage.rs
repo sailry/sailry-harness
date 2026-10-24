@@ -505,19 +505,27 @@ mod tests {
     async fn replacement_counts_only_current_value_bytes() {
         let db = database().await;
         let body = vec![b' '; storage::MAX_VALUE_BYTES];
+        // Seed the quota boundary without rescanning the growing namespace for every row.
+        db.execute("BEGIN CONCURRENT", ()).await.unwrap();
         for index in 0..storage::MAX_NAMESPACE_BYTES / storage::MAX_VALUE_BYTES {
-            write(
-                &db,
-                "game",
-                &index.to_string(),
-                &Value::Null,
-                &body,
-                0,
-                None,
+            db.execute(
+                "INSERT INTO plugin_values(name,key,revision,value) VALUES(?1,?2,1,?3)",
+                params!["game", index.to_string(), body.as_slice()],
             )
             .await
             .unwrap();
         }
+        db.execute("COMMIT", ()).await.unwrap();
+        let bytes: i64 = db
+            .prepare("SELECT sum(length(value)) FROM plugin_values WHERE name=?1")
+            .await
+            .unwrap()
+            .query_row(["game"])
+            .await
+            .unwrap()
+            .get(0)
+            .unwrap();
+        assert_eq!(bytes, storage::MAX_NAMESPACE_BYTES as i64);
         assert_eq!(
             write(&db, "game", "extra", &Value::Null, b"null", 0, None)
                 .await

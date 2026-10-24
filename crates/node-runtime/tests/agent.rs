@@ -257,6 +257,7 @@ async fn finished_within(
     turn: TurnId,
     budget: Duration,
 ) -> Page {
+    let mut observed = None;
     tokio::time::timeout(budget, async {
         let mut updates = client.subscribe_conversation(session).await.unwrap();
         let mut projection =
@@ -270,13 +271,11 @@ async fn finished_within(
                 continue;
             }
             if projection.snapshot().is_some_and(|snapshot| {
-                snapshot.page.runs.iter().any(|run| {
-                    run.turn == turn
-                        && !matches!(
-                            run.status,
-                            Status::Queued | Status::Running | Status::Stopping
-                        )
-                })
+                let Some(run) = snapshot.page.runs.iter().find(|run| run.turn == turn) else {
+                    return false;
+                };
+                observed = Some((run.status, run.error.clone(), snapshot.page.entries.len()));
+                !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
             }) {
                 // The status frame can precede other entries from its committed transaction.
                 let page = history(client, session).await;
@@ -293,7 +292,9 @@ async fn finished_within(
         }
     })
     .await
-    .expect("Agent completion deadline")
+    .unwrap_or_else(|error| {
+        panic!("Agent completion deadline ({budget:?}, session={session}, turn={turn}): {error:?}; observed={observed:?}")
+    })
 }
 
 fn text(page: &Page) -> String {
