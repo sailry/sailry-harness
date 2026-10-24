@@ -505,6 +505,15 @@ async fn failures_never_use_companion() {
     for remote in [false, true] {
         for api in [ModelApi::Responses, ModelApi::Gemini] {
             let fixture = Fixture::new(remote, api).await;
+            let mut provider = fixture.provider.clone();
+            provider.request_max_retries = Some(0);
+            provider.stream_max_retries = Some(0);
+            fixture
+                .execute(Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                })
+                .await;
             let (companion, _) = fixture.companion().await;
             let session = fixture.create().await;
             let turn = fixture.queue(&session).await;

@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn retains_reasoning_across_apis() {
+async fn isolates_reasoning_across_apis() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
@@ -91,21 +91,34 @@ async fn retains_reasoning_across_apis() {
         );
         let requests = second.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 1);
-        let reasoning = requests[0]["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|message| {
-                message["reasoning_content"] == "Retained reasoning without a final answer"
-            })
-            .expect("reasoning retained across model switch");
-        assert_eq!(reasoning["content"], "");
-        assert_eq!(requests[0]["reasoning_effort"], "high");
         assert!(
-            serde_json::to_string(&page)
-                .unwrap()
+            !requests[0]
+                .to_string()
                 .contains("Retained reasoning without a final answer")
         );
+        assert!(
+            requests[0]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|message| message.get("reasoning_content").is_none())
+        );
+        assert_eq!(requests[0]["reasoning_effort"], "high");
+        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Thinking(value) if value == "Retained reasoning without a final answer")));
+        let first_requests = first.requests.lock().unwrap().len();
+        drop(client);
+        node.shutdown().await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        assert_eq!(history(&client, session.id).await, page);
+        assert_eq!(first.requests.lock().unwrap().len(), first_requests);
+        assert_eq!(second.requests.lock().unwrap().len(), 1);
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

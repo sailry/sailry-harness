@@ -76,30 +76,42 @@ fn launch(worktree: WorktreeId) -> Launch {
 }
 
 async fn command(client: &Client, info: &Info, text: &str) {
-    client
-        .execute(client.prepare(Command::InputTerminal {
-            terminal: info.id,
-            revision: info.revision,
-            input: Input::Paste { text: text.into() },
-        }))
-        .await
-        .unwrap();
-    client
-        .execute(client.prepare(Command::InputTerminal {
-            terminal: info.id,
-            revision: info.revision,
-            input: Input::Key {
-                event: KeyEvent {
-                    key: Key::Enter,
-                    action: Action::Press,
-                    modifiers: Modifiers::default(),
-                    utf8: None,
-                    unshifted_codepoint: None,
-                },
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    for input in [
+        Input::Paste { text: text.into() },
+        Input::Key {
+            event: KeyEvent {
+                key: Key::Enter,
+                action: Action::Press,
+                modifiers: Modifiers::default(),
+                utf8: None,
+                unshifted_codepoint: None,
             },
-        }))
+        },
+    ] {
+        let request = client.prepare(Command::InputTerminal {
+            terminal: info.id,
+            revision: info.revision,
+            input,
+        });
+        tokio::time::timeout_at(deadline, async {
+            loop {
+                match client.execute(request.clone()).await {
+                    Ok(_) => break,
+                    Err(error)
+                        if error.code == ErrorCode::Busy
+                            && error.message == "terminal command queue is full" =>
+                    {
+                        // Full rejects this input before it can enter the PTY owner.
+                        tokio::task::yield_now().await;
+                    }
+                    Err(error) => panic!("terminal input failed: {error:?}"),
+                }
+            }
+        })
         .await
-        .unwrap();
+        .expect("terminal input deadline");
+    }
 }
 
 fn content(screen: &Screen) -> String {

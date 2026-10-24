@@ -195,7 +195,8 @@ async fn shares_scope_and_config_with_management() {
         assert!(
             page.approvals
                 .iter()
-                .all(|approval| approval.source == ApprovalSource::Full)
+                .all(|approval| approval.source == ApprovalSource::Storage
+                    && approval.state == ApprovalState::Approved)
         );
         let listed = call(&fixture.client, &context, "list", json!({})).await;
         let items = listed["Ok"]["items"].as_array().unwrap();
@@ -236,21 +237,73 @@ async fn shares_scope_and_config_with_management() {
 }
 
 #[tokio::test]
-async fn denied_creation_leaves_no_record_or_schedule() {
+async fn revoked_creation_leaves_no_record_or_schedule() {
     for remote in [false, true] {
         let server = Server::tools(vec![(plugin_tool("scheduled-tasks", "scheduled_tasks"), json!({
             "action":"create","name":"Not authorized","prompt":"Review","timing":{"kind":"once","data":{"at_ms":chrono::Utc::now().timestamp_millis()+3_600_000}}
         }))]).await;
         let fixture = process::Fixture::packages(remote, &server, &["scheduled-tasks"]).await;
         let context = context(&fixture).await;
+        let (entered, release) = fixture.node.hold_plugin_operation_fixture();
         let turn = submit(&fixture, "Create a scheduled task").await;
-        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        let prepared = tokio::time::timeout(Duration::from_secs(5), entered)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            prepared.command,
+            Command::PluginTransaction { .. }
+        ));
+        assert_eq!(prepared.plugin.as_ref().unwrap().turn, Some(turn));
+        assert_eq!(
+            prepared.plugin.as_ref().unwrap().session,
+            Some(fixture.session.id)
+        );
         assert!(schedules(&fixture.client, &context).await.is_empty());
-        process::decide(&fixture.client, &approval, Decision::Deny).await;
+        let Output::Plugin(package) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadPlugin {
+                name: "scheduled-tasks".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("package expected")
+        };
+        let Output::Plugin(disabled) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetPluginEnabled {
+                name: "scheduled-tasks".into(),
+                expected_revision: package.summary.revision,
+                enabled: false,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("disabled package expected")
+        };
+        release.cancel();
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(page.approvals.len(), 1);
-        assert_eq!(page.approvals[0].state, ApprovalState::Denied);
+        assert_eq!(page.approvals[0].state, ApprovalState::Approved);
+        assert_eq!(page.approvals[0].source, ApprovalSource::Storage);
+        assert_eq!(results(&page).len(), 1);
+        assert_eq!(results(&page)[0]["isError"], true);
+        assert_eq!(results(&page)[0]["error"]["code"], "not_configured");
+        let Output::Plugin(enabled) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetPluginEnabled {
+                name: "scheduled-tasks".into(),
+                expected_revision: disabled.summary.revision,
+                enabled: true,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("enabled package expected")
+        };
+        assert_eq!(enabled.summary.reference(), context.package);
         assert!(
             call(&fixture.client, &context, "list", json!({})).await["Ok"]["items"]
                 .as_array()

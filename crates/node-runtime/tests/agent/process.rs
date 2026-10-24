@@ -601,9 +601,10 @@ async fn delivers_completion_without_consuming_controller_reads() {
                 "INSERT INTO events(cursor,body) VALUES(?1,?2)",
                 turso::params![
                     old_event_cursor,
-                    serde_json::to_vec(
-                        &json!({"kind":"background_settings_changed","data":{"revision":3}}),
-                    )
+                    serde_json::to_vec(&Event::RetainedRecord(RetainedRecord {
+                        kind: "background_settings_changed".into(),
+                        data: json!({"revision":3}),
+                    }),)
                     .unwrap()
                 ],
             )
@@ -617,7 +618,11 @@ async fn delivers_completion_without_consuming_controller_reads() {
                 request["command"] = json!({"kind":"save_background_settings","data":settings});
                 let body = serde_json::to_vec(&request).unwrap();
                 let result = (status == "completed").then(|| {
-                    json!({"Ok":{"kind":"background_settings","data":settings}}).to_string()
+                    serde_json::to_string(&Ok::<_, Fault>(Output::RetainedRecord(RetainedRecord {
+                        kind: "background_settings".into(),
+                        data: settings.clone(),
+                    })))
+                    .unwrap()
                 });
                 db.execute(
                     "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,?4,?5)",

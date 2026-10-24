@@ -265,6 +265,28 @@ async fn failure_preserves_context() {
     for remote in [false, true] {
         let server = Server::automatic_compaction(true).await;
         let fixture = Fixture::files(remote, &server).await;
+        let Output::Providers(providers) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        let mut provider = providers
+            .into_iter()
+            .find(|provider| provider.id == fixture.session.config.provider)
+            .unwrap();
+        provider.request_max_retries = Some(0);
+        provider.stream_max_retries = Some(5);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap();
         std::fs::write(fixture.root.join("source.txt"), "Evidence preserved").unwrap();
         submit(
             &fixture.client,

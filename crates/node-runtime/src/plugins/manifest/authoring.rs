@@ -201,7 +201,7 @@ fn rejects_unknown_nested_metadata() {
         let extension = &mut value["extensions"]["dev.sailry.platform"];
         match mutation {
             0 => extension["tools"][0]["handler"]["goal"] = json!(true),
-            1 => extension["tools"][0]["presentation"] = json!("hidden"),
+            1 => extension["tools"][0]["presentation"] = json!("unknown"),
             2 => extension["desktop"]["network"] = json!(true),
             3 => extension["unknown"] = json!(true),
             _ => unreachable!(),

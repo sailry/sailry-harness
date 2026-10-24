@@ -1,3 +1,4 @@
+use super::package::support::execute;
 use super::*;
 use sailry_protocol::conversation::{Page, Part, Status};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,6 +10,9 @@ mod quota;
 pub(super) mod renewals;
 #[path = "execution/transfers.rs"]
 mod transfers;
+
+#[path = "../logging/parse.rs"]
+mod logs;
 
 const ROTATED: &str = "isolated-rotated-refresh";
 
@@ -480,6 +484,14 @@ async fn continues_after_omitted_terminal_calls() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reports_account_model_rejection() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("profile");
+    let guard = sailry_node_runtime::logging::install(
+        &profile,
+        sailry_node_runtime::logging::Application::Host,
+    )
+    .unwrap();
+    let mut turns = Vec::new();
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
             if request.path == "/responses" {
@@ -502,13 +514,54 @@ async fn reports_account_model_rejection() {
             .error
             .as_ref()
             .unwrap();
-        assert!(
-            error
-                .message
-                .contains("model.openai_responses.invalid_request")
+        assert_eq!(error.code, ErrorCode::Unavailable);
+        assert_eq!(
+            error.message,
+            "Selected model is not supported for this account"
         );
-        assert!(error.message.contains("HTTP 400"));
-        assert!(!error.message.contains("model.openai_responses.parse"));
+        assert_eq!(
+            error.details,
+            Some(FaultDetails::ModelRecovery {
+                reason: sailry_protocol::conversation::recovery::Stop::InvalidRequest,
+            })
+        );
+        let mut updates = fixture
+            .client
+            .subscribe_conversation(session.id)
+            .await
+            .unwrap();
+        let sailry_protocol::Update::ConversationSnapshot(snapshot) = updates.next().await.unwrap()
+        else {
+            panic!("conversation snapshot expected")
+        };
+        let observations: Vec<_> = snapshot
+            .statistics
+            .observations
+            .recent
+            .iter()
+            .filter(|request| request.turn == turn.id)
+            .collect();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].attempts.len(), 1);
+        assert_eq!(observations[0].attempts[0].status, Some(400));
+        assert_eq!(
+            observations[0].attempts[0].outcome,
+            sailry_protocol::conversation::observation::Outcome::Failed
+        );
+        let Output::Session(current) = execute(
+            &fixture.client,
+            Command::ReadSession {
+                session: session.id,
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        assert_eq!(current.config, session.config);
+        assert_eq!(current.revision, session.revision);
+        no_secrets(&page);
+        turns.push(turn.id);
         assert_eq!(
             server
                 .requests
@@ -520,5 +573,35 @@ async fn reports_account_model_rejection() {
             1
         );
         fixture.close().await;
+    }
+    assert_eq!(guard.dropped_lines(), 0);
+    drop(guard);
+    let records = std::fs::read_dir(profile.join("logs/host"))
+        .unwrap()
+        .flat_map(|entry| {
+            std::fs::read_to_string(entry.unwrap().path())
+                .unwrap()
+                .lines()
+                .map(logs::line)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    for turn in turns {
+        let failures: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                record["turn"] == turn.to_string()
+                    && record["operation"] == "model_request"
+                    && record["phase"] == "failed"
+            })
+            .collect();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(
+            failures[0]["cause_code"],
+            "model.openai_responses.invalid_request"
+        );
+        assert_eq!(failures[0]["cause_component"], "model");
+        assert_eq!(failures[0]["cause_category"], "invalid_input");
+        assert_eq!(failures[0]["upstream_status"], 400);
     }
 }

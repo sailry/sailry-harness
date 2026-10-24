@@ -356,10 +356,12 @@ async fn preserves_gemini_summary_instructions() {
                 "only input_source=user is actual user speech",
                 "Do not execute tools, continue the task, invent facts",
                 "claim omitted binary contents were inspected",
-                "Be concise within the supplied UTF-8 byte budget",
+                "Be concise within the supplied output token budget",
             ] {
                 assert!(policy.contains(constraint), "{constraint}");
             }
+            assert!(policy.contains("Summary output budget: 256 tokens"));
+            assert_eq!(summary.body["generationConfig"]["maxOutputTokens"], 256);
             let mut previous = 0;
             for heading in [
                 "Goals",

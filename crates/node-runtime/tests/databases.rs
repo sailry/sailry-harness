@@ -1048,17 +1048,14 @@ async fn sqlite_catalog_reports_missing_without_creation() {
                 tables: vec![]
             }))
         );
+        let protected_path = node.profile().join("storage/node.turso");
+        assert!(protected_path.is_file());
         let Output::DatabaseProfile(protected) = execute(
             &client,
             Command::SaveDatabase {
                 profile: Profile {
                     connection: Connection::Sqlite {
-                        path: node
-                            .profile()
-                            .join("storage/node.sqlite3")
-                            .to_str()
-                            .unwrap()
-                            .into(),
+                        path: protected_path.to_str().unwrap().into(),
                     },
                     ..profile.clone()
                 },
@@ -1136,14 +1133,22 @@ async fn stores_inline_passwords() {
             else {
                 panic!("database profile expected")
             };
-            let db =
-                rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-            let password: String = db
-                .query_row(
-                    "SELECT password FROM database_profiles WHERE id=?1",
-                    [profile.id.to_string()],
-                    |row| row.get(0),
-                )
+            let id = profile.id;
+            let password: String = node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        Ok(db
+                            .prepare("SELECT password FROM database_profiles WHERE id=?1")
+                            .await
+                            .unwrap()
+                            .query_row([id.to_string()])
+                            .await
+                            .unwrap()
+                            .get(0)
+                            .unwrap())
+                    })
+                })
+                .await
                 .unwrap();
             assert_eq!(password, "inline-database-password");
             for command in [

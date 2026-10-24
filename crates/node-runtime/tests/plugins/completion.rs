@@ -193,7 +193,7 @@ async fn completes_before_socket_eof() {
                     .expect("incomplete events must terminate promptly")
                     .unwrap_err();
                 assert_eq!(fault.code, ErrorCode::Unavailable);
-                assert_eq!(fault.message, "plugin model response was not completed");
+                assert_eq!(fault.message, "OpenAI Responses generation is incomplete");
                 assert_eq!(server.requests.lock().unwrap().len(), 2);
             }
             drop(client);
@@ -369,6 +369,23 @@ async fn preserves_failed_attempt() {
         )
         .await;
         let model = configure_empty(&client, server.endpoint.clone()).await;
+        let Output::Providers(providers) = execute(&client, Command::ListProviders).await else {
+            panic!("providers expected")
+        };
+        let mut provider = providers
+            .into_iter()
+            .find(|provider| model == format!("{}/{}", provider.id, provider.default_model))
+            .unwrap();
+        provider.request_max_retries = Some(0);
+        provider.stream_max_retries = Some(0);
+        execute(
+            &client,
+            Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            },
+        )
+        .await;
         let request = client
             .prepare(Command::GeneratePluginText {
                 effort: None,
@@ -378,7 +395,17 @@ async fn preserves_failed_attempt() {
             .with_plugin(context);
         let result = client.execute(request.clone()).await.unwrap_err();
         assert_eq!(result.code, ErrorCode::Unavailable);
-        assert_eq!(client.execute(request).await.unwrap_err(), result);
+        assert_eq!(
+            result.details,
+            Some(FaultDetails::ModelRecovery {
+                reason: conversation::recovery::Stop::AttemptsExhausted,
+            })
+        );
+        assert_eq!(client.execute(request.clone()).await.unwrap_err(), result);
+        assert_eq!(
+            client.outcome(&request).await.unwrap(),
+            RequestOutcome::Completed(Box::new(Err(result)))
+        );
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         drop(client);
         controller.close().await.unwrap();

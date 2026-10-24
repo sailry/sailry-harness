@@ -239,8 +239,8 @@ async fn loads_shell_configuration() {
             } else {
                 "printf '%s:%s:%s:%s:%s\\n' \"$SAILRY_LOGIN_FIXTURE\" \"$SAILRY_INTERACTIVE_FIXTURE\" \"$(shopt -q login_shell && printf on)\" \"$([[ $- == *i* ]] && printf on)\" \"$PWD\""
             };
-            command(&client, &info, inspect).await;
             tokio::time::timeout(Duration::from_secs(10), async {
+                command(&client, &info, inspect).await;
                 loop {
                     projection.apply(1, stream.next().await.unwrap()).unwrap();
                     if projection.snapshot().is_some_and(|snapshot| {

@@ -157,11 +157,23 @@ mod tests {
     #[test]
     fn preserves_request_cause_without_metadata() {
         use adk_core::ErrorCategory;
-        for (category, reason) in [
-            (ErrorCategory::Timeout, Reason::RequestTimeout),
-            (ErrorCategory::RateLimited, Reason::RateLimited),
-            (ErrorCategory::Unauthorized, Reason::AuthorizationFailed),
-            (ErrorCategory::Unavailable, Reason::ServiceRejected),
+        for (category, reason, category_name) in [
+            (ErrorCategory::Timeout, Reason::RequestTimeout, "timeout"),
+            (
+                ErrorCategory::RateLimited,
+                Reason::RateLimited,
+                "rate_limited",
+            ),
+            (
+                ErrorCategory::Unauthorized,
+                Reason::AuthorizationFailed,
+                "unauthorized",
+            ),
+            (
+                ErrorCategory::Unavailable,
+                Reason::ServiceRejected,
+                "unavailable",
+            ),
         ] {
             let mut error = adk_core::AdkError::new(
                 adk_core::ErrorComponent::Model,
@@ -184,11 +196,22 @@ mod tests {
                 status: Some(503),
                 cause: cause(&safe),
             };
-            let value = failure.resource().to_string();
-            assert!(!value.contains("private response"));
-            assert!(value.contains("temporarily unavailable"));
-            assert!(value.contains("fixture.private"));
-            assert!(value.contains("HTTP 503"));
+            let value = failure.resource();
+            assert!(!value.to_string().contains("private response"));
+            assert_eq!(
+                value["failure"]["cause"],
+                "The upstream service is temporarily unavailable"
+            );
+            assert_eq!(value["failure"]["status"], 503);
+            let mut entry = crate::logging::Entry::new(
+                crate::logging::Area::Model,
+                crate::logging::Phase::Failed,
+            );
+            model::cause(&mut entry, &safe);
+            assert_eq!(entry.cause_code, Some("fixture.private"));
+            assert_eq!(entry.cause_component, Some("model"));
+            assert_eq!(entry.cause_category, Some(category_name));
+            assert_eq!(entry.upstream_status, Some(503));
         }
     }
 }

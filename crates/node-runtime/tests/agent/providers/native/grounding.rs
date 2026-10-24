@@ -41,7 +41,10 @@ async fn preserves_metadata_and_answer() {
         assert_eq!(entry.citations.len(), 1);
         assert_eq!(entry.citations[0].uri, "https://example.com/source");
         assert_eq!(entry.citations[0].start, None);
-        assert!(!serde_json::to_string(&page).unwrap().contains("sdkBlob"));
+        let public = serde_json::to_string(&page).unwrap();
+        for private in ["sdkBlob", "provider_origin", server::KEY] {
+            assert!(!public.contains(private));
+        }
         {
             let requests = server.requests.lock().unwrap();
             let tools = requests[0].body["tools"].as_array().unwrap();
@@ -66,7 +69,34 @@ async fn preserves_metadata_and_answer() {
             .remove("sailry_timing")
             .unwrap();
         assert!(timing["elapsed_us"].as_u64().unwrap() > 0);
-        assert_eq!(native, server::grounding_metadata());
+        let origin: adk_core::ProviderOrigin =
+            serde_json::from_value(native["provider_origin"].clone()).unwrap();
+        assert_eq!(origin.provider, "gemini");
+        assert_eq!(origin.model, "fixture-a");
+        assert_eq!(origin.scope.len(), 64);
+        assert!(
+            origin
+                .scope
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        );
+        let public_origin = serde_json::to_string(&origin).unwrap();
+        let credential = fixture
+            .session
+            .config
+            .credential
+            .as_ref()
+            .unwrap()
+            .id
+            .to_string();
+        for private in [server::KEY, server.endpoint.as_str(), credential.as_str()] {
+            assert!(!public_origin.contains(private));
+        }
+        let mut expected = server::grounding_metadata();
+        expected["provider_origin"] = serde_json::json!({
+            "provider":"gemini", "model":"fixture-a", "scope":origin.scope,
+        });
+        assert_eq!(native, expected);
         drop(db);
         drop(database);
         let node = Node::start_empty(profile).await.unwrap();

@@ -65,7 +65,13 @@ async fn last_attempt(
             .query_row([turn.to_string()]).await.map_err(crate::plugins::database_fixture::fault)?
             .get(0).map_err(crate::plugins::database_fixture::fault)
     })).await.unwrap();
-    serde_json::from_str(&value).unwrap()
+    let request: sailry_protocol::conversation::observation::Request =
+        serde_json::from_str(&value).unwrap();
+    request
+        .attempts
+        .into_iter()
+        .max_by_key(|attempt| attempt.index)
+        .expect("recorded model attempt expected")
 }
 
 #[tokio::test]

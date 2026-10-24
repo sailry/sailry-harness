@@ -179,7 +179,12 @@ async fn reads_history_with_and_without_mentions() {
                 assert!(!summary.contains(&source.id.to_string()));
             }
         }
-        assert!(view.calls[7].details(&captured));
+        assert_eq!(
+            view.calls[7].presentation,
+            sailry_protocol::tool::Presentation::Summary
+        );
+        assert!(!view.calls[7].details(&captured));
+        assert!(view.calls[7].failure.is_none());
         assert!(
             view.calls[7]
                 .resolved
@@ -221,6 +226,7 @@ async fn reads_history_with_and_without_mentions() {
         assert_eq!(results[6]["matches"].as_array().unwrap().len(), 1);
         assert_eq!(results[6]["matches"][0]["turn"], first.to_string());
         assert_eq!(results[7]["error"]["code"], "not_found");
+        assert_eq!(view.calls[7].result(&captured), Some(&results[7]));
         {
             let requests = reader.requests.lock().unwrap();
             assert_eq!(requests.len(), 9);

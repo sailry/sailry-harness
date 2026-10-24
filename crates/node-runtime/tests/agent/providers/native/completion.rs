@@ -1,6 +1,8 @@
 use super::*;
 use serde_json::{Value, json};
 
+const EMPTY_RESPONSE: &str = "the model ended its turn without an answer: no text, data or tool call, only thinking or whitespace (finish reason: Stop); retry the run, or check the model's output limit and safety settings";
+
 pub(super) fn response(page: &Page) -> String {
     page.entries
         .iter()
@@ -124,24 +126,25 @@ async fn fails_without_an_answer() {
     let mut commentary = message("Inspecting the project");
     commentary["phase"] = json!("commentary");
     let outputs = [
-        json!([]),
-        json!([message(" \n\t")]),
-        json!([{"type":"reasoning", "id":"reasoning", "status":"completed",
+        (json!([]), EMPTY_RESPONSE),
+        (json!([message(" \n\t")]), EMPTY_RESPONSE),
+        (
+            json!([{"type":"reasoning", "id":"reasoning", "status":"completed",
             "summary":[{"type":"summary_text", "text":"Inspecting the task"}]}]),
-        json!([commentary]),
+            EMPTY_RESPONSE,
+        ),
+        (json!([commentary]), "Model returned no answer"),
     ];
     for remote in [false, true] {
-        for output in outputs.clone() {
+        for (output, diagnostic) in outputs.clone() {
             let server = server(vec![completed(output)]).await;
             let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Can you read this project?").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             let run = page.runs.last().unwrap();
             assert_eq!(run.status, Status::Failed);
-            assert_eq!(
-                run.error.as_ref().unwrap().message,
-                "Model returned no answer"
-            );
+            assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Unavailable);
+            assert_eq!(run.error.as_ref().unwrap().message, diagnostic);
             assert!(response(&page).trim().is_empty());
             assert_eq!(
                 server.requests.lock().unwrap().len(),
@@ -198,15 +201,22 @@ async fn retains_incomplete_output_as_failed() {
         event["type"] = json!("response.incomplete");
         event["response"]["status"] = json!("incomplete");
         event["response"]["incomplete_details"] = json!({"reason":"max_output_tokens"});
-        let server = server(vec![event]).await;
+        let server = server(vec![
+            json!({"type":"response.output_text.delta", "sequence_number":1,
+                "item_id":"answer", "output_index":0, "content_index":0,
+                "delta":"An unfinished answer", "logprobs":[]}),
+            event,
+        ])
+        .await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Answer this task").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();
         assert_eq!(run.status, Status::Failed);
+        assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Unavailable);
         assert_eq!(
             run.error.as_ref().unwrap().message,
-            "Model response was not completed"
+            "OpenAI Responses generation is incomplete"
         );
         assert_eq!(response(&page), "An unfinished answer");
         assert_eq!(server.requests.lock().unwrap().len(), 1);
@@ -254,10 +264,7 @@ async fn distinguishes_omitted_and_empty_final_output() {
                     assert!(run.error.is_none());
                     assert_eq!(response(&page), "Draft");
                 } else {
-                    assert_eq!(
-                        run.error.as_ref().unwrap().message,
-                        "Model returned no answer"
-                    );
+                    assert_eq!(run.error.as_ref().unwrap().message, EMPTY_RESPONSE);
                     assert!(response(&page).is_empty());
                 }
                 assert_eq!(server.requests.lock().unwrap().len(), 1);

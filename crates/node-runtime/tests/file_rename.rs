@@ -146,6 +146,9 @@ async fn shares_idempotent_rename() {
 async fn protects_owned_roots() {
     let temp = tempfile::tempdir().unwrap();
     let node = Node::start_empty(temp.path().join("node")).await.unwrap();
+    let legacy = temp.path().join("node/storage/node.sqlite3");
+    let legacy_bytes: &[u8] = b"Retained database fixture";
+    std::fs::write(&legacy, legacy_bytes).unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, temp.path()).await;
     let nested = temp.path().join("nested");
@@ -177,6 +180,7 @@ async fn protects_owned_roots() {
                 ErrorCode::Conflict
             );
             assert!(temp.path().join(path).exists());
+            assert_eq!(std::fs::read(&legacy).unwrap(), legacy_bytes);
         }
         std::fs::write(temp.path().join("node/sentinel"), "keep").unwrap();
         assert_eq!(

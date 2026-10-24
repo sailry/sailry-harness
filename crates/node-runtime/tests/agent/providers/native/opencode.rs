@@ -1,8 +1,19 @@
 use super::*;
 use serde_json::json;
 
+#[path = "../../../logging/parse.rs"]
+mod logs;
+
 #[tokio::test]
 async fn retains_native_errors_and_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("profile");
+    let guard = sailry_node_runtime::logging::install(
+        &profile,
+        sailry_node_runtime::logging::Application::Host,
+    )
+    .unwrap();
+    let mut expected = Vec::new();
     for remote in [false, true] {
         for (status, category) in [
             (400, "invalid_input"),
@@ -20,6 +31,8 @@ async fn retains_native_errors_and_status() {
             let model = "deepseek-v4.1-flash";
             fixture.provider.models[0].id = model.into();
             fixture.provider.default_model = model.into();
+            fixture.provider.request_max_retries = Some(0);
+            fixture.provider.stream_max_retries = Some(0);
             execute(
                 &fixture.client,
                 Command::PutProvider {
@@ -49,14 +62,68 @@ async fn retains_native_errors_and_status() {
             assert_eq!(run.status, Status::Failed);
             let fault = run.error.as_ref().unwrap();
             assert_eq!(fault.code, ErrorCode::Unavailable);
-            assert!(fault.message.contains(&format!("HTTP {status}")));
-            assert!(fault.message.contains(category));
-            assert!(fault.message.contains("Provider rejected input [redacted]"));
+            assert_eq!(
+                fault.message,
+                format!(
+                    "opencode-go API error (HTTP {}): Provider rejected input [redacted]",
+                    reqwest::StatusCode::from_u16(status).unwrap(),
+                )
+            );
+            assert!(matches!(fault.details,
+                Some(FaultDetails::ModelRecovery { reason }) if reason == if status == 400 {
+                    sailry_protocol::conversation::recovery::Stop::InvalidRequest
+                } else {
+                    sailry_protocol::conversation::recovery::Stop::AttemptsExhausted
+                }
+            ));
             assert!(!fault.message.contains(server::KEY));
             assert_eq!(server.requests.lock().unwrap().len(), 1);
+            let statistics =
+                crate::observations::statistics(&fixture.client, fixture.session.id).await;
+            let requests: Vec<_> = statistics
+                .observations
+                .recent
+                .iter()
+                .filter(|request| request.turn == turn)
+                .collect();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].attempts.len(), 1);
+            assert_eq!(requests[0].attempts[0].status, Some(status));
+            assert_eq!(
+                requests[0].attempts[0].outcome,
+                sailry_protocol::conversation::observation::Outcome::Failed
+            );
+            expected.push((turn, status, category));
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }
+    }
+    assert_eq!(guard.dropped_lines(), 0);
+    drop(guard);
+    let records = std::fs::read_dir(profile.join("logs/host"))
+        .unwrap()
+        .flat_map(|entry| {
+            std::fs::read_to_string(entry.unwrap().path())
+                .unwrap()
+                .lines()
+                .map(logs::line)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    for (turn, status, category) in expected {
+        let failures: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                record["turn"] == turn.to_string()
+                    && record["operation"] == "model_request"
+                    && record["phase"] == "failed"
+            })
+            .collect();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0]["cause_code"], "model.openai_compat.api_error");
+        assert_eq!(failures[0]["cause_component"], "model");
+        assert_eq!(failures[0]["cause_category"], category);
+        assert_eq!(failures[0]["upstream_status"], status);
     }
 }
 

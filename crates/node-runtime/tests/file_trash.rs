@@ -42,6 +42,9 @@ fn command(worktree: WorktreeId, path: &str) -> Command {
 async fn preserves_owned_roots_and_storage() {
     let temp = tempfile::tempdir().unwrap();
     let node = Node::start_empty(temp.path().join("node")).await.unwrap();
+    let legacy = temp.path().join("node/storage/node.sqlite3");
+    let legacy_bytes: &[u8] = b"Retained database fixture";
+    std::fs::write(&legacy, legacy_bytes).unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, temp.path()).await;
     std::fs::create_dir(temp.path().join("nested")).unwrap();
@@ -87,6 +90,7 @@ async fn preserves_owned_roots_and_storage() {
                     ErrorCode::Conflict
                 );
                 assert!(temp.path().join(path).exists());
+                assert_eq!(std::fs::read(&legacy).unwrap(), legacy_bytes);
             }
             for path in ["", "../outside", ".git", "nested/.GIT/config", "missing"] {
                 assert!(

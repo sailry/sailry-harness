@@ -185,6 +185,7 @@ async fn reads_bound_worktree() {
         let packages: &[(&str, &[&str])] = &[
             ("reminders", &["reminders"]),
             ("scheduled-tasks", &["scheduled_tasks"]),
+            ("progress", &["update_plan"]),
             (
                 "goals",
                 &[

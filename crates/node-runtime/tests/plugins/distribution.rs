@@ -578,10 +578,11 @@ async fn removed_default(name: &str, enabled: bool) {
                     .unwrap()
                     .tools
                     .iter()
-                    .all(|tool| {
-                        tool.handler
-                            .as_ref()
-                            .is_some_and(|handler| host.handlers.contains(&handler.name))
+                    .all(|tool| match (&tool.handler, &tool.server) {
+                        (Some(handler), None) => host.handlers.contains(&handler.name),
+                        (None, Some(server)) =>
+                            installed.mcp.iter().any(|item| item.name == *server),
+                        _ => false,
                     })
             );
         } else if installed.skills.is_empty() && installed.mcp.is_empty() {

@@ -33,9 +33,9 @@ pub(super) async fn capture(
 }
 
 #[tokio::test]
-async fn fills_fences_without_rewriting_captures() {
+async fn repairs_indexes_without_rewriting_captures() {
     for remote in [false, true] {
-        for invalid in [false, true] {
+        for invalid in [None, Some("auth_revision"), Some("grant_revision")] {
             let resource = server::Server::with_json(json!({"document":{"id":"0:0"}}), None).await;
             let model = Server::tools(vec![(
                 plugin_tool("figma", "read"),
@@ -81,10 +81,14 @@ async fn fills_fences_without_rewriting_captures() {
             .await
             .unwrap();
             let mut stored: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            stored.as_object_mut().unwrap().remove("auth_revision");
             stored["revision"] = json!(7);
-            if invalid {
-                stored["grant_revision"] = json!(0);
+            match invalid {
+                Some("auth_revision") => {
+                    stored.as_object_mut().unwrap().remove("auth_revision");
+                }
+                Some("grant_revision") => stored["grant_revision"] = json!(0),
+                None => {}
+                _ => unreachable!(),
             }
             let original = serde_json::to_vec_pretty(&stored).unwrap();
             database
@@ -121,7 +125,7 @@ async fn fills_fences_without_rewriting_captures() {
             let original_file = std::fs::read(&path).unwrap();
             let existing = backups(&profile);
             let restarted = Node::start_empty(&profile).await;
-            if invalid {
+            if invalid.is_some() {
                 assert!(restarted.is_err());
                 assert_eq!(std::fs::read(&path).unwrap(), original_file);
                 assert_eq!(backups(&profile), existing);
@@ -186,10 +190,8 @@ async fn fills_fences_without_rewriting_captures() {
                             })
                             .await
                             .unwrap();
-                            let mut current: serde_json::Value =
+                            let current: serde_json::Value =
                                 serde_json::from_slice(&current).unwrap();
-                            assert_eq!(current["auth_revision"], 7);
-                            current.as_object_mut().unwrap().remove("auth_revision");
                             assert_eq!(current, stored);
                             Ok(())
                         })

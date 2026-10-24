@@ -244,14 +244,19 @@ fn preserves_local_errors() {
         .details
         .metadata
         .insert("body".into(), serde_json::json!(unsafe_body));
-    let fault = model::error(native);
-    assert_eq!(
-        fault.message,
-        format!(
-            "Agent execution failed (model.openai_responses.invalid_request); HTTP 400; invalid_input\n\n{diagnostic}"
-        )
-    );
+    let fault = model::error(&native);
+    assert_eq!(fault.message, diagnostic);
     assert!(!fault.message.contains(unsafe_body));
+    let mut entry =
+        crate::logging::Entry::new(crate::logging::Area::Model, crate::logging::Phase::Failed);
+    model::cause(&mut entry, &native);
+    assert_eq!(
+        entry.cause_code,
+        Some("model.openai_responses.invalid_request")
+    );
+    assert_eq!(entry.cause_component, Some("model"));
+    assert_eq!(entry.cause_category, Some("invalid_input"));
+    assert_eq!(entry.upstream_status, Some(400));
 }
 
 #[test]

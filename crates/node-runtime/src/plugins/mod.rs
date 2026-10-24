@@ -63,7 +63,14 @@ pub(crate) struct Host {
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) script_wait: std::sync::Arc<std::sync::Mutex<Option<script::Wait>>>,
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) flow_wait: std::sync::Arc<std::sync::Mutex<Option<script::Wait>>>,
+    pub(crate) flow_wait: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<FlowWait>>>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) struct FlowWait {
+    pub(crate) tool: Option<String>,
+    pub(crate) call: Option<String>,
+    pub(crate) wait: script::Wait,
 }
 
 impl Host {

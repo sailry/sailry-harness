@@ -95,21 +95,163 @@ fn finalize(scope: &Value) -> Value {
     json!({"review_id":scope["review_id"],"reviewed_files":[],"reviewed_groups":[],"finalize":true})
 }
 
-async fn stage(fixture: &Fixture, child: SessionId, tool: &str) -> Approval {
-    println!("Awaiting {tool} approval in child {child}");
-    let approval = crate::approvals::rules::pending(&fixture.client, child).await;
-    let page = history(&fixture.client, child).await;
-    let entry = page
-        .entries
+type Held = (
+    tokio::sync::oneshot::Receiver<Request>,
+    sailry_link::CancellationToken,
+);
+
+struct Staged {
+    approvals: [Approval; 2],
+    releases: [sailry_link::CancellationToken; 2],
+}
+
+fn hold(fixture: &Fixture, tool: &str) -> [Held; 2] {
+    let tool = plugin_tool(PACKAGE, tool);
+    [
+        fixture.node.hold_plugin_tool_fixture(&tool, None),
+        fixture.node.hold_plugin_tool_fixture(&tool, None),
+    ]
+}
+
+async fn stage(fixture: &Fixture, child: SessionId, tool: &str, prepared: &Request) -> Approval {
+    let context = prepared.plugin.as_ref().unwrap();
+    assert_eq!(context.session, Some(child));
+    assert_eq!(context.worktree, Some(fixture.session.worktree));
+    assert_eq!(context.package.name, PACKAGE);
+    assert!(matches!(
+        prepared.command,
+        Command::PluginTransaction { .. }
+    ));
+    let turn = context.turn.unwrap();
+    let page = observe(&fixture.client, child, |page| {
+        page.approvals.iter().any(|approval| {
+            approval.turn == turn
+                && page.entries.iter().any(|entry| {
+                    entry.id == approval.entry
+                        && matches!(entry.parts.get(approval.index),
+                    Some(Part::ToolCall { name, .. }) if name == &plugin_tool(PACKAGE, tool))
+                })
+        })
+    })
+    .await;
+    let approval = page
+        .approvals
         .iter()
-        .find(|entry| entry.id == approval.entry)
-        .unwrap();
-    assert!(
-        matches!(entry.parts.get(approval.index), Some(Part::ToolCall { name, .. })
-        if name == &plugin_tool(PACKAGE, tool)),
-        "Unexpected {tool} approval: {approval:?}, {entry:?}"
-    );
+        .find(|approval| {
+            approval.turn == turn
+                && page.entries.iter().any(|entry| {
+                    entry.id == approval.entry
+                        && matches!(entry.parts.get(approval.index),
+                Some(Part::ToolCall { name, .. }) if name == &plugin_tool(PACKAGE, tool))
+                })
+        })
+        .unwrap()
+        .clone();
+    assert_eq!(approval.state, ApprovalState::Approved);
+    assert_eq!(approval.source, ApprovalSource::Storage);
     approval
+}
+
+fn head(request: &Request) -> (String, u64) {
+    let Command::PluginTransaction { operations } = &request.command else {
+        panic!("private transaction expected")
+    };
+    let heads: Vec<_> = operations
+        .iter()
+        .filter_map(|operation| {
+            if let plugin::transaction::Operation::Write {
+                key,
+                expected_revision,
+                ..
+            } = operation
+                && key.starts_with("review/")
+                && key.ends_with("/head")
+            {
+                Some((key.clone(), *expected_revision))
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(heads.len(), 1);
+    heads.into_iter().next().unwrap()
+}
+
+async fn staged(
+    fixture: &Fixture,
+    package: &plugin::Info,
+    held: [Held; 2],
+    children: [SessionId; 2],
+    tool: &str,
+) -> Staged {
+    let [(first, release_first), (second, release_second)] = held;
+    let first = tokio::time::timeout(Duration::from_secs(10), first)
+        .await
+        .unwrap()
+        .unwrap();
+    let second = tokio::time::timeout(Duration::from_secs(10), second)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut requests = [first, second];
+    let mut releases = [release_first, release_second];
+    let sessions: BTreeSet<_> = requests
+        .iter()
+        .map(|request| request.plugin.as_ref().unwrap().session.unwrap())
+        .collect();
+    assert_eq!(sessions, BTreeSet::from(children));
+    let mut heads = requests.each_ref().map(head);
+    assert_eq!(heads[0].0, heads[1].0);
+    if heads[0].1 != heads[1].1 {
+        assert_eq!(tool, "review_complete");
+        let stale = usize::from(heads[0].1 > heads[1].1);
+        let current = value(fixture, package, &heads[stale].0).await;
+        assert_eq!(current.revision, heads[0].1.max(heads[1].1));
+        assert!(heads[stale].1 < current.revision);
+        let child = requests[stale].plugin.as_ref().unwrap().session.unwrap();
+        let approval = stage(fixture, child, tool, &requests[stale]).await;
+        let page = history(&fixture.client, child).await;
+        let entry = page
+            .entries
+            .iter()
+            .find(|entry| entry.id == approval.entry)
+            .unwrap();
+        let Some(Part::ToolCall {
+            id: Some(call),
+            name,
+            ..
+        }) = entry.parts.get(approval.index)
+        else {
+            panic!("captured tool call expected")
+        };
+        assert_eq!(name, &plugin_tool(PACKAGE, tool));
+        let (entered, release) = fixture.node.hold_plugin_tool_fixture(name, Some(call));
+        // This exact call has a stale CAS. Its ordinary bounded replan must
+        // preserve the call identity and rejoin the other held receipt.
+        releases[stale].cancel();
+        let prepared = tokio::time::timeout(Duration::from_secs(10), entered)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(prepared.plugin, requests[stale].plugin);
+        assert_eq!(stage(fixture, child, tool, &prepared).await, approval);
+        requests[stale] = prepared;
+        releases[stale] = release;
+        heads = requests.each_ref().map(head);
+    }
+    assert_eq!(heads[0], heads[1]);
+    let mut approvals = Vec::new();
+    for child in children {
+        let request = requests
+            .iter()
+            .find(|request| request.plugin.as_ref().unwrap().session == Some(child))
+            .unwrap();
+        approvals.push(stage(fixture, child, tool, request).await);
+    }
+    Staged {
+        approvals: approvals.try_into().unwrap(),
+        releases,
+    }
 }
 
 fn won(result: &Value) -> bool {
@@ -246,22 +388,30 @@ async fn retry(
     let parent = Server::turn_tools(vec![(plugin_tool("delegation", "spawn_agent"),
         json!({"session":child,"task":"Retry only the conflicted review actions from the current head"}))]).await;
     route(&fixture.client, &fixture.session, &parent.endpoint).await;
+    let held: Vec<_> = actions
+        .iter()
+        .map(|(name, _)| fixture.node.hold_plugin_tool_fixture(name, None))
+        .collect();
     let turn = submit(&fixture.client, &fixture.session).await;
     let mut child_turn = None;
-    for (name, _) in &actions {
+    for ((name, _), (entered, release)) in actions.iter().zip(held) {
         let tool = if *name == plugin_tool(PACKAGE, "report_finding") {
             "report_finding"
         } else {
             "review_complete"
         };
-        let approval = stage(fixture, child, tool).await;
+        let prepared = tokio::time::timeout(Duration::from_secs(10), entered)
+            .await
+            .unwrap()
+            .unwrap();
+        let approval = stage(fixture, child, tool, &prepared).await;
         assert_ne!(approval.turn, previous);
         if let Some(child_turn) = child_turn {
             assert_eq!(approval.turn, child_turn);
         } else {
             child_turn = Some(approval.turn);
         }
-        process::decide(&fixture.client, &approval, Decision::Approve).await;
+        release.cancel();
     }
     let child_turn = child_turn.unwrap();
     let parent_page = completed(&fixture.client, fixture.session.id, turn.id).await;
@@ -333,6 +483,7 @@ async fn retries_parallel_reports_without_lost_receipts() {
             (plugin_tool("delegation","spawn_agent"),json!({"role":"beta","task":"Review the beta group and submit its complete receipt"})),
         ]).await;
         route(&fixture.client, &fixture.session, &parent.endpoint).await;
+        let held = hold(&fixture, "report_finding");
         let turn = submit(&fixture.client, &fixture.session).await;
         let page = observe(&fixture.client, fixture.session.id, |page| {
             page.children
@@ -352,35 +503,28 @@ async fn retries_parallel_reports_without_lost_receipts() {
         };
         let alpha = child(profiles[0].id);
         let beta = child(profiles[1].id);
-        let alpha_report = stage(&fixture, alpha, "report_finding").await;
-        let beta_report = stage(&fixture, beta, "report_finding").await;
+        let Staged {
+            approvals: [alpha_report, beta_report],
+            releases,
+        } = staged(&fixture, &package, held, [alpha, beta], "report_finding").await;
         assert_ne!(alpha_report.id, beta_report.id);
-        // Original confirmation precedes JS preparation; approval does not freeze the head.
+        // Both prepared transactions retain the same unchanged private head.
         assert_eq!(value(&fixture, &package, &head_key).await, original);
-        tokio::join!(
-            process::decide(&fixture.client, &alpha_report, Decision::Approve),
-            process::decide(&fixture.client, &beta_report, Decision::Approve),
-        );
-        let alpha_receipt = stage(&fixture, alpha, "review_complete").await;
-        let beta_receipt = stage(&fixture, beta, "review_complete").await;
+        let held = hold(&fixture, "review_complete");
+        for release in releases {
+            release.cancel();
+        }
+        let Staged {
+            approvals: [alpha_receipt, beta_receipt],
+            releases,
+        } = staged(&fixture, &package, held, [alpha, beta], "review_complete").await;
         assert_ne!(alpha_receipt.id, alpha_report.id);
         assert_ne!(beta_receipt.id, beta_report.id);
         assert_eq!(alpha_receipt.turn, alpha_report.turn);
         assert_eq!(beta_receipt.turn, beta_report.turn);
-        tokio::join!(
-            process::decide(&fixture.client, &alpha_receipt, Decision::Approve),
-            process::decide(&fixture.client, &beta_receipt, Decision::Approve),
-        );
-        let alpha_finalize = stage(&fixture, alpha, "review_complete").await;
-        let beta_finalize = stage(&fixture, beta, "review_complete").await;
-        assert_ne!(alpha_finalize.id, alpha_receipt.id);
-        assert_ne!(beta_finalize.id, beta_receipt.id);
-        assert_eq!(alpha_finalize.turn, alpha_report.turn);
-        assert_eq!(beta_finalize.turn, beta_report.turn);
-        tokio::join!(
-            process::decide(&fixture.client, &alpha_finalize, Decision::Approve),
-            process::decide(&fixture.client, &beta_finalize, Decision::Approve),
-        );
+        for release in releases {
+            release.cancel();
+        }
         completed(&fixture.client, fixture.session.id, turn.id).await;
         let alpha_page = completed(&fixture.client, alpha, alpha_report.turn).await;
         let beta_page = completed(&fixture.client, beta, beta_report.turn).await;
@@ -388,6 +532,32 @@ async fn retries_parallel_reports_without_lost_receipts() {
         let beta_results = crate::approvals::rules::results(&beta_page, beta_report.turn);
         assert_eq!(alpha_results.len(), 3);
         assert_eq!(beta_results.len(), 3);
+        for (page, turn) in [
+            (&alpha_page, alpha_report.turn),
+            (&beta_page, beta_report.turn),
+        ] {
+            let approvals: Vec<_> = page
+                .approvals
+                .iter()
+                .filter(|approval| approval.turn == turn)
+                .collect();
+            assert_eq!(approvals.len(), 3);
+            assert!(
+                approvals
+                    .iter()
+                    .all(|approval| approval.source == ApprovalSource::Storage
+                        && approval.state == ApprovalState::Approved)
+            );
+            let ids: BTreeSet<_> = approvals.iter().map(|approval| approval.id).collect();
+            assert_eq!(ids.len(), 3);
+        }
+        for results in [&alpha_results, &beta_results] {
+            let ids: BTreeSet<_> = results
+                .iter()
+                .map(|(id, _, _)| id.as_ref().unwrap())
+                .collect();
+            assert_eq!(ids.len(), 3);
+        }
         failure(&alpha_results[2].2, "permission_denied");
         failure(&beta_results[2].2, "permission_denied");
         let reports = [won(&alpha_results[0].2), won(&beta_results[0].2)];
@@ -527,6 +697,7 @@ async fn retries_parallel_group_receipts() {
         ])
         .await;
         route(&fixture.client, &fixture.session, &parent.endpoint).await;
+        let held = hold(&fixture, "review_complete");
         let turn = submit(&fixture.client, &fixture.session).await;
         let page = observe(&fixture.client, fixture.session.id, |page| {
             page.children
@@ -546,8 +717,11 @@ async fn retries_parallel_group_receipts() {
         };
         let alpha = child(profiles[0].id);
         let beta = child(profiles[1].id);
-        let alpha_receipt = stage(&fixture, alpha, "review_complete").await;
-        let beta_receipt = stage(&fixture, beta, "review_complete").await;
+        let Staged {
+            approvals: [alpha_receipt, beta_receipt],
+            releases,
+        } = staged(&fixture, &package, held, [alpha, beta], "review_complete").await;
+        assert_ne!(alpha_receipt.id, beta_receipt.id);
         let key = format!("review/{}/head", scope["review_id"].as_str().unwrap());
         let prepared = value(&fixture, &package, &key).await;
         assert!(
@@ -556,10 +730,9 @@ async fn retries_parallel_group_receipts() {
                 .unwrap()
                 .is_empty()
         );
-        tokio::join!(
-            process::decide(&fixture.client, &alpha_receipt, Decision::Approve),
-            process::decide(&fixture.client, &beta_receipt, Decision::Approve),
-        );
+        for release in releases {
+            release.cancel();
+        }
         completed(&fixture.client, fixture.session.id, turn.id).await;
         let alpha_page = completed(&fixture.client, alpha, alpha_receipt.turn).await;
         let beta_page = completed(&fixture.client, beta, beta_receipt.turn).await;

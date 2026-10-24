@@ -295,12 +295,22 @@ async fn rejects_invalid_summaries() {
         let error = result.unwrap_err();
         assert_eq!(failure::classify(&error), classification);
         assert!(!error.to_string().contains("private"));
-        let fault = model::error(error);
+        let fault = model::error(&error);
         assert!(!fault.message.contains("private"));
         if rejected {
-            assert!(fault.message.contains(DIAGNOSTIC));
-            assert!(fault.message.contains("rate_limited"));
-            assert!(fault.message.contains("HTTP 429"));
+            assert_eq!(fault.message, DIAGNOSTIC);
+            let mut entry = crate::logging::Entry::new(
+                crate::logging::Area::Model,
+                crate::logging::Phase::Failed,
+            );
+            model::cause(&mut entry, &error);
+            assert_eq!(
+                entry.cause_code,
+                Some("model.openai_responses.rate_limited")
+            );
+            assert_eq!(entry.cause_component, Some("model"));
+            assert_eq!(entry.cause_category, Some("rate_limited"));
+            assert_eq!(entry.upstream_status, Some(429));
         }
         assert_eq!(model.requests.lock().unwrap().len(), 1);
     }
@@ -338,15 +348,19 @@ fn retains_safe_request_diagnostics() {
             sailry_protocol::conversation::compaction::Reason::RateLimited
         )
     );
-    let fault = model::error(error);
-    assert!(
-        fault
-            .message
-            .contains("model.openai_responses.rate_limited")
-    );
-    assert!(fault.message.contains("HTTP 429"));
-    assert!(fault.message.contains(DIAGNOSTIC));
+    let fault = model::error(&error);
+    assert_eq!(fault.message, DIAGNOSTIC);
     assert!(!fault.message.contains("private"));
+    let mut entry =
+        crate::logging::Entry::new(crate::logging::Area::Model, crate::logging::Phase::Failed);
+    model::cause(&mut entry, &error);
+    assert_eq!(
+        entry.cause_code,
+        Some("model.openai_responses.rate_limited")
+    );
+    assert_eq!(entry.cause_component, Some("model"));
+    assert_eq!(entry.cause_category, Some("rate_limited"));
+    assert_eq!(entry.upstream_status, Some(429));
 }
 
 #[tokio::test]

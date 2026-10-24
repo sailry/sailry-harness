@@ -283,23 +283,14 @@ async fn releases_cancelled_queries() {
         let fixture = Fixture::new(remote).await;
         let server = Server::start(ModelApi::Responses, |_| Reply::Hold).await;
         let mut jobs = Vec::new();
-        for _ in 0..4 {
+        for _ in 0..12 {
             let client = fixture.client.clone();
             let command = discover(source(ModelApi::Responses, &server));
             jobs.push(tokio::spawn(async move {
                 client.execute(client.prepare(command)).await
             }));
         }
-        server.wait_requests(4).await;
-        let result = fixture
-            .client
-            .execute(
-                fixture
-                    .client
-                    .prepare(discover(source(ModelApi::Responses, &server))),
-            )
-            .await;
-        assert_eq!(result.unwrap_err().code, ErrorCode::Busy);
+        server.wait_requests(12).await;
         assert!(matches!(
             execute(&fixture.client, Command::Snapshot).await,
             Output::Snapshot(_)
@@ -308,7 +299,7 @@ async fn releases_cancelled_queries() {
             job.abort();
             let _ = job.await;
         }
-        server.wait_closed(4).await;
+        server.wait_closed(12).await;
         let available =
             Server::start(ModelApi::Responses, |_| Reply::Json(json!({"data":[]}))).await;
         assert_eq!(

@@ -71,7 +71,7 @@ async fn retains_empty_completion_and_hook_failure() {
             &page,
             turn.id,
             ErrorCode::Unavailable,
-            "Model returned no answer",
+            "the model ended its turn without an answer: no text, data or tool call, only thinking or whitespace (finish reason: Stop); retry the run, or check the model's output limit and safety settings",
         );
         let results = page
             .entries

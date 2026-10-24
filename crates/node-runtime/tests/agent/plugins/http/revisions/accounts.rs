@@ -14,7 +14,7 @@ async fn connection(db: &turso::Connection, id: plugin::connector::Id) -> Vec<u8
 #[tokio::test]
 async fn captures_each_account_after_atomic_upgrade() {
     for remote in [false, true] {
-        for invalid in [false, true] {
+        for (invalid, previous_key) in [(false, false), (true, false), (false, true)] {
             let resource = server::Server::with_json(json!({"document":{"id":"0:0"}}), None).await;
             let model = Server::tools(vec![(
                 plugin_tool("figma", "read"),
@@ -54,26 +54,25 @@ async fn captures_each_account_after_atomic_upgrade() {
             }
             let second = serde_json::to_vec_pretty(&second).unwrap();
             db.execute("INSERT INTO plugin_connections(id,plugin,connector,revision,body) VALUES(?1,'figma','figma',1,?2)", turso::params![second_id.to_string(), second.as_slice()]).await.unwrap();
-            let current: String = (async {
-                let mut statement = db
-                    .prepare("SELECT sql FROM sqlite_master WHERE name='turn_connections'")
-                    .await?;
-                let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = row.get(0);
-                mapped
-            })
-            .await
-            .unwrap();
-            let previous = current.replace(
-                "PRIMARY KEY(turn,connection)",
-                "PRIMARY KEY(turn,plugin,connector)",
-            );
-            assert_ne!(previous, current);
-            db.execute_batch("ALTER TABLE turn_connections RENAME TO captured_connections")
+            db.execute_batch("DROP INDEX turn_connections_owner")
                 .await
                 .unwrap();
-            db.execute_batch(&previous).await.unwrap();
-            db.execute_batch("INSERT INTO turn_connections(turn,plugin,connector,connection,revision) SELECT turn,plugin,connector,connection,revision FROM captured_connections; DROP TABLE captured_connections").await.unwrap();
+            if previous_key {
+                db.execute_batch("ALTER TABLE turn_connections RENAME TO captured_connections")
+                    .await
+                    .unwrap();
+                db.execute_batch("CREATE TABLE turn_connections (turn TEXT NOT NULL REFERENCES turns(id),plugin TEXT NOT NULL,connector TEXT NOT NULL,connection TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),PRIMARY KEY(turn,plugin,connector))").await.unwrap();
+                db.execute_batch("INSERT INTO turn_connections(turn,plugin,connector,connection,revision) SELECT turn,plugin,connector,connection,revision FROM captured_connections; DROP TABLE captured_connections").await.unwrap();
+            }
+            let previous: String = db
+                .prepare("SELECT sql FROM sqlite_master WHERE name='turn_connections'")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get(0)
+                .unwrap();
             let captured = upgrades::capture(db, turn).await;
             let plugins: Vec<u8> = (async {
                 let mut statement = db.prepare("SELECT plugins FROM turns WHERE id=?1").await?;
@@ -88,8 +87,13 @@ async fn captures_each_account_after_atomic_upgrade() {
             let original_file = std::fs::read(&path).unwrap();
             let before = upgrades::backups(&profile);
             let restarted = Node::start_empty(&profile).await;
-            if invalid {
-                assert!(restarted.is_err());
+            if invalid || previous_key {
+                let error = restarted
+                    .err()
+                    .expect("invalid connection storage must fail startup");
+                if previous_key {
+                    assert!(error.to_string().contains("current constraints"), "{error}");
+                }
                 assert_eq!(std::fs::read(&path).unwrap(), original_file);
                 assert_eq!(upgrades::backups(&profile), before);
                 let (handle, db) = crate::database_fixture::open(&path, true).await;

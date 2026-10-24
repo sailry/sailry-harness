@@ -14,6 +14,11 @@ async fn preserves_choices_and_captures() {
     for remote in [false, true] {
         for enabled in [false, true] {
             let (directory, node, controller, client, worktree) = fixture(remote).await;
+            let expected_version = version(&client, "computer").await;
+            assert!(
+                semver::Version::parse(&expected_version).unwrap()
+                    > semver::Version::parse("0.1.1").unwrap()
+            );
             let previous = previous(directory.path(), &client, worktree, "computer", "0.1.1").await;
             let previous = info(
                 execute(
@@ -74,7 +79,10 @@ async fn preserves_choices_and_captures() {
                 )
                 .await,
             );
-            assert_eq!(current.summary.version.as_deref(), Some("0.1.2"));
+            assert_eq!(
+                current.summary.version.as_deref(),
+                Some(expected_version.as_str())
+            );
             assert_eq!(current.origin, Some(plugin::Origin::Bundled));
             assert_eq!(current.summary.revision, previous.summary.revision + 1);
             assert_eq!(

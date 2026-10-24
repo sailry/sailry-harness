@@ -568,12 +568,21 @@ async fn admission_preserves_scope() {
                 .code,
             ErrorCode::PermissionDenied
         );
+        let current = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "progress".into(),
+                },
+            )
+            .await,
+        );
         let foreign = info(
             execute(
                 &client,
                 Command::InstallBundledPlugin {
                     name: "progress".into(),
-                    expected_revision: 0,
+                    expected_revision: current.summary.revision,
                 },
             )
             .await,

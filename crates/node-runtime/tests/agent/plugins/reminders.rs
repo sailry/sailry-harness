@@ -160,12 +160,13 @@ async fn shares_project_records_with_management() {
             assert_eq!(result["isError"], true);
             assert_eq!(result["error"]["code"], "permission_denied");
         }
-        // One multi-action declaration uses the normal ADK confirmation policy.
+        // Private storage flows retain captured authority without a user confirmation.
         assert_eq!(page.approvals.len(), 7);
         assert!(
             page.approvals
                 .iter()
-                .all(|approval| approval.source == ApprovalSource::Full)
+                .all(|approval| approval.source == ApprovalSource::Storage
+                    && approval.state == ApprovalState::Approved)
         );
         let listed = call(&fixture.client, &context, "list", json!({})).await;
         let items = listed["Ok"]["items"].as_array().unwrap();
@@ -213,7 +214,7 @@ async fn shares_project_records_with_management() {
 }
 
 #[tokio::test]
-async fn denied_mutation_leaves_no_record_or_schedule() {
+async fn revoked_mutation_leaves_no_record_or_schedule() {
     for remote in [false, true] {
         let server = Server::tools(vec![(plugin_tool("reminders", "reminders"), json!({
             "action":"create","title":"Not authorized","due_ms":chrono::Utc::now().timestamp_millis()+3_600_000
@@ -221,8 +222,21 @@ async fn denied_mutation_leaves_no_record_or_schedule() {
         .await;
         let fixture = process::Fixture::packages(remote, &server, &["reminders"]).await;
         let context = context(&fixture).await;
+        let (entered, release) = fixture.node.hold_plugin_operation_fixture();
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
-        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        let prepared = tokio::time::timeout(Duration::from_secs(5), entered)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            prepared.command,
+            Command::PluginTransaction { .. }
+        ));
+        assert_eq!(prepared.plugin.as_ref().unwrap().turn, Some(turn));
+        assert_eq!(
+            prepared.plugin.as_ref().unwrap().session,
+            Some(fixture.session.id)
+        );
         assert!(
             call(&fixture.client, &context, "list", json!({})).await["Ok"]["items"]
                 .as_array()
@@ -230,19 +244,50 @@ async fn denied_mutation_leaves_no_record_or_schedule() {
                 .is_empty()
         );
         assert!(schedules(&fixture.client, &context).await.is_empty());
-        process::decide(&fixture.client, &approval, Decision::Deny).await;
+        let Output::Plugin(package) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadPlugin {
+                name: "reminders".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("package expected")
+        };
+        let Output::Plugin(disabled) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetPluginEnabled {
+                name: "reminders".into(),
+                expected_revision: package.summary.revision,
+                enabled: false,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("disabled package expected")
+        };
+        release.cancel();
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(page.approvals.len(), 1);
-        assert_eq!(page.approvals[0].state, ApprovalState::Denied);
+        assert_eq!(page.approvals[0].state, ApprovalState::Approved);
+        assert_eq!(page.approvals[0].source, ApprovalSource::Storage);
         assert_eq!(results(&page).len(), 1);
-        assert_eq!(
-            results(&page)[0]["error"],
-            format!(
-                "Tool '{}' execution denied by confirmation policy",
-                plugin_tool("reminders", "reminders")
-            )
-        );
+        assert_eq!(results(&page)[0]["isError"], true);
+        assert_eq!(results(&page)[0]["error"]["code"], "not_configured");
+        let Output::Plugin(enabled) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetPluginEnabled {
+                name: "reminders".into(),
+                expected_revision: disabled.summary.revision,
+                enabled: true,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("enabled package expected")
+        };
+        assert_eq!(enabled.summary.reference(), context.package);
         assert!(
             call(&fixture.client, &context, "list", json!({})).await["Ok"]["items"]
                 .as_array()

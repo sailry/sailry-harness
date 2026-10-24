@@ -305,9 +305,17 @@ mod extension_loading {
 
     #[test]
     fn rejects_unknown_presentation() {
-        let info = install_extension(serde_json::json!({
+        let hidden = install_extension(serde_json::json!({
             "api_version":"v1", "actions":["files.read"],
             "tools":[{"name":"read", "presentation":"hidden"}]
+        }));
+        assert_eq!(
+            hidden.extension.unwrap().tools[0].presentation,
+            sailry_protocol::tool::Presentation::Hidden
+        );
+        let info = install_extension(serde_json::json!({
+            "api_version":"v1", "actions":["files.read"],
+            "tools":[{"name":"read", "presentation":"unknown"}]
         }));
         assert!(info.extension.is_none());
         assert!(
@@ -416,6 +424,10 @@ mod extension_loading {
             "desktop":{"entry":"dev.sailry.platform/ui/main.js", "ui_entry":"dev.sailry.platform/ui/controls.js",
                 "resources":["dev.sailry.platform/ui/main.js", "dev.sailry.platform/ui/controls.js"]}});
         assert!(install_extension(extension.clone()).extension.is_some());
+        let mut metric = extension.clone();
+        metric["ui"][0]["kind"] = json!("metric");
+        metric["ui"][0]["slot"] = json!("statistics");
+        assert!(install_extension(metric).extension.is_some());
         for path in [
             "missing_entry",
             "undeclared_entry",
@@ -440,7 +452,7 @@ mod extension_loading {
                     .push(declaration.clone()),
                 "metric_handler" => {
                     invalid["ui"][0]["kind"] = json!("metric");
-                    invalid["ui"][0]["slot"] = json!("statistics");
+                    invalid["ui"][0]["slot"] = json!("footer");
                 }
                 "icon_path" => invalid["ui"][0]["icon"] = json!("../private.svg"),
                 _ => unreachable!(),

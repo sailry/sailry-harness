@@ -5,11 +5,14 @@ fn preserves_anthropic_branches() {
     use adk_core::SchemaAdapter;
     for plan in [false, true] {
         let schema = Management { plan }.parameters();
-        let wire = adk_model::anthropic::AnthropicSchemaAdapter.normalize_schema(schema.clone());
-        assert!(wire.get("oneOf").is_none());
-        assert_eq!(wire["properties"], schema["properties"]);
+        let normalized =
+            adk_model::anthropic::AnthropicSchemaAdapter.normalize_schema(schema.clone());
+        assert_eq!(normalized["oneOf"], schema["oneOf"]);
+        assert_eq!(normalized["properties"], schema["properties"]);
         let canonical = jsonschema::draft202012::options().build(&schema).unwrap();
-        let projected = jsonschema::draft202012::options().build(&wire).unwrap();
+        let projected = jsonschema::draft202012::options()
+            .build(&normalized)
+            .unwrap();
         for (arguments, valid) in [
             (json!({"action":"list"}), true),
             (json!({"action":"search","source":"official"}), true),

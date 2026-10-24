@@ -236,7 +236,14 @@ impl Script {
                         }
                         #[cfg(any(test, feature = "test-support"))]
                         {
-                            let wait = self.ingress.plugins.flow_wait.lock().unwrap().take();
+                            let wait = {
+                                let mut pending = self.ingress.plugins.flow_wait.lock().unwrap();
+                                let position = pending.iter().position(|wait| {
+                                    wait.tool.as_deref().is_none_or(|tool| tool == self.name.as_str())
+                                        && wait.call.as_deref().is_none_or(|call| call == context.function_call_id())
+                                });
+                                position.and_then(|position| pending.remove(position)).map(|entry| entry.wait)
+                            };
                             if let Some(wait) = wait {
                                 let _ = wait.entered.send(request.clone());
                                 tokio::select! {

@@ -11,25 +11,58 @@ pub(super) mod transport;
 use transport::Observed;
 
 fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
-    assert!(statistics.first_token_us.is_some());
+    assert_eq!(statistics.turns, turns);
+    assert_eq!(statistics.responses, responses);
+    assert_eq!(statistics.context_tokens, Some(16));
+    assert_eq!(statistics.context_estimate, None);
+    assert_eq!(statistics.context_limit, Some(128_000));
+    assert_eq!(statistics.context_model.as_deref(), Some("fixture-a"));
+    assert!(statistics.context_timestamp_ms.is_some());
     assert_eq!(
-        statistics,
-        &Statistics {
-            turns,
-            responses,
-            context_tokens: Some(16),
-            context_limit: Some(128_000),
-            usage: Some(Usage {
-                input: responses * 12,
-                output: responses * 4,
-                cached_input: 0,
-                reasoning: 0
-            }),
-            generation: statistics.generation.clone(),
-            first_token_us: statistics.first_token_us,
-            ..Default::default()
-        }
+        statistics.usage,
+        Some(Usage {
+            input: responses * 12,
+            output: responses * 4,
+            cached_input: 0,
+            reasoning: 0,
+        })
     );
+    assert!(statistics.first_token_us.is_some());
+    assert_eq!(statistics.cost, None);
+    assert_eq!(
+        statistics.delegated,
+        sailry_protocol::usage::Metrics::default()
+    );
+    assert_eq!(statistics.last_compaction, None);
+    let generation = statistics.generation.as_ref().unwrap();
+    assert_eq!(generation.responses, responses);
+    assert_eq!(generation.output_tokens, responses * 4);
+    let budget = statistics.budget.as_ref().unwrap();
+    assert_eq!(budget.model, "fixture-a");
+    assert_eq!(budget.context_limit, 128_000);
+    let observations = &statistics.observations;
+    assert_eq!(observations.calls, responses);
+    assert_eq!(observations.replies, turns);
+    assert_eq!(observations.compactions, 0);
+    assert_eq!(
+        observations.recent.len(),
+        (responses as usize).min(conversation::observation::RECENT_LIMIT)
+    );
+    let ids = observations
+        .recent
+        .iter()
+        .map(|request| &request.id)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(ids.len(), observations.recent.len());
+    assert!(
+        observations
+            .recent
+            .iter()
+            .all(|request| request.model == "fixture-a" && request.context_limit == Some(128_000))
+    );
+    assert!(observations.latency.elapsed_us.is_some());
+    assert!(observations.latency.response_us.is_some());
+    assert!(observations.latency.first_text_us.is_some());
 }
 
 async fn submit(client: &Client, session: SessionId) -> TurnId {
@@ -371,6 +404,14 @@ async fn restores_streamed_turns() {
             .await
             .unwrap();
         assert_eq!(all.page.runs.len(), 51);
+        let statistics = {
+            let mut updates = client.subscribe_conversation(session.id).await.unwrap();
+            let Update::ConversationSnapshot(snapshot) = updates.next().await.unwrap() else {
+                panic!("snapshot expected");
+            };
+            assert_totals(&snapshot.statistics, 51, 102);
+            snapshot.statistics
+        };
         for format in [
             sailry_client::conversation::export::Format::Markdown,
             sailry_client::conversation::export::Format::Html,
@@ -431,6 +472,7 @@ async fn restores_streamed_turns() {
             panic!("snapshot expected");
         };
         assert_totals(&restored.statistics, 51, 102);
+        assert_eq!(restored.statistics, statistics);
         drop(subscription);
         assert_eq!(
             client

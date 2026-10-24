@@ -85,12 +85,36 @@ async fn skip_receipts_and_preserve_write_replay() {
             })
             .with_plugin(context.clone());
         reads.push(denied.id);
-        assert_eq!(
-            client.execute(denied).await.unwrap_err().code,
-            ErrorCode::PermissionDenied
-        );
+        let fault = client.execute(denied).await.unwrap_err();
+        assert_eq!(fault.code, ErrorCode::PermissionDenied);
+        let Some(FaultDetails::SystemDiagnostic(report)) = fault.details else {
+            panic!("safe callback diagnostic expected");
+        };
+        let report = *report;
         assert_eq!(read(&client, &context, "counter").await.value, json!(1));
-        assert_eq!(receipts(&node).await, before);
+        assert_eq!(receipts(&node).await, before + 1);
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let body: Vec<u8> = db
+                    .prepare("SELECT body FROM requests WHERE id=?1")
+                    .await
+                    .unwrap()
+                    .query_row([report.incident.to_string()])
+                    .await
+                    .unwrap()
+                    .get(0)
+                    .unwrap();
+                let request: Request = serde_json::from_slice(&body).unwrap();
+                assert_eq!(request.id, report.incident);
+                let Command::ReportDiagnostic(stored) = request.command else {
+                    panic!("only the diagnostic receipt is expected");
+                };
+                assert_eq!(stored, report);
+                Ok(())
+            })
+        })
+        .await
+        .unwrap();
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
         let (db_handle, db) = crate::plugins::database_fixture::open(

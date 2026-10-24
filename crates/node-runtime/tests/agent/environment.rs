@@ -283,7 +283,7 @@ async fn shares_login_with_stdio() {
         assert_eq!(results.len(), 1);
         assert_eq!(
             results[0]["output"]["secret_hash"],
-            blake3::hash(b"explicit-token").to_hex().to_string()
+            json!(blake3::hash(b"explicit-token").as_bytes())
         );
         assert_eq!(login.captures(), 1);
         assert!(
@@ -345,7 +345,7 @@ async fn shares_login_with_stdio() {
             .unwrap();
         assert_eq!(
             result["output"]["secret_hash"],
-            blake3::hash(b"explicit-token").to_hex().to_string()
+            json!(blake3::hash(b"explicit-token").as_bytes())
         );
         assert_eq!(login.captures(), 1);
         node.shutdown().await.unwrap();

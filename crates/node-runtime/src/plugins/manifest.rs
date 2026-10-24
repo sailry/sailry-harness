@@ -440,13 +440,18 @@ mod tests {
     }
     #[test]
     fn accepts_settings_only_resources() {
-        let bytes = include_bytes!("../../../../plugins/computer/plugin.json");
-        let parsed = parse(bytes).unwrap();
+        let original = json!({
+            "$schema": SCHEMA, "name":"settings", "extensions":{"dev.sailry.platform":{
+                "api_version":"v1", "actions":[],
+                "desktop":{"resources":["dev.sailry.platform/settings.js"]},
+                "settings_page":{"navigation":{"label":"Settings"},"entry":"dev.sailry.platform/settings.js"}
+            }}
+        });
+        let parsed = parse(&serde_json::to_vec(&original).unwrap()).unwrap();
         assert!(parsed.issues.is_empty(), "{:?}", parsed.issues);
         let extension = parsed.extension.unwrap();
         assert!(extension.desktop.as_ref().unwrap().entry.is_none());
         assert!(extension.settings_page.as_ref().unwrap().entry.is_some());
-        let original: Value = serde_json::from_slice(bytes).unwrap();
         for field in ["navigation", "panel"] {
             let mut value = original.clone();
             value["extensions"]["dev.sailry.platform"]["desktop"][field] =

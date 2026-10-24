@@ -54,6 +54,7 @@ async fn restores_reported_activity() {
             panic!("terminal expected")
         };
         assert_eq!(info.activity, None);
+        let mut catalog = client.subscribe().await.unwrap();
         let mut stream = client.subscribe_terminal(info.id).await.unwrap();
         let mut projection = Projection::new(node.id(), info.id, 1);
         for (sequence, activity) in [
@@ -69,14 +70,22 @@ async fn restores_reported_activity() {
         ] {
             command(&client, &info, &format!("printf '\\033]{sequence}\\007'")).await;
             tokio::time::timeout(Duration::from_secs(10), async {
-                loop {
+                let report = loop {
                     projection.apply(1, stream.next().await.unwrap()).unwrap();
-                    if projection.snapshot().is_some_and(|snapshot| {
-                        snapshot
-                            .info
-                            .activity
-                            .is_some_and(|report| report.state == activity)
-                    }) {
+                    if let Some(report) = projection
+                        .snapshot()
+                        .and_then(|snapshot| snapshot.info.activity)
+                        && report.state == activity
+                    {
+                        break report;
+                    }
+                };
+                loop {
+                    if let Update::Event(event) = catalog.next().await.unwrap()
+                        && let Event::TerminalChanged(current) = event.event
+                        && current.id == info.id
+                        && current.activity == Some(report)
+                    {
                         break;
                     }
                 }

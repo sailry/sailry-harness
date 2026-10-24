@@ -149,23 +149,30 @@ fn accepts_fields_and_secret_slots() {
 }
 
 #[test]
-fn confines_application_and_oauth_clients() {
+fn rejects_unsupported_authorization_bindings() {
     let servers = mcp::parse(&serde_json::to_vec(&json!({"$schema":mcp::SCHEMA,"mcpServers":{
         "feishu":{"type":"streamable-http","url":"https://mcp.feishu.cn/mcp","headers":{"X-Lark-MCP-TAT":""}},
         "other":{"type":"streamable-http","url":"https://example.com/mcp","headers":{"X-Lark-MCP-TAT":""}},
         "slack":{"type":"streamable-http","url":"https://mcp.slack.com/mcp"},
         "local":{"type":"stdio","command":"tool"}
     }})).unwrap(), &mut Vec::new()).unwrap();
-    let valid = [
+    for binding in [
+        json!({"server":"feishu","header":"X-Lark-MCP-TAT"}),
+        json!({"origin":"https://api.dingtalk.com","header":"x-acs-dingtalk-access-token"}),
+    ] {
+        let value = schema(json!({"secret":{"type":"string","x-sailry-secret":binding}}));
+        assert!(validation::parse(&serde_json::to_vec(&value).unwrap(), &servers).is_ok());
+    }
+    let unsupported = [
         json!({"server":"feishu","header":"X-Lark-MCP-TAT","application":{"provider":"feishu","client_id":"id"}}),
         json!({"origin":"https://api.dingtalk.com","header":"x-acs-dingtalk-access-token","application":{"provider":"dingtalk","client_id":"id"}}),
         json!({"server":"slack","oauth":{"client_id":"id"}}),
     ];
-    for binding in &valid {
+    for binding in &unsupported {
         let value = schema(
             json!({"id":{"type":"string"},"secret":{"type":"string","x-sailry-secret":binding}}),
         );
-        assert!(validation::parse(&serde_json::to_vec(&value).unwrap(), &servers).is_ok());
+        assert!(validation::parse(&serde_json::to_vec(&value).unwrap(), &servers).is_err());
         for field in [
             json!({"type":"boolean"}),
             json!({"type":"string","x-sailry-secret":{"server":"slack","oauth":{"client_id":"absent"}}}),

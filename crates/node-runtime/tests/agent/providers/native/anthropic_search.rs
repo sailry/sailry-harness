@@ -313,6 +313,19 @@ async fn reports_incomplete_search() {
             anthropic::Reply::Truncated,
         ] {
             let (fixture, server) = setup(remote, reply, false).await;
+            if matches!(reply, anthropic::Reply::Truncated) {
+                let mut provider = fixture.provider.clone();
+                provider.request_max_retries = Some(0);
+                provider.stream_max_retries = Some(1);
+                execute(
+                    &fixture.client,
+                    Command::PutProvider {
+                        expected_revision: provider.revision,
+                        provider,
+                    },
+                )
+                .await;
+            }
             let turn = fixture.submit("Find a source").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             if matches!(reply, anthropic::Reply::Truncated) {
@@ -330,7 +343,7 @@ async fn reports_incomplete_search() {
                 .flat_map(|entry| &entry.parts)
                 .filter_map(|part| match part {
                     Part::Resource(value) if value["type"] == "model_retry" => {
-                        assert_eq!(value["limit"], 5);
+                        assert_eq!(value["limit"], 1);
                         Some(value["attempt"].as_u64().unwrap())
                     }
                     _ => None,

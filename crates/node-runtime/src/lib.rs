@@ -402,7 +402,7 @@ impl Node {
         (observed, release)
     }
 
-    /// Holds one prepared flow operation before dispatch without changing its authority.
+    /// Holds the next prepared operation in registration order without changing its authority.
     #[cfg(any(test, feature = "test-support"))]
     pub fn hold_plugin_operation_fixture(
         &self,
@@ -410,13 +410,47 @@ impl Node {
         tokio::sync::oneshot::Receiver<sailry_protocol::Request>,
         sailry_link::CancellationToken,
     ) {
+        self.hold_plugin_fixture(None, None)
+    }
+
+    /// Holds a matching prepared tool operation while unrelated flows continue.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_plugin_tool_fixture(
+        &self,
+        tool: &str,
+        call: Option<&str>,
+    ) -> (
+        tokio::sync::oneshot::Receiver<sailry_protocol::Request>,
+        sailry_link::CancellationToken,
+    ) {
+        self.hold_plugin_fixture(Some(tool.to_owned()), call.map(str::to_owned))
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    fn hold_plugin_fixture(
+        &self,
+        tool: Option<String>,
+        call: Option<String>,
+    ) -> (
+        tokio::sync::oneshot::Receiver<sailry_protocol::Request>,
+        sailry_link::CancellationToken,
+    ) {
         let (entered, observed) = tokio::sync::oneshot::channel();
         let release = sailry_link::CancellationToken::new();
-        *self.ingress.plugins.flow_wait.lock().unwrap() = Some(crate::plugins::script::Wait {
-            entered,
-            release: release.clone(),
-            durable: true,
-        });
+        self.ingress
+            .plugins
+            .flow_wait
+            .lock()
+            .unwrap()
+            .push_back(crate::plugins::FlowWait {
+                tool,
+                call,
+                wait: crate::plugins::script::Wait {
+                    entered,
+                    release: release.clone(),
+                    durable: true,
+                },
+            });
         (observed, release)
     }
 
