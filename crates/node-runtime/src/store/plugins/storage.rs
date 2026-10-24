@@ -1,10 +1,10 @@
 //! Generic plugin data shares Node admission, receipts and the plugin package identity.
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
     Command, ErrorCode, Fault, Output, Request,
     plugin::storage::{self, Declaration, Entry, Page, Scope},
 };
 use serde_json::Value;
+use turso::{Connection, params};
 
 use crate::store::database::storage_error;
 pub(in crate::store) mod conversation;
@@ -13,23 +13,23 @@ mod schema_tests;
 pub(in crate::store) mod search;
 pub(in crate::store) mod semantic;
 
-pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Fault> {
+pub(super) async fn execute(db: &Connection, request: &Request) -> Result<Output, Fault> {
     let name = &request
         .plugin
         .as_ref()
         .ok_or_else(|| Fault::new(ErrorCode::PermissionDenied, "plugin provenance is required"))?
         .package
         .name;
-    let declaration = declaration(db, request)?;
+    let declaration = declaration(db, request).await?;
     match &request.command {
         Command::ReadPluginConversationValue { .. }
         | Command::WritePluginConversationValue { .. }
         | Command::RemovePluginConversationValue { .. } => {
-            conversation::execute(db, request, declaration.as_ref())
+            conversation::execute(db, request, declaration.as_ref()).await
         }
         Command::ReadPluginValue { key } => {
             check_key(key)?;
-            let mut entry = read(db, name, key)?;
+            let mut entry = read(db, name, key).await?;
             project_defaults(
                 declaration.as_ref(),
                 Scope::Node,
@@ -52,13 +52,9 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
             {
                 return Err(sailry_protocol::Fault::invalid("invalid plugin key page"));
             }
-            Ok(Output::PluginKeys(list(
-                db,
-                name,
-                prefix,
-                after.as_deref(),
-                *limit,
-            )?))
+            Ok(Output::PluginKeys(
+                list(db, name, prefix, after.as_deref(), *limit).await?,
+            ))
         }
         Command::WritePluginValue {
             key,
@@ -73,22 +69,17 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
                 key,
                 value,
                 *expected_revision,
-            )?;
+            )
+            .await?;
             let body = serde_json::to_vec(&value).map_err(storage_error)?;
             if body.len() > storage::MAX_VALUE_BYTES {
                 return Err(sailry_protocol::Fault::invalid(
                     "plugin value exceeds 256 KiB",
                 ));
             }
-            Ok(Output::PluginValue(write(
-                db,
-                name,
-                key,
-                &value,
-                &body,
-                *expected_revision,
-                None,
-            )?))
+            Ok(Output::PluginValue(
+                write(db, name, key, &value, &body, *expected_revision, None).await?,
+            ))
         }
         Command::WriteIndexedPluginValue {
             key,
@@ -104,7 +95,8 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
                 key,
                 value,
                 *expected_revision,
-            )?;
+            )
+            .await?;
             let body = serde_json::to_vec(&value).map_err(storage_error)?;
             if body.len() > storage::MAX_VALUE_BYTES {
                 return Err(sailry_protocol::Fault::invalid(
@@ -112,18 +104,21 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
                 ));
             }
             search::validate_index(index)?;
-            Ok(Output::PluginValue(write(
-                db,
-                name,
-                key,
-                &value,
-                &body,
-                *expected_revision,
-                Some(index),
-            )?))
+            Ok(Output::PluginValue(
+                write(
+                    db,
+                    name,
+                    key,
+                    &value,
+                    &body,
+                    *expected_revision,
+                    Some(index),
+                )
+                .await?,
+            ))
         }
         Command::SearchPluginValues(query) => {
-            let mut page = search::read(db, name, query)?;
+            let mut page = search::read(db, name, query).await?;
             for mut entry in std::mem::take(&mut page.entries) {
                 project_defaults(
                     declaration.as_ref(),
@@ -152,12 +147,9 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
             expected_revision,
         } => {
             check_key(key)?;
-            Ok(Output::PluginValue(remove(
-                db,
-                name,
-                key,
-                *expected_revision,
-            )?))
+            Ok(Output::PluginValue(
+                remove(db, name, key, *expected_revision).await?,
+            ))
         }
         _ => Err(Fault::new(
             ErrorCode::Internal,
@@ -166,7 +158,7 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
     }
 }
 
-fn declaration(db: &Connection, request: &Request) -> Result<Option<Declaration>, Fault> {
+async fn declaration(db: &Connection, request: &Request) -> Result<Option<Declaration>, Fault> {
     let context = request
         .plugin
         .as_ref()
@@ -174,7 +166,8 @@ fn declaration(db: &Connection, request: &Request) -> Result<Option<Declaration>
     // Admission has already checked authority. Resolve code by its immutable reference,
     // including callbacks and turns that retain an older installed package revision.
     Ok(
-        crate::store::agent::plugins::packages(db, std::slice::from_ref(&context.package))?
+        crate::store::agent::plugins::packages(db, std::slice::from_ref(&context.package))
+            .await?
             .pop()
             .and_then(|package| package.extension)
             .and_then(|extension| extension.storage),
@@ -202,7 +195,7 @@ fn project_defaults(
     Ok(())
 }
 
-fn normalize(
+async fn normalize(
     db: &Connection,
     declaration: Option<&Declaration>,
     name: &str,
@@ -213,7 +206,7 @@ fn normalize(
     let Some(schema) = schema(declaration, Scope::Node, key) else {
         return Ok(value.clone());
     };
-    let current = read(db, name, key)?;
+    let current = read(db, name, key).await?;
     check_revision(current.revision, expected)?;
     crate::plugins::storage::normalize(schema, current.present.then_some(&current.value), value)
 }
@@ -240,15 +233,22 @@ fn check_prefix(prefix: &str) -> Result<(), Fault> {
 
 type StoredValue = (u64, Option<Vec<u8>>);
 
-fn current(db: &Connection, name: &str, key: &str) -> Result<Option<StoredValue>, Fault> {
-    let row: Option<(i64, Option<Vec<u8>>)> = db
-        .query_row(
-            "SELECT revision,value FROM plugin_values WHERE name=?1 AND key=?2",
-            params![name, key],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn current(db: &Connection, name: &str, key: &str) -> Result<Option<StoredValue>, Fault> {
+    let row: Option<(i64, Option<Vec<u8>>)> = {
+        let mut statement = db
+            .prepare("SELECT revision,value FROM plugin_values WHERE name=?1 AND key=?2")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(params![name, key]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     row.map(|(revision, value)| {
         u64::try_from(revision)
             .ok()
@@ -259,8 +259,8 @@ fn current(db: &Connection, name: &str, key: &str) -> Result<Option<StoredValue>
     .transpose()
 }
 
-pub(in crate::store) fn read(db: &Connection, name: &str, key: &str) -> Result<Entry, Fault> {
-    let (revision, body) = current(db, name, key)?.unwrap_or((0, None));
+pub(in crate::store) async fn read(db: &Connection, name: &str, key: &str) -> Result<Entry, Fault> {
+    let (revision, body) = current(db, name, key).await?.unwrap_or((0, None));
     let value = body
         .as_deref()
         .map(serde_json::from_slice::<Value>)
@@ -274,7 +274,7 @@ pub(in crate::store) fn read(db: &Connection, name: &str, key: &str) -> Result<E
     })
 }
 
-fn list(
+async fn list(
     db: &Connection,
     name: &str,
     prefix: &str,
@@ -284,17 +284,20 @@ fn list(
     let limit = limit.min(storage::MAX_PAGE_LIMIT);
     let mut query = db
         .prepare("SELECT key FROM plugin_values WHERE name=?1 AND value IS NOT NULL ORDER BY key")
+        .await
         .map_err(storage_error)?;
     let mut keys = Vec::new();
-    for key in query
-        .query_map([name], |row| row.get::<_, String>(0))
-        .map_err(storage_error)?
     {
-        let key = key.map_err(storage_error)?;
-        if key.starts_with(prefix) && after.is_none_or(|after| key.as_str() > after) {
-            keys.push(key);
-            if keys.len() > usize::from(limit) {
-                break;
+        let mut rows = query.query([name]).await.map_err(storage_error)?;
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let key: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+
+            let key = key.map_err(storage_error)?;
+            if key.starts_with(prefix) && after.is_none_or(|after| key.as_str() > after) {
+                keys.push(key);
+                if keys.len() > usize::from(limit) {
+                    break;
+                }
             }
         }
     }
@@ -321,7 +324,7 @@ fn next_revision(revision: u64) -> Result<i64, Fault> {
         .ok_or_else(|| sailry_protocol::Fault::invalid("plugin value revision exhausted"))
 }
 
-fn write(
+async fn write(
     db: &Connection,
     name: &str,
     key: &str,
@@ -330,7 +333,7 @@ fn write(
     expected: u64,
     index: Option<&storage::Index>,
 ) -> Result<Entry, Fault> {
-    let existing = current(db, name, key)?;
+    let existing = current(db, name, key).await?;
     let revision = existing.as_ref().map_or(0, |(revision, _)| *revision);
     check_revision(revision, expected)?;
     let next = next_revision(revision)?;
@@ -338,19 +341,26 @@ fn write(
         .map(serde_json::to_vec)
         .transpose()
         .map_err(storage_error)?;
-    search::check(db, name)?;
-    let (count, bytes): (i64, i64) = db
-        .query_row(
-            "SELECT count(*),coalesce(sum(length(value)+coalesce(length(index_data),0)),0) FROM plugin_values WHERE name=?1 AND value IS NOT NULL",
-            [name],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(storage_error)?;
+    search::check(db, name).await?;
+    let (count, bytes): (i64, i64) = {
+        let mut statement = db.prepare("SELECT count(*),coalesce(sum(length(value)+coalesce(length(index_data),0)),0) FROM plugin_values WHERE name=?1 AND value IS NOT NULL").await.map_err(storage_error)?;
+        let row = statement.query_row([name]).await.map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+        mapped.map_err(storage_error)?
+    };
     let old_body = existing
         .as_ref()
         .and_then(|(_, body)| body.as_ref())
         .map_or(0, Vec::len);
-    let old_index: i64 = db.query_row("SELECT coalesce(sum(length(index_data)),0) FROM plugin_values WHERE name=?1 AND key=?2", params![name,key], |row|row.get(0)).map_err(storage_error)?;
+    let old_index: i64 = {
+        let mut statement = db.prepare("SELECT coalesce(sum(length(index_data)),0) FROM plugin_values WHERE name=?1 AND key=?2").await.map_err(storage_error)?;
+        let row = statement
+            .query_row(params![name, key])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let old = old_body
         .checked_add(usize::try_from(old_index).map_err(storage_error)?)
         .ok_or_else(|| storage_error("invalid plugin storage size"))?;
@@ -370,9 +380,9 @@ fn write(
         "INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES(?1,?2,?3,?4,?5) \
          ON CONFLICT(name,key) DO UPDATE SET revision=excluded.revision,value=excluded.value,index_data=excluded.index_data",
         params![name, key, next, body, indexed],
-    )
+    ).await
     .map_err(storage_error)?;
-    search::replace(db, name, key, index)?;
+    search::replace(db, name, key, index).await?;
     Ok(Entry {
         key: key.into(),
         revision: next as u64,
@@ -381,8 +391,8 @@ fn write(
     })
 }
 
-fn remove(db: &Connection, name: &str, key: &str, expected: u64) -> Result<Entry, Fault> {
-    let existing = current(db, name, key)?;
+async fn remove(db: &Connection, name: &str, key: &str, expected: u64) -> Result<Entry, Fault> {
+    let existing = current(db, name, key).await?;
     let revision = existing.as_ref().map_or(0, |(revision, _)| *revision);
     check_revision(revision, expected)?;
     if existing.is_none() {
@@ -394,13 +404,14 @@ fn remove(db: &Connection, name: &str, key: &str, expected: u64) -> Result<Entry
         });
     }
     let next = next_revision(revision)?;
-    search::check(db, name)?;
+    search::check(db, name).await?;
     db.execute(
         "UPDATE plugin_values SET revision=?3,value=NULL,index_data=NULL WHERE name=?1 AND key=?2",
         params![name, key, next],
     )
+    .await
     .map_err(storage_error)?;
-    search::replace(db, name, key, None)?;
+    search::replace(db, name, key, None).await?;
     Ok(Entry {
         key: key.into(),
         revision: next as u64,
@@ -413,15 +424,18 @@ fn remove(db: &Connection, name: &str, key: &str, expected: u64) -> Result<Entry
 mod tests {
     use super::*;
 
-    fn database() -> Connection {
-        let db = Connection::open_in_memory().unwrap();
-        db.execute_batch("CREATE TABLE plugin_values(name TEXT, key TEXT, revision INTEGER, value BLOB, index_data BLOB, PRIMARY KEY(name,key));").unwrap();
+    async fn database() -> Connection {
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
+        db.execute_batch("CREATE TABLE plugin_values(name TEXT, key TEXT, revision INTEGER, value BLOB, index_data BLOB, PRIMARY KEY(name,key));").await.unwrap();
         db
     }
 
-    #[test]
-    fn deletion_preserves_revisions() {
-        let db = database();
+    #[tokio::test]
+    async fn deletion_preserves_revisions() {
+        let db = database().await;
         for index in 0..storage::MAX_NAMESPACE_KEYS {
             write(
                 &db,
@@ -432,17 +446,21 @@ mod tests {
                 0,
                 None,
             )
+            .await
             .unwrap();
         }
         assert_eq!(
             write(&db, "game", "extra", &Value::Null, b"null", 0, None)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::Busy
         );
-        let removed = remove(&db, "game", "0", 1).unwrap();
+        let removed = remove(&db, "game", "0", 1).await.unwrap();
         assert!(!removed.present);
-        write(&db, "game", "extra", &Value::Null, b"null", 0, None).unwrap();
+        write(&db, "game", "extra", &Value::Null, b"null", 0, None)
+            .await
+            .unwrap();
         assert_eq!(
             write(
                 &db,
@@ -453,11 +471,12 @@ mod tests {
                 removed.revision,
                 None
             )
+            .await
             .unwrap_err()
             .code,
             ErrorCode::Busy
         );
-        remove(&db, "game", "extra", 1).unwrap();
+        remove(&db, "game", "extra", 1).await.unwrap();
         assert_eq!(
             write(
                 &db,
@@ -468,21 +487,23 @@ mod tests {
                 removed.revision,
                 None
             )
+            .await
             .unwrap()
             .revision,
             3
         );
         assert_eq!(
             write(&db, "game", "0", &Value::Null, b"null", 1, None)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::RevisionConflict
         );
     }
 
-    #[test]
-    fn replacement_counts_only_current_value_bytes() {
-        let db = database();
+    #[tokio::test]
+    async fn replacement_counts_only_current_value_bytes() {
+        let db = database().await;
         let body = vec![b' '; storage::MAX_VALUE_BYTES];
         for index in 0..storage::MAX_NAMESPACE_BYTES / storage::MAX_VALUE_BYTES {
             write(
@@ -494,16 +515,22 @@ mod tests {
                 0,
                 None,
             )
+            .await
             .unwrap();
         }
         assert_eq!(
             write(&db, "game", "extra", &Value::Null, b"null", 0, None)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::Busy
         );
-        write(&db, "game", "0", &Value::Null, b"null", 1, None).unwrap();
-        write(&db, "game", "extra", &Value::Null, b"null", 0, None).unwrap();
-        assert_eq!(read(&db, "game", "0").unwrap().revision, 2);
+        write(&db, "game", "0", &Value::Null, b"null", 1, None)
+            .await
+            .unwrap();
+        write(&db, "game", "extra", &Value::Null, b"null", 0, None)
+            .await
+            .unwrap();
+        assert_eq!(read(&db, "game", "0").await.unwrap().revision, 2);
     }
 }

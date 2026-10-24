@@ -2,8 +2,8 @@
 use super::*;
 use adk_core::ToolConfirmationRequest;
 
-pub(super) fn active(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
-    let run = runs::get(db, turn)?;
+pub(super) async fn active(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
+    let run = runs::get(db, turn).await?;
     if run.kind != RunKind::Task {
         return Err(sailry_protocol::Fault::invalid(
             "context compaction cannot invoke tools",
@@ -31,7 +31,7 @@ pub(super) fn matches(part: &adk_core::Part, request: &ToolConfirmationRequest) 
         if id == &request.function_call_id && name == &request.tool_name && args == &request.args)
 }
 
-pub(super) fn locate(
+pub(super) async fn locate(
     db: &Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
@@ -39,10 +39,20 @@ pub(super) fn locate(
     id(request)?;
     let mut query = db
         .prepare("SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence DESC")
+        .await
         .map_err(storage_error)?;
-    let rows = query
-        .query_map([turn.to_string()], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?;
+    let rows = {
+        let mut rows = query
+            .query([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    };
     let mut found = None;
     for body in rows {
         let event: AdkEvent =

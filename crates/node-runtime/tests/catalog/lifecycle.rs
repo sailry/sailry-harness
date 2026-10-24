@@ -78,11 +78,7 @@ async fn failed_replacement_preserves_cache() {
         let fixture = Fixture::new(remote, &server).await;
         let before = refresh(&fixture.client).await;
         let original = page(&fixture.client, query()).await;
-        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-            .unwrap();
-        let events: i64 = db
-            .query_row("SELECT count(*) FROM events", [], |row| row.get(0))
-            .unwrap();
+        let events = event_count(&fixture.node).await;
         assert!(
             fixture
                 .client
@@ -92,7 +88,7 @@ async fn failed_replacement_preserves_cache() {
         );
         assert_eq!(status(&fixture.client).await, before);
         assert_eq!(page(&fixture.client, query()).await, original);
-        db.execute_batch("CREATE TRIGGER reject_catalog BEFORE INSERT ON model_catalog BEGIN SELECT RAISE(ABORT,'isolated catalog storage failure'); END;").unwrap();
+        fixture.node.with_storage(|db| Box::pin(async move { db.execute_batch("CREATE TRIGGER reject_catalog BEFORE INSERT ON model_catalog BEGIN SELECT RAISE(ABORT,'isolated catalog storage failure'); END;").await.map_err(crate::database_fixture::fault) })).await.unwrap();
         assert!(
             fixture
                 .client
@@ -102,13 +98,36 @@ async fn failed_replacement_preserves_cache() {
         );
         assert_eq!(status(&fixture.client).await, before);
         assert_eq!(page(&fixture.client, query()).await, original);
-        assert_eq!(
-            db.query_row::<i64, _, _>("SELECT count(*) FROM events", [], |row| row.get(0))
-                .unwrap(),
-            events
-        );
-        db.execute_batch("DROP TRIGGER reject_catalog;").unwrap();
+        assert_eq!(event_count(&fixture.node).await, events);
+        fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.execute_batch("DROP TRIGGER reject_catalog;")
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap();
         assert_eq!(refresh(&fixture.client).await.revision, before.revision + 1);
         fixture.close().await;
     }
+}
+
+async fn event_count(node: &Node) -> i64 {
+    node.with_storage(|db| {
+        Box::pin(async move {
+            db.prepare("SELECT count(*) FROM events")
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::database_fixture::fault)
+        })
+    })
+    .await
+    .unwrap()
 }

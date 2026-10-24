@@ -200,12 +200,7 @@ async fn discovers_without_persistence() {
                 panic!("provider expected")
             };
             input.credential = provider.credential.clone();
-            let db =
-                rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-                    .unwrap();
-            let before: i64 = db
-                .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
-                .unwrap();
+            let before = request_count(&fixture.node).await;
             assert_eq!(
                 execute(&fixture.client, discover(input)).await,
                 Output::DiscoveredModels(discovery::Catalog {
@@ -227,11 +222,7 @@ async fn discovers_without_persistence() {
             assert_eq!(result.missing, ["missing"]);
             assert_eq!(result.exceeded, ["known"]);
             assert_eq!(result.unverified, ["unknown"]);
-            assert_eq!(
-                before,
-                db.query_row::<i64, _, _>("SELECT count(*) FROM requests", [], |row| row.get(0))
-                    .unwrap()
-            );
+            assert_eq!(before, request_count(&fixture.node).await);
             let requests = server.requests.lock().unwrap();
             assert_eq!(
                 requests.len(),
@@ -267,6 +258,23 @@ async fn discovers_without_persistence() {
         }
         fixture.close().await;
     }
+}
+
+async fn request_count(node: &Node) -> i64 {
+    node.with_storage(|db| {
+        Box::pin(async move {
+            db.prepare("SELECT count(*) FROM requests")
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::database_fixture::fault)
+        })
+    })
+    .await
+    .unwrap()
 }
 
 #[tokio::test]

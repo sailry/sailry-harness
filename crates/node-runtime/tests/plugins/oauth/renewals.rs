@@ -60,8 +60,8 @@ impl Fixture {
             rejections::request(&self.row.package, self.worktree, self.row.id, rejected);
         self.client.prepare(command).with_plugin(context)
     }
-    fn stored(&self) -> Value {
-        serde_json::from_slice(&lifecycle::stored(&self.node, self.row.id)).unwrap()
+    async fn stored(&self) -> Value {
+        serde_json::from_slice(&lifecycle::stored(&self.node, self.row.id).await).unwrap()
     }
     async fn close(self) {
         self.controller.close().await.unwrap();
@@ -142,7 +142,7 @@ async fn preserves_renewals_around_pending_sign_in() {
         for before in [false, true] {
             for outcome in [Finish::Cancelled, Finish::Denied, Finish::Connected] {
                 let fixture = Fixture::new(remote, false).await;
-                let original = fixture.stored();
+                let original = fixture.stored().await;
                 let (entered, release) = fixture.issuer.hold();
                 let pending = if before {
                     None
@@ -167,7 +167,7 @@ async fn preserves_renewals_around_pending_sign_in() {
                     matches!(result, Output::PluginHttp(response) if response.status == 401),
                     "{remote}/{before}/{outcome:?}"
                 );
-                let renewed = fixture.stored();
+                let renewed = fixture.stored().await;
                 assert_eq!(renewed["state"], "connecting");
                 assert_eq!(renewed["grant"]["access"], "account-a-renewed-1");
                 assert_eq!(
@@ -175,7 +175,7 @@ async fn preserves_renewals_around_pending_sign_in() {
                     original["grant_revision"].as_u64().unwrap() + 1
                 );
                 finish(&fixture, &attempt, &url, outcome).await;
-                let final_record = fixture.stored();
+                let final_record = fixture.stored().await;
                 assert_eq!(final_record["state"], "connected");
                 assert!(final_record["login"].is_null());
                 assert_eq!(final_record["revision"], fixture.row.revision + 1);
@@ -244,12 +244,18 @@ async fn rejects_late_renewals_after_replacing_accounts() {
             .unwrap();
         let (attempt, url) = start(&fixture).await;
         finish(&fixture, &attempt, &url, Finish::Connected).await;
-        let before = lifecycle::stored(&fixture.node, fixture.row.id);
+        let before = lifecycle::stored(&fixture.node, fixture.row.id).await;
         release.send(()).unwrap();
         let error = refreshing.await.unwrap().unwrap_err();
         assert_eq!(error.code, ErrorCode::RevisionConflict);
-        assert_eq!(lifecycle::stored(&fixture.node, fixture.row.id), before);
-        assert_eq!(fixture.stored()["grant"]["access"], "account-b-access");
+        assert_eq!(
+            lifecycle::stored(&fixture.node, fixture.row.id).await,
+            before
+        );
+        assert_eq!(
+            fixture.stored().await["grant"]["access"],
+            "account-b-access"
+        );
         assert!(fixture.client.execute(fixture.request(false)).await.is_ok());
         assert!(
             fixture
@@ -271,7 +277,7 @@ async fn renews_before_rechecking_health() {
     for remote in [false, true] {
         for denied in [false, true] {
             let fixture = Fixture::new(remote, true).await;
-            let before = fixture.stored();
+            let before = fixture.stored().await;
             fixture.issuer.requests.lock().unwrap().clear();
             *fixture.issuer.expected.lock().unwrap() = "rejected-access".into();
             fixture.issuer.denied.store(denied, Ordering::SeqCst);
@@ -288,7 +294,7 @@ async fn renews_before_rechecking_health() {
                     matches!(result.unwrap(), Output::Connection(row) if row.state == State::Connected)
                 );
             }
-            let current = fixture.stored();
+            let current = fixture.stored().await;
             assert_eq!(
                 current["grant_revision"].as_u64().unwrap(),
                 before["grant_revision"].as_u64().unwrap() + 1 + u64::from(denied)

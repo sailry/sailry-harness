@@ -1,18 +1,20 @@
 use super::*;
 
-#[test]
-fn pages_calls_with_stable_totals() {
-    let mut fixture = Fixture::new();
-    let original = session(&mut fixture);
-    let turn = fixture.append((0..45).map(|index| event(START + index % 3, index as i32)));
-    let baseline = report(&fixture, &query());
+#[tokio::test]
+async fn pages_calls_with_stable_totals() {
+    let mut fixture = Fixture::new().await;
+    let original = session(&mut fixture).await;
+    let turn = fixture
+        .append((0..45).map(|index| event(START + index % 3, index as i32)))
+        .await;
+    let baseline = report(&fixture, &query()).await;
     assert_eq!(baseline.totals.responses, 45);
     assert_eq!(baseline.requests.items.len(), PAGE_SIZE);
     assert!(baseline.requests.has_more);
     let mut selection = query();
     let mut calls = Vec::new();
     loop {
-        let page = report(&fixture, &selection);
+        let page = report(&fixture, &selection).await;
         assert_eq!(page.totals, baseline.totals);
         assert_eq!(page.days, baseline.days);
         assert_eq!(page.groups, baseline.groups);
@@ -47,30 +49,32 @@ fn pages_calls_with_stable_totals() {
         assert!(!call.provider_name.is_empty());
         assert!(!call.scope_name.is_empty());
     }
-    fixture.append([event(START + DAY, 100)]);
-    let tail = report(&fixture, &selection);
+    fixture.append([event(START + DAY, 100)]).await;
+    let tail = report(&fixture, &selection).await;
     assert_eq!(tail.totals.responses, 46);
     assert!(tail.requests.items.is_empty());
     assert!(!tail.requests.has_more);
     assert_eq!(
-        report(&fixture, &query()).requests.items[0].tokens.input,
+        report(&fixture, &query()).await.requests.items[0]
+            .tokens
+            .input,
         100
     );
 }
 
-#[test]
-fn orders_equal_timestamps_across_nodes() {
-    let mut fixture = Fixture::new();
-    fixture.append([event(START, 10), event(START, 20)]);
+#[tokio::test]
+async fn orders_equal_timestamps_across_nodes() {
+    let mut fixture = Fixture::new().await;
+    fixture.append([event(START, 10), event(START, 20)]).await;
     let mut selection = query();
     selection.before = Some(Position {
         timestamp_ms: START,
         node: NodeId([255; 32]),
         sequence: 0,
     });
-    assert_eq!(report(&fixture, &selection).requests.items.len(), 2);
+    assert_eq!(report(&fixture, &selection).await.requests.items.len(), 2);
     selection.before.as_mut().unwrap().node = NodeId([0; 32]);
-    assert!(report(&fixture, &selection).requests.items.is_empty());
+    assert!(report(&fixture, &selection).await.requests.items.is_empty());
     selection.before.as_mut().unwrap().timestamp_ms = START - 1;
     assert!(
         read(
@@ -78,16 +82,17 @@ fn orders_equal_timestamps_across_nodes() {
             fixture.database.node,
             &selection
         )
+        .await
         .is_err()
     );
 }
 
-#[test]
-fn deduplicates_forked_calls() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn deduplicates_forked_calls() {
+    let mut fixture = Fixture::new().await;
     let entry = event(START, 10);
-    let turn = fixture.append([entry.clone(), entry]);
-    let original = report(&fixture, &query());
+    let turn = fixture.append([entry.clone(), entry]).await;
+    let original = report(&fixture, &query()).await;
     assert_eq!(original.requests.items.len(), 1);
     command(
         &mut fixture.database,
@@ -97,13 +102,14 @@ fn deduplicates_forked_calls() {
             through: turn,
             expected_revision: 1,
         },
-    );
-    assert_eq!(report(&fixture, &query()).requests, original.requests);
+    )
+    .await;
+    assert_eq!(report(&fixture, &query()).await.requests, original.requests);
 }
 
-#[test]
-fn preserves_latency_meaning() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn preserves_latency_meaning() {
+    let mut fixture = Fixture::new().await;
     for (index, first) in [
         serde_json::Value::Null,
         serde_json::json!(12500),
@@ -117,9 +123,9 @@ fn preserves_latency_meaning() {
         entry.llm_response.provider_metadata = Some(serde_json::json!({
             "sailry_timing": { "elapsed_us": 20000, "first_token_us": first }
         }));
-        fixture.append([entry]);
+        fixture.append([entry]).await;
     }
-    let calls = report(&fixture, &query()).requests.items;
+    let calls = report(&fixture, &query()).await.requests.items;
     assert_eq!(
         calls
             .iter()

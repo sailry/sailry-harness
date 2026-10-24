@@ -10,6 +10,8 @@ fn phrase() -> Secret {
 fn authenticates_before_unpacking() {
     let (_parent, snapshot) = snapshot();
     let cancel = CancellationToken::new();
+    let logical =
+        crate::profile::database_files(std::path::Path::new("storage/node.turso"))[1].clone();
     let plain = snapshot.pack(&cancel).unwrap();
     let previous = std::fs::read(plain.file.path()).unwrap();
     let packed = seal(plain, &phrase(), &cancel).unwrap();
@@ -27,8 +29,12 @@ fn authenticates_before_unpacking() {
     let root = target.path().canonicalize().unwrap();
     archive::unpack(decrypted.reopen().unwrap(), &root, &cancel).unwrap();
     assert_eq!(
-        std::fs::read(target.path().join("storage/node.sqlite3")).unwrap(),
+        std::fs::read(target.path().join("storage/node.turso")).unwrap(),
         b"consistent database fixture"
+    );
+    assert_eq!(
+        std::fs::read(target.path().join(logical)).unwrap(),
+        b"consistent logical log fixture"
     );
     #[cfg(unix)]
     {

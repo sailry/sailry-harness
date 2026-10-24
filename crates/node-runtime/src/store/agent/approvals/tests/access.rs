@@ -2,21 +2,25 @@ use super::*;
 use sailry_protocol::process::Access;
 mod settings;
 
-fn request(fixture: &mut Fixture, access: Access) -> Binding {
-    request_with_access(fixture, Some(access))
+async fn request(fixture: &mut Fixture, access: Access) -> Binding {
+    request_with_access(fixture, Some(access)).await
 }
 
-fn request_with_access(fixture: &mut Fixture, access: Option<Access>) -> Binding {
+async fn request_with_access(fixture: &mut Fixture, access: Option<Access>) -> Binding {
     super::super::super::tests::fixture::package(
         &fixture.database,
         fixture._directory.path(),
         "commands",
-    );
+    )
+    .await;
     let package = crate::store::plugins::get(&fixture.database.connection, "commands")
+        .await
         .unwrap()
         .unwrap();
     let mut references =
-        crate::store::agent::plugins::read(&fixture.database.connection, fixture.turn).unwrap();
+        crate::store::agent::plugins::read(&fixture.database.connection, fixture.turn)
+            .await
+            .unwrap();
     references.push(package.summary.reference());
     fixture
         .database
@@ -25,6 +29,7 @@ fn request_with_access(fixture: &mut Fixture, access: Option<Access>) -> Binding
             "UPDATE turns SET plugins=?1 WHERE id=?2",
             params![encode(&references).unwrap(), fixture.turn.to_string()],
         )
+        .await
         .unwrap();
     fixture.request.tool_name = crate::plugins::tools::alias("commands", "run_command");
     fixture.request.args = json!({"command":"true"});
@@ -50,6 +55,7 @@ fn request_with_access(fixture: &mut Fixture, access: Option<Access>) -> Binding
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     Binding {
         owner: package.summary.reference(),
@@ -72,12 +78,12 @@ fn prepared(turn: TurnId, access: Access) -> Command {
     }
 }
 
-#[test]
-fn distinguishes_confined_and_unrestricted_authority() {
+#[tokio::test]
+async fn distinguishes_confined_and_unrestricted_authority() {
     for permission in [Permission::Ask, Permission::Project, Permission::Full] {
         for access in [Access::Workspace, Access::Unrestricted] {
-            let mut fixture = Fixture::with_permission(permission);
-            let binding = request(&mut fixture, access);
+            let mut fixture = Fixture::with_permission(permission).await;
+            let binding = request(&mut fixture, access).await;
             let approval = begin(
                 &mut fixture.database,
                 fixture.turn,
@@ -85,6 +91,7 @@ fn distinguishes_confined_and_unrestricted_authority() {
                 Some(&binding),
                 &fixture.events,
             )
+            .await
             .unwrap();
             assert_eq!(approval.access, Some(access));
             if access == Access::Unrestricted && permission == Permission::Full {
@@ -109,19 +116,20 @@ fn distinguishes_confined_and_unrestricted_authority() {
                             approval.id,
                             decision
                         )
+                        .await
                         .unwrap_err()
                         .code,
                         ErrorCode::InvalidRequest
                     );
                 }
-                fixture.approve(approval.id);
+                fixture.approve(approval.id).await;
             } else if crate::process::sandbox::SUPPORTED {
                 assert_eq!(approval.source, ApprovalSource::Sandbox);
                 assert_eq!(approval.state, ApprovalState::Approved);
                 assert!(!approval.can_remember);
                 assert_eq!(approval.prefix, None);
             } else if approval.state == ApprovalState::Pending {
-                fixture.approve(approval.id);
+                fixture.approve(approval.id).await;
             }
             authorize(
                 &mut fixture.database.connection,
@@ -129,14 +137,15 @@ fn distinguishes_confined_and_unrestricted_authority() {
                 &fixture.request,
                 Some(&prepared(fixture.turn, access)),
             )
+            .await
             .unwrap();
         }
     }
 }
 
-#[test]
+#[tokio::test]
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn stale_rules_cannot_authorize_native_escape() {
+async fn stale_rules_cannot_authorize_native_escape() {
     for (source, choice, access) in [
         (
             ApprovalSource::SessionRule,
@@ -157,14 +166,14 @@ fn stale_rules_cannot_authorize_native_escape() {
         ),
         (ApprovalSource::User, Some(ApprovalChoice::Once), None),
     ] {
-        let mut fixture = Fixture::new();
-        let mut approval = fixture.begin();
-        fixture.approve(approval.id);
+        let mut fixture = Fixture::new().await;
+        let mut approval = fixture.begin().await;
+        fixture.approve(approval.id).await;
         approval.state = ApprovalState::Approved;
         approval.source = source;
         approval.choice = choice;
         approval.access = access;
-        put(&fixture.database.connection, &approval).unwrap();
+        put(&fixture.database.connection, &approval).await.unwrap();
         assert_eq!(
             authorize(
                 &mut fixture.database.connection,
@@ -172,6 +181,7 @@ fn stale_rules_cannot_authorize_native_escape() {
                 &fixture.request,
                 Some(&prepared(fixture.turn, Access::Unrestricted))
             )
+            .await
             .unwrap_err()
             .code,
             ErrorCode::PermissionDenied
@@ -179,18 +189,19 @@ fn stale_rules_cannot_authorize_native_escape() {
         let claimed: bool = fixture
             .database
             .connection
-            .query_row(
-                "SELECT claimed FROM agent_approvals WHERE id=?1",
-                [approval.id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare("SELECT claimed FROM agent_approvals WHERE id=?1")
+            .await
+            .unwrap()
+            .query_row([approval.id.to_string()])
+            .await
+            .and_then(|row| row.get(0))
             .unwrap();
         assert!(!claimed);
     }
 }
 
-#[test]
-fn unrestricted_access_uses_admitted_permission() {
+#[tokio::test]
+async fn unrestricted_access_uses_admitted_permission() {
     for (admitted, current, source, state) in [
         (
             Permission::Full,
@@ -211,16 +222,17 @@ fn unrestricted_access_uses_admitted_permission() {
             ApprovalState::Pending,
         ),
     ] {
-        let mut fixture = Fixture::with_permission(admitted);
-        let binding = request(&mut fixture, Access::Unrestricted);
+        let mut fixture = Fixture::with_permission(admitted).await;
+        let binding = request(&mut fixture, Access::Unrestricted).await;
         let body: Vec<u8> = fixture
             .database
             .connection
-            .query_row(
-                "SELECT config FROM session_revisions WHERE session=?1 AND revision=1",
-                [fixture.session.to_string()],
-                |row| row.get(0),
-            )
+            .prepare("SELECT config FROM session_revisions WHERE session=?1 AND revision=1")
+            .await
+            .unwrap()
+            .query_row([fixture.session.to_string()])
+            .await
+            .and_then(|row| row.get(0))
             .unwrap();
         let mut config: SessionConfig = serde_json::from_slice(&body).unwrap();
         config.permission = current;
@@ -232,7 +244,8 @@ fn unrestricted_access_uses_admitted_permission() {
                 expected_revision: 1,
                 config,
             },
-        );
+        )
+        .await;
         let approval = begin(
             &mut fixture.database,
             fixture.turn,
@@ -240,13 +253,14 @@ fn unrestricted_access_uses_admitted_permission() {
             Some(&binding),
             &fixture.events,
         )
+        .await
         .unwrap();
         assert_eq!(approval.source, source);
         assert_eq!(approval.state, state);
         assert_eq!(approval.access, Some(Access::Unrestricted));
         assert!(!approval.can_remember || !crate::process::sandbox::SUPPORTED);
         if state == ApprovalState::Pending {
-            fixture.approve(approval.id);
+            fixture.approve(approval.id).await;
         }
         authorize(
             &mut fixture.database.connection,
@@ -254,6 +268,7 @@ fn unrestricted_access_uses_admitted_permission() {
             &fixture.request,
             Some(&prepared(fixture.turn, Access::Unrestricted)),
         )
+        .await
         .unwrap();
         assert!(
             authorize(
@@ -262,18 +277,19 @@ fn unrestricted_access_uses_admitted_permission() {
                 &fixture.request,
                 Some(&prepared(fixture.turn, Access::Unrestricted)),
             )
+            .await
             .is_err()
         );
     }
 }
 
-#[test]
+#[tokio::test]
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn preserves_existing_command_approval() {
+async fn preserves_existing_command_approval() {
     for permission in [Permission::Ask, Permission::Project, Permission::Full] {
         for access in [Access::Workspace, Access::Unrestricted] {
-            let mut fixture = Fixture::with_permission(permission);
-            let binding = request(&mut fixture, access);
+            let mut fixture = Fixture::with_permission(permission).await;
+            let binding = request(&mut fixture, access).await;
             let approval = begin(
                 &mut fixture.database,
                 fixture.turn,
@@ -281,6 +297,7 @@ fn preserves_existing_command_approval() {
                 Some(&binding),
                 &fixture.events,
             )
+            .await
             .unwrap();
             assert_eq!(approval.access, Some(access));
             if permission == Permission::Full {
@@ -290,7 +307,7 @@ fn preserves_existing_command_approval() {
                 assert_eq!(approval.source, ApprovalSource::User);
                 assert_eq!(approval.state, ApprovalState::Pending);
                 assert!(approval.can_remember);
-                fixture.approve(approval.id);
+                fixture.approve(approval.id).await;
             }
             authorize(
                 &mut fixture.database.connection,
@@ -298,17 +315,18 @@ fn preserves_existing_command_approval() {
                 &fixture.request,
                 Some(&prepared(fixture.turn, access)),
             )
+            .await
             .unwrap();
         }
     }
 }
 
-#[test]
-fn planning_denies_both_access_levels() {
+#[tokio::test]
+async fn planning_denies_both_access_levels() {
     for permission in [Permission::Ask, Permission::Project, Permission::Full] {
         for access in [Access::Workspace, Access::Unrestricted] {
-            let mut fixture = Fixture::with_mode(permission, WorkMode::Plan);
-            let binding = request(&mut fixture, access);
+            let mut fixture = Fixture::with_mode(permission, WorkMode::Plan).await;
+            let binding = request(&mut fixture, access).await;
             assert_eq!(
                 begin(
                     &mut fixture.database,
@@ -317,6 +335,7 @@ fn planning_denies_both_access_levels() {
                     Some(&binding),
                     &fixture.events
                 )
+                .await
                 .unwrap_err()
                 .code,
                 ErrorCode::PermissionDenied
@@ -324,7 +343,12 @@ fn planning_denies_both_access_levels() {
             let approvals: i64 = fixture
                 .database
                 .connection
-                .query_row("SELECT count(*) FROM agent_approvals", [], |row| row.get(0))
+                .prepare("SELECT count(*) FROM agent_approvals")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .and_then(|row| row.get(0))
                 .unwrap();
             assert_eq!(approvals, 0);
         }

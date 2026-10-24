@@ -165,8 +165,7 @@ async fn shutdown_keeps_uncertain_admission() {
     let server = Server::start(false).await;
     let (local, provider) = configured_session(&origin, &server.endpoint, &root).await;
     let (session, _) = configured_session(&destination, &server.endpoint, &root).await;
-    let lock = rusqlite::Connection::open(target.profile().join("storage/node.sqlite3")).unwrap();
-    lock.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let (forwarding, release) = source.hold_forwarding_fixture();
     let request = origin.prepare(Command::CreateSessionAt {
         target: target.id(),
         project: session.project,
@@ -176,6 +175,10 @@ async fn shutdown_keeps_uncertain_admission() {
     });
     let admission = origin.dispatch(request.clone()).await.unwrap();
     assert!(admission.receipt.durable);
+    tokio::time::timeout(Duration::from_secs(5), forwarding)
+        .await
+        .unwrap()
+        .unwrap();
     // A receipt precedes preparation; this read waits until forwarding has been scheduled.
     snapshot(&origin).await;
     tokio::time::timeout(Duration::from_secs(5), source.shutdown())
@@ -186,8 +189,7 @@ async fn shutdown_keeps_uncertain_admission() {
         admission.completion.await.unwrap().unwrap_err().code,
         ErrorCode::OutcomeUnknown
     );
-    lock.execute_batch("ROLLBACK").unwrap();
-    drop(lock);
+    release.cancel();
     let source = Node::start_empty(&source_path).await.unwrap();
     let origin = Client::new(source.local());
     assert_eq!(

@@ -342,21 +342,26 @@ fn identity(app: &str, user: &str) -> adk_core::Result<()> {
     }
 }
 
-pub(super) fn get(
+pub(super) async fn get(
     db: &Connection,
     turn: TurnId,
     request: GetRequest,
 ) -> adk_core::Result<Box<dyn AdkSession>> {
     identity(&request.app_name, &request.user_id)?;
     let session: SessionId = request.session_id.parse().map_err(AdkError::session)?;
-    check_session(db, session).map_err(adk_error)?;
-    let owns: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM turns WHERE id=?1 AND session=?2)",
-            params![turn.to_string(), session.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(|error| adk_error(storage_error(error)))?;
+    check_session(db, session).await.map_err(adk_error)?;
+    let owns: bool = (async {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM turns WHERE id=?1 AND session=?2)")
+            .await?;
+        let row = statement
+            .query_row(params![turn.to_string(), session.to_string()])
+            .await?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped
+    })
+    .await
+    .map_err(|error| adk_error(storage_error(error)))?;
     if !owns {
         return Err(AdkError::session(
             "session does not belong to this invocation",
@@ -372,7 +377,7 @@ pub(super) fn get(
         .transpose()?
         .unwrap_or(-1);
     let summary = if request.num_recent_events.is_none() && request.after.is_none() {
-        super::compaction::read(db, session)?
+        super::compaction::read(db, session).await?
     } else {
         None
     };
@@ -385,23 +390,38 @@ pub(super) fn get(
     };
     let mut query = db
         .prepare(&sql)
+        .await
         .map_err(|error| adk_error(storage_error(error)))?;
     let session_key = session.to_string();
     let boundary = summary.as_ref().map_or(0, |(sequence, _)| *sequence);
-    let mut parameters: Vec<&dyn rusqlite::ToSql> = vec![&session_key, &limit];
+    let mut parameters = vec![
+        turso::Value::Text(session_key),
+        turso::Value::Integer(limit),
+    ];
     if summary.is_some() {
-        parameters.push(&boundary);
+        parameters.push(turso::Value::Integer(boundary));
     }
-    let mut events = query
-        .query_map(parameters.as_slice(), |row| row.get::<_, Vec<u8>>(0))
-        .map_err(|error| adk_error(storage_error(error)))?
-        .map(|body| {
-            serde_json::from_slice::<AdkEvent>(
-                &body.map_err(|error| adk_error(storage_error(error)))?,
-            )
+    let mut events = {
+        let mut rows = query
+            .query(parameters)
+            .await
+            .map_err(|error| adk_error(storage_error(error)))?;
+        let mut values = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|error| adk_error(storage_error(error)))?
+        {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|body| {
+        serde_json::from_slice::<AdkEvent>(&body.map_err(|error| adk_error(storage_error(error)))?)
             .map_err(|error| adk_error(storage_error(error)))
-        })
-        .collect::<adk_core::Result<Vec<_>>>()?;
+    })
+    .collect::<adk_core::Result<Vec<_>>>()?;
     events.reverse();
     if let Some((_, summary)) = summary {
         events.insert(0, summary);
@@ -409,7 +429,7 @@ pub(super) fn get(
     let updated = events
         .last()
         .map_or(DateTime::<Utc>::UNIX_EPOCH, |event| event.timestamp);
-    let state = history::state(db, session).map_err(adk_error)?;
+    let state = history::state(db, session).await.map_err(adk_error)?;
     if request.num_recent_events == Some(0) {
         events.clear();
     }

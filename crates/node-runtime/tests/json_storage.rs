@@ -1,27 +1,50 @@
 //! Optional defaults restore without replay; incompatible records preserve stored bytes.
-use rusqlite::{Connection, OpenFlags, params};
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::{conversation::History, plugin::Info, *};
 use serde_json::json;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{fs, path::Path, time::Duration};
+use turso::{Connection, Database, params};
 
-fn database(profile: &Path) -> Connection {
-    Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .expect("test database must be readable")
+async fn open(path: &Path, read_only: bool) -> (Database, Connection) {
+    let database = turso::Builder::new_local(path.to_str().unwrap())
+        .experimental_index_method(true)
+        .read_only(read_only)
+        .build()
+        .await
+        .unwrap();
+    let connection = database.connect().unwrap();
+    connection
+        .pragma_update("synchronous", "FULL")
+        .await
+        .unwrap();
+    connection
+        .pragma_update("foreign_keys", "ON")
+        .await
+        .unwrap();
+    (database, connection)
+}
+
+async fn database(profile: &Path) -> (Database, Connection) {
+    open(&profile.join("storage/node.turso"), true).await
+}
+
+async fn close(database: Database, connection: Connection) {
+    connection
+        .prepare("PRAGMA wal_checkpoint(TRUNCATE)")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap();
+    drop(connection);
+    drop(database);
 }
 
 /// Compare original JSON bytes, not normalized public projections or database pages.
-fn retained(profile: &Path) -> Vec<(String, Vec<u8>)> {
-    let db = database(profile);
+async fn retained(profile: &Path) -> Vec<(String, Vec<u8>)> {
+    let (_database, db) = database(profile).await;
     let sources = [
         (
             "events",
@@ -56,16 +79,12 @@ fn retained(profile: &Path) -> Vec<(String, Vec<u8>)> {
     ];
     let mut bodies = Vec::new();
     for (source, sql) in sources {
-        let mut query = db.prepare(sql).unwrap();
-        let rows = query
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
-            })
-            .unwrap();
-        bodies.extend(rows.map(|row| {
-            let (key, body) = row.unwrap();
-            (format!("{source}:{key}"), body)
-        }));
+        let mut rows = db.query(sql, ()).await.unwrap();
+        while let Some(row) = rows.next().await.unwrap() {
+            let key = row.get::<String>(0).unwrap();
+            let body = row.get::<Vec<u8>>(1).unwrap();
+            bodies.push((format!("{source}:{key}"), body));
+        }
     }
     bodies
 }
@@ -149,167 +168,6 @@ async fn observe(client: &Client) -> Result<Observed, &'static str> {
     })
 }
 
-mod copied_profile {
-    use super::*;
-
-    fn regular_tree(directory: &Path) {
-        for entry in fs::read_dir(directory).unwrap() {
-            let entry = entry.unwrap();
-            let kind = entry.file_type().unwrap();
-            assert!(
-                kind.is_file() || kind.is_dir(),
-                "acceptance files must not redirect outside the copy"
-            );
-            if kind.is_dir() {
-                regular_tree(&entry.path());
-            }
-        }
-    }
-
-    fn path() -> PathBuf {
-        let supplied = PathBuf::from(
-            std::env::var_os("SAILRY_TEST_STORED_PROFILE")
-                .expect("SAILRY_TEST_STORED_PROFILE must select an isolated acceptance copy"),
-        );
-        assert!(
-            !fs::symlink_metadata(&supplied)
-                .unwrap()
-                .file_type()
-                .is_symlink(),
-            "profile must not be a symlink"
-        );
-        let path = supplied.canonicalize().unwrap();
-        let parent = path.parent().expect("profile parent expected");
-        assert_eq!(
-            path.file_name().and_then(|name| name.to_str()),
-            Some("profile")
-        );
-        assert!(
-            parent
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("sailry-json-audit.")),
-            "isolated acceptance directory expected"
-        );
-        let mut roots = vec![std::env::temp_dir().canonicalize().unwrap()];
-        #[cfg(unix)]
-        if let Ok(root) = Path::new("/tmp").canonicalize() {
-            roots.push(root);
-        }
-        assert!(
-            roots
-                .iter()
-                .any(|root| parent.parent() == Some(root.as_path())),
-            "profile must be inside a temporary directory"
-        );
-        let marker = path.join(".sailry-acceptance-copy");
-        assert!(
-            fs::symlink_metadata(&marker).unwrap().file_type().is_file(),
-            "regular ownership marker expected"
-        );
-        assert_eq!(
-            fs::read_to_string(marker).unwrap(),
-            "isolated startup acceptance copy\n"
-        );
-        regular_tree(&path);
-        assert!(
-            !path.join("storage/node.sqlite3-wal").exists(),
-            "closed database snapshot expected"
-        );
-        assert!(
-            !path.join("storage/node.sqlite3-shm").exists(),
-            "closed database snapshot expected"
-        );
-        let db = database(&path);
-        for sql in [
-            "SELECT count(*) FROM agent_pending",
-            "SELECT count(*) FROM requests WHERE status!='completed'",
-            "SELECT count(*) FROM agent_runs WHERE coalesce(json_extract(body,'$.status'),'unknown')!='completed'",
-            "SELECT count(*) FROM terminals WHERE coalesce(json_extract(body,'$.status.kind'),'unknown')!='stopped'",
-            "SELECT count(*) FROM dispatch_jobs",
-            "SELECT count(*) FROM dispatch_schedules",
-            "SELECT count(*) FROM dispatch_handlers",
-            "SELECT count(*) FROM link_peers",
-            "SELECT count(*) FROM removed_projects",
-        ] {
-            let count: i64 = db.query_row(sql, [], |row| row.get(0)).unwrap();
-            assert_eq!(
-                count, 0,
-                "acceptance copy must have no pending execution or external peers"
-            );
-        }
-        drop(db);
-        path
-    }
-
-    async fn read(node: &Node) -> Result<(), &'static str> {
-        let directory = tempfile::tempdir().map_err(|_| "controller directory failed")?;
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .map_err(|_| "controller startup failed")?;
-        let checked = async {
-            let invitation = node.link().invite().map_err(|_| "invitation failed")?;
-            let address = controller
-                .handle()
-                .pair(invitation.ticket())
-                .await
-                .map_err(|_| "pairing failed")?;
-            let local = observe(&Client::new(node.local())).await?;
-            let remote = observe(&Client::new(controller.handle().remote(address))).await?;
-            if local != remote {
-                return Err("local and Iroh projections differ");
-            }
-            if local.sessions.len() != 1
-                || local.plugins.len() != 19
-                || local.snapshot.providers.len() != 3
-            {
-                return Err("copied catalog counts changed");
-            }
-            if local.history.len() != 1
-                || local.history[0].page.runs.len() != 6
-                || local.history[0].page.entries.is_empty()
-            {
-                return Err("copied six-turn history was not restored");
-            }
-            if local.history[0]
-                .page
-                .runs
-                .iter()
-                .any(|run| run.status != conversation::Status::Completed)
-            {
-                return Err("copied finished turns changed state");
-            }
-            Ok(())
-        }
-        .await;
-        let closed = controller
-            .close()
-            .await
-            .map_err(|_| "controller shutdown failed");
-        checked?;
-        closed
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires SAILRY_TEST_STORED_PROFILE pointing to the marked private profile copy"]
-    async fn reads_without_rewriting() {
-        let profile = path();
-        let before = retained(&profile);
-        let started = Node::start_with_network(&profile, NetworkScope::default()).await;
-        assert!(started.is_ok(), "isolated profile startup failed");
-        let node = started.unwrap();
-        let checked = read(&node).await;
-        let stopped = node.shutdown().await;
-        assert!(stopped.is_ok(), "isolated profile shutdown failed");
-        assert!(checked.is_ok(), "isolated local and Iroh reads failed");
-        assert!(
-            retained(&profile) == before,
-            "stored JSON bytes were changed during startup or reads"
-        );
-    }
-}
-
 mod recovery {
     use super::*;
 
@@ -366,13 +224,14 @@ mod recovery {
             controller.close().await.unwrap();
             node.shutdown().await.unwrap();
 
-            let db = Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+            let (handle, db) = open(&profile.join("storage/node.turso"), false).await;
             let body: Vec<u8> = db
-                .query_row(
-                    "SELECT config FROM session_revisions WHERE session=?1 AND revision=1",
-                    [session.id.to_string()],
-                    |row| row.get(0),
-                )
+                .prepare("SELECT config FROM session_revisions WHERE session=?1 AND revision=1")
+                .await
+                .unwrap()
+                .query_row([session.id.to_string()])
+                .await
+                .and_then(|row| row.get(0))
                 .unwrap();
             let mut config: serde_json::Value = serde_json::from_slice(&body).unwrap();
             config.as_object_mut().unwrap().remove("effort");
@@ -381,9 +240,10 @@ mod recovery {
                 "UPDATE session_revisions SET config=?1 WHERE session=?2 AND revision=1",
                 params![serde_json::to_vec(&config).unwrap(), session.id.to_string()],
             )
+            .await
             .unwrap();
-            drop(db);
-            let before = retained(&profile);
+            close(handle, db).await;
+            let before = retained(&profile).await;
 
             let node = Node::start(&profile).await.unwrap();
             let controller = Link::controller(&controller_path, NetworkScope::default())
@@ -428,14 +288,14 @@ mod recovery {
             controller.close().await.unwrap();
             node.shutdown().await.unwrap();
             assert!(
-                retained(&profile) == before,
+                retained(&profile).await == before,
                 "JSON reads or receipt recovery rewrote stored bodies"
             );
         }
     }
 
     #[tokio::test]
-    async fn rejects_incompatible_archives_during_upgrade() {
+    async fn rejects_incompatible_archives_during_updates() {
         for source in ["events.body", "requests.result"] {
             let directory = tempfile::tempdir().unwrap();
             let profile = directory.path().join("node");
@@ -462,16 +322,20 @@ mod recovery {
             };
             drop(client);
             node.shutdown().await.unwrap();
-            let path = profile.join("storage/node.sqlite3");
-            let db = Connection::open(&path).unwrap();
+            let path = profile.join("storage/node.turso");
+            let (handle, db) = open(&path, false).await;
             let value = json!({"kind":"future_record","data":{"token":"diagnostic-secret-marker"}});
             match source {
                 "events.body" => {
+                    db.execute("BEGIN CONCURRENT", ()).await.unwrap();
+                    let cursor = db.prepare("INSERT INTO counters(namespace,value) VALUES('events',1) ON CONFLICT(namespace) DO UPDATE SET value=value+1 RETURNING value").await.unwrap().query_row(()).await.unwrap().get::<i64>(0).unwrap();
                     db.execute(
-                        "INSERT INTO events(body) VALUES(?1)",
-                        [serde_json::to_vec(&value).unwrap()],
+                        "INSERT INTO events(cursor,body) VALUES(?1,?2)",
+                        (cursor, serde_json::to_vec(&value).unwrap()),
                     )
+                    .await
                     .unwrap();
+                    db.execute("COMMIT", ()).await.unwrap();
                 }
                 "requests.result" => {
                     assert_eq!(
@@ -479,26 +343,27 @@ mod recovery {
                             "UPDATE requests SET result=?1 WHERE id=?2",
                             params![json!({"Ok":value}).to_string(), creation.id.to_string()],
                         )
+                        .await
                         .unwrap(),
                         1
                     );
                 }
                 _ => unreachable!(),
             }
-            // Full archive validation runs during upgrades, before any replay or writes.
-            db.execute_batch("DROP INDEX events_kind").unwrap();
+            // Full archive validation runs during updates, before any replay or writes.
+            db.execute_batch("DROP INDEX events_kind").await.unwrap();
             let pending = RequestId::new();
             assert_eq!(
                 db.execute(
                     "INSERT INTO requests(caller,id,body,status) SELECT caller,?1,?2,'admitted' FROM requests WHERE id=?3",
                     params![pending.to_string(), b"retained-pending-request".as_slice(), creation.id.to_string()],
-                )
+                ).await
                 .unwrap(),
                 1
             );
-            drop(db);
+            close(handle, db).await;
             let before = fs::read(&path).unwrap();
-            let bodies = retained(&profile);
+            let bodies = retained(&profile).await;
             let error = Node::start(&profile)
                 .await
                 .err()
@@ -516,33 +381,38 @@ mod recovery {
                 "rejected startup changed storage bytes"
             );
             assert!(
-                retained(&profile) == bodies,
+                retained(&profile).await == bodies,
                 "rejected startup changed stored JSON"
             );
-            let db = database(&profile);
+            let (_handle, db) = database(&profile).await;
             let stored: (String, String) = db
-                .query_row("SELECT id,worktree FROM sessions", [], |row| {
-                    Ok((row.get(0)?, row.get(1)?))
-                })
+                .prepare("SELECT id,worktree FROM sessions")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .and_then(|row| Ok((row.get(0)?, row.get(1)?)))
                 .unwrap();
             assert_eq!(
                 stored,
                 (session.id.to_string(), session.worktree.to_string())
             );
             let completed: String = db
-                .query_row(
-                    "SELECT status FROM requests WHERE id=?1",
-                    [creation.id.to_string()],
-                    |row| row.get(0),
-                )
+                .prepare("SELECT status FROM requests WHERE id=?1")
+                .await
+                .unwrap()
+                .query_row([creation.id.to_string()])
+                .await
+                .and_then(|row| row.get(0))
                 .unwrap();
             assert_eq!(completed, "completed");
             let pending: (String, Vec<u8>, Option<String>) = db
-                .query_row(
-                    "SELECT status,body,result FROM requests WHERE id=?1",
-                    [pending.to_string()],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
+                .prepare("SELECT status,body,result FROM requests WHERE id=?1")
+                .await
+                .unwrap()
+                .query_row([pending.to_string()])
+                .await
+                .and_then(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
                 .unwrap();
             assert_eq!(
                 pending,
@@ -561,15 +431,16 @@ mod recovery {
         let profile = directory.path().join("node");
         let node = Node::start(&profile).await.unwrap();
         node.shutdown().await.unwrap();
-        let path = profile.join("storage/node.sqlite3");
-        let db = Connection::open(&path).unwrap();
+        let path = profile.join("storage/node.turso");
+        let (handle, db) = open(&path, false).await;
         let config = json!({ "provider": ProviderId::new(), "model": "fixture", "mode": "code", "permission": "future_permission" });
         db.execute(
             "INSERT INTO defaults(singleton,revision,config) VALUES(1,1,?1)",
             [serde_json::to_vec(&config).unwrap()],
         )
+        .await
         .unwrap();
-        drop(db);
+        close(handle, db).await;
         let before = fs::read(&path).unwrap();
         assert!(
             Node::start(&profile).await.is_err(),

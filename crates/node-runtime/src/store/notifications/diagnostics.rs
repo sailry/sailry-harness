@@ -2,7 +2,7 @@
 use super::*;
 use sailry_protocol::notification::{Details, DiagnosticReason, Draft, Kind, SystemDiagnostic};
 
-pub(in crate::store) fn report(
+pub(in crate::store) async fn report(
     db: &Connection,
     report: &SystemDiagnostic,
 ) -> Result<(Output, Option<Event>), Fault> {
@@ -15,12 +15,16 @@ pub(in crate::store) fn report(
     {
         return Ok((Output::NotificationsUpdated, None));
     }
-    let session = report
-        .session
-        .map(|id| super::super::commands::session(db, id))
-        .transpose()?;
+    let session = (match report.session {
+        Some(value) => {
+            Some((async |id| super::super::commands::session(db, id).await)(value).await)
+        }
+        None => None,
+    })
+    .transpose()?;
     if let Some(worktree) = report.worktree {
-        if !super::super::worktrees::list(db)?
+        if !super::super::worktrees::list(db)
+            .await?
             .iter()
             .any(|entry| entry.id == worktree)
         {
@@ -37,13 +41,13 @@ pub(in crate::store) fn report(
         }
     }
     if let Some(turn) = report.turn {
-        let run = super::super::agent::runs::get(db, turn)?;
+        let run = super::super::agent::runs::get(db, turn).await?;
         if report.session != Some(run.session) {
             return Err(Fault::invalid("diagnostic turn belongs to another session"));
         }
     }
     // Also deduplicate independent controller requests carrying the same incident.
-    if let Some(notice) = list(db)?.into_iter().find(|notice| {
+    if let Some(notice) = list(db).await?.into_iter().find(|notice| {
         matches!(&notice.content.details,
         Some(Details::System(existing)) if existing.incident == report.incident)
     }) {
@@ -65,7 +69,8 @@ pub(in crate::store) fn report(
             details: Some(Details::System(report.clone())),
         },
         chrono::Utc::now().timestamp_millis(),
-    )?;
+    )
+    .await?;
     emit(report);
     Ok((
         Output::Notification(notice.clone()),

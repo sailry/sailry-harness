@@ -65,10 +65,10 @@ pub(in crate::store) struct Bound {
     pub targets: BTreeMap<String, plugin::mcp::Definition>,
 }
 
-pub(in crate::store) fn types(db: &Connection) -> Result<Vec<Type>, Fault> {
+pub(in crate::store) async fn types(db: &Connection) -> Result<Vec<Type>, Fault> {
     let mut result = Vec::new();
-    for summary in list(db)? {
-        let info = required(db, &summary.name)?;
+    for summary in list(db).await? {
+        let info = required(db, &summary.name).await?;
         for declaration in registry::declarations(&info) {
             result.push(Type {
                 package: summary.reference(),
@@ -80,16 +80,16 @@ pub(in crate::store) fn types(db: &Connection) -> Result<Vec<Type>, Fault> {
     Ok(result)
 }
 
-pub(in crate::store) fn info(db: &Connection, name: &str) -> Result<Info, Fault> {
-    required(db, name)
+pub(in crate::store) async fn info(db: &Connection, name: &str) -> Result<Info, Fault> {
+    required(db, name).await
 }
 
-pub(in crate::store) fn declaration(
+pub(in crate::store) async fn declaration(
     db: &Connection,
     package: &plugin::Reference,
     connector: &str,
 ) -> Result<(Info, Declaration), Fault> {
-    let info = settings::current(db, package)?;
+    let info = settings::current(db, package).await?;
     if !info.summary.enabled {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
@@ -103,7 +103,7 @@ pub(in crate::store) fn declaration(
     Ok((info, declaration))
 }
 
-pub(in crate::store) fn bound(
+pub(in crate::store) async fn bound(
     db: &Connection,
     profile: Option<&std::path::Path>,
     info: &Info,
@@ -135,11 +135,11 @@ pub(in crate::store) fn bound(
         auth,
         origins,
         inject: declaration.inject.clone(),
-        targets: targets(db, profile, info, declaration)?,
+        targets: targets(db, profile, info, declaration).await?,
     }))
 }
 
-fn targets(
+async fn targets(
     db: &Connection,
     profile: Option<&std::path::Path>,
     info: &Info,
@@ -153,7 +153,7 @@ fn targets(
     if servers.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let configuration = match settings::stored(db, info)?.mcp {
+    let configuration = match settings::stored(db, info).await?.mcp {
         Some(configuration) => configuration,
         None => crate::plugins::Host::new(profile.map(std::path::Path::to_owned))
             .mcp_configuration(
@@ -205,35 +205,50 @@ fn targets(
         .collect()
 }
 
-pub(in crate::store) fn records(db: &Connection) -> Result<Vec<Record>, Fault> {
+pub(in crate::store) async fn records(db: &Connection) -> Result<Vec<Record>, Fault> {
     let mut query = db
         .prepare("SELECT body FROM plugin_connections ORDER BY plugin,connector,id")
+        .await
         .map_err(storage_error)?;
-    query
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|bytes| serde_json::from_slice(&bytes.map_err(storage_error)?).map_err(storage_error))
-        .collect()
+    (async {
+        let mut rows = query.query(()).await?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        Ok::<_, turso::Error>(values.into_iter())
+    })
+    .await
+    .map_err(storage_error)?
+    .map(|bytes| serde_json::from_slice(&bytes.map_err(storage_error)?).map_err(storage_error))
+    .collect()
 }
 
-pub(in crate::store) fn read(db: &Connection, id: Id) -> Result<Record, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM plugin_connections WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(in crate::store) async fn read(db: &Connection, id: Id) -> Result<Record, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM plugin_connections WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     serde_json::from_slice(
         &body.ok_or_else(|| Fault::new(ErrorCode::NotFound, "connection is unavailable"))?,
     )
     .map_err(storage_error)
 }
 
-pub(in crate::store) fn save(db: &Connection, record: &Record) -> Result<(), Fault> {
+pub(in crate::store) async fn save(db: &Connection, record: &Record) -> Result<(), Fault> {
     validate(record)?;
-    db.execute("INSERT INTO plugin_connections(id,plugin,connector,revision,body) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body WHERE plugin=excluded.plugin AND connector=excluded.connector", params![record.id.to_string(),record.plugin,record.connector,record.revision as i64,encode(record)?]).map_err(storage_error)?;
+    db.execute("INSERT INTO plugin_connections(id,plugin,connector,revision,body) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body WHERE plugin=excluded.plugin AND connector=excluded.connector", params![record.id.to_string(),record.plugin.as_str(),record.connector.as_str(),record.revision as i64,encode(record)?]).await.map_err(storage_error)?;
     Ok(())
 }
 
@@ -257,21 +272,21 @@ pub(in crate::store) fn validate(record: &Record) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(in crate::store) fn project(
+pub(in crate::store) async fn project(
     db: &Connection,
     profile: Option<&std::path::Path>,
     record: &Record,
 ) -> Result<Projection, Fault> {
-    let info = get(db, &record.plugin)?
+    let info = get(db, &record.plugin)
+        .await?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "connector package is unavailable"))?;
     let declaration = registry::declarations(&info)
         .into_iter()
         .find(|item| item.id == record.connector);
-    let current = declaration
-        .as_ref()
-        .map(|declaration| bound(db, profile, &info, declaration, record.method))
-        .transpose()?
-        .flatten();
+    let current = match declaration.as_ref() {
+        Some(declaration) => bound(db, profile, &info, declaration, record.method).await?,
+        None => None,
+    };
     let consent = consent::changes(&record.plugin, record.bound.as_ref(), current.as_ref());
     let state = match declaration {
         None => State::NotConnected,
@@ -340,17 +355,17 @@ fn authorization(record: &Record) -> State {
     }
 }
 
-pub(in crate::store) fn connections(
+pub(in crate::store) async fn connections(
     db: &Connection,
     profile: Option<&std::path::Path>,
 ) -> Result<Vec<Projection>, Fault> {
-    let types = types(db)?;
+    let types = types(db).await?;
     let mut output = Vec::new();
-    for record in records(db)? {
+    for record in records(db).await? {
         if types.iter().any(|kind| {
             kind.package.name == record.plugin && kind.declaration.id == record.connector
         }) {
-            output.push(project(db, profile, &record)?);
+            output.push(project(db, profile, &record).await?);
         }
     }
     Ok(output)
@@ -396,7 +411,7 @@ pub(in crate::store) fn input(
     Ok(())
 }
 
-pub(in crate::store) fn create(
+pub(in crate::store) async fn create(
     db: &Connection,
     profile: Option<&std::path::Path>,
     command: &Command,
@@ -413,14 +428,14 @@ pub(in crate::store) fn create(
         return Err(Fault::invalid("connector login expected"));
     };
     let (id, expected, method) = (*id, *expected, *method);
-    let (info, declaration) = declaration(db, package, connector)?;
+    let (info, declaration) = declaration(db, package, connector).await?;
     if !declaration.auth.iter().any(|auth| auth.kind() == method) {
         return Err(Fault::invalid(
             "connector authentication method is unavailable",
         ));
     }
     let mut record = if let Some(id) = id {
-        let record = read(db, id)?;
+        let record = read(db, id).await?;
         if record.plugin != package.name || record.connector != *connector {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
@@ -433,7 +448,8 @@ pub(in crate::store) fn create(
         )?;
         record
     } else {
-        if records(db)?
+        if records(db)
+            .await?
             .iter()
             .any(|record| record.plugin == package.name && record.connector == *connector)
         {
@@ -464,7 +480,7 @@ pub(in crate::store) fn create(
     let previous = record.clone();
     input(&mut record, &declaration, values)?;
     record.method = method;
-    record.bound = bound(db, profile, &info, &declaration, method)?;
+    record.bound = bound(db, profile, &info, &declaration, method).await?;
     if id.is_some()
         && (editing::changed(&previous, &record, &declaration)
             || !consent::same(
@@ -519,7 +535,7 @@ fn enabled(record: &mut Record, value: bool) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(in crate::store) fn execute(
+pub(in crate::store) async fn execute(
     db: &Connection,
     profile: Option<&std::path::Path>,
     request: &sailry_protocol::Request,
@@ -535,7 +551,8 @@ pub(in crate::store) fn execute(
         Command::ListConnectorTypes => {
             return Ok((
                 Output::ConnectorTypes(
-                    types(db)?
+                    types(db)
+                        .await?
                         .into_iter()
                         .filter(|kind| owned(&kind.package.name))
                         .collect(),
@@ -546,7 +563,8 @@ pub(in crate::store) fn execute(
         Command::ListConnections => {
             return Ok((
                 Output::Connections(
-                    connections(db, profile)?
+                    connections(db, profile)
+                        .await?
                         .into_iter()
                         .filter(|row| owned(&row.package.name))
                         .collect(),
@@ -582,9 +600,9 @@ pub(in crate::store) fn execute(
         } => (*connection, *expected_revision),
         _ => return Err(Fault::invalid("connector command expected")),
     };
-    let mut record = read(db, id)?;
+    let mut record = read(db, id).await?;
     super::super::commands::check_revision(record.revision, expected)?;
-    let info = required(db, &record.plugin)?;
+    let info = required(db, &record.plugin).await?;
     // Public account editing remains available while its package is disabled.
     let declaration = registry::declarations(&info)
         .into_iter()
@@ -614,17 +632,21 @@ pub(in crate::store) fn execute(
                 "DELETE FROM plugin_connections WHERE id=?1",
                 [id.to_string()],
             )
+            .await
             .map_err(storage_error)?;
             return Ok((
-                Output::Connection(project(db, profile, &record)?),
+                Output::Connection(project(db, profile, &record).await?),
                 Some(Event::PluginChanged(info.summary)),
             ));
         }
         Command::ConfirmConnectorConsent { accept, .. } => {
             if !accept {
-                return Ok((Output::Connection(project(db, profile, &record)?), None));
+                return Ok((
+                    Output::Connection(project(db, profile, &record).await?),
+                    None,
+                ));
             }
-            let current = bound(db, profile, &info, &declaration, record.method)?;
+            let current = bound(db, profile, &info, &declaration, record.method).await?;
             let reduced = record
                 .bound
                 .as_ref()
@@ -642,15 +664,15 @@ pub(in crate::store) fn execute(
         _ => unreachable!(),
     }
     next(&mut record)?;
-    save(db, &record)?;
+    save(db, &record).await?;
     Ok((
-        Output::Connection(project(db, profile, &record)?),
+        Output::Connection(project(db, profile, &record).await?),
         Some(Event::PluginChanged(info.summary)),
     ))
 }
 
 /// Intrinsic access exposes only this package's public connection state and login.
-pub(in crate::store) fn check(
+pub(in crate::store) async fn check(
     db: &Connection,
     request: &sailry_protocol::Request,
 ) -> Result<bool, Fault> {
@@ -682,9 +704,9 @@ pub(in crate::store) fn check(
             {
                 return Err(denied());
             }
-            declaration(db, package, connector)?;
+            declaration(db, package, connector).await?;
             if let Some(id) = connection {
-                let record = read(db, *id)?;
+                let record = read(db, *id).await?;
                 if record.plugin != package.name || record.connector != *connector {
                     return Err(denied());
                 }
@@ -744,27 +766,28 @@ fn consent_reduced(package: &str, old: &Bound, new: &Bound) -> bool {
     consent::same(package, Some(&reduced), Some(new))
 }
 
-pub(in crate::store) fn capture(
+pub(in crate::store) async fn capture(
     db: &Connection,
     turn: sailry_protocol::TurnId,
     packages: &[plugin::Reference],
 ) -> Result<(), Fault> {
-    for record in records(db)? {
+    for record in records(db).await? {
         if packages.iter().any(|package| package.name == record.plugin) {
-            db.execute("INSERT INTO turn_connections(turn,plugin,connector,connection,revision) VALUES(?1,?2,?3,?4,?5)",params![turn.to_string(),record.plugin,record.connector,record.id.to_string(),record.auth_revision as i64]).map_err(storage_error)?;
+            db.execute("INSERT INTO turn_connections(turn,plugin,connector,connection,revision) VALUES(?1,?2,?3,?4,?5)",params![turn.to_string(),record.plugin,record.connector,record.id.to_string(),record.auth_revision as i64]).await.map_err(storage_error)?;
         }
     }
     Ok(())
 }
 
-pub(in crate::store) fn resolve(
+pub(in crate::store) async fn resolve(
     db: &Connection,
     profile: Option<&std::path::Path>,
     context: &plugin::Context,
     connector: &str,
     id: Option<Id>,
 ) -> Result<(Record, Declaration), Fault> {
-    let record = records(db)?
+    let record = records(db)
+        .await?
         .into_iter()
         .find(|record| {
             record.plugin == context.package.name
@@ -773,7 +796,8 @@ pub(in crate::store) fn resolve(
         })
         .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "connector is not connected"))?;
     let info = if context.turn.is_some() || context.invocation.is_some() {
-        crate::store::agent::plugins::packages(db, std::slice::from_ref(&context.package))?
+        crate::store::agent::plugins::packages(db, std::slice::from_ref(&context.package))
+            .await?
             .pop()
             .ok_or_else(|| {
                 Fault::new(
@@ -782,14 +806,14 @@ pub(in crate::store) fn resolve(
                 )
             })?
     } else {
-        settings::current(db, &context.package)?
+        settings::current(db, &context.package).await?
     };
     let declaration = registry::declarations(&info)
         .into_iter()
         .find(|item| item.id == connector)
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "connector is unavailable"))?;
-    let live = project(db, profile, &record)?;
-    let mut captured = bound(db, profile, &info, &declaration, record.method)?;
+    let live = project(db, profile, &record).await?;
+    let mut captured = bound(db, profile, &info, &declaration, record.method).await?;
     if (context.turn.is_some() || context.invocation.is_some())
         && let Some(captured) = &mut captured
     {
@@ -808,14 +832,23 @@ pub(in crate::store) fn resolve(
         ));
     }
     if let Some(turn) = context.turn {
-        let revision: Option<i64> = db
-            .query_row(
-                "SELECT revision FROM turn_connections WHERE turn=?1 AND connection=?2",
-                params![turn.to_string(), record.id.to_string()],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(storage_error)?;
+        let revision: Option<i64> = {
+            let mut statement = db
+                .prepare("SELECT revision FROM turn_connections WHERE turn=?1 AND connection=?2")
+                .await
+                .map_err(storage_error)?;
+            match statement
+                .query_row(params![turn.to_string(), record.id.to_string()])
+                .await
+            {
+                Ok(row) => {
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
+            }
+        };
         if revision != Some(record.auth_revision as i64) {
             return Err(Fault::new(
                 ErrorCode::RevisionConflict,
@@ -857,18 +890,18 @@ pub(in crate::store) fn target(
     }
 }
 
-pub(in crate::store) fn current_target(
+pub(in crate::store) async fn current_target(
     db: &Connection,
     profile: Option<&std::path::Path>,
     id: Id,
     revision: u64,
     checking: bool,
 ) -> Result<crate::plugins::connectors::Target, Fault> {
-    let record = read(db, id)?;
+    let record = read(db, id).await?;
     super::super::commands::check_revision(record.auth_revision, revision)?;
-    let info = required(db, &record.plugin)?;
-    let (_, declaration) = declaration(db, &info.summary.reference(), &record.connector)?;
-    let state = project(db, profile, &record)?.state;
+    let info = required(db, &record.plugin).await?;
+    let (_, declaration) = declaration(db, &info.summary.reference(), &record.connector).await?;
+    let state = project(db, profile, &record).await?.state;
     if !record.enabled
         || !(matches!(state, State::Connected | State::Failed)
             || state == State::Connecting && login::usable(&record)
@@ -896,14 +929,14 @@ pub(in crate::store) fn current_target(
     Ok(target)
 }
 
-pub(in crate::store) fn renew(
+pub(in crate::store) async fn renew(
     db: &Connection,
     id: Id,
     revision: u64,
     grant_revision: u64,
     issued: Option<crate::providers::login::plugin::Issued>,
 ) -> Result<Record, Fault> {
-    let mut record = read(db, id)?;
+    let mut record = read(db, id).await?;
     super::super::commands::check_revision(record.auth_revision, revision)?;
     super::super::commands::check_revision(record.grant_revision, grant_revision)?;
     record.grant_revision = record
@@ -923,11 +956,11 @@ pub(in crate::store) fn renew(
     if expired {
         record.state = State::Expired;
     }
-    save(db, &record)?;
+    save(db, &record).await?;
     Ok(record)
 }
 
-pub(in crate::store) fn save_grant(
+pub(in crate::store) async fn save_grant(
     database: &mut crate::store::database::Database,
     id: Id,
     revision: u64,
@@ -935,15 +968,23 @@ pub(in crate::store) fn save_grant(
     issued: Option<crate::providers::login::plugin::Issued>,
     events: &tokio::sync::broadcast::Sender<sailry_protocol::EventEnvelope>,
 ) -> Result<u64, Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
+    let node = database.node;
+    let transaction = database
+        .connection
+        .transaction()
+        .await
+        .map_err(storage_error)?;
     let db = &transaction;
-    let record = renew(db, id, revision, grant_revision, issued)?;
+    let record = renew(db, id, revision, grant_revision, issued).await?;
     let envelopes = crate::store::database::record(
         db,
-        database.node,
-        vec![Event::PluginChanged(required(db, &record.plugin)?.summary)],
-    )?;
-    transaction.commit().map_err(storage_error)?;
+        node,
+        vec![Event::PluginChanged(
+            required(db, &record.plugin).await?.summary,
+        )],
+    )
+    .await?;
+    transaction.commit().await.map_err(storage_error)?;
     for envelope in envelopes {
         let _ = events.send(envelope);
     }
@@ -951,12 +992,13 @@ pub(in crate::store) fn save_grant(
 }
 
 /// A standalone MCP package owns only its own active connection records.
-pub(super) fn remove_mcp(db: &Connection, info: &Info) -> Result<(), Fault> {
+pub(super) async fn remove_mcp(db: &Connection, info: &Info) -> Result<(), Fault> {
     if info.mcp_source.is_some() {
         db.execute(
             "DELETE FROM plugin_connections WHERE plugin=?1",
-            [&info.summary.name],
+            [info.summary.name.as_str()],
         )
+        .await
         .map_err(storage_error)?;
     }
     Ok(())

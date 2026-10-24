@@ -13,15 +13,15 @@ fn denied() -> Fault {
     Fault::new(ErrorCode::PermissionDenied, "card is no longer available")
 }
 
-pub(in crate::store) fn captured(
+pub(in crate::store) async fn captured(
     db: &Connection,
     receipt: card::Receipt,
 ) -> Result<(Info, card::Summary), Fault> {
-    let session = super::super::commands::session(db, receipt.session)?;
+    let session = super::super::commands::session(db, receipt.session).await?;
     if session.delegation.is_some() {
         return Err(denied());
     }
-    let run = super::super::agent::visible_run(db, receipt.session, receipt.turn)?;
+    let run = super::super::agent::visible_run(db, receipt.session, receipt.turn).await?;
     if run.origin.is_some()
         || run.session != receipt.session
         || !matches!(
@@ -33,102 +33,115 @@ pub(in crate::store) fn captured(
     {
         return Err(denied());
     }
-    let latest: Option<String> = db.query_row(
-        "SELECT h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 ORDER BY t.rowid DESC LIMIT 1",
-        [receipt.session.to_string()], |row| row.get(0),
-    ).optional().map_err(storage_error)?;
+    let latest: Option<String> = {
+        let mut statement = db.prepare("SELECT h.turn FROM conversation_turns h JOIN turns t ON t.id=h.turn WHERE h.session=?1 ORDER BY t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
+        match statement.query_row([receipt.session.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     if latest.as_deref() != Some(receipt.turn.to_string().as_str()) {
         return Err(denied());
     }
-    let references = super::super::agent::plugins::read(db, receipt.turn)?;
-    let packages = super::super::agent::plugins::packages(db, &references)?;
+    let references = super::super::agent::plugins::read(db, receipt.turn).await?;
+    let packages = super::super::agent::plugins::packages(db, &references).await?;
     let mut query = db.prepare(
         "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn=?2 ORDER BY e.sequence",
-    ).map_err(storage_error)?;
+    ).await.map_err(storage_error)?;
     let mut calls = BTreeSet::new();
-    for row in query
-        .query_map(
-            params![receipt.session.to_string(), receipt.turn.to_string()],
-            |row| row.get::<_, Vec<u8>>(0),
-        )
-        .map_err(storage_error)?
     {
-        let event: adk_core::Event =
-            serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
-        for part in event
-            .content()
-            .into_iter()
-            .flat_map(|content| &content.parts)
-        {
-            match part {
-                adk_core::Part::FunctionCall {
-                    id: Some(id), name, ..
-                } => {
-                    calls.insert((event.branch.clone(), id.clone(), name.clone()));
+        let mut rows = query
+            .query(params![
+                receipt.session.to_string(),
+                receipt.turn.to_string()
+            ])
+            .await
+            .map_err(storage_error)?;
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let row: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+
+            let event: adk_core::Event =
+                serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
+            for part in event
+                .content()
+                .into_iter()
+                .flat_map(|content| &content.parts)
+            {
+                match part {
+                    adk_core::Part::FunctionCall {
+                        id: Some(id), name, ..
+                    } => {
+                        calls.insert((event.branch.clone(), id.clone(), name.clone()));
+                    }
+                    adk_core::Part::FunctionResponse {
+                        id: Some(id),
+                        function_response,
+                        ..
+                    } => {
+                        let name = &function_response.name;
+                        if !calls.contains(&(event.branch.clone(), id.clone(), name.clone())) {
+                            continue;
+                        }
+                        let Some(content) = sailry_protocol::tool::Presentation::Content
+                            .content(&function_response.response)
+                        else {
+                            continue;
+                        };
+                        let Some(sailry_protocol::tool::Block::Card(summary)) =
+                            content.blocks.get(usize::from(receipt.block))
+                        else {
+                            continue;
+                        };
+                        if summary.receipt != receipt || summary.worktree != run.worktree {
+                            continue;
+                        }
+                        let Some(package) = packages
+                            .iter()
+                            .find(|package| package.summary.reference() == summary.package)
+                        else {
+                            continue;
+                        };
+                        let Some(extension) = package.extension.as_ref() else {
+                            continue;
+                        };
+                        if !extension.tools.iter().any(|tool| {
+                            tool.handler.is_some()
+                                && crate::plugins::tools::alias(&package.summary.name, &tool.name)
+                                    == *name
+                        }) || crate::plugins::cards::identity(
+                            receipt.turn,
+                            &summary.package,
+                            name,
+                            id,
+                        )? != receipt.call
+                            || !extension.cards.iter().any(|declaration| {
+                                declaration.key == summary.key
+                                    && crate::plugins::cards::props(declaration, &summary.props)
+                            })
+                        {
+                            continue;
+                        }
+                        let current = required(db, &summary.package.name).await?;
+                        if !current.summary.enabled
+                            || current.summary.digest != summary.package.digest
+                        {
+                            return Err(denied());
+                        }
+                        return Ok((current, summary.clone()));
+                    }
+                    _ => {}
                 }
-                adk_core::Part::FunctionResponse {
-                    id: Some(id),
-                    function_response,
-                    ..
-                } => {
-                    let name = &function_response.name;
-                    if !calls.contains(&(event.branch.clone(), id.clone(), name.clone())) {
-                        continue;
-                    }
-                    let Some(content) = sailry_protocol::tool::Presentation::Content
-                        .content(&function_response.response)
-                    else {
-                        continue;
-                    };
-                    let Some(sailry_protocol::tool::Block::Card(summary)) =
-                        content.blocks.get(usize::from(receipt.block))
-                    else {
-                        continue;
-                    };
-                    if summary.receipt != receipt || summary.worktree != run.worktree {
-                        continue;
-                    }
-                    let Some(package) = packages
-                        .iter()
-                        .find(|package| package.summary.reference() == summary.package)
-                    else {
-                        continue;
-                    };
-                    let Some(extension) = package.extension.as_ref() else {
-                        continue;
-                    };
-                    if !extension.tools.iter().any(|tool| {
-                        tool.handler.is_some()
-                            && crate::plugins::tools::alias(&package.summary.name, &tool.name)
-                                == *name
-                    }) || crate::plugins::cards::identity(
-                        receipt.turn,
-                        &summary.package,
-                        name,
-                        id,
-                    )? != receipt.call
-                        || !extension.cards.iter().any(|declaration| {
-                            declaration.key == summary.key
-                                && crate::plugins::cards::props(declaration, &summary.props)
-                        })
-                    {
-                        continue;
-                    }
-                    let current = required(db, &summary.package.name)?;
-                    if !current.summary.enabled || current.summary.digest != summary.package.digest
-                    {
-                        return Err(denied());
-                    }
-                    return Ok((current, summary.clone()));
-                }
-                _ => {}
             }
         }
     }
     Err(denied())
 }
 
-pub(in crate::store) fn check(
+pub(in crate::store) async fn check(
     db: &Connection,
     node: NodeId,
     _caller: NodeId,
@@ -144,7 +157,7 @@ pub(in crate::store) fn check(
     {
         return Err(denied());
     }
-    let (info, summary) = captured(db, receipt)?;
+    let (info, summary) = captured(db, receipt).await?;
     if summary.node != node
         || context.worktree != Some(summary.worktree)
         || context.package != info.summary.reference()
@@ -187,7 +200,7 @@ pub(in crate::store) fn check(
             let connector=super::connectors::declarations(&info).into_iter().find(|item|item.id==*connector
                 && item.auth.iter().any(|auth|matches!(auth,plugin::connector::Auth::McpOauth{server:named,..} if named==server))).ok_or_else(denied)?;
             if let Some(id) = connection {
-                let record = super::connectors::read(db, *id)?;
+                let record = super::connectors::read(db, *id).await?;
                 if record.plugin != info.summary.name || record.connector != connector.id {
                     return Err(denied());
                 }

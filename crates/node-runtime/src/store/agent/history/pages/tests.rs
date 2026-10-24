@@ -1,14 +1,16 @@
 use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
-#[test]
-fn preserves_turn_boundaries() {
-    let mut fixture = Fixture::new();
-    let first = fixture.completed(&["first prompt", "first call", "first result", "first answer"]);
-    let second = fixture.completed(&["second prompt", "second answer"]);
-    let third = fixture.completed(&["third prompt", "third answer"]);
-    let queued = fixture.queued();
-    let cancelled = fixture.queued();
+#[tokio::test]
+async fn preserves_turn_boundaries() {
+    let mut fixture = Fixture::new().await;
+    let first = fixture
+        .completed(&["first prompt", "first call", "first result", "first answer"])
+        .await;
+    let second = fixture.completed(&["second prompt", "second answer"]).await;
+    let third = fixture.completed(&["third prompt", "third answer"]).await;
+    let queued = fixture.queued().await;
+    let cancelled = fixture.queued().await;
     command(
         &mut fixture.database,
         &fixture.events,
@@ -16,8 +18,9 @@ fn preserves_turn_boundaries() {
             turn: cancelled,
             expected_revision: 1,
         },
-    );
-    let recent = fixture.read(None, 1);
+    )
+    .await;
+    let recent = fixture.read(None, 1).await;
     assert!(recent.missing.is_empty());
     assert_eq!(recent.page.next_before, Some(third));
     assert_eq!(
@@ -33,15 +36,15 @@ fn preserves_turn_boundaries() {
     assert!(recent.page.entries.iter().all(|entry| entry.turn == third));
     assert_eq!(recent.page.queue.items.len(), 1);
     assert_eq!(recent.page.queue.items[0].turn, queued);
-    let older = fixture.read(recent.page.next_before, 1);
+    let older = fixture.read(recent.page.next_before, 1).await;
     assert_eq!(older.page.next_before, Some(second));
     assert_eq!(older.page.runs.len(), 1);
     assert!(older.page.entries.iter().all(|entry| entry.turn == second));
-    let oldest = fixture.read(older.page.next_before, 1);
+    let oldest = fixture.read(older.page.next_before, 1).await;
     assert_eq!(oldest.page.next_before, None);
     assert_eq!(oldest.page.entries.len(), 4);
     assert!(oldest.page.entries.iter().all(|entry| entry.turn == first));
-    let combined = fixture.read(Some(third), 2);
+    let combined = fixture.read(Some(third), 2).await;
     assert_eq!(combined.page.entries.len(), 6);
     assert_eq!(
         combined
@@ -55,12 +58,12 @@ fn preserves_turn_boundaries() {
     assert_eq!(combined.page.next_before, None);
 }
 
-#[test]
-fn chunks_complete_turns() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn chunks_complete_turns() {
+    let mut fixture = Fixture::new().await;
     let text = "中文🙂".repeat(90_000);
-    let large = fixture.completed(&[text.as_str(); 7]);
-    let recent = fixture.read(None, 1);
+    let large = fixture.completed(&[text.as_str(); 7]).await;
+    let recent = fixture.read(None, 1).await;
     assert_eq!(recent.page.next_before, None);
     assert_eq!(recent.missing, [large]);
     assert!(encode(&Output::Conversation(recent.clone())).unwrap().len() < MAX_FRAME_BYTES);
@@ -75,6 +78,7 @@ fn chunks_complete_turns() {
             Some(before),
             100,
         )
+        .await
         .unwrap();
         assert!(!chunk.entries.is_empty());
         assert!(
@@ -108,8 +112,8 @@ fn chunks_complete_turns() {
             .all(|entry| entry.parts == [Part::Text(text.clone())])
     );
 
-    let many = fixture.completed(&vec!["small event"; 105]);
-    let recent = fixture.read(None, 1);
+    let many = fixture.completed(&vec!["small event"; 105]).await;
+    let recent = fixture.read(None, 1).await;
     assert_eq!(recent.page.runs[0].turn, many);
     assert_eq!(recent.missing, [many]);
     assert_eq!(recent.page.entries.len(), 100);
@@ -121,21 +125,23 @@ fn chunks_complete_turns() {
         Some(recent.page.entries[0].sequence),
         100,
     )
+    .await
     .unwrap();
     assert_eq!(chunk.entries.len(), 5);
     assert_eq!(chunk.next_before, None);
 }
 
-#[test]
-fn validates_resource_boundaries_and_limits() {
-    let mut fixture = Fixture::new();
-    let first = fixture.completed(&[]);
-    let original = fixture.read(None, 1);
+#[tokio::test]
+async fn validates_resource_boundaries_and_limits() {
+    let mut fixture = Fixture::new().await;
+    let first = fixture.completed(&[]).await;
+    let original = fixture.read(None, 1).await;
     assert_eq!(original.page.runs[0].turn, first);
     assert!(original.page.entries.is_empty());
     let other = SessionId::new();
     assert_eq!(
         turn(&fixture.database.connection, other, first, None, 1)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::WrongTarget
@@ -147,9 +153,14 @@ fn validates_resource_boundaries_and_limits() {
             Some(TurnId::new()),
             1
         )
+        .await
         .is_err()
     );
-    assert!(read(&fixture.database.connection, fixture.session, None, 0).is_err());
+    assert!(
+        read(&fixture.database.connection, fixture.session, None, 0)
+            .await
+            .is_err()
+    );
     assert!(
         turn(
             &fixture.database.connection,
@@ -158,11 +169,14 @@ fn validates_resource_boundaries_and_limits() {
             None,
             0
         )
+        .await
         .is_err()
     );
     for limit in [101, u16::MAX] {
         assert_eq!(
-            read(&fixture.database.connection, fixture.session, None, limit).unwrap(),
+            read(&fixture.database.connection, fixture.session, None, limit)
+                .await
+                .unwrap(),
             original
         );
         assert!(
@@ -173,6 +187,7 @@ fn validates_resource_boundaries_and_limits() {
                 None,
                 limit
             )
+            .await
             .unwrap()
             .entries
             .is_empty()
@@ -186,19 +201,20 @@ fn validates_resource_boundaries_and_limits() {
             Some(u64::MAX),
             1
         )
+        .await
         .is_err()
     );
-    assert_eq!(fixture.read(None, 1), original);
+    assert_eq!(fixture.read(None, 1).await, original);
 }
 
-#[test]
-fn bounds_failed_inputs_without_truncation() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn bounds_failed_inputs_without_truncation() {
+    let mut fixture = Fixture::new().await;
     // JSON expands these source bytes sixfold; the logical page cannot fit all captures.
     let input = format!("Task {}", "\u{0001}".repeat(1024 * 1024 - 5));
     let mut expected = Vec::new();
     for _ in 0..5 {
-        let turn = fixture.queued();
+        let turn = fixture.queued().await;
         command(
             &mut fixture.database,
             &fixture.events,
@@ -207,10 +223,14 @@ fn bounds_failed_inputs_without_truncation() {
                 expected_revision: 1,
                 message: input.clone().into(),
             },
-        );
-        runs::start(&fixture.database.connection, turn).unwrap();
+        )
+        .await;
+        runs::start(&fixture.database.connection, turn)
+            .await
+            .unwrap();
         assert_eq!(
             runs::claim(&mut fixture.database, &fixture.events)
+                .await
                 .unwrap()
                 .unwrap()
                 .turn
@@ -224,14 +244,15 @@ fn bounds_failed_inputs_without_truncation() {
             None,
             &fixture.events,
         )
+        .await
         .unwrap();
         expected.push(turn);
     }
-    let queued = fixture.queued();
+    let queued = fixture.queued().await;
     let mut before = None;
     let mut restored = BTreeSet::new();
     loop {
-        let history = fixture.read(before, 100);
+        let history = fixture.read(before, 100).await;
         assert!(
             encode(&Output::Conversation(history.clone()))
                 .unwrap()

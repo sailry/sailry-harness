@@ -1,30 +1,29 @@
 use super::super::{
     Ingress, Job,
-    database::{Database, encode, storage_error},
+    database::{Database, encode, record, storage_error},
     unavailable,
 };
 use crate::providers::catalog::{Download, metadata};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_link::Admission;
 use sailry_protocol::{conversation::catalog, *};
 use tokio::sync::{broadcast, oneshot};
+use turso::{Connection, params, transaction::TransactionBehavior};
 mod lookup;
 
-pub(crate) fn status(db: &Connection) -> Result<catalog::Status, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM model_catalog_status WHERE id=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
+pub(crate) async fn status(db: &Connection) -> Result<catalog::Status, Fault> {
+    let mut statement = db
+        .prepare("SELECT body FROM model_catalog_status WHERE id=1")
+        .await
         .map_err(storage_error)?;
-    body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
-        .transpose()
-        .map(Option::unwrap_or_default)
+    let row = match statement.query_row(()).await {
+        Ok(row) => row,
+        Err(turso::Error::QueryReturnedNoRows) => return Ok(catalog::Status::default()),
+        Err(error) => return Err(storage_error(error)),
+    };
+    serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?).map_err(storage_error)
 }
 
-pub(crate) fn page(db: &Connection, query: &catalog::Query) -> Result<catalog::Page, Fault> {
+pub(crate) async fn page(db: &Connection, query: &catalog::Query) -> Result<catalog::Page, Fault> {
     if let Some(provider) = &query.provider {
         metadata::identifier(provider, 128)?;
     }
@@ -45,7 +44,7 @@ pub(crate) fn page(db: &Connection, query: &catalog::Query) -> Result<catalog::P
     if let Some(after) = &query.after {
         metadata::identifier(after, 256)?;
     }
-    let status = status(db)?;
+    let status = status(db).await?;
     if status.revision == 0 {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
@@ -62,27 +61,27 @@ pub(crate) fn page(db: &Connection, query: &catalog::Query) -> Result<catalog::P
         ));
     }
     if !query.ids.is_empty() {
-        return lookup::page(db, query, status.revision);
+        return lookup::page(db, query, status.revision).await;
     }
     let mut statement = db
         .prepare("SELECT body FROM model_catalog WHERE provider=?1 AND id>?2 ORDER BY id LIMIT ?3")
+        .await
         .map_err(storage_error)?;
-    let rows = statement
-        .query_map(
-            params![
-                query.provider,
-                query.after.as_deref().unwrap_or(""),
-                u32::from(query.limit) + 1
-            ],
-            |row| row.get::<_, Vec<u8>>(0),
-        )
+    let mut rows = statement
+        .query(params![
+            query.provider.as_deref(),
+            query.after.as_deref().unwrap_or(""),
+            u32::from(query.limit) + 1
+        ])
+        .await
         .map_err(storage_error)?;
     let mut models = Vec::new();
     let mut bytes = 0;
     let mut more = false;
-    for row in rows {
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         let model = metadata::model(
-            &serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?,
+            &serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+                .map_err(storage_error)?,
         )?;
         let size = encode(&model)?.len() + 1;
         if models.len() == usize::from(query.limit) || bytes + size > 512 * 1024 {
@@ -105,13 +104,18 @@ pub(crate) fn page(db: &Connection, query: &catalog::Query) -> Result<catalog::P
 }
 
 impl Database {
-    pub(in crate::store) fn cache_catalog(
+    pub(in crate::store) async fn cache_catalog(
         &mut self,
         download: Download,
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Result<catalog::Status, Fault> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
-        let previous = status(&transaction)?;
+        let node = self.node;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Concurrent)
+            .await
+            .map_err(storage_error)?;
+        let previous = status(&transaction).await?;
         let revision = previous
             .revision
             .checked_add(1)
@@ -131,34 +135,39 @@ impl Database {
             bytes: download.bytes,
         };
         transaction
-            .execute("DELETE FROM model_catalog", [])
+            .execute("DELETE FROM model_catalog", ())
+            .await
             .map_err(storage_error)?;
         {
             let mut insert = transaction
                 .prepare("INSERT INTO model_catalog(provider,id,body) VALUES(?1,?2,?3)")
+                .await
                 .map_err(storage_error)?;
             for entry in &download.entries {
                 insert
-                    .execute(params![entry.provider, entry.id, entry.body])
+                    .execute(params![
+                        entry.provider.as_str(),
+                        entry.id.as_str(),
+                        entry.body.as_slice()
+                    ])
+                    .await
                     .map_err(storage_error)?;
             }
         }
-        transaction.execute("INSERT INTO model_catalog_status(id,body) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET body=excluded.body", [encode(&status)?]).map_err(storage_error)?;
-        let updates = super::completion::refresh(&transaction, self.node)?;
-        let event = Event::ModelCatalogChanged(status.clone());
-        transaction
-            .execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
-            .map_err(storage_error)?;
-        let envelope = EventEnvelope {
-            node: self.node,
-            cursor: transaction.last_insert_rowid() as u64,
-            event,
-        };
-        transaction.commit().map_err(storage_error)?;
+        transaction.execute("INSERT INTO model_catalog_status(id,body) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET body=excluded.body", [encode(&status)?]).await.map_err(storage_error)?;
+        let mut updates = super::completion::refresh(&transaction, node).await?;
+        updates.extend(
+            record(
+                &transaction,
+                node,
+                vec![Event::ModelCatalogChanged(status.clone())],
+            )
+            .await?,
+        );
+        transaction.commit().await.map_err(storage_error)?;
         for update in updates {
             let _ = events.send(update);
         }
-        let _ = events.send(envelope);
         Ok(status)
     }
 }

@@ -75,15 +75,10 @@ impl Service {
             indexing,
         } = self.prepare(request, query, cancel).await?;
         let available = !embeddings.is_empty();
-        let path = self.path.clone();
-        let query = query.clone();
-        let any = any.to_vec();
-        let cancel = cancel.clone();
-        let hits = tokio::task::spawn_blocking(move || {
-            index::Index::reader(&path)?.candidates(&query, &bindings, &embeddings, &any, &cancel)
-        })
-        .await
-        .map_err(|_| unavailable())??;
+        let hits = self
+            .index
+            .candidates(query, &bindings, &embeddings, any, cancel)
+            .await?;
         Ok((hits, indexing, available))
     }
 }

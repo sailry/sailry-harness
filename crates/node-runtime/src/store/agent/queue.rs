@@ -10,7 +10,7 @@ pub(in crate::store) use commands::execute;
 const CAPACITY: i64 = 256;
 const PREVIEW_CHARS: usize = 256;
 
-pub(in crate::store) fn create(
+pub(in crate::store) async fn create(
     db: &Connection,
     caller: NodeId,
     request: &Request,
@@ -19,31 +19,31 @@ pub(in crate::store) fn create(
     ready: bool,
 ) -> Result<QueuedTurn, Fault> {
     validate(message)?;
-    super::references::validate(db, &session, message, None)?;
-    let turn = capture(db, caller, request, session, RunKind::Task, ready)?;
-    super::super::attachments::turns::bind(db, turn.id, &message.attachments)?;
+    super::references::validate(db, &session, message, None).await?;
+    let turn = capture(db, caller, request, session, RunKind::Task, ready).await?;
+    super::super::attachments::turns::bind(db, turn.id, &message.attachments).await?;
     Ok(turn)
 }
 
-pub(in crate::store) fn compact(
+pub(in crate::store) async fn compact(
     db: &Connection,
     caller: NodeId,
     request: &Request,
     session: sailry_protocol::Session,
 ) -> Result<QueuedTurn, Fault> {
-    capture(db, caller, request, session, RunKind::Compaction, true)
+    capture(db, caller, request, session, RunKind::Compaction, true).await
 }
 
-pub(in crate::store) fn notice(
+pub(in crate::store) async fn notice(
     db: &Connection,
     caller: NodeId,
     request: &Request,
     session: sailry_protocol::Session,
 ) -> Result<QueuedTurn, Fault> {
-    capture(db, caller, request, session, RunKind::Task, true)
+    capture(db, caller, request, session, RunKind::Task, true).await
 }
 
-fn capture(
+async fn capture(
     db: &Connection,
     caller: NodeId,
     request: &Request,
@@ -52,16 +52,16 @@ fn capture(
     ready: bool,
 ) -> Result<QueuedTurn, Fault> {
     super::super::sessions::writable(&session)?;
-    super::super::worktrees::present(db, session.worktree)?;
-    super::super::commands::validate_config(db, request.target, &session.config)?;
+    super::super::worktrees::present(db, session.worktree).await?;
+    super::super::commands::validate_config(db, request.target, &session.config).await?;
     let plugins = if let Some(binding) = &session.config.assistant {
-        super::plugins::assistant(db, binding)?
+        super::plugins::assistant(db, binding).await?
     } else {
-        super::plugins::capture(db)?
+        super::plugins::capture(db).await?
     };
     let mut roles = session.roles;
     if session.profile.is_none() {
-        super::super::sessions::roles::refresh(db, &mut roles)?;
+        super::super::sessions::roles::refresh(db, &mut roles).await?;
     }
     let turn = QueuedTurn {
         id: TurnId::new(),
@@ -75,7 +75,7 @@ fn capture(
     };
     // The request ledger owns input; this row only freezes its configuration.
     db.execute(
-        "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+        "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles,rowid) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
         params![
             turn.id.to_string(),
             turn.session.to_string(),
@@ -87,151 +87,167 @@ fn capture(
                 RunKind::Compaction => "compaction",
             },
             encode(&turn.plugins)?,
-            encode(&turn.roles)?,
-        ],
-    )
+            encode(&turn.roles)?, crate::store::database::counters::next(db, crate::store::database::counters::Namespace::Turns).await? as i64],
+    ).await
     .map_err(storage_error)?;
-    super::super::plugins::connectors::capture(db, turn.id, &turn.plugins)?;
-    super::admit(db, &turn, ready)?;
+    super::super::plugins::connectors::capture(db, turn.id, &turn.plugins).await?;
+    super::admit(db, &turn, ready).await?;
     Ok(turn)
 }
 
-pub(in crate::store) fn can_resume(db: &Connection, session: SessionId) -> Result<bool, Fault> {
-    Ok(read(db, session)?.paused
-        && !runs::list(db, session, &[])?
+pub(in crate::store) async fn can_resume(
+    db: &Connection,
+    session: SessionId,
+) -> Result<bool, Fault> {
+    Ok(read(db, session).await?.paused
+        && !runs::list(db, session, &[])
+            .await?
             .iter()
             .any(|run| run.status == Status::Running))
 }
 
-pub(in crate::store) fn prioritize(db: &Connection, turn: &QueuedTurn) -> Result<(), Fault> {
-    let first = read(db, turn.session)?.items.first().map(|item| item.turn);
-    reorder(db, turn.session, turn.id, first)?;
-    pause(db, turn.session, false)
+pub(in crate::store) async fn prioritize(db: &Connection, turn: &QueuedTurn) -> Result<(), Fault> {
+    let first = read(db, turn.session)
+        .await?
+        .items
+        .first()
+        .map(|item| item.turn);
+    reorder(db, turn.session, turn.id, first).await?;
+    pause(db, turn.session, false).await
 }
 
-pub(super) fn admit(db: &Connection, turn: &QueuedTurn, ready: bool) -> Result<(), Fault> {
-    let count: i64 = db
-        .query_row(
-            "SELECT count(*) FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=?1",
-            [turn.session.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+pub(super) async fn admit(db: &Connection, turn: &QueuedTurn, ready: bool) -> Result<(), Fault> {
+    let count: i64 = {
+        let mut statement = db.prepare("SELECT count(*) FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=?1").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([turn.session.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if count >= CAPACITY {
         return Err(Fault::new(ErrorCode::Busy, "session queue is full"));
     }
     db.execute(
         "INSERT INTO agent_pending(turn,position,revision,request,caller) SELECT id,(SELECT coalesce(max(p.position),0)+1 FROM agent_pending p JOIN turns other ON other.id=p.turn WHERE other.session=t.session),1,request,caller FROM turns t WHERE id=?1",
         [turn.id.to_string()],
-    ).map_err(storage_error)?;
-    bump(db, turn.session)?;
+    ).await.map_err(storage_error)?;
+    bump(db, turn.session).await?;
     if ready {
         // Fresh submitted input resumes the queue in the same admission transaction.
         db.execute(
             "UPDATE agent_queues SET paused=0 WHERE session=?1",
             [turn.session.to_string()],
         )
+        .await
         .map_err(storage_error)?;
     }
     Ok(())
 }
 
-pub(super) fn bump(db: &Connection, session: SessionId) -> Result<(), Fault> {
+pub(super) async fn bump(db: &Connection, session: SessionId) -> Result<(), Fault> {
     db.execute(
         "INSERT INTO agent_queues(session,revision,paused) VALUES(?1,1,0) ON CONFLICT(session) DO UPDATE SET revision=revision+1",
         [session.to_string()],
-    ).map_err(storage_error)?;
+    ).await.map_err(storage_error)?;
     Ok(())
 }
 
-pub(super) fn pause(db: &Connection, session: SessionId, paused: bool) -> Result<(), Fault> {
-    bump(db, session)?;
+pub(super) async fn pause(db: &Connection, session: SessionId, paused: bool) -> Result<(), Fault> {
+    bump(db, session).await?;
     db.execute(
         "UPDATE agent_queues SET paused=?2 WHERE session=?1",
         params![session.to_string(), paused],
     )
+    .await
     .map_err(storage_error)?;
     Ok(())
 }
 
-pub(super) fn recover(db: &Connection) -> Result<(), Fault> {
+pub(super) async fn recover(db: &Connection) -> Result<(), Fault> {
     // Restart requires an explicit resume even when no worker claimed the input.
     db.execute(
         "UPDATE agent_queues SET paused=1,revision=revision+1 WHERE paused=0 AND EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=agent_queues.session)",
-        [],
-    )
+        (),
+    ).await
     .map_err(storage_error)?;
     Ok(())
 }
 
-pub(super) fn remove(db: &Connection, turn: TurnId, session: SessionId) -> Result<(), Fault> {
+pub(super) async fn remove(db: &Connection, turn: TurnId, session: SessionId) -> Result<(), Fault> {
     if db
         .execute(
             "DELETE FROM agent_pending WHERE turn=?1",
             [turn.to_string()],
         )
+        .await
         .map_err(storage_error)?
         > 0
     {
-        bump(db, session)?;
+        bump(db, session).await?;
     }
     Ok(())
 }
 
-pub(super) fn read(db: &Connection, session: SessionId) -> Result<Queue, Fault> {
-    check_session(db, session)?;
-    let (revision, paused) = db
-        .query_row(
-            "SELECT revision,paused FROM agent_queues WHERE session=?1",
-            [session.to_string()],
-            |row| Ok((row.get::<_, i64>(0)? as u64, row.get(1)?)),
-        )
-        .optional()
-        .map_err(storage_error)?
-        .unwrap_or((0, false));
+pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Queue, Fault> {
+    check_session(db, session).await?;
+    let (revision, paused) = {
+        let mut statement = db
+            .prepare("SELECT revision,paused FROM agent_queues WHERE session=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([session.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get::<i64>(0)? as u64, row.get(1)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    }
+    .unwrap_or((0, false));
     // Bound previews, not user input. Editing fetches the complete original text separately.
     let mut query = db.prepare(
         "SELECT a.body,p.revision,a.ready,r.body,p.recipient FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 ORDER BY p.position,t.rowid"
-    ).map_err(storage_error)?;
-    let items = query
-        .query_map([session.to_string()], |row| {
-            Ok((
-                row.get::<_, Vec<u8>>(0)?,
-                row.get::<_, i64>(1)? as u64,
-                row.get(2)?,
-                row.get::<_, Vec<u8>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
-        })
-        .map_err(storage_error)?
-        .map(|row| {
-            let (body, revision, ready, request, recipient) = row.map_err(storage_error)?;
-            let request: Request = serde_json::from_slice(&request).map_err(storage_error)?;
-            let mut preview = input(request.command)?.text;
-            let run: Run = serde_json::from_slice(&body).map_err(storage_error)?;
-            let end = preview
-                .char_indices()
-                .nth(PREVIEW_CHARS)
-                .map_or(preview.len(), |(index, _)| index);
-            let truncated = end < preview.len();
-            preview.truncate(end);
-            Ok(Pending {
-                turn: run.turn,
-                notice: run.notice,
-                request: Some(request.id),
-                kind: run.kind,
-                revision,
-                config_revision: run.revision,
-                ready,
-                guidance: recipient
-                    .map(|id| id.parse().map_err(storage_error))
-                    .transpose()?,
-                preview,
-                truncated,
-                attachments: super::super::attachments::turns::list(db, run.turn)?,
-            })
-        })
-        .collect::<Result<_, Fault>>()?;
+    ).await.map_err(storage_error)?;
+    let mut rows = query
+        .query([session.to_string()])
+        .await
+        .map_err(storage_error)?;
+    let mut items = Vec::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let body = row.get::<Vec<u8>>(0).map_err(storage_error)?;
+        let revision = row.get::<i64>(1).map_err(storage_error)? as u64;
+        let ready = row.get::<bool>(2).map_err(storage_error)?;
+        let request = row.get::<Vec<u8>>(3).map_err(storage_error)?;
+        let recipient = row.get::<Option<String>>(4).map_err(storage_error)?;
+        let request: Request = serde_json::from_slice(&request).map_err(storage_error)?;
+        let mut preview = input(request.command)?.text;
+        let run: Run = serde_json::from_slice(&body).map_err(storage_error)?;
+        let end = preview
+            .char_indices()
+            .nth(PREVIEW_CHARS)
+            .map_or(preview.len(), |(index, _)| index);
+        let truncated = end < preview.len();
+        preview.truncate(end);
+        items.push(Pending {
+            turn: run.turn,
+            notice: run.notice,
+            request: Some(request.id),
+            kind: run.kind,
+            revision,
+            config_revision: run.revision,
+            ready,
+            guidance: recipient
+                .map(|id| id.parse().map_err(storage_error))
+                .transpose()?,
+            preview,
+            truncated,
+            attachments: super::super::attachments::turns::list(db, run.turn).await?,
+        });
+    }
     Ok(Queue {
         revision,
         paused,
@@ -239,15 +255,30 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Queue, Fault> 
     })
 }
 
-pub(in crate::store) fn message(db: &Connection, turn: TurnId) -> Result<QueuedMessage, Fault> {
-    let run = runs::get(db, turn)?;
+pub(in crate::store) async fn message(
+    db: &Connection,
+    turn: TurnId,
+) -> Result<QueuedMessage, Fault> {
+    let run = runs::get(db, turn).await?;
     if run.status != Status::Queued {
         return Err(Fault::new(ErrorCode::Conflict, "turn is no longer queued"));
     }
-    let (revision, body, config, request): (u64, Vec<u8>, Vec<u8>, String) = db.query_row(
-        "SELECT p.revision,r.body,c.config,t.request FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller JOIN session_revisions c ON c.session=t.session AND c.revision=t.revision WHERE p.turn=?1",
-        [turn.to_string()], |row| Ok((row.get::<_, i64>(0)? as u64,row.get(1)?,row.get(2)?,row.get(3)?)),
-    ).map_err(storage_error)?;
+    let (revision, body, config, request): (u64, Vec<u8>, Vec<u8>, String) = {
+        let mut statement = db.prepare("SELECT p.revision,r.body,c.config,t.request FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller JOIN session_revisions c ON c.session=t.session AND c.revision=t.revision WHERE p.turn=?1").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| {
+            Ok((
+                row.get::<i64>(0)? as u64,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+            ))
+        })(&row);
+        mapped.map_err(storage_error)?
+    };
     let request_body: Request = serde_json::from_slice(&body).map_err(storage_error)?;
     let message = input(request_body.command)?;
     Ok(QueuedMessage {
@@ -258,8 +289,8 @@ pub(in crate::store) fn message(db: &Connection, turn: TurnId) -> Result<QueuedM
             revision: run.revision,
             request: request.parse().map_err(storage_error)?,
             config: serde_json::from_slice(&config).map_err(storage_error)?,
-            roles: super::super::sessions::roles::for_turn(db, run.turn)?,
-            plugins: super::plugins::read(db, run.turn)?,
+            roles: super::super::sessions::roles::for_turn(db, run.turn).await?,
+            plugins: super::plugins::read(db, run.turn).await?,
         },
         revision,
         message,
@@ -324,29 +355,34 @@ fn check_revision(actual: u64, expected: u64) -> Result<(), Fault> {
     }
 }
 
-fn check_item(db: &Connection, turn: TurnId, expected: u64) -> Result<Run, Fault> {
-    let run = runs::get(db, turn)?;
+async fn check_item(db: &Connection, turn: TurnId, expected: u64) -> Result<Run, Fault> {
+    let run = runs::get(db, turn).await?;
     if run.status != Status::Queued {
         return Err(Fault::new(ErrorCode::Conflict, "turn is no longer queued"));
     }
-    let revision = db
-        .query_row(
-            "SELECT revision FROM agent_pending WHERE turn=?1",
-            [turn.to_string()],
-            |row| Ok(row.get::<_, i64>(0)? as u64),
-        )
-        .map_err(storage_error)?;
+    let revision = {
+        let mut statement = db
+            .prepare("SELECT revision FROM agent_pending WHERE turn=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| Ok(row.get::<i64>(0)? as u64))(&row);
+        mapped.map_err(storage_error)?
+    };
     check_revision(revision, expected)?;
     Ok(run)
 }
 
-fn reorder(
+async fn reorder(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
     before: Option<TurnId>,
 ) -> Result<(), Fault> {
-    let mut items = read(db, session)?.items;
+    let mut items = read(db, session).await?.items;
     let source = items
         .iter()
         .position(|item| item.turn == turn)
@@ -376,18 +412,30 @@ fn reorder(
             "UPDATE agent_pending SET position=?2 WHERE turn=?1",
             params![item.turn.to_string(), position as i64 + 1],
         )
+        .await
         .map_err(storage_error)?;
     }
-    bump(db, session)
+    bump(db, session).await
 }
 
-pub(in crate::store) fn stopping(db: &Connection, selected: TurnId) -> Result<Vec<TurnId>, Fault> {
+pub(in crate::store) async fn stopping(
+    db: &Connection,
+    selected: TurnId,
+) -> Result<Vec<TurnId>, Fault> {
     let mut query = db
-        .prepare("SELECT a.turn FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=(SELECT session FROM turns WHERE id=?1) AND json_extract(a.body,'$.status')='stopping'")
+        .prepare("SELECT a.turn FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=(SELECT session FROM turns WHERE id=?1) AND json_extract(a.body,'$.status')='stopping'").await
         .map_err(storage_error)?;
-    query
-        .query_map([selected.to_string()], |row| row.get::<_, String>(0))
-        .map_err(storage_error)?
-        .map(|row| row.map_err(storage_error)?.parse().map_err(storage_error))
-        .collect()
+    (async {
+        let mut rows = query.query([selected.to_string()]).await?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            values.push(mapped);
+        }
+        Ok::<_, turso::Error>(values.into_iter())
+    })
+    .await
+    .map_err(storage_error)?
+    .map(|row| row.map_err(storage_error)?.parse().map_err(storage_error))
+    .collect()
 }

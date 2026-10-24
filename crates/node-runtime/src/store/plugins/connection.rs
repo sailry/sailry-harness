@@ -3,16 +3,16 @@ use super::*;
 use sailry_protocol::plugin::connection::{Authorization, Configuration, Credential, Status};
 use sailry_protocol::plugin::connector::{Auth, Kind, State};
 
-pub(in crate::store) fn read(
+pub(in crate::store) async fn read(
     db: &Connection,
     profile: Option<&std::path::Path>,
     package: &plugin::Reference,
     card: &str,
 ) -> Result<Status, Fault> {
-    let info = settings::current(db, package)?;
-    read_admitted(db, profile, &info, card)
+    let info = settings::current(db, package).await?;
+    read_admitted(db, profile, &info, card).await
 }
-pub(in crate::store) fn read_admitted(
+pub(in crate::store) async fn read_admitted(
     db: &Connection,
     profile: Option<&std::path::Path>,
     info: &Info,
@@ -41,11 +41,14 @@ pub(in crate::store) fn read_admitted(
                 .any(|auth| matches!(auth,Auth::McpOauth{server:named,..} if named==server))
         })
         .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "plugin card has no connector"))?;
-    let row = connectors::records(db)?
+    let record = connectors::records(db)
+        .await?
         .into_iter()
-        .find(|record| record.plugin == info.summary.name && record.connector == connector.id)
-        .map(|record| connectors::project(db, profile, &record))
-        .transpose()?;
+        .find(|record| record.plugin == info.summary.name && record.connector == connector.id);
+    let row = match record {
+        Some(record) => Some(connectors::project(db, profile, &record).await?),
+        None => None,
+    };
     let ready = row
         .as_ref()
         .is_some_and(|row| row.enabled && row.state == State::Connected);

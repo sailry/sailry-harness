@@ -1,20 +1,16 @@
 use super::*;
 use crate::store::commands;
 
-fn dispatch(fixture: &mut Fixture, request: Request) -> Result<Output, Fault> {
+async fn dispatch(fixture: &mut Fixture, request: Request) -> Result<Output, Fault> {
     let (reply, response) = oneshot::channel();
     assert!(
         fixture
             .database
             .dispatch(fixture.database.node, request, reply, &fixture.events)
+            .await
             .is_none()
     );
-    response
-        .blocking_recv()
-        .unwrap()?
-        .completion
-        .blocking_recv()
-        .unwrap()
+    response.await.unwrap()?.completion.await.unwrap()
 }
 
 fn request(fixture: &Fixture, question: QuestionId, expected_revision: u64, text: &str) -> Request {
@@ -31,9 +27,9 @@ fn request(fixture: &Fixture, question: QuestionId, expected_revision: u64, text
     )
 }
 
-#[test]
-fn requires_frozen_planning_authority() {
-    let mut fixture = Fixture::with_input(WorkMode::Code, Input::Plan);
+#[tokio::test]
+async fn requires_frozen_planning_authority() {
+    let mut fixture = Fixture::with_input(WorkMode::Code, Input::Plan).await;
     assert_eq!(
         begin(
             &mut fixture.database,
@@ -41,12 +37,14 @@ fn requires_frozen_planning_authority() {
             &fixture.request,
             &fixture.events
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
     );
-    let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan);
+    let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan).await;
     let mut config = commands::session(&fixture.database.connection, fixture.session)
+        .await
         .unwrap()
         .config;
     config.mode = WorkMode::Code;
@@ -58,8 +56,9 @@ fn requires_frozen_planning_authority() {
             expected_revision: 1,
             config,
         },
-    );
-    let question = fixture.begin();
+    )
+    .await;
+    let question = fixture.begin().await;
     assert_eq!(question.state, State::Pending);
     assert_eq!(
         resolve(
@@ -70,14 +69,15 @@ fn requires_frozen_planning_authority() {
                 turn: TurnId::new()
             })
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::InvalidRequest
     );
 }
 
-#[test]
-fn rolls_back_invalid_acceptance() {
+#[tokio::test]
+async fn rolls_back_invalid_acceptance() {
     for case in ["revision", "empty", "full", "ordinary", "target"] {
         let mut fixture = Fixture::with_input(
             WorkMode::Plan,
@@ -89,8 +89,9 @@ fn rolls_back_invalid_acceptance() {
             } else {
                 Input::Plan
             },
-        );
-        let question = fixture.begin();
+        )
+        .await;
+        let question = fixture.begin().await;
         if case == "full" {
             for _ in 0..256 {
                 command(
@@ -101,11 +102,15 @@ fn rolls_back_invalid_acceptance() {
                         expected_revision: 1,
                         message: "Queued input".into(),
                     },
-                );
+                )
+                .await;
             }
         }
-        let before = commands::session(&fixture.database.connection, fixture.session).unwrap();
+        let before = commands::session(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
         let queue = super::super::super::queue::read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap();
         let mut request = request(
             &fixture,
@@ -119,7 +124,7 @@ fn rolls_back_invalid_acceptance() {
             };
             *session = SessionId::new();
         }
-        let error = dispatch(&mut fixture, request.clone()).unwrap_err();
+        let error = dispatch(&mut fixture, request.clone()).await.unwrap_err();
         assert_eq!(
             error.code,
             match case {
@@ -129,27 +134,32 @@ fn rolls_back_invalid_acceptance() {
                 _ => ErrorCode::InvalidRequest,
             }
         );
-        assert_eq!(dispatch(&mut fixture, request).unwrap_err(), error);
+        assert_eq!(dispatch(&mut fixture, request).await.unwrap_err(), error);
         assert_eq!(
-            commands::session(&fixture.database.connection, fixture.session).unwrap(),
+            commands::session(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap(),
             before
         );
         assert_eq!(
-            get(&fixture.database.connection, question.id).unwrap(),
+            get(&fixture.database.connection, question.id)
+                .await
+                .unwrap(),
             question
         );
         assert_eq!(
             super::super::super::queue::read(&fixture.database.connection, fixture.session)
+                .await
                 .unwrap(),
             queue
         );
     }
 }
 
-#[test]
-fn preserves_queued_revisions() {
-    let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan);
-    let question = fixture.begin();
+#[tokio::test]
+async fn preserves_queued_revisions() {
+    let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan).await;
+    let question = fixture.begin().await;
     let Output::QueuedTurn(held) = command(
         &mut fixture.database,
         &fixture.events,
@@ -158,13 +168,17 @@ fn preserves_queued_revisions() {
             expected_revision: 1,
             message: "Other queued draft".into(),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("turn expected")
     };
-    super::super::super::queue::pause(&fixture.database.connection, fixture.session, true).unwrap();
+    super::super::super::queue::pause(&fixture.database.connection, fixture.session, true)
+        .await
+        .unwrap();
     let request = request(&fixture, question.id, 1, "Implement this plan 中文 🙂");
     let mut events = fixture.events.subscribe();
-    let output = dispatch(&mut fixture, request.clone()).unwrap();
+    let output = dispatch(&mut fixture, request.clone()).await.unwrap();
     let Output::PlanAccepted(accepted) = &output else {
         panic!("accepted plan expected")
     };
@@ -182,16 +196,20 @@ fn preserves_queued_revisions() {
         events.try_recv().unwrap().event,
         Event::PlanAccepted(accepted.clone())
     );
-    assert_eq!(dispatch(&mut fixture, request.clone()).unwrap(), output);
+    assert_eq!(
+        dispatch(&mut fixture, request.clone()).await.unwrap(),
+        output
+    );
     assert!(events.try_recv().is_err());
     let mut repeated = request;
     repeated.id = RequestId::new();
     assert_eq!(
-        dispatch(&mut fixture, repeated).unwrap_err().code,
+        dispatch(&mut fixture, repeated).await.unwrap_err().code,
         ErrorCode::Conflict
     );
-    let queue =
-        super::super::super::queue::read(&fixture.database.connection, fixture.session).unwrap();
+    let queue = super::super::super::queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert!(!queue.paused);
     assert_eq!(
         queue.items.iter().map(|item| item.turn).collect::<Vec<_>>(),
@@ -201,6 +219,7 @@ fn preserves_queued_revisions() {
     assert!(!queue.items[1].ready);
     assert_eq!(
         super::super::super::queue::message(&fixture.database.connection, accepted.turn.id)
+            .await
             .unwrap()
             .message
             .text,
@@ -208,6 +227,7 @@ fn preserves_queued_revisions() {
     );
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );
@@ -221,7 +241,8 @@ fn preserves_queued_revisions() {
             expected_revision: 2,
             config,
         },
-    );
+    )
+    .await;
     runs::finish(
         &mut fixture.database,
         fixture.turn,
@@ -229,14 +250,17 @@ fn preserves_queued_revisions() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     let coding = runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(coding.turn, accepted.turn);
     assert_eq!(coding.turn.config.permission, Permission::Full);
     assert_eq!(
         super::super::super::permissions::config(&fixture.database.connection, fixture.turn)
+            .await
             .unwrap()
             .mode,
         WorkMode::Plan

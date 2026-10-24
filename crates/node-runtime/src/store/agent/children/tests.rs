@@ -1,10 +1,13 @@
 use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
-fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
-    let parent = fixture.queued();
-    runs::start(&fixture.database.connection, parent).unwrap();
+async fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
+    let parent = fixture.queued().await;
+    runs::start(&fixture.database.connection, parent)
+        .await
+        .unwrap();
     runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     let request = adk_core::ToolConfirmationRequest {
@@ -33,6 +36,7 @@ fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let child = delegation::admit(
         &mut fixture.database,
@@ -42,9 +46,12 @@ fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert_eq!(
-        delegation::claim(&mut fixture.database, child.turn.id, &fixture.events).unwrap(),
+        delegation::claim(&mut fixture.database, child.turn.id, &fixture.events)
+            .await
+            .unwrap(),
         Status::Running
     );
     runs::finish(
@@ -54,6 +61,7 @@ fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     let consumed = background::consume_child(
         &fixture.database.connection,
@@ -61,21 +69,23 @@ fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         child.turn.session,
         child.turn.id,
     )
+    .await
     .unwrap();
     assert_eq!(consumed.len(), 1);
     (parent, child)
 }
 
-#[test]
-fn scopes_repeated_event_ids() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn scopes_repeated_event_ids() {
+    let mut fixture = Fixture::new().await;
     crate::store::agent::tests::fixture::package(
         &fixture.database,
         fixture._root.path(),
         "delegation",
-    );
+    )
+    .await;
     let first = fixture.session;
-    let (parent, child) = admitted(&mut fixture);
+    let (parent, child) = admitted(&mut fixture).await;
     runs::finish(
         &mut fixture.database,
         parent,
@@ -83,8 +93,11 @@ fn scopes_repeated_event_ids() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
-    let original = crate::store::commands::session(&fixture.database.connection, first).unwrap();
+    let original = crate::store::commands::session(&fixture.database.connection, first)
+        .await
+        .unwrap();
     let Output::Session(other) = command(
         &mut fixture.database,
         &fixture.events,
@@ -93,29 +106,32 @@ fn scopes_repeated_event_ids() {
             worktree: Some(original.worktree),
             config: Some(original.config),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("session expected")
     };
     fixture.session = other.id;
-    let (_, second) = admitted(&mut fixture);
-    let children = fixture.read(None, 20).page.children;
+    let (_, second) = admitted(&mut fixture).await;
+    let children = fixture.read(None, 20).await.page.children;
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].run.turn, second.turn.id);
     fixture.session = first;
-    let children = fixture.read(None, 20).page.children;
+    let children = fixture.read(None, 20).await.page.children;
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].run.turn, child.turn.id);
 }
 
-#[test]
-fn bounds_summary_history() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn bounds_summary_history() {
+    let mut fixture = Fixture::new().await;
     crate::store::agent::tests::fixture::package(
         &fixture.database,
         fixture._root.path(),
         "delegation",
-    );
-    let (parent, child) = admitted(&mut fixture);
+    )
+    .await;
+    let (parent, child) = admitted(&mut fixture).await;
     for _ in 0..105 {
         let mut event = AdkEvent::new("parent-invocation");
         event.author = "assistant".into();
@@ -127,6 +143,7 @@ fn bounds_summary_history() {
             event,
             &fixture.events,
         )
+        .await
         .unwrap();
     }
     runs::finish(
@@ -136,8 +153,9 @@ fn bounds_summary_history() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
-    let recent = fixture.read(None, 1);
+    let recent = fixture.read(None, 1).await;
     assert_eq!(recent.missing, [parent]);
     assert!(recent.page.children.is_empty());
     let chunk = history::pages::turn(
@@ -147,6 +165,7 @@ fn bounds_summary_history() {
         Some(recent.page.entries[0].sequence),
         100,
     )
+    .await
     .unwrap();
     assert_eq!(chunk.entries.len(), 6);
     assert_eq!(chunk.children.len(), 1);

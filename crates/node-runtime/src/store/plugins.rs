@@ -24,56 +24,77 @@ pub(in crate::store) mod storage;
 pub(super) mod transaction;
 pub(super) mod updates;
 pub(super) mod views;
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
     Command, ErrorCode, Event, Fault, Output,
     plugin::{self, Info, Summary},
 };
+use turso::{Connection, params};
 
 use super::database::{encode, storage_error};
 
-pub(super) fn get(db: &Connection, name: &str) -> Result<Option<Info>, Fault> {
+pub(super) async fn get(db: &Connection, name: &str) -> Result<Option<Info>, Fault> {
     crate::plugins::validate_name(name)?;
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM plugins WHERE name=?1 AND installed=1",
-            [name],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM plugins WHERE name=?1 AND installed=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([name]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let stored: Option<Info> = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?;
     Ok(stored)
 }
 
-pub(super) fn list(db: &Connection) -> Result<Vec<Summary>, Fault> {
+pub(super) async fn list(db: &Connection) -> Result<Vec<Summary>, Fault> {
     let mut query = db
         .prepare("SELECT body FROM plugins WHERE installed=1 ORDER BY name")
+        .await
         .map_err(storage_error)?;
-    let mut entries: Vec<Summary> = query
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|body| {
-            serde_json::from_slice::<Info>(&body.map_err(storage_error)?)
-                .map(|info| info.summary)
-                .map_err(storage_error)
-        })
-        .collect::<Result<_, Fault>>()?;
+    let mut entries: Vec<Summary> = (async {
+        let mut rows = query.query(()).await?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        Ok::<_, turso::Error>(values.into_iter())
+    })
+    .await
+    .map_err(storage_error)?
+    .map(|body| {
+        serde_json::from_slice::<Info>(&body.map_err(storage_error)?)
+            .map(|info| info.summary)
+            .map_err(storage_error)
+    })
+    .collect::<Result<_, Fault>>()?;
     entries.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(entries)
 }
 
-fn next(db: &Connection, name: &str) -> Result<u64, Fault> {
-    let previous: Option<i64> = db
-        .query_row(
-            "SELECT revision FROM plugins WHERE name=?1",
-            [name],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn next(db: &Connection, name: &str) -> Result<u64, Fault> {
+    let previous: Option<i64> = {
+        let mut statement = db
+            .prepare("SELECT revision FROM plugins WHERE name=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([name]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     previous
         .unwrap_or(0)
         .checked_add(1)
@@ -81,38 +102,38 @@ fn next(db: &Connection, name: &str) -> Result<u64, Fault> {
         .ok_or_else(|| Fault::new(ErrorCode::Conflict, "plugin revision exhausted"))
 }
 
-fn save(db: &Connection, info: &Info, installed: bool) -> Result<(), Fault> {
+async fn save(db: &Connection, info: &Info, installed: bool) -> Result<(), Fault> {
     db.execute("INSERT INTO plugins(name,revision,installed,body) VALUES(?1,?2,?3,?4) ON CONFLICT(name) DO UPDATE SET revision=excluded.revision,installed=excluded.installed,body=excluded.body",
-        params![info.summary.name, info.summary.revision as i64, installed, encode(info)?]).map_err(storage_error)?;
+        params![info.summary.name.as_str(), info.summary.revision as i64, installed, encode(info)?]).await.map_err(storage_error)?;
     Ok(())
 }
 
-fn enable(db: &Connection, mut info: Info, enabled: bool) -> Result<Info, Fault> {
+async fn enable(db: &Connection, mut info: Info, enabled: bool) -> Result<Info, Fault> {
     let name = &info.summary.name;
-    info.summary.revision = next(db, name)?;
+    info.summary.revision = next(db, name).await?;
     info.summary.enabled = enabled;
-    save(db, &info, true)?;
+    save(db, &info, true).await?;
     if !enabled {
-        super::agent::continuation::invalidate(db, name)?;
+        super::agent::continuation::invalidate(db, name).await?;
     }
     Ok(info)
 }
 
-pub(super) fn synchronize(
+pub(super) async fn synchronize(
     db: &Connection,
     name: &str,
     enabled: bool,
 ) -> Result<Option<Summary>, Fault> {
-    let Some(info) = get(db, name)? else {
-        if enabled
-            && db
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1 AND installed=0)",
-                    [name],
-                    |row| row.get::<_, bool>(0),
-                )
-                .map_err(storage_error)?
-        {
+    let Some(info) = get(db, name).await? else {
+        if enabled && {
+            let mut statement = db
+                .prepare("SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1 AND installed=0)")
+                .await
+                .map_err(storage_error)?;
+            let row = statement.query_row([name]).await.map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<bool>(0))(&row);
+            mapped.map_err(storage_error)?
+        } {
             return Err(Fault::new(
                 ErrorCode::NotConfigured,
                 "plugin must be installed before enabling it",
@@ -123,41 +144,48 @@ pub(super) fn synchronize(
     if info.summary.enabled == enabled {
         return Ok(None);
     }
-    Ok(Some(enable(db, info, enabled)?.summary))
+    Ok(Some(enable(db, info, enabled).await?.summary))
 }
 
-pub(super) fn check_install(
+pub(super) async fn check_install(
     db: &Connection,
     name: &str,
     expected: u64,
 ) -> Result<Option<Info>, Fault> {
-    let current = get(db, name)?;
+    let current = get(db, name).await?;
     super::commands::check_revision(
         current.as_ref().map_or(0, |info| info.summary.revision),
         expected,
     )?;
-    if current.is_none() && list(db)?.len() >= plugin::MAX_INSTALLED {
+    if current.is_none() && list(db).await?.len() >= plugin::MAX_INSTALLED {
         return Err(Fault::new(ErrorCode::Busy, "plugin inventory is full"));
     }
     Ok(current)
 }
 
-pub(super) fn prepare_enable(db: &Connection, name: &str, expected: u64) -> Result<Info, Fault> {
-    let info = required(db, name)?;
+pub(super) async fn prepare_enable(
+    db: &Connection,
+    name: &str,
+    expected: u64,
+) -> Result<Info, Fault> {
+    let info = required(db, name).await?;
     super::commands::check_revision(info.summary.revision, expected)?;
     Ok(info)
 }
 
-pub(super) fn retain_python(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
-    let packages = list(db)?
-        .into_iter()
-        .map(|summary| required(db, &summary.name))
-        .collect::<Result<_, _>>()?;
+pub(super) async fn retain_python(
+    db: &Connection,
+    host: &crate::plugins::Host,
+) -> Result<(), Fault> {
+    let mut packages = Vec::new();
+    for summary in list(db).await? {
+        packages.push(required(db, &summary.name).await?);
+    }
     host.retain_python(packages);
     Ok(())
 }
 
-pub(super) fn finish(
+pub(super) async fn finish(
     db: &Connection,
     profile: Option<&std::path::Path>,
     command: &Command,
@@ -175,7 +203,7 @@ pub(super) fn finish(
         let Ok(Output::Plugin(prepared)) = result else {
             return Err(storage_error("prepared plugin identity expected"));
         };
-        let current = match prepare_enable(db, name, *expected_revision) {
+        let current = match prepare_enable(db, name, *expected_revision).await {
             Ok(info) => info,
             Err(error) => {
                 *result = Err(error);
@@ -185,10 +213,10 @@ pub(super) fn finish(
         if prepared.summary.reference() != current.summary.reference() {
             return Err(storage_error("prepared plugin identity changed"));
         }
-        let info = enable(db, current, true)?;
-        services::apply(db, &info, true)?;
+        let info = enable(db, current, true).await?;
+        services::apply(db, &info, true).await?;
         let event = Event::PluginChanged(info.summary.clone());
-        *result = Ok(Output::Plugin(mcp::project(db, profile, info)?));
+        *result = Ok(Output::Plugin(mcp::project(db, profile, info).await?));
         return Ok(Some(event));
     }
     if let Command::SavePluginMcp {
@@ -208,17 +236,20 @@ pub(super) fn finish(
             return Err(storage_error("MCP configuration inspection mismatch"));
         }
         db.execute_batch("SAVEPOINT mcp_configuration")
+            .await
             .map_err(storage_error)?;
-        return match mcp::save(db, profile, package, configuration) {
+        return match mcp::save(db, profile, package, configuration).await {
             Ok(info) => {
                 db.execute_batch("RELEASE mcp_configuration")
+                    .await
                     .map_err(storage_error)?;
                 let event = Event::PluginChanged(info.summary.clone());
-                *result = Ok(Output::Plugin(mcp::project(db, profile, info)?));
+                *result = Ok(Output::Plugin(mcp::project(db, profile, info).await?));
                 Ok(Some(event))
             }
             Err(error) => {
                 db.execute_batch("ROLLBACK TO mcp_configuration; RELEASE mcp_configuration")
+                    .await
                     .map_err(storage_error)?;
                 *result = Err(error);
                 Ok(None)
@@ -227,25 +258,28 @@ pub(super) fn finish(
     }
     if matches!(command, Command::InstallMcp { .. }) {
         db.execute_batch("SAVEPOINT mcp_install")
+            .await
             .map_err(storage_error)?;
-        return match finish_package(db, profile, command, result) {
+        return match finish_package(db, profile, command, result).await {
             Ok(event) => {
                 db.execute_batch("RELEASE mcp_install")
+                    .await
                     .map_err(storage_error)?;
                 Ok(event)
             }
             Err(error) => {
                 db.execute_batch("ROLLBACK TO mcp_install; RELEASE mcp_install")
+                    .await
                     .map_err(storage_error)?;
                 *result = Err(error);
                 Ok(None)
             }
         };
     }
-    finish_package(db, profile, command, result)
+    finish_package(db, profile, command, result).await
 }
 
-fn finish_package(
+async fn finish_package(
     db: &Connection,
     profile: Option<&std::path::Path>,
     command: &Command,
@@ -296,7 +330,7 @@ fn finish_package(
     let Ok(Output::Plugin(info)) = result else {
         return Ok(None);
     };
-    let current = match check_install(db, name, *expected_revision) {
+    let current = match check_install(db, name, *expected_revision).await {
         Ok(current) => current,
         Err(error) => {
             *result = Err(error);
@@ -310,8 +344,8 @@ fn finish_package(
     db.execute(
         // Explicit reinstallation refreshes parsed metadata for the same immutable bytes.
         "INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3) ON CONFLICT(digest) DO UPDATE SET body=excluded.body WHERE name=excluded.name",
-        params![info.summary.digest, name, encode(info)?],
-    )
+        params![info.summary.digest.as_str(), name.as_str(), encode(info)?],
+    ).await
     .map_err(storage_error)?;
     info.origin = match command {
         Command::InstallSkillUpload { source, .. } => Some(match source.kind {
@@ -337,18 +371,18 @@ fn finish_package(
         }),
         _ => None,
     };
-    info.summary.revision = next(db, name)?;
+    info.summary.revision = next(db, name).await?;
     info.summary.settings_revision = current
         .as_ref()
         .map_or(0, |info| info.summary.settings_revision);
     info.summary.enabled = match current.as_ref() {
         Some(current) => current.summary.enabled,
-        None if info.summary.revision == 1 => services::initial(db, info)?.unwrap_or(true),
+        None if info.summary.revision == 1 => services::initial(db, info).await?.unwrap_or(true),
         None => true,
     };
-    services::check(db, info)?;
-    policy::check(db, info)?;
-    options::check(db, info)?;
+    services::check(db, info).await?;
+    policy::check(db, info).await?;
+    options::check(db, info).await?;
     if let Some(previous) = &current
         && previous
             .extension
@@ -359,15 +393,17 @@ fn finish_package(
                 .as_ref()
                 .and_then(|extension| extension.enabled_service)
     {
-        services::apply(db, previous, false)?;
+        services::apply(db, previous, false).await?;
     }
-    save(db, info, true)?;
-    if connectors::migrate(db, profile, info)? {
-        super::database::validation::stored(db).map_err(storage_error)?;
+    save(db, info, true).await?;
+    if connectors::migrate(db, profile, info).await? {
+        super::database::validation::stored(db)
+            .await
+            .map_err(storage_error)?;
     }
-    policy::migrate(db, info)?;
-    services::apply(db, info, info.summary.enabled)?;
-    super::agent::continuation::invalidate(db, name)?;
+    policy::migrate(db, info).await?;
+    services::apply(db, info, info.summary.enabled).await?;
+    super::agent::continuation::invalidate(db, name).await?;
     if let Command::InstallMcp {
         definition,
         secrets,
@@ -375,112 +411,125 @@ fn finish_package(
     } = command
     {
         let updates = crate::plugins::standalone_mcp::updates(definition, secrets)?;
-        settings::save(db, &info.summary.reference(), &Default::default(), &updates)?;
-        *info = required(db, name)?;
+        settings::save(db, &info.summary.reference(), &Default::default(), &updates).await?;
+        *info = required(db, name).await?;
     }
-    *info = mcp::project(db, profile, info.clone())?;
+    *info = mcp::project(db, profile, info.clone()).await?;
     Ok(Some(Event::PluginChanged(info.summary.clone())))
 }
 
-pub(super) fn execute(
-    db: &Connection,
-    profile: Option<&std::path::Path>,
-    command: &Command,
-) -> Result<(Output, Option<Event>), Fault> {
+pub(super) fn execute<'a>(
+    db: &'a Connection,
+    profile: Option<&'a std::path::Path>,
+    command: &'a Command,
+) -> sailry_link::Pending<'a, Result<(Output, Option<Event>), Fault>> {
     match command {
-        Command::ListPluginModels => Ok((Output::PluginModels(models::catalog(db)?), None)),
+        Command::ListPluginModels => {
+            Box::pin(async move { Ok((Output::PluginModels(models::catalog(db).await?), None)) })
+        }
         Command::ResolvePluginModel {
             model,
             effort,
             config,
-        } => Ok((
-            Output::SessionConfig(models::session(db, model, *effort, config.as_ref())?),
-            None,
-        )),
-        Command::ReadPluginSettings { package } => {
-            Ok((Output::PluginSettings(settings::read(db, package)?), None))
-        }
-        Command::ReadPluginSecret { package, field } => Ok((
-            Output::PluginSecret(settings::read_secret(db, package, field)?),
-            None,
-        )),
+        } => Box::pin(async move {
+            Ok((
+                Output::SessionConfig(models::session(db, model, *effort, config.as_ref()).await?),
+                None,
+            ))
+        }),
+        Command::ReadPluginSettings { package } => Box::pin(async move {
+            Ok((
+                Output::PluginSettings(settings::read(db, package).await?),
+                None,
+            ))
+        }),
+        Command::ReadPluginSecret { package, field } => Box::pin(async move {
+            Ok((
+                Output::PluginSecret(settings::read_secret(db, package, field).await?),
+                None,
+            ))
+        }),
         Command::SavePluginSettings {
             package,
             values,
             secrets,
-        } => {
-            let state = settings::save(db, package, values, secrets)?;
-            let info = required(db, &package.name)?;
+        } => Box::pin(async move {
+            let state = settings::save(db, package, values, secrets).await?;
+            let info = required(db, &package.name).await?;
             Ok((
                 Output::PluginSettings(state),
                 Some(Event::PluginChanged(info.summary)),
             ))
+        }),
+        Command::ListPlugins => {
+            Box::pin(async move { Ok((Output::Plugins(list(db).await?), None)) })
         }
-        Command::ListPlugins => Ok((Output::Plugins(list(db)?), None)),
-        Command::ReadPlugin { name } => Ok((
-            Output::Plugin(mcp::project(db, profile, required(db, name)?)?),
-            None,
-        )),
-        Command::ReadPluginVersion { package } => {
-            let mut packages =
-                crate::store::agent::plugins::packages(db, std::slice::from_ref(package))?;
+        Command::ReadPlugin { name } => Box::pin(async move {
             Ok((
-                Output::Plugin(mcp::project(db, profile, packages.remove(0))?),
+                Output::Plugin(mcp::project(db, profile, required(db, name).await?).await?),
                 None,
             ))
-        }
+        }),
+        Command::ReadPluginVersion { package } => Box::pin(async move {
+            let mut packages =
+                crate::store::agent::plugins::packages(db, std::slice::from_ref(package)).await?;
+            Ok((
+                Output::Plugin(mcp::project(db, profile, packages.remove(0)).await?),
+                None,
+            ))
+        }),
         Command::SetPluginMcpAllowed {
             package,
             server,
             allowed,
-        } => {
-            let info = mcp::set_allowed(db, profile, package, server, *allowed)?;
+        } => Box::pin(async move {
+            let info = mcp::set_allowed(db, profile, package, server, *allowed).await?;
             let event = Event::PluginChanged(info.summary.clone());
             Ok((
-                Output::Plugin(mcp::project(db, profile, info)?),
+                Output::Plugin(mcp::project(db, profile, info).await?),
                 Some(event),
             ))
-        }
+        }),
         Command::SetPluginEnabled {
             name,
             expected_revision,
             enabled,
-        } => {
-            let info = required(db, name)?;
+        } => Box::pin(async move {
+            let info = required(db, name).await?;
             super::commands::check_revision(info.summary.revision, *expected_revision)?;
-            let info = enable(db, info, *enabled)?;
-            services::apply(db, &info, *enabled)?;
+            let info = enable(db, info, *enabled).await?;
+            services::apply(db, &info, *enabled).await?;
             Ok((
-                Output::Plugin(mcp::project(db, profile, info.clone())?),
+                Output::Plugin(mcp::project(db, profile, info.clone()).await?),
                 Some(Event::PluginChanged(info.summary)),
             ))
-        }
+        }),
         Command::RemovePlugin {
             name,
             expected_revision,
-        } => {
-            let mut info = required(db, name)?;
+        } => Box::pin(async move {
+            let mut info = required(db, name).await?;
             super::commands::check_revision(info.summary.revision, *expected_revision)?;
-            info.summary.revision = next(db, name)?;
+            info.summary.revision = next(db, name).await?;
             info.summary.enabled = false;
-            connectors::remove_mcp(db, &info)?;
-            save(db, &info, false)?;
-            services::apply(db, &info, false)?;
-            super::agent::continuation::invalidate(db, name)?;
+            connectors::remove_mcp(db, &info).await?;
+            save(db, &info, false).await?;
+            services::apply(db, &info, false).await?;
+            super::agent::continuation::invalidate(db, name).await?;
             Ok((
-                Output::Plugins(list(db)?),
+                Output::Plugins(list(db).await?),
                 Some(Event::PluginRemoved { name: name.clone() }),
             ))
-        }
-        _ => Err(storage_error("plugin command expected")),
+        }),
+        _ => Box::pin(async move { Err(storage_error("plugin command expected")) }),
     }
 }
 
-pub(super) fn execute_storage(
+pub(super) async fn execute_storage(
     db: &Connection,
     request: &sailry_protocol::Request,
 ) -> Result<(Output, Option<Event>), Fault> {
-    let output = storage::execute(db, request)?;
+    let output = storage::execute(db, request).await?;
     let changed = matches!(
         request.command,
         Command::WritePluginValue { .. }
@@ -500,8 +549,10 @@ pub(super) fn execute_storage(
     Ok((output, event))
 }
 
-fn required(db: &Connection, name: &str) -> Result<Info, Fault> {
-    get(db, name)?.ok_or_else(|| Fault::new(ErrorCode::NotFound, "plugin is not installed"))
+async fn required(db: &Connection, name: &str) -> Result<Info, Fault> {
+    get(db, name)
+        .await?
+        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "plugin is not installed"))
 }
 pub(super) mod execution;
 

@@ -11,16 +11,20 @@ fn options(text: &str) -> Query {
     }
 }
 
-fn read(fixture: &Fixture, query: &Query) -> search::Page {
-    search(&fixture.database.connection, fixture.session, query).unwrap()
+async fn read(fixture: &Fixture, query: &Query) -> search::Page {
+    search(&fixture.database.connection, fixture.session, query)
+        .await
+        .unwrap()
 }
 
-#[test]
-fn matches_literal_unicode() {
-    let mut fixture = Fixture::new();
-    let first = fixture.completed(&["before ÄBC 中文 🙂 after", "literal .* and [text]"]);
-    let second = fixture.completed(&["More äbc text"]);
-    let found = read(&fixture, &options("äbc"));
+#[tokio::test]
+async fn matches_literal_unicode() {
+    let mut fixture = Fixture::new().await;
+    let first = fixture
+        .completed(&["before ÄBC 中文 🙂 after", "literal .* and [text]"])
+        .await;
+    let second = fixture.completed(&["More äbc text"]).await;
+    let found = read(&fixture, &options("äbc")).await;
     assert_eq!(
         found
             .matches
@@ -33,7 +37,7 @@ fn matches_literal_unicode() {
         &found.matches[1].snippet[found.matches[1].highlight.clone()],
         "ÄBC"
     );
-    let full = fixture.read(None, 100).page;
+    let full = fixture.read(None, 100).await.page;
     for found in &found.matches {
         let entry = full
             .entries
@@ -61,12 +65,13 @@ fn matches_literal_unicode() {
             case_sensitive: true,
             ..options("äbc")
         },
-    );
+    )
+    .await;
     assert_eq!(exact.matches.len(), 1);
     assert_eq!(exact.matches[0].turn, second);
-    assert_eq!(read(&fixture, &options(".*")).matches.len(), 1);
-    assert_eq!(read(&fixture, &options("中文 🙂")).matches.len(), 1);
-    assert!(read(&fixture, &options("missing")).matches.is_empty());
+    assert_eq!(read(&fixture, &options(".*")).await.matches.len(), 1);
+    assert_eq!(read(&fixture, &options("中文 🙂")).await.matches.len(), 1);
+    assert!(read(&fixture, &options("missing")).await.matches.is_empty());
 
     let mut event = AdkEvent::new("search-fixture");
     event.author = "assistant".into();
@@ -88,19 +93,26 @@ fn matches_literal_unicode() {
         .actions
         .state_delta
         .insert("value".into(), json!("hidden-marker"));
-    fixture.append([event]);
-    assert!(read(&fixture, &options("hidden-marker")).matches.is_empty());
-    let visible = read(&fixture, &options("visible marker"));
+    fixture.append([event]).await;
+    assert!(
+        read(&fixture, &options("hidden-marker"))
+            .await
+            .matches
+            .is_empty()
+    );
+    let visible = read(&fixture, &options("visible marker")).await;
     assert_eq!(visible.matches.len(), 1);
     assert_eq!(visible.matches[0].part, 1);
 }
 
-#[test]
-fn bounds_sparse_scans() {
-    let mut fixture = Fixture::new();
-    let first = fixture.completed(&["old needle 中文 🙂"]);
-    fixture.completed(&vec!["unrelated entry"; MAX_EVENTS + 10]);
-    let page = read(&fixture, &options("needle"));
+#[tokio::test]
+async fn bounds_sparse_scans() {
+    let mut fixture = Fixture::new().await;
+    let first = fixture.completed(&["old needle 中文 🙂"]).await;
+    fixture
+        .completed(&vec!["unrelated entry"; MAX_EVENTS + 10])
+        .await;
+    let page = read(&fixture, &options("needle")).await;
     assert!(page.matches.is_empty());
     let next = read(
         &fixture,
@@ -108,7 +120,8 @@ fn bounds_sparse_scans() {
             before: page.next_before,
             ..options("needle")
         },
-    );
+    )
+    .await;
     assert_eq!(next.matches.len(), 1);
     assert_eq!(next.matches[0].turn, first);
     assert_eq!(next.next_before, None);
@@ -117,8 +130,8 @@ fn bounds_sparse_scans() {
         "首".repeat(250_000),
         "尾".repeat(250_000)
     );
-    fixture.completed(&[large.as_str(); 5]);
-    let bounded = read(&fixture, &options("needle 中文 🙂"));
+    fixture.completed(&[large.as_str(); 5]).await;
+    let bounded = read(&fixture, &options("needle 中文 🙂")).await;
     assert_eq!(bounded.matches.len(), 3);
     assert!(bounded.next_before.is_some());
     for found in bounded.matches {
@@ -131,7 +144,8 @@ fn bounds_sparse_scans() {
             limit: 1,
             ..options("needle")
         },
-    );
+    )
+    .await;
     let later = read(
         &fixture,
         &Query {
@@ -139,32 +153,38 @@ fn bounds_sparse_scans() {
             before: single.next_before,
             ..options("needle")
         },
-    );
+    )
+    .await;
     assert!(single.matches[0].sequence > later.matches[0].sequence);
     assert_eq!(single.next_before, Some(single.matches[0].sequence));
 }
 
-#[test]
-fn validates_scope_without_persistence() {
-    let mut fixture = Fixture::new();
-    fixture.completed(&["search fixture"]);
-    let before = fixture.read(None, 1).page.entries[0].sequence;
-    let request_count = || {
-        fixture
-            .database
-            .connection
-            .query_row("SELECT COUNT(*) FROM requests", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .unwrap()
-    };
-    let count = request_count();
+#[tokio::test]
+async fn validates_scope_without_persistence() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["search fixture"]).await;
+    let before = fixture.read(None, 1).await.page.entries[0].sequence;
+    let count = fixture
+        .database
+        .connection
+        .prepare("SELECT COUNT(*) FROM requests")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<i64>(0)
+        .unwrap();
     let cursor = fixture
         .database
         .connection
-        .query_row("SELECT MAX(cursor) FROM events", [], |row| {
-            row.get::<_, i64>(0)
-        })
+        .prepare("SELECT MAX(cursor) FROM events")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<i64>(0)
         .unwrap();
     let result = command(
         &mut fixture.database,
@@ -173,14 +193,20 @@ fn validates_scope_without_persistence() {
             session: fixture.session,
             query: options("fixture"),
         },
-    );
+    )
+    .await;
     assert!(matches!(result, Output::ConversationMatches(_)));
     assert_eq!(
         fixture
             .database
             .connection
-            .query_row("SELECT COUNT(*) FROM requests", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT COUNT(*) FROM requests")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
             .unwrap(),
         count
     );
@@ -188,8 +214,13 @@ fn validates_scope_without_persistence() {
         fixture
             .database
             .connection
-            .query_row("SELECT MAX(cursor) FROM events", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT MAX(cursor) FROM events")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
             .unwrap(),
         cursor
     );
@@ -219,6 +250,7 @@ fn validates_scope_without_persistence() {
                 fixture.session,
                 &invalid_query
             )
+            .await
             .unwrap_err()
             .code,
             ErrorCode::InvalidRequest
@@ -230,12 +262,13 @@ fn validates_scope_without_persistence() {
             SessionId::new(),
             &options("fixture")
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::NotFound
     );
     let Output::Snapshot(snapshot) =
-        command(&mut fixture.database, &fixture.events, Command::Snapshot)
+        command(&mut fixture.database, &fixture.events, Command::Snapshot).await
     else {
         panic!("snapshot expected")
     };
@@ -247,7 +280,9 @@ fn validates_scope_without_persistence() {
             worktree: None,
             config: Some(snapshot.sessions[0].config.clone()),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("session expected")
     };
     assert_eq!(
@@ -259,6 +294,7 @@ fn validates_scope_without_persistence() {
                 ..options("fixture")
             }
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::WrongTarget

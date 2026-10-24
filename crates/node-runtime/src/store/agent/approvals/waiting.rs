@@ -90,10 +90,18 @@ impl Drop for Pending {
     }
 }
 
-pub(in crate::store) fn check_waiter(waiting: &Waiting, id: ApprovalId) -> Result<(), Fault> {
-    if waiting.get(&id).is_some_and(|(_, _, deadline, reply)| {
-        reply.as_ref().is_none_or(oneshot::Sender::is_closed) || Instant::now() >= *deadline
-    }) {
+pub(in crate::store) fn check_waiter(
+    waiting: &std::sync::Mutex<Waiting>,
+    id: ApprovalId,
+) -> Result<(), Fault> {
+    if waiting
+        .lock()
+        .unwrap()
+        .get(&id)
+        .is_some_and(|(_, _, deadline, reply)| {
+            reply.as_ref().is_none_or(oneshot::Sender::is_closed) || Instant::now() >= *deadline
+        })
+    {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "approval is no longer awaited",
@@ -102,12 +110,14 @@ pub(in crate::store) fn check_waiter(waiting: &Waiting, id: ApprovalId) -> Resul
     Ok(())
 }
 
-pub(in crate::store) fn prune(
+pub(in crate::store) async fn prune(
     database: &mut Database,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
     let closed: Vec<_> = database
         .approvals
+        .lock()
+        .unwrap()
         .iter()
         .filter(|(_, (_, _, deadline, reply))| {
             reply.as_ref().is_none_or(oneshot::Sender::is_closed) || Instant::now() >= *deadline
@@ -115,45 +125,50 @@ pub(in crate::store) fn prune(
         .map(|(id, _)| *id)
         .collect();
     for id in closed {
-        close(database, id, events)?;
+        close(database, id, events).await?;
     }
     Ok(())
 }
 
-pub(in crate::store) fn cancel(
+pub(in crate::store) async fn cancel(
     database: &mut Database,
     turn: TurnId,
     call: &str,
     owner: RequestId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let result: Result<(), Fault> = (|| {
-        let id: Option<String> = database
-            .connection
-            .query_row(
-                "SELECT id FROM agent_approvals WHERE turn=?1 AND call=?2",
-                params![turn.to_string(), call],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(storage_error)?;
+    let result: Result<(), Fault> = (async || {
+        let id: Option<String> = {
+            let mut statement = database
+                .connection
+                .prepare("SELECT id FROM agent_approvals WHERE turn=?1 AND call=?2")
+                .await
+                .map_err(storage_error)?;
+            match statement.query_row(params![turn.to_string(), call]).await {
+                Ok(row) => {
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
+            }
+        };
         let Some(id) = id else { return Ok(()) };
         let id = id.parse().map_err(storage_error)?;
-        if database
-            .approvals
-            .get(&id)
-            .is_some_and(|(active_turn, active_owner, _, _)| {
-                *active_turn == turn && *active_owner == owner
-            })
-        {
-            close(database, id, events)?;
+        let awaited = database.approvals.lock().unwrap().get(&id).is_some_and(
+            |(active_turn, active_owner, _, _)| *active_turn == turn && *active_owner == owner,
+        );
+        if awaited {
+            close(database, id, events).await?;
         }
         Ok(())
-    })();
+    })()
+    .await;
     if let Err(error) = &result {
         // Keep this closed owner until durable cleanup succeeds. Removing it here
         // would let a late decision treat the still-Pending record as unawaited.
-        for (active_turn, active_owner, _, reply) in database.approvals.values_mut() {
+        for (active_turn, active_owner, _, reply) in database.approvals.lock().unwrap().values_mut()
+        {
             if *active_turn == turn
                 && *active_owner == owner
                 && let Some(reply) = reply.take()
@@ -165,21 +180,53 @@ pub(in crate::store) fn cancel(
     result
 }
 
-fn close(
+async fn close(
     database: &mut Database,
     id: ApprovalId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let mut approval = get(&transaction, id)?;
-    if approval.state != ApprovalState::Pending {
-        return Ok(());
+    let mut transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
+    let prepared: Result<_, Fault> = async {
+        let mut approval = get(&transaction, id).await?;
+        if approval.state != ApprovalState::Pending {
+            return Ok(None);
+        }
+        approval.state = ApprovalState::Cancelled;
+        put(&transaction, &approval).await?;
+        let envelope = changed(&transaction, database.node, approval.session).await?;
+        Ok(Some((approval, envelope)))
     }
-    approval.state = ApprovalState::Cancelled;
-    put(&transaction, &approval)?;
-    let envelope = changed(&transaction, database.node, approval.session)?;
-    transaction.commit().map_err(storage_error)?;
-    if let Some((_, _, _, Some(reply))) = database.approvals.remove(&id) {
+    .await;
+    let Some((approval, envelope)) = (match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            transaction.rollback().await.map_err(storage_error)?;
+            return Err(error);
+        }
+    }) else {
+        transaction.rollback().await.map_err(storage_error)?;
+        return Ok(());
+    };
+    #[cfg(any(test, feature = "test-support"))]
+    super::fixture::wait(&database.approval_commit, true, &transaction).await;
+    // Settle failed commits here rather than leaving a deferred rollback on
+    // the connection used by the next approval cleanup.
+    transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+    if let Err(error) = transaction.commit().await {
+        if !database.connection.is_autocommit().map_err(storage_error)? {
+            database
+                .connection
+                .execute("ROLLBACK", ())
+                .await
+                .map_err(storage_error)?;
+        }
+        return Err(storage_error(error));
+    }
+    if let Some((_, _, _, Some(reply))) = database.approvals.lock().unwrap().remove(&id) {
         let _ = reply.send(Ok(Decision::Deny));
     }
     let _ = events.send(envelope);

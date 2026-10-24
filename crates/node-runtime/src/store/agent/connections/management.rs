@@ -48,7 +48,7 @@ fn revision<T>(id: Option<T>, revision: Option<u64>) -> Result<u64, Fault> {
     }
 }
 
-pub(super) fn database(
+pub(super) async fn database(
     db: &Connection,
     turn: TurnId,
     package: &plugin::Reference,
@@ -56,22 +56,28 @@ pub(super) fn database(
     input: DatabaseInput,
 ) -> Result<Command, Fault> {
     let expected_revision = revision(input.connection, input.expected_revision)?;
-    let previous = input
-        .connection
-        .map(|id| {
-            check(db, turn, package, Resource::Database(id), captured)?;
-            super::super::super::databases::read(db, id)?.ok_or_else(|| {
-                Fault::new(ErrorCode::NotFound, "database connection does not exist")
-            })
-        })
-        .transpose()?;
+    let previous = (match input.connection {
+        Some(value) => Some(
+            (async |id| {
+                check(db, turn, package, Resource::Database(id), captured).await?;
+                super::super::super::databases::read(db, id)
+                    .await?
+                    .ok_or_else(|| {
+                        Fault::new(ErrorCode::NotFound, "database connection does not exist")
+                    })
+            })(value)
+            .await,
+        ),
+        None => None,
+    })
+    .transpose()?;
     if previous.is_none() {
-        creation(db, turn)?;
+        creation(db, turn).await?;
     }
     let mut profile = previous.clone().unwrap_or(database::Profile {
         id: DatabaseId::new(),
         revision: 0,
-        sharing: sharing(db, turn)?,
+        sharing: sharing(db, turn).await?,
         name: String::new(),
         connection: database::Connection::Sqlite {
             path: String::new(),
@@ -114,7 +120,7 @@ pub(super) fn database(
                 };
                 database::Connection::Sqlite {
                     path: match input.path {
-                        Some(path) => sqlite_path(db, turn, path)?,
+                        Some(path) => sqlite_path(db, turn, path).await?,
                         None => required(existing, "path")?,
                     },
                 }
@@ -188,20 +194,26 @@ pub(super) fn database(
     })
 }
 
-fn sqlite_path(db: &Connection, turn: TurnId, path: String) -> Result<String, Fault> {
+async fn sqlite_path(db: &Connection, turn: TurnId, path: String) -> Result<String, Fault> {
     if std::path::Path::new(&path).is_absolute() {
         return Ok(path);
     }
     let parts = crate::files::path::components(path.strip_prefix("./").unwrap_or(&path), false)?;
-    let run = super::super::calls::active(db, turn)?;
-    let root: Option<String> = db
-        .query_row(
-            "SELECT path FROM worktrees WHERE id=?1",
-            [run.worktree.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let run = super::super::calls::active(db, turn).await?;
+    let root: Option<String> = {
+        let mut statement = db
+            .prepare("SELECT path FROM worktrees WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([run.worktree.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let root = root.ok_or_else(|| Fault::new(ErrorCode::NotFound, "worktree does not exist"))?;
     let mut resolved = std::path::PathBuf::from(root);
     if !resolved.is_absolute() {
@@ -216,7 +228,7 @@ fn sqlite_path(db: &Connection, turn: TurnId, path: String) -> Result<String, Fa
         .map_err(|_| Fault::invalid("database path must be UTF-8"))
 }
 
-pub(super) fn ssh(
+pub(super) async fn ssh(
     db: &Connection,
     turn: TurnId,
     package: &plugin::Reference,
@@ -224,16 +236,21 @@ pub(super) fn ssh(
     input: SshInput,
 ) -> Result<Command, Fault> {
     let expected_revision = revision(input.connection, input.expected_revision)?;
-    let previous = input
-        .connection
-        .map(|id| {
-            check(db, turn, package, Resource::Ssh(id), captured)?;
-            super::super::super::ssh::read(db, id)?
-                .ok_or_else(|| Fault::new(ErrorCode::NotFound, "SSH connection does not exist"))
-        })
-        .transpose()?;
+    let previous = (match input.connection {
+        Some(value) => Some(
+            (async |id| {
+                check(db, turn, package, Resource::Ssh(id), captured).await?;
+                super::super::super::ssh::read(db, id)
+                    .await?
+                    .ok_or_else(|| Fault::new(ErrorCode::NotFound, "SSH connection does not exist"))
+            })(value)
+            .await,
+        ),
+        None => None,
+    })
+    .transpose()?;
     if previous.is_none() {
-        creation(db, turn)?;
+        creation(db, turn).await?;
     }
     let authentication = required(
         input
@@ -268,13 +285,18 @@ pub(super) fn ssh(
             .is_some_and(|p| p.authentication == ssh::Authentication::KeyPath)
         {
             // A path edit must retain the existing optional passphrase inside the Node.
-            let body: String = db
-                .query_row(
-                    "SELECT credential FROM ssh_profiles WHERE id=?1",
-                    [previous.as_ref().unwrap().id.to_string()],
-                    |row| row.get(0),
-                )
-                .map_err(storage_error)?;
+            let body: String = {
+                let mut statement = db
+                    .prepare("SELECT credential FROM ssh_profiles WHERE id=?1")
+                    .await
+                    .map_err(storage_error)?;
+                let row = statement
+                    .query_row([previous.as_ref().unwrap().id.to_string()])
+                    .await
+                    .map_err(storage_error)?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped.map_err(storage_error)?
+            };
             let body = zeroize::Zeroizing::new(body);
             let existing: ssh::Credential = serde_json::from_str(&body).map_err(storage_error)?;
             let ssh::Credential::KeyPath { passphrase, .. } = existing else {
@@ -305,7 +327,7 @@ pub(super) fn ssh(
         revision: 0,
         sharing: match &previous {
             Some(profile) => profile.sharing.clone(),
-            None => sharing(db, turn)?,
+            None => sharing(db, turn).await?,
         },
         name: required(
             input
@@ -346,9 +368,10 @@ fn key_path(path: &str) -> Result<(), Fault> {
     Ok(())
 }
 
-fn creation(db: &Connection, turn: TurnId) -> Result<(), Fault> {
-    super::super::calls::active(db, turn)?;
-    if super::super::permissions::config(db, turn)?
+async fn creation(db: &Connection, turn: TurnId) -> Result<(), Fault> {
+    super::super::calls::active(db, turn).await?;
+    if super::super::permissions::config(db, turn)
+        .await?
         .resource
         .is_some()
     {
@@ -360,12 +383,12 @@ fn creation(db: &Connection, turn: TurnId) -> Result<(), Fault> {
     Ok(())
 }
 
-fn sharing(
+async fn sharing(
     db: &Connection,
     turn: TurnId,
 ) -> Result<Option<sailry_protocol::connection::Sharing>, Fault> {
-    let run = super::super::calls::active(db, turn)?;
-    let session = super::super::super::commands::session(db, run.session)?;
+    let run = super::super::calls::active(db, turn).await?;
+    let session = super::super::super::commands::session(db, run.session).await?;
     Ok(session
         .project
         .map(|project| sailry_protocol::connection::Sharing::Projects(vec![project])))

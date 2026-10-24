@@ -202,10 +202,12 @@ async fn shares_execution_login_and_setting_overrides() {
         ] {
             assert!(!public.contains(secret));
         }
-        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let leaked: i64 = database.query_row("SELECT count(*) FROM events WHERE CAST(body AS TEXT) LIKE '%login-secret%' OR CAST(body AS TEXT) LIKE '%ambient-model-secret%'", [], |row| row.get(0)).unwrap();
+        let leaked: i64 = node.with_storage(|database| Box::pin(async move {
+            database.prepare("SELECT count(*) FROM events WHERE CAST(body AS TEXT) LIKE '%login-secret%' OR CAST(body AS TEXT) LIKE '%ambient-model-secret%'").await.map_err(crate::database_fixture::fault)?
+                .query_row(()).await.map_err(crate::database_fixture::fault)?
+                .get(0).map_err(crate::database_fixture::fault)
+        })).await.unwrap();
         assert_eq!(leaked, 0);
-        drop(database);
         node.shutdown().await.unwrap();
         controller.shutdown().await.unwrap();
     }

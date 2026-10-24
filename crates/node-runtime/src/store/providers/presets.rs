@@ -1,27 +1,30 @@
 //! Current declarations resolve once at admission; history retains its captured binding.
 use crate::store::database::{encode, storage_error};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
     ErrorCode, Fault,
     conversation::{Provider, presets::*},
     plugin,
 };
+use turso::{Connection, params};
 
-fn cached(db: &Connection) -> Result<Vec<Preset>, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM channel_presets WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
+async fn cached(db: &Connection) -> Result<Vec<Preset>, Fault> {
+    let mut statement = db
+        .prepare("SELECT body FROM channel_presets WHERE singleton=1")
+        .await
         .map_err(storage_error)?;
-    Ok(body
-        .and_then(|body| crate::providers::presets::parse(&body).ok())
-        .map_or_else(Vec::new, |catalog| catalog.partners))
+    let row = match statement.query_row(()).await {
+        Ok(row) => row,
+        Err(turso::Error::QueryReturnedNoRows) => return Ok(Vec::new()),
+        Err(error) => return Err(storage_error(error)),
+    };
+    Ok(
+        crate::providers::presets::parse(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+            .ok()
+            .map_or_else(Vec::new, |catalog| catalog.partners),
+    )
 }
 
-pub(in crate::store) fn list(
+pub(in crate::store) async fn list(
     db: &Connection,
     catalog: Option<&Catalog>,
     unavailable: bool,
@@ -29,7 +32,7 @@ pub(in crate::store) fn list(
     if let Some(catalog) = catalog {
         let bytes = encode(catalog)?;
         crate::providers::presets::parse(&bytes)?;
-        db.execute("INSERT INTO channel_presets(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",params![bytes]).map_err(storage_error)?;
+        db.execute("INSERT INTO channel_presets(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",params![bytes]).await.map_err(storage_error)?;
     }
     let mut entries = crate::providers::presets::bundled()
         .builtin
@@ -47,10 +50,10 @@ pub(in crate::store) fn list(
         .collect::<Vec<_>>();
     for entry in &mut entries {
         if let Auth::Builtin { authentication } = entry.preset.auth {
-            entry.login = crate::store::login::model_auth::presentation(db, authentication)?;
+            entry.login = crate::store::login::model_auth::presentation(db, authentication).await?;
         }
     }
-    entries.extend(cached(db)?.into_iter().map(|preset| Entry {
+    entries.extend(cached(db).await?.into_iter().map(|preset| Entry {
         source: Source::Partner,
         preset,
         provenance: Provenance::ThirdParty,
@@ -60,11 +63,11 @@ pub(in crate::store) fn list(
         icon: None,
         login: None,
     }));
-    for summary in crate::store::plugins::list(db)? {
+    for summary in crate::store::plugins::list(db).await? {
         if !summary.enabled {
             continue;
         }
-        let Some(info) = crate::store::plugins::get(db, &summary.name)? else {
+        let Some(info) = crate::store::plugins::get(db, &summary.name).await? else {
             continue;
         };
         let provenance = match &info.origin {
@@ -127,8 +130,12 @@ pub(in crate::store) fn list(
     })
 }
 
-pub(in crate::store) fn resolve(db: &Connection, reference: &PresetRef) -> Result<Entry, Fault> {
-    list(db, None, false)?
+pub(in crate::store) async fn resolve(
+    db: &Connection,
+    reference: &PresetRef,
+) -> Result<Entry, Fault> {
+    list(db, None, false)
+        .await?
         .entries
         .into_iter()
         .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
@@ -140,7 +147,7 @@ pub(in crate::store) fn resolve(db: &Connection, reference: &PresetRef) -> Resul
         })
 }
 
-pub(in crate::store) fn validate(db: &Connection, provider: &Provider) -> Result<(), Fault> {
+pub(in crate::store) async fn validate(db: &Connection, provider: &Provider) -> Result<(), Fault> {
     if provider.binding.is_some() && !partner_policy(provider)? {
         return Err(Fault::invalid(
             "captured channel bindings cannot be saved as configuration",
@@ -164,7 +171,7 @@ pub(in crate::store) fn validate(db: &Connection, provider: &Provider) -> Result
         }
         return Ok(());
     }
-    let entry = resolve(db, reference)?;
+    let entry = resolve(db, reference).await?;
     let route = entry
         .preset
         .routes
@@ -195,7 +202,7 @@ pub(in crate::store) fn validate(db: &Connection, provider: &Provider) -> Result
 
 /// Public partner entries are suggestions. Their selected request policy is
 /// saved with the channel, rather than resolved from a changing public feed.
-pub(in crate::store) fn save_policy(
+pub(in crate::store) async fn save_policy(
     db: &Connection,
     provider: &mut Provider,
     previous: Option<&Provider>,
@@ -208,7 +215,7 @@ pub(in crate::store) fn save_policy(
     }
     partner_policy(provider)?;
     let reference = provider.preset.as_ref().expect("partner reference checked");
-    let entry = match resolve(db, reference) {
+    let entry = match resolve(db, reference).await {
         Ok(entry) => Some(entry),
         Err(error) if error.code == ErrorCode::NotConfigured => None,
         Err(error) => return Err(error),
@@ -296,48 +303,59 @@ pub(in crate::store) fn partner_policy(provider: &Provider) -> Result<bool, Faul
     Ok(true)
 }
 
-pub(in crate::store) fn discard_invalid_cache(db: &Connection) -> Result<(), Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM channel_presets WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
+pub(in crate::store) async fn discard_invalid_cache(db: &Connection) -> Result<(), Fault> {
+    let mut statement = db
+        .prepare("SELECT body FROM channel_presets WHERE singleton=1")
+        .await
         .map_err(storage_error)?;
-    if body.is_some_and(|body| crate::providers::presets::parse(&body).is_err()) {
-        db.execute("DELETE FROM channel_presets WHERE singleton=1", [])
+    let row = match statement.query_row(()).await {
+        Ok(row) => row,
+        Err(turso::Error::QueryReturnedNoRows) => return Ok(()),
+        Err(error) => return Err(storage_error(error)),
+    };
+    let body = row.get::<Vec<u8>>(0).map_err(storage_error)?;
+    drop(statement);
+    if crate::providers::presets::parse(&body).is_err() {
+        db.execute("DELETE FROM channel_presets WHERE singleton=1", ())
+            .await
             .map_err(storage_error)?;
     }
     Ok(())
 }
 
-pub(in crate::store) fn capture(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
-    bind(db, provider, true)
-}
-
-pub(in crate::store) fn capture_read(
+pub(in crate::store) async fn capture(
     db: &Connection,
     provider: &mut Provider,
 ) -> Result<(), Fault> {
-    bind(db, provider, false)
+    bind(db, provider, true).await
+}
+
+pub(in crate::store) async fn capture_read(
+    db: &Connection,
+    provider: &mut Provider,
+) -> Result<(), Fault> {
+    bind(db, provider, false).await
 }
 
 /// Fresh roots resolve current package declarations. Inherited turns retain
 /// their original package and configuration during execution.
-pub(in crate::store) fn refresh(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
+pub(in crate::store) async fn refresh(
+    db: &Connection,
+    provider: &mut Provider,
+) -> Result<(), Fault> {
     if !partner_policy(provider)? {
         provider.binding = None;
     }
-    provider.consent =
-        super::configuration::get(db, provider.id)?.and_then(|current| current.consent);
-    capture(db, provider)
+    provider.consent = super::configuration::get(db, provider.id)
+        .await?
+        .and_then(|current| current.consent);
+    capture(db, provider).await
 }
 
-fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Result<(), Fault> {
+async fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Result<(), Fault> {
     // A profile inherited by a child already contains the parent's exact binding.
     if provider.binding.is_some() {
-        verify(db, provider)?;
+        verify(db, provider).await?;
         return if messages
             && provider
                 .binding
@@ -352,7 +370,7 @@ fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Result<(), 
             Ok(())
         };
     }
-    validate(db, provider)?;
+    validate(db, provider).await?;
     let mut binding = Binding::default();
     if provider.authentication == sailry_protocol::Authentication::ApiKey
         && provider.api == sailry_protocol::conversation::ModelApi::ChatCompletions
@@ -364,7 +382,7 @@ fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Result<(), 
             provider.binding = Some(Box::new(binding));
             return Ok(());
         }
-        let entry = resolve(db, reference)?;
+        let entry = resolve(db, reference).await?;
         binding.package = entry.package;
         binding.origin = entry.origin;
         binding.capabilities = entry.preset.capabilities;
@@ -379,37 +397,35 @@ fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Result<(), 
         if let Auth::Plugin { flow } = entry.preset.auth {
             binding.auth = Some(plugin::model_auth::Binding { flow });
         }
-        binding.adapter = entry
-            .preset
-            .adapter
-            .map(|adapter| {
-                let package = binding
-                    .package
-                    .as_ref()
-                    .ok_or_else(|| Fault::invalid("model adapter requires its package"))?;
-                let info =
-                    crate::store::agent::plugins::packages(db, std::slice::from_ref(package))?
-                        .pop()
-                        .ok_or_else(|| Fault::invalid("model adapter package is unavailable"))?;
-                let declaration = info
-                    .extension
-                    .and_then(|extension| {
-                        extension
-                            .model_adapters
-                            .into_iter()
-                            .find(|item| item.id == adapter)
-                    })
-                    .ok_or_else(|| Fault::invalid("model adapter declaration is unavailable"))?;
-                Ok(plugin::model_adapter::Binding {
-                    adapter,
-                    capabilities: declaration.capabilities,
+        binding.adapter = if let Some(adapter) = entry.preset.adapter {
+            let package = binding
+                .package
+                .as_ref()
+                .ok_or_else(|| Fault::invalid("model adapter requires its package"))?;
+            let info = crate::store::agent::plugins::packages(db, std::slice::from_ref(package))
+                .await?
+                .pop()
+                .ok_or_else(|| Fault::invalid("model adapter package is unavailable"))?;
+            let declaration = info
+                .extension
+                .and_then(|extension| {
+                    extension
+                        .model_adapters
+                        .into_iter()
+                        .find(|item| item.id == adapter)
                 })
+                .ok_or_else(|| Fault::invalid("model adapter declaration is unavailable"))?;
+            Some(plugin::model_adapter::Binding {
+                adapter,
+                capabilities: declaration.capabilities,
             })
-            .transpose()?;
+        } else {
+            None
+        };
         binding.policies.extend(entry.preset.policies);
     }
     provider.binding = Some(Box::new(binding));
-    verify(db, provider)?;
+    verify(db, provider).await?;
     if messages
         && provider
             .binding
@@ -424,7 +440,7 @@ fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Result<(), 
     Ok(())
 }
 
-pub(in crate::store) fn verify(db: &Connection, provider: &Provider) -> Result<(), Fault> {
+pub(in crate::store) async fn verify(db: &Connection, provider: &Provider) -> Result<(), Fault> {
     partner_policy(provider)?;
     if (provider.api == sailry_protocol::conversation::ModelApi::Plugin)
         != provider
@@ -453,7 +469,7 @@ pub(in crate::store) fn verify(db: &Connection, provider: &Provider) -> Result<(
         .as_ref()
         .and_then(|binding| binding.package.as_ref())
     {
-        crate::store::agent::plugins::packages(db, std::slice::from_ref(package))?;
+        crate::store::agent::plugins::packages(db, std::slice::from_ref(package)).await?;
         if !matches!(provider.preset.as_ref().map(|reference|&reference.source),Some(Source::Package{name}) if name==&package.name)
         {
             return Err(Fault::new(

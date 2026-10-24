@@ -6,14 +6,14 @@ use tokio::sync::mpsc;
 mod content;
 pub(in crate::store) use content::Change;
 
-pub(in crate::store) fn read(
+pub(in crate::store) async fn read(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
     path: &str,
 ) -> Result<hunk::Review, Fault> {
     crate::git::valid_path(path)?;
-    let versions = diff::versions(db, session, turn)?;
+    let versions = diff::versions(db, session, turn).await?;
     let file = versions.files.get(path).ok_or_else(missing)?;
     let mut remaining = MAX_DIFF_BYTES;
     let mut partial = versions.partial;
@@ -53,7 +53,7 @@ pub(in crate::store) fn read(
     })
 }
 
-pub(in crate::store) fn prepare(
+pub(in crate::store) async fn prepare(
     database: &Database,
     selection: &hunk::Selection,
     root: &Path,
@@ -72,15 +72,19 @@ pub(in crate::store) fn prepare(
     {
         return Err(Fault::invalid("invalid turn hunk selection"));
     }
-    let versions = diff::versions(&database.connection, selection.session, selection.turn)?;
+    let versions = diff::versions(&database.connection, selection.session, selection.turn).await?;
     let file = versions.files.get(&selection.path).ok_or_else(missing)?;
-    if file.worktree != selection.worktree || database.worktree_root(selection.worktree)? != root {
+    if file.worktree != selection.worktree
+        || database.worktree_root(selection.worktree).await? != root
+    {
         return Err(Fault::new(
             ErrorCode::WrongTarget,
             "turn hunk belongs to another worktree",
         ));
     }
-    database.validate_relocation(&[(root.to_owned(), selection.path.clone())])?;
+    database
+        .validate_relocation(&[(root.to_owned(), selection.path.clone())])
+        .await?;
     for (segment, (before, after)) in file.segments.iter().enumerate() {
         let Ok(changes) = content::split(
             &selection.path,

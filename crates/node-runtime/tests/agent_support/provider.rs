@@ -2,7 +2,7 @@
 use sailry_protocol::{Secret, conversation::Provider};
 
 /// Seed only one selected provider into an already initialized, stopped test profile.
-pub(crate) fn seed(
+pub(crate) async fn seed(
     model: &str,
     id: sailry_protocol::ProviderId,
     profile: &std::path::Path,
@@ -14,12 +14,18 @@ pub(crate) fn seed(
     }
     stored["provider"] = serde_json::to_value(&provider).unwrap();
     stored["quota"] = serde_json::Value::Null;
-    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    db.execute(
-        "INSERT INTO providers(id,body) VALUES(?1,?2)",
-        rusqlite::params![id.to_string(), serde_json::to_vec(&stored).unwrap()],
-    )
-    .unwrap();
+    let (database, mut connection) =
+        crate::database_fixture::open(&profile.join("storage/node.turso"), false).await;
+    let transaction = connection.transaction().await.unwrap();
+    transaction
+        .execute(
+            "INSERT INTO providers(id,body) VALUES(?1,?2)",
+            turso::params![id.to_string(), serde_json::to_vec(&stored).unwrap()],
+        )
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+    crate::database_fixture::close(database, connection).await;
     provider
 }
 

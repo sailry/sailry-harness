@@ -1,9 +1,9 @@
 //! Authentication values belong to their provider configuration, never a separate store.
 //! Provider binding follows sailry-code 67ae9fa0 config_credentials.rs.
-use rusqlite::Connection;
 use sailry_protocol::*;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+use turso::Connection;
 
 use super::configuration::{self, Stored};
 use crate::store::database::storage_error;
@@ -76,13 +76,13 @@ impl Saved {
     }
 }
 
-pub(in crate::store) fn provider_key(
+pub(in crate::store) async fn provider_key(
     db: &Connection,
     node: NodeId,
     provider: ProviderId,
     expected_revision: u64,
 ) -> Result<Option<Secret>, Fault> {
-    let provider = super::current(db, provider, expected_revision)?;
+    let provider = super::current(db, provider, expected_revision).await?;
     if provider.authentication != Authentication::ApiKey {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
@@ -98,14 +98,16 @@ pub(in crate::store) fn provider_key(
             "credential belongs to another Node",
         ));
     }
-    resolve(db, reference.id, provider.id, Authentication::ApiKey).map(|(_, key)| Some(key))
+    resolve(db, reference.id, provider.id, Authentication::ApiKey)
+        .await
+        .map(|(_, key)| Some(key))
 }
 
-pub(in crate::store) fn execute(db: &Connection, command: &Command) -> Result<Output, Fault> {
+pub(in crate::store) async fn execute(db: &Connection, command: &Command) -> Result<Output, Fault> {
     match command {
         Command::ListCredentials => {
             let mut credentials = Vec::new();
-            for stored in configuration::all(db)? {
+            for stored in configuration::all(db).await? {
                 for (id, value) in &stored.authorizations {
                     credentials.push(value.metadata(stored.id, *id)?);
                 }
@@ -132,17 +134,18 @@ pub(in crate::store) fn execute(db: &Connection, command: &Command) -> Result<Ou
             },
             secret,
         )
+        .await
         .map(Output::Credential),
         Command::RevokeCredential {
             id,
             expected_revision,
         } => {
-            let mut stored = configuration::find(db, *id)?.ok_or_else(missing)?;
+            let mut stored = configuration::find(db, *id).await?.ok_or_else(missing)?;
             let value = stored.authorizations.get_mut(id).ok_or_else(missing)?;
             value.revision = revision(value.revision, *expected_revision)?;
             value.key = None;
             let metadata = value.metadata(stored.id, *id)?;
-            configuration::save(db, &stored)?;
+            configuration::save(db, &stored).await?;
             Ok(Output::Credential(metadata))
         }
         _ => Err(Fault::invalid("credential command expected")),
@@ -150,7 +153,7 @@ pub(in crate::store) fn execute(db: &Connection, command: &Command) -> Result<Ou
 }
 
 /// The expected authentication revision is incremented without changing provider selection.
-pub(in crate::store) fn put(
+pub(in crate::store) async fn put(
     db: &Connection,
     mut value: Credential,
     secret: &Secret,
@@ -163,7 +166,7 @@ pub(in crate::store) fn put(
     {
         return Err(Fault::invalid("credential expiry must be in the future"));
     }
-    let previous = get(db, value.id)?;
+    let previous = get(db, value.id).await?;
     value.revision = revision(
         previous.as_ref().map_or(0, |value| value.revision),
         value.revision,
@@ -178,11 +181,13 @@ pub(in crate::store) fn put(
     }
     if previous.is_none() {
         let count: i64 = db
-            .query_row(
-                "SELECT count(*) FROM providers,json_each(providers.body,'$.authorizations')",
-                [],
-                |row| row.get(0),
-            )
+            .prepare("SELECT count(*) FROM providers,json_each(providers.body,'$.authorizations')")
+            .await
+            .map_err(storage_error)?
+            .query_row(())
+            .await
+            .map_err(storage_error)?
+            .get(0)
             .map_err(storage_error)?;
         if count >= 256 {
             return Err(Fault::new(ErrorCode::Busy, "credential capacity exhausted"));
@@ -192,8 +197,9 @@ pub(in crate::store) fn put(
         crate::providers::login::Grant::decode(value.authentication, secret)?;
     }
     value.revoked = false;
-    let mut stored =
-        configuration::load(db, value.provider)?.unwrap_or_else(|| Stored::draft(value.provider));
+    let mut stored = configuration::load(db, value.provider)
+        .await?
+        .unwrap_or_else(|| Stored::draft(value.provider));
     let saved = Saved {
         authentication: value.authentication,
         revision: value.revision,
@@ -206,7 +212,7 @@ pub(in crate::store) fn put(
     };
     let metadata = saved.metadata(value.provider, value.id)?;
     stored.authorizations.insert(value.id, saved);
-    configuration::save(db, &stored)?;
+    configuration::save(db, &stored).await?;
     Ok(metadata)
 }
 
@@ -220,13 +226,13 @@ pub(in crate::store) fn changed(node: NodeId, credential: &Credential) -> Event 
     }
 }
 
-pub(in crate::store) fn validate_authentication(
+pub(in crate::store) async fn validate_authentication(
     db: &Connection,
     id: CredentialId,
     provider: ProviderId,
     authentication: Authentication,
 ) -> Result<Credential, Fault> {
-    let credential = validate(db, id, provider)?;
+    let credential = validate(db, id, provider).await?;
     if credential.authentication != authentication {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
@@ -236,21 +242,22 @@ pub(in crate::store) fn validate_authentication(
     Ok(credential)
 }
 
-pub(in crate::store) fn validate(
+pub(in crate::store) async fn validate(
     db: &Connection,
     id: CredentialId,
     provider: ProviderId,
 ) -> Result<Credential, Fault> {
-    let credential = get(db, id)?.ok_or_else(missing)?;
+    let credential = get(db, id).await?.ok_or_else(missing)?;
     validate_metadata(&credential, provider)?;
     Ok(credential)
 }
 
-pub(in crate::store) fn get(
+pub(in crate::store) async fn get(
     db: &Connection,
     id: CredentialId,
 ) -> Result<Option<Credential>, Fault> {
-    configuration::find(db, id)?
+    configuration::find(db, id)
+        .await?
         .map(|stored| {
             stored
                 .authorizations
@@ -261,13 +268,13 @@ pub(in crate::store) fn get(
         .transpose()
 }
 
-pub(in crate::store) fn resolve(
+pub(in crate::store) async fn resolve(
     db: &Connection,
     id: CredentialId,
     provider: ProviderId,
     authentication: Authentication,
 ) -> Result<(Credential, Secret), Fault> {
-    let stored = configuration::find(db, id)?.ok_or_else(missing)?;
+    let stored = configuration::find(db, id).await?.ok_or_else(missing)?;
     let saved = stored.authorizations.get(&id).ok_or_else(missing)?;
     let metadata = saved.metadata(stored.id, id)?;
     validate_metadata(&metadata, provider)?;
@@ -280,12 +287,12 @@ pub(in crate::store) fn resolve(
     Ok((metadata, saved.key.clone().ok_or_else(missing)?))
 }
 
-pub(in crate::store) fn binding(
+pub(in crate::store) async fn binding(
     db: &Connection,
     id: CredentialId,
     provider: ProviderId,
 ) -> Result<Option<crate::providers::login::plugin::Target>, Fault> {
-    let stored = configuration::find(db, id)?.ok_or_else(missing)?;
+    let stored = configuration::find(db, id).await?.ok_or_else(missing)?;
     if stored.id != provider {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
@@ -300,12 +307,14 @@ pub(in crate::store) fn binding(
         .clone())
 }
 
-pub(in crate::store) fn bind(
+pub(in crate::store) async fn bind(
     db: &Connection,
     credential: &Credential,
     target: crate::providers::login::plugin::Target,
 ) -> Result<(), Fault> {
-    let mut stored = configuration::find(db, credential.id)?.ok_or_else(missing)?;
+    let mut stored = configuration::find(db, credential.id)
+        .await?
+        .ok_or_else(missing)?;
     if target.provider != credential.provider || stored.id != credential.provider {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
@@ -323,11 +332,11 @@ pub(in crate::store) fn bind(
         ));
     }
     saved.auth = Some(target);
-    configuration::save(db, &stored)
+    configuration::save(db, &stored).await
 }
 
-pub(in crate::store) fn needs_binding(db: &Connection) -> Result<bool, Fault> {
-    for stored in configuration::all(db)? {
+pub(in crate::store) async fn needs_binding(db: &Connection) -> Result<bool, Fault> {
+    for stored in configuration::all(db).await? {
         let Some(provider) = stored.provider else {
             continue;
         };
@@ -341,7 +350,7 @@ pub(in crate::store) fn needs_binding(db: &Connection) -> Result<bool, Fault> {
             if let Some((_, package, _)) = crate::plugins::AUTHENTICATIONS
                 .iter()
                 .find(|(authentication, _, _)| *authentication == saved.authentication)
-                && available(db, package)?
+                && available(db, package).await?
             {
                 return Ok(true);
             }
@@ -350,25 +359,27 @@ pub(in crate::store) fn needs_binding(db: &Connection) -> Result<bool, Fault> {
     Ok(false)
 }
 
-fn available(db: &Connection, package: &str) -> Result<bool, Fault> {
-    if let Some(info) = crate::store::plugins::get(db, package)? {
+async fn available(db: &Connection, package: &str) -> Result<bool, Fault> {
+    if let Some(info) = crate::store::plugins::get(db, package).await? {
         return Ok(
             info.summary.enabled && info.origin == Some(sailry_protocol::plugin::Origin::Bundled)
         );
     }
     let recorded: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1)",
-            [package],
-            |row| row.get(0),
-        )
+        .prepare("SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1)")
+        .await
+        .map_err(storage_error)?
+        .query_row([package])
+        .await
+        .map_err(storage_error)?
+        .get(0)
         .map_err(storage_error)?;
     Ok(!recorded)
 }
 
 /// Fill only legacy private ownership metadata; grant bytes and revisions remain unchanged.
-pub(in crate::store) fn initialize(db: &Connection) -> Result<(), Fault> {
-    for mut stored in configuration::all(db)? {
+pub(in crate::store) async fn initialize(db: &Connection) -> Result<(), Fault> {
+    for mut stored in configuration::all(db).await? {
         let Some(provider) = stored.provider.as_ref() else {
             continue;
         };
@@ -386,16 +397,18 @@ pub(in crate::store) fn initialize(db: &Connection) -> Result<(), Fault> {
             else {
                 continue;
             };
-            if !available(db, package)? || crate::store::plugins::get(db, package)?.is_none() {
+            if !available(db, package).await?
+                || crate::store::plugins::get(db, package).await?.is_none()
+            {
                 continue;
             }
-            saved.auth = Some(crate::store::login::model_auth::legacy_target(
-                db, provider, package, flow,
-            )?);
+            saved.auth = Some(
+                crate::store::login::model_auth::legacy_target(db, provider, package, flow).await?,
+            );
             changed = true;
         }
         if changed {
-            configuration::save(db, &stored)?;
+            configuration::save(db, &stored).await?;
         }
     }
     Ok(())
@@ -457,18 +470,26 @@ mod tests {
     use super::*;
     use sailry_protocol::conversation::{ModelApi, Provider};
 
-    #[test]
-    fn binds_legacy_values_without_reencoding() {
+    #[tokio::test]
+    async fn binds_legacy_values_without_reencoding() {
         let directory = tempfile::tempdir().unwrap();
         let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
-        let mut db = Connection::open_in_memory().unwrap();
-        db.execute_batch(include_str!("../schema.sql")).unwrap();
+        let handle = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let mut db = crate::store::database::connect(&handle).await.unwrap();
+        db.execute_batch(include_str!("../schema.sql"))
+            .await
+            .unwrap();
         db.execute(
             "INSERT INTO node(singleton,identity) VALUES(1,?1)",
             [&[1u8; 32][..]],
         )
+        .await
         .unwrap();
-        crate::store::plugins::distribution::install(&mut db, &host).unwrap();
+        crate::store::plugins::distribution::install(&mut db, &host)
+            .await
+            .unwrap();
         let provider = Provider {
             request_max_retries: None,
             stream_max_retries: None,
@@ -488,7 +509,7 @@ mod tests {
             binding: None,
             consent: None,
         };
-        configuration::publish(&db, &provider).unwrap();
+        configuration::publish(&db, &provider).await.unwrap();
         // The exact private string, including whitespace, is the old storage authority.
         let key = Secret::new("{ \"kind\":\"claude_oauth\", \"access\":\"fixture-access\", \"refresh\":\"fixture-refresh\", \"expires_at_ms\":1, \"renewal_pending\":true }".into());
         let credential = put(
@@ -504,11 +525,15 @@ mod tests {
             },
             &key,
         )
+        .await
         .unwrap();
-        let previous = configuration::get(&db, provider.id).unwrap().unwrap();
+        let previous = configuration::get(&db, provider.id).await.unwrap().unwrap();
         let body: serde_json::Value = serde_json::from_slice(
             &crate::store::database::encode(
-                &configuration::load(&db, provider.id).unwrap().unwrap(),
+                &configuration::load(&db, provider.id)
+                    .await
+                    .unwrap()
+                    .unwrap(),
             )
             .unwrap(),
         )
@@ -518,47 +543,68 @@ mod tests {
                 .get("auth")
                 .is_none()
         );
-        initialize(&db).unwrap();
-        assert_eq!(get(&db, credential.id).unwrap(), Some(credential.clone()));
-        let (_, retained) =
-            resolve(&db, credential.id, provider.id, provider.authentication).unwrap();
+        initialize(&db).await.unwrap();
+        assert_eq!(
+            get(&db, credential.id).await.unwrap(),
+            Some(credential.clone())
+        );
+        let (_, retained) = resolve(&db, credential.id, provider.id, provider.authentication)
+            .await
+            .unwrap();
         assert_eq!(retained, key);
         assert_eq!(
-            configuration::get(&db, provider.id).unwrap(),
+            configuration::get(&db, provider.id).await.unwrap(),
             Some(previous)
         );
-        let target = binding(&db, credential.id, provider.id).unwrap().unwrap();
+        let target = binding(&db, credential.id, provider.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(target.package, "claude-auth");
         assert_eq!(target.flow, "subscription");
         let before = crate::store::database::encode(
-            &configuration::load(&db, provider.id).unwrap().unwrap(),
+            &configuration::load(&db, provider.id)
+                .await
+                .unwrap()
+                .unwrap(),
         )
         .unwrap();
-        initialize(&db).unwrap();
+        initialize(&db).await.unwrap();
         assert_eq!(
             crate::store::database::encode(
-                &configuration::load(&db, provider.id).unwrap().unwrap()
+                &configuration::load(&db, provider.id)
+                    .await
+                    .unwrap()
+                    .unwrap()
             )
             .unwrap(),
             before
         );
-        assert!(binding(&db, credential.id, ProviderId::new()).is_err());
+        assert!(
+            binding(&db, credential.id, ProviderId::new())
+                .await
+                .is_err()
+        );
         let mut changed = target.clone();
         changed.origin = sailry_protocol::conversation::consent::Origin::Imported {
             digest: "a".repeat(64),
         };
         assert!(
-            crate::store::login::model_auth::check_binding(&db, &credential, &changed).is_err()
+            crate::store::login::model_auth::check_binding(&db, &credential, &changed)
+                .await
+                .is_err()
         );
         changed = target.clone();
         changed.flow = "another".into();
         assert!(
-            crate::store::login::model_auth::check_binding(&db, &credential, &changed).is_err()
+            crate::store::login::model_auth::check_binding(&db, &credential, &changed)
+                .await
+                .is_err()
         );
         let mut stale = credential.clone();
         stale.revision += 1;
         assert_eq!(
-            bind(&db, &stale, target).unwrap_err().code,
+            bind(&db, &stale, target).await.unwrap_err().code,
             ErrorCode::RevisionConflict
         );
     }

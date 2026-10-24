@@ -8,25 +8,28 @@ pub(super) fn backups(profile: &Path) -> Vec<PathBuf> {
     }
     std::fs::read_dir(directory)
         .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "sqlite3")
-        })
+        .map(|entry| entry.unwrap().path().join("node.turso"))
+        .filter(|path| path.is_file())
         .collect()
 }
 
-pub(super) fn capture(
-    database: &rusqlite::Connection,
+pub(super) async fn capture(
+    database: &turso::Connection,
     turn: TurnId,
 ) -> (String, String, String, i64) {
-    database
-        .query_row(
-            "SELECT plugin,connector,connection,revision FROM turn_connections WHERE turn=?1",
-            [turn.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
+    let row = database
+        .prepare("SELECT plugin,connector,connection,revision FROM turn_connections WHERE turn=?1")
+        .await
         .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .unwrap();
+    (
+        row.get(0).unwrap(),
+        row.get(1).unwrap(),
+        row.get(2).unwrap(),
+        row.get(3).unwrap(),
+    )
 }
 
 #[tokio::test]
@@ -63,15 +66,20 @@ async fn fills_fences_without_rewriting_captures() {
             let id = fixture.node.id();
             fixture.node.shutdown().await.unwrap();
             fixture.controller.handle().disconnect(id).await;
-            let path = profile.join("storage/node.sqlite3");
-            let database = rusqlite::Connection::open(&path).unwrap();
-            let bytes: Vec<u8> = database
-                .query_row(
-                    "SELECT body FROM plugin_connections WHERE id=?1",
-                    [row.id.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            let path = profile.join("storage/node.turso");
+            let (handle, mut connection) = crate::database_fixture::open(&path, false).await;
+            let transaction = connection.transaction().await.unwrap();
+            let database = &transaction;
+            let bytes: Vec<u8> = (async {
+                let mut statement = database
+                    .prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                    .await?;
+                let row = statement.query_row([row.id.to_string()]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap();
             let mut stored: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             stored.as_object_mut().unwrap().remove("auth_revision");
             stored["revision"] = json!(7);
@@ -82,27 +90,34 @@ async fn fills_fences_without_rewriting_captures() {
             database
                 .execute(
                     "UPDATE plugin_connections SET revision=7,body=?1 WHERE id=?2",
-                    rusqlite::params![original, row.id.to_string()],
+                    turso::params![original.as_slice(), row.id.to_string()],
                 )
+                .await
                 .unwrap();
             database
                 .execute(
                     "UPDATE turn_connections SET revision=7 WHERE turn=?1",
                     [turn.to_string()],
                 )
+                .await
                 .unwrap();
             database
                 .execute_batch("DROP INDEX plugin_connections_owner")
+                .await
                 .unwrap();
-            let captured = capture(&database, turn);
-            let plugins: Vec<u8> = database
-                .query_row(
-                    "SELECT plugins FROM turns WHERE id=?1",
-                    [turn.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            database.close().unwrap();
+            let captured = capture(&database, turn).await;
+            let plugins: Vec<u8> = (async {
+                let mut statement = database
+                    .prepare("SELECT plugins FROM turns WHERE id=?1")
+                    .await?;
+                let row = statement.query_row([turn.to_string()]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap();
+            transaction.commit().await.unwrap();
+            crate::database_fixture::close(handle, connection).await;
             let original_file = std::fs::read(&path).unwrap();
             let existing = backups(&profile);
             let restarted = Node::start_empty(&profile).await;
@@ -110,22 +125,21 @@ async fn fills_fences_without_rewriting_captures() {
                 assert!(restarted.is_err());
                 assert_eq!(std::fs::read(&path).unwrap(), original_file);
                 assert_eq!(backups(&profile), existing);
-                let database = rusqlite::Connection::open_with_flags(
-                    &path,
-                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-                )
+                let (handle, database) = crate::database_fixture::open(&path, true).await;
+                assert_eq!(capture(&database, turn).await, captured);
+                let retained: Vec<u8> = (async {
+                    let mut statement = database
+                        .prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                        .await?;
+                    let row = statement.query_row([row.id.to_string()]).await?;
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    mapped
+                })
+                .await
                 .unwrap();
-                assert_eq!(capture(&database, turn), captured);
-                let retained: Vec<u8> = database
-                    .query_row(
-                        "SELECT body FROM plugin_connections WHERE id=?1",
-                        [row.id.to_string()],
-                        |row| row.get(0),
-                    )
-                    .unwrap();
                 assert_eq!(retained, original);
-                assert_eq!(database.query_row::<i64,_,_>("SELECT count(*) FROM sqlite_master WHERE name='plugin_connections_owner'",[],|row|row.get(0)).unwrap(),0);
-                database.close().unwrap();
+                assert_eq!(database.prepare("SELECT count(*) FROM sqlite_master WHERE name='plugin_connections_owner'").await.unwrap().query_row(()).await.unwrap().get::<i64>(0).unwrap(),0);
+                crate::database_fixture::close(handle, database).await;
                 fixture.controller.close().await.unwrap();
                 continue;
             }
@@ -141,53 +155,70 @@ async fn fills_fences_without_rewriting_captures() {
             } else {
                 fixture.node.local()
             });
-            let database = rusqlite::Connection::open_with_flags(
-                &path,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
-            assert_eq!(capture(&database, turn), captured);
-            let retained: Vec<u8> = database
-                .query_row(
-                    "SELECT plugins FROM turns WHERE id=?1",
-                    [turn.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert_eq!(retained, plugins);
-            let current: Vec<u8> = database
-                .query_row(
-                    "SELECT body FROM plugin_connections WHERE id=?1",
-                    [row.id.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            let mut current: serde_json::Value = serde_json::from_slice(&current).unwrap();
-            assert_eq!(current["auth_revision"], 7);
-            current.as_object_mut().unwrap().remove("auth_revision");
-            assert_eq!(current, stored);
-            database.close().unwrap();
+            {
+                let expected_capture = captured.clone();
+                let plugins = plugins.clone();
+                let stored = stored.clone();
+                let connection = row.id;
+                fixture
+                    .node
+                    .with_storage(move |database| {
+                        Box::pin(async move {
+                            assert_eq!(capture(database, turn).await, expected_capture);
+                            let retained: Vec<u8> = (async {
+                                let mut statement = database
+                                    .prepare("SELECT plugins FROM turns WHERE id=?1")
+                                    .await?;
+                                let row = statement.query_row([turn.to_string()]).await?;
+                                let mapped: turso::Result<_> =
+                                    (|row: &turso::Row| row.get(0))(&row);
+                                mapped
+                            })
+                            .await
+                            .unwrap();
+                            assert_eq!(retained, plugins);
+                            let current: Vec<u8> = (async {
+                                let mut statement = database
+                                    .prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                                    .await?;
+                                let row = statement.query_row([connection.to_string()]).await?;
+                                let mapped: turso::Result<_> =
+                                    (|row: &turso::Row| row.get(0))(&row);
+                                mapped
+                            })
+                            .await
+                            .unwrap();
+                            let mut current: serde_json::Value =
+                                serde_json::from_slice(&current).unwrap();
+                            assert_eq!(current["auth_revision"], 7);
+                            current.as_object_mut().unwrap().remove("auth_revision");
+                            assert_eq!(current, stored);
+                            Ok(())
+                        })
+                    })
+                    .await
+                    .unwrap();
+            }
             let backups = backups(&profile);
             assert_eq!(backups.len(), existing.len() + 1);
             let backup = backups
                 .iter()
                 .find(|path| !existing.contains(path))
                 .unwrap();
-            let previous = rusqlite::Connection::open_with_flags(
-                backup,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
+            let (handle, previous) = crate::database_fixture::open(backup, true).await;
+            let retained: Vec<u8> = (async {
+                let mut statement = previous
+                    .prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                    .await?;
+                let row = statement.query_row([row.id.to_string()]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped
+            })
+            .await
             .unwrap();
-            let retained: Vec<u8> = previous
-                .query_row(
-                    "SELECT body FROM plugin_connections WHERE id=?1",
-                    [row.id.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
             assert_eq!(retained, original);
-            assert_eq!(capture(&previous, turn), captured);
-            previous.close().unwrap();
+            assert_eq!(capture(&previous, turn).await, captured);
+            crate::database_fixture::close(handle, previous).await;
             let Output::Connections(rows) = fixture
                 .client
                 .execute(fixture.client.prepare(Command::ListConnections))

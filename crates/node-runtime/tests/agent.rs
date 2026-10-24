@@ -27,6 +27,8 @@ mod connections;
 #[cfg(all(unix, feature = "test-support"))]
 #[path = "support/connectors.rs"]
 mod connector_fixture;
+#[path = "support/database.rs"]
+mod database_fixture;
 #[path = "agent/delegation/mod.rs"]
 mod delegation;
 #[cfg(unix)]
@@ -59,6 +61,8 @@ mod memory;
 #[cfg(unix)]
 #[path = "support/mcp_oauth.rs"]
 mod oauth_server;
+#[path = "agent/observations.rs"]
+mod observations;
 #[path = "agent/office.rs"]
 mod office;
 #[path = "agent/paging.rs"]
@@ -106,8 +110,6 @@ mod tools;
 #[cfg(target_os = "macos")]
 #[path = "support/trash.rs"]
 mod trash_fixture;
-#[path = "agent/observations.rs"]
-mod observations;
 #[path = "agent/usage.rs"]
 mod usage;
 #[path = "agent/web.rs"]

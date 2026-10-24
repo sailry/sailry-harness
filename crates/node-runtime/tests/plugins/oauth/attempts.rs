@@ -26,8 +26,8 @@ pub(super) async fn start(client: &Client, row: &Connection, redirect: bool) -> 
     attempt
 }
 
-fn restored(node: &Node, original: &Connection, before: &Value) {
-    let after: Value = serde_json::from_slice(&lifecycle::stored(node, original.id)).unwrap();
+async fn restored(node: &Node, original: &Connection, before: &Value) {
+    let after: Value = serde_json::from_slice(&lifecycle::stored(node, original.id).await).unwrap();
     assert_eq!(after["state"], "connected");
     assert!(after["login"].is_null());
     assert_eq!(after["revision"], original.revision + 1);
@@ -58,7 +58,8 @@ async fn restores_denied_and_timed_out_accounts() {
                 .summary
                 .reference();
             let original = lifecycle::connect(&client, package).await;
-            let before = serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            let before =
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             let attempt = start(&client, &original, true).await;
             let LoginState::Browser { url, .. } = state(&client, &attempt, |state| {
                 matches!(state, LoginState::Browser { .. })
@@ -115,7 +116,7 @@ async fn restores_denied_and_timed_out_accounts() {
                     ErrorCode::PermissionDenied
                 }
             );
-            restored(&node, &original, &before);
+            restored(&node, &original, &before).await;
             let (command, scope) =
                 super::rejections::request(&original.package, worktree, original.id, false);
             assert!(
@@ -190,7 +191,8 @@ async fn retries_poll_failures_and_restores_expiry() {
             else {
                 unreachable!()
             };
-            let before = serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            let before =
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             issuer.status.store(status, Ordering::SeqCst);
             let attempt = start(&client, &original, false).await;
             state(&client, &attempt, |state| {
@@ -208,7 +210,7 @@ async fn retries_poll_failures_and_restores_expiry() {
                     matches!(result, LoginState::Failed(ref error) if error.code == code),
                     "{remote}/{error}: {result:?}"
                 );
-                restored(&node, &original, &before);
+                restored(&node, &original, &before).await;
             } else {
                 assert!(
                     matches!(result, LoginState::Connected(ref row) if row.state == State::Connected),
@@ -233,7 +235,7 @@ async fn rejects_probes_during_sign_in() {
             .summary
             .reference();
         let original = lifecycle::connect(&client, package).await;
-        let before = serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+        let before = serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
         let attempt = start(&client, &original, true).await;
         state(&client, &attempt, |state| {
             matches!(state, LoginState::Browser { .. })
@@ -247,7 +249,7 @@ async fn rejects_probes_during_sign_in() {
             ErrorCode::Busy
         );
         let pending: Value =
-            serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
         assert_eq!(pending["state"], "connecting");
         execute(
             &client,
@@ -260,7 +262,7 @@ async fn rejects_probes_during_sign_in() {
             matches!(state, LoginState::Cancelled)
         })
         .await;
-        restored(&node, &original, &before);
+        restored(&node, &original, &before).await;
         let probe = client.prepare(Command::ProbeConnection {
             connection: original.id,
         });

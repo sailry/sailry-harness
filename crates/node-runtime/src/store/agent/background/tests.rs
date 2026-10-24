@@ -4,7 +4,13 @@ use sailry_protocol::process::{Access, Capture, Info, Snapshot};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
-fn pending(fixture: &Fixture, turn: TurnId, output: &str) -> String {
+async fn pending(fixture: &Fixture, turn: TurnId, output: &str) -> String {
+    let transaction = turso::transaction::Transaction::new_unchecked(
+        &fixture.database.connection,
+        turso::transaction::TransactionBehavior::Concurrent,
+    )
+    .await
+    .unwrap();
     let id = RequestId::new();
     let mut record = Record {
         task: Task {
@@ -27,23 +33,36 @@ fn pending(fixture: &Fixture, turn: TurnId, output: &str) -> String {
         stderr: None,
         response: None,
         elapsed_ms: Some(1),
-        sequence: next_sequence(&fixture.database.connection).unwrap(),
+        sequence: next_sequence(&fixture.database.connection).await.unwrap(),
     };
-    save(&fixture.database.connection, &mut record).unwrap();
+    save(&fixture.database.connection, &mut record)
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
     record.task.id
 }
 
-fn schedule(fixture: &Fixture) -> Option<QueuedTurn> {
-    super::schedule(
+async fn schedule(fixture: &Fixture) -> Option<QueuedTurn> {
+    let transaction = turso::transaction::Transaction::new_unchecked(
+        &fixture.database.connection,
+        turso::transaction::TransactionBehavior::Concurrent,
+    )
+    .await
+    .unwrap();
+    let scheduled = super::schedule(
         &fixture.database.connection,
         fixture.database.node,
         fixture.session,
     )
-    .unwrap()
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+    scheduled
 }
 
-fn claim(fixture: &mut Fixture) -> Invocation {
+async fn claim(fixture: &mut Fixture) -> Invocation {
     runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap()
 }
@@ -75,7 +94,7 @@ fn event(invocation: &Invocation) -> AdkEvent {
     event
 }
 
-fn append(fixture: &mut Fixture, invocation: &Invocation, event: AdkEvent) {
+async fn append(fixture: &mut Fixture, invocation: &Invocation, event: AdkEvent) {
     super::super::history::append(
         &mut fixture.database,
         fixture.session,
@@ -83,29 +102,34 @@ fn append(fixture: &mut Fixture, invocation: &Invocation, event: AdkEvent) {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
 }
 
-#[test]
-fn delivers_all_bounded_batches() {
+#[tokio::test]
+async fn delivers_all_bounded_batches() {
     for output in ["Result".to_owned(), "\n".repeat(2048)] {
-        let mut fixture = Fixture::new();
-        let source = fixture.completed(&["Started work"]);
-        let ids: BTreeSet<_> = (0..17)
-            .map(|_| pending(&fixture, source, &output))
-            .collect();
-        let queued = schedule(&fixture).unwrap();
-        let reserved = runs::get(&fixture.database.connection, queued.id).unwrap();
+        let mut fixture = Fixture::new().await;
+        let source = fixture.completed(&["Started work"]).await;
+        let mut ids = BTreeSet::new();
+        for _ in 0..17 {
+            ids.insert(pending(&fixture, source, &output).await);
+        }
+        let queued = schedule(&fixture).await.unwrap();
+        let reserved = runs::get(&fixture.database.connection, queued.id)
+            .await
+            .unwrap();
         assert!(reserved.notice);
         assert!(!reserved.notices.is_empty());
         let mut delivered = BTreeSet::new();
         let mut batches = 0;
         while !queue::read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .items
             .is_empty()
         {
-            let invocation = claim(&mut fixture);
+            let invocation = claim(&mut fixture).await;
             assert!(invocation.notice);
             assert!(!invocation.notices.is_empty());
             assert!(invocation.notices.len() <= 16);
@@ -116,16 +140,18 @@ fn delivers_all_bounded_batches() {
             assert_eq!(value.as_array().unwrap().len(), invocation.notices.len());
             for notice in &invocation.notices {
                 let record = get(&fixture.database.connection, &notice.id)
+                    .await
                     .unwrap()
                     .unwrap();
                 assert_eq!(record.task.state, State::Pending);
                 assert_eq!(record.task.delivery, Some(invocation.turn.id));
                 assert!(delivered.insert(notice.id.clone()));
             }
-            append(&mut fixture, &invocation, event(&invocation));
+            append(&mut fixture, &invocation, event(&invocation)).await;
             for notice in &invocation.notices {
                 assert_eq!(
                     get(&fixture.database.connection, &notice.id)
+                        .await
                         .unwrap()
                         .unwrap()
                         .task
@@ -140,38 +166,47 @@ fn delivers_all_bounded_batches() {
                 None,
                 &fixture.events,
             )
+            .await
             .unwrap();
             batches += 1;
         }
         assert!(batches >= 2);
         assert_eq!(delivered, ids);
-        assert!(schedule(&fixture).is_none());
+        assert!(schedule(&fixture).await.is_none());
     }
 }
 
-#[test]
-fn cancelling_reservation_prevents_rescheduling() {
-    let mut fixture = Fixture::new();
-    let source = fixture.completed(&["Started work"]);
-    let id = pending(&fixture, source, "Result");
-    let queued = schedule(&fixture).unwrap();
+#[tokio::test]
+async fn cancelling_reservation_prevents_rescheduling() {
+    let mut fixture = Fixture::new().await;
+    let source = fixture.completed(&["Started work"]).await;
+    let id = pending(&fixture, source, "Result").await;
+    let queued = schedule(&fixture).await.unwrap();
     assert_eq!(
         get(&fixture.database.connection, &id)
+            .await
             .unwrap()
             .unwrap()
             .task
             .delivery,
         Some(queued.id)
     );
-    runs::stop(&fixture.database.connection, queued.id).unwrap();
-    let record = get(&fixture.database.connection, &id).unwrap().unwrap();
+    runs::stop(&fixture.database.connection, queued.id)
+        .await
+        .unwrap();
+    let record = get(&fixture.database.connection, &id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(record.task.state, State::Pending);
     assert_eq!(record.task.delivery, None);
     assert!(record.task.suppressed);
-    assert!(schedule(&fixture).is_none());
-    let newer = pending(&fixture, source, "Later result");
-    let next = schedule(&fixture).unwrap();
-    let run = runs::get(&fixture.database.connection, next.id).unwrap();
+    assert!(schedule(&fixture).await.is_none());
+    let newer = pending(&fixture, source, "Later result").await;
+    let next = schedule(&fixture).await.unwrap();
+    let run = runs::get(&fixture.database.connection, next.id)
+        .await
+        .unwrap();
     assert_eq!(
         run.notices
             .iter()
@@ -181,6 +216,7 @@ fn cancelling_reservation_prevents_rescheduling() {
     );
     assert_eq!(
         get(&fixture.database.connection, &id)
+            .await
             .unwrap()
             .unwrap()
             .task
@@ -189,19 +225,31 @@ fn cancelling_reservation_prevents_rescheduling() {
     );
 }
 
-#[test]
-fn recovers_only_unconfirmed_delivery() {
+#[tokio::test]
+async fn recovers_only_unconfirmed_delivery() {
     for confirmed in [false, true] {
-        let mut fixture = Fixture::new();
-        let source = fixture.completed(&["Started work"]);
-        let id = pending(&fixture, source, "Durable result");
-        schedule(&fixture).unwrap();
-        let invocation = claim(&mut fixture);
+        let mut fixture = Fixture::new().await;
+        let source = fixture.completed(&["Started work"]).await;
+        let id = pending(&fixture, source, "Durable result").await;
+        schedule(&fixture).await.unwrap();
+        let invocation = claim(&mut fixture).await;
         if confirmed {
-            append(&mut fixture, &invocation, event(&invocation));
+            append(&mut fixture, &invocation, event(&invocation)).await;
         }
-        runs::recover(&fixture.database.connection).unwrap();
-        let record = get(&fixture.database.connection, &id).unwrap().unwrap();
+        {
+            let transaction = turso::transaction::Transaction::new_unchecked(
+                &fixture.database.connection,
+                turso::transaction::TransactionBehavior::Concurrent,
+            )
+            .await
+            .unwrap();
+            runs::recover(&transaction).await.unwrap();
+            transaction.commit().await.unwrap();
+        };
+        let record = get(&fixture.database.connection, &id)
+            .await
+            .unwrap()
+            .unwrap();
         if confirmed {
             assert_eq!(record.task.state, State::Delivered);
             assert_eq!(record.task.delivery, Some(invocation.turn.id));
@@ -210,17 +258,17 @@ fn recovers_only_unconfirmed_delivery() {
             assert_eq!(record.task.delivery, None);
             assert!(record.task.recovered && record.task.suppressed);
         }
-        assert!(schedule(&fixture).is_none());
+        assert!(schedule(&fixture).await.is_none());
     }
 }
 
-#[test]
-fn rejects_forged_canonical_confirmation() {
-    let mut fixture = Fixture::new();
-    let source = fixture.completed(&["Started work"]);
-    let id = pending(&fixture, source, "Durable result");
-    schedule(&fixture).unwrap();
-    let invocation = claim(&mut fixture);
+#[tokio::test]
+async fn rejects_forged_canonical_confirmation() {
+    let mut fixture = Fixture::new().await;
+    let source = fixture.completed(&["Started work"]).await;
+    let id = pending(&fixture, source, "Durable result").await;
+    schedule(&fixture).await.unwrap();
+    let invocation = claim(&mut fixture).await;
     let mut forged = event(&invocation);
     forged.set_content(adk_core::Content::new("user").with_text("Different evidence"));
     assert!(
@@ -231,10 +279,12 @@ fn rejects_forged_canonical_confirmation() {
             forged.clone(),
             &fixture.events
         )
+        .await
         .is_err()
     );
     assert_eq!(
         get(&fixture.database.connection, &id)
+            .await
             .unwrap()
             .unwrap()
             .task
@@ -244,23 +294,26 @@ fn rejects_forged_canonical_confirmation() {
     let count: i64 = fixture
         .database
         .connection
-        .query_row(
-            "SELECT count(*) FROM agent_events WHERE id=?1",
-            [&forged.id],
-            |row| row.get(0),
-        )
+        .prepare("SELECT count(*) FROM agent_events WHERE id=?1")
+        .await
+        .unwrap()
+        .query_row([forged.id.as_str()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(count, 0);
     let canonical = event(&invocation);
-    append(&mut fixture, &invocation, canonical.clone());
+    append(&mut fixture, &invocation, canonical.clone()).await;
     let revision = get(&fixture.database.connection, &id)
+        .await
         .unwrap()
         .unwrap()
         .task
         .revision;
-    append(&mut fixture, &invocation, canonical);
+    append(&mut fixture, &invocation, canonical).await;
     assert_eq!(
         get(&fixture.database.connection, &id)
+            .await
             .unwrap()
             .unwrap()
             .task
@@ -269,7 +322,13 @@ fn rejects_forged_canonical_confirmation() {
     );
 }
 
-fn command(fixture: &Fixture, turn: TurnId) -> (Request, Snapshot) {
+async fn command(fixture: &Fixture, turn: TurnId) -> (Request, Snapshot) {
+    let transaction = turso::transaction::Transaction::new_unchecked(
+        &fixture.database.connection,
+        turso::transaction::TransactionBehavior::Concurrent,
+    )
+    .await
+    .unwrap();
     let request = Request::new(
         fixture.database.node,
         Command::RunCommand {
@@ -285,8 +344,10 @@ fn command(fixture: &Fixture, turn: TurnId) -> (Request, Snapshot) {
         },
     );
     command_started(&fixture.database.connection, &request)
+        .await
         .unwrap()
         .unwrap();
+    transaction.commit().await.unwrap();
     let snapshot = Snapshot {
         info: Info {
             id: request.id,
@@ -309,29 +370,45 @@ fn command(fixture: &Fixture, turn: TurnId) -> (Request, Snapshot) {
     (request, snapshot)
 }
 
-#[test]
-fn terminal_read_wins_late_completion() {
-    let mut fixture = Fixture::new();
-    let queued = fixture.queued();
-    runs::start(&fixture.database.connection, queued).unwrap();
-    let invocation = claim(&mut fixture);
-    let (request, snapshot) = command(&fixture, invocation.turn.id);
-    let changed =
-        consume_command(&fixture.database.connection, invocation.turn.id, &snapshot).unwrap();
+#[tokio::test]
+async fn terminal_read_wins_late_completion() {
+    let mut fixture = Fixture::new().await;
+    let queued = fixture.queued().await;
+    runs::start(&fixture.database.connection, queued)
+        .await
+        .unwrap();
+    let invocation = claim(&mut fixture).await;
+    let (request, snapshot) = command(&fixture, invocation.turn.id).await;
+    let changed = {
+        let transaction = turso::transaction::Transaction::new_unchecked(
+            &fixture.database.connection,
+            turso::transaction::TransactionBehavior::Concurrent,
+        )
+        .await
+        .unwrap();
+        let changed = consume_command(&transaction, invocation.turn.id, &snapshot)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        changed
+    };
     assert_eq!(changed.len(), 1);
     let id = format!("command:{}", request.id);
     let consumed = get(&fixture.database.connection, &id)
+        .await
         .unwrap()
         .unwrap()
         .task;
     assert_eq!(consumed.state, State::Consumed);
     assert!(
         command_finished(&fixture.database.connection, &snapshot, Some(100), false)
+            .await
             .unwrap()
             .is_none()
     );
     assert_eq!(
         get(&fixture.database.connection, &id)
+            .await
             .unwrap()
             .unwrap()
             .task,
@@ -344,19 +421,21 @@ fn terminal_read_wins_late_completion() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert!(
         queue::read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .items
             .is_empty()
     );
 }
 
-#[test]
-fn records_failures_before_process_start() {
-    let mut fixture = Fixture::new();
-    let queued = fixture.queued();
+#[tokio::test]
+async fn records_failures_before_process_start() {
+    let mut fixture = Fixture::new().await;
+    let queued = fixture.queued().await;
     for (result, expected) in [
         (
             Err(Fault::new(
@@ -379,14 +458,26 @@ fn records_failures_before_process_start() {
             Outcome::Cancelled,
         ),
     ] {
-        let (request, _) = command(&fixture, queued);
-        let returned = records::finish_request(&fixture.database.connection, &request, &result)
-            .unwrap()
+        let (request, _) = command(&fixture, queued).await;
+        let returned = {
+            let transaction = turso::transaction::Transaction::new_unchecked(
+                &fixture.database.connection,
+                turso::transaction::TransactionBehavior::Concurrent,
+            )
+            .await
             .unwrap();
+            let returned = records::finish_request(&transaction, &request, &result)
+                .await
+                .unwrap()
+                .unwrap();
+            transaction.commit().await.unwrap();
+            returned
+        };
         let record = get(
             &fixture.database.connection,
             &format!("command:{}", request.id),
         )
+        .await
         .unwrap()
         .unwrap();
         assert_eq!(record.task.state, State::Pending);
@@ -395,32 +486,43 @@ fn records_failures_before_process_start() {
     }
 }
 
-#[test]
-fn recovers_running_commands_without_replay() {
-    let mut fixture = Fixture::new();
-    let source = fixture.completed(&["Started work"]);
-    let (request, _) = command(&fixture, source);
-    runs::recover(&fixture.database.connection).unwrap();
+#[tokio::test]
+async fn recovers_running_commands_without_replay() {
+    let mut fixture = Fixture::new().await;
+    let source = fixture.completed(&["Started work"]).await;
+    let (request, _) = command(&fixture, source).await;
+    {
+        let transaction = turso::transaction::Transaction::new_unchecked(
+            &fixture.database.connection,
+            turso::transaction::TransactionBehavior::Concurrent,
+        )
+        .await
+        .unwrap();
+        runs::recover(&transaction).await.unwrap();
+        transaction.commit().await.unwrap();
+    };
     let record = get(
         &fixture.database.connection,
         &format!("command:{}", request.id),
     )
+    .await
     .unwrap()
     .unwrap();
     assert_eq!(record.task.state, State::Pending);
     assert_eq!(record.task.outcome, Some(Outcome::Interrupted));
     assert!(record.task.recovered && record.task.suppressed);
-    assert!(schedule(&fixture).is_none());
+    assert!(schedule(&fixture).await.is_none());
 }
 
-#[test]
-fn failed_admission_preserves_completion() {
-    let mut fixture = Fixture::new();
-    let source = fixture.completed(&["Started work"]);
-    let id = pending(&fixture, source, "Durable result");
+#[tokio::test]
+async fn failed_admission_preserves_completion() {
+    let mut fixture = Fixture::new().await;
+    let source = fixture.completed(&["Started work"]).await;
+    let id = pending(&fixture, source, "Durable result").await;
     let db = &fixture.database.connection;
-    let original = get(db, &id).unwrap().unwrap();
+    let original = get(db, &id).await.unwrap().unwrap();
     let mut config = crate::store::commands::session(db, fixture.session)
+        .await
         .unwrap()
         .config;
     config.credential = Some(CredentialRef {
@@ -429,6 +531,7 @@ fn failed_admission_preserves_completion() {
     });
     assert_eq!(
         crate::store::commands::validate_config(db, fixture.database.node, &config)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::NotFound
@@ -437,30 +540,40 @@ fn failed_admission_preserves_completion() {
         "UPDATE session_revisions SET config=?2 WHERE session=?1",
         params![fixture.session.to_string(), encode(&config).unwrap()],
     )
+    .await
     .unwrap();
-    let counts = || {
-        ["requests", "turns", "agent_runs", "agent_pending"].map(|table| {
-            db.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .unwrap()
-        })
+    let counts = async || {
+        let mut counts = [0i64; 4];
+        for (index, table) in ["requests", "turns", "agent_runs", "agent_pending"]
+            .into_iter()
+            .enumerate()
+        {
+            counts[index] = db
+                .prepare(format!("SELECT count(*) FROM {table}"))
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .and_then(|row| row.get::<i64>(0))
+                .unwrap();
+        }
+        counts
     };
-    let before = counts();
+    let before = counts().await;
     let references = fixture.database.feeds.sequence(fixture.session);
-    assert!(schedule(&fixture).is_none());
-    assert_eq!(counts(), before);
+    assert!(schedule(&fixture).await.is_none());
+    assert_eq!(counts().await, before);
     assert_eq!(fixture.database.feeds.sequence(fixture.session), references);
-    assert_eq!(get(db, &id).unwrap().unwrap().task, original.task);
-    assert_eq!(get(db, &id).unwrap().unwrap().stdout, original.stdout);
+    assert_eq!(get(db, &id).await.unwrap().unwrap().task, original.task);
+    assert_eq!(get(db, &id).await.unwrap().unwrap().stdout, original.stdout);
 }
 
-#[test]
-fn pending_question_blocks_delivery() {
-    let mut fixture = Fixture::new();
-    let source = fixture.completed(&["Started work"]);
-    let id = pending(&fixture, source, "Durable result");
-    let entry = fixture.read(None, 20).page.entries[0].id.clone();
+#[tokio::test]
+async fn pending_question_blocks_delivery() {
+    let mut fixture = Fixture::new().await;
+    let source = fixture.completed(&["Started work"]).await;
+    let id = pending(&fixture, source, "Durable result").await;
+    let entry = fixture.read(None, 20).await.page.entries[0].id.clone();
     let question = sailry_protocol::conversation::question::Question {
         id: QuestionId::new(),
         session: fixture.session,
@@ -481,10 +594,12 @@ fn pending_question_blocks_delivery() {
                 encode(&question).unwrap()
             ],
         )
+        .await
         .unwrap();
-    assert!(schedule(&fixture).is_none());
+    assert!(schedule(&fixture).await.is_none());
     assert_eq!(
         get(&fixture.database.connection, &id)
+            .await
             .unwrap()
             .unwrap()
             .task
@@ -498,19 +613,22 @@ fn pending_question_blocks_delivery() {
             "DELETE FROM agent_questions WHERE id=?1",
             [question.id.to_string()],
         )
+        .await
         .unwrap();
-    assert!(schedule(&fixture).is_some());
+    assert!(schedule(&fixture).await.is_some());
 }
 
-#[test]
-fn explicit_input_preserves_speech_before_delivery() {
-    let mut fixture = Fixture::new();
-    let source = fixture.completed(&["Earlier task"]);
-    let id = pending(&fixture, source, "Untrusted result text");
-    let user = fixture.queued();
-    assert!(schedule(&fixture).is_none());
-    runs::start(&fixture.database.connection, user).unwrap();
-    let invocation = claim(&mut fixture);
+#[tokio::test]
+async fn explicit_input_preserves_speech_before_delivery() {
+    let mut fixture = Fixture::new().await;
+    let source = fixture.completed(&["Earlier task"]).await;
+    let id = pending(&fixture, source, "Untrusted result text").await;
+    let user = fixture.queued().await;
+    assert!(schedule(&fixture).await.is_none());
+    runs::start(&fixture.database.connection, user)
+        .await
+        .unwrap();
+    let invocation = claim(&mut fixture).await;
     assert!(!invocation.notice);
     assert_eq!(invocation.message.text, "History fixture");
     assert_eq!(invocation.notices.len(), 1);
@@ -527,8 +645,8 @@ fn explicit_input_preserves_speech_before_delivery() {
     input
         .provider_metadata
         .insert(super::super::sessions::INPUT_PART.into(), "1".into());
-    append(&mut fixture, &invocation, input.clone());
-    let page = fixture.read(None, 100).page;
+    append(&mut fixture, &invocation, input.clone()).await;
+    let page = fixture.read(None, 100).await.page;
     let entry = page
         .entries
         .iter()
@@ -537,6 +655,7 @@ fn explicit_input_preserves_speech_before_delivery() {
     assert_eq!(entry.parts, vec![Part::Text("History fixture".into())]);
     assert_eq!(
         get(&fixture.database.connection, &id)
+            .await
             .unwrap()
             .unwrap()
             .task
@@ -546,11 +665,12 @@ fn explicit_input_preserves_speech_before_delivery() {
     let canonical: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT body FROM agent_events WHERE id=?1",
-            [&input.id],
-            |row| row.get(0),
-        )
+        .prepare("SELECT body FROM agent_events WHERE id=?1")
+        .await
+        .unwrap()
+        .query_row([input.id.as_str()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     let canonical: AdkEvent = serde_json::from_slice(&canonical).unwrap();
     assert_eq!(

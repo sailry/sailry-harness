@@ -11,11 +11,12 @@ pub(in crate::store) struct Namespace {
 }
 
 impl Namespace {
-    pub(in crate::store) fn from_reference(
+    pub(in crate::store) async fn from_reference(
         db: &Connection,
         reference: &sailry_protocol::plugin::Reference,
     ) -> Result<Self, Fault> {
-        let package = crate::store::agent::plugins::packages(db, std::slice::from_ref(reference))?
+        let package = crate::store::agent::plugins::packages(db, std::slice::from_ref(reference))
+            .await?
             .pop()
             .ok_or_else(|| {
                 Fault::new(ErrorCode::NotConfigured, "captured plugin is unavailable")
@@ -57,7 +58,7 @@ pub(crate) struct Record {
     pub source_hash: [u8; 32],
 }
 
-pub(in crate::store) fn record(
+pub(in crate::store) async fn record(
     db: &Connection,
     namespace: &Namespace,
     key: &str,
@@ -66,17 +67,22 @@ pub(in crate::store) fn record(
     if !namespace.contains(key) {
         return Ok(None);
     }
-    let entry = read(db, &namespace.name, key)?;
+    let entry = read(db, &namespace.name, key).await?;
     if !entry.present {
         return Ok(None);
     }
-    let index: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT index_data FROM plugin_values WHERE name=?1 AND key=?2",
-            params![namespace.name, key],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let index: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT index_data FROM plugin_values WHERE name=?1 AND key=?2")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![namespace.name.as_str(), key])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let Some(index) = index else {
         return Ok(None);
     };
@@ -88,7 +94,7 @@ pub(in crate::store) fn record(
     let Some(source) = index.source.clone() else {
         return Ok(None);
     };
-    let captured = read(db, &namespace.name, &source.key)?;
+    let captured = read(db, &namespace.name, &source.key).await?;
     if !captured.present {
         return Ok(None);
     }

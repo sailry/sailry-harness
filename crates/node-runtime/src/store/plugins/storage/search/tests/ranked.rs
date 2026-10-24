@@ -1,8 +1,8 @@
 use super::*;
 
-#[test]
-fn matches_filtered_pages_without_retaining_values() {
-    let db = database();
+#[tokio::test]
+async fn matches_filtered_pages_without_retaining_values() {
+    let db = database().await;
     for (key, title, body, order, tag) in [
         ("title", "vector 向量", "body", 9, "project"),
         ("body", "title", "vector 向量", 1, "global"),
@@ -15,7 +15,7 @@ fn matches_filtered_pages_without_retaining_values() {
             order,
             source: None,
         };
-        insert(&db, key, &json!({"large":"x".repeat(240*1024)}), &index);
+        insert(&db, key, &json!({"large":"x".repeat(240*1024)}), &index).await;
     }
     for terms in [
         vec![],
@@ -29,7 +29,7 @@ fn matches_filtered_pages_without_retaining_values() {
             limit: 1,
             ..query()
         };
-        let ranked = ranked(&db, "arbitrary-package", &query).unwrap();
+        let ranked = ranked(&db, "arbitrary-package", &query).await.unwrap();
         let mut keys = Vec::new();
         let mut offset = 0;
         loop {
@@ -41,6 +41,7 @@ fn matches_filtered_pages_without_retaining_values() {
                     ..query.clone()
                 },
             )
+            .await
             .unwrap();
             keys.extend(
                 page.entries
@@ -63,6 +64,7 @@ fn matches_filtered_pages_without_retaining_values() {
             ..query()
         },
     )
+    .await
     .unwrap();
     assert_eq!(complete.len(), 4);
 }

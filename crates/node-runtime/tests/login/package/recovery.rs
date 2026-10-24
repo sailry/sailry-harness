@@ -27,15 +27,16 @@ async fn preserves_legacy_grants_during_rehearsal() {
         let profile = node.profile().to_path_buf();
         drop(client);
         node.shutdown().await.unwrap();
-        let path = profile.join("storage/node.sqlite3");
-        let db = rusqlite::Connection::open(&path).unwrap();
-        let bytes: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM providers WHERE id=?1",
-                [provider.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let path = profile.join("storage/node.turso");
+        let (db_handle, db) = crate::database_fixture::open(&(&path), false).await;
+        let bytes: Vec<u8> = (async {
+            let mut statement = db.prepare("SELECT body FROM providers WHERE id=?1").await?;
+            let row = statement.query_row([provider.id.to_string()]).await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         let mut stored: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         let credential = provider.credential.as_ref().unwrap().id.to_string();
         let mut grant: serde_json::Value = serde_json::from_str(
@@ -55,31 +56,37 @@ async fn preserves_legacy_grants_during_rehearsal() {
         let invalid = serde_json::to_vec(&stored).unwrap();
         db.execute(
             "UPDATE providers SET body=?1 WHERE id=?2",
-            rusqlite::params![invalid, provider.id.to_string()],
+            turso::params![invalid.as_slice(), provider.id.to_string()],
         )
+        .await
         .unwrap();
-        db.execute("DROP INDEX turns_session", []).unwrap();
-        drop(db);
+        db.execute("DROP INDEX turns_session", ()).await.unwrap();
+        crate::database_fixture::close(db_handle, db).await;
         assert!(
             Node::start_empty_with_authorization(&profile, &server.endpoint)
                 .await
                 .is_err()
         );
-        let db = rusqlite::Connection::open(&path).unwrap();
-        let unchanged: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM providers WHERE id=?1",
-                [provider.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let (db_handle, db) = crate::database_fixture::open(&(&path), false).await;
+        let unchanged: Vec<u8> = (async {
+            let mut statement = db.prepare("SELECT body FROM providers WHERE id=?1").await?;
+            let row = statement.query_row([provider.id.to_string()]).await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         assert_eq!(unchanged, invalid);
         assert_eq!(
-            db.query_row(
-                "SELECT count(*) FROM sqlite_master WHERE name='turns_session'",
-                [],
-                |row| row.get::<_, i64>(0)
-            )
+            (async {
+                let mut statement = db
+                    .prepare("SELECT count(*) FROM sqlite_master WHERE name='turns_session'")
+                    .await?;
+                let row = statement.query_row(()).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                mapped
+            })
+            .await
             .unwrap(),
             0
         );
@@ -87,10 +94,11 @@ async fn preserves_legacy_grants_during_rehearsal() {
         let legacy = serde_json::to_vec(&stored).unwrap();
         db.execute(
             "UPDATE providers SET body=?1 WHERE id=?2",
-            rusqlite::params![legacy, provider.id.to_string()],
+            turso::params![legacy.as_slice(), provider.id.to_string()],
         )
+        .await
         .unwrap();
-        drop(db);
+        crate::database_fixture::close(db_handle, db).await;
         let node = Node::start_empty_with_authorization(&profile, &server.endpoint)
             .await
             .unwrap();
@@ -136,14 +144,15 @@ async fn preserves_legacy_grants_during_rehearsal() {
         drop(client);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-        let db = rusqlite::Connection::open(&path).unwrap();
-        let retained: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM providers WHERE id=?1",
-                [provider.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let (db_handle, db) = crate::database_fixture::open(&(&path), true).await;
+        let retained: Vec<u8> = (async {
+            let mut statement = db.prepare("SELECT body FROM providers WHERE id=?1").await?;
+            let row = statement.query_row([provider.id.to_string()]).await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         assert_eq!(retained, legacy);
         let backup = std::fs::read_dir(profile.join("storage/backups"))
             .unwrap()
@@ -151,23 +160,23 @@ async fn preserves_legacy_grants_during_rehearsal() {
             .unwrap()
             .unwrap()
             .path();
-        let before = rusqlite::Connection::open_with_flags(
-            backup,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
+        let (before_handle, before) =
+            crate::database_fixture::open(&(backup.join("node.turso")), true).await;
         assert_eq!(
-            before
-                .query_row(
-                    "SELECT body FROM providers WHERE id=?1",
-                    [provider.id.to_string()],
-                    |row| row.get::<_, Vec<u8>>(0)
-                )
-                .unwrap(),
+            (async {
+                let mut statement = before
+                    .prepare("SELECT body FROM providers WHERE id=?1")
+                    .await?;
+                let row = statement.query_row([provider.id.to_string()]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap(),
             legacy
         );
-        drop(before);
-        drop(db);
+        crate::database_fixture::close(before_handle, before).await;
+        crate::database_fixture::close(db_handle, db).await;
         drop(directory);
     }
 }

@@ -70,21 +70,15 @@ async fn preserves_unchanged_edits_for_captured_tools() {
             let row = rows.iter().find(|row| row.package.name == "figma").unwrap();
             let turn = approvals::submit(&fixture.client, fixture.session.id).await;
             let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
-            let database = rusqlite::Connection::open_with_flags(
-                fixture.node.profile().join("storage/node.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
-            let captured = || {
-                database
-                    .query_row(
-                        "SELECT plugin,connector,connection,revision FROM turn_connections WHERE turn=?1 AND connection=?2",
-                        rusqlite::params![turn.to_string(), row.id.to_string()],
-                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?)),
-                    )
-                    .unwrap()
+            let captured = async || {
+                let connection = row.id;
+                fixture.node.with_storage(move |db| Box::pin(async move {
+                    let row = db.prepare("SELECT plugin,connector,connection,revision FROM turn_connections WHERE turn=?1 AND connection=?2").await.map_err(crate::database_fixture::fault)?
+                        .query_row(turso::params![turn.to_string(), connection.to_string()]).await.map_err(crate::database_fixture::fault)?;
+                    Ok((row.get::<String>(0).map_err(crate::database_fixture::fault)?,row.get::<String>(1).map_err(crate::database_fixture::fault)?,row.get::<String>(2).map_err(crate::database_fixture::fault)?,row.get::<i64>(3).map_err(crate::database_fixture::fault)?))
+                })).await.unwrap()
             };
-            let before = captured();
+            let before = captured().await;
             let Output::Connection(saved) = fixture
                 .client
                 .execute(
@@ -204,9 +198,8 @@ async fn preserves_unchanged_edits_for_captured_tools() {
                         }
                     ))
             );
-            assert_eq!(captured(), before);
+            assert_eq!(captured().await, before);
             assert!(!serde_json::to_string(&page).unwrap().contains(PAT));
-            database.close().unwrap();
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();
         }
@@ -237,21 +230,15 @@ async fn fences_changed_inputs_before_failed_relogin() {
             let original = rows.iter().find(|row| row.package.name == "figma").unwrap();
             let turn = approvals::submit(&fixture.client, fixture.session.id).await;
             let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
-            let database = rusqlite::Connection::open_with_flags(
-                fixture.node.profile().join("storage/node.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
-            let captured = || {
-                database
-                    .query_row(
-                        "SELECT revision FROM turn_connections WHERE turn=?1 AND connection=?2",
-                        rusqlite::params![turn.to_string(), original.id.to_string()],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .unwrap()
+            let captured = async || {
+                let connection = original.id;
+                fixture.node.with_storage(move |db| Box::pin(async move {
+                    db.prepare("SELECT revision FROM turn_connections WHERE turn=?1 AND connection=?2").await.map_err(crate::database_fixture::fault)?
+                        .query_row(turso::params![turn.to_string(), connection.to_string()]).await.map_err(crate::database_fixture::fault)?
+                        .get::<i64>(0).map_err(crate::database_fixture::fault)
+                })).await.unwrap()
             };
-            let before = captured();
+            let before = captured().await;
             resource.status.store(503, Ordering::SeqCst);
             let state = login(
                 &fixture,
@@ -277,19 +264,29 @@ async fn fences_changed_inputs_before_failed_relogin() {
             assert!(
                 matches!(state, LoginState::Failed(error) if error.code == ErrorCode::Unavailable)
             );
-            let body: Vec<u8> = database
-                .query_row(
-                    "SELECT body FROM plugin_connections WHERE id=?1",
-                    [original.id.to_string()],
-                    |row| row.get(0),
-                )
+            let connection = original.id;
+            let body: Vec<u8> = fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row([connection.to_string()])
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .get(0)
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
                 .unwrap();
             let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(body["auth_revision"], original.revision + 1);
             assert!(body["grant"].is_null());
             assert_eq!(body["secrets"]["token"], PAT);
             assert_eq!(body["fields"]["tenant"], "current");
-            assert_eq!(captured(), before);
+            assert_eq!(captured().await, before);
             resource.requests.lock().unwrap().clear();
             resource.status.store(0, Ordering::SeqCst);
             process::decide(&fixture.client, &approval, Decision::Approve).await;
@@ -341,12 +338,11 @@ async fn fences_changed_inputs_before_failed_relogin() {
                 matches!(fixture.client.execute(request).await.unwrap(), Output::PluginHttp(response) if response.status == 200)
             );
             assert_eq!(resource.requests.lock().unwrap().len(), 2);
-            assert_eq!(captured(), before);
+            assert_eq!(captured().await, before);
             let public = serde_json::to_string(&page).unwrap();
             for secret in [PAT, "relogin-private-marker"] {
                 assert!(!public.contains(secret));
             }
-            database.close().unwrap();
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();
         }

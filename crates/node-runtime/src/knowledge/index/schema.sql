@@ -1,5 +1,3 @@
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS metadata (singleton INTEGER PRIMARY KEY CHECK(singleton=1), version INTEGER NOT NULL);
 INSERT OR IGNORE INTO metadata VALUES(1,1);
 CREATE TABLE IF NOT EXISTS collections (
@@ -27,6 +25,10 @@ CREATE TABLE IF NOT EXISTS chunks (
   ordinal INTEGER NOT NULL,
   title TEXT NOT NULL,
   text TEXT NOT NULL,
+  field0 TEXT NOT NULL,
+  field1 TEXT NOT NULL,
+  cjk0 TEXT NOT NULL,
+  cjk1 TEXT NOT NULL,
   position TEXT NOT NULL,
   vector BLOB
 );
@@ -38,7 +40,4 @@ CREATE TABLE IF NOT EXISTS file_stamps (
   extractor BLOB NOT NULL DEFAULT X'0000000000000000000000000000000000000000000000000000000000000000'
 );
 CREATE INDEX IF NOT EXISTS chunks_source ON chunks(source);
-CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(title,text,cjk_title,cjk_text,tokenize='unicode61 remove_diacritics 2 tokenchars ''+#''');
-CREATE TRIGGER IF NOT EXISTS delete_chunk AFTER DELETE ON chunks BEGIN
-  DELETE FROM chunks_fts WHERE rowid=old.id;
-END;
+CREATE INDEX IF NOT EXISTS chunks_fts ON chunks USING fts(field0,field1,cjk0,cjk1) WITH(tokenizer='whitespace');

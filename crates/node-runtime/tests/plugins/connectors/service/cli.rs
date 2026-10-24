@@ -13,17 +13,20 @@ async fn empty_with_environment(
     support::connect(remote, directory, node).await
 }
 
-fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
-    rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap()
-    .query_row(
-        "SELECT body FROM plugin_connections WHERE id=?1",
-        [id.to_string()],
-        |row| row.get(0),
-    )
+async fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
+    node.with_storage(move |db| {
+        Box::pin(async move {
+            db.prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .query_row([id.to_string()])
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::plugins::database_fixture::fault)
+        })
+    })
+    .await
     .unwrap()
 }
 
@@ -82,7 +85,7 @@ async fn bounds_cache_and_preserves_temporary_failures() {
             panic!("connector login expected")
         };
         let row = ready(&client, &attempt).await;
-        let original = stored(&node, row.id);
+        let original = stored(&node, row.id).await;
         let scope = context(package, worktree);
         let call = |path: &str| {
             client
@@ -97,29 +100,29 @@ async fn bounds_cache_and_preserves_temporary_failures() {
         assert!(client.execute(call("/ok")).await.is_ok());
         assert_eq!(cli.calls("token"), count + 1);
         assert_eq!(
-            stored(&node, row.id),
+            stored(&node, row.id).await,
             original,
             "token reads must not persist"
         );
 
         tokio::time::sleep(Duration::from_millis(1100)).await;
         fs::write(cli.home().join("gh-fail"), "").unwrap();
-        let before = stored(&node, row.id);
+        let before = stored(&node, row.id).await;
         assert!(client.execute(call("/ok")).await.is_err());
-        assert_eq!(stored(&node, row.id), before);
+        assert_eq!(stored(&node, row.id).await, before);
         fs::remove_file(cli.home().join("gh-fail")).unwrap();
         assert!(client.execute(call("/ok")).await.is_ok());
 
         tokio::time::sleep(Duration::from_millis(1100)).await;
         fs::write(cli.home().join("gh-hold"), "").unwrap();
-        let before = stored(&node, row.id);
+        let before = stored(&node, row.id).await;
         assert!(client.execute(call("/ok")).await.is_err());
         assert!(cli.home().join("gh-entered").exists());
-        assert_eq!(stored(&node, row.id), before);
+        assert_eq!(stored(&node, row.id).await, before);
         fs::remove_file(cli.home().join("gh-hold")).unwrap();
         assert!(client.execute(call("/ok")).await.is_ok());
         assert_eq!(
-            stored(&node, row.id),
+            stored(&node, row.id).await,
             original,
             "token reads must not persist"
         );
@@ -138,14 +141,14 @@ async fn bounds_cache_and_preserves_temporary_failures() {
         };
         assert_eq!(rows[0].state, State::Expired);
         fs::write(cli.home().join("gh-fail"), "").unwrap();
-        let before = stored(&node, row.id);
+        let before = stored(&node, row.id).await;
         assert!(
             client
                 .execute(client.prepare(Command::ProbeConnection { connection: row.id }))
                 .await
                 .is_err()
         );
-        assert_eq!(stored(&node, row.id), before);
+        assert_eq!(stored(&node, row.id).await, before);
         fs::remove_file(cli.home().join("gh-fail")).unwrap();
         let count = cli.calls("token");
         let Output::Connection(recovered) =
@@ -215,7 +218,7 @@ async fn clears_rejections_after_server_responses() {
                 panic!("connector login expected")
             };
             let row = ready(&client, &attempt).await;
-            let initial: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+            let initial: Value = serde_json::from_slice(&stored(&node, row.id).await).unwrap();
             let revision = initial["grant_revision"].as_u64().unwrap();
             let mut token_calls = 0;
             for (index, (method, status)) in [
@@ -245,7 +248,7 @@ async fn clears_rejections_after_server_responses() {
                 assert!(
                     matches!(output, Output::PluginHttp(response) if response.status == status)
                 );
-                let saved: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+                let saved: Value = serde_json::from_slice(&stored(&node, row.id).await).unwrap();
                 assert_eq!(
                     saved["state"],
                     if index == 3 { "expired" } else { "connected" }

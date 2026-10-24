@@ -2,16 +2,23 @@
 use super::*;
 use sailry_protocol::conversation::compaction::{Budget, Failure, Outcome, Record};
 
-pub(super) fn budget(db: &Connection, session: SessionId) -> Result<Option<Budget>, Fault> {
-    let captured: Option<(Option<Vec<u8>>, Vec<u8>)> = db.query_row(
-        "SELECT r.provider,revision.config FROM agent_runs r JOIN turns t ON t.id=r.turn
+pub(super) async fn budget(db: &Connection, session: SessionId) -> Result<Option<Budget>, Fault> {
+    let captured: Option<(Option<Vec<u8>>, Vec<u8>)> = {
+        let mut statement = db.prepare("SELECT r.provider,revision.config FROM agent_runs r JOIN turns t ON t.id=r.turn
          JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
          LEFT JOIN agent_pending pending ON pending.turn=r.turn
          WHERE t.session=?1 AND json_extract(r.body,'$.status') IN ('running','stopping','queued')
          ORDER BY CASE WHEN json_extract(r.body,'$.status')='queued' THEN 1 ELSE 0 END,
-           pending.position,t.rowid LIMIT 1",
-        [session.to_string()], |row| Ok((row.get(0)?,row.get(1)?)),
-    ).optional().map_err(storage_error)?;
+           pending.position,t.rowid LIMIT 1").await.map_err(storage_error)?;
+        match statement.query_row([session.to_string()]).await {
+            Ok(row) => Some((
+                row.get(0).map_err(storage_error)?,
+                row.get(1).map_err(storage_error)?,
+            )),
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error)),
+        }
+    };
     let (provider, config) = if let Some((provider, config)) = captured {
         let provider: Option<Provider> = provider
             .as_deref()
@@ -21,10 +28,10 @@ pub(super) fn budget(db: &Connection, session: SessionId) -> Result<Option<Budge
         let config: SessionConfig = serde_json::from_slice(&config).map_err(storage_error)?;
         (provider, config)
     } else {
-        let current = crate::store::commands::session(db, session)?;
+        let current = crate::store::commands::session(db, session).await?;
         let provider = match current.profile {
             Some(profile) => Some(profile.provider),
-            None => providers::get(db, current.config.provider)?,
+            None => providers::get(db, current.config.provider).await?,
         };
         (provider, current.config)
     };
@@ -39,16 +46,25 @@ pub(super) fn budget(db: &Connection, session: SessionId) -> Result<Option<Budge
     }))
 }
 
-pub(super) fn latest(db: &Connection, session: SessionId) -> Result<Option<Record>, Fault> {
-    let row: Option<(i64, String, Vec<u8>, i64)> = db.query_row(
-        "SELECT h.sequence,e.turn,e.body,t.rowid FROM conversation_events h
+pub(super) async fn latest(db: &Connection, session: SessionId) -> Result<Option<Record>, Fault> {
+    let row: Option<(i64, String, Vec<u8>, i64)> = {
+        let mut statement = db.prepare("SELECT h.sequence,e.turn,e.body,t.rowid FROM conversation_events h
          JOIN agent_events e ON e.sequence=h.sequence JOIN turns t ON t.id=e.turn WHERE h.session=?1 AND
          (json_type(e.body,'$.actions.compaction')='object'
           OR json_type(e.body,'$.event_metadata.sailry_compaction_failure')='text'
           OR json_extract(e.body,'$.event_metadata.sailry_operation_warning')='context_summary_failed')
-         ORDER BY h.sequence DESC LIMIT 1", [session.to_string()],
-        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
-    ).optional().map_err(storage_error)?;
+         ORDER BY h.sequence DESC LIMIT 1").await.map_err(storage_error)?;
+        match statement.query_row([session.to_string()]).await {
+            Ok(row) => Some((
+                row.get(0).map_err(storage_error)?,
+                row.get(1).map_err(storage_error)?,
+                row.get(2).map_err(storage_error)?,
+                row.get(3).map_err(storage_error)?,
+            )),
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error)),
+        }
+    };
     let Some((sequence, turn, body, turn_sequence)) = row else {
         return Ok(None);
     };
@@ -59,7 +75,7 @@ pub(super) fn latest(db: &Connection, session: SessionId) -> Result<Option<Recor
     let outcome = if event.actions.compaction.is_some() {
         Outcome::Succeeded
     } else {
-        let entry = super::super::history::project(db, sequence, turn, &event)?;
+        let entry = super::super::history::project(db, sequence, turn, &event).await?;
         let failure = entry
             .parts
             .iter()

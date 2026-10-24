@@ -17,26 +17,23 @@ pub(super) fn validate_reason(reason: &str) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(crate) fn read(db: &Connection, turn: TurnId) -> Result<Vec<Denial>, Fault> {
-    let mut query = db.prepare("SELECT body,call FROM agent_approvals WHERE turn=?1 AND json_extract(body,'$.state')='denied' AND json_type(body,'$.reason')='text' ORDER BY rowid").map_err(storage_error)?;
-    query
-        .query_map([turn.to_string()], |row| {
-            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(storage_error)?
-        .map(|record| {
-            let (body, call) = record.map_err(storage_error)?;
-            let approval: Approval = serde_json::from_slice(&body).map_err(storage_error)?;
-            let request = super::request(db, &approval)?;
-            Ok(Denial {
-                call,
-                tool: request.tool_name,
-                reason: approval
-                    .reason
-                    .ok_or_else(|| Fault::invalid("denied approval has no explanation"))?,
-            })
-        })
-        .collect()
+pub(crate) async fn read(db: &Connection, turn: TurnId) -> Result<Vec<Denial>, Fault> {
+    let mut rows = db.query("SELECT body,call FROM agent_approvals WHERE turn=?1 AND json_extract(body,'$.state')='denied' AND json_type(body,'$.reason')='text' ORDER BY rowid", [turn.to_string()]).await.map_err(storage_error)?;
+    let mut selected = Vec::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let body: Vec<u8> = row.get(0).map_err(storage_error)?;
+        let call: String = row.get(1).map_err(storage_error)?;
+        let approval: Approval = serde_json::from_slice(&body).map_err(storage_error)?;
+        let request = super::request(db, &approval).await?;
+        selected.push(Denial {
+            call,
+            tool: request.tool_name,
+            reason: approval
+                .reason
+                .ok_or_else(|| Fault::invalid("denied approval has no explanation"))?,
+        });
+    }
+    Ok(selected)
 }
 
 pub(crate) fn enrich(content: &mut adk_core::Content, denials: &[Denial]) {
@@ -55,13 +52,13 @@ pub(crate) fn enrich(content: &mut adk_core::Content, denials: &[Denial]) {
     }
 }
 
-pub(in crate::store::agent) fn append(
+pub(in crate::store::agent) async fn append(
     db: &Connection,
     turn: TurnId,
     event: &mut AdkEvent,
 ) -> Result<(), Fault> {
     if let Some(content) = &mut event.llm_response.content {
-        enrich(content, &read(db, turn)?);
+        enrich(content, &read(db, turn).await?);
     }
     Ok(())
 }

@@ -12,16 +12,18 @@ fn local(offset_minutes: i32) -> Query {
     }
 }
 
-#[test]
-fn starts_days_at_local_midnight() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn starts_days_at_local_midnight() {
+    let mut fixture = Fixture::new().await;
     // Local UTC+8 midnight is 16:00 UTC on the previous day.
-    fixture.append([
-        event(START - 8 * HOUR + 1, 1),
-        event(START + 16 * HOUR - 1, 2),
-        event(START + 16 * HOUR, 4),
-    ]);
-    let east = report(&fixture, &local(480));
+    fixture
+        .append([
+            event(START - 8 * HOUR + 1, 1),
+            event(START + 16 * HOUR - 1, 2),
+            event(START + 16 * HOUR, 4),
+        ])
+        .await;
+    let east = report(&fixture, &local(480)).await;
     assert_eq!(east.days.len(), 3);
     assert_eq!(east.days[0].start_ms, START - 8 * HOUR);
     assert_eq!(east.days[0].metrics.tokens.as_ref().unwrap().input, 3);
@@ -34,32 +36,35 @@ fn starts_days_at_local_midnight() {
             end_ms: START - 8 * HOUR + 3 * DAY,
             ..query()
         },
-    );
+    )
+    .await;
     assert_eq!(utc.days[0].start_ms, START - DAY);
     assert_eq!(utc.days[0].metrics.tokens.as_ref().unwrap().input, 1);
     assert_eq!(utc.days[1].metrics.tokens.as_ref().unwrap().input, 6);
 }
 
-#[test]
-fn keeps_western_evenings_on_the_prior_day() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn keeps_western_evenings_on_the_prior_day() {
+    let mut fixture = Fixture::new().await;
     // 04:00 UTC is 23:00 on the previous local day at UTC-5.
-    fixture.append([event(START + 4 * HOUR, 7), event(START + 5 * HOUR, 9)]);
-    let west = report(&fixture, &local(-300));
+    fixture
+        .append([event(START + 4 * HOUR, 7), event(START + 5 * HOUR, 9)])
+        .await;
+    let west = report(&fixture, &local(-300)).await;
     assert_eq!(west.days[0].start_ms, START + 5 * HOUR);
     assert_eq!(west.days[0].metrics.tokens.as_ref().unwrap().input, 9);
     assert_eq!(west.totals.responses, 1);
     let mut wider = local(-300);
     wider.start_ms -= DAY;
-    let report = report(&fixture, &wider);
+    let report = report(&fixture, &wider).await;
     assert_eq!(report.days[0].metrics.tokens.as_ref().unwrap().input, 7);
     assert_eq!(report.days[1].metrics.tokens.as_ref().unwrap().input, 9);
 }
 
-#[test]
-fn aligns_recent_buckets_to_quarter_hour_offsets() {
-    let fixture = Fixture::new();
-    let report = report(&fixture, &local(345));
+#[tokio::test]
+async fn aligns_recent_buckets_to_quarter_hour_offsets() {
+    let fixture = Fixture::new().await;
+    let report = report(&fixture, &local(345)).await;
     assert!(
         report
             .recent
@@ -68,9 +73,9 @@ fn aligns_recent_buckets_to_quarter_hour_offsets() {
     );
 }
 
-#[test]
-fn rejects_offsets_beyond_time_zones() {
-    let fixture = Fixture::new();
+#[tokio::test]
+async fn rejects_offsets_beyond_time_zones() {
+    let fixture = Fixture::new().await;
     for offset in [-841, 841] {
         assert!(
             read(
@@ -78,6 +83,7 @@ fn rejects_offsets_beyond_time_zones() {
                 fixture.database.node,
                 &local(offset),
             )
+            .await
             .is_err()
         );
     }

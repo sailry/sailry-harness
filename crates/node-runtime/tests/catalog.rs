@@ -198,20 +198,12 @@ async fn restores_cached_metadata() {
             page(&fixture.client, other).await.models[0].context,
             Some(8192)
         );
-        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-            .unwrap();
-        assert_eq!(
-            db.query_row::<i64, _, _>("SELECT count(*) FROM requests", [], |row| row.get(0))
-                .unwrap(),
-            0
-        );
-        let body: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM model_catalog WHERE provider='fixture' AND id='known'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let (requests, body): (i64, Vec<u8>) = fixture.node.with_storage(|db| Box::pin(async move {
+            let requests = db.prepare("SELECT count(*) FROM requests").await.map_err(crate::database_fixture::fault)?.query_row(()).await.map_err(crate::database_fixture::fault)?.get(0).map_err(crate::database_fixture::fault)?;
+            let body = db.prepare("SELECT body FROM model_catalog WHERE provider='fixture' AND id='known'").await.map_err(crate::database_fixture::fault)?.query_row(()).await.map_err(crate::database_fixture::fault)?.get(0).map_err(crate::database_fixture::fault)?;
+            Ok((requests, body))
+        })).await.unwrap();
+        assert_eq!(requests, 0);
         assert_eq!(
             serde_json::from_slice::<Value>(&body).unwrap()["cost"]["input"],
             1.5

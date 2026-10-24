@@ -3,13 +3,13 @@ use super::{
     database::{Database, encode, storage_error},
 };
 pub(super) mod settings;
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_link::{Admission, Response};
 use sailry_protocol::{
     terminal::{Info, Status},
     *,
 };
 use tokio::sync::{broadcast, oneshot};
+use turso::{Connection, params};
 
 pub(super) struct Opening {
     pub info: Info,
@@ -18,8 +18,8 @@ pub(super) struct Opening {
 }
 
 impl Database {
-    pub(super) fn terminal_opening(&self, id: TerminalId) -> Result<Opening, Fault> {
-        let info = required(&self.connection, id)?;
+    pub(super) async fn terminal_opening(&self, id: TerminalId) -> Result<Opening, Fault> {
+        let info = required(&self.connection, id).await?;
         if info.status == Status::Closed {
             return Err(Fault::new(ErrorCode::NotFound, "terminal has been closed"));
         }
@@ -34,25 +34,33 @@ impl Database {
             .ok_or_else(|| Fault::new(ErrorCode::WrongTarget, "terminal has no worktree"))?;
         Ok(Opening {
             info,
-            root: self.worktree_root(worktree)?,
-            settings: settings::read(&self.connection)?,
+            root: self.worktree_root(worktree).await?,
+            settings: settings::read(&self.connection).await?,
         })
     }
 }
 
-pub(super) fn required(db: &Connection, id: TerminalId) -> Result<Info, Fault> {
-    read(db, id)?.ok_or_else(|| Fault::new(ErrorCode::NotFound, "terminal does not exist"))
+pub(super) async fn required(db: &Connection, id: TerminalId) -> Result<Info, Fault> {
+    read(db, id)
+        .await?
+        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "terminal does not exist"))
 }
 
-fn read(db: &Connection, id: TerminalId) -> Result<Option<Info>, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM terminals WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn read(db: &Connection, id: TerminalId) -> Result<Option<Info>, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM terminals WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
 }
@@ -82,30 +90,47 @@ impl Ingress {
     }
 }
 
-pub(super) fn list(db: &Connection) -> Result<Vec<Info>, Fault> {
-    db.prepare("SELECT body FROM terminals ORDER BY id")
-        .map_err(storage_error)?
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|row| serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error))
-        .collect()
+pub(super) async fn list(db: &Connection) -> Result<Vec<Info>, Fault> {
+    {
+        let mut rows = db
+            .prepare("SELECT body FROM terminals ORDER BY id")
+            .await
+            .map_err(storage_error)?
+            .query(())
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|row| serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error))
+    .collect()
 }
 
-pub(super) fn record(db: &Connection, info: &Info) -> Result<Option<Event>, Fault> {
-    record_update(db, info, false)
+pub(super) async fn record(db: &Connection, info: &Info) -> Result<Option<Event>, Fault> {
+    record_update(db, info, false).await
 }
 
 // The PTY sends ordered metadata events. Command completions can arrive later
 // with older metadata at the same controller revision and activity sequence.
-fn record_update(db: &Connection, info: &Info, event: bool) -> Result<Option<Event>, Fault> {
-    let previous: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM terminals WHERE id=?1",
-            [info.id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn record_update(db: &Connection, info: &Info, event: bool) -> Result<Option<Event>, Fault> {
+    let previous: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM terminals WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([info.id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     if let Some(previous) = previous {
         let previous: Info = serde_json::from_slice(&previous).map_err(storage_error)?;
         let before = previous.activity.map_or(0, |report| report.sequence);
@@ -118,11 +143,11 @@ fn record_update(db: &Connection, info: &Info, event: bool) -> Result<Option<Eve
             return Ok(None);
         }
     }
-    db.execute("INSERT INTO terminals(id,worktree,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET body=excluded.body", params![info.id.to_string(), info.worktree.map(|id| id.to_string()), encode(info)?]).map_err(storage_error)?;
+    db.execute("INSERT INTO terminals(id,worktree,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET body=excluded.body", params![info.id.to_string(), info.worktree.map(|id| id.to_string()), encode(info)?]).await.map_err(storage_error)?;
     Ok(Some(Event::TerminalChanged(info.clone())))
 }
 
-pub(super) fn finish(
+pub(super) async fn finish(
     db: &Connection,
     command: &Command,
     result: &mut Response,
@@ -132,14 +157,20 @@ pub(super) fn finish(
             Command::CloseTerminal { terminal, .. } | Command::CloseSshTerminal { terminal },
             Err(error),
         ) if error.code == ErrorCode::NotFound => {
-            let body: Option<Vec<u8>> = db
-                .query_row(
-                    "SELECT body FROM terminals WHERE id=?1",
-                    params![terminal.to_string()],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(storage_error)?;
+            let body: Option<Vec<u8>> = {
+                let mut statement = db
+                    .prepare("SELECT body FROM terminals WHERE id=?1")
+                    .await
+                    .map_err(storage_error)?;
+                match statement.query_row(params![terminal.to_string()]).await {
+                    Ok(row) => {
+                        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        Some(mapped.map_err(storage_error)?)
+                    }
+                    Err(turso::Error::QueryReturnedNoRows) => None,
+                    Err(error) => return Err(storage_error(error).into()),
+                }
+            };
             if let Some(body) = body {
                 let mut info: Info = serde_json::from_slice(&body).map_err(storage_error)?;
                 let matches = match command {
@@ -159,46 +190,49 @@ pub(super) fn finish(
     }
     match &*result {
         Ok(Output::Terminal(info) | Output::SshOutcome(ssh::Outcome::Terminal(info))) => {
-            record(db, info)
+            record(db, info).await
         }
         _ => Ok(None),
     }
 }
 
 impl Database {
-    pub(super) fn terminal_changed(
+    pub(super) async fn terminal_changed(
         &mut self,
         info: Info,
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Result<(), Fault> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
-        let previous = read(&transaction, info.id)?;
-        let envelope = if let Some(event) = record_update(&transaction, &info, true)? {
-            transaction
-                .execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
-                .map_err(storage_error)?;
-            Some(EventEnvelope {
-                node: self.node,
-                cursor: transaction.last_insert_rowid() as u64,
-                event,
-            })
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .await
+            .map_err(storage_error)?;
+        let previous = read(&transaction, info.id).await?;
+        let envelope = if let Some(event) = record_update(&transaction, &info, true).await? {
+            super::database::record(&transaction, self.node, vec![event])
+                .await?
+                .pop()
         } else {
             None
         };
         let notice = if envelope.is_some() {
-            previous
-                .as_ref()
-                .map(|previous| {
-                    super::notifications::system::terminal(&transaction, previous, &info)
-                })
-                .transpose()?
-                .flatten()
+            (match previous.as_ref() {
+                Some(value) => Some(
+                    (async |previous| {
+                        super::notifications::system::terminal(&transaction, previous, &info).await
+                    })(value)
+                    .await,
+                ),
+                None => None,
+            })
+            .transpose()?
+            .flatten()
         } else {
             None
         };
         let notices =
-            super::database::record(&transaction, self.node, notice.into_iter().collect())?;
-        transaction.commit().map_err(storage_error)?;
+            super::database::record(&transaction, self.node, notice.into_iter().collect()).await?;
+        transaction.commit().await.map_err(storage_error)?;
         if let Some(event) = envelope {
             let _ = events.send(event);
         }

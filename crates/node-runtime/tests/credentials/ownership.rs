@@ -112,14 +112,26 @@ async fn retains_replaced_and_removed_configuration() {
                 .unwrap(),
             Output::Providers(Vec::new())
         );
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let body: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM providers WHERE id=?1",
-                [provider.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+
+        let body: Vec<u8> = {
+            let sql = ("SELECT body FROM providers WHERE id=?1").to_owned();
+            let parameters = turso::params![provider.id.to_string()];
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+        }
+        .unwrap();
         let stored: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(stored["listed"], false);
         assert_eq!(stored["provider"]["id"], provider.id.to_string());
@@ -131,7 +143,7 @@ async fn retains_replaced_and_removed_configuration() {
             stored["authorizations"][replacement.id.to_string()]["key"],
             "replacement-inline-key"
         );
-        drop(db);
+
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

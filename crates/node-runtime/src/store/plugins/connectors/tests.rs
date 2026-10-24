@@ -7,32 +7,40 @@ use std::path::PathBuf;
 struct Fixture {
     directory: tempfile::TempDir,
     path: PathBuf,
-    database: Database,
+    database: Option<Database>,
     host: crate::plugins::Host,
 }
 impl Fixture {
-    fn new() -> Self {
+    async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().canonicalize().unwrap();
-        let path = root.join("node.sqlite3");
-        let database =
-            Database::open(&path, sailry_protocol::NodeId([74; 32]), Some(root.clone())).unwrap();
+        let path = root.join("node.turso");
+        let database = Database::open(&path, sailry_protocol::NodeId([74; 32]), Some(root.clone()))
+            .await
+            .unwrap();
         let host = crate::plugins::Host::new(Some(root));
         Self {
             directory,
             path,
-            database,
+            database: Some(database),
             host,
         }
     }
-    fn legacy(&self, name: &str, cli: bool) -> (Info, Vec<u8>) {
+    fn database(&self) -> &Database {
+        self.database.as_ref().unwrap()
+    }
+    async fn legacy(&self, name: &str, cli: bool) -> (Info, Vec<u8>) {
         let mut info = self.host.install_bundled(name).unwrap();
         let declaration = info.extension.as_ref().unwrap().connectors[0].clone();
         info.summary.version = Some("0.0.1".into());
         info.origin = Some(plugin::Origin::Bundled);
         info.extension.as_mut().unwrap().connectors.clear();
-        super::super::save(&self.database.connection, &info, true).unwrap();
-        let mut saved = settings::stored(&self.database.connection, &info).unwrap();
+        super::super::save(&self.database().connection, &info, true)
+            .await
+            .unwrap();
+        let mut saved = settings::stored(&self.database().connection, &info)
+            .await
+            .unwrap();
         saved
             .values
             .insert("unrelated".into(), json!("preserve draft"));
@@ -101,36 +109,53 @@ impl Fixture {
                 source: "keyring".into(),
             });
         }
-        settings::persist(&self.database.connection, &mut info, &saved).unwrap();
+        settings::persist(&self.database().connection, &mut info, &saved)
+            .await
+            .unwrap();
         let bytes = encode(&saved).unwrap();
         (info, bytes)
     }
-    fn history(&self, info: &Info) -> Vec<u8> {
-        self.database
-            .connection
-            .query_row(
-                "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2",
-                params![info.summary.name, info.summary.settings_revision as i64],
-                |row| row.get(0),
-            )
-            .unwrap()
+    async fn history(&self, info: &Info) -> Vec<u8> {
+        (async {
+            let mut statement = self
+                .database()
+                .connection
+                .prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2")
+                .await?;
+            let row = statement
+                .query_row(params![
+                    info.summary.name.as_str(),
+                    info.summary.settings_revision as i64
+                ])
+                .await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap()
     }
-    fn upgrade(&mut self) -> Result<(), crate::Error> {
-        Database::open_with_plugins(
+    async fn upgrade(&mut self) -> Result<(), crate::Error> {
+        let previous = self.database.take().unwrap();
+        let node = previous.node;
+        previous.close().await?;
+        let database = Database::open_with_plugins(
             &self.path,
-            self.database.node,
+            node,
             Some(self.directory.path().canonicalize()?),
             Some(&self.host),
-        )?
-        .close()
+        )
+        .await?;
+        self.database = Some(database);
+        Ok(())
     }
 }
 
-#[test]
-fn imports_credentials_and_preserves_captures() {
+#[tokio::test]
+async fn imports_credentials_and_preserves_captures() {
     for cli in [false, true] {
-        let mut fixture = Fixture::new();
-        let originals = [
+        let mut fixture = Fixture::new().await;
+        let mut originals = Vec::new();
+        for name in [
             "figma",
             "dingtalk",
             "google-workspace",
@@ -139,25 +164,29 @@ fn imports_credentials_and_preserves_captures() {
             "microsoft-365",
             "slack",
             "feishu",
-        ]
-        .into_iter()
-        .map(|name| fixture.legacy(name, cli && name == "github"))
-        .collect::<Vec<_>>();
-        fixture.upgrade().unwrap();
-        let records = records(&fixture.database.connection).unwrap();
+        ] {
+            originals.push(fixture.legacy(name, cli && name == "github").await);
+        }
+        fixture.upgrade().await.unwrap();
+        let records = records(&fixture.database().connection).await.unwrap();
         assert_eq!(records.len(), 8);
         for (original, bytes) in &originals {
-            assert_eq!(fixture.history(original), *bytes);
-            let current = required(&fixture.database.connection, &original.summary.name).unwrap();
-            let settings = settings::stored(&fixture.database.connection, &current).unwrap();
+            assert_eq!(fixture.history(original).await, *bytes);
+            let current = required(&fixture.database().connection, &original.summary.name)
+                .await
+                .unwrap();
+            let settings = settings::stored(&fixture.database().connection, &current)
+                .await
+                .unwrap();
             assert_eq!(settings.values["unrelated"], "preserve draft");
             let row = records
                 .iter()
                 .find(|row| row.plugin == original.summary.name)
                 .unwrap();
             assert_eq!(row.state, State::Connected);
-            let projected =
-                project(&fixture.database.connection, fixture.host.profile(), row).unwrap();
+            let projected = project(&fixture.database().connection, fixture.host.profile(), row)
+                .await
+                .unwrap();
             assert!(projected.consent.is_none());
             assert!(
                 !serde_json::to_string(&projected)
@@ -190,42 +219,47 @@ fn imports_credentials_and_preserves_captures() {
             .map(|entry| entry.unwrap().path())
             .collect::<Vec<_>>();
         assert_eq!(backup.len(), 1);
-        let previous =
-            Connection::open_with_flags(&backup[0], rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .unwrap();
+        let backup_handle = crate::store::database::engine(&backup[0].join("node.turso"))
+            .await
+            .unwrap();
+        let previous = crate::store::database::connect(&backup_handle)
+            .await
+            .unwrap();
+        previous.pragma_update("query_only", 1).await.unwrap();
         for (original, bytes) in originals {
-            let retained: Vec<u8> = previous
-                .query_row(
-                    "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2",
-                    params![
-                        original.summary.name,
+            let retained: Vec<u8> = (async {
+                let mut statement = previous
+                    .prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2")
+                    .await?;
+                let row = statement
+                    .query_row(params![
+                        original.summary.name.as_str(),
                         original.summary.settings_revision as i64
-                    ],
-                    |row| row.get(0),
-                )
-                .unwrap();
+                    ])
+                    .await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap();
             assert_eq!(retained, bytes);
         }
-        previous.close().unwrap();
-        fixture.upgrade().unwrap();
+        drop(previous);
+        drop(backup_handle);
+        fixture.upgrade().await.unwrap();
         assert_eq!(
             std::fs::read_dir(fixture.directory.path().join("backups"))
                 .unwrap()
-                .filter(|entry| entry
-                    .as_ref()
-                    .unwrap()
-                    .path()
-                    .extension()
-                    .is_some_and(|extension| extension == "sqlite3"))
+                .filter(|entry| entry.as_ref().unwrap().path().is_dir())
                 .count(),
             1
         );
     }
 }
 
-#[test]
-fn skips_draft_defaults_without_saved_configuration() {
-    let fixture = Fixture::new();
+#[tokio::test]
+async fn skips_draft_defaults_without_saved_configuration() {
+    let fixture = Fixture::new().await;
     for name in [
         "notion",
         "linear",
@@ -242,62 +276,104 @@ fn skips_draft_defaults_without_saved_configuration() {
         "context7",
     ] {
         let mut info = fixture.host.install_bundled(name).unwrap();
-        super::super::save(&fixture.database.connection, &info, true).unwrap();
-        assert!(!needs_migration(&fixture.database.connection, &info).unwrap());
+        super::super::save(&fixture.database().connection, &info, true)
+            .await
+            .unwrap();
+        assert!(
+            !needs_migration(&fixture.database().connection, &info)
+                .await
+                .unwrap()
+        );
         assert!(
             !migrate(
-                &fixture.database.connection,
+                &fixture.database().connection,
                 fixture.host.profile(),
                 &mut info
             )
+            .await
             .unwrap()
         );
         assert_eq!(info.summary.settings_revision, 0);
     }
-    assert!(records(&fixture.database.connection).unwrap().is_empty());
-    let mut info = required(&fixture.database.connection, "microsoft-365").unwrap();
-    let mut saved = settings::stored(&fixture.database.connection, &info).unwrap();
+    assert!(
+        records(&fixture.database().connection)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let mut info = required(&fixture.database().connection, "microsoft-365")
+        .await
+        .unwrap();
+    let mut saved = settings::stored(&fixture.database().connection, &info)
+        .await
+        .unwrap();
     saved.values.insert("unrelated".into(), json!("retained"));
-    settings::persist(&fixture.database.connection, &mut info, &saved).unwrap();
-    assert!(!needs_migration(&fixture.database.connection, &info).unwrap());
+    settings::persist(&fixture.database().connection, &mut info, &saved)
+        .await
+        .unwrap();
+    assert!(
+        !needs_migration(&fixture.database().connection, &info)
+            .await
+            .unwrap()
+    );
     assert!(
         !migrate(
-            &fixture.database.connection,
+            &fixture.database().connection,
             fixture.host.profile(),
             &mut info
         )
+        .await
         .unwrap()
     );
-    assert!(records(&fixture.database.connection).unwrap().is_empty());
+    assert!(
+        records(&fixture.database().connection)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     saved.values.insert("tenant".into(), json!("common"));
-    settings::persist(&fixture.database.connection, &mut info, &saved).unwrap();
-    assert!(needs_migration(&fixture.database.connection, &info).unwrap());
+    settings::persist(&fixture.database().connection, &mut info, &saved)
+        .await
+        .unwrap();
+    assert!(
+        needs_migration(&fixture.database().connection, &info)
+            .await
+            .unwrap()
+    );
     assert!(
         migrate(
-            &fixture.database.connection,
+            &fixture.database().connection,
             fixture.host.profile(),
             &mut info
         )
+        .await
         .unwrap()
     );
-    let rows = records(&fixture.database.connection).unwrap();
+    let rows = records(&fixture.database().connection).await.unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].fields["tenant"], "common");
 }
 
-#[test]
-fn revokes_changed_relogin_before_persisting() {
-    let mut fixture = Fixture::new();
-    fixture.legacy("google-workspace", false);
-    fixture.upgrade().unwrap();
-    let mut previous = records(&fixture.database.connection).unwrap().remove(0);
+#[tokio::test]
+async fn revokes_changed_relogin_before_persisting() {
+    let mut fixture = Fixture::new().await;
+    fixture.legacy("google-workspace", false).await;
+    fixture.upgrade().await.unwrap();
+    let mut previous = records(&fixture.database().connection)
+        .await
+        .unwrap()
+        .remove(0);
     assert!(previous.grant.is_some());
     previous.revision = 10;
-    save(&fixture.database.connection, &previous).unwrap();
-    let info = required(&fixture.database.connection, &previous.plugin).unwrap();
+    save(&fixture.database().connection, &previous)
+        .await
+        .unwrap();
+    let info = required(&fixture.database().connection, &previous.plugin)
+        .await
+        .unwrap();
     for edit in ["unchanged", "client", "secret"] {
         let (mut record, _) = create(
-            &fixture.database.connection,
+            &fixture.database().connection,
             fixture.host.profile(),
             &Command::StartConnectorLogin {
                 package: info.summary.reference(),
@@ -323,6 +399,7 @@ fn revokes_changed_relogin_before_persisting() {
                 },
             },
         )
+        .await
         .unwrap();
         next(&mut record).unwrap();
         validate(&record).unwrap();
@@ -338,16 +415,23 @@ fn revokes_changed_relogin_before_persisting() {
         );
     }
     assert!(
-        encode(&read(&fixture.database.connection, previous.id).unwrap()).unwrap()
+        encode(
+            &read(&fixture.database().connection, previous.id)
+                .await
+                .unwrap()
+        )
+        .unwrap()
             == encode(&previous).unwrap()
     );
 }
 
-#[test]
-fn rejects_upgrade_without_writing() {
-    let mut fixture = Fixture::new();
-    let (mut info, _) = fixture.legacy("notion", false);
-    let mut saved = settings::stored(&fixture.database.connection, &info).unwrap();
+#[tokio::test]
+async fn rejects_upgrade_without_writing() {
+    let mut fixture = Fixture::new().await;
+    let (mut info, _) = fixture.legacy("notion", false).await;
+    let mut saved = settings::stored(&fixture.database().connection, &info)
+        .await
+        .unwrap();
     saved.mcp = Some(plugin::mcp::Configuration {
         schema: plugin::mcp::SCHEMA.into(),
         servers: BTreeMap::from([(
@@ -361,40 +445,70 @@ fn rejects_upgrade_without_writing() {
             },
         )]),
     });
-    settings::persist(&fixture.database.connection, &mut info, &saved).unwrap();
-    let before = fixture.history(&info);
-    let inventory = encode(&required(&fixture.database.connection, "notion").unwrap()).unwrap();
+    settings::persist(&fixture.database().connection, &mut info, &saved)
+        .await
+        .unwrap();
+    let before = fixture.history(&info).await;
+    let inventory = encode(
+        &required(&fixture.database().connection, "notion")
+            .await
+            .unwrap(),
+    )
+    .unwrap();
     fixture
-        .database
+        .database()
         .connection
         .execute_batch("DROP TABLE turn_connections;DROP TABLE plugin_connections;")
+        .await
         .unwrap();
-    assert!(fixture.upgrade().is_err());
-    assert_eq!(fixture.database.connection.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('plugin_connections','turn_connections')",[],|row|row.get::<_,i64>(0)).unwrap(),0);
-    assert_eq!(fixture.history(&info), before);
+    assert!(fixture.upgrade().await.is_err());
+    assert!(fixture.database.is_none());
+    let handle = crate::store::database::engine(&fixture.path).await.unwrap();
+    let db = crate::store::database::connect(&handle).await.unwrap();
+    assert_eq!((async { let mut statement = db.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('plugin_connections','turn_connections')").await?;
+let row = statement.query_row(()).await?;
+let mapped: turso::Result<_> = (|row: &turso::Row|row.get::<i64>(0))(&row);
+mapped }).await.unwrap(),0);
     assert_eq!(
-        encode(&required(&fixture.database.connection, "notion").unwrap()).unwrap(),
+        db.prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2")
+            .await
+            .unwrap()
+            .query_row(params![
+                info.summary.name.as_str(),
+                info.summary.settings_revision as i64
+            ])
+            .await
+            .unwrap()
+            .get::<Vec<u8>>(0)
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        encode(&required(&db, "notion").await.unwrap()).unwrap(),
         inventory
     );
 
     assert!(!fixture.directory.path().join("backups").exists());
 }
 
-#[test]
-fn suspends_changed_mcp_paths_and_queries() {
+#[tokio::test]
+async fn suspends_changed_mcp_paths_and_queries() {
     for url in [
         "https://mcp.notion.com/other",
         "https://mcp.notion.com/mcp?account=other",
     ] {
-        let mut fixture = Fixture::new();
-        fixture.legacy("notion", false);
-        fixture.upgrade().unwrap();
-        let row = records(&fixture.database.connection)
+        let mut fixture = Fixture::new().await;
+        fixture.legacy("notion", false).await;
+        fixture.upgrade().await.unwrap();
+        let row = records(&fixture.database().connection)
+            .await
             .unwrap()
             .into_iter()
             .find(|row| row.plugin == "notion")
             .unwrap();
-        let info = required(&fixture.database.connection, "notion").unwrap();
+        let info = required(&fixture.database().connection, "notion")
+            .await
+            .unwrap();
         let configuration = plugin::mcp::Configuration {
             schema: plugin::mcp::SCHEMA.into(),
             servers: BTreeMap::from([(
@@ -409,33 +523,36 @@ fn suspends_changed_mcp_paths_and_queries() {
             )]),
         };
         super::super::mcp::save(
-            &fixture.database.connection,
+            &fixture.database().connection,
             fixture.host.profile(),
             &info.summary.reference(),
             &configuration,
         )
+        .await
         .unwrap();
-        let projected =
-            project(&fixture.database.connection, fixture.host.profile(), &row).unwrap();
+        let projected = project(&fixture.database().connection, fixture.host.profile(), &row)
+            .await
+            .unwrap();
         assert_eq!(projected.state, State::NeedsConfirmation);
         let public = serde_json::to_string(&projected.consent).unwrap();
         assert!(public.contains("notion"));
         assert!(!public.contains(url));
         assert!(
             current_target(
-                &fixture.database.connection,
+                &fixture.database().connection,
                 fixture.host.profile(),
                 row.id,
                 row.revision,
                 false
             )
+            .await
             .is_err()
         );
         execute(
-            &fixture.database.connection,
+            &fixture.database().connection,
             fixture.host.profile(),
             &sailry_protocol::Request::new(
-                fixture.database.node,
+                fixture.database().node,
                 Command::ConfirmConnectorConsent {
                     connection: row.id,
                     expected_revision: row.revision,
@@ -443,9 +560,11 @@ fn suspends_changed_mcp_paths_and_queries() {
                 },
             ),
         )
+        .await
         .unwrap();
         assert!(
-            read(&fixture.database.connection, row.id)
+            read(&fixture.database().connection, row.id)
+                .await
                 .unwrap()
                 .grant
                 .is_none()
@@ -453,18 +572,21 @@ fn suspends_changed_mcp_paths_and_queries() {
     }
 }
 
-#[test]
-fn suspends_changed_oauth_permissions() {
+#[tokio::test]
+async fn suspends_changed_oauth_permissions() {
     for change in ["origins", "scopes", "client", "flow", "targets", "source"] {
-        let mut fixture = Fixture::new();
-        fixture.legacy("google-workspace", false);
-        fixture.upgrade().unwrap();
-        let row = records(&fixture.database.connection)
+        let mut fixture = Fixture::new().await;
+        fixture.legacy("google-workspace", false).await;
+        fixture.upgrade().await.unwrap();
+        let row = records(&fixture.database().connection)
+            .await
             .unwrap()
             .into_iter()
             .find(|row| row.plugin == "google-workspace")
             .unwrap();
-        let mut info = required(&fixture.database.connection, "google-workspace").unwrap();
+        let mut info = required(&fixture.database().connection, "google-workspace")
+            .await
+            .unwrap();
         let declaration = &mut info.extension.as_mut().unwrap().connectors[0];
         match change {
             "origins" => declaration.origins.push("https://other.example.com".into()),
@@ -494,9 +616,12 @@ fn suspends_changed_oauth_permissions() {
             "source" => info.origin = Some(plugin::Origin::Archive),
             _ => unreachable!(),
         }
-        super::super::save(&fixture.database.connection, &info, true).unwrap();
-        let projection =
-            project(&fixture.database.connection, fixture.host.profile(), &row).unwrap();
+        super::super::save(&fixture.database().connection, &info, true)
+            .await
+            .unwrap();
+        let projection = project(&fixture.database().connection, fixture.host.profile(), &row)
+            .await
+            .unwrap();
         assert_eq!(projection.state, State::NeedsConfirmation, "{change}");
         let diff = serde_json::to_value(&projection.consent).unwrap();
         assert!(
@@ -509,19 +634,20 @@ fn suspends_changed_oauth_permissions() {
         );
         assert!(
             current_target(
-                &fixture.database.connection,
+                &fixture.database().connection,
                 fixture.host.profile(),
                 row.id,
                 row.revision,
                 false
             )
+            .await
             .is_err()
         );
         execute(
-            &fixture.database.connection,
+            &fixture.database().connection,
             fixture.host.profile(),
             &sailry_protocol::Request::new(
-                fixture.database.node,
+                fixture.database().node,
                 Command::ConfirmConnectorConsent {
                     connection: row.id,
                     expected_revision: row.revision,
@@ -529,9 +655,11 @@ fn suspends_changed_oauth_permissions() {
                 },
             ),
         )
+        .await
         .unwrap();
         assert!(
-            read(&fixture.database.connection, row.id)
+            read(&fixture.database().connection, row.id)
+                .await
                 .unwrap()
                 .grant
                 .is_none()
@@ -539,18 +667,19 @@ fn suspends_changed_oauth_permissions() {
     }
 }
 
-#[test]
-fn preserves_reduced_permissions_and_rejects_stale_captures() {
-    let mut fixture = Fixture::new();
-    fixture.legacy("google-workspace", false);
-    fixture.upgrade().unwrap();
-    let db = &fixture.database.connection;
+#[tokio::test]
+async fn preserves_reduced_permissions_and_rejects_stale_captures() {
+    let mut fixture = Fixture::new().await;
+    fixture.legacy("google-workspace", false).await;
+    fixture.upgrade().await.unwrap();
+    let db = &fixture.database().connection;
     let row = records(db)
+        .await
         .unwrap()
         .into_iter()
         .find(|row| row.plugin == "google-workspace")
         .unwrap();
-    let mut info = required(db, &row.plugin).unwrap();
+    let mut info = required(db, &row.plugin).await.unwrap();
     let context = plugin::Context {
         package: info.summary.reference(),
         invocation: Some(RequestId::new()),
@@ -567,11 +696,12 @@ fn preserves_reduced_permissions_and_rejects_stale_captures() {
             &row.connector,
             Some(row.id)
         )
+        .await
         .is_ok()
     );
     let origin = info.origin.clone();
     info.origin = Some(plugin::Origin::Archive);
-    super::super::save(db, &info, true).unwrap();
+    super::super::save(db, &info, true).await.unwrap();
     assert!(
         resolve(
             db,
@@ -580,6 +710,7 @@ fn preserves_reduced_permissions_and_rejects_stale_captures() {
             &row.connector,
             Some(row.id)
         )
+        .await
         .is_err()
     );
     info.origin = origin;
@@ -592,16 +723,19 @@ fn preserves_reduced_permissions_and_rejects_stale_captures() {
     assert!(declaration.inject.len() > 1);
     declaration.inject.pop();
     assert!(declaration.valid());
-    super::super::save(db, &info, true).unwrap();
+    super::super::save(db, &info, true).await.unwrap();
     assert_eq!(
-        project(db, fixture.host.profile(), &row).unwrap().state,
+        project(db, fixture.host.profile(), &row)
+            .await
+            .unwrap()
+            .state,
         State::NeedsConfirmation
     );
     execute(
         db,
         fixture.host.profile(),
         &sailry_protocol::Request::new(
-            fixture.database.node,
+            fixture.database().node,
             Command::ConfirmConnectorConsent {
                 connection: row.id,
                 expected_revision: row.revision,
@@ -609,8 +743,9 @@ fn preserves_reduced_permissions_and_rejects_stale_captures() {
             },
         ),
     )
+    .await
     .unwrap();
-    let saved = read(db, row.id).unwrap();
+    let saved = read(db, row.id).await.unwrap();
     assert_eq!(
         saved.grant.as_ref().unwrap().access,
         row.grant.as_ref().unwrap().access
@@ -624,6 +759,7 @@ fn preserves_reduced_permissions_and_rejects_stale_captures() {
             &info.extension.as_ref().unwrap().connectors[0],
             saved.method
         )
+        .await
         .unwrap()
     );
     assert!(
@@ -637,6 +773,7 @@ fn preserves_reduced_permissions_and_rejects_stale_captures() {
             &row.connector,
             Some(row.id)
         )
+        .await
         .is_ok()
     );
     assert!(
@@ -647,9 +784,14 @@ fn preserves_reduced_permissions_and_rejects_stale_captures() {
             &row.connector,
             Some(row.id)
         )
+        .await
         .is_err()
     );
-    assert!(current_target(db, fixture.host.profile(), row.id, row.revision, false).is_err());
+    assert!(
+        current_target(db, fixture.host.profile(), row.id, row.revision, false)
+            .await
+            .is_err()
+    );
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use crate::database_fixture::{close, fault, open};
 use sailry_client::{Apply, Client, Projection};
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
@@ -224,24 +225,37 @@ async fn restores_new_profiles_without_external_mutation() {
                 fs::create_dir_all(path.parent().unwrap()).unwrap();
                 fs::write(path, b"excluded cache").unwrap();
             }
-            assert!(node.profile().join("storage/knowledge.db").exists());
-            let db =
-                rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-            let captured: Vec<u8> = db
-                .query_row(
-                    "SELECT config FROM session_revisions WHERE session=?1",
-                    [session.id.to_string()],
-                    |row| row.get(0),
-                )
+            for path in ["storage/knowledge.turso", "storage/knowledge.db-log"] {
+                assert!(node.profile().join(path).is_file());
+            }
+            let session_id = session.id;
+            let scratch_id = scratch.id;
+            let (captured, scratch_capture): (Vec<u8>, Vec<u8>) = node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let captured = db
+                            .prepare("SELECT config FROM session_revisions WHERE session=?1")
+                            .await
+                            .map_err(fault)?
+                            .query_row([session_id.to_string()])
+                            .await
+                            .map_err(fault)?
+                            .get(0)
+                            .map_err(fault)?;
+                        let scratch_capture = db
+                            .prepare("SELECT config FROM session_revisions WHERE session=?1")
+                            .await
+                            .map_err(fault)?
+                            .query_row([scratch_id.to_string()])
+                            .await
+                            .map_err(fault)?
+                            .get(0)
+                            .map_err(fault)?;
+                        Ok((captured, scratch_capture))
+                    })
+                })
+                .await
                 .unwrap();
-            let scratch_capture: Vec<u8> = db
-                .query_row(
-                    "SELECT config FROM session_revisions WHERE session=?1",
-                    [scratch.id.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            drop(db);
             let server = server::Server::start(kind).await;
             let mut configuration = settings(&client).await;
             configuration.destination = Some(server.destination());
@@ -342,29 +356,43 @@ async fn restores_new_profiles_without_external_mutation() {
             ] {
                 assert!(!target.join(path).exists(), "excluded {path}");
             }
-            let db = rusqlite::Connection::open(target.join("storage/node.sqlite3")).unwrap();
+            for path in [
+                "storage/node.turso",
+                "storage/node.db-log",
+                "storage/knowledge.turso",
+                "storage/knowledge.db-log",
+            ] {
+                assert!(target.join(path).is_file(), "retained {path}");
+            }
+            let (database, db) = open(&target.join("storage/node.turso"), true).await;
             let retained: Vec<u8> = db
-                .query_row(
-                    "SELECT config FROM session_revisions WHERE session=?1",
-                    [session.id.to_string()],
-                    |row| row.get(0),
-                )
+                .prepare("SELECT config FROM session_revisions WHERE session=?1")
+                .await
+                .unwrap()
+                .query_row([session.id.to_string()])
+                .await
+                .unwrap()
+                .get(0)
                 .unwrap();
             assert_eq!(retained, captured);
             let retained: Vec<u8> = db
-                .query_row(
-                    "SELECT config FROM session_revisions WHERE session=?1",
-                    [scratch.id.to_string()],
-                    |row| row.get(0),
-                )
+                .prepare("SELECT config FROM session_revisions WHERE session=?1")
+                .await
+                .unwrap()
+                .query_row([scratch.id.to_string()])
+                .await
+                .unwrap()
+                .get(0)
                 .unwrap();
             assert_eq!(retained, scratch_capture);
             let current: String = db
-                .query_row(
-                    "SELECT path FROM worktrees WHERE id=?1",
-                    [managed.id.to_string()],
-                    |row| row.get(0),
-                )
+                .prepare("SELECT path FROM worktrees WHERE id=?1")
+                .await
+                .unwrap()
+                .query_row([managed.id.to_string()])
+                .await
+                .unwrap()
+                .get(0)
                 .unwrap();
             assert_eq!(
                 Path::new(&current),
@@ -375,14 +403,16 @@ async fn restores_new_profiles_without_external_mutation() {
                 )
             );
             let retained: String = db
-                .query_row(
-                    "SELECT path FROM projects WHERE id=?1",
-                    [project.id.to_string()],
-                    |row| row.get(0),
-                )
+                .prepare("SELECT path FROM projects WHERE id=?1")
+                .await
+                .unwrap()
+                .query_row([project.id.to_string()])
+                .await
+                .unwrap()
+                .get(0)
                 .unwrap();
             assert_eq!(Path::new(&retained), external);
-            drop(db);
+            close(database, db).await;
             assert_eq!(
                 fs::read(external.join("source.txt")).unwrap(),
                 b"external source stays unchanged"
@@ -960,13 +990,15 @@ async fn executes_overdue_backup_after_restart() {
 
         // Reuse the calendar service fixture's isolated downtime setup. Keep
         // the registered handler, weekly rule, identity, and revision unchanged.
-        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let body: Vec<u8> = database
-            .query_row(
-                "SELECT body FROM dispatch_schedules WHERE package=''",
-                [],
-                |row| row.get(0),
-            )
+        let (database, connection) = open(&profile.join("storage/node.turso"), false).await;
+        let body: Vec<u8> = connection
+            .prepare("SELECT body FROM dispatch_schedules WHERE package=''")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get(0)
             .unwrap();
         let mut schedule: dispatch::Schedule = serde_json::from_slice(&body).unwrap();
         let original = schedule.clone();
@@ -979,19 +1011,20 @@ async fn executes_overdue_backup_after_restart() {
         assert!(original.next_ms.unwrap() > chrono::Utc::now().timestamp_millis());
         schedule.next_ms = Some(due);
         assert_eq!(
-            database
+            connection
                 .execute(
                     "UPDATE dispatch_schedules SET next_ms=?1,body=?2 WHERE package='' AND id=?3",
-                    rusqlite::params![
+                    turso::params![
                         due,
                         serde_json::to_vec(&schedule).unwrap(),
                         schedule.id.to_string()
                     ],
                 )
+                .await
                 .unwrap(),
             1
         );
-        database.close().unwrap();
+        close(database, connection).await;
 
         let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
@@ -1030,20 +1063,23 @@ async fn executes_overdue_backup_after_restart() {
         assert!(!manifest["parts"].as_array().unwrap().is_empty());
         assert!(destination.join(&record.id).is_dir());
 
-        let database = rusqlite::Connection::open_with_flags(
-            profile.join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let body: Vec<u8> = database
-            .query_row(
-                "SELECT body FROM dispatch_jobs WHERE package=''",
-                [],
-                |row| row.get(0),
-            )
+        let body: Vec<u8> = node
+            .with_storage(|connection| {
+                Box::pin(async move {
+                    connection
+                        .prepare("SELECT body FROM dispatch_jobs WHERE package=''")
+                        .await
+                        .map_err(fault)?
+                        .query_row(())
+                        .await
+                        .map_err(fault)?
+                        .get(0)
+                        .map_err(fault)
+                })
+            })
+            .await
             .unwrap();
         let job: dispatch::Job = serde_json::from_slice(&body).unwrap();
-        database.close().unwrap();
         assert_eq!(job.event.schedule, Some(schedule.id));
         assert!(job.event.scheduled_ms.unwrap() >= due);
         let mut request = Request::new(
@@ -1070,20 +1106,22 @@ async fn executes_overdue_backup_after_restart() {
         drop(client);
         node.shutdown().await.unwrap();
 
-        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let body: Vec<u8> = database
-            .query_row(
-                "SELECT body FROM dispatch_schedules WHERE package=''",
-                [],
-                |row| row.get(0),
-            )
+        let (database, connection) = open(&profile.join("storage/node.turso"), true).await;
+        let body: Vec<u8> = connection
+            .prepare("SELECT body FROM dispatch_schedules WHERE package=''")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get(0)
             .unwrap();
         let advanced: dispatch::Schedule = serde_json::from_slice(&body).unwrap();
         assert_eq!(advanced.id, original.id);
         assert_eq!(advanced.revision, original.revision);
         assert_eq!(advanced.timing, original.timing);
         assert!(advanced.next_ms.unwrap() > chrono::Utc::now().timestamp_millis());
-        database.close().unwrap();
+        close(database, connection).await;
         let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
@@ -1096,16 +1134,18 @@ async fn executes_overdue_backup_after_restart() {
         assert_eq!(page.records, vec![record]);
         drop(client);
         node.shutdown().await.unwrap();
-        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let count: i64 = database
-            .query_row(
-                "SELECT count(*) FROM dispatch_jobs WHERE package=''",
-                [],
-                |row| row.get(0),
-            )
+        let (database, connection) = open(&profile.join("storage/node.turso"), true).await;
+        let count: i64 = connection
+            .prepare("SELECT count(*) FROM dispatch_jobs WHERE package=''")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get(0)
             .unwrap();
         assert_eq!(count, 1);
-        database.close().unwrap();
+        close(database, connection).await;
         controller.close().await.unwrap();
     }
 }

@@ -108,12 +108,30 @@ async fn rolls_back_failed_save() {
         let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
         let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
-        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-            .unwrap();
-        let before: i64 = db
-            .query_row("SELECT count(*) FROM events", [], |row| row.get(0))
-            .unwrap();
-        db.execute_batch("CREATE TRIGGER reject_provider_update BEFORE UPDATE ON providers BEGIN SELECT RAISE(ABORT,'isolated provider failure'); END;").unwrap();
+
+        let before: i64 = {
+            let sql = ("SELECT count(*) FROM events").to_owned();
+            let parameters = ();
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        value.map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
+        .unwrap();
+        { let sql = ("CREATE TRIGGER reject_provider_update BEFORE UPDATE ON providers BEGIN SELECT RAISE(ABORT,'isolated provider failure'); END;").to_owned();
+fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).await.map_err(crate::database_fixture::fault) })).await }.unwrap();
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
         assert!(matches!(
@@ -129,27 +147,64 @@ async fn rolls_back_failed_save() {
             Output::Credentials(vec![])
         );
         assert_eq!(
-            db.query_row::<i64, _, _>("SELECT count(*) FROM events", [], |row| row.get(0))
-                .unwrap(),
+            {
+                let sql = ("SELECT count(*) FROM events").to_owned();
+                let parameters = ();
+                fixture
+                    .node
+                    .with_storage(move |db| {
+                        Box::pin(async move {
+                            let row = db
+                                .prepare(sql)
+                                .await
+                                .map_err(crate::database_fixture::fault)?
+                                .query_row(parameters)
+                                .await
+                                .map_err(crate::database_fixture::fault)?;
+                            let value: turso::Result<_> =
+                                (|row: &turso::Row| row.get::<i64>(0))(&row);
+                            value.map_err(crate::database_fixture::fault)
+                        })
+                    })
+                    .await
+            }
+            .unwrap(),
             before
         );
-        let mut query = db
-            .prepare("SELECT CAST(body AS TEXT),coalesce(result,'') FROM requests")
-            .unwrap();
-        for row in query
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        let rows = fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .query(
+                            "SELECT CAST(body AS TEXT),coalesce(result,'') FROM requests",
+                            (),
+                        )
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut values = Vec::new();
+                    while let Some(row) =
+                        rows.next().await.map_err(crate::database_fixture::fault)?
+                    {
+                        values.push((
+                            row.get::<String>(0)
+                                .map_err(crate::database_fixture::fault)?,
+                            row.get::<String>(1)
+                                .map_err(crate::database_fixture::fault)?,
+                        ));
+                    }
+                    Ok(values)
+                })
             })
-            .unwrap()
-        {
-            let (body, result) = row.unwrap();
+            .await
+            .unwrap();
+        for (body, result) in rows {
             no_secrets(&body);
             no_secrets(&result);
             assert!(!body.contains("ABCD-1234"));
             assert!(!result.contains("ABCD-1234"));
         }
-        drop(query);
-        drop(db);
+
         fixture.close().await;
     }
 }
@@ -396,9 +451,9 @@ async fn requires_recorded_receipt() {
         let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
         let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
-        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-            .unwrap();
-        db.execute_batch("CREATE TRIGGER reject_login_receipt BEFORE UPDATE ON requests BEGIN SELECT RAISE(ABORT,'isolated receipt failure'); END;").unwrap();
+
+        { let sql = ("CREATE TRIGGER reject_login_receipt BEFORE UPDATE ON requests BEGIN SELECT RAISE(ABORT,'isolated receipt failure'); END;").to_owned();
+fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).await.map_err(crate::database_fixture::fault) })).await }.unwrap();
         let request = fixture.client.prepare(Command::BeginProviderLogin {
             provider: provider.id,
             expected_revision: provider.revision,
@@ -414,14 +469,26 @@ async fn requires_recorded_receipt() {
             ErrorCode::OutcomeUnknown
         );
         assert!(server.requests.lock().unwrap().is_empty());
-        db.execute_batch("DROP TRIGGER reject_login_receipt;")
-            .unwrap();
+        {
+            let sql = ("DROP TRIGGER reject_login_receipt;").to_owned();
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.execute_batch(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
+        .unwrap();
         assert_eq!(
             fixture.client.execute(request).await.unwrap_err().code,
             ErrorCode::OutcomeUnknown
         );
         assert!(server.requests.lock().unwrap().is_empty());
-        drop(db);
+
         fixture.close().await;
     }
 }

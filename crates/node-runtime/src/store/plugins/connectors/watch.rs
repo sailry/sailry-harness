@@ -5,18 +5,22 @@ use sailry_link::{Pending, Subscription};
 use sailry_protocol::{EventEnvelope, NodeId, Update, plugin::connector::Changes};
 use tokio::sync::{broadcast, oneshot};
 
-pub(in crate::store) fn snapshot(
+pub(in crate::store) async fn snapshot(
     db: &Connection,
     profile: Option<&std::path::Path>,
 ) -> Result<Changes, Fault> {
     Ok(Changes {
-        cursor: db
-            .query_row("SELECT coalesce(max(cursor),0) FROM events", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .map_err(storage_error)? as u64,
-        types: types(db)?,
-        connections: connections(db, profile)?,
+        cursor: {
+            let mut statement = db
+                .prepare("SELECT coalesce(max(cursor),0) FROM events")
+                .await
+                .map_err(storage_error)?;
+            let row = statement.query_row(()).await.map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+            mapped.map_err(storage_error)?
+        } as u64,
+        types: types(db).await?,
+        connections: connections(db, profile).await?,
     })
 }
 

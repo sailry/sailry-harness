@@ -105,9 +105,9 @@ async fn recovers_interrupted_accounts_on_restart() {
                 .reference();
             let original = lifecycle::connect(&client, package.clone()).await;
             let before: Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             let attempt = begin(&client, &original, changed).await;
-            let interrupted = lifecycle::stored(&node, original.id);
+            let interrupted = lifecycle::stored(&node, original.id).await;
             let pending: Value = serde_json::from_slice(&interrupted).unwrap();
             assert_eq!(
                 pending["login"]["attempt"],
@@ -126,21 +126,28 @@ async fn recovers_interrupted_accounts_on_restart() {
             drop(client);
             // Restore the exact durable in-progress bytes after orderly fixture
             // shutdown to model an interruption before the callback completed.
-            let database =
-                rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+            let (database_handle, database) = crate::plugins::database_fixture::open(
+                &(profile.join("storage/node.turso")),
+                false,
+            )
+            .await;
             database
                 .execute(
                     "UPDATE plugin_connections SET body=?1 WHERE id=?2",
-                    rusqlite::params![interrupted, original.id.to_string()],
+                    turso::params![interrupted.as_slice(), original.id.to_string()],
                 )
+                .await
                 .unwrap();
-            let persisted: Vec<u8> = database
-                .query_row(
-                    "SELECT body FROM plugin_connections WHERE id=?1",
-                    [original.id.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            let persisted: Vec<u8> = (async {
+                let mut statement = database
+                    .prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                    .await?;
+                let row = statement.query_row([original.id.to_string()]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap();
             assert_eq!(persisted, interrupted);
             let orphaned: Value = serde_json::from_slice(&persisted).unwrap();
             assert_eq!(orphaned["state"], "connecting");
@@ -148,7 +155,7 @@ async fn recovers_interrupted_accounts_on_restart() {
                 orphaned["login"]["attempt"],
                 serde_json::to_value(attempt.id).unwrap()
             );
-            database.close().unwrap();
+            crate::plugins::database_fixture::close(database_handle, database).await;
             let node = Node::start_empty(&profile).await.unwrap();
             node.set_connector_fixture("https://service.example.com", &resource.origin);
             let client = Client::new(if remote {
@@ -163,7 +170,7 @@ async fn recovers_interrupted_accounts_on_restart() {
             assert_eq!(rows[0].state, State::Connected);
             assert_eq!(rows[0].revision, attempt.revision);
             let recovered: Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             assert!(recovered["login"].is_null());
             for field in [
                 "fields",
@@ -255,7 +262,7 @@ async fn finishes_conflicts_without_overwriting_newer_edits() {
             };
             public(&execute(&client, mutation).await);
             let latest: Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             let receipt = execute(
                 &client,
                 Command::SubmitConnectorInput {
@@ -288,7 +295,7 @@ async fn finishes_conflicts_without_overwriting_newer_edits() {
                 }
             );
             let after: Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             assert!(after["login"].is_null());
             for field in [
                 "revision",
@@ -335,7 +342,7 @@ async fn discards_pending_edits_after_background_renewal() {
                 .reference();
             let original = lifecycle::connect(&client, package.clone()).await;
             let before: Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             let Output::ConnectorLogin(attempt) = execute(
                 &client,
                 Command::StartConnectorLogin {
@@ -369,25 +376,31 @@ async fn discards_pending_edits_after_background_renewal() {
                 Ok(Output::PluginHttp(response)) if response.status == 401
             ));
             let renewed: Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             assert_eq!(renewed["state"], "connecting");
             assert_eq!(renewed["fields"]["label"], "Pending label");
             let revision = before["grant_revision"].as_u64().unwrap() + 1;
             assert_eq!(renewed["grant_revision"], revision);
             let (node, client) = if restart {
-                let interrupted = lifecycle::stored(&node, original.id);
+                let interrupted = lifecycle::stored(&node, original.id).await;
                 let profile = node.profile().to_owned();
                 let node_id = node.id();
                 node.shutdown().await.unwrap();
                 controller.handle().disconnect(node_id).await;
                 drop(client);
-                rusqlite::Connection::open(profile.join("storage/node.sqlite3"))
-                    .unwrap()
+                let (database_handle, database) = crate::plugins::database_fixture::open(
+                    &profile.join("storage/node.turso"),
+                    false,
+                )
+                .await;
+                database
                     .execute(
                         "UPDATE plugin_connections SET body=?1 WHERE id=?2",
-                        rusqlite::params![interrupted, original.id.to_string()],
+                        turso::params![interrupted, original.id.to_string()],
                     )
+                    .await
                     .unwrap();
+                crate::plugins::database_fixture::close(database_handle, database).await;
                 let node = Node::start_empty(&profile).await.unwrap();
                 let client = Client::new(if remote {
                     controller.handle().remote(node.link().address())
@@ -441,7 +454,7 @@ async fn discards_pending_edits_after_background_renewal() {
             public(&rows);
             assert_eq!(rows[0].state, State::Connected, "{remote}/{outcome}");
             let after: Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             assert!(after["login"].is_null());
             assert_eq!(after["revision"], original.revision + 1);
             assert_eq!(after["grant_revision"], revision);

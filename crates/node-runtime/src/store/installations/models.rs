@@ -15,7 +15,7 @@ pub(in crate::store) fn handles(command: &Command) -> bool {
     )
 }
 
-pub(in crate::store) fn submit(
+pub(in crate::store) async fn submit(
     worker: &mut Worker,
     database: &mut Database,
     events: &broadcast::Sender<EventEnvelope>,
@@ -26,11 +26,12 @@ pub(in crate::store) fn submit(
         Command::InstallLocalModel { id } | Command::DeleteLocalModel { id } => id,
         _ => unreachable!("model installation command expected"),
     };
-    let definition = match crate::store::local_models::definition(&database.connection, id) {
+    let definition = match crate::store::local_models::definition(&database.connection, id).await {
         Ok(definition) => definition,
         Err(error) => {
-            let result =
-                database.finish_external(execution.caller, &execution.request, Err(error), events);
+            let result = database
+                .finish_external(execution.caller, &execution.request, Err(error), events)
+                .await;
             let _ = execution.reply.send(result);
             return Ok(());
         }

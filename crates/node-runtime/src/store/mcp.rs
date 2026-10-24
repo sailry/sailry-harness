@@ -60,7 +60,7 @@ pub(super) enum Operation {
     },
 }
 
-pub(super) fn execute(
+pub(super) async fn execute(
     database: &mut Database,
     operation: Operation,
     events: &broadcast::Sender<EventEnvelope>,
@@ -71,20 +71,17 @@ pub(super) fn execute(
             server,
             reply,
         } => {
-            let _ = reply.send(plugins::mcp::prepare(
-                &database.connection,
-                &package,
-                &server,
-            ));
+            let _ =
+                reply.send(plugins::mcp::prepare(&database.connection, &package, &server).await);
         }
         Operation::ComputerPermissions {
             caller,
             request,
             reply,
         } => {
-            let result = (|| {
-                database.check_plugin(caller, &request)?;
-                let info = database.plugin_package(caller, &request)?;
+            let result = (async || {
+                database.check_plugin(caller, &request).await?;
+                let info = database.plugin_package(caller, &request).await?;
                 if request
                     .plugin
                     .as_ref()
@@ -95,9 +92,10 @@ pub(super) fn execute(
                         "computer permission package changed",
                     ));
                 }
-                let settings = plugins::settings::resolve(&database.connection, &info)?;
+                let settings = plugins::settings::resolve(&database.connection, &info).await?;
                 Ok((info, settings))
-            })();
+            })()
+            .await;
             let _ = reply.send(result);
         }
         Operation::Resolve {
@@ -105,22 +103,26 @@ pub(super) fn execute(
             server,
             reply,
         } => {
-            let _ = reply.send(plugins::connectors::mcp::resolve(
-                &database.connection,
-                database.profile.as_deref(),
-                &context,
-                &server,
-            ));
+            let _ = reply.send(
+                plugins::connectors::mcp::resolve(
+                    &database.connection,
+                    database.profile.as_deref(),
+                    &context,
+                    &server,
+                )
+                .await,
+            );
         }
         Operation::Configuration { package, reply } => {
-            let _ = reply.send(plugins::mcp::configuration(&database.connection, &package));
+            let _ = reply.send(plugins::mcp::configuration(&database.connection, &package).await);
         }
         Operation::Load { target, reply } => {
             let result = plugins::connectors::mcp::load(
                 &database.connection,
                 database.profile.as_deref(),
                 &target,
-            );
+            )
+            .await;
             let _ = reply.send(result);
         }
         Operation::Save {
@@ -129,26 +131,33 @@ pub(super) fn execute(
             credentials,
             reply,
         } => {
-            let result = (|| {
-                let transaction = database.connection.transaction().map_err(storage_error)?;
+            let result = (async || {
+                let transaction = database
+                    .connection
+                    .unchecked_transaction()
+                    .await
+                    .map_err(storage_error)?;
                 let summary = plugins::connectors::mcp::save(
                     &transaction,
                     database.profile.as_deref(),
                     &target,
                     revision,
                     credentials,
-                )?;
+                )
+                .await?;
                 let envelopes = super::database::record(
                     &transaction,
                     database.node,
                     vec![sailry_protocol::Event::PluginChanged(summary)],
-                )?;
-                transaction.commit().map_err(storage_error)?;
+                )
+                .await?;
+                transaction.commit().await.map_err(storage_error)?;
                 for envelope in envelopes {
                     let _ = events.send(envelope);
                 }
                 Ok(())
-            })();
+            })()
+            .await;
             let _ = reply.send(result);
         }
     }

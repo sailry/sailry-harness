@@ -1,7 +1,6 @@
 //! Stateless replay fixtures shared by API-key and OAuth service contracts.
 use sailry_protocol::SessionId;
 use serde_json::{Value, json};
-use std::path::Path;
 
 pub fn output(index: usize) -> Value {
     let mut reasoning = json!({"type":"reasoning","id":format!("stateless-{index}"),"status":"completed","summary":[]});
@@ -51,17 +50,23 @@ pub fn payload(body: &Value, index: usize) {
     assert!(!body.to_string().contains("stateless-0"));
 }
 
-pub fn events(profile: &Path, session: SessionId) -> Vec<Vec<u8>> {
-    let database = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    database
-        .prepare("SELECT body FROM agent_events WHERE session=?1 ORDER BY rowid")
-        .unwrap()
-        .query_map([session.to_string()], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap()
+pub async fn events(node: &sailry_node_runtime::Node, session: SessionId) -> Vec<Vec<u8>> {
+    node.with_storage(move |connection| {
+        Box::pin(async move {
+            let mut rows = connection
+                .query(
+                    "SELECT body FROM agent_events WHERE session=?1 ORDER BY rowid",
+                    [session.to_string()],
+                )
+                .await
+                .map_err(crate::database_fixture::fault)?;
+            let mut bodies = Vec::new();
+            while let Some(row) = rows.next().await.map_err(crate::database_fixture::fault)? {
+                bodies.push(row.get(0).map_err(crate::database_fixture::fault)?);
+            }
+            Ok(bodies)
+        })
+    })
+    .await
+    .unwrap()
 }

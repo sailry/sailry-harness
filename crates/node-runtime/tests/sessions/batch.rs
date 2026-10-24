@@ -200,7 +200,6 @@ async fn preserves_atomic_visibility_and_resources() {
             .await
             .unwrap();
         let current = synchronized(&client, &mut *updates, &mut projection).await;
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
         let mut uncertain = Vec::new();
         for command in [
             Command::ArchiveSessions {
@@ -212,14 +211,24 @@ async fn preserves_atomic_visibility_and_resources() {
         ] {
             // Reuse the receipt-loss fixture: a failed receipt write rolls back
             // this database-only mutation, but its admission must never replay.
-            db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+            node.with_storage(|db| Box::pin(async move {
+                db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").await.map_err(crate::database_fixture::fault)
+            })).await.unwrap();
             let request = client.prepare(command);
             assert!(client.execute(request.clone()).await.is_err());
             assert_eq!(
                 client.outcome(&request).await.unwrap(),
                 RequestOutcome::Admitted
             );
-            db.execute_batch("DROP TRIGGER lose_result").unwrap();
+            node.with_storage(|db| {
+                Box::pin(async move {
+                    db.execute_batch("DROP TRIGGER lose_result")
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap();
             assert_eq!(snapshot(&client).await.sessions, current.sessions);
             assert_eq!(
                 client.execute(request.clone()).await.unwrap_err().code,
@@ -227,7 +236,6 @@ async fn preserves_atomic_visibility_and_resources() {
             );
             uncertain.push(request);
         }
-        drop(db);
         let remove = client.prepare(Command::RemoveSessions {
             expected: expected(&current.sessions),
         });

@@ -85,17 +85,21 @@ pub(in crate::store) fn observe(
     admission
 }
 
-pub(in crate::store) fn progress(
+pub(in crate::store) async fn progress(
     database: &mut Database,
     id: KnowledgeId,
     generation: u64,
     progress: &Progress,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let changed = super::progress(&transaction, id, generation, progress)?;
-    let envelopes = record(&transaction, database.node, changed.into_iter().collect())?;
-    transaction.commit().map_err(storage_error)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
+    let changed = super::progress(&transaction, id, generation, progress).await?;
+    let envelopes = record(&transaction, database.node, changed.into_iter().collect()).await?;
+    transaction.commit().await.map_err(storage_error)?;
     for envelope in envelopes {
         let _ = events.send(envelope);
     }

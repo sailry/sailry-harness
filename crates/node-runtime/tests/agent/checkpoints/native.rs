@@ -15,7 +15,7 @@ async fn preserves_replacements() {
         )
         .await;
         let client = &fixture.client;
-        let before = fixture.counts();
+        let before = fixture.counts().await;
         let mut records = Vec::new();
         let mut watch = fixture
             .transport
@@ -32,14 +32,26 @@ async fn preserves_replacements() {
                 .unwrap();
             let content = read(client, fixture.session.id, file.id).await;
             let request = fixture.restore(file);
-            let db = fixture.database();
             if index == 1 {
-                db.execute_batch("CREATE TRIGGER lose_restore BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+                fixture.node.with_storage(|db| Box::pin(async move {
+                    db.execute_batch("CREATE TRIGGER lose_restore BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;")
+                        .await.map_err(crate::database_fixture::fault)
+                })).await.unwrap();
             }
             let result = client.execute(request.clone()).await;
             if index == 1 {
                 assert_eq!(result.as_ref().unwrap_err().code, ErrorCode::OutcomeUnknown);
-                db.execute_batch("DROP TRIGGER lose_restore").unwrap();
+                fixture
+                    .node
+                    .with_storage(|db| {
+                        Box::pin(async move {
+                            db.execute_batch("DROP TRIGGER lose_restore")
+                                .await
+                                .map_err(crate::database_fixture::fault)
+                        })
+                    })
+                    .await
+                    .unwrap();
             } else {
                 assert_eq!(
                     result.as_ref().unwrap(),
@@ -51,7 +63,6 @@ async fn preserves_replacements() {
                     })
                 );
             }
-            drop(db);
             assert!(!entry.source.exists());
             assert_eq!(
                 std::fs::read_to_string(entry.recover()).unwrap(),
@@ -77,7 +88,7 @@ async fn preserves_replacements() {
             );
             records.push((request, result, entry));
         }
-        assert_eq!(fixture.counts(), before);
+        assert_eq!(fixture.counts().await, before);
         assert_eq!(history(client, fixture.session.id).await, fixture.history);
         drop(watch);
         fixture.node.shutdown().await.unwrap();

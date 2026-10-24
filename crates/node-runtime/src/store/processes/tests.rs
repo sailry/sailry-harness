@@ -1,7 +1,7 @@
 use super::*;
 
-#[test]
-fn resolves_the_admitted_worktree() {
+#[tokio::test]
+async fn resolves_the_admitted_worktree() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("project");
     let other = directory.path().join("other");
@@ -10,31 +10,35 @@ fn resolves_the_admitted_worktree() {
         std::fs::create_dir(path).unwrap();
     }
     let profile = profile.canonicalize().unwrap();
-    let mut database =
-        Database::open(&profile.join("node.sqlite3"), NodeId([8; 32]), None).unwrap();
+    let mut database = Database::open(&profile.join("node.turso"), NodeId([8; 32]), None)
+        .await
+        .unwrap();
     let (events, _) = tokio::sync::broadcast::channel(64);
     let node = database.node;
     let (session, turn, alternative) = {
-        let mut execute = |command| {
+        let mut execute = async |command| {
             let (reply, response) = oneshot::channel();
             assert!(
                 database
                     .dispatch(node, Request::new(node, command), reply, &events)
+                    .await
                     .is_none()
             );
             response
-                .blocking_recv()
+                .await
                 .unwrap()
                 .unwrap()
                 .completion
-                .blocking_recv()
+                .await
                 .unwrap()
                 .unwrap()
         };
         let Output::Project(project) = execute(Command::RegisterProject {
             name: "Frozen workspace fixture".into(),
             path: root.to_str().unwrap().into(),
-        }) else {
+        })
+        .await
+        else {
             panic!("project expected")
         };
         let Output::Session(session) = execute(Command::CreateSession {
@@ -52,35 +56,43 @@ fn resolves_the_admitted_worktree() {
                 permission: Permission::Ask,
                 credential: None,
             }),
-        }) else {
+        })
+        .await
+        else {
             panic!("session expected")
         };
         let Output::QueuedTurn(turn) = execute(Command::SubmitTurn {
             session: session.id,
             expected_revision: session.revision,
             message: "Run in the admitted workspace".into(),
-        }) else {
+        })
+        .await
+        else {
             panic!("turn expected")
         };
         let Output::Project(alternative) = execute(Command::RegisterProject {
             name: "Other fixture".into(),
             path: other.to_str().unwrap().into(),
-        }) else {
+        })
+        .await
+        else {
             panic!("project expected")
         };
         (session, turn, alternative)
     };
-    database.profile = Some(profile);
-    let replacement =
-        super::super::worktrees::select(&database.connection, alternative.id, None).unwrap();
+    database.set_profile(Some(profile)).unwrap();
+    let replacement = super::super::worktrees::select(&database.connection, alternative.id, None)
+        .await
+        .unwrap();
     database
         .connection
         .execute(
             "UPDATE sessions SET worktree=?1 WHERE id=?2",
-            rusqlite::params![replacement.to_string(), session.id.to_string()],
+            turso::params![replacement.to_string(), session.id.to_string()],
         )
+        .await
         .unwrap();
-    database.connection.execute("UPDATE agent_runs SET body=CAST(json_set(CAST(body AS TEXT),'$.status','running') AS BLOB) WHERE turn=?1", [turn.id.to_string()]).unwrap();
+    database.connection.execute("UPDATE agent_runs SET body=CAST(json_set(CAST(body AS TEXT),'$.status','running') AS BLOB) WHERE turn=?1", [turn.id.to_string()]).await.unwrap();
     let prepared = prepare(
         &database,
         &Request::new(
@@ -98,6 +110,7 @@ fn resolves_the_admitted_worktree() {
             },
         ),
     )
+    .await
     .unwrap();
     assert_eq!(prepared.worktree, session.worktree);
     assert_eq!(prepared.launch.root, root.canonicalize().unwrap());

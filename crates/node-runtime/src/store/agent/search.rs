@@ -9,12 +9,12 @@ const MAX_EVENTS: usize = 256;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const CONTEXT: usize = 96;
 
-pub(in crate::store) fn search(
+pub(in crate::store) async fn search(
     db: &Connection,
     session: SessionId,
     options: &Query,
 ) -> Result<search::Page, Fault> {
-    check_session(db, session)?;
+    check_session(db, session).await?;
     if options.text.trim().is_empty()
         || options.text.len() > search::MAX_QUERY_BYTES
         || !(1..=search::MAX_MATCHES).contains(&options.limit)
@@ -27,14 +27,20 @@ pub(in crate::store) fn search(
         ));
     }
     if let Some(before) = options.before {
-        let visible: Option<bool> = db
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM conversation_turns h WHERE h.session=?2 AND h.turn=e.turn) FROM agent_events e WHERE e.sequence=?1",
-                params![before as i64, session.to_string()],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(storage_error)?;
+        let visible: Option<bool> = {
+            let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM conversation_turns h WHERE h.session=?2 AND h.turn=e.turn) FROM agent_events e WHERE e.sequence=?1").await.map_err(storage_error)?;
+            match statement
+                .query_row(params![before as i64, session.to_string()])
+                .await
+            {
+                Ok(row) => {
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
+            }
+        };
         match visible {
             Some(true) => {}
             Some(false) => {
@@ -57,24 +63,28 @@ pub(in crate::store) fn search(
         .dfa_size_limit(1 << 20)
         .build()
         .map_err(|_| sailry_protocol::Fault::invalid("conversation search text is invalid"))?;
-    let mut query = db.prepare(history::EVENTS_QUERY).map_err(storage_error)?;
+    let mut query = db
+        .prepare(history::EVENTS_QUERY)
+        .await
+        .map_err(storage_error)?;
     let mut rows = query
         .query(params![
             session.to_string(),
             options.before.unwrap_or(i64::MAX as u64) as i64,
             (MAX_EVENTS + 1) as i64,
         ])
+        .await
         .map_err(storage_error)?;
     let mut page = search::Page {
         session,
-        revision: crate::store::sessions::history_revision(db, session)?,
+        revision: crate::store::sessions::history_revision(db, session).await?,
         matches: Vec::new(),
         next_before: None,
     };
     let mut count = 0;
     let mut bytes = 0;
     let mut last = None;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         if count == MAX_EVENTS
             || bytes >= MAX_BYTES
             || page.matches.len() == usize::from(options.limit)
@@ -82,7 +92,7 @@ pub(in crate::store) fn search(
             page.next_before = last;
             break;
         }
-        let sequence = row.get::<_, i64>(0).map_err(storage_error)? as u64;
+        let sequence = row.get::<i64>(0).map_err(storage_error)? as u64;
         let body: Vec<u8> = row.get(2).map_err(storage_error)?;
         bytes += body.len();
         count += 1;
@@ -92,7 +102,7 @@ pub(in crate::store) fn search(
             let turn: String = row.get(1).map_err(storage_error)?;
             page.matches.push(search::Match {
                 turn: turn.parse().map_err(storage_error)?,
-                turn_sequence: row.get::<_, i64>(3).map_err(storage_error)? as u64,
+                turn_sequence: row.get::<i64>(3).map_err(storage_error)? as u64,
                 entry: event.id,
                 sequence,
                 part,

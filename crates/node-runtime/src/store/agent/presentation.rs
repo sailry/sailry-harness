@@ -253,13 +253,12 @@ pub(super) fn displays(
 }
 
 /// Capture public child labels with the call, so later history pages need no live lookup.
-pub(super) fn capture_names(
-    db: &rusqlite::Connection,
+pub(super) async fn capture_names(
+    db: &turso::Connection,
     session: sailry_protocol::SessionId,
     event: &mut Event,
     previous: Option<&[u8]>,
 ) -> Result<(), sailry_protocol::Fault> {
-    use rusqlite::OptionalExtension as _;
     use sailry_protocol::tool::InputFormat;
     let mut captured = displays(event)?;
     if !captured.values().any(|display| {
@@ -275,14 +274,14 @@ pub(super) fn capture_names(
         .map(|body| serde_json::from_slice::<Event>(body).map_err(super::storage_error))
         .transpose()?;
     let original = previous.as_ref().map(displays).transpose()?;
-    let source_project = original
-        .is_none()
-        .then(|| {
-            super::super::commands::session(db, session)
-                .ok()
-                .map(|session| session.project)
-        })
-        .flatten();
+    let source_project = if original.is_none() {
+        super::super::commands::session(db, session)
+            .await
+            .ok()
+            .map(|session| session.project)
+    } else {
+        None
+    };
     for (name, display) in &mut captured {
         let Some(field) = display
             .input
@@ -326,15 +325,20 @@ pub(super) fn capture_names(
             if field.names.contains_key(&target.to_string()) {
                 continue;
             }
-            let title: Option<String> = db.query_row(
-                "SELECT json_extract(body,'$.task.title') FROM agent_background WHERE session=?1 AND kind='agent' AND source=?2 ORDER BY sequence DESC,rowid DESC LIMIT 1",
-                rusqlite::params![session.to_string(), target.to_string()], |row| row.get(0),
-            ).optional().map_err(super::storage_error)?.flatten();
-            let title = title.or_else(|| {
-                let target =
-                    super::references::history::visible(db, source_project?, target).ok()?;
-                Some(target.activity.title)
-            });
+            let title: Option<String> = (match (async { let mut statement = db.prepare("SELECT json_extract(body,'$.task.title') FROM agent_background WHERE session=?1 AND kind='agent' AND source=?2 ORDER BY sequence DESC,rowid DESC LIMIT 1").await?;
+let row = statement.query_row(turso::params![session.to_string(), target.to_string()]).await?;
+let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) }).map_err(super::storage_error)?.flatten();
+            let title = if title.is_some() {
+                title
+            } else if let Some(project) = source_project {
+                super::references::history::visible(db, project, target)
+                    .await
+                    .ok()
+                    .map(|target| target.activity.title)
+            } else {
+                None
+            };
             if let Some(title) = title
                 .filter(|title| !title.trim().is_empty() && !title.chars().any(char::is_control))
             {
@@ -492,12 +496,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn freezes_owned_session_names() {
+    #[tokio::test]
+    async fn freezes_owned_session_names() {
         use crate::store::agent::tests::fixture::Fixture;
-        let mut fixture = Fixture::new();
-        let turn = fixture.queued();
-        let parent = super::super::runs::get(&fixture.database.connection, turn).unwrap();
+        let mut fixture = Fixture::new().await;
+        let turn = fixture.queued().await;
+        let parent = super::super::runs::get(&fixture.database.connection, turn)
+            .await
+            .unwrap();
         let mut event = Event::new("session-names");
         event.author = "assistant".into();
         let mut content = adk_core::Content::new("model");
@@ -512,6 +518,7 @@ mod tests {
                 &child,
                 title,
             )
+            .await
             .unwrap();
             expected.insert(child.session.to_string(), title.to_owned());
             content.parts.push(Part::FunctionCall {
@@ -538,6 +545,7 @@ mod tests {
             &mut event,
             None,
         )
+        .await
         .unwrap();
         let captured = displays(&event).unwrap();
         let display = &captured["observe"];
@@ -559,8 +567,9 @@ mod tests {
             .connection
             .execute(
                 "UPDATE agent_background SET body=json_set(body,'$.task.title','Changed')",
-                [],
+                (),
             )
+            .await
             .unwrap();
         let mut repeated = original.clone();
         capture_names(
@@ -569,6 +578,7 @@ mod tests {
             &mut repeated,
             Some(&persisted),
         )
+        .await
         .unwrap();
         assert_eq!(
             serde_json::to_value(&repeated).unwrap(),
@@ -581,6 +591,7 @@ mod tests {
             &mut foreign,
             None,
         )
+        .await
         .unwrap();
         assert!(
             displays(&foreign).unwrap()["observe"]

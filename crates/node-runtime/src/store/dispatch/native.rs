@@ -6,12 +6,12 @@ pub(super) const OWNER: &str = "";
 const HANDLER: &str = "profile-backup";
 const SCHEDULE: &str = "40ca706e-25c1-45ca-bacf-61ee028fb608";
 
-pub(in crate::store) fn configure(
+pub(in crate::store) async fn configure(
     db: &Connection,
     settings: &protocol::backup::Settings,
 ) -> Result<(), Fault> {
     let id: protocol::ScheduleId = SCHEDULE.parse().expect("fixed schedule identifier");
-    let previous: Option<Schedule> = get(db, "dispatch_schedules", OWNER, "id", SCHEDULE)?;
+    let previous: Option<Schedule> = get(db, "dispatch_schedules", OWNER, "id", SCHEDULE).await?;
     if settings.schedule.is_none() && previous.is_none() {
         return Ok(());
     }
@@ -32,7 +32,8 @@ pub(in crate::store) fn configure(
         .schedule
         .as_ref()
         .is_some_and(|schedule| schedule.enabled);
-    let previous_handler: Option<Handler> = get(db, "dispatch_handlers", OWNER, "name", HANDLER)?;
+    let previous_handler: Option<Handler> =
+        get(db, "dispatch_handlers", OWNER, "name", HANDLER).await?;
     let handler = Handler {
         name: HANDLER.into(),
         revision: previous_handler
@@ -55,8 +56,8 @@ pub(in crate::store) fn configure(
             bindings: BTreeMap::new(),
         },
     };
-    db.execute("INSERT INTO dispatch_handlers(package,name,source,topic,body,reference) VALUES(?1,?2,?1,?2,?3,?4) ON CONFLICT(package,name) DO UPDATE SET body=excluded.body,reference=excluded.reference", params![OWNER,HANDLER,encode(&handler)?,b"null".as_slice()]).map_err(storage_error)?;
-    jobs::cancel_pending(db, OWNER, HANDLER)?;
+    db.execute("INSERT INTO dispatch_handlers(package,name,source,topic,body,reference) VALUES(?1,?2,?1,?2,?3,?4) ON CONFLICT(package,name) DO UPDATE SET body=excluded.body,reference=excluded.reference", params![OWNER,HANDLER,encode(&handler)?,b"null".as_slice()]).await.map_err(storage_error)?;
+    jobs::cancel_pending(db, OWNER, HANDLER).await?;
     schedules::save(
         db,
         OWNER,
@@ -69,7 +70,8 @@ pub(in crate::store) fn configure(
             timing,
             next_ms: None,
         },
-    )?;
+    )
+    .await?;
     Ok(())
 }
 

@@ -3,7 +3,7 @@ use super::*;
 
 pub(crate) const END_EVENT: &str = "sailry.context.end_event";
 
-pub(super) fn validate(
+pub(super) async fn validate(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
@@ -32,17 +32,22 @@ pub(super) fn validate(
     }
     let visible = history::VISIBLE_EVENT;
     let later_visible = visible.replace("e.body", "next.body");
-    let valid: bool = db.query_row(
-        &format!("SELECT EXISTS(SELECT 1 FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+    let valid: bool = {
+        let mut statement = db.prepare(&format!("SELECT EXISTS(SELECT 1 FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN turns t ON t.id=e.turn JOIN agent_runs r ON r.turn=t.id
          WHERE h.session=?1 AND e.id=?2 AND e.turn<>?3 AND json_extract(r.body,'$.status') NOT IN ('queued','running','stopping')
          AND {visible}
          AND NOT EXISTS(SELECT 1 FROM conversation_events later JOIN agent_events next ON next.sequence=later.sequence
            WHERE later.session=h.session AND next.turn=e.turn AND later.sequence>h.sequence
-           AND json_type(next.body,'$.actions.compaction') IS NULL AND {later_visible}))"),
-        params![session.to_string(), end, turn.to_string()], |row| row.get(0)
-    ).map_err(storage_error)?;
-    if !valid && !current_exchange(db, session, turn, end)? {
+           AND json_type(next.body,'$.actions.compaction') IS NULL AND {later_visible}))")).await.map_err(storage_error)?;
+        let row = statement
+            .query_row(params![session.to_string(), end.as_str(), turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
+    if !valid && !current_exchange(db, session, turn, end).await? {
         return Err(sailry_protocol::Fault::invalid(
             "context summary boundary is not a complete turn or tool exchange",
         ));
@@ -50,21 +55,32 @@ pub(super) fn validate(
     Ok(())
 }
 
-fn current_exchange(
+async fn current_exchange(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
     end: &str,
 ) -> Result<bool, Fault> {
     let visible = history::VISIBLE_EVENT;
-    let boundary: Option<(i64, String)> = db.query_row(
-        &format!("SELECT e.sequence,e.turn FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+    let boundary: Option<(i64, String)> = {
+        let mut statement = db.prepare(&format!("SELECT e.sequence,e.turn FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN turns t ON t.id=e.turn JOIN agent_runs r ON r.turn=t.id
          WHERE h.session=?1 AND e.id=?2 AND t.kind='task' AND {visible}
          AND ((e.turn=?3 AND json_extract(r.body,'$.status')='running')
-           OR json_extract(r.body,'$.status') NOT IN ('queued','running','stopping'))"),
-        params![session.to_string(), end, turn.to_string()], |row| Ok((row.get(0)?, row.get(1)?))
-    ).optional().map_err(storage_error)?;
+           OR json_extract(r.body,'$.status') NOT IN ('queued','running','stopping'))")).await.map_err(storage_error)?;
+        match statement
+            .query_row(params![session.to_string(), end, turn.to_string()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let Some((sequence, owner)) = boundary else {
         return Ok(false);
     };
@@ -73,14 +89,24 @@ fn current_exchange(
             "SELECT body FROM agent_events WHERE turn=?1 AND sequence<=?2
          AND json_type(body,'$.actions.compaction') IS NULL ORDER BY sequence",
         )
+        .await
         .map_err(storage_error)?;
-    let events = statement
-        .query_map(params![owner, sequence], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|body| {
-            serde_json::from_slice::<AdkEvent>(&body.map_err(storage_error)?).map_err(storage_error)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let events = {
+        let mut rows = statement
+            .query(params![owner, sequence])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|body| {
+        serde_json::from_slice::<AdkEvent>(&body.map_err(storage_error)?).map_err(storage_error)
+    })
+    .collect::<Result<Vec<_>, _>>()?;
     Ok(complete_exchange(&events))
 }
 
@@ -139,19 +165,16 @@ pub(crate) fn complete_exchange(events: &[AdkEvent]) -> bool {
     complete
 }
 
-pub(super) fn read(
+pub(super) async fn read(
     db: &Connection,
     session: SessionId,
 ) -> adk_core::Result<Option<(i64, AdkEvent)>> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+    let body: Option<Vec<u8>> = (match (async { let mut statement = db.prepare("SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND json_type(e.body,'$.actions.compaction')='object'
-         ORDER BY h.sequence DESC LIMIT 1",
-            [session.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
+         ORDER BY h.sequence DESC LIMIT 1").await?;
+let row = statement.query_row([session.to_string()]).await?;
+let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) })
         .map_err(|error| adk_error(storage_error(error)))?;
     let Some(body) = body else { return Ok(None) };
     let mut event: AdkEvent =
@@ -160,10 +183,10 @@ pub(super) fn read(
         .provider_metadata
         .get(END_EVENT)
         .ok_or_else(|| AdkError::session("context summary has no boundary"))?;
-    let sequence: i64 = db.query_row(
-        "SELECT h.sequence FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.id=?2",
-        params![session.to_string(), end], |row| row.get(0)
-    ).map_err(|error| adk_error(storage_error(error)))?;
+    let sequence: i64 = (async { let mut statement = db.prepare("SELECT h.sequence FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.id=?2").await?;
+let row = statement.query_row(params![session.to_string(), end.as_str()]).await?;
+let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+mapped }).await.map_err(|error| adk_error(storage_error(error)))?;
     let summary = event
         .actions
         .compaction
@@ -187,7 +210,7 @@ pub(crate) struct History {
     pub frontier: Option<String>,
 }
 
-pub(super) fn history(
+pub(super) async fn history(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
@@ -202,7 +225,8 @@ pub(super) fn history(
             num_recent_events: None,
             after: None,
         },
-    )?
+    )
+    .await?
     .events()
     .all();
     // Prompt events omit telemetry; their completed boundary must use the same
@@ -217,21 +241,35 @@ pub(super) fn history(
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN agent_runs r ON r.turn=e.turn JOIN ends ON ends.turn=e.turn WHERE h.session=?1"
         ))
+        .await
         .map_err(|error| adk_error(storage_error(error)))?;
-    let owners = query
-        .query_map([session.to_string()], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                (
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, bool>(3)?,
-                ),
-            ))
-        })
-        .map_err(|error| adk_error(storage_error(error)))?
-        .collect::<Result<std::collections::HashMap<_, _>, _>>()
-        .map_err(|error| adk_error(storage_error(error)))?;
+    let owners = {
+        let mut rows = query
+            .query([session.to_string()])
+            .await
+            .map_err(|error| adk_error(storage_error(error)))?;
+        let mut values = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|error| adk_error(storage_error(error)))?
+        {
+            let mapped: turso::Result<_> = (|row: &turso::Row| {
+                Ok((
+                    row.get::<String>(0)?,
+                    (
+                        row.get::<String>(1)?,
+                        row.get::<String>(2)?,
+                        row.get::<bool>(3)?,
+                    ),
+                ))
+            })(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .collect::<Result<std::collections::HashMap<_, _>, _>>()
+    .map_err(|error| adk_error(storage_error(error)))?;
     let current = events
         .iter()
         .position(|event| {

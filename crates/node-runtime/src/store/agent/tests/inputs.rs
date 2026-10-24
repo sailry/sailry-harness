@@ -1,7 +1,7 @@
 use super::{fixture::Fixture, *};
 
-fn claim(fixture: &mut Fixture, message: Input) -> Invocation {
-    let turn = fixture.queued();
+async fn claim(fixture: &mut Fixture, message: Input) -> Invocation {
+    let turn = fixture.queued().await;
     command(
         &mut fixture.database,
         &fixture.events,
@@ -10,27 +10,32 @@ fn claim(fixture: &mut Fixture, message: Input) -> Invocation {
             expected_revision: 1,
             message,
         },
-    );
-    runs::start(&fixture.database.connection, turn).unwrap();
+    )
+    .await;
+    runs::start(&fixture.database.connection, turn)
+        .await
+        .unwrap();
     runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap()
 }
 
-#[test]
-fn captures_effective_input_without_history() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn captures_effective_input_without_history() {
+    let mut fixture = Fixture::new().await;
     let message: Input = "Edited input 中文 🙂\n".into();
-    let invocation = claim(&mut fixture, message.clone());
+    let invocation = claim(&mut fixture, message.clone()).await;
     assert_eq!(invocation.message, message);
     let original: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT r.body FROM requests r JOIN turns t ON t.request=r.id WHERE t.id=?1",
-            [invocation.turn.id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT r.body FROM requests r JOIN turns t ON t.request=r.id WHERE t.id=?1")
+        .await
+        .unwrap()
+        .query_row([invocation.turn.id.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     let original: Request = serde_json::from_slice(&original).unwrap();
     let Command::QueueTurn {
@@ -42,6 +47,7 @@ fn captures_effective_input_without_history() {
     assert_eq!(queued.text, "History fixture");
     assert!(
         queue::read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .items
             .is_empty()
@@ -56,34 +62,40 @@ fn captures_effective_input_without_history() {
         )),
         &fixture.events,
     )
+    .await
     .unwrap();
-    let page = fixture.read(None, 100).page;
+    let page = fixture.read(None, 100).await.page;
     assert!(page.entries.is_empty());
     assert_eq!(page.runs[0].input.as_ref().unwrap().message, message);
     assert!(
         runs::get(&fixture.database.connection, invocation.turn.id)
+            .await
             .unwrap()
             .input
             .is_none()
     );
     assert!(
         activity::read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .run
             .unwrap()
             .input
             .is_none()
     );
-    history::rebuild(&mut fixture.database.connection).unwrap();
-    assert_eq!(fixture.read(None, 100).page, page);
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(fixture.read(None, 100).await.page, page);
     let stored: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT input FROM agent_runs WHERE turn=?1",
-            [invocation.turn.id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT input FROM agent_runs WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([invocation.turn.id.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(serde_json::from_slice::<Input>(&stored).unwrap(), message);
     assert!(
@@ -94,11 +106,11 @@ fn captures_effective_input_without_history() {
     );
 }
 
-#[test]
-fn canonical_user_replaces_capture() {
-    let mut fixture = Fixture::new();
-    let invocation = claim(&mut fixture, "Captured input".into());
-    assert!(fixture.read(None, 100).page.runs[0].input.is_some());
+#[tokio::test]
+async fn canonical_user_replaces_capture() {
+    let mut fixture = Fixture::new().await;
+    let invocation = claim(&mut fixture, "Captured input".into()).await;
+    assert!(fixture.read(None, 100).await.page.runs[0].input.is_some());
     let mut event = AdkEvent::new("canonical-user");
     event.author = "user".into();
     event.set_content(adk_core::Content::new("user").with_text("Canonical input"));
@@ -109,8 +121,9 @@ fn canonical_user_replaces_capture() {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
-    let page = fixture.read(None, 100).page;
+    let page = fixture.read(None, 100).await.page;
     assert!(page.runs[0].input.is_none());
     assert_eq!(page.entries[0].author, "user");
     assert_eq!(
@@ -120,11 +133,12 @@ fn canonical_user_replaces_capture() {
     let capture: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT input FROM agent_runs WHERE turn=?1",
-            [invocation.turn.id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT input FROM agent_runs WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([invocation.turn.id.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(
         serde_json::from_slice::<Input>(&capture).unwrap(),
@@ -132,10 +146,10 @@ fn canonical_user_replaces_capture() {
     );
 }
 
-#[test]
-fn preserves_records_when_adding_capture_column() {
-    let mut fixture = Fixture::new();
-    let invocation = claim(&mut fixture, "Old sent input".into());
+#[tokio::test]
+async fn preserves_records_when_adding_capture_column() {
+    let mut fixture = Fixture::new().await;
+    let invocation = claim(&mut fixture, "Old sent input".into()).await;
     runs::finish(
         &mut fixture.database,
         invocation.turn.id,
@@ -143,39 +157,54 @@ fn preserves_records_when_adding_capture_column() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     let path = fixture
         ._root
         .path()
         .canonicalize()
         .unwrap()
-        .join("node.sqlite3");
+        .join("node.turso");
     let node = fixture.database.node;
     let body: Vec<u8> = fixture
         .database
         .connection
-        .query_row("SELECT body FROM agent_runs", [], |row| row.get(0))
+        .prepare("SELECT body FROM agent_runs")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     fixture
         .database
         .connection
         .execute_batch("ALTER TABLE agent_runs DROP COLUMN input")
+        .await
         .unwrap();
-    fixture.database.close().unwrap();
-    let database = Database::open(&path, node, None).unwrap();
+    fixture.database.close().await.unwrap();
+    let database = Database::open(&path, node, None).await.unwrap();
     assert_eq!(
         database
             .connection
-            .query_row("SELECT body FROM agent_runs", [], |row| row
-                .get::<_, Vec<u8>>(0))
+            .prepare("SELECT body FROM agent_runs")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<Vec<u8>>(0))
             .unwrap(),
         body
     );
     assert!(
         database
             .connection
-            .query_row("SELECT input FROM agent_runs", [], |row| row
-                .get::<_, Option<Vec<u8>>>(0))
+            .prepare("SELECT input FROM agent_runs")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<Option<Vec<u8>>>(0))
             .unwrap()
             .is_none()
     );
@@ -184,35 +213,57 @@ fn preserves_records_when_adding_capture_column() {
         .map(|entry| entry.unwrap().path())
         .collect::<Vec<_>>();
     assert_eq!(backups.len(), 1);
-    let backup =
-        Connection::open_with_flags(&backups[0], rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap();
-    assert!(backup.prepare("SELECT input FROM agent_runs").is_err());
+    let path = backups[0].join("node.turso");
+    let handle = crate::store::database::Handle::new(
+        path.clone(),
+        crate::store::database::engine(&path).await.unwrap(),
+    );
+    let backup = handle.lease(true).await.unwrap();
+    assert!(
+        backup
+            .prepare("SELECT input FROM agent_runs")
+            .await
+            .is_err()
+    );
     assert_eq!(
         backup
-            .query_row("SELECT body FROM agent_runs", [], |row| row
-                .get::<_, Vec<u8>>(0))
+            .prepare("SELECT body FROM agent_runs")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<Vec<u8>>(0))
             .unwrap(),
         body
     );
     assert_eq!(
         backup
-            .query_row("SELECT COUNT(*) FROM requests", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT COUNT(*) FROM requests")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
             .unwrap(),
         database
             .connection
-            .query_row("SELECT COUNT(*) FROM requests", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT COUNT(*) FROM requests")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
             .unwrap()
     );
-    database.close().unwrap();
+    drop(backup);
+    drop(handle.pause().await.unwrap());
+    database.close().await.unwrap();
 }
 
-#[test]
-fn rejects_invalid_capture_before_upgrade() {
-    let mut fixture = Fixture::new();
-    let invocation = claim(&mut fixture, "Preserve capture".into());
+#[tokio::test]
+async fn rejects_invalid_capture_before_upgrade() {
+    let mut fixture = Fixture::new().await;
+    let invocation = claim(&mut fixture, "Preserve capture".into()).await;
     runs::finish(
         &mut fixture.database,
         invocation.turn.id,
@@ -220,13 +271,14 @@ fn rejects_invalid_capture_before_upgrade() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     let path = fixture
         ._root
         .path()
         .canonicalize()
         .unwrap()
-        .join("node.sqlite3");
+        .join("node.turso");
     let node = fixture.database.node;
     fixture
         .database
@@ -235,15 +287,17 @@ fn rejects_invalid_capture_before_upgrade() {
             "UPDATE agent_runs SET input=?1",
             [b"invalid input".as_slice()],
         )
+        .await
         .unwrap();
     fixture
         .database
         .connection
         .execute_batch("DROP TABLE code_settings")
+        .await
         .unwrap();
-    fixture.database.close().unwrap();
+    fixture.database.close().await.unwrap();
     let before = std::fs::read(&path).unwrap();
-    let error = Database::open(&path, node, None).err().unwrap();
+    let error = Database::open(&path, node, None).await.err().unwrap();
     assert!(error.to_string().contains("agent_runs.input"));
     assert!(!error.to_string().contains("invalid input"));
     assert_eq!(std::fs::read(&path).unwrap(), before);

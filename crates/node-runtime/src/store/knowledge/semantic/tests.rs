@@ -2,14 +2,30 @@ use super::*;
 use sailry_protocol::{NodeId, TurnId};
 use serde_json::{Value, json};
 
-fn database() -> Connection {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("../../schema.sql")).unwrap();
-    crate::store::local_models::initialize(&db).unwrap();
+async fn database() -> Connection {
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
+    db.execute_batch(include_str!("../../schema.sql"))
+        .await
+        .unwrap();
+    crate::store::local_models::initialize(&db).await.unwrap();
     db
 }
 
-fn package(db: &Connection, digest: char, semantic: bool) -> plugin::Reference {
+async fn change_count(db: &Connection) -> i64 {
+    db.prepare("SELECT total_changes()")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap()
+}
+
+async fn package(db: &Connection, digest: char, semantic: bool) -> plugin::Reference {
     let summary = plugin::Summary {
         name: "private-memory".into(),
         revision: 1,
@@ -33,11 +49,16 @@ fn package(db: &Connection, digest: char, semantic: bool) -> plugin::Reference {
     let reference = info.summary.reference();
     db.execute(
         "INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3)",
-        params![reference.digest, reference.name, encode(&info).unwrap()],
+        params![
+            reference.digest.as_str(),
+            reference.name.as_str(),
+            encode(&info).unwrap()
+        ],
     )
+    .await
     .unwrap();
-    db.execute("INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2) ON CONFLICT(name) DO UPDATE SET body=excluded.body",params![reference.name,encode(&info).unwrap()]).unwrap();
-    startup(db, &CancellationToken::new()).unwrap();
+    db.execute("INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2) ON CONFLICT(name) DO UPDATE SET body=excluded.body",params![reference.name.as_str(),encode(&info).unwrap()]).await.unwrap();
+    startup(db, &CancellationToken::new()).await.unwrap();
     reference
 }
 
@@ -65,7 +86,7 @@ fn request(package: &plugin::Reference) -> Request {
     })
 }
 
-fn value(
+async fn value(
     db: &Connection,
     name: &str,
     key: &str,
@@ -73,7 +94,7 @@ fn value(
     value: Value,
     index: Option<plugin::storage::Index>,
 ) {
-    db.execute("INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(name,key) DO UPDATE SET revision=excluded.revision,value=excluded.value,index_data=excluded.index_data",params![name,key,i64::try_from(revision).unwrap(),serde_json::to_vec(&value).unwrap(),index.map(|index|serde_json::to_vec(&index).unwrap())]).unwrap();
+    db.execute("INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(name,key) DO UPDATE SET revision=excluded.revision,value=excluded.value,index_data=excluded.index_data",params![name,key,i64::try_from(revision).unwrap(),serde_json::to_vec(&value).unwrap(),index.map(|index|serde_json::to_vec(&index).unwrap())]).await.unwrap();
 }
 
 fn metadata(key: &str, pointer: &str) -> plugin::storage::Index {
@@ -88,12 +109,12 @@ fn metadata(key: &str, pointer: &str) -> plugin::storage::Index {
     }
 }
 
-fn seed(db: &Connection) {
-    seed_values(db);
-    startup(db, &CancellationToken::new()).unwrap();
+async fn seed(db: &Connection) {
+    seed_values(db).await;
+    startup(db, &CancellationToken::new()).await.unwrap();
 }
 
-fn seed_values(db: &Connection) {
+async fn seed_values(db: &Connection) {
     value(
         db,
         "private-memory",
@@ -101,7 +122,8 @@ fn seed_values(db: &Connection) {
         7,
         json!({"bodies":{"escaped/id":{"body":"Original raw vector body"}}}),
         None,
-    );
+    )
+    .await;
     value(
         db,
         "private-memory",
@@ -109,7 +131,8 @@ fn seed_values(db: &Connection) {
         2,
         json!({"id":"one"}),
         Some(metadata("bodies/page", "/bodies/escaped~1id/body")),
-    );
+    )
+    .await;
     let mut plain = metadata("bodies/page", "/bodies/escaped~1id/body");
     plain.source = None;
     value(
@@ -119,7 +142,8 @@ fn seed_values(db: &Connection) {
         3,
         json!({"id":"plain"}),
         Some(plain),
-    );
+    )
+    .await;
     value(
         db,
         "foreign-memory",
@@ -127,8 +151,9 @@ fn seed_values(db: &Connection) {
         1,
         json!({"id":"foreign"}),
         Some(metadata("bodies/page", "/bodies/escaped~1id/body")),
-    );
-    search::rebuild(db).unwrap();
+    )
+    .await;
+    search::rebuild(db).await.unwrap();
 }
 
 fn selection(plan: &Plan, record: &super::super::storage::Record) -> Selection {
@@ -144,14 +169,16 @@ fn selection(plan: &Plan, record: &super::super::storage::Record) -> Selection {
     }
 }
 
-#[test]
-fn registers_only_manifest_sources() {
-    let db = database();
-    let reference = package(&db, 'a', true);
-    seed(&db);
-    let writes = db.total_changes();
-    let plan = prepare(&db, &request(&reference), &CancellationToken::new()).unwrap();
-    assert_eq!(db.total_changes(), writes);
+#[tokio::test]
+async fn registers_only_manifest_sources() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
+    seed(&db).await;
+    let writes = change_count(&db).await;
+    let plan = prepare(&db, &request(&reference), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(change_count(&db).await, writes);
     assert_eq!(plan.collections.len(), 1);
     assert_eq!(plan.eligible, BTreeSet::from(["meta/one".into()]));
     let stored = &plan.collections[0];
@@ -159,7 +186,9 @@ fn registers_only_manifest_sources() {
     assert!(stored.collection.definition.model.is_none());
     assert!(stored.collection.definition.shared_with.is_empty());
     assert_eq!(stored.capture.package.as_ref(), Some(&reference));
-    let page = sources(&db, stored, None, 16, &CancellationToken::new()).unwrap();
+    let page = sources(&db, stored, None, 16, &CancellationToken::new())
+        .await
+        .unwrap();
     assert_eq!(page.records.len(), 1);
     let raw = &page.records[0];
     assert_eq!(raw.key, "meta/one");
@@ -167,7 +196,11 @@ fn registers_only_manifest_sources() {
     assert_eq!(raw.body, "Original raw vector body");
     assert_eq!(raw.source_revision, 7);
     assert_eq!(raw.source.pointer, "/bodies/escaped~1id/body");
-    assert!(unchanged(&db, stored, raw, &CancellationToken::new()).unwrap());
+    assert!(
+        unchanged(&db, stored, raw, &CancellationToken::new())
+            .await
+            .unwrap()
+    );
     let result = materialize(
         &db,
         &request(&reference),
@@ -175,6 +208,7 @@ fn registers_only_manifest_sources() {
         &selection(&plan, raw),
         &CancellationToken::new(),
     )
+    .await
     .unwrap();
     assert!(!result.stale);
     assert_eq!(result.page.mode, knowledge::Mode::Semantic);
@@ -184,19 +218,22 @@ fn registers_only_manifest_sources() {
     );
     assert_eq!(result.page.entries[0].revision, 2);
     assert_eq!(result.page.entries[0].key, "meta/one");
-    prepare(&db, &request(&reference), &CancellationToken::new()).unwrap();
-    assert_eq!(db.total_changes(), writes);
-    let off = database();
-    let reference = package(&off, 'b', false);
-    seed(&off);
+    prepare(&db, &request(&reference), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(change_count(&db).await, writes);
+    let off = database().await;
+    let reference = package(&off, 'b', false).await;
+    seed(&off).await;
     assert!(
         prepare(&off, &request(&reference), &CancellationToken::new())
+            .await
             .unwrap()
             .collections
             .is_empty()
     );
-    let empty = database();
-    let reference = package(&empty, 'c', true);
+    let empty = database().await;
+    let reference = package(&empty, 'c', true).await;
     let mut index = metadata("bodies/page", "/body");
     index.source = None;
     value(
@@ -206,26 +243,32 @@ fn registers_only_manifest_sources() {
         1,
         json!({}),
         Some(index),
-    );
-    search::rebuild(&empty).unwrap();
-    let plan = prepare(&empty, &request(&reference), &CancellationToken::new()).unwrap();
+    )
+    .await;
+    search::rebuild(&empty).await.unwrap();
+    let plan = prepare(&empty, &request(&reference), &CancellationToken::new())
+        .await
+        .unwrap();
     assert!(plan.collections.is_empty());
 }
 
-#[test]
-fn queries_do_not_register_missing_collections() {
-    let db = database();
-    let reference = package(&db, 'a', true);
-    seed_values(&db);
-    let writes = db.total_changes();
-    let plan = prepare(&db, &request(&reference), &CancellationToken::new()).unwrap();
+#[tokio::test]
+async fn queries_do_not_register_missing_collections() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
+    seed_values(&db).await;
+    let writes = change_count(&db).await;
+    let plan = prepare(&db, &request(&reference), &CancellationToken::new())
+        .await
+        .unwrap();
     assert!(plan.collections.is_empty());
     assert_eq!(plan.keyword.len(), 2);
-    assert_eq!(db.total_changes(), writes);
-    assert!(collections::load(&db).unwrap().is_empty());
-    assert!(startup(&db, &CancellationToken::new()).unwrap());
+    assert_eq!(change_count(&db).await, writes);
+    assert!(collections::load(&db).await.unwrap().is_empty());
+    assert!(startup(&db, &CancellationToken::new()).await.unwrap());
     assert_eq!(
         prepare(&db, &request(&reference), &CancellationToken::new())
+            .await
             .unwrap()
             .collections
             .len(),
@@ -233,12 +276,12 @@ fn queries_do_not_register_missing_collections() {
     );
 }
 
-#[test]
-fn registrations_do_not_consume_user_capacity() {
-    let db = database();
-    let reference = package(&db, 'a', true);
-    seed(&db);
-    let automatic = collections::load(&db).unwrap().remove(0);
+#[tokio::test]
+async fn registrations_do_not_consume_user_capacity() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
+    seed(&db).await;
+    let automatic = collections::load(&db).await.unwrap().remove(0);
     let definition = automatic.collection.definition.clone();
     let creation = Request::new(
         NodeId([19; 32]),
@@ -248,20 +291,25 @@ fn registrations_do_not_consume_user_capacity() {
         },
     );
     for _ in 0..knowledge::MAX_COLLECTIONS {
-        collections::create(&db, &creation, &definition, Some(&reference.name)).unwrap();
+        collections::create(&db, &creation, &definition, Some(&reference.name))
+            .await
+            .unwrap();
     }
     assert_eq!(
-        collections::load(&db).unwrap().len(),
+        collections::load(&db).await.unwrap().len(),
         knowledge::MAX_COLLECTIONS + 1
     );
     assert_eq!(
         collections::create(&db, &creation, &definition, Some(&reference.name))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Busy
     );
-    let latest = package(&db, 'b', true);
-    let retained = prepare(&db, &request(&latest), &CancellationToken::new()).unwrap();
+    let latest = package(&db, 'b', true).await;
+    let retained = prepare(&db, &request(&latest), &CancellationToken::new())
+        .await
+        .unwrap();
     assert_eq!(
         retained.collections[0].collection.id,
         automatic.collection.id
@@ -272,16 +320,17 @@ fn registrations_do_not_consume_user_capacity() {
     );
 }
 
-#[test]
-fn falls_back_after_source_or_generation_changes() {
+#[tokio::test]
+async fn falls_back_after_source_or_generation_changes() {
     for generation in [false, true] {
-        let db = database();
-        let reference = package(&db, 'a', true);
-        seed(&db);
+        let db = database().await;
+        let reference = package(&db, 'a', true).await;
+        seed(&db).await;
         let request = request(&reference);
         let stop = CancellationToken::new();
-        let plan = prepare(&db, &request, &stop).unwrap();
+        let plan = prepare(&db, &request, &stop).await.unwrap();
         let raw = sources(&db, &plan.collections[0], None, 16, &stop)
+            .await
             .unwrap()
             .records
             .remove(0);
@@ -289,7 +338,7 @@ fn falls_back_after_source_or_generation_changes() {
         if generation {
             let mut stored = plan.collections[0].clone();
             collections::advance(&mut stored).unwrap();
-            collections::persist(&db, &stored).unwrap();
+            collections::persist(&db, &stored).await.unwrap();
         } else {
             value(
                 &db,
@@ -298,10 +347,17 @@ fn falls_back_after_source_or_generation_changes() {
                 8,
                 json!({"bodies":{"escaped/id":{"body":"Changed raw source"}}}),
                 None,
-            );
+            )
+            .await;
         }
-        assert!(!unchanged(&db, &plan.collections[0], &raw, &stop).unwrap());
-        let result = materialize(&db, &request, &plan, &selected, &stop).unwrap();
+        assert!(
+            !unchanged(&db, &plan.collections[0], &raw, &stop)
+                .await
+                .unwrap()
+        );
+        let result = materialize(&db, &request, &plan, &selected, &stop)
+            .await
+            .unwrap();
         assert!(result.stale);
         assert!(result.page.indexing);
         assert_eq!(result.page.mode, knowledge::Mode::Keyword);
@@ -316,8 +372,8 @@ fn falls_back_after_source_or_generation_changes() {
     }
 }
 
-#[test]
-fn guards_only_the_embedding_choice() {
+#[tokio::test]
+async fn guards_only_the_embedding_choice() {
     use sailry_protocol::models::Kind;
     for kind in [
         None,
@@ -325,18 +381,19 @@ fn guards_only_the_embedding_choice() {
         Some(Kind::Decision),
         Some(Kind::Embedding),
     ] {
-        let db = database();
-        let reference = package(&db, 'a', true);
-        seed(&db);
+        let db = database().await;
+        let reference = package(&db, 'a', true).await;
+        seed(&db).await;
         let request = request(&reference);
         let stop = CancellationToken::new();
-        let plan = prepare(&db, &request, &stop).unwrap();
+        let plan = prepare(&db, &request, &stop).await.unwrap();
         let raw = sources(&db, &plan.collections[0], None, 16, &stop)
+            .await
             .unwrap()
             .records
             .remove(0);
         let selected = selection(&plan, &raw);
-        let mut settings = crate::store::local_models::settings(&db).unwrap();
+        let mut settings = crate::store::local_models::settings(&db).await.unwrap();
         if let Some(kind) = kind {
             settings.choices.get_mut(&kind).unwrap().enabled = false;
         }
@@ -344,8 +401,11 @@ fn guards_only_the_embedding_choice() {
             &db,
             &Request::new(NodeId([19; 32]), Command::SaveLocalModelSettings(settings)),
         )
+        .await
         .unwrap();
-        let result = materialize(&db, &request, &plan, &selected, &stop).unwrap();
+        let result = materialize(&db, &request, &plan, &selected, &stop)
+            .await
+            .unwrap();
         if kind == Some(Kind::Embedding) {
             assert!(result.stale);
             assert_eq!(result.page.mode, knowledge::Mode::Keyword);
@@ -358,16 +418,17 @@ fn guards_only_the_embedding_choice() {
     }
 }
 
-#[test]
-fn separates_page_receipts_from_content_identity() {
-    let db = database();
-    let reference = package(&db, 'a', true);
-    seed(&db);
+#[tokio::test]
+async fn separates_page_receipts_from_content_identity() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
+    seed(&db).await;
     let request = request(&reference);
     let stop = CancellationToken::new();
-    let plan = prepare(&db, &request, &stop).unwrap();
+    let plan = prepare(&db, &request, &stop).await.unwrap();
     let stored = &plan.collections[0];
     let original = sources(&db, stored, None, 16, &stop)
+        .await
         .unwrap()
         .records
         .remove(0);
@@ -381,12 +442,18 @@ fn separates_page_receipts_from_content_identity() {
             "sibling":{"body":"An edited sibling"}
         }}),
         None,
-    );
-    assert!(!unchanged(&db, stored, &original, &stop).unwrap());
-    let current = source(&db, stored, "meta/one", &stop).unwrap().unwrap();
+    )
+    .await;
+    assert!(!unchanged(&db, stored, &original, &stop).await.unwrap());
+    let current = source(&db, stored, "meta/one", &stop)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(current.source_revision, 8);
     assert_eq!(identity(&original).unwrap(), identity(&current).unwrap());
-    let result = materialize(&db, &request, &plan, &selection(&plan, &original), &stop).unwrap();
+    let result = materialize(&db, &request, &plan, &selection(&plan, &original), &stop)
+        .await
+        .unwrap();
     assert!(!result.stale);
     assert_eq!(result.page.mode, knowledge::Mode::Semantic);
     value(
@@ -396,28 +463,33 @@ fn separates_page_receipts_from_content_identity() {
         3,
         json!({"id":"one"}),
         Some(metadata("bodies/page", "/bodies/escaped~1id/body")),
-    );
-    search::rebuild(&db).unwrap();
-    assert!(!unchanged(&db, stored, &current, &stop).unwrap());
-    let rewritten = source(&db, stored, "meta/one", &stop).unwrap().unwrap();
+    )
+    .await;
+    search::rebuild(&db).await.unwrap();
+    assert!(!unchanged(&db, stored, &current, &stop).await.unwrap());
+    let rewritten = source(&db, stored, "meta/one", &stop)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(rewritten.revision, 3);
     assert_eq!(identity(&original).unwrap(), identity(&rewritten).unwrap());
     assert!(
         materialize(&db, &request, &plan, &selection(&plan, &original), &stop)
+            .await
             .unwrap()
             .stale
     );
 }
 
-#[test]
-fn preserves_capture_across_package_updates() {
-    let db = database();
-    let old = package(&db, 'a', true);
-    seed(&db);
+#[tokio::test]
+async fn preserves_capture_across_package_updates() {
+    let db = database().await;
+    let old = package(&db, 'a', true).await;
+    seed(&db).await;
     let stop = CancellationToken::new();
-    let original = prepare(&db, &request(&old), &stop).unwrap();
-    let latest = package(&db, 'b', true);
-    let current = prepare(&db, &request(&latest), &stop).unwrap();
+    let original = prepare(&db, &request(&old), &stop).await.unwrap();
+    let latest = package(&db, 'b', true).await;
+    let current = prepare(&db, &request(&latest), &stop).await.unwrap();
     assert_eq!(
         current.collections[0].collection.id,
         original.collections[0].collection.id
@@ -427,12 +499,16 @@ fn preserves_capture_across_package_updates() {
             > original.collections[0].collection.progress.generation
     );
     assert_eq!(
-        prepare(&db, &request(&old), &stop).err().unwrap().code,
+        prepare(&db, &request(&old), &stop)
+            .await
+            .err()
+            .unwrap()
+            .code,
         ErrorCode::RevisionConflict
     );
     let mut admitted = request(&old);
     admitted.plugin.as_mut().unwrap().turn = Some(TurnId::new());
-    let admitted = prepare(&db, &admitted, &stop).unwrap();
+    let admitted = prepare(&db, &admitted, &stop).await.unwrap();
     assert_eq!(admitted.package, old);
     assert_eq!(
         admitted.collections[0].capture.package.as_ref(),
@@ -440,18 +516,20 @@ fn preserves_capture_across_package_updates() {
     );
 }
 
-#[test]
-fn preserves_raw_only_lexical_query() {
-    let db = database();
-    let reference = package(&db, 'a', true);
-    seed(&db);
+#[tokio::test]
+async fn preserves_raw_only_lexical_query() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
+    seed(&db).await;
     let mut request = request(&reference);
     let Command::SearchPluginValues(query) = &mut request.command else {
         unreachable!()
     };
     query.terms.clear();
     query.query = Some("vector keyword".into());
-    let plan = prepare(&db, &request, &CancellationToken::new()).unwrap();
+    let plan = prepare(&db, &request, &CancellationToken::new())
+        .await
+        .unwrap();
     assert_eq!(plan.keyword.len(), 2);
     let Command::SearchPluginValues(query) = lexical(&request).command else {
         unreachable!()
@@ -460,10 +538,10 @@ fn preserves_raw_only_lexical_query() {
     assert_eq!(query.terms, ["vector keyword"]);
 }
 
-#[test]
-fn bounds_projection_and_resume_pages() {
-    let db = database();
-    let reference = package(&db, 'a', true);
+#[tokio::test]
+async fn bounds_projection_and_resume_pages() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
     for (number, key) in ["meta/one", "meta/two", "meta/three"]
         .into_iter()
         .enumerate()
@@ -475,7 +553,8 @@ fn bounds_projection_and_resume_pages() {
             number as u64 + 1,
             json!({"payload":"x".repeat(240*1024)}),
             Some(metadata("bodies/page", "/body")),
-        );
+        )
+        .await;
     }
     value(
         &db,
@@ -484,22 +563,25 @@ fn bounds_projection_and_resume_pages() {
         1,
         json!({"body":"Raw vector body"}),
         None,
-    );
-    search::rebuild(&db).unwrap();
+    )
+    .await;
+    search::rebuild(&db).await.unwrap();
     let mut request = request(&reference);
     let Command::SearchPluginValues(query) = &mut request.command else {
         unreachable!()
     };
     query.mode = knowledge::Mode::Keyword;
     let stop = CancellationToken::new();
-    let plan = prepare(&db, &request, &stop).unwrap();
+    let plan = prepare(&db, &request, &stop).await.unwrap();
     let selected = Selection {
         keys: plan.keyword.iter().map(|(key, _)| key.clone()).collect(),
         stamps: vec![],
         mode: knowledge::Mode::Keyword,
         indexing: false,
     };
-    let first = materialize(&db, &request, &plan, &selected, &stop).unwrap();
+    let first = materialize(&db, &request, &plan, &selected, &stop)
+        .await
+        .unwrap();
     assert_eq!(first.page.entries.len(), 2);
     assert_eq!(first.page.next, Some(2));
     let bytes = serde_json::to_vec(&sailry_protocol::plugin::transaction::sdk::output(
@@ -511,21 +593,24 @@ fn bounds_projection_and_resume_pages() {
         unreachable!()
     };
     query.offset = first.page.next.unwrap();
-    let last = materialize(&db, &request, &plan, &selected, &stop).unwrap();
+    let last = materialize(&db, &request, &plan, &selected, &stop)
+        .await
+        .unwrap();
     assert_eq!(last.page.entries.len(), 1);
     assert_eq!(last.page.next, None);
     assert!(last.page.entries[0].value["visible"].as_bool().unwrap());
 }
 
-#[test]
-fn rejects_foreign_plans_and_stamps() {
-    let db = database();
-    let reference = package(&db, 'a', true);
-    seed(&db);
+#[tokio::test]
+async fn rejects_foreign_plans_and_stamps() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
+    seed(&db).await;
     let request = request(&reference);
     let stop = CancellationToken::new();
-    let plan = prepare(&db, &request, &stop).unwrap();
+    let plan = prepare(&db, &request, &stop).await.unwrap();
     let raw = sources(&db, &plan.collections[0], None, 16, &stop)
+        .await
         .unwrap()
         .records
         .remove(0);
@@ -533,6 +618,7 @@ fn rejects_foreign_plans_and_stamps() {
     selected.stamps[0].collection = KnowledgeId::new();
     assert_eq!(
         materialize(&db, &request, &plan, &selected, &stop)
+            .await
             .err()
             .unwrap()
             .code,
@@ -542,6 +628,7 @@ fn rejects_foreign_plans_and_stamps() {
     foreign.package.name = "foreign-memory".into();
     assert_eq!(
         materialize(&db, &request, &foreign, &selection(&plan, &raw), &stop)
+            .await
             .err()
             .unwrap()
             .code,
@@ -549,15 +636,16 @@ fn rejects_foreign_plans_and_stamps() {
     );
 }
 
-#[test]
-fn requires_captured_plugin_provenance() {
-    let db = database();
-    let reference = package(&db, 'a', true);
-    seed(&db);
+#[tokio::test]
+async fn requires_captured_plugin_provenance() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
+    seed(&db).await;
     let mut request = request(&reference);
     request.plugin = None;
     assert_eq!(
         prepare(&db, &request, &CancellationToken::new())
+            .await
             .err()
             .unwrap()
             .code,
@@ -565,17 +653,18 @@ fn requires_captured_plugin_provenance() {
     );
 }
 
-#[test]
-fn rejects_source_changes_without_revision_updates() {
+#[tokio::test]
+async fn rejects_source_changes_without_revision_updates() {
     for metadata_changed in [false, true] {
-        let db = database();
-        let reference = package(&db, 'a', true);
-        seed(&db);
+        let db = database().await;
+        let reference = package(&db, 'a', true).await;
+        seed(&db).await;
         let request = request(&reference);
         let stop = CancellationToken::new();
-        let plan = prepare(&db, &request, &stop).unwrap();
+        let plan = prepare(&db, &request, &stop).await.unwrap();
         let stored = &plan.collections[0];
         let captured = sources(&db, stored, None, 16, &stop)
+            .await
             .unwrap()
             .records
             .remove(0);
@@ -589,8 +678,9 @@ fn rejects_source_changes_without_revision_updates() {
                 captured.revision,
                 json!({"id":"one"}),
                 Some(index),
-            );
-            search::rebuild(&db).unwrap();
+            )
+            .await;
+            search::rebuild(&db).await.unwrap();
         } else {
             value(
                 &db,
@@ -599,15 +689,20 @@ fn rejects_source_changes_without_revision_updates() {
                 captured.source_revision,
                 json!({"bodies":{"escaped/id":{"body":"Replaced without receipt"}}}),
                 None,
-            );
+            )
+            .await;
         }
-        assert!(!unchanged(&db, stored, &captured, &stop).unwrap());
-        let current = source(&db, stored, &captured.key, &stop).unwrap().unwrap();
+        assert!(!unchanged(&db, stored, &captured, &stop).await.unwrap());
+        let current = source(&db, stored, &captured.key, &stop)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(current.revision, captured.revision);
         assert_eq!(current.source_revision, captured.source_revision);
         assert_ne!(identity(&current).unwrap(), identity(&captured).unwrap());
-        let result =
-            materialize(&db, &request, &plan, &selection(&plan, &captured), &stop).unwrap();
+        let result = materialize(&db, &request, &plan, &selection(&plan, &captured), &stop)
+            .await
+            .unwrap();
         assert!(result.stale);
         assert!(result.page.indexing);
         assert_eq!(result.page.mode, knowledge::Mode::Keyword);
@@ -615,11 +710,11 @@ fn rejects_source_changes_without_revision_updates() {
     }
 }
 
-#[test]
-fn bounds_source_pages_and_checks_cancellation() {
-    let db = database();
-    let reference = package(&db, 'a', true);
-    seed(&db);
+#[tokio::test]
+async fn bounds_source_pages_and_checks_cancellation() {
+    let db = database().await;
+    let reference = package(&db, 'a', true).await;
+    seed(&db).await;
     for number in 0..3 {
         value(
             &db,
@@ -628,36 +723,50 @@ fn bounds_source_pages_and_checks_cancellation() {
             1,
             json!({"id":number}),
             Some(metadata("bodies/page", "/bodies/escaped~1id/body")),
-        );
+        )
+        .await;
     }
-    search::rebuild(&db).unwrap();
+    search::rebuild(&db).await.unwrap();
     let stop = CancellationToken::new();
-    let plan = prepare(&db, &request(&reference), &stop).unwrap();
+    let plan = prepare(&db, &request(&reference), &stop).await.unwrap();
     let stored = &plan.collections[0];
-    let first = sources(&db, stored, None, 2, &stop).unwrap();
+    let first = sources(&db, stored, None, 2, &stop).await.unwrap();
     assert_eq!(first.records.len(), 2);
     assert_eq!(first.after.as_deref(), Some("meta/1"));
-    let second = sources(&db, stored, first.after.as_deref(), 2, &stop).unwrap();
+    let second = sources(&db, stored, first.after.as_deref(), 2, &stop)
+        .await
+        .unwrap();
     assert_eq!(second.records.len(), 2);
     assert_eq!(second.records[0].key, "meta/2");
     assert_eq!(second.records[1].key, "meta/one");
     assert_eq!(second.after.as_deref(), Some("meta/one"));
-    let last = sources(&db, stored, second.after.as_deref(), 2, &stop).unwrap();
+    let last = sources(&db, stored, second.after.as_deref(), 2, &stop)
+        .await
+        .unwrap();
     assert!(last.records.is_empty());
     assert!(last.after.is_none());
     for limit in [0, 17] {
         assert_eq!(
-            sources(&db, stored, None, limit, &stop).err().unwrap().code,
+            sources(&db, stored, None, limit, &stop)
+                .await
+                .err()
+                .unwrap()
+                .code,
             ErrorCode::InvalidRequest
         );
     }
     stop.cancel();
     assert_eq!(
-        sources(&db, stored, None, 2, &stop).err().unwrap().code,
+        sources(&db, stored, None, 2, &stop)
+            .await
+            .err()
+            .unwrap()
+            .code,
         ErrorCode::Cancelled
     );
     assert_eq!(
         unchanged(&db, stored, &first.records[0], &stop)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Cancelled

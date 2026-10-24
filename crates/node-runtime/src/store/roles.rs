@@ -1,10 +1,10 @@
 //! Role configuration shares Node transactions and durable command receipts.
 use super::database::{encode, storage_error};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{ErrorCode, Fault, RoleId, role};
+use turso::{Connection, params};
 pub(super) mod approvals;
 
-pub(super) fn initialize(db: &Connection) -> Result<(), Fault> {
+pub(super) async fn initialize(db: &Connection) -> Result<(), Fault> {
     put(
         db,
         &role::Profile {
@@ -21,7 +21,7 @@ pub(super) fn initialize(db: &Connection) -> Result<(), Fault> {
             instructions: "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input.".into(),
         },
         0,
-    )?;
+    ).await?;
     put(
         db,
         &role::Profile {
@@ -38,41 +38,47 @@ pub(super) fn initialize(db: &Connection) -> Result<(), Fault> {
             instructions: "Research the assigned question using the selected web-search:research skill and available read-only tools. Return supported conclusions with source links, uncertainty and conflicting evidence to the parent. Keep the inherited permissions and the task's budget; do not modify resources or ask the user for input.".into(),
         },
         0,
-    )?;
+    ).await?;
     Ok(())
 }
 
-pub(super) fn get(db: &Connection, id: RoleId) -> Result<Option<role::Profile>, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM roles WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
+pub(super) async fn get(db: &Connection, id: RoleId) -> Result<Option<role::Profile>, Fault> {
+    let mut statement = db
+        .prepare("SELECT body FROM roles WHERE id=?1")
+        .await
         .map_err(storage_error)?;
-    body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
-        .transpose()
+    let row = match statement.query_row([id.to_string()]).await {
+        Ok(row) => row,
+        Err(turso::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(error) => return Err(storage_error(error)),
+    };
+    serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+        .map(Some)
+        .map_err(storage_error)
 }
 
-pub(super) fn list(db: &Connection) -> Result<Vec<role::Profile>, Fault> {
-    let mut query = db
-        .prepare("SELECT body FROM roles ORDER BY key")
+pub(super) async fn list(db: &Connection) -> Result<Vec<role::Profile>, Fault> {
+    let mut rows = db
+        .query("SELECT body FROM roles ORDER BY key", ())
+        .await
         .map_err(storage_error)?;
-    query
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|body| serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error))
-        .collect()
+    let mut profiles = Vec::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        profiles.push(
+            serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+                .map_err(storage_error)?,
+        );
+    }
+    Ok(profiles)
 }
 
-pub(super) fn put(
+pub(super) async fn put(
     db: &Connection,
     role: &role::Profile,
     expected: u64,
 ) -> Result<role::Profile, Fault> {
     role.validate()?;
-    let current = get(db, role.id)?;
+    let current = get(db, role.id).await?;
     let revision = current.as_ref().map_or(0, |role| role.revision);
     if revision != expected {
         return Err(Fault::new(
@@ -81,11 +87,13 @@ pub(super) fn put(
         ));
     }
     if db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM roles WHERE key=?1 AND id<>?2)",
-            params![role.key, role.id.to_string()],
-            |row| row.get::<_, bool>(0),
-        )
+        .prepare("SELECT EXISTS(SELECT 1 FROM roles WHERE key=?1 AND id<>?2)")
+        .await
+        .map_err(storage_error)?
+        .query_row(params![role.key.as_str(), role.id.to_string()])
+        .await
+        .map_err(storage_error)?
+        .get::<bool>(0)
         .map_err(storage_error)?
     {
         return Err(Fault::new(
@@ -94,7 +102,8 @@ pub(super) fn put(
         ));
     }
     if let Some(selection) = &role.model {
-        let provider = super::agent::providers::get(db, selection.provider)?
+        let provider = super::agent::providers::get(db, selection.provider)
+            .await?
             .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "role provider is unavailable"))?;
         validate_model(&provider, selection)?;
     }
@@ -105,8 +114,8 @@ pub(super) fn put(
         .ok_or_else(|| Fault::invalid("role revision exhausted"))?;
     db.execute(
         "INSERT INTO roles(id,key,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET key=excluded.key,body=excluded.body",
-        params![role.id.to_string(), role.key, encode(&role)?],
-    ).map_err(storage_error)?;
+        params![role.id.to_string(), role.key.as_str(), encode(&role)?],
+    ).await.map_err(storage_error)?;
     Ok(role)
 }
 
@@ -140,9 +149,10 @@ pub(super) fn validate_model(
     Ok(())
 }
 
-pub(super) fn remove(db: &Connection, id: RoleId, expected: u64) -> Result<(), Fault> {
-    let role =
-        get(db, id)?.ok_or_else(|| Fault::new(ErrorCode::NotFound, "role does not exist"))?;
+pub(super) async fn remove(db: &Connection, id: RoleId, expected: u64) -> Result<(), Fault> {
+    let role = get(db, id)
+        .await?
+        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "role does not exist"))?;
     if role.revision != expected {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -150,6 +160,7 @@ pub(super) fn remove(db: &Connection, id: RoleId, expected: u64) -> Result<(), F
         ));
     }
     db.execute("DELETE FROM roles WHERE id=?1", [id.to_string()])
+        .await
         .map_err(storage_error)?;
     Ok(())
 }

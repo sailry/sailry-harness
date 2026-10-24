@@ -5,18 +5,18 @@ use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 mod tests;
 
-pub(in crate::store) fn read(
+pub(in crate::store) async fn read(
     db: &Connection,
     session: SessionId,
     before: Option<TurnId>,
     limit: u16,
 ) -> Result<History, Fault> {
-    check_session(db, session)?;
+    check_session(db, session).await?;
     let limit = bounded_limit(limit)?;
-    let boundary = before
-        .map(|turn| runs::visible(db, session, turn).map(|run| run.sequence))
-        .transpose()?
-        .unwrap_or(i64::MAX as u64);
+    let boundary = match before {
+        Some(turn) => runs::visible(db, session, turn).await?.sequence,
+        None => i64::MAX as u64,
+    };
     let mut query = db
         .prepare(
             "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn
@@ -27,19 +27,30 @@ pub(in crate::store) fn read(
                 OR EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn))
          ORDER BY t.rowid DESC LIMIT ?3",
         )
+        .await
         .map_err(storage_error)?;
-    let mut runs = query
-        .query_map(
-            params![session.to_string(), boundary as i64, i64::from(limit) + 1],
-            |row| row.get::<_, Vec<u8>>(0),
-        )
-        .map_err(storage_error)?
-        .map(|body| {
-            serde_json::from_slice::<Run>(&body.map_err(storage_error)?)
-                .map(|run| runs::project(run, session))
-                .map_err(storage_error)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut runs = {
+        let mut rows = query
+            .query(params![
+                session.to_string(),
+                boundary as i64,
+                i64::from(limit) + 1
+            ])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|body| {
+        serde_json::from_slice::<Run>(&body.map_err(storage_error)?)
+            .map(|run| runs::project(run, session))
+            .map_err(storage_error)
+    })
+    .collect::<Result<Vec<_>, _>>()?;
     let more = runs.len() > usize::from(limit);
     runs.truncate(usize::from(limit));
     let next_before = more.then(|| runs.last().expect("nonempty turn page").turn);
@@ -54,22 +65,27 @@ pub(in crate::store) fn read(
                      AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn)))
              ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,t.rowid DESC
              LIMIT 100",
-        ).map_err(storage_error)?;
-        for row in active
-            .query_map([session.to_string()], |row| row.get::<_, Vec<u8>>(0))
-            .map_err(storage_error)?
+        ).await.map_err(storage_error)?;
         {
-            let run: Run =
-                serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
-            if !runs.iter().any(|current| current.turn == run.turn) {
-                runs.push(runs::project(run, session));
+            let mut rows = active
+                .query([session.to_string()])
+                .await
+                .map_err(storage_error)?;
+            while let Some(row) = rows.next().await.map_err(storage_error)? {
+                let row: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+
+                let run: Run =
+                    serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
+                if !runs.iter().any(|current| current.turn == run.turn) {
+                    runs.push(runs::project(run, session));
+                }
             }
         }
     }
     runs.sort_by_key(|run| run.sequence);
     let turns: Vec<_> = runs.iter().map(|run| run.turn).collect();
-    let (entries, _) = entries(db, session, &turns, None, 100)?;
-    let mut page = page(db, session, runs, entries, next_before)?;
+    let (entries, _) = entries(db, session, &turns, None, 100).await?;
+    let mut page = page(db, session, runs, entries, next_before).await?;
     fit(&mut page, 0, true)?;
     let turns: Vec<_> = page.runs.iter().map(|run| run.turn).collect();
     let starts: BTreeMap<TurnId, u64> = {
@@ -77,18 +93,26 @@ pub(in crate::store) fn read(
             .prepare(
                 &format!("SELECT e.turn,MIN(e.sequence) FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn
              WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND {VISIBLE_EVENT} GROUP BY e.turn"),
-            )
+            ).await
             .map_err(storage_error)?;
-        query
-            .query_map(params![session.to_string(), encode(&turns)?], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })
-            .map_err(storage_error)?
-            .map(|row| {
-                let (turn, sequence) = row.map_err(storage_error)?;
-                Ok((turn.parse().map_err(storage_error)?, sequence as u64))
-            })
-            .collect::<Result<_, Fault>>()?
+        {
+            let mut rows = query
+                .query(params![session.to_string(), encode(&turns)?])
+                .await
+                .map_err(storage_error)?;
+            let mut values = Vec::new();
+            while let Some(row) = rows.next().await.map_err(storage_error)? {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)))(&row);
+                values.push(mapped);
+            }
+            values.into_iter()
+        }
+        .map(|row| {
+            let (turn, sequence) = row.map_err(storage_error)?;
+            Ok((turn.parse().map_err(storage_error)?, sequence as u64))
+        })
+        .collect::<Result<_, Fault>>()?
     };
     let missing = turns
         .into_iter()
@@ -108,7 +132,7 @@ pub(in crate::store) fn read(
     })
 }
 
-pub(in crate::store) fn turn(
+pub(in crate::store) async fn turn(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
@@ -121,10 +145,10 @@ pub(in crate::store) fn turn(
             "turn history cursor is invalid",
         ));
     }
-    let run = runs::visible(db, session, turn)?;
-    let (entries, more) = entries(db, session, &[turn], before, limit)?;
+    let run = runs::visible(db, session, turn).await?;
+    let (entries, more) = entries(db, session, &[turn], before, limit).await?;
     let count = entries.len();
-    let mut page = page(db, session, vec![run.clone()], entries, None)?;
+    let mut page = page(db, session, vec![run.clone()], entries, None).await?;
     fit(&mut page, 0, false)?;
     let run = page.runs.pop().expect("one turn continuation");
     let next_before = (more || page.entries.len() != count).then(|| {
@@ -154,7 +178,7 @@ fn bounded_limit(limit: u16) -> Result<u16, Fault> {
     Ok(limit.min(100))
 }
 
-fn entries(
+async fn entries(
     db: &Connection,
     session: SessionId,
     turns: &[TurnId],
@@ -166,25 +190,31 @@ fn entries(
             &format!("SELECT e.sequence,e.turn,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3
          AND {VISIBLE_EVENT} ORDER BY h.sequence DESC LIMIT ?4"),
-        )
+        ).await
         .map_err(storage_error)?;
-    let rows = query
-        .query_map(
-            params![
+    let rows = {
+        let mut rows = query
+            .query(params![
                 session.to_string(),
                 encode(&turns)?,
                 before.unwrap_or(i64::MAX as u64) as i64,
                 i64::from(limit) + 1
-            ],
-            |row| {
+            ])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| {
                 Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<i64>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<Vec<u8>>(2)?,
                 ))
-            },
-        )
-        .map_err(storage_error)?;
+            })(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    };
     let mut entries = Vec::new();
     let mut bytes = 0;
     let mut more = false;
@@ -197,45 +227,49 @@ fn entries(
             break;
         }
         bytes += body.len();
-        entries.push(project(
-            db,
-            sequence as u64,
-            turn.parse().map_err(storage_error)?,
-            &serde_json::from_slice(&body).map_err(storage_error)?,
-        )?);
+        entries.push(
+            project(
+                db,
+                sequence as u64,
+                turn.parse().map_err(storage_error)?,
+                &serde_json::from_slice(&body).map_err(storage_error)?,
+            )
+            .await?,
+        );
     }
     entries.reverse();
     Ok((entries, more))
 }
 
-fn page(
+async fn page(
     db: &Connection,
     session: SessionId,
     runs: Vec<Run>,
     entries: Vec<Entry>,
     next_before: Option<TurnId>,
 ) -> Result<Page, Fault> {
-    let runs = runs
-        .into_iter()
-        .map(|run| runs::hydrate(db, run))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut hydrated = Vec::with_capacity(runs.len());
+    for run in runs {
+        hydrated.push(runs::hydrate(db, run).await?);
+    }
+    let runs = hydrated;
     let turns: BTreeSet<_> = runs.iter().map(|run| run.turn).collect();
-    let mut approvals = super::super::approvals::list(db, session, &entries)?;
+    let mut approvals = super::super::approvals::list(db, session, &entries).await?;
     approvals.retain(|approval| turns.contains(&approval.turn));
-    let mut questions = super::super::questions::list(db, session, &entries)?;
+    let mut questions = super::super::questions::list(db, session, &entries).await?;
     questions.retain(|question| turns.contains(&question.turn));
-    let children = super::super::children::list(db, &entries)?;
+    let children = super::super::children::list(db, &entries).await?;
     Ok(Page {
-        background: super::super::background::list(db, session)?,
+        background: super::super::background::list(db, session).await?,
         session,
-        revision: crate::store::sessions::history_revision(db, session)?,
+        revision: crate::store::sessions::history_revision(db, session).await?,
         entries,
         runs,
         next_before,
         approvals,
         questions,
         children,
-        queue: super::super::queue::read(db, session)?,
+        queue: super::super::queue::read(db, session).await?,
     })
 }
 

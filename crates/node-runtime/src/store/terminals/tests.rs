@@ -7,18 +7,15 @@ mod fixture;
 #[cfg(unix)]
 mod startup;
 
-#[test]
-fn completion_notice_follows_one_metadata_transition() {
+#[tokio::test]
+async fn completion_notice_follows_one_metadata_transition() {
     let directory = tempfile::tempdir().unwrap();
     let mut database = Database::open(
-        &directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        &directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([8; 32]),
         None,
     )
+    .await
     .unwrap();
     let (Output::Project(project), _) = super::super::projects::register(
         &database.connection,
@@ -26,10 +23,13 @@ fn completion_notice_follows_one_metadata_transition() {
         directory.path().to_str().unwrap(),
         Default::default(),
     )
+    .await
     .unwrap() else {
         panic!("project expected")
     };
-    let worktree = super::super::worktrees::select(&database.connection, project.id, None).unwrap();
+    let worktree = super::super::worktrees::select(&database.connection, project.id, None)
+        .await
+        .unwrap();
     let mut info = Info {
         id: TerminalId::new(),
         worktree: Some(worktree),
@@ -43,12 +43,17 @@ fn completion_notice_follows_one_metadata_transition() {
         owner: None,
         revision: 1,
     };
-    record(&database.connection, &info).unwrap();
+    record(&database.connection, &info).await.unwrap();
     let (events, mut receiver) = broadcast::channel(16);
     info.status = Status::Exited { code: 7 };
-    database.terminal_changed(info.clone(), &events).unwrap();
-    database.terminal_changed(info, &events).unwrap();
-    let notices = super::super::notifications::list(&database.connection).unwrap();
+    database
+        .terminal_changed(info.clone(), &events)
+        .await
+        .unwrap();
+    database.terminal_changed(info, &events).await.unwrap();
+    let notices = super::super::notifications::list(&database.connection)
+        .await
+        .unwrap();
     assert_eq!(notices.len(), 1);
     assert!(
         matches!(&notices[0].content.details, Some(notification::Details::Terminal(details)) if details.code == Some(7) && details.failed)
@@ -64,12 +69,16 @@ fn completion_notice_follows_one_metadata_transition() {
     assert!(receiver.try_recv().is_err());
 }
 
-#[test]
-fn ignores_stale_metadata() {
-    let db = Connection::open_in_memory().unwrap();
+#[tokio::test]
+async fn ignores_stale_metadata() {
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
     db.execute_batch(
         "CREATE TABLE terminals(id TEXT PRIMARY KEY, worktree TEXT, body BLOB NOT NULL)",
     )
+    .await
     .unwrap();
     let mut info = Info {
         id: TerminalId::new(),
@@ -84,34 +93,31 @@ fn ignores_stale_metadata() {
         owner: None,
         revision: 1,
     };
-    assert!(record(&db, &info).unwrap().is_some());
+    assert!(record(&db, &info).await.unwrap().is_some());
     let opening = info.clone();
     info.title = Some("Server".into());
     info.directory = Some("file://localhost/tmp".into());
-    assert!(record_update(&db, &info, true).unwrap().is_some());
-    assert!(record(&db, &opening).unwrap().is_none());
-    assert_eq!(list(&db).unwrap(), vec![info.clone()]);
-    assert!(record_update(&db, &info, true).unwrap().is_none());
+    assert!(record_update(&db, &info, true).await.unwrap().is_some());
+    assert!(record(&db, &opening).await.unwrap().is_none());
+    assert_eq!(list(&db).await.unwrap(), vec![info.clone()]);
+    assert!(record_update(&db, &info, true).await.unwrap().is_none());
     info.title = None;
-    assert!(record_update(&db, &info, true).unwrap().is_some());
+    assert!(record_update(&db, &info, true).await.unwrap().is_some());
     info.revision += 1;
     info.status = Status::Closed;
-    assert!(record(&db, &info).unwrap().is_some());
-    assert!(record_update(&db, &opening, true).unwrap().is_none());
+    assert!(record(&db, &info).await.unwrap().is_some());
+    assert!(record_update(&db, &opening, true).await.unwrap().is_none());
 }
 
-#[test]
-fn requires_explicit_relaunch() {
+#[tokio::test]
+async fn requires_explicit_relaunch() {
     let directory = tempfile::tempdir().unwrap();
     let database = Database::open(
-        &directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        &directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([7; 32]),
         None,
     )
+    .await
     .unwrap();
     let (Output::Project(project), _) = super::super::projects::register(
         &database.connection,
@@ -119,10 +125,13 @@ fn requires_explicit_relaunch() {
         directory.path().to_str().unwrap(),
         Default::default(),
     )
+    .await
     .unwrap() else {
         panic!("project expected")
     };
-    let worktree = super::super::worktrees::select(&database.connection, project.id, None).unwrap();
+    let worktree = super::super::worktrees::select(&database.connection, project.id, None)
+        .await
+        .unwrap();
     for (tool, ssh) in [
         (Some(terminal::Tool::Codex), None),
         (None, Some(SshId::new())),
@@ -142,9 +151,9 @@ fn requires_explicit_relaunch() {
             owner: None,
             revision: 2,
         };
-        record(&database.connection, &info).unwrap();
+        record(&database.connection, &info).await.unwrap();
         assert!(
-            matches!(database.terminal_opening(info.id), Err(error) if error.code == ErrorCode::Conflict)
+            matches!(database.terminal_opening(info.id).await, Err(error) if error.code == ErrorCode::Conflict)
         );
     }
 }

@@ -22,13 +22,7 @@ impl Service {
             .settings()
             .choice(sailry_protocol::models::Kind::Embedding);
         let captured = self.models.binding(&stored, &choice);
-        let path = self.path.clone();
-        let selected = input.clone();
-        let indexed = tokio::task::spawn_blocking(move || {
-            index::Index::reader(&path)?.citation(&captured, &selected)
-        })
-        .await
-        .map_err(|_| unavailable())?;
+        let indexed = self.index.citation(&captured, input).await;
         let indexed = match indexed {
             Ok(record) => record,
             Err(error)

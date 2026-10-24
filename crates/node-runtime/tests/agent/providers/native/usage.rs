@@ -26,15 +26,11 @@ async fn normalizes_cache_and_thoughts() {
             let profile = fixture.node.profile().to_owned();
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
-            let db = rusqlite::Connection::open_with_flags(
-                profile.join("storage/node.sqlite3").canonicalize().unwrap(),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
-            let native: String = db.query_row(
+            let (database, db) =
+                crate::database_fixture::open(&profile.join("storage/node.turso"), true).await;
+            let native: String = db.prepare(
                 "SELECT json_extract(body,'$.usage_metadata.provider_usage') FROM agent_events WHERE json_type(body,'$.usage_metadata')='object'",
-                [], |row| row.get(0),
-            ).unwrap();
+            ).await.unwrap().query_row(()).await.unwrap().get(0).unwrap();
             let native: serde_json::Value = serde_json::from_str(&native).unwrap();
             if api == ModelApi::Anthropic {
                 assert_eq!(native["input_tokens"], 8);
@@ -50,6 +46,7 @@ async fn normalizes_cache_and_thoughts() {
                 assert_eq!(native["completion_tokens_details"]["reasoning_tokens"], 1);
             }
             drop(db);
+            drop(database);
             let node = Node::start_empty(profile).await.unwrap();
             assert_eq!(
                 history(&Client::new(node.local()), fixture.session.id).await,

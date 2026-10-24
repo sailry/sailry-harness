@@ -119,14 +119,14 @@ async fn releases_staging() {
                 streams: Mutex::new(Vec::new()),
             });
             let client = Client::new(altered.clone());
-            let before = fixture.count();
+            let before = fixture.count().await;
             assert!(
                 client
                     .stage_document(fixture.worktree, "file.txt", &text, &expected, cancel)
                     .await
                     .is_err()
             );
-            assert_eq!(fixture.count(), before);
+            assert_eq!(fixture.count().await, before);
             assert_eq!(
                 std::fs::read_to_string(fixture.root.join("file.txt")).unwrap(),
                 text
@@ -142,9 +142,21 @@ async fn releases_staging() {
 #[tokio::test]
 async fn preserves_uncertain_publication() {
     let fixture = Fixture::start().await;
-    let database =
-        rusqlite::Connection::open(fixture.profile.join("storage/node.sqlite3")).unwrap();
-    database.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
     let mut pending = Vec::new();
     let text = "verified text\n".repeat(20_000);
     for (index, transport) in fixture.transports.iter().enumerate() {
@@ -185,8 +197,21 @@ async fn preserves_uncertain_publication() {
         );
         pending.push(staged);
     }
-    database.execute_batch("DROP TRIGGER lose_result").unwrap();
-    drop(database);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.node.shutdown().await.unwrap();
     let node = Node::start_empty(&fixture.profile).await.unwrap();
     for (index, transport) in [

@@ -15,16 +15,13 @@ fn backups(profile: &Path) -> Vec<PathBuf> {
     }
     fs::read_dir(path)
         .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "sqlite3")
-        })
+        .map(|entry| entry.unwrap().path().join("node.turso"))
         .collect()
 }
 
-fn seed(profile: &Path, info: &mut Info, saved: &Value) -> Vec<u8> {
-    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+async fn seed(profile: &Path, info: &mut Info, saved: &Value) -> Vec<u8> {
+    let (db_handle, db) =
+        crate::plugins::database_fixture::open(&(profile.join("storage/node.turso")), false).await;
     info.summary.version = Some("0.0.1".into());
     info.summary.settings_revision = 1;
     info.origin = Some(plugin::Origin::Bundled);
@@ -32,25 +29,29 @@ fn seed(profile: &Path, info: &mut Info, saved: &Value) -> Vec<u8> {
     let bytes = serde_json::to_vec_pretty(saved).unwrap();
     db.execute(
         "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,1,?2)",
-        rusqlite::params![info.summary.name, bytes],
+        turso::params![info.summary.name.as_str(), bytes.as_slice()],
     )
+    .await
     .unwrap();
     db.execute(
         "UPDATE plugins SET settings_revision=1,body=?2 WHERE name=?1",
-        rusqlite::params![info.summary.name, serde_json::to_vec(info).unwrap()],
+        turso::params![
+            info.summary.name.as_str(),
+            serde_json::to_vec(info).unwrap()
+        ],
     )
+    .await
     .unwrap();
-    db.close().unwrap();
+    crate::plugins::database_fixture::close(db_handle, db).await;
     bytes
 }
 
-fn retained(db: &rusqlite::Connection, name: &str) -> Vec<u8> {
-    db.query_row(
-        "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=1",
-        [name],
-        |row| row.get(0),
-    )
-    .unwrap()
+async fn retained(db: &turso::Connection, name: &str) -> turso::Result<Vec<u8>> {
+    db.prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=1")
+        .await?
+        .query_row([name])
+        .await?
+        .get(0)
 }
 
 #[tokio::test]
@@ -92,7 +93,7 @@ async fn preserves_credentials_and_microsoft_tenant() {
                 json!({"schema":null,"values":{"app_id":"retained-app","unrelated":"retained"},
                     "slots":{"app_secret":"private-feishu-secret"}})
             };
-            let original = seed(&profile, &mut info, &saved);
+            let original = seed(&profile, &mut info, &saved).await;
             let before = backups(&profile);
             let node = Node::start_empty(&profile).await.unwrap();
             for origin in [
@@ -198,33 +199,55 @@ async fn preserves_credentials_and_microsoft_tenant() {
                     assert_eq!(fields["app_secret"], "private-feishu-secret");
                 }
             }
-            let db = rusqlite::Connection::open_with_flags(
-                profile.join("storage/node.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
-            assert_eq!(retained(&db, name), original);
+
+            assert_eq!(
+                {
+                    let package = name.to_owned();
+                    node.with_storage(move |db| {
+                        Box::pin(async move {
+                            retained(db, &package)
+                                .await
+                                .map_err(crate::plugins::database_fixture::fault)
+                        })
+                    })
+                    .await
+                    .unwrap()
+                },
+                original
+            );
             if name == "feishu" {
-                let body: Vec<u8> = db
-                    .query_row(
-                        "SELECT body FROM plugin_connections WHERE id=?1",
-                        [row.id.to_string()],
-                        |row| row.get(0),
-                    )
-                    .unwrap();
+                let body: Vec<u8> = {
+                    let parameters = turso::params![row.id.to_string()];
+                    let sql = "SELECT body FROM plugin_connections WHERE id=?1";
+                    node.with_storage(move |db| {
+                        Box::pin(async move {
+                            let row = db
+                                .prepare(sql)
+                                .await
+                                .map_err(crate::plugins::database_fixture::fault)?
+                                .query_row(parameters)
+                                .await
+                                .map_err(crate::plugins::database_fixture::fault)?;
+                            let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                            result.map_err(crate::plugins::database_fixture::fault)
+                        })
+                    })
+                    .await
+                    .unwrap()
+                };
                 let saved: Value = serde_json::from_slice(&body).unwrap();
                 assert_eq!(saved["grant"]["access"], "private-feishu-access");
             }
-            db.close().unwrap();
+
             let after = backups(&profile);
             assert_eq!(after.len(), before.len() + 1);
-            let backup = rusqlite::Connection::open_with_flags(
-                after.iter().find(|path| !before.contains(path)).unwrap(),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            let (backup_handle, backup) = crate::plugins::database_fixture::open(
+                &(after.iter().find(|path| !before.contains(path)).unwrap()),
+                true,
             )
-            .unwrap();
-            assert_eq!(retained(&backup, name), original);
-            backup.close().unwrap();
+            .await;
+            assert_eq!(retained(&backup, name).await.unwrap(), original);
+            crate::plugins::database_fixture::close(backup_handle, backup).await;
             let public = serde_json::to_string(&(rows, response)).unwrap();
             for secret in ["private-microsoft-", "private-feishu-"] {
                 assert!(!public.contains(secret));

@@ -98,31 +98,42 @@ async fn complete(fixture: &process::Fixture, turn: TurnId) -> Page {
     .expect("captured credential deadline")
 }
 
-fn retained(
+async fn retained(
     fixture: &process::Fixture,
     package: &plugin::Reference,
     turn: TurnId,
 ) -> (Vec<u8>, Vec<u8>) {
-    let db = rusqlite::Connection::open_with_flags(
-        fixture.node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let settings = db
-        .query_row(
-            "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2",
-            rusqlite::params![package.name, package.settings_revision as i64],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let capture = db
-        .query_row(
-            "SELECT plugins FROM turns WHERE id=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
-    (settings, capture)
+    let package = package.clone();
+    fixture
+        .node
+        .with_storage(move |db| {
+            Box::pin(async move {
+                let settings = db
+                    .prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(turso::params![
+                        package.name,
+                        package.settings_revision as i64
+                    ])
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get::<Vec<u8>>(0)
+                    .map_err(crate::database_fixture::fault)?;
+                let capture = db
+                    .prepare("SELECT plugins FROM turns WHERE id=?1")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row([turn.to_string()])
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get::<Vec<u8>>(0)
+                    .map_err(crate::database_fixture::fault)?;
+                Ok((settings, capture))
+            })
+        })
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -175,7 +186,7 @@ async fn fences_retired_protected_slots() {
         }
         let (_, queued) = submit(&fixture, true).await;
         assert!(queued.plugins.contains(&settings.package));
-        let original = retained(&fixture, &settings.package, queued.id);
+        let original = retained(&fixture, &settings.package, queued.id).await;
         let old: Value = serde_json::from_slice(&original.0).unwrap();
         assert_eq!(old["slots"]["http_token"], HTTP_SECRET);
         assert_eq!(old["slots"]["mcp_token"], MCP_SECRET);
@@ -210,7 +221,10 @@ async fn fences_retired_protected_slots() {
             },
         )
         .await;
-        assert_eq!(retained(&fixture, &settings.package, queued.id), original);
+        assert_eq!(
+            retained(&fixture, &settings.package, queued.id).await,
+            original
+        );
         let before = peer.requests.lock().unwrap().len();
         execute(
             &fixture.client,
@@ -238,7 +252,10 @@ async fn fences_retired_protected_slots() {
             unexpected.is_empty(),
             "retired credential requests: {unexpected:?}"
         );
-        assert_eq!(retained(&fixture, &settings.package, queued.id), original);
+        assert_eq!(
+            retained(&fixture, &settings.package, queued.id).await,
+            original
+        );
         for secret in [HTTP_SECRET, MCP_SECRET] {
             assert!(!serde_json::to_string(&page).unwrap().contains(secret));
             assert!(

@@ -1,17 +1,21 @@
 use super::*;
 
-#[test]
-fn admitted_operations_retain_package_after_removal() {
-    let db = database();
-    let owner = package(&db, "owner", 'a', &["storage.read"]);
-    let original = insert(&db, &owner, storage());
-    package(&db, "owner", 'b', &[]);
-    db.execute("UPDATE plugins SET installed=0 WHERE name='owner'", [])
+#[tokio::test]
+async fn admitted_operations_retain_package_after_removal() {
+    let db = database().await;
+    let owner = package(&db, "owner", 'a', &["storage.read"]).await;
+    let original = insert(&db, &owner, storage()).await;
+    package(&db, "owner", 'b', &[]).await;
+    db.execute("UPDATE plugins SET installed=0 WHERE name='owner'", ())
+        .await
         .unwrap();
     let ordinary = captured(&owner, Command::ListKnowledgeCollections);
-    assert_eq!(list(&db, &ordinary).unwrap_err().code, ErrorCode::NotFound);
+    assert_eq!(
+        list(&db, &ordinary).await.unwrap_err().code,
+        ErrorCode::NotFound
+    );
     // Turn and invocation authority is checked by the shared admission boundary.
-    // This SQLite fixture exercises the handlers' immutable package resolution.
+    // This native fixture exercises the handlers' immutable package resolution.
     for callback in [false, true] {
         let mut admitted = captured(&owner, Command::ListKnowledgeCollections);
         let context = admitted.plugin.as_mut().unwrap();
@@ -20,25 +24,25 @@ fn admitted_operations_retain_package_after_removal() {
         } else {
             context.turn = Some(sailry_protocol::TurnId::new());
         }
-        assert_eq!(list(&db, &admitted).unwrap().len(), 1);
+        assert_eq!(list(&db, &admitted).await.unwrap().len(), 1);
         admitted.command = Command::RebuildKnowledgeCollection {
             id: original.id,
             expected_revision: if callback { 2 } else { 1 },
         };
-        let rebuilt = create(&db, &admitted);
+        let rebuilt = create(&db, &admitted).await;
         assert_eq!(rebuilt.revision, if callback { 3 } else { 2 });
         assert_eq!(
-            catalog(&db).unwrap().collections[0].capture.package,
+            catalog(&db).await.unwrap().collections[0].capture.package,
             Some(owner.clone())
         );
     }
 }
 
-#[test]
-fn captures_owner_without_caller_override() {
-    let db = database();
-    let owner = package(&db, "owner", 'a', &["storage.read"]);
-    package(&db, "other", 'b', &["storage.read"]);
+#[tokio::test]
+async fn captures_owner_without_caller_override() {
+    let db = database().await;
+    let owner = package(&db, "owner", 'a', &["storage.read"]).await;
+    package(&db, "other", 'b', &["storage.read"]).await;
     for selected in [Some("other".into()), Some("owner".into())] {
         let denied = captured(
             &owner,
@@ -48,19 +52,19 @@ fn captures_owner_without_caller_override() {
             },
         );
         assert_eq!(
-            execute(&db, &denied).unwrap_err().code,
+            execute(&db, &denied).await.unwrap_err().code,
             ErrorCode::PermissionDenied
         );
     }
-    assert!(raw(&db).is_empty());
-    let collection = insert(&db, &owner, storage());
+    assert!(raw(&db).await.is_empty());
+    let collection = insert(&db, &owner, storage()).await;
     assert_eq!(
         collection.owner,
         Owner::Plugin {
             name: "owner".into()
         }
     );
-    let stored = catalog(&db).unwrap().collections.remove(0);
+    let stored = catalog(&db).await.unwrap().collections.remove(0);
     assert_eq!(stored.capture.package, Some(owner));
     assert_eq!(stored.capture.worktree, None);
     assert_eq!(stored.capture.session, None);
@@ -68,24 +72,27 @@ fn captures_owner_without_caller_override() {
         definition: storage(),
         plugin: Some("missing".into()),
     });
-    assert_eq!(execute(&db, &absent).unwrap_err().code, ErrorCode::NotFound);
+    assert_eq!(
+        execute(&db, &absent).await.unwrap_err().code,
+        ErrorCode::NotFound
+    );
     let unowned = request(Command::CreateKnowledgeCollection {
         definition: storage(),
         plugin: None,
     });
     assert_eq!(
-        execute(&db, &unowned).unwrap_err().code,
+        execute(&db, &unowned).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
-    assert_eq!(raw(&db).len(), 1);
+    assert_eq!(raw(&db).await.len(), 1);
 }
 
-#[test]
-fn sharing_requires_controller_and_current_package() {
-    let db = database();
-    let owner = package(&db, "owner", 'a', &["storage.read"]);
-    let reader = package(&db, "reader", 'b', &[]);
-    let outsider = package(&db, "outsider", 'c', &["storage.read"]);
+#[tokio::test]
+async fn sharing_requires_controller_and_current_package() {
+    let db = database().await;
+    let owner = package(&db, "owner", 'a', &["storage.read"]).await;
+    let reader = package(&db, "reader", 'b', &[]).await;
+    let outsider = package(&db, "outsider", 'c', &["storage.read"]).await;
     let mut shared = storage();
     shared.shared_with = vec!["reader".into()];
     assert_eq!(
@@ -99,6 +106,7 @@ fn sharing_requires_controller_and_current_package() {
                 }
             )
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
@@ -109,15 +117,18 @@ fn sharing_requires_controller_and_current_package() {
             definition: shared,
             plugin: Some("owner".into()),
         }),
-    );
+    )
+    .await;
     assert_eq!(
         allowed(&db, &captured(&reader, Command::ListKnowledgeCollections))
+            .await
             .unwrap()
             .len(),
         1
     );
     assert!(
         allowed(&db, &captured(&outsider, Command::ListKnowledgeCollections))
+            .await
             .unwrap()
             .is_empty()
     );
@@ -129,7 +140,7 @@ fn sharing_requires_controller_and_current_package() {
         },
     );
     assert_eq!(
-        execute(&db, &mutation).unwrap_err().code,
+        execute(&db, &mutation).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
     let mut definition = collection.definition.clone();
@@ -143,7 +154,7 @@ fn sharing_requires_controller_and_current_package() {
         },
     );
     assert_eq!(
-        execute(&db, &update).unwrap_err().code,
+        execute(&db, &update).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
     let update = request(Command::UpdateKnowledgeCollection {
@@ -151,15 +162,17 @@ fn sharing_requires_controller_and_current_package() {
         expected_revision: 1,
         definition,
     });
-    create(&db, &update);
+    create(&db, &update).await;
     assert!(
         allowed(&db, &captured(&reader, Command::ListKnowledgeCollections))
+            .await
             .unwrap()
             .is_empty()
     );
-    let replacement = package(&db, "owner", 'd', &["storage.read"]);
+    let replacement = package(&db, "owner", 'd', &["storage.read"]).await;
     assert_eq!(
         list(&db, &captured(&owner, Command::ListKnowledgeCollections))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::RevisionConflict
@@ -173,13 +186,14 @@ fn sharing_requires_controller_and_current_package() {
                 expected_revision: 2,
             },
         ),
-    );
+    )
+    .await;
     assert_eq!(rebuilt.revision, 3);
     assert_eq!(
-        catalog(&db).unwrap().collections[0].capture.package,
+        catalog(&db).await.unwrap().collections[0].capture.package,
         Some(replacement.clone())
     );
-    package(&db, "owner", 'e', &[]);
+    package(&db, "owner", 'e', &[]).await;
     let stale = captured(
         &replacement,
         Command::RebuildKnowledgeCollection {
@@ -188,12 +202,13 @@ fn sharing_requires_controller_and_current_package() {
         },
     );
     assert_eq!(
-        execute(&db, &stale).unwrap_err().code,
+        execute(&db, &stale).await.unwrap_err().code,
         ErrorCode::RevisionConflict
     );
-    let current = package(&db, "owner", 'f', &[]);
+    let current = package(&db, "owner", 'f', &[]).await;
     assert!(
         list(&db, &captured(&current, Command::ListKnowledgeCollections))
+            .await
             .unwrap()
             .is_empty()
     );
@@ -208,25 +223,27 @@ fn sharing_requires_controller_and_current_package() {
                 }
             )
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
     );
 }
 
-#[test]
-fn confines_worktree_and_conversation_sources() {
-    let db = database();
+#[tokio::test]
+async fn confines_worktree_and_conversation_sources() {
+    let db = database().await;
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
     std::fs::write(root.join("guide.txt"), "Reference").unwrap();
-    let tree = worktree(&db, &root);
+    let tree = worktree(&db, &root).await;
     let owner = package(
         &db,
         "owner",
         'a',
         &["files.read", "storage.read", "conversation.read"],
-    );
+    )
+    .await;
     let mut command = captured(
         &owner,
         Command::CreateKnowledgeCollection {
@@ -238,23 +255,24 @@ fn confines_worktree_and_conversation_sources() {
         },
     );
     assert_eq!(
-        execute(&db, &command).unwrap_err().code,
+        execute(&db, &command).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
     command.plugin.as_mut().unwrap().worktree = Some(tree);
-    let collection = create(&db, &command);
+    let collection = create(&db, &command).await;
     assert_eq!(
-        catalog(&db).unwrap().collections[0].capture.worktree,
+        catalog(&db).await.unwrap().collections[0].capture.worktree,
         Some(tree)
     );
     assert!(
         list(&db, &captured(&owner, Command::ListKnowledgeCollections))
+            .await
             .unwrap()
             .is_empty()
     );
     let mut read = captured(&owner, Command::ListKnowledgeCollections);
     read.plugin.as_mut().unwrap().worktree = Some(tree);
-    assert_eq!(list(&db, &read).unwrap(), [collection]);
+    assert_eq!(list(&db, &read).await.unwrap(), [collection]);
     let mut definition = definition(Source::Storage {
         scope: Scope::Conversation,
         prefix: "reference/".into(),
@@ -264,23 +282,24 @@ fn confines_worktree_and_conversation_sources() {
         plugin: None,
     };
     assert_eq!(
-        execute(&db, &command).unwrap_err().code,
+        execute(&db, &command).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
     let session = SessionId::new();
     db.execute(
-        "INSERT INTO sessions(id,worktree,revision) VALUES(?1,?2,1)",
+        "INSERT INTO sessions(rowid,id,worktree,revision) VALUES(1,?1,?2,1)",
         params![session.to_string(), tree.to_string()],
     )
+    .await
     .unwrap();
     command.plugin.as_mut().unwrap().session = Some(session);
-    let conversation = create(&db, &command);
-    assert_eq!(list(&db, &read).unwrap().len(), 1);
+    let conversation = create(&db, &command).await;
+    assert_eq!(list(&db, &read).await.unwrap().len(), 1);
     read.plugin.as_mut().unwrap().session = Some(session);
-    assert_eq!(list(&db, &read).unwrap().len(), 2);
+    assert_eq!(list(&db, &read).await.unwrap().len(), 2);
     command.plugin.as_mut().unwrap().worktree = Some(WorktreeId::new());
     assert_eq!(
-        execute(&db, &command).unwrap_err().code,
+        execute(&db, &command).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
     command.plugin.as_mut().unwrap().worktree = Some(tree);
@@ -293,8 +312,9 @@ fn confines_worktree_and_conversation_sources() {
         expected_revision: 1,
         definition,
     };
-    create(&db, &command);
+    create(&db, &command).await;
     let stored = catalog(&db)
+        .await
         .unwrap()
         .collections
         .into_iter()
@@ -304,14 +324,14 @@ fn confines_worktree_and_conversation_sources() {
     assert_eq!(stored.capture.session, None);
 }
 
-#[test]
-fn rejects_absolute_paths_for_plugins() {
-    let db = database();
+#[tokio::test]
+async fn rejects_absolute_paths_for_plugins() {
+    let db = database().await;
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
     let file = root.join("reference.txt");
     std::fs::write(&file, "Original").unwrap();
-    let owner = package(&db, "owner", 'a', &[]);
+    let owner = package(&db, "owner", 'a', &[]).await;
     for source in [
         Source::Directory {
             path: root.to_str().unwrap().into(),
@@ -331,6 +351,7 @@ fn rejects_absolute_paths_for_plugins() {
                     }
                 )
             )
+            .await
             .unwrap_err()
             .code,
             ErrorCode::PermissionDenied
@@ -341,9 +362,11 @@ fn rejects_absolute_paths_for_plugins() {
                 definition: definition(source),
                 plugin: Some("owner".into()),
             }),
-        );
+        )
+        .await;
         assert!(
             list(&db, &captured(&owner, Command::ListKnowledgeCollections))
+                .await
                 .unwrap()
                 .iter()
                 .any(|entry| entry.id == collection.id)
@@ -358,6 +381,7 @@ fn rejects_absolute_paths_for_plugins() {
                 },
             ),
         )
+        .await
         .unwrap();
         assert!(matches!(output, Output::KnowledgeCollectionDeleted { id } if id == collection.id));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "Original");
@@ -365,9 +389,9 @@ fn rejects_absolute_paths_for_plugins() {
 }
 
 #[cfg(unix)]
-#[test]
-fn rejects_links_and_parent_traversal() {
-    let db = database();
+#[tokio::test]
+async fn rejects_links_and_parent_traversal() {
+    let db = database().await;
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
     let external = tempfile::tempdir().unwrap();
@@ -375,8 +399,8 @@ fn rejects_links_and_parent_traversal() {
     std::fs::write(&private, "Private").unwrap();
     std::os::unix::fs::symlink(&private, root.join("file-link")).unwrap();
     std::os::unix::fs::symlink(external.path(), root.join("directory-link")).unwrap();
-    let tree = worktree(&db, &root);
-    let owner = package(&db, "owner", 'a', &["files.read"]);
+    let tree = worktree(&db, &root).await;
+    let owner = package(&db, "owner", 'a', &["files.read"]).await;
     for path in [
         "file-link",
         "directory-link",
@@ -394,7 +418,7 @@ fn rejects_links_and_parent_traversal() {
             },
         );
         command.plugin.as_mut().unwrap().worktree = Some(tree);
-        assert!(execute(&db, &command).is_err(), "accepted {path}");
+        assert!(execute(&db, &command).await.is_err(), "accepted {path}");
     }
     for source in [
         Source::File {
@@ -419,9 +443,10 @@ fn rejects_links_and_parent_traversal() {
                     plugin: None
                 })
             )
+            .await
             .is_err()
         );
     }
-    assert!(raw(&db).is_empty());
+    assert!(raw(&db).await.is_empty());
     assert_eq!(std::fs::read_to_string(private).unwrap(), "Private");
 }

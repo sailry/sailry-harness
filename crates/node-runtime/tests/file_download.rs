@@ -73,15 +73,27 @@ async fn shares_binary_lifecycle() {
         .await
         .unwrap();
     let remote = Client::new(controller.handle().remote(address));
-    let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    let count = || {
-        database
-            .query_row("SELECT count(*) FROM requests", [], |row| {
-                row.get::<_, i64>(0)
+
+    let count = async || {
+        let sql = ("SELECT count(*) FROM requests").to_owned();
+        let parameters = ();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)?;
+                let value = row.get::<i64>(0);
+                value.map_err(crate::file_fixture::database::fault)
             })
-            .unwrap()
+        })
+        .await
+        .unwrap()
     };
-    let before = count();
+    let before = count().await;
     for (client, other) in [(&local, &remote), (&remote, &local)] {
         for name in ["资料.bin", "empty"] {
             let prepared = prepare(client, worktree, name).await;
@@ -184,7 +196,7 @@ async fn shares_binary_lifecycle() {
         drop(stream);
     }
     assert_eq!(
-        count(),
+        count().await,
         before,
         "temporary transfers must not enter the durable ledger"
     );
@@ -215,6 +227,7 @@ async fn rejects_changed_or_unconfined_sources() {
             "missing",
             "node/sentinel",
             "node/storage/node.sqlite3",
+            "node/storage/node.turso",
         ] {
             assert!(
                 client

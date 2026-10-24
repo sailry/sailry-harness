@@ -5,7 +5,6 @@ use super::{
     unavailable,
 };
 use crate::web::search::{Auth, Plan};
-use rusqlite::{Connection, OptionalExtension};
 use sailry_link::Admission;
 use sailry_protocol::{
     Command, ErrorCode, Event, Fault, NodeId, Output, Request, Secret,
@@ -13,6 +12,7 @@ use sailry_protocol::{
     search::{self, Driver, Selection},
 };
 use std::collections::BTreeMap;
+use turso::Connection;
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,15 +21,21 @@ pub(in crate::store) struct Stored {
     credentials: BTreeMap<Driver, Auth>,
 }
 
-fn load(db: &Connection) -> Result<Stored, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM search_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn load(db: &Connection) -> Result<Stored, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM search_settings WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(()).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let stored = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?
@@ -38,20 +44,20 @@ fn load(db: &Connection) -> Result<Stored, Fault> {
     Ok(stored)
 }
 
-pub(super) fn read(db: &Connection) -> Result<search::Settings, Fault> {
-    Ok(load(db)?.settings)
+pub(super) async fn read(db: &Connection) -> Result<search::Settings, Fault> {
+    Ok(load(db).await?.settings)
 }
 
-pub(super) fn plan(db: &Connection) -> Result<Plan, Fault> {
-    let stored = load(db)?;
+pub(super) async fn plan(db: &Connection) -> Result<Plan, Fault> {
+    let stored = load(db).await?;
     Ok(Plan {
         settings: stored.settings,
         credentials: stored.credentials,
     })
 }
 
-pub(super) fn validate_stored(db: &Connection) -> Result<(), Fault> {
-    load(db).map(|_| ())
+pub(super) async fn validate_stored(db: &Connection) -> Result<(), Fault> {
+    load(db).await.map(|_| ())
 }
 
 fn validate(stored: &Stored) -> Result<(), Fault> {
@@ -115,7 +121,7 @@ fn validate(stored: &Stored) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(super) fn save(
+pub(super) async fn save(
     db: &Connection,
     request: &Request,
     update: &search::Update,
@@ -130,7 +136,7 @@ pub(super) fn save(
             "search settings require a controller",
         ));
     }
-    let mut stored = load(db)?;
+    let mut stored = load(db).await?;
     if stored.settings.revision != update.settings.revision {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -155,7 +161,7 @@ pub(super) fn save(
         config.basic_configured = auth.basic.is_some();
     }
     validate(&stored)?;
-    db.execute("INSERT INTO search_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&stored)?]).map_err(storage_error)?;
+    db.execute("INSERT INTO search_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&stored)?]).await.map_err(storage_error)?;
     Ok((
         Output::SearchSettings(stored.settings.clone()),
         Some(Event::SearchSettingsChanged {

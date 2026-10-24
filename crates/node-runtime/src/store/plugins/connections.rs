@@ -1,15 +1,15 @@
 //! Connection grants retain the captured resource and the core sharing decision.
-use rusqlite::Connection;
 use sailry_protocol::{
     Command, ErrorCode, Fault,
     connection::Resource,
     plugin::{Action, Context},
 };
+use turso::Connection;
 
 use crate::store::{commands, connections, databases, ssh, terminals, worktrees};
 mod management;
 
-pub(super) fn action(
+pub(super) async fn action(
     db: &Connection,
     context: &Context,
     request: &sailry_protocol::Request,
@@ -85,7 +85,8 @@ pub(super) fn action(
                 && context.turn.is_none()
                 && context.invocation.is_none()
             {
-                if !worktrees::list(db)?
+                if !worktrees::list(db)
+                    .await?
                     .iter()
                     .any(|tree| tree.id == transfer.worktree && tree.project.is_some())
                 {
@@ -106,7 +107,7 @@ pub(super) fn action(
             Action::ControlSsh
         }
         Command::CloseSshTerminal { terminal } => {
-            let terminal = terminals::required(db, *terminal)?;
+            let terminal = terminals::required(db, *terminal).await?;
             let profile = terminal
                 .ssh
                 .ok_or_else(|| denied("terminal is not an SSH terminal"))?;
@@ -120,7 +121,7 @@ pub(super) fn action(
         | Command::InputTerminal { terminal, .. }
         | Command::ResizeTerminal { terminal, .. }
         | Command::SetTerminalAppearance { terminal, .. } => {
-            let terminal = terminals::required(db, *terminal)?;
+            let terminal = terminals::required(db, *terminal).await?;
             let Some(profile) = terminal.ssh else {
                 return Ok(None);
             };
@@ -134,12 +135,13 @@ pub(super) fn action(
         _ => return Ok(None),
     };
     let creation = if management && (context.turn.is_some() || context.invocation.is_some()) {
-        management::authorize(db, request)?
+        management::authorize(db, request).await?
     } else {
         false
     };
     if creation {
-        if crate::store::agent::connections::bound(db, context.turn.expect("checked turn"))?
+        if crate::store::agent::connections::bound(db, context.turn.expect("checked turn"))
+            .await?
             .is_some()
         {
             return Err(denied(
@@ -147,26 +149,27 @@ pub(super) fn action(
             ));
         }
     } else if let Some(target) = target {
-        check_target(db, context, target)?;
+        check_target(db, context, target).await?;
     } else if context.turn.is_some() && context.session.is_none() {
         return Err(denied("connection tool requires a captured session"));
     }
     Ok(Some(action))
 }
 
-pub(in crate::store) fn check_target(
+pub(in crate::store) async fn check_target(
     db: &Connection,
     context: &Context,
     target: Resource,
 ) -> Result<(), Fault> {
     let (bound, project) = if let Some(session) = context.session {
-        let session = commands::session(db, session)?;
+        let session = commands::session(db, session).await?;
         if Some(session.worktree) != context.worktree {
             return Err(denied("connection session belongs to another worktree"));
         }
         (session.config.resource, session.project)
     } else if let Some(worktree) = context.worktree {
-        let worktree = worktrees::list(db)?
+        let worktree = worktrees::list(db)
+            .await?
             .into_iter()
             .find(|candidate| candidate.id == worktree)
             .ok_or_else(|| denied("captured worktree is unavailable"))?;
@@ -178,17 +181,19 @@ pub(in crate::store) fn check_target(
         return Err(denied("connection operation requires a captured resource"));
     };
     if let Some(turn) = context.turn {
-        let run = crate::store::agent::connections::owner(db, turn)?;
+        let run = crate::store::agent::connections::owner(db, turn).await?;
         if Some(run.session) != context.session || Some(run.worktree) != context.worktree {
             return Err(denied("connection turn belongs to another resource"));
         }
-        if crate::store::agent::connections::created(db, turn, &context.package, target)? {
+        if crate::store::agent::connections::created(db, turn, &context.package, target).await? {
             return Ok(());
         }
     }
     let sharing = match target {
-        Resource::Database(id) => databases::read(db, id)?.and_then(|profile| profile.sharing),
-        Resource::Ssh(id) => ssh::read(db, id)?.and_then(|profile| profile.sharing),
+        Resource::Database(id) => databases::read(db, id)
+            .await?
+            .and_then(|profile| profile.sharing),
+        Resource::Ssh(id) => ssh::read(db, id).await?.and_then(|profile| profile.sharing),
     };
     if connections::permits(bound, project, target, sharing.as_ref()) {
         Ok(())

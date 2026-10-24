@@ -508,11 +508,7 @@ mod welcome {
         let profile = directory.path();
         Preferences::for_startup(profile);
         std::fs::create_dir_all(profile.join("storage")).unwrap();
-        std::fs::write(
-            profile.join("storage/node.sqlite3"),
-            b"existing Node storage",
-        )
-        .unwrap();
+        std::fs::write(profile.join("storage/node.turso"), b"existing Node storage").unwrap();
         let mut restored = Preferences::for_startup(profile);
         assert!(restored.welcome_pending());
         restored.mark_welcome_seen();
@@ -545,15 +541,17 @@ mod welcome {
 
     #[test]
     fn skips_existing_node_without_preferences() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("storage/node.sqlite3");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let original = b"existing Node storage";
-        std::fs::write(&path, original).unwrap();
-        let preferences = Preferences::for_startup(directory.path());
-        assert_eq!(preferences.data.welcome_seen, Some(true));
-        assert!(!preferences.welcome_pending());
-        assert_eq!(std::fs::read(path).unwrap(), original);
+        for filename in ["node.turso", "node.sqlite3"] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("storage").join(filename);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let original = b"existing Node storage";
+            std::fs::write(&path, original).unwrap();
+            let preferences = Preferences::for_startup(directory.path());
+            assert_eq!(preferences.data.welcome_seen, Some(true));
+            assert!(!preferences.welcome_pending());
+            assert_eq!(std::fs::read(path).unwrap(), original);
+        }
     }
 
     #[test]

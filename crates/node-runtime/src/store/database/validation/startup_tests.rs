@@ -1,18 +1,15 @@
 use crate::store::database::Database;
 use sailry_protocol::NodeId;
 
-#[test]
-fn uses_current_state_indexes() {
+#[tokio::test]
+async fn uses_current_state_indexes() {
     let directory = tempfile::tempdir().unwrap();
     let database = Database::open(
-        &directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        &directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([79; 32]),
         None,
     )
+    .await
     .unwrap();
     for (sql, index) in [
         (
@@ -20,7 +17,7 @@ fn uses_current_state_indexes() {
             "events_kind",
         ),
         (
-            "SELECT body FROM agent_runs WHERE json_extract(body,'$.status') IN ('running','stopping')",
+            "SELECT body FROM agent_runs WHERE json_extract(body,'$.status')='running' UNION ALL SELECT body FROM agent_runs WHERE json_extract(body,'$.status')='stopping'",
             "agent_runs_status",
         ),
         (
@@ -32,7 +29,7 @@ fn uses_current_state_indexes() {
             "agent_questions_state",
         ),
         (
-            "SELECT body FROM agent_background WHERE state IN ('running','pending')",
+            "SELECT body FROM agent_background WHERE state='running' UNION ALL SELECT body FROM agent_background WHERE state='pending'",
             "agent_background_state",
         ),
         (
@@ -40,19 +37,20 @@ fn uses_current_state_indexes() {
             "dispatch_jobs_status",
         ),
         (
-            "SELECT result FROM requests WHERE status IN ('admitted','unknown')",
+            "SELECT result FROM requests WHERE status='admitted' UNION ALL SELECT result FROM requests WHERE status='unknown'",
             "requests_status",
         ),
     ] {
         let mut query = database
             .connection
             .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .await
             .unwrap();
-        let plan = query
-            .query_map([], |row| row.get::<_, String>(3))
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+        let mut rows = query.query(()).await.unwrap();
+        let mut plan = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            plan.push(row.get::<String>(3).unwrap());
+        }
         assert!(
             plan.iter().any(|step| step.contains(index)),
             "{index}: {plan:?}"
@@ -60,23 +58,17 @@ fn uses_current_state_indexes() {
     }
 }
 
-#[test]
-fn includes_live_records_during_upgrades() {
+#[tokio::test]
+async fn includes_live_records_during_updates() {
     for table in ["agent_runs", "agent_questions"] {
         let directory = tempfile::tempdir().unwrap();
-        let database = Database::open(
-            &directory
-                .path()
-                .canonicalize()
-                .unwrap()
-                .join("node.sqlite3"),
-            NodeId([80; 32]),
-            None,
-        )
-        .unwrap();
+        let database = Database::open(&directory.path().join("node.turso"), NodeId([80; 32]), None)
+            .await
+            .unwrap();
         database
             .connection
-            .pragma_update(None, "foreign_keys", false)
+            .pragma_update("foreign_keys", "OFF")
+            .await
             .unwrap();
         let turn = sailry_protocol::TurnId::new().to_string();
         if table == "agent_runs" {
@@ -84,24 +76,25 @@ fn includes_live_records_during_upgrades() {
                 .connection
                 .execute(
                     "INSERT INTO agent_runs(turn,ready,body,hooks) VALUES(?1,1,?2,?3)",
-                    rusqlite::params![
+                    (
                         turn,
                         br#"{"status":"running","private_marker":true}"#.as_slice(),
-                        serde_json::to_vec(&sailry_protocol::hooks::Settings::default()).unwrap()
-                    ],
+                        serde_json::to_vec(&sailry_protocol::hooks::Settings::default()).unwrap(),
+                    ),
                 )
+                .await
                 .unwrap();
         } else {
             database.connection.execute(
                 "INSERT INTO agent_questions(id,turn,call,body) VALUES('question',?1,'call',?2)",
-                rusqlite::params![turn, br#"{"state":{"kind":"pending"},"private_marker":true}"#.as_slice()],
-            ).unwrap();
+                (turn, br#"{"state":{"kind":"pending"},"private_marker":true}"#.as_slice())
+            ).await.unwrap();
         }
         for archives in [false, true] {
             let error = if archives {
-                super::stored(&database.connection)
+                super::stored(&database.connection).await
             } else {
-                super::startup(&database.connection)
+                super::startup(&database.connection).await
             }
             .unwrap_err()
             .to_string();

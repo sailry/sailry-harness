@@ -1,11 +1,11 @@
-use rusqlite::Connection;
 use sailry_protocol::{
     Authentication, ErrorCode, Fault,
     conversation::{Provider, catalog, discovery},
 };
 use std::collections::BTreeMap;
+use turso::Connection;
 
-pub(super) fn seed(
+pub(super) async fn seed(
     db: &Connection,
     provider: &mut Provider,
     models: &[discovery::Model],
@@ -28,7 +28,7 @@ pub(super) fn seed(
         return Ok(());
     }
     let mut references = BTreeMap::new();
-    if crate::store::providers::catalog::status(db)?.revision != 0 {
+    if crate::store::providers::catalog::status(db).await?.revision != 0 {
         for models in models.chunks(100) {
             let mut query = catalog::Query {
                 provider: matches!(
@@ -42,7 +42,7 @@ pub(super) fn seed(
                 limit: 100,
             };
             loop {
-                let page = crate::store::providers::catalog::page(db, &query)?;
+                let page = crate::store::providers::catalog::page(db, &query).await?;
                 references.extend(
                     page.models
                         .into_iter()

@@ -44,13 +44,24 @@ async fn restores_config_revisions() {
     };
     assert!(session.creation_order > 0);
     node.shutdown().await.unwrap();
-    let db = Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    assert_eq!(
-        db.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        1
-    );
-    drop(db);
+    {
+        let database = crate::store::database::engine(&profile.join("storage/node.turso"))
+            .await
+            .unwrap();
+        let connection = crate::store::database::connect(&database).await.unwrap();
+        assert_eq!(
+            connection
+                .prepare("PRAGMA user_version")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get::<i64>(0)
+                .unwrap(),
+            1
+        );
+    }
     let node = crate::Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let Output::Snapshot(snapshot) = client

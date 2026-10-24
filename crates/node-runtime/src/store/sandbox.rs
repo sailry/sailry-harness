@@ -1,23 +1,32 @@
 use super::database::{encode, storage_error};
-use rusqlite::{Connection, OptionalExtension};
 use sailry_protocol::{process::Access, sandbox::Settings, *};
+use turso::Connection;
 
-pub(super) fn read(db: &Connection) -> Result<Settings, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM sandbox_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn read(db: &Connection) -> Result<Settings, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM sandbox_settings WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(()).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
         .map(Option::unwrap_or_default)
 }
 
-pub(super) fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>), Fault> {
-    if read(db)?.revision != settings.revision {
+pub(super) async fn save(
+    db: &Connection,
+    settings: &Settings,
+) -> Result<(Output, Option<Event>), Fault> {
+    if read(db).await?.revision != settings.revision {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "command sandbox settings changed",
@@ -33,7 +42,7 @@ pub(super) fn save(db: &Connection, settings: &Settings) -> Result<(Output, Opti
     db.execute(
         "INSERT INTO sandbox_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",
         [encode(&saved)?],
-    ).map_err(storage_error)?;
+    ).await.map_err(storage_error)?;
     Ok((
         Output::SandboxSettings(saved.clone()),
         Some(Event::SandboxSettingsChanged {
@@ -42,7 +51,7 @@ pub(super) fn save(db: &Connection, settings: &Settings) -> Result<(Output, Opti
     ))
 }
 
-pub(in crate::store) fn effective(
+pub(in crate::store) async fn effective(
     db: &Connection,
     arguments: &serde_json::Value,
 ) -> Result<Access, Fault> {
@@ -55,7 +64,7 @@ pub(in crate::store) fn effective(
         })
         .transpose()?
         .unwrap_or_default();
-    Ok(if read(db)?.enabled {
+    Ok(if read(db).await?.enabled {
         requested
     } else {
         Access::Unrestricted

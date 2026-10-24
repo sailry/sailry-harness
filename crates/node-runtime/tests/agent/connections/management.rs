@@ -170,18 +170,22 @@ async fn ssh_profiles(client: &Client) -> Vec<ssh::Profile> {
     profiles
 }
 
-fn stored_credential(fixture: &process::Fixture, id: SshId) -> Value {
-    let db = rusqlite::Connection::open_with_flags(
-        fixture.node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let body: String = db
-        .query_row(
-            "SELECT credential FROM ssh_profiles WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
+async fn stored_credential(fixture: &process::Fixture, id: SshId) -> Value {
+    let body = fixture
+        .node
+        .with_storage(move |db| {
+            Box::pin(async move {
+                db.prepare("SELECT credential FROM ssh_profiles WHERE id=?1")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row([id.to_string()])
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get::<String>(0)
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
         .unwrap();
     serde_json::from_str(&body).unwrap()
 }
@@ -245,7 +249,10 @@ async fn saves_native_credentials_without_public_secrets() {
                 } else {
                     assert_eq!(profiles.len(), 1);
                     assert_eq!(profiles[0].revision, step);
-                    assert_eq!(stored_credential(&fixture, profiles[0].id), credential);
+                    assert_eq!(
+                        stored_credential(&fixture, profiles[0].id).await,
+                        credential
+                    );
                 }
                 let public = serde_json::to_string(&page).unwrap();
                 for marker in markers {
@@ -262,7 +269,7 @@ async fn saves_native_credentials_without_public_secrets() {
             if matches!(authentication, "private_key" | "key_path") {
                 expected["passphrase"] = Value::Null;
             }
-            assert_eq!(stored_credential(&fixture, profiles[0].id), expected);
+            assert_eq!(stored_credential(&fixture, profiles[0].id).await, expected);
             let results = results(&page);
             assert_eq!(results.len(), 4, "{results:?}");
             assert_eq!(results[3]["data"][0]["id"], profiles[0].id.to_string());
@@ -311,31 +318,45 @@ async fn saves_native_credentials_without_public_secrets() {
             for marker in markers {
                 assert!(!public.contains(marker));
             }
-            let db = rusqlite::Connection::open_with_flags(
-                fixture.node.profile().join("storage/node.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
-            let mut query = db
-                .prepare("SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence")
-                .unwrap();
-            let canonical = query
-                .query_map([turn.to_string()], |row| row.get::<_, Vec<u8>>(0))
-                .unwrap()
-                .map(|body| serde_json::from_slice::<adk_core::Event>(&body.unwrap()).unwrap())
-                .find_map(|event| {
-                    event.content().and_then(|content| {
-                        content.parts.iter().find_map(|part| {
-                            if let adk_core::Part::FunctionCall { name, args, .. } = part
-                                && name == &save_name
-                            {
-                                Some(args.clone())
-                            } else {
-                                None
+            let name = save_name.clone();
+            let canonical = fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let mut rows = db
+                            .query(
+                                "SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence",
+                                [turn.to_string()],
+                            )
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        while let Some(row) =
+                            rows.next().await.map_err(crate::database_fixture::fault)?
+                        {
+                            let body = row
+                                .get::<Vec<u8>>(0)
+                                .map_err(crate::database_fixture::fault)?;
+                            let event: adk_core::Event = serde_json::from_slice(&body).unwrap();
+                            if let Some(arguments) = event.content().and_then(|content| {
+                                content.parts.iter().find_map(|part| {
+                                    if let adk_core::Part::FunctionCall {
+                                        name: tool, args, ..
+                                    } = part
+                                        && tool == &name
+                                    {
+                                        Some(args.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                            }) {
+                                return Ok(arguments);
                             }
-                        })
+                        }
+                        panic!("captured credential call expected")
                     })
                 })
+                .await
                 .unwrap();
             assert_eq!(canonical["credential"], credential);
             assert!(!path.exists());
@@ -380,7 +401,7 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
         assert_eq!(profiles[0].revision, 2);
         assert_eq!(profiles[0].authentication, ssh::Authentication::Password);
         assert_eq!(
-            stored_credential(&fixture, profiles[0].id),
+            stored_credential(&fixture, profiles[0].id).await,
             json!({"kind":"password","password":"stable-private-marker"})
         );
         assert!(
@@ -711,7 +732,7 @@ async fn creates_and_queries_in_one_turn() {
                 path: path.canonicalize().unwrap().to_str().unwrap().into()
             }
         );
-        let (claimed, used) = approvals::rules::claimed(&fixture.node, &first);
+        let (claimed, used) = approvals::rules::claimed(&fixture.node, &first).await;
         assert!(used);
         let mut forged = fixture
             .client
@@ -1006,26 +1027,39 @@ async fn preserves_credentials_and_reports_missing() {
         assert_eq!(saved.sharing, existing.sharing);
         let requests = serde_json::to_string(&*server.requests.lock().unwrap()).unwrap();
         assert!(!requests.contains("isolated-database-password"));
-        let db = rusqlite::Connection::open_with_flags(
-            fixture.node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let password: String = db
-            .query_row(
-                "SELECT password FROM database_profiles WHERE id=?1",
-                [existing.id.to_string()],
-                |row| row.get(0),
-            )
+        let id = existing.id;
+        let (password, prepared) = fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let password = db
+                        .prepare("SELECT password FROM database_profiles WHERE id=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([id.to_string()])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get::<String>(0)
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut rows = db
+                        .query("SELECT prepared FROM agent_approvals", ())
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut prepared = Vec::new();
+                    while let Some(row) =
+                        rows.next().await.map_err(crate::database_fixture::fault)?
+                    {
+                        prepared.push(
+                            row.get::<Vec<u8>>(0)
+                                .map_err(crate::database_fixture::fault)?,
+                        );
+                    }
+                    Ok((password, prepared))
+                })
+            })
+            .await
             .unwrap();
         assert!(password == "isolated-database-password");
-        let prepared: Vec<Vec<u8>> = db
-            .prepare("SELECT prepared FROM agent_approvals")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
         assert!(
             prepared
                 .iter()
@@ -1276,17 +1310,22 @@ async fn rejects_changed_key_without_authentication() {
         assert_eq!(peer.authentication.load(Ordering::SeqCst), 0);
         let requests = serde_json::to_string(&*server.requests.lock().unwrap()).unwrap();
         assert!(!requests.contains("isolated-ssh-password"));
-        let db = rusqlite::Connection::open_with_flags(
-            fixture.node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let credential: String = db
-            .query_row(
-                "SELECT credential FROM ssh_profiles WHERE id=?1",
-                [profile.id.to_string()],
-                |row| row.get(0),
-            )
+        let id = profile.id;
+        let credential = fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.prepare("SELECT credential FROM ssh_profiles WHERE id=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([id.to_string()])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get::<String>(0)
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
         let credential: ssh::Credential = serde_json::from_str(&credential).unwrap();
         assert!(

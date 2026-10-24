@@ -47,39 +47,40 @@ async fn reads_removed_versions() {
         let package = profile.join("plugins/packages").join(&reference.digest);
         let declaration = fs::read(package.join("mcp.json")).unwrap();
         let skill = fs::read(package.join("skills/analysis/SKILL.md")).unwrap();
-        let account_body = lifecycle::stored(&fixture.node, account.id);
-        let db = rusqlite::Connection::open_with_flags(
-            profile.join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let settings = || {
-            db.query_row(
-                "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2",
-                rusqlite::params![reference.name, reference.settings_revision as i64],
-                |row| row.get::<_, Vec<u8>>(0),
-            )
+        let account_body = lifecycle::stored(&fixture.node, account.id).await;
+        let settings = async |node: &Node| {
+            let package = reference.clone();
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    db.prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(turso::params![
+                            package.name,
+                            package.settings_revision as i64
+                        ])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get::<Vec<u8>>(0)
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap()
         };
-        let captures = || {
-            let mut query = db
-                .prepare("SELECT plugin,connector,connection,revision FROM turn_connections WHERE turn=?1 ORDER BY connection")
-                .unwrap();
-            query
-                .query_map([captured.id.to_string()], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                    ))
-                })
-                .unwrap()
-                .map(|row| row.unwrap())
-                .collect::<Vec<_>>()
+        let captures = async |node: &Node| {
+            let turn = captured.id;
+            node.with_storage(move |db| Box::pin(async move {
+                let mut rows = db.query("SELECT plugin,connector,connection,revision FROM turn_connections WHERE turn=?1 ORDER BY connection", [turn.to_string()]).await.map_err(crate::database_fixture::fault)?;
+                let mut captures = Vec::new();
+                while let Some(row) = rows.next().await.map_err(crate::database_fixture::fault)? {
+                    captures.push((row.get::<String>(0).map_err(crate::database_fixture::fault)?,row.get::<String>(1).map_err(crate::database_fixture::fault)?,row.get::<String>(2).map_err(crate::database_fixture::fault)?,row.get::<i64>(3).map_err(crate::database_fixture::fault)?));
+                }
+                Ok(captures)
+            })).await.unwrap()
         };
-        let saved = settings();
-        let frozen = captures();
+        let saved = settings(&fixture.node).await;
+        let frozen = captures(&fixture.node).await;
         assert!(!frozen.is_empty());
         let saved_value: Value = serde_json::from_slice(&saved).unwrap();
         assert_eq!(
@@ -127,9 +128,12 @@ async fn reads_removed_versions() {
                 fs::read(package.join("skills/analysis/SKILL.md")).unwrap(),
                 skill
             );
-            assert_eq!(settings(), saved);
-            assert_eq!(captures(), frozen);
-            assert_eq!(lifecycle::stored(&fixture.node, account.id), account_body);
+            assert_eq!(settings(&fixture.node).await, saved);
+            assert_eq!(captures(&fixture.node).await, frozen);
+            assert_eq!(
+                lifecycle::stored(&fixture.node, account.id).await,
+                account_body
+            );
             let Output::QueuedMessage(queued) = execute(
                 &fixture.client,
                 Command::ReadQueuedTurn { turn: captured.id },
@@ -170,7 +174,6 @@ async fn reads_removed_versions() {
         );
         assert!(model.requests.lock().unwrap().is_empty());
         assert_eq!(peer.calls.load(Ordering::SeqCst), 0);
-        drop(db);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

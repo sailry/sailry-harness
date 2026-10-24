@@ -8,8 +8,12 @@ use tokio::sync::oneshot;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::store) fn current(db: &Connection, name: &str, revision: u64) -> Result<Info, Fault> {
-    let info = required(db, name)?;
+pub(in crate::store) async fn current(
+    db: &Connection,
+    name: &str,
+    revision: u64,
+) -> Result<Info, Fault> {
+    let info = required(db, name).await?;
     crate::store::commands::check_revision(info.summary.revision, revision)?;
     Ok(info)
 }

@@ -1,13 +1,18 @@
 use super::*;
 
-#[test]
-fn refreshes_reinstalled_metadata() {
+#[tokio::test]
+async fn refreshes_reinstalled_metadata() {
     let directory = tempfile::tempdir().unwrap();
     let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
     let package = host.install_bundled("code-review").unwrap();
     assert!(!package.skills.is_empty());
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("../schema.sql")).unwrap();
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
+    db.execute_batch(include_str!("../schema.sql"))
+        .await
+        .unwrap();
     let mut stale = package.clone();
     stale.skills.clear();
     stale.issues.push(plugin::Issue {
@@ -19,10 +24,10 @@ fn refreshes_reinstalled_metadata() {
         expected_revision,
     };
     let mut result = Ok(Output::Plugin(stale));
-    finish(&db, None, &command(0), &mut result).unwrap();
+    finish(&db, None, &command(0), &mut result).await.unwrap();
     let mut result = Ok(Output::Plugin(package.clone()));
-    finish(&db, None, &command(1), &mut result).unwrap();
-    let installed = required(&db, "code-review").unwrap();
+    finish(&db, None, &command(1), &mut result).await.unwrap();
+    let installed = required(&db, "code-review").await.unwrap();
     assert_eq!(installed.summary.revision, 2);
     assert_eq!(installed.summary.digest, package.summary.digest);
     assert_eq!(installed.skills, package.skills);
@@ -33,6 +38,7 @@ fn refreshes_reinstalled_metadata() {
             package: installed.summary.reference(),
         },
     )
+    .await
     .unwrap() else {
         panic!("plugin version expected")
     };
@@ -40,8 +46,8 @@ fn refreshes_reinstalled_metadata() {
     assert!(retained.issues.is_empty());
 }
 
-#[test]
-fn derives_origin_from_admitted_command() {
+#[tokio::test]
+async fn derives_origin_from_admitted_command() {
     let directory = tempfile::tempdir().unwrap();
     let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
     let mut package = host.install_bundled("files").unwrap();
@@ -115,20 +121,30 @@ fn derives_origin_from_admitted_command() {
             online,
         ),
     ] {
-        let db = Connection::open_in_memory().unwrap();
-        db.execute_batch(include_str!("../schema.sql")).unwrap();
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
+        db.execute_batch(include_str!("../schema.sql"))
+            .await
+            .unwrap();
         let mut result = Ok(Output::Plugin(package.clone()));
-        finish(&db, None, &command, &mut result).unwrap();
-        let installed = required(&db, "files").unwrap();
+        finish(&db, None, &command, &mut result).await.unwrap();
+        let installed = required(&db, "files").await.unwrap();
         assert_eq!(installed.origin, Some(origin));
         assert_eq!(result, Ok(Output::Plugin(installed)));
-        let body: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM plugin_packages WHERE digest=?1",
-                [&package.summary.digest],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let body: Vec<u8> = (async {
+            let mut statement = db
+                .prepare("SELECT body FROM plugin_packages WHERE digest=?1")
+                .await?;
+            let row = statement
+                .query_row([package.summary.digest.as_str()])
+                .await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         assert!(
             serde_json::from_slice::<Info>(&body)
                 .unwrap()
@@ -153,18 +169,24 @@ fn derives_origin_from_admitted_command() {
             },
             &mut result,
         )
+        .await
         .unwrap();
-        let updated = required(&db, "files").unwrap();
+        let updated = required(&db, "files").await.unwrap();
         assert_eq!(updated.origin, Some(plugin::Origin::Directory));
         assert_eq!(updated.summary.digest, package.summary.digest);
         assert_eq!(updated.summary.revision, 2);
-        let unchanged: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM plugin_packages WHERE digest=?1",
-                [&package.summary.digest],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let unchanged: Vec<u8> = (async {
+            let mut statement = db
+                .prepare("SELECT body FROM plugin_packages WHERE digest=?1")
+                .await?;
+            let row = statement
+                .query_row([package.summary.digest.as_str()])
+                .await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         assert_eq!(unchanged, body);
     }
 }

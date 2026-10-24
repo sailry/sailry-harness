@@ -185,11 +185,10 @@ async fn rejects_truncation_and_failed_saves_without_advancing() {
                 "Read source.txt".into(),
             )
             .await;
-            let db =
-                rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-                    .unwrap();
             if storage_failure {
-                db.execute_batch("CREATE TRIGGER reject_summary BEFORE INSERT ON agent_events WHEN json_type(NEW.body,'$.actions.compaction')='object' BEGIN SELECT RAISE(ABORT,'PRIVATE_SAVE_FAILURE_SENTINEL'); END;").unwrap();
+                fixture.node.with_storage(|db| Box::pin(async move {
+                    db.execute_batch("CREATE TRIGGER reject_summary BEFORE INSERT ON agent_events WHEN json_type(NEW.body,'$.actions.compaction')='object' BEGIN SELECT RAISE(ABORT,'PRIVATE_SAVE_FAILURE_SENTINEL'); END;").await.map_err(crate::database_fixture::fault)
+                })).await.unwrap();
             }
             let Output::QueuedTurn(turn) = fixture
                 .client
@@ -233,10 +232,25 @@ async fn rejects_truncation_and_failed_saves_without_advancing() {
                     .unwrap()
                     .contains("PRIVATE_SAVE_FAILURE_SENTINEL")
             );
-            let count: i64 = db.query_row("SELECT count(*) FROM agent_events WHERE json_type(body,'$.actions.compaction')='object'", [], |row| row.get(0)).unwrap();
+            let count: i64 = fixture.node.with_storage(|db| Box::pin(async move {
+                db.prepare("SELECT count(*) FROM agent_events WHERE json_type(body,'$.actions.compaction')='object'")
+                    .await.map_err(crate::database_fixture::fault)?
+                    .query_row(()).await.map_err(crate::database_fixture::fault)?
+                    .get(0).map_err(crate::database_fixture::fault)
+            })).await.unwrap();
             assert_eq!(count, 0);
             if storage_failure {
-                db.execute_batch("DROP TRIGGER reject_summary").unwrap();
+                fixture
+                    .node
+                    .with_storage(|db| {
+                        Box::pin(async move {
+                            db.execute_batch("DROP TRIGGER reject_summary")
+                                .await
+                                .map_err(crate::database_fixture::fault)
+                        })
+                    })
+                    .await
+                    .unwrap();
             }
             submit(
                 &fixture.client,

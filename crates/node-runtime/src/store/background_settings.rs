@@ -1,7 +1,7 @@
 use super::database::storage_error;
-use rusqlite::{Connection, OptionalExtension};
 use sailry_protocol::*;
 use serde::{Deserialize, Serialize};
+use turso::Connection;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15,15 +15,21 @@ pub(in crate::store) struct Stored {
     child_concurrency: Option<u64>,
 }
 
-fn stored(db: &Connection) -> Result<Stored, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM background_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn stored(db: &Connection) -> Result<Stored, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM background_settings WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(()).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let stored = body
         .map(|body| serde_json::from_slice::<Stored>(&body).map_err(storage_error))
         .transpose()?
@@ -38,6 +44,6 @@ fn stored(db: &Connection) -> Result<Stored, Fault> {
     Ok(stored)
 }
 
-pub(super) fn retained(db: &Connection) -> Result<Option<u64>, Fault> {
-    Ok(stored(db)?.child_concurrency)
+pub(super) async fn retained(db: &Connection) -> Result<Option<u64>, Fault> {
+    Ok(stored(db).await?.child_concurrency)
 }

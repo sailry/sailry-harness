@@ -4,14 +4,14 @@ use question::{Question, State};
 
 pub(in crate::store) type Changes = Vec<(SessionId, Change)>;
 
-pub(in crate::store::agent) fn completed(
+pub(in crate::store::agent) async fn completed(
     db: &Connection,
     question: &Question,
 ) -> Result<bool, Fault> {
     if question.index != 0 {
         return Ok(false);
     }
-    let run = runs::get(db, question.turn)?;
+    let run = runs::get(db, question.turn).await?;
     if run.session != question.session
         || run.kind != RunKind::Task
         || run.status != Status::Completed
@@ -19,10 +19,24 @@ pub(in crate::store::agent) fn completed(
     {
         return Ok(false);
     }
-    let body: Option<Vec<u8>> = db.query_row(
-        "SELECT e.body FROM agent_events e JOIN conversation_events h ON h.sequence=e.sequence WHERE h.session=?1 AND e.turn=?2 AND e.id=?3",
-        params![question.session.to_string(),question.turn.to_string(),question.entry],|row| row.get(0),
-    ).optional().map_err(storage_error)?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = db.prepare("SELECT e.body FROM agent_events e JOIN conversation_events h ON h.sequence=e.sequence WHERE h.session=?1 AND e.turn=?2 AND e.id=?3").await.map_err(storage_error)?;
+        match statement
+            .query_row(params![
+                question.session.to_string(),
+                question.turn.to_string(),
+                question.entry.as_str()
+            ])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let Some(body) = body else {
         return Ok(false);
     };
@@ -30,11 +44,11 @@ pub(in crate::store::agent) fn completed(
     if spec(&event).is_none() {
         return Ok(false);
     }
-    validate(db, question.turn, &event)?;
+    validate(db, question.turn, &event).await?;
     Ok(true)
 }
 
-pub(in crate::store::agent) fn publish(
+pub(in crate::store::agent) async fn publish(
     db: &Connection,
     run: &Run,
     event: AdkEvent,
@@ -45,10 +59,11 @@ pub(in crate::store::agent) fn publish(
         ));
     }
     let call = event.id.clone();
-    let entry = super::super::history::insert(db, run.session, run.turn, event)?
+    let entry = super::super::history::insert(db, run.session, run.turn, event)
+        .await?
         .ok_or_else(|| Fault::new(ErrorCode::Conflict, "completion review already exists"))?;
-    let question = super::super::questions::create(db, run, &call, call.clone(), 0)?;
-    if !completed(db, &question)? {
+    let question = super::super::questions::create(db, run, &call, call.clone(), 0).await?;
+    if !completed(db, &question).await? {
         return Err(sailry_protocol::Fault::invalid(
             "completion review is not eligible",
         ));
@@ -59,8 +74,8 @@ pub(in crate::store::agent) fn publish(
     ])
 }
 
-fn resolved(db: &Connection, question: &Question) -> Result<Changes, Fault> {
-    if !completed(db, question)? {
+async fn resolved(db: &Connection, question: &Question) -> Result<Changes, Fault> {
+    if !completed(db, question).await? {
         return Ok(Vec::new());
     }
     let response = match &question.state {
@@ -73,14 +88,23 @@ fn resolved(db: &Connection, question: &Question) -> Result<Changes, Fault> {
         }
     };
     let id = format!("plan-review-result:{}", question.entry);
-    let previous: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![question.turn.to_string(), id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let previous: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![question.turn.to_string(), id.as_str()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     if let Some(previous) = previous {
         let previous: AdkEvent = serde_json::from_slice(&previous).map_err(storage_error)?;
         let recorded: Recorded = serde_json::from_str(
@@ -105,39 +129,49 @@ fn resolved(db: &Connection, question: &Question) -> Result<Changes, Fault> {
     // Separate successful command IDs answering the same question must not append twice.
     event.id = id;
     Ok(
-        super::super::history::insert(db, question.session, question.turn, event)?
+        super::super::history::insert(db, question.session, question.turn, event)
+            .await?
             .into_iter()
             .map(|entry| (question.session, Change::Entry(entry)))
             .collect(),
     )
 }
 
-pub(in crate::store::agent) fn supersede(
+pub(in crate::store::agent) async fn supersede(
     db: &Connection,
     session: SessionId,
 ) -> Result<Changes, Fault> {
-    let mut query = db.prepare("SELECT q.body FROM agent_questions q JOIN conversation_turns h ON h.turn=q.turn WHERE h.session=?1 AND json_extract(q.body,'$.state.kind')='pending'").map_err(storage_error)?;
-    let questions = query
-        .query_map([session.to_string()], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|row| {
-            serde_json::from_slice::<Question>(&row.map_err(storage_error)?).map_err(storage_error)
-        })
-        .collect::<Result<Vec<_>, Fault>>()?;
+    let mut query = db.prepare("SELECT q.body FROM agent_questions q JOIN conversation_turns h ON h.turn=q.turn WHERE h.session=?1 AND json_extract(q.body,'$.state.kind')='pending'").await.map_err(storage_error)?;
+    let questions = {
+        let mut rows = query
+            .query([session.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|row| {
+        serde_json::from_slice::<Question>(&row.map_err(storage_error)?).map_err(storage_error)
+    })
+    .collect::<Result<Vec<_>, Fault>>()?;
     let mut changes = Vec::new();
     for mut question in questions {
-        if question.session != session || !completed(db, &question)? {
+        if question.session != session || !completed(db, &question).await? {
             continue;
         }
         question.state = State::Cancelled;
-        super::super::questions::put(db, &question)?;
-        changes.extend(resolved(db, &question)?);
+        super::super::questions::put(db, &question).await?;
+        changes.extend(resolved(db, &question).await?);
         changes.push((session, Change::Question(question)));
     }
     Ok(changes)
 }
 
-pub(in crate::store) fn command(
+pub(in crate::store) async fn command(
     db: &Connection,
     request: &Request,
     output: &Output,
@@ -146,10 +180,12 @@ pub(in crate::store) fn command(
         (
             Command::SubmitTurn { .. } | Command::QueueTurn { .. } | Command::SubmitTask { .. },
             Output::QueuedTurn(turn),
-        ) => supersede(db, turn.session),
-        (Command::ResolveQuestion { .. }, Output::Question(question)) => resolved(db, question),
+        ) => supersede(db, turn.session).await,
+        (Command::ResolveQuestion { .. }, Output::Question(question)) => {
+            resolved(db, question).await
+        }
         (Command::ResolveQuestion { .. }, Output::PlanAccepted(accepted)) => {
-            resolved(db, &accepted.question)
+            resolved(db, &accepted.question).await
         }
         (Command::PluginTransaction { operations }, Output::PluginTransaction(outputs)) => {
             let mut changes = Vec::new();
@@ -159,7 +195,7 @@ pub(in crate::store) fn command(
                     Output::QueuedTurn(turn),
                 ) = (operation, output)
                 {
-                    changes.extend(supersede(db, turn.session)?);
+                    changes.extend(supersede(db, turn.session).await?);
                 }
             }
             Ok(changes)

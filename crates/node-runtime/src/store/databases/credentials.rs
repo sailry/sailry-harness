@@ -18,9 +18,9 @@ struct Tunnel {
     authentication: ssh::Authentication,
 }
 
-fn binding(db: &Connection, connection: &Target) -> Result<Binding, Fault> {
+async fn binding(db: &Connection, connection: &Target) -> Result<Binding, Fault> {
     let tunnel = if let Target::Ssh { ssh, .. } = connection {
-        let profile = super::super::ssh::read(db, *ssh)?.ok_or_else(|| {
+        let profile = super::super::ssh::read(db, *ssh).await?.ok_or_else(|| {
             Fault::new(ErrorCode::NotConfigured, "database tunnel is unavailable")
         })?;
         Some(Tunnel {
@@ -38,19 +38,28 @@ fn binding(db: &Connection, connection: &Target) -> Result<Binding, Fault> {
     })
 }
 
-pub(super) fn capture(db: &Connection, connection: &Target) -> Result<Vec<u8>, Fault> {
-    encode(&binding(db, connection)?)
+pub(super) async fn capture(db: &Connection, connection: &Target) -> Result<Vec<u8>, Fault> {
+    encode(&binding(db, connection).await?)
 }
 
-pub(super) fn check(db: &Connection, id: DatabaseId, connection: &Target) -> Result<(), Fault> {
-    let stored: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT password_target FROM database_profiles WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
-    let expected = binding(db, connection)?;
+pub(super) async fn check(
+    db: &Connection,
+    id: DatabaseId,
+    connection: &Target,
+) -> Result<(), Fault> {
+    let stored: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT password_target FROM database_profiles WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
+    let expected = binding(db, connection).await?;
     let current: Option<Binding> = stored
         .as_deref()
         .map(serde_json::from_slice)
@@ -67,31 +76,34 @@ pub(super) fn check(db: &Connection, id: DatabaseId, connection: &Target) -> Res
 
 /// A legacy direct connection already records its destination. An SSH ID does
 /// not record the former tunnel authority, so its password stays stored but unbound.
-pub(in crate::store) fn reconcile(db: &Connection) -> Result<bool, Fault> {
+pub(in crate::store) async fn reconcile(db: &Connection) -> Result<bool, Fault> {
     let mut changed = false;
-    for profile in list(db)? {
+    for profile in list(db).await? {
         if matches!(profile.connection, Target::Ssh { .. }) {
             continue;
         }
-        let target = capture(db, &profile.connection)?;
+        let target = capture(db, &profile.connection).await?;
         changed |= db.execute(
             "UPDATE database_profiles SET password_target=?2 WHERE id=?1 AND password_target IS NULL",
             params![profile.id.to_string(),target],
-        ).map_err(storage_error)? != 0;
+        ).await.map_err(storage_error)? != 0;
     }
     Ok(changed)
 }
 
-pub(in crate::store) fn validate(db: &Connection) -> Result<(), Fault> {
+pub(in crate::store) async fn validate(db: &Connection) -> Result<(), Fault> {
     let mut query = db
         .prepare("SELECT password_target FROM database_profiles WHERE password_target IS NOT NULL")
+        .await
         .map_err(storage_error)?;
-    for row in query
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
     {
-        let _: Binding =
-            serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
+        let mut rows = query.query(()).await.map_err(storage_error)?;
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let row: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+
+            let _: Binding =
+                serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
+        }
     }
     Ok(())
 }

@@ -14,7 +14,7 @@ fn settings(
             "profile":fixture.node.profile().join("denied")
         },
         "readonly":executable,
-        "protected":fixture.node.profile().join("storage/node.sqlite3"),
+        "protected":fixture.node.profile().join("storage/node.turso"),
         "network":[address.ip().to_string(),address.port()],
         "dependency":dependency
     }});

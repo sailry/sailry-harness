@@ -8,9 +8,13 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new(semantic: bool) -> Self {
-        let db = Connection::open_in_memory().unwrap();
+    async fn new(semantic: bool) -> Self {
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
         db.execute_batch(include_str!("../../../schema.sql"))
+            .await
             .unwrap();
         let summary = plugin::Summary {
             name: "owner".into(),
@@ -42,17 +46,25 @@ impl Fixture {
         db.execute(
             "INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3)",
             params![
-                reference.digest,
-                reference.name,
+                reference.digest.as_str(),
+                reference.name.as_str(),
                 serde_json::to_vec(&info).unwrap()
             ],
         )
+        .await
         .unwrap();
-        let namespace = Namespace::from_reference(&db, &reference).unwrap();
+        let namespace = Namespace::from_reference(&db, &reference).await.unwrap();
         Self { db, namespace }
     }
 
-    fn write(&self, name: &str, key: &str, value: Value, expected: u64, index: Option<Index>) {
+    async fn write(
+        &self,
+        name: &str,
+        key: &str,
+        value: Value,
+        expected: u64,
+        index: Option<Index>,
+    ) {
         super::super::write(
             &self.db,
             name,
@@ -62,14 +74,15 @@ impl Fixture {
             expected,
             index.as_ref(),
         )
+        .await
         .unwrap();
     }
 
-    fn body(&self, value: &str, expected: u64) {
-        self.write("owner", "page", json!({"bodies":{"a/b~c":{"body":value,"revision":1},"neighbor":{"body":"Other source"}}}), expected, None);
+    async fn body(&self, value: &str, expected: u64) {
+        self.write("owner", "page", json!({"bodies":{"a/b~c":{"body":value,"revision":1},"neighbor":{"body":"Other source"}}}), expected, None).await;
     }
 
-    fn entry(&self, key: &str, source: Option<Source>) {
+    async fn entry(&self, key: &str, source: Option<Source>) {
         self.write(
             "owner",
             key,
@@ -81,7 +94,8 @@ impl Fixture {
                 order: 8,
                 source,
             }),
-        );
+        )
+        .await;
     }
 
     fn source() -> Source {
@@ -92,13 +106,18 @@ impl Fixture {
     }
 }
 
-#[test]
-fn captures_raw_text_and_current_page_revision() {
-    let fixture = Fixture::new(true);
-    fixture.body("Raw body with punctuation!\nOriginal order", 0);
-    fixture.entry("entry/one", Some(Fixture::source()));
-    fixture.body("Raw body with punctuation!\nOriginal order", 1);
+#[tokio::test]
+async fn captures_raw_text_and_current_page_revision() {
+    let fixture = Fixture::new(true).await;
+    fixture
+        .body("Raw body with punctuation!\nOriginal order", 0)
+        .await;
+    fixture.entry("entry/one", Some(Fixture::source())).await;
+    fixture
+        .body("Raw body with punctuation!\nOriginal order", 1)
+        .await;
     let captured = record(&fixture.db, &fixture.namespace, "entry/one")
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(captured.entry.key, "entry/one");
@@ -109,8 +128,9 @@ fn captures_raw_text_and_current_page_revision() {
     assert_eq!(captured.source_revision, 2);
     assert_eq!(captured.index.tags, ["active"]);
     assert_eq!(captured.index.order, 8);
-    fixture.body(&captured.body, 2);
+    fixture.body(&captured.body, 2).await;
     let refreshed = record(&fixture.db, &fixture.namespace, "entry/one")
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(refreshed.source_revision, 3);
@@ -118,59 +138,67 @@ fn captures_raw_text_and_current_page_revision() {
     assert_eq!(refreshed.source_hash, captured.source_hash);
 }
 
-#[test]
-fn preserves_captured_ownership_and_opt_in() {
-    let fixture = Fixture::new(true);
-    fixture.write(
-        "other",
-        "page",
-        json!({"bodies":{"a/b~c":{"body":"Other namespace"}}}),
-        0,
-        None,
-    );
-    fixture.entry("entry/one", Some(Fixture::source()));
+#[tokio::test]
+async fn preserves_captured_ownership_and_opt_in() {
+    let fixture = Fixture::new(true).await;
+    fixture
+        .write(
+            "other",
+            "page",
+            json!({"bodies":{"a/b~c":{"body":"Other namespace"}}}),
+            0,
+            None,
+        )
+        .await;
+    fixture.entry("entry/one", Some(Fixture::source())).await;
     assert!(
         record(&fixture.db, &fixture.namespace, "entry/one")
+            .await
             .unwrap()
             .is_none()
     );
-    fixture.body("Owned namespace", 0);
-    fixture.entry("entry/keyword", None);
-    fixture.entry("undeclared", Some(Fixture::source()));
+    fixture.body("Owned namespace", 0).await;
+    fixture.entry("entry/keyword", None).await;
+    fixture.entry("undeclared", Some(Fixture::source())).await;
     let captured = record(&fixture.db, &fixture.namespace, "entry/one")
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(captured.body, "Owned namespace");
     for key in ["entry/keyword", "undeclared"] {
         assert!(
             record(&fixture.db, &fixture.namespace, key)
+                .await
                 .unwrap()
                 .is_none()
         );
     }
-    let plain = Fixture::new(false);
-    plain.body("Explicit opt-in required", 0);
-    plain.entry("entry/one", Some(Fixture::source()));
+    let plain = Fixture::new(false).await;
+    plain.body("Explicit opt-in required", 0).await;
+    plain.entry("entry/one", Some(Fixture::source())).await;
     assert!(
         record(&plain.db, &plain.namespace, "entry/one")
+            .await
             .unwrap()
             .is_none()
     );
 }
 
-#[test]
-fn requires_raw_string_at_source_pointer() {
-    let fixture = Fixture::new(true);
-    fixture.write(
-        "owner",
-        "page",
-        json!({"bodies":{"a/b~c":{"body":42}}}),
-        0,
-        None,
-    );
-    fixture.entry("entry/one", Some(Fixture::source()));
+#[tokio::test]
+async fn requires_raw_string_at_source_pointer() {
+    let fixture = Fixture::new(true).await;
+    fixture
+        .write(
+            "owner",
+            "page",
+            json!({"bodies":{"a/b~c":{"body":42}}}),
+            0,
+            None,
+        )
+        .await;
+    fixture.entry("entry/one", Some(Fixture::source())).await;
     assert!(matches!(
-        record(&fixture.db, &fixture.namespace, "entry/one"),
+        record(&fixture.db, &fixture.namespace, "entry/one").await,
         Err(Fault {
             code: ErrorCode::InvalidRequest,
             ..

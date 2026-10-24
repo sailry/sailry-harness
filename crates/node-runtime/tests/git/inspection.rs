@@ -234,15 +234,30 @@ async fn shares_committed_file_pages_and_authorship() {
         std::fs::read_to_string(root.join(path)).unwrap(),
         "uncommitted must stay unchanged\n"
     );
-    let database = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
+
     assert_eq!(
-        database
-            .query_row("SELECT count(*) FROM requests", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
+        {
+            let sql = ("SELECT count(*) FROM requests").to_owned();
+            let parameters = ();
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+        }
+        .unwrap(),
         1
     );
-    drop(database);
+
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
 }

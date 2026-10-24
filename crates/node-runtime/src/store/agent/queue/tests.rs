@@ -1,16 +1,20 @@
 use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
-#[test]
-fn pauses_unclaimed_input_after_restart() {
+#[tokio::test]
+async fn pauses_unclaimed_input_after_restart() {
     for ready in [false, true] {
-        let mut fixture = Fixture::new();
-        let turn = fixture.queued();
+        let mut fixture = Fixture::new().await;
+        let turn = fixture.queued().await;
         if ready {
-            runs::start(&fixture.database.connection, turn).unwrap();
+            runs::start(&fixture.database.connection, turn)
+                .await
+                .unwrap();
         }
-        let message = message(&fixture.database.connection, turn).unwrap();
-        let before = read(&fixture.database.connection, fixture.session).unwrap();
+        let message = message(&fixture.database.connection, turn).await.unwrap();
+        let before = read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
         assert!(!before.paused);
         assert_eq!(before.items[0].ready, ready);
         assert_eq!(before.items[0].request, Some(message.turn.request));
@@ -19,34 +23,39 @@ fn pauses_unclaimed_input_after_restart() {
             .path()
             .canonicalize()
             .unwrap()
-            .join("node.sqlite3");
+            .join("node.turso");
         let node = fixture.database.node;
-        fixture.database.close().unwrap();
-        let mut database = Database::open(&path, node, None).unwrap();
-        let recovered = read(&database.connection, fixture.session).unwrap();
+        fixture.database.close().await.unwrap();
+        let mut database = Database::open(&path, node, None).await.unwrap();
+        let recovered = read(&database.connection, fixture.session).await.unwrap();
         assert!(recovered.paused);
         assert_eq!(recovered.revision, before.revision + 1);
         assert_eq!(recovered.items, before.items);
-        assert_eq!(super::message(&database.connection, turn).unwrap(), message);
         assert_eq!(
-            runs::get(&database.connection, turn).unwrap().status,
+            super::message(&database.connection, turn).await.unwrap(),
+            message
+        );
+        assert_eq!(
+            runs::get(&database.connection, turn).await.unwrap().status,
             Status::Queued
         );
         assert!(
             runs::claim(&mut database, &fixture.events)
+                .await
                 .unwrap()
                 .is_none()
         );
 
-        database.close().unwrap();
-        let mut database = Database::open(&path, node, None).unwrap();
+        database.close().await.unwrap();
+        let mut database = Database::open(&path, node, None).await.unwrap();
         assert_eq!(
-            read(&database.connection, fixture.session).unwrap(),
+            read(&database.connection, fixture.session).await.unwrap(),
             recovered
         );
-        runs::start(&database.connection, turn).unwrap();
+        runs::start(&database.connection, turn).await.unwrap();
         assert!(
             runs::claim(&mut database, &fixture.events)
+                .await
                 .unwrap()
                 .is_none()
         );
@@ -58,10 +67,13 @@ fn pauses_unclaimed_input_after_restart() {
                 expected_revision: message.turn.revision,
                 message: "Fresh input".into(),
             },
-        ) else {
+        )
+        .await
+        else {
             panic!("queued turn expected")
         };
         let invocation = runs::claim(&mut database, &fixture.events)
+            .await
             .unwrap()
             .unwrap();
         assert_eq!(invocation.turn, fresh);
@@ -73,22 +85,26 @@ fn pauses_unclaimed_input_after_restart() {
             None,
             &fixture.events,
         )
+        .await
         .unwrap();
         let invocation = runs::claim(&mut database, &fixture.events)
+            .await
             .unwrap()
             .unwrap();
         assert_eq!(invocation.turn, message.turn);
         assert_eq!(invocation.message, message.message);
-        database.close().unwrap();
+        database.close().await.unwrap();
     }
 }
 
-#[test]
-fn edits_publish_current_input_identity() {
-    let mut fixture = Fixture::new();
-    let turn = fixture.queued();
-    let original = message(&fixture.database.connection, turn).unwrap();
-    let before = read(&fixture.database.connection, fixture.session).unwrap();
+#[tokio::test]
+async fn edits_publish_current_input_identity() {
+    let mut fixture = Fixture::new().await;
+    let turn = fixture.queued().await;
+    let original = message(&fixture.database.connection, turn).await.unwrap();
+    let before = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert_eq!(before.items[0].request, Some(original.turn.request));
     let Output::Queue(update) = command(
         &mut fixture.database,
@@ -98,32 +114,40 @@ fn edits_publish_current_input_identity() {
             expected_revision: before.items[0].revision,
             message: original.message.clone(),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("queue update expected");
     };
-    let edited = read(&fixture.database.connection, fixture.session).unwrap();
+    let edited = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert_eq!(edited, update.queue);
     assert_eq!(edited.items[0].revision, before.items[0].revision + 1);
     assert_ne!(edited.items[0].request, before.items[0].request);
     let stored: String = fixture
         .database
         .connection
-        .query_row(
-            "SELECT request FROM agent_pending WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT request FROM agent_pending WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(edited.items[0].request, Some(stored.parse().unwrap()));
     assert_eq!(
-        message(&fixture.database.connection, turn).unwrap().turn,
+        message(&fixture.database.connection, turn)
+            .await
+            .unwrap()
+            .turn,
         original.turn
     );
 }
 
-#[test]
-fn fresh_input_precedes_stopped_queue() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn fresh_input_precedes_stopped_queue() {
+    let mut fixture = Fixture::new().await;
     let Output::QueuedTurn(active) = command(
         &mut fixture.database,
         &fixture.events,
@@ -132,11 +156,14 @@ fn fresh_input_precedes_stopped_queue() {
             expected_revision: 1,
             message: "Active input".into(),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("queued turn expected")
     };
     assert_eq!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .unwrap()
             .turn,
@@ -152,43 +179,74 @@ fn fresh_input_precedes_stopped_queue() {
                 expected_revision: 1,
                 message: text.into(),
             },
-        ) else {
+        )
+        .await
+        else {
             panic!("queued turn expected")
         };
-        captured.push(message(&fixture.database.connection, turn.id).unwrap());
+        captured.push(
+            message(&fixture.database.connection, turn.id)
+                .await
+                .unwrap(),
+        );
     }
-    pause(&fixture.database.connection, fixture.session, true).unwrap();
-    assert!(!can_resume(&fixture.database.connection, fixture.session).unwrap());
-    pause(&fixture.database.connection, fixture.session, false).unwrap();
-    runs::handoff(&fixture.database.connection, active.id).unwrap();
-    assert!(!can_resume(&fixture.database.connection, fixture.session).unwrap());
+    pause(&fixture.database.connection, fixture.session, true)
+        .await
+        .unwrap();
+    assert!(
+        !can_resume(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()
+    );
+    pause(&fixture.database.connection, fixture.session, false)
+        .await
+        .unwrap();
+    assert!(
+        !read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()
+            .paused,
+        "queue did not resume before handoff"
+    );
+    runs::handoff(&fixture.database.connection, active.id)
+        .await
+        .unwrap();
+    assert!(
+        !can_resume(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()
+    );
     let Output::Run(stopped) = command(
         &mut fixture.database,
         &fixture.events,
         Command::StopTurn { turn: active.id },
-    ) else {
+    )
+    .await
+    else {
         panic!("run expected")
     };
     assert_eq!(stopped.status, Status::Stopping);
     assert!(
         read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .paused
     );
-    let execute = |fixture: &mut Fixture, request: Request| {
+    let execute = async |fixture: &mut Fixture, request: Request| {
         let (reply, response) = oneshot::channel();
         assert!(
             fixture
                 .database
                 .dispatch(fixture.database.node, request, reply, &fixture.events)
+                .await
                 .is_none()
         );
         response
-            .blocking_recv()
+            .await
             .unwrap()
             .unwrap()
             .completion
-            .blocking_recv()
+            .await
             .unwrap()
             .unwrap()
     };
@@ -200,10 +258,12 @@ fn fresh_input_precedes_stopped_queue() {
             message: "Current composer input".into(),
         },
     );
-    let Output::QueuedTurn(fresh) = execute(&mut fixture, request.clone()) else {
+    let Output::QueuedTurn(fresh) = execute(&mut fixture, request.clone()).await else {
         panic!("queued turn expected")
     };
-    let queue = read(&fixture.database.connection, fixture.session).unwrap();
+    let queue = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert!(!queue.paused);
     assert_eq!(
         queue.items.iter().map(|item| item.turn).collect::<Vec<_>>(),
@@ -211,25 +271,51 @@ fn fresh_input_precedes_stopped_queue() {
     );
     for before in &captured {
         assert_eq!(
-            message(&fixture.database.connection, before.turn.id).unwrap(),
+            message(&fixture.database.connection, before.turn.id)
+                .await
+                .unwrap(),
             *before
         );
     }
-    pause(&fixture.database.connection, fixture.session, true).unwrap();
-    let paused = read(&fixture.database.connection, fixture.session).unwrap();
+    pause(&fixture.database.connection, fixture.session, true)
+        .await
+        .unwrap();
+    let paused = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert_eq!(
-        execute(&mut fixture, request),
+        execute(&mut fixture, request).await,
         Output::QueuedTurn(fresh.clone())
     );
     assert_eq!(
-        read(&fixture.database.connection, fixture.session).unwrap(),
+        read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         paused
     );
-    pause(&fixture.database.connection, fixture.session, false).unwrap();
+    assert!(fixture.database.connection.is_autocommit().unwrap());
+    pause(&fixture.database.connection, fixture.session, false)
+        .await
+        .unwrap();
+    assert!(
+        !read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()
+            .paused,
+        "queue did not resume after replay"
+    );
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
+    );
+    assert!(
+        !read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()
+            .paused,
+        "empty claim changed queue pause state"
     );
     runs::finish(
         &mut fixture.database,
@@ -238,6 +324,7 @@ fn fresh_input_precedes_stopped_queue() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     for (turn, input) in [
         (fresh, "Current composer input"),
@@ -245,6 +332,7 @@ fn fresh_input_precedes_stopped_queue() {
         (captured[1].turn.clone(), "Second waiting input"),
     ] {
         let invocation = runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .unwrap();
         assert_eq!(invocation.turn, turn);
@@ -256,6 +344,7 @@ fn fresh_input_precedes_stopped_queue() {
             None,
             &fixture.events,
         )
+        .await
         .unwrap();
     }
 }

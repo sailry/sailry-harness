@@ -79,7 +79,7 @@ async fn preserves_reasons_without_crossing_turns() {
             .unwrap();
         assert_eq!(retained.reason.as_deref(), Some(reason.as_str()));
         assert_eq!(retained.state, ApprovalState::Denied);
-        assert!(!claimed(&fixture.node, &approval).1);
+        assert!(!claimed(&fixture.node, &approval).await.1);
         assert!(!fixture.root.join("effect.txt").exists());
         let requests = server.requests.lock().unwrap().clone();
         let messages = tool_messages(&requests[3]);
@@ -184,7 +184,7 @@ async fn binds_closed_choices_and_durable_retries() {
                 Decision::Approve | Decision::ApproveSession | Decision::ApprovePrefix(_)
             );
             assert_eq!(fixture.root.join("effect.txt").exists(), allowed);
-            assert_eq!(claimed(&fixture.node, &approval).1, allowed);
+            assert_eq!(claimed(&fixture.node, &approval).await.1, allowed);
             if decision == Decision::Approve {
                 assert_eq!(retained.choice, Some(ApprovalChoice::Once));
             }

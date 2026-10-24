@@ -17,6 +17,12 @@ mod catalog;
 mod citations;
 mod configuration;
 mod context;
+#[allow(
+    dead_code,
+    reason = "The native database fixture is shared with storage-only suites"
+)]
+#[path = "../support/database.rs"]
+mod database_fixture;
 mod keywords;
 #[cfg(feature = "test-support")]
 mod performance;
@@ -26,6 +32,25 @@ mod sources;
 mod storage;
 mod transactions;
 mod worker;
+
+fn remove_index(profile: &Path) {
+    // The Node is stopped before removing only its rebuildable native family.
+    // This integration fixture mirrors the private profile::database_files contract.
+    for (index, name) in [
+        "knowledge.turso",
+        "knowledge.db-log",
+        "knowledge.turso-wal",
+        "knowledge.turso-tshm",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        match fs::remove_file(profile.join("storage").join(name)) {
+            Err(error) if index >= 2 && error.kind() == std::io::ErrorKind::NotFound => {}
+            result => result.unwrap(),
+        }
+    }
+}
 
 struct Fixture {
     temp: tempfile::TempDir,

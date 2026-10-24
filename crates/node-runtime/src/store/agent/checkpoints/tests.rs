@@ -5,12 +5,15 @@ mod diff;
 mod edit;
 mod restore;
 
-fn running(fixture: &mut Fixture) -> TurnId {
-    crate::store::agent::tests::fixture::files(&fixture.database, fixture._root.path());
-    let turn = fixture.queued();
-    runs::start(&fixture.database.connection, turn).unwrap();
+async fn running(fixture: &mut Fixture) -> TurnId {
+    crate::store::agent::tests::fixture::files(&fixture.database, fixture._root.path()).await;
+    let turn = fixture.queued().await;
+    runs::start(&fixture.database.connection, turn)
+        .await
+        .unwrap();
     assert_eq!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .unwrap()
             .turn
@@ -20,7 +23,7 @@ fn running(fixture: &mut Fixture) -> TurnId {
     turn
 }
 
-fn approved(
+async fn approved(
     fixture: &mut Fixture,
     turn: TurnId,
     path: &str,
@@ -28,6 +31,7 @@ fn approved(
     text: &str,
 ) -> Request {
     let worktree = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
         .unwrap()
         .worktree;
     mutation(
@@ -40,9 +44,10 @@ fn approved(
             expected_revision: before.map(version).map(|value| value.revision),
         },
     )
+    .await
 }
 
-fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
+async fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
     let (name, arguments) = match &command {
         Command::WriteFile {
             path,
@@ -96,6 +101,7 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let approval = approvals::begin(
         &mut fixture.database,
@@ -104,6 +110,7 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     approvals::resolve(
         &fixture.database.connection,
@@ -111,11 +118,14 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
         approval.id,
         Decision::Approve,
     )
+    .await
     .unwrap();
-    let id =
-        approvals::authorize(&mut fixture.database.connection, turn, &authorization, None).unwrap();
-    let session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    let id = approvals::authorize(&mut fixture.database.connection, turn, &authorization, None)
+        .await
+        .unwrap();
+    let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     let mut request = Request::new(fixture.database.node, command);
     request.id = id;
     request.plugin = Some(sailry_protocol::plugin::Context {
@@ -123,6 +133,7 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
         turn: Some(turn),
         surface: Default::default(),
         package: crate::store::plugins::get(&fixture.database.connection, "files")
+            .await
             .unwrap()
             .unwrap()
             .summary
@@ -133,23 +144,25 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
     request
 }
 
-#[test]
-fn keeps_original_receipt() {
-    let mut fixture = Fixture::new();
-    let turn = running(&mut fixture);
+#[tokio::test]
+async fn keeps_original_receipt() {
+    let mut fixture = Fixture::new().await;
+    let turn = running(&mut fixture).await;
     let request = approved(
         &mut fixture,
         turn,
         "资料.txt",
         Some("Before 中文 🙂"),
         "After 中文 🙂",
-    );
+    )
+    .await;
     capture(
         &mut fixture.database,
         turn,
         &request,
         Some("Before 中文 🙂"),
     )
+    .await
     .unwrap();
     capture(
         &mut fixture.database,
@@ -157,6 +170,7 @@ fn keeps_original_receipt() {
         &request,
         Some("Before 中文 🙂"),
     )
+    .await
     .unwrap();
     let page = list(
         &fixture.database.connection,
@@ -165,11 +179,14 @@ fn keeps_original_receipt() {
         None,
         20,
     )
+    .await
     .unwrap();
     assert_eq!(page.files.len(), 1);
     assert_eq!(page.files[0].outcome, RequestOutcome::NotAdmitted);
     let id = page.files[0].id;
-    let content = read(&fixture.database.connection, fixture.session, id).unwrap();
+    let content = read(&fixture.database.connection, fixture.session, id)
+        .await
+        .unwrap();
     assert_eq!(content.before.as_deref(), Some("Before 中文 🙂"));
     assert_eq!(content.after, "After 中文 🙂");
     assert_eq!(content.file.before, Some(version("Before 中文 🙂")));
@@ -177,13 +194,15 @@ fn keeps_original_receipt() {
     let caller = fixture.database.node;
     let work = fixture
         .database
-        .dispatch(caller, request.clone(), reply, &fixture.events);
+        .dispatch(caller, request.clone(), reply, &fixture.events)
+        .await;
     assert!(matches!(
         work,
         Some(crate::store::external::Work::Mutation(_))
     ));
     assert_eq!(
         read(&fixture.database.connection, fixture.session, id)
+            .await
             .unwrap()
             .file
             .outcome,
@@ -196,11 +215,13 @@ fn keeps_original_receipt() {
     assert_eq!(
         fixture
             .database
-            .finish_external(caller, &request, outcome.clone(), &fixture.events),
+            .finish_external(caller, &request, outcome.clone(), &fixture.events)
+            .await,
         outcome
     );
     assert_eq!(
         read(&fixture.database.connection, fixture.session, id)
+            .await
             .unwrap()
             .file
             .outcome,
@@ -210,35 +231,48 @@ fn keeps_original_receipt() {
         fixture
             .database
             .connection
-            .query_row("SELECT count(*) FROM agent_events", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT count(*) FROM agent_events")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
             .unwrap(),
         1
     );
     let metadata: Vec<u8> = fixture
         .database
         .connection
-        .query_row("SELECT body FROM file_checkpoints", [], |row| row.get(0))
+        .prepare("SELECT body FROM file_checkpoints")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     let metadata = String::from_utf8(metadata).unwrap();
     assert!(!metadata.contains("Before") && !metadata.contains("After"));
     let prepared: String = fixture
         .database
         .connection
-        .query_row("SELECT after_text FROM file_checkpoints", [], |row| {
-            row.get(0)
-        })
+        .prepare("SELECT after_text FROM file_checkpoints")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(prepared, "After 中文 🙂");
 }
 
-#[test]
-fn checks_call_scope() {
-    let mut fixture = Fixture::new();
-    let turn = running(&mut fixture);
-    let request = approved(&mut fixture, turn, "file.txt", Some("before"), "after");
+#[tokio::test]
+async fn checks_call_scope() {
+    let mut fixture = Fixture::new().await;
+    let turn = running(&mut fixture).await;
+    let request = approved(&mut fixture, turn, "file.txt", Some("before"), "after").await;
     assert_eq!(
         capture(&mut fixture.database, turn, &request, Some("changed"))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::RevisionConflict
@@ -247,6 +281,7 @@ fn checks_call_scope() {
     altered.plugin.as_mut().unwrap().package.digest = "unapproved".into();
     assert_eq!(
         capture(&mut fixture.database, turn, &altered, Some("before"))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -255,6 +290,7 @@ fn checks_call_scope() {
     altered.id = RequestId::new();
     assert_eq!(
         capture(&mut fixture.database, turn, &altered, Some("before"))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -266,6 +302,7 @@ fn checks_call_scope() {
     *worktree = WorktreeId::new();
     assert_eq!(
         capture(&mut fixture.database, turn, &altered, Some("before"))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::WrongTarget
@@ -278,11 +315,14 @@ fn checks_call_scope() {
             None,
             20
         )
+        .await
         .unwrap()
         .files
         .is_empty()
     );
-    capture(&mut fixture.database, turn, &request, Some("before")).unwrap();
+    capture(&mut fixture.database, turn, &request, Some("before"))
+        .await
+        .unwrap();
     let mut altered = request.clone();
     let Command::WriteFile { text, .. } = &mut altered.command else {
         unreachable!()
@@ -290,6 +330,7 @@ fn checks_call_scope() {
     *text = "changed after capture".into();
     assert_eq!(
         capture(&mut fixture.database, turn, &altered, Some("before"))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Conflict
@@ -301,22 +342,26 @@ fn checks_call_scope() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert_eq!(
         capture(&mut fixture.database, turn, &request, Some("before"))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Conflict
     );
 }
 
-#[test]
-fn preserves_fork_references() {
-    let mut fixture = Fixture::new();
-    let turn = running(&mut fixture);
+#[tokio::test]
+async fn preserves_fork_references() {
+    let mut fixture = Fixture::new().await;
+    let turn = running(&mut fixture).await;
     for path in ["first", "second", "third"] {
-        let request = approved(&mut fixture, turn, path, None, "new file");
-        capture(&mut fixture.database, turn, &request, None).unwrap();
+        let request = approved(&mut fixture, turn, path, None, "new file").await;
+        capture(&mut fixture.database, turn, &request, None)
+            .await
+            .unwrap();
     }
     runs::finish(
         &mut fixture.database,
@@ -325,8 +370,11 @@ fn preserves_fork_references() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
-    let page = list(&fixture.database.connection, fixture.session, turn, None, 2).unwrap();
+    let page = list(&fixture.database.connection, fixture.session, turn, None, 2)
+        .await
+        .unwrap();
     assert_eq!(
         page.files
             .iter()
@@ -341,6 +389,7 @@ fn preserves_fork_references() {
         page.next,
         2,
     )
+    .await
     .unwrap();
     assert_eq!(older.files.len(), 1);
     assert_eq!(older.files[0].path, "first");
@@ -353,11 +402,14 @@ fn preserves_fork_references() {
             through: turn,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("branch expected")
     };
     assert_eq!(
         list(&fixture.database.connection, branch.id, turn, None, 2)
+            .await
             .unwrap()
             .files,
         page.files
@@ -371,12 +423,15 @@ fn preserves_fork_references() {
             expected_head: turn,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("rewind expected")
     };
     let id = page.files[0].id;
     assert_eq!(
         read(&fixture.database.connection, fixture.session, id)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::WrongTarget
@@ -384,12 +439,14 @@ fn preserves_fork_references() {
     assert!(rewound.backup.is_none());
     assert_eq!(
         read(&fixture.database.connection, branch.id, id)
+            .await
             .unwrap()
             .file,
         page.files[0]
     );
     assert_eq!(
         list(&fixture.database.connection, branch.id, turn, None, 0)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::InvalidRequest
@@ -402,6 +459,7 @@ fn preserves_fork_references() {
             Some(CheckpointId::new()),
             1
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::WrongTarget
@@ -410,8 +468,12 @@ fn preserves_fork_references() {
         fixture
             .database
             .connection
-            .query_row("SELECT count(*) FROM file_checkpoints", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT count(*) FROM file_checkpoints")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
             .unwrap(),
         3
     );

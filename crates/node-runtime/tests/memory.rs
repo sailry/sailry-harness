@@ -350,10 +350,10 @@ async fn rejects_incompatible_profiles() {
         let profile = directory.path().join("node");
         let node = Node::start(&profile).await.unwrap();
         node.shutdown().await.unwrap();
-        let path = profile.join("storage/node.sqlite3");
-        let db = rusqlite::Connection::open(&path).unwrap();
-        db.execute_batch(schema).unwrap();
-        drop(db);
+        let path = profile.join("storage/node.turso");
+        let (database, db) = crate::database_fixture::open(&path, false).await;
+        db.execute_batch(schema).await.unwrap();
+        crate::database_fixture::close(database, db).await;
         let original = std::fs::read(&path).unwrap();
         assert!(Node::start(&profile).await.is_err());
         assert_eq!(std::fs::read(&path).unwrap(), original);
@@ -539,31 +539,35 @@ async fn separates_archive_capacity() {
         node.shutdown().await.unwrap();
         let profile = directory.path().join("node");
         {
-            let mut database =
-                rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+            let (handle, mut database) =
+                crate::database_fixture::open(&profile.join("storage/node.turso"), false).await;
             assert_eq!(
                 database
-                    .query_row(
-                        "SELECT count(*) FROM plugin_values WHERE name='memory'",
-                        [],
-                        |row| row.get::<_, i64>(0)
-                    )
+                    .prepare("SELECT count(*) FROM plugin_values WHERE name='memory'")
+                    .await
+                    .unwrap()
+                    .query_row(())
+                    .await
+                    .unwrap()
+                    .get::<i64>(0)
                     .unwrap(),
                 0
             );
-            let transaction = database.transaction().unwrap();
+            let transaction = database.transaction().await.unwrap();
             for row in rows {
                 let index =
                     (!row["index"].is_null()).then(|| serde_json::to_vec(&row["index"]).unwrap());
-                transaction.execute("INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES('memory',?1,1,?2,?3)", rusqlite::params![row["key"].as_str().unwrap(),serde_json::to_vec(&row["value"]).unwrap(),index]).unwrap();
+                transaction.execute("INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES('memory',?1,1,?2,?3)", turso::params![row["key"].as_str().unwrap(),serde_json::to_vec(&row["value"]).unwrap(),index]).await.unwrap();
             }
             transaction
                 .execute(
                     "INSERT INTO plugin_values(name,key,revision,value) VALUES('memory',?1,1,?2)",
-                    rusqlite::params![head, serde_json::to_vec(catalog).unwrap()],
+                    turso::params![head, serde_json::to_vec(catalog).unwrap()],
                 )
+                .await
                 .unwrap();
-            transaction.commit().unwrap();
+            transaction.commit().await.unwrap();
+            crate::database_fixture::close(handle, database).await;
         }
         // Startup's existing schema owner rebuilds and validates the derived keyword index.
         let node = Node::start_empty(profile.clone()).await.unwrap();

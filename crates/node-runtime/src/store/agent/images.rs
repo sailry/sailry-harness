@@ -2,7 +2,7 @@
 use super::*;
 use adk_core::FunctionResponseData;
 
-pub(super) fn project(
+pub(super) async fn project(
     db: &Connection,
     turn: TurnId,
     event: &AdkEvent,
@@ -12,7 +12,7 @@ pub(super) fn project(
     let mut images = Vec::new();
     for (index, data) in response.inline_data.iter().enumerate() {
         if supported(&data.mime_type, &data.data) {
-            let worktree = runs::get(db, turn)?.worktree;
+            let worktree = runs::get(db, turn).await?.worktree;
             images.push(describe(
                 turn,
                 worktree,
@@ -27,7 +27,7 @@ pub(super) fn project(
     Ok(images)
 }
 
-pub(super) fn inline(
+pub(super) async fn inline(
     db: &Connection,
     turn: TurnId,
     event: &AdkEvent,
@@ -40,26 +40,38 @@ pub(super) fn inline(
             "invalid image in canonical history",
         ));
     }
-    let worktree = runs::get(db, turn)?.worktree;
+    let worktree = runs::get(db, turn).await?.worktree;
     describe(turn, worktree, &event.id, part, 0, mime_type, data)
 }
 
-pub(super) fn resolve(
+pub(super) async fn resolve(
     db: &Connection,
     session: SessionId,
     image: &Image,
 ) -> Result<Vec<u8>, Fault> {
-    check_session(db, session)?;
-    let row: Option<(String, Vec<u8>)> = db
-        .query_row(
-            "SELECT e.turn,e.body FROM conversation_events h
+    check_session(db, session).await?;
+    let row: Option<(String, Vec<u8>)> = {
+        let mut statement = db
+            .prepare(
+                "SELECT e.turn,e.body FROM conversation_events h
              JOIN agent_events e ON e.sequence=h.sequence
              WHERE h.session=?1 AND e.id=?2",
-            params![session.to_string(), image.entry],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+            )
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![session.to_string(), image.entry.as_str()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let (turn, body) = row.ok_or_else(missing)?;
     let turn = turn.parse().map_err(storage_error)?;
     let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -84,7 +96,7 @@ pub(super) fn resolve(
     if !supported(mime_type, data) {
         return Err(missing());
     }
-    let worktree = runs::visible(db, session, turn)?.worktree;
+    let worktree = runs::visible(db, session, turn).await?.worktree;
     let current = describe(
         turn,
         worktree,

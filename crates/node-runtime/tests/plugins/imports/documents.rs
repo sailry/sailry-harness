@@ -89,18 +89,29 @@ async fn reads_retained_versions_without_source_access() {
         )
         .await;
         let inventory = execute(&client, Command::ListPlugins).await;
-        let db = rusqlite::Connection::open_with_flags(
-            node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let retained = || {
-            db.query_row("SELECT count(*) FROM requests", [], |row| {
-                row.get::<_, i64>(0)
-            })
+
+        let retained = async || {
+            {
+                let sql = ("SELECT count(*) FROM requests").to_owned();
+                let parameters = ();
+                node.with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?;
+                        let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        value.map_err(crate::plugins::database_fixture::fault)
+                    })
+                })
+                .await
+            }
             .unwrap()
         };
-        let before = retained();
+        let before = retained().await;
         assert_eq!(read(&client, &first.summary.reference()).await, original);
         assert_eq!(read(&client, &second.summary.reference()).await, updated);
         for skill in [
@@ -149,7 +160,7 @@ async fn reads_retained_versions_without_source_access() {
             ErrorCode::WrongTarget
         );
         assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
-        assert_eq!(retained(), before);
+        assert_eq!(retained().await, before);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }

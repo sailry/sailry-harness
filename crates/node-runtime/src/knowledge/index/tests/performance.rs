@@ -20,16 +20,12 @@ fn vector(state: &mut u64, dimension: usize) -> Vec<f32> {
     values
 }
 
-fn populate(index: &mut Index, binding: &Binding, dimension: usize) {
+async fn populate(index: &Index, binding: &Binding, dimension: usize) {
     // Batched fixture setup uses the actual schema; queries use production search.
-    let tx = index.db.transaction().unwrap();
-    let mut source = tx.prepare("INSERT INTO sources(collection,locator,revision,modified_ms,tags,embedded) VALUES(?1,?2,?3,?4,?5,1)").unwrap();
-    let mut chunk = tx.prepare("INSERT INTO chunks(key,source,ordinal,title,text,position,vector) VALUES(?1,?2,0,?3,?4,?5,?6)").unwrap();
-    let mut lexical = tx
-        .prepare(
-            "INSERT INTO chunks_fts(rowid,title,text,cjk_title,cjk_text) VALUES(?1,?2,?3,'','')",
-        )
-        .unwrap();
+    let mut lease = index.lease(false).await.unwrap();
+    let tx = lease.connection_mut().transaction().await.unwrap();
+    let mut source = tx.prepare("INSERT INTO sources(collection,locator,revision,modified_ms,tags,embedded) VALUES(?1,?2,?3,?4,?5,1) RETURNING id").await.unwrap();
+    let mut chunk = tx.prepare("INSERT INTO chunks(key,source,ordinal,title,text,field0,field1,cjk0,cjk1,position,vector) VALUES(?1,?2,0,?3,?4,?5,?6,'','',?7,?8)").await.unwrap();
     let mut state = 0x29a4_f617_dc82_653bu64;
     let position = serde_json::to_string(&Position::Lines { start: 1, end: 3 }).unwrap();
     for number in 0..SOURCES {
@@ -39,16 +35,18 @@ fn populate(index: &mut Index, binding: &Binding, dimension: usize) {
         } else {
             "[\"other\"]"
         };
-        source
-            .execute(params![
+        let source_id: i64 = source
+            .query_row(params![
                 binding.id.to_string(),
                 locator,
                 "fixture-content",
                 i64::try_from(number).unwrap(),
                 tags
             ])
+            .await
+            .unwrap()
+            .get(0)
             .unwrap();
-        let source_id = tx.last_insert_rowid();
         let values = vector(&mut state, dimension);
         let bytes = Vector::quantize(&values).unwrap().encode();
         assert_eq!(bytes.len(), dimension + 4);
@@ -59,22 +57,17 @@ fn populate(index: &mut Index, binding: &Binding, dimension: usize) {
                 source_id,
                 "Background note",
                 "Stored passage for scan measurement",
-                position,
+                text::field("Background note"),
+                text::field("Stored passage for scan measurement"),
+                position.as_str(),
                 bytes
             ])
-            .unwrap();
-        lexical
-            .execute(params![
-                tx.last_insert_rowid(),
-                "Background note",
-                "Stored passage for scan measurement"
-            ])
+            .await
             .unwrap();
     }
     drop(source);
     drop(chunk);
-    drop(lexical);
-    tx.commit().unwrap();
+    tx.commit().await.unwrap();
 }
 
 fn percentile(samples: &mut [Duration], percent: usize) -> Duration {
@@ -93,9 +86,9 @@ fn report(label: &str, samples: &mut [Duration], candidates: usize) {
     );
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "requires verified Granite assets; allocates a 100k-vector isolated index"]
-fn measures_full_and_filtered_int8_scans() {
+async fn measures_full_and_filtered_int8_scans() {
     let mut engine = super::evaluation::engine();
     let dimension = engine.dimension();
     assert_eq!(dimension, 384);
@@ -120,7 +113,7 @@ fn measures_full_and_filtered_int8_scans() {
     }
     report("query-encoding-only", &mut encoding, 0);
     drop(engine);
-    let (_directory, mut index) = open();
+    let (_directory, index) = open().await;
     let binding = Binding {
         id: KnowledgeId::new(),
         generation: 1,
@@ -129,16 +122,16 @@ fn measures_full_and_filtered_int8_scans() {
         paused: false,
         model: Some(("granite-multi".to_owned(), dimension)),
     };
-    index.bind(&binding).unwrap();
+    index.bind(&binding).await.unwrap();
     let started = Instant::now();
-    populate(&mut index, &binding, dimension);
+    populate(&index, &binding, dimension).await;
     println!(
         "fixture_sources={SOURCES} dimension={dimension} vector_fixture=deterministic-normalized-synthetic int8_blob_bytes={} setup_ms={:.3}",
         dimension + 4,
         started.elapsed().as_secs_f64() * 1000.
     );
     assert_eq!(
-        index.counts(&binding).unwrap(),
+        index.counts(&binding).await.unwrap(),
         (SOURCES as u64, SOURCES as u64)
     );
     for filtered in [false, true] {
@@ -160,6 +153,7 @@ fn measures_full_and_filtered_int8_scans() {
                     false,
                     &CancellationToken::new(),
                 )
+                .await
                 .unwrap();
         }
         let mut samples = Vec::new();
@@ -173,6 +167,7 @@ fn measures_full_and_filtered_int8_scans() {
                     false,
                     &CancellationToken::new(),
                 )
+                .await
                 .unwrap();
             samples.push(started.elapsed());
             assert_eq!(page.mode, Mode::Semantic);

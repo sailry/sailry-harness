@@ -1,9 +1,10 @@
 use super::*;
 use sailry_protocol::{code, tool::Operation};
 
-fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) {
-    let mut fixture = Fixture::with_catalog(Permission::Ask, mode, true);
+async fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) {
+    let mut fixture = Fixture::with_catalog(Permission::Ask, mode, true).await;
     let owner = super::super::super::plugins::read(&fixture.database.connection, fixture.turn)
+        .await
         .unwrap()
         .into_iter()
         .find(|package| package.name == "code")
@@ -27,6 +28,7 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
         Operation::StartCodeServer | Operation::StopCodeServer => {
             let run =
                 super::super::super::calls::active(&fixture.database.connection, fixture.turn)
+                    .await
                     .unwrap();
             let startup = code::Startup {
                 worktree: run.worktree,
@@ -84,6 +86,7 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let binding = Binding {
         owner,
@@ -93,17 +96,18 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
     (fixture, binding, command)
 }
 
-#[test]
-fn requires_exact_claimed_lifecycle_call() {
+#[tokio::test]
+async fn requires_exact_claimed_lifecycle_call() {
     for operation in [
         Operation::InstallCodeServer,
         Operation::UninstallCodeServer,
         Operation::StartCodeServer,
         Operation::StopCodeServer,
     ] {
-        let (mut fixture, binding, command) = fixture(operation, WorkMode::Code);
-        let run =
-            super::super::super::calls::active(&fixture.database.connection, fixture.turn).unwrap();
+        let (mut fixture, binding, command) = fixture(operation, WorkMode::Code).await;
+        let run = super::super::super::calls::active(&fixture.database.connection, fixture.turn)
+            .await
+            .unwrap();
         let context = plugin::Context {
             invocation: None,
             turn: Some(fixture.turn),
@@ -115,6 +119,7 @@ fn requires_exact_claimed_lifecycle_call() {
         let mut request = Request::new(fixture.database.node, command.clone()).with_plugin(context);
         assert_eq!(
             crate::store::code::prepare(&fixture.database, &request)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -126,16 +131,22 @@ fn requires_exact_claimed_lifecycle_call() {
             Some(&binding),
             &fixture.events,
         )
+        .await
         .unwrap();
-        fixture.approve(approval.id);
+        fixture.approve(approval.id).await;
         request.id = authorize(
             &mut fixture.database.connection,
             fixture.turn,
             &fixture.request,
             Some(&command),
         )
+        .await
         .unwrap();
-        assert!(crate::store::code::prepare(&fixture.database, &request).is_ok());
+        assert!(
+            crate::store::code::prepare(&fixture.database, &request)
+                .await
+                .is_ok()
+        );
         let mut forged = request.clone();
         match &mut forged.command {
             Command::InstallCodeServer { install } => {
@@ -149,6 +160,7 @@ fn requires_exact_claimed_lifecycle_call() {
         }
         assert_eq!(
             crate::store::code::prepare(&fixture.database, &forged)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -156,6 +168,7 @@ fn requires_exact_claimed_lifecycle_call() {
         request.plugin.as_mut().unwrap().session = Some(SessionId::new());
         assert_eq!(
             crate::store::code::prepare(&fixture.database, &request)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -163,15 +176,15 @@ fn requires_exact_claimed_lifecycle_call() {
     }
 }
 
-#[test]
-fn planning_rejects_lifecycle_changes() {
+#[tokio::test]
+async fn planning_rejects_lifecycle_changes() {
     for operation in [
         Operation::InstallCodeServer,
         Operation::UninstallCodeServer,
         Operation::StartCodeServer,
         Operation::StopCodeServer,
     ] {
-        let (mut fixture, binding, _) = fixture(operation, WorkMode::Plan);
+        let (mut fixture, binding, _) = fixture(operation, WorkMode::Plan).await;
         assert_eq!(
             begin(
                 &mut fixture.database,
@@ -180,6 +193,7 @@ fn planning_rejects_lifecycle_changes() {
                 Some(&binding),
                 &fixture.events
             )
+            .await
             .unwrap_err()
             .code,
             ErrorCode::PermissionDenied

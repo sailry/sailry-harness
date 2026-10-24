@@ -1,8 +1,8 @@
 use super::*;
 mod service;
 
-#[test]
-fn restores_only_valid_existing_credentials() {
+#[tokio::test]
+async fn restores_only_valid_existing_credentials() {
     for case in [
         "valid",
         "expired",
@@ -14,8 +14,12 @@ fn restores_only_valid_existing_credentials() {
     ] {
         let directory = tempfile::tempdir().unwrap();
         let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
-        let db = Connection::open_in_memory().unwrap();
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
         db.execute_batch(include_str!("../../../schema.sql"))
+            .await
             .unwrap();
         let mut info = if case == "ordinary" {
             host.install_bundled("notion").unwrap()
@@ -29,7 +33,7 @@ fn restores_only_valid_existing_credentials() {
             )
             .unwrap()
         };
-        crate::store::plugins::save(&db, &info, true).unwrap();
+        crate::store::plugins::save(&db, &info, true).await.unwrap();
         let declaration = registry::declarations(&info)
             .into_iter()
             .find(|declaration| {
@@ -47,7 +51,9 @@ fn restores_only_valid_existing_credentials() {
             method: Kind::McpOauth,
             input: Input::default(),
         };
-        let (mut record, _) = super::super::create(&db, host.profile(), &command).unwrap();
+        let (mut record, _) = super::super::create(&db, host.profile(), &command)
+            .await
+            .unwrap();
         record.enabled = false;
         record.state = if case == "not_connected" {
             State::NotConnected
@@ -71,8 +77,10 @@ fn restores_only_valid_existing_credentials() {
         if case == "pending" {
             record.state = State::Connecting;
         }
-        super::super::save(&db, &record).unwrap();
-        let projected = super::super::project(&db, host.profile(), &record).unwrap();
+        super::super::save(&db, &record).await.unwrap();
+        let projected = super::super::project(&db, host.profile(), &record)
+            .await
+            .unwrap();
         let expected = match case {
             "expired" => State::Expired,
             "missing" | "not_connected" => State::NotConnected,
@@ -91,6 +99,7 @@ fn restores_only_valid_existing_credentials() {
             };
             assert_eq!(
                 crate::store::plugins::mcp::project(&db, host.profile(), info.clone())
+                    .await
                     .unwrap()
                     .mcp[0]
                     .availability,
@@ -100,11 +109,11 @@ fn restores_only_valid_existing_credentials() {
         }
         // Enabling a custom server is independent of enabling its package.
         info.summary.enabled = false;
-        crate::store::plugins::save(&db, &info, true).unwrap();
+        crate::store::plugins::save(&db, &info, true).await.unwrap();
         let before = encode(&record).unwrap();
         let server = info.mcp[0].name.clone();
-        let changed = enable(&db, host.profile(), &info, &server).unwrap();
-        let saved = read(&db, record.id).unwrap();
+        let changed = enable(&db, host.profile(), &info, &server).await.unwrap();
+        let saved = read(&db, record.id).await.unwrap();
         assert_eq!(changed, case == "valid", "{case}");
         if changed {
             assert!(saved.enabled);
@@ -114,8 +123,14 @@ fn restores_only_valid_existing_credentials() {
             );
             assert_eq!(saved.revision, record.revision + 1);
             assert_eq!(saved.auth_revision, saved.revision);
-            assert!(!required(&db, &info.summary.name).unwrap().summary.enabled);
-            assert!(!enable(&db, host.profile(), &info, &server).unwrap());
+            assert!(
+                !required(&db, &info.summary.name)
+                    .await
+                    .unwrap()
+                    .summary
+                    .enabled
+            );
+            assert!(!enable(&db, host.profile(), &info, &server).await.unwrap());
         } else {
             assert_eq!(encode(&saved).unwrap(), before, "{case}");
         }

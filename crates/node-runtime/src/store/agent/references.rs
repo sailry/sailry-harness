@@ -5,7 +5,7 @@ pub(crate) mod history;
 
 pub(crate) const METADATA: &str = "sailry_references";
 
-pub(super) fn validate(
+pub(super) async fn validate(
     db: &Connection,
     session: &sailry_protocol::Session,
     message: &Input,
@@ -36,10 +36,10 @@ pub(super) fn validate(
         }
         match &reference.target {
             Target::Plugin(package) | Target::Skill { package, .. } => {
-                capability(db, session, &reference.target, package, captured)?;
+                capability(db, session, &reference.target, package, captured).await?;
             }
             Target::Ssh(id) => {
-                let available = super::connections::catalog(db, session.id)?;
+                let available = super::connections::catalog(db, session.id).await?;
                 if !available.ssh.iter().any(|profile| profile.id == *id) {
                     return Err(Fault::new(
                         ErrorCode::PermissionDenied,
@@ -53,7 +53,7 @@ pub(super) fn validate(
                 database,
                 table,
             } => {
-                let available = super::connections::catalog(db, session.id)?;
+                let available = super::connections::catalog(db, session.id).await?;
                 if !available
                     .databases
                     .iter()
@@ -89,9 +89,9 @@ pub(super) fn validate(
                     let references = if let Some(captured) = captured {
                         captured.to_vec()
                     } else {
-                        super::plugins::assistant(db, binding)?
+                        super::plugins::assistant(db, binding).await?
                     };
-                    let packages = super::plugins::packages(db, &references)?;
+                    let packages = super::plugins::packages(db, &references).await?;
                     let allowed = packages.iter().any(|package| {
                         package.extension.as_ref().is_some_and(|extension| {
                             extension.tools.iter().any(|tool| {
@@ -128,7 +128,7 @@ pub(super) fn validate(
                 role = true;
             }
             Target::Session(id) => {
-                history::visible(db, session.project, *id)?;
+                history::visible(db, session.project, *id).await?;
             }
             _ => {}
         }
@@ -148,7 +148,7 @@ pub(super) fn project(event: &AdkEvent) -> Result<Vec<reference::Reference>, Fau
         .map(Option::unwrap_or_default)
 }
 
-fn capability(
+async fn capability(
     db: &Connection,
     session: &sailry_protocol::Session,
     target: &Target,
@@ -161,7 +161,7 @@ fn capability(
     } else if let Some(captured) = captured {
         captured.to_vec()
     } else {
-        super::plugins::capture(db)?
+        super::plugins::capture(db).await?
     };
     let reference = references
         .iter()
@@ -169,7 +169,9 @@ fn capability(
         .ok_or_else(|| {
             sailry_protocol::Fault::invalid("referenced plugin is disabled or unavailable")
         })?;
-    let info = super::plugins::packages(db, std::slice::from_ref(reference))?.remove(0);
+    let info = super::plugins::packages(db, std::slice::from_ref(reference))
+        .await?
+        .remove(0);
     if info
         .extension
         .as_ref()

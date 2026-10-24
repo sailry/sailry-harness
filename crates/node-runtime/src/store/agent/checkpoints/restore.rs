@@ -3,22 +3,22 @@ use super::*;
 use std::path::Path;
 use tokio::sync::mpsc;
 
-pub(in crate::store) fn prepare(
+pub(in crate::store) async fn prepare(
     database: &Database,
     session: SessionId,
     id: CheckpointId,
     worktree: WorktreeId,
     root: &Path,
 ) -> Result<checkpoint::Content, Fault> {
-    let content = reads::content(&database.connection, session, id)?;
+    let content = reads::content(&database.connection, session, id).await?;
     let file = &content.file;
-    if file.worktree != worktree || database.worktree_root(worktree)? != root {
+    if file.worktree != worktree || database.worktree_root(worktree).await? != root {
         return Err(Fault::new(
             ErrorCode::WrongTarget,
             "file checkpoint worktree changed",
         ));
     }
-    let run = runs::get(&database.connection, file.turn)?;
+    let run = runs::get(&database.connection, file.turn).await?;
     if matches!(
         run.status,
         Status::Queued | Status::Running | Status::Stopping
@@ -56,7 +56,9 @@ pub(in crate::store) fn prepare(
             ));
         }
     }
-    database.validate_relocation(&[(root.to_owned(), file.path.clone())])?;
+    database
+        .validate_relocation(&[(root.to_owned(), file.path.clone())])
+        .await?;
     Ok(content)
 }
 

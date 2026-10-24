@@ -144,8 +144,8 @@ pub(super) fn usable(record: &Record) -> bool {
         })
 }
 
-pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {
-    for mut record in records(db)? {
+pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
+    for mut record in records(db).await? {
         let changed = if let Some(login) = &record.login {
             let attempt = login.attempt;
             finish(&mut record, attempt, Outcome::Cancelled)?
@@ -157,7 +157,7 @@ pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {
             false
         };
         if changed {
-            save(db, &record)?;
+            save(db, &record).await?;
         }
     }
     Ok(())

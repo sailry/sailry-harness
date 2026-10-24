@@ -338,8 +338,19 @@ async fn lost_result_is_not_replayed() {
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
-    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
     let request = client.prepare(command(id, "feature", "renamed", head.id()));
     assert_eq!(
         client.execute(request.clone()).await.unwrap_err().code,
@@ -351,8 +362,19 @@ async fn lost_result_is_not_replayed() {
             .is_err()
     );
     assert!(repository.find_branch("renamed", BranchType::Local).is_ok());
-    db.execute_batch("DROP TRIGGER lose_result").unwrap();
-    drop(db);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
+
     node.shutdown().await.unwrap();
     repository.branch("feature", &head, false).unwrap();
     repository

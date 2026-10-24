@@ -13,11 +13,12 @@ fn creates_private_profile_and_inherited_files() {
     let key = profile.path.join("link.key");
     std::fs::write(&key, b"isolated identity fixture").unwrap();
     validate_existing_file(&key).unwrap();
-    let database = profile.path.join("storage/node.sqlite3");
+    let database = profile.path.join("storage/node.turso");
     prepare_database(&database).unwrap();
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let mut sidecar = database.as_os_str().to_owned();
-        sidecar.push(suffix);
+    for sidecar in crate::profile::database_files(&database)
+        .into_iter()
+        .skip(1)
+    {
         std::fs::write(sidecar, b"isolated journal fixture").unwrap();
     }
     validate_database(&database).unwrap();
@@ -74,7 +75,7 @@ fn rejects_shared_database_without_modifying_it() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("storage");
     directory(&path).unwrap();
-    let database = path.join("node.sqlite3");
+    let database = path.join("node.turso");
     prepare_database(&database).unwrap();
     std::fs::write(&database, b"preserved database").unwrap();
     share(&database);
@@ -86,12 +87,17 @@ fn rejects_shared_database_without_modifying_it() {
 
 #[test]
 fn rejects_shared_journal_before_creating_database() {
-    for suffix in ["-wal", "-shm", "-journal"] {
+    for name in [
+        "node.db-log",
+        "node.turso-wal",
+        "node.turso-tshm",
+        "node.turso-journal",
+    ] {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("storage");
         directory(&path).unwrap();
-        let database = path.join("node.sqlite3");
-        let sidecar = path.join(format!("node.sqlite3{suffix}"));
+        let database = path.join("node.turso");
+        let sidecar = path.join(name);
         std::fs::write(&sidecar, b"preserved journal").unwrap();
         share(&sidecar);
         let before = descriptor(&sidecar);
@@ -107,10 +113,10 @@ fn rejects_hard_linked_database() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("storage");
     directory(&path).unwrap();
-    let database = path.join("node.sqlite3");
+    let database = path.join("node.turso");
     prepare_database(&database).unwrap();
     std::fs::write(&database, b"preserved database").unwrap();
-    let link = path.join("alias.sqlite3");
+    let link = path.join("alias.turso");
     std::fs::hard_link(&database, &link).unwrap();
     assert!(prepare_database(&database).is_err());
     assert_eq!(std::fs::read(&link).unwrap(), b"preserved database");

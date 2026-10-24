@@ -8,14 +8,19 @@ mod configuration;
 mod registry;
 mod restore;
 
-fn database() -> Connection {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("../schema.sql")).unwrap();
-    crate::store::local_models::initialize(&db).unwrap();
+async fn database() -> Connection {
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
+    db.execute_batch(include_str!("../schema.sql"))
+        .await
+        .unwrap();
+    crate::store::local_models::initialize(&db).await.unwrap();
     db
 }
 
-fn package(db: &Connection, name: &str, digest: char, actions: &[&str]) -> plugin::Reference {
+async fn package(db: &Connection, name: &str, digest: char, actions: &[&str]) -> plugin::Reference {
     let summary = plugin::Summary {
         name: name.into(),
         revision: 1,
@@ -43,11 +48,12 @@ fn package(db: &Connection, name: &str, digest: char, actions: &[&str]) -> plugi
     };
     db.execute(
         "INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3)",
-        params![&reference.digest, name, encode(&info).unwrap()],
+        params![reference.digest.as_str(), name, encode(&info).unwrap()],
     )
+    .await
     .unwrap();
     db.execute("INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2) ON CONFLICT(name) DO UPDATE SET body=excluded.body",
-        params![name, encode(&info).unwrap()]).unwrap();
+        params![name, encode(&info).unwrap()]).await.unwrap();
     reference
 }
 
@@ -84,8 +90,8 @@ fn storage() -> Definition {
     })
 }
 
-fn create(db: &Connection, request: &Request) -> Collection {
-    let (output, event) = execute(db, request).unwrap();
+async fn create(db: &Connection, request: &Request) -> Collection {
+    let (output, event) = execute(db, request).await.unwrap();
     assert!(matches!(event, Some(Event::KnowledgeCollectionsChanged)));
     let Output::KnowledgeCollection(collection) = output else {
         panic!("collection expected")
@@ -93,7 +99,11 @@ fn create(db: &Connection, request: &Request) -> Collection {
     collection
 }
 
-fn insert(db: &Connection, package: &plugin::Reference, definition: Definition) -> Collection {
+async fn insert(
+    db: &Connection,
+    package: &plugin::Reference,
+    definition: Definition,
+) -> Collection {
     create(
         db,
         &captured(
@@ -104,37 +114,50 @@ fn insert(db: &Connection, package: &plugin::Reference, definition: Definition) 
             },
         ),
     )
+    .await
 }
 
-fn worktree(db: &Connection, path: &std::path::Path) -> WorktreeId {
+async fn worktree(db: &Connection, path: &std::path::Path) -> WorktreeId {
     let id = WorktreeId::new();
     db.execute(
         "INSERT INTO worktrees(id,path,main) VALUES(?1,?2,1)",
         params![id.to_string(), path.to_str().unwrap()],
     )
+    .await
     .unwrap();
     id
 }
 
-fn raw(db: &Connection) -> Vec<(String, i64, i64, Vec<u8>)> {
-    db.prepare("SELECT id,revision,generation,body FROM knowledge_collections ORDER BY id")
-        .unwrap()
-        .query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap()
+async fn raw(db: &Connection) -> Vec<(String, i64, i64, Vec<u8>)> {
+    (async {
+        let mut rows = db
+            .prepare("SELECT id,revision,generation,body FROM knowledge_collections ORDER BY id")
+            .await
+            .unwrap()
+            .query(())
+            .await?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))(&row);
+            values.push(mapped);
+        }
+        Ok::<_, turso::Error>(values.into_iter())
+    })
+    .await
+    .unwrap()
+    .collect::<Result<_, _>>()
+    .unwrap()
 }
 
-fn execute(db: &Connection, request: &Request) -> Result<(Output, Option<Event>), Fault> {
-    crate::store::commands::execute(db, request.target, request.target, None, request)
+async fn execute(db: &Connection, request: &Request) -> Result<(Output, Option<Event>), Fault> {
+    crate::store::commands::execute(db, request.target, request.target, None, request).await
 }
-fn settings(
+async fn settings(
     db: &Connection,
     request: &Request,
 ) -> Result<sailry_protocol::models::Settings, Fault> {
-    let (Output::LocalModelSettings(settings), _) = execute(db, request)? else {
+    let (Output::LocalModelSettings(settings), _) = execute(db, request).await? else {
         panic!("local model settings expected")
     };
     Ok(settings)

@@ -147,23 +147,36 @@ export async function configured(payload) {
             client.execute(request).await.unwrap(),
             Output::PluginSettings(second)
         );
-        let db = rusqlite::Connection::open_with_flags(
-            node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let mut query = db
-            .prepare("SELECT body FROM dispatch_events ORDER BY sequence")
-            .unwrap();
-        let bodies = query
-            .query_map([], |row| row.get::<_, Vec<u8>>(0))
+
+        let bodies = node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .query("SELECT body FROM dispatch_events ORDER BY sequence", ())
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let mut bodies = Vec::new();
+                    while let Some(row) = rows
+                        .next()
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                    {
+                        bodies.push(
+                            row.get::<Vec<u8>>(0)
+                                .map_err(crate::plugins::database_fixture::fault)?,
+                        );
+                    }
+                    Ok(bodies)
+                })
+            })
+            .await
             .unwrap()
-            .map(|row| String::from_utf8(row.unwrap()).unwrap())
+            .into_iter()
+            .map(|body| String::from_utf8(body).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(bodies.len(), 2);
         assert!(bodies.iter().all(|body|!body.contains(secret) && !body.contains("https://updated.example.com")));
-        drop(query);
-        drop(db);
+
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

@@ -75,6 +75,7 @@ async fn preserves_owned_roots_and_storage() {
                 "node",
                 "node/storage",
                 "node/storage/node.sqlite3",
+                "node/storage/node.turso",
                 "node/sentinel",
             ] {
                 assert_eq!(

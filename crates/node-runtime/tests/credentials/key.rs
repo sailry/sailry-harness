@@ -63,28 +63,54 @@ async fn restores_private_readback() {
             client.execute(empty.clone()).await.unwrap_err().code,
             ErrorCode::RevisionConflict
         );
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let body: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM providers WHERE id=?1",
-                [provider.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+
+        let body: Vec<u8> = {
+            let sql = ("SELECT body FROM providers WHERE id=?1").to_owned();
+            let parameters = turso::params![provider.id.to_string()];
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+        }
+        .unwrap();
         let stored: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let id = provider.credential.as_ref().unwrap().id.to_string();
         assert_eq!(stored["authorizations"][&id]["key"], marker);
         assert_eq!(stored["provider"], serde_json::to_value(&provider).unwrap());
         assert_eq!(
-            db.query_row(
-                "SELECT count(*) FROM sqlite_master WHERE name='credentials'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
+            {
+                let sql =
+                    ("SELECT count(*) FROM sqlite_master WHERE name='credentials'").to_owned();
+                let parameters = ();
+                node.with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        value.map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+            }
             .unwrap(),
             0
         );
-        drop(db);
+
         drop(client);
         node.shutdown().await.unwrap();
 
@@ -176,15 +202,19 @@ async fn restores_private_readback() {
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
 
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let (db_handle, db) =
+            crate::database_fixture::open(&(profile.join("storage/node.turso")), true).await;
         for id in [empty.id, read.id] {
-            let count: i64 = db
-                .query_row(
-                    "SELECT count(*) FROM requests WHERE id=?1",
-                    [id.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            let count: i64 = (async {
+                let mut statement = db
+                    .prepare("SELECT count(*) FROM requests WHERE id=?1")
+                    .await?;
+                let row = statement.query_row([id.to_string()]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap();
             assert_eq!(count, 0, "private reads must not enter the durable ledger");
         }
         for query in [
@@ -193,17 +223,19 @@ async fn restores_private_readback() {
             "SELECT body FROM events",
             "SELECT body FROM providers",
         ] {
-            let rows = db
-                .prepare(query)
-                .unwrap()
-                .query_map([], |row| row.get::<_, Vec<u8>>(0))
-                .unwrap()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap();
+            let rows = {
+                let mut rows = db.query(query, ()).await.unwrap();
+                let mut bodies = Vec::new();
+                while let Some(row) = rows.next().await.unwrap() {
+                    bodies.push(row.get::<Vec<u8>>(0).unwrap());
+                }
+                bodies
+            };
             assert!(
                 rows.iter()
                     .all(|bytes| !String::from_utf8_lossy(bytes).contains(marker))
             );
         }
+        crate::database_fixture::close(db_handle, db).await;
     }
 }

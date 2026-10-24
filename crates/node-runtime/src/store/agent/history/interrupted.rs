@@ -1,7 +1,7 @@
 //! Preserve visible unfinished output through the canonical event writer before ending a run.
 use super::*;
 
-pub(in crate::store::agent) fn retain(
+pub(in crate::store::agent) async fn retain(
     database: &mut Database,
     run: &Run,
     events: &broadcast::Sender<EventEnvelope>,
@@ -31,12 +31,14 @@ pub(in crate::store::agent) fn retain(
             role: "model".into(),
             parts,
         });
-        append(database, run.session, run.turn, event, events).map_err(|error| {
-            Fault::new(
-                ErrorCode::Unavailable,
-                format!("interrupted output could not be saved: {error}"),
-            )
-        })?;
+        append(database, run.session, run.turn, event, events)
+            .await
+            .map_err(|error| {
+                Fault::new(
+                    ErrorCode::Unavailable,
+                    format!("interrupted output could not be saved: {error}"),
+                )
+            })?;
     }
     Ok(())
 }

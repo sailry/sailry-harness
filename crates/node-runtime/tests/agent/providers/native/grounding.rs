@@ -50,15 +50,11 @@ async fn preserves_metadata_and_answer() {
         let profile = fixture.node.profile().to_owned();
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
-        let db = rusqlite::Connection::open_with_flags(
-            profile.join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let native: String = db.query_row(
+        let (database, db) =
+            crate::database_fixture::open(&profile.join("storage/node.turso"), true).await;
+        let native: String = db.prepare(
             "SELECT json_extract(body,'$.provider_metadata') FROM agent_events WHERE json_type(body,'$.provider_metadata.searchEntryPoint')='object'",
-            [], |row| row.get(0),
-        ).unwrap();
+        ).await.unwrap().query_row(()).await.unwrap().get(0).unwrap();
         let mut native: serde_json::Value = serde_json::from_str(&native).unwrap();
         assert_eq!(
             native.as_object_mut().unwrap().remove("content_complete"),
@@ -72,6 +68,7 @@ async fn preserves_metadata_and_answer() {
         assert!(timing["elapsed_us"].as_u64().unwrap() > 0);
         assert_eq!(native, server::grounding_metadata());
         drop(db);
+        drop(database);
         let node = Node::start_empty(profile).await.unwrap();
         assert_eq!(
             history(&Client::new(node.local()), fixture.session.id).await,

@@ -183,21 +183,30 @@ impl Ingress {
     }
 }
 
-pub(super) fn command_access(
+pub(super) async fn command_access(
     db: &Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
 ) -> Result<sailry_protocol::process::Access, Fault> {
-    active(db, turn)?;
-    super::calls::locate(db, turn, request)?;
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM agent_approvals WHERE turn=?1 AND call=?2",
-            params![turn.to_string(), call_id(request)?],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    active(db, turn).await?;
+    super::calls::locate(db, turn, request).await?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_approvals WHERE turn=?1 AND call=?2")
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![turn.to_string(), call_id(request)?])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let approval: Approval = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?
@@ -217,18 +226,18 @@ pub(super) fn command_access(
 }
 
 #[cfg(test)]
-pub(super) fn begin(
+pub(super) async fn begin(
     database: &mut Database,
     turn: TurnId,
     request: &ToolConfirmationRequest,
     binding: Option<&Binding>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
-    begin_with(database, turn, request, binding, None, events)
+    begin_with(database, turn, request, binding, None, events).await
 }
 
 #[cfg(test)]
-pub(super) fn begin_with(
+pub(super) async fn begin_with(
     database: &mut Database,
     turn: TurnId,
     request: &ToolConfirmationRequest,
@@ -247,9 +256,10 @@ pub(super) fn begin_with(
         },
         events,
     )
+    .await
 }
 
-pub(super) fn begin_for(
+pub(super) async fn begin_for(
     database: &mut Database,
     turn: TurnId,
     request: &ToolConfirmationRequest,
@@ -262,13 +272,17 @@ pub(super) fn begin_for(
         ssh,
         prepared,
     } = capture;
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let run = active(&transaction, turn)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
+    let run = active(&transaction, turn).await?;
     let call = call_id(request)?;
-    let (entry, index) = super::calls::locate(&transaction, turn, request)?;
+    let (entry, index) = super::calls::locate(&transaction, turn, request).await?;
     let mut source = if let Some(ssh) = ssh {
-        super::connections::validate_trust(&transaction, turn, binding, ssh)?;
-        if permissions::config(&transaction, turn)?.mode == WorkMode::Plan {
+        super::connections::validate_trust(&transaction, turn, binding, ssh).await?;
+        if permissions::config(&transaction, turn).await?.mode == WorkMode::Plan {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
                 "planning turns cannot trust SSH host keys",
@@ -276,18 +290,18 @@ pub(super) fn begin_for(
         }
         ApprovalSource::User
     } else if let Some(startup) = startup {
-        super::permissions::code_source(&transaction, turn, request, startup)?
+        super::permissions::code_source(&transaction, turn, request, startup).await?
     } else {
-        super::permissions::source(&transaction, turn, request)?
+        super::permissions::source(&transaction, turn, request).await?
     };
     if let Some(binding) = binding {
-        rules::validate(&transaction, turn, request, binding)?;
+        rules::validate(&transaction, turn, request, binding).await?;
     }
     let prepared = match prepared {
         Some(command) => Prepared::new(command)?,
-        None => prepared::baseline(&transaction, turn, binding)?,
+        None => prepared::baseline(&transaction, turn, binding).await?,
     };
-    let access = access::requested(&transaction, turn, request, binding)?;
+    let access = access::requested(&transaction, turn, request, binding).await?;
     let escape = crate::process::sandbox::SUPPORTED
         && access == Some(sailry_protocol::process::Access::Unrestricted);
     if escape && source != ApprovalSource::Full {
@@ -305,7 +319,8 @@ pub(super) fn begin_for(
     let mut choice = None;
     if can_remember
         && let Some(binding) = binding
-        && let Some((matched, remembered)) = rules::matching(&transaction, &run, binding, request)?
+        && let Some((matched, remembered)) =
+            rules::matching(&transaction, &run, binding, request).await?
     {
         source = matched;
         choice = Some(remembered);
@@ -330,13 +345,18 @@ pub(super) fn begin_for(
         startup: startup.cloned(),
         ssh: ssh.cloned(),
     };
-    let exists: bool = transaction
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM agent_approvals WHERE turn=?1 AND call=?2)",
-            params![turn.to_string(), call],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let exists: bool = {
+        let mut statement = transaction
+            .prepare("SELECT EXISTS(SELECT 1 FROM agent_approvals WHERE turn=?1 AND call=?2)")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![turn.to_string(), call])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if exists {
         return Err(Fault::new(
             ErrorCode::Conflict,
@@ -344,9 +364,9 @@ pub(super) fn begin_for(
         ));
     }
     transaction.execute("INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed,prepared) VALUES(?1,?2,?3,?4,?5,?6,0,?7)",
-        params![approval.id.to_string(), turn.to_string(), call, encode(&approval)?, encode(&binding)?, RequestId::new().to_string(), encode(&prepared)?]).map_err(storage_error)?;
-    let envelope = changed(&transaction, database.node, run.session)?;
-    transaction.commit().map_err(storage_error)?;
+        params![approval.id.to_string(), turn.to_string(), call, encode(&approval)?, encode(&binding)?, RequestId::new().to_string(), encode(&prepared)?]).await.map_err(storage_error)?;
+    let envelope = changed(&transaction, database.node, run.session).await?;
+    transaction.commit().await.map_err(storage_error)?;
     let _ = events.send(envelope);
     database.feeds.publish(
         database.node,
@@ -356,13 +376,13 @@ pub(super) fn begin_for(
     Ok(approval)
 }
 
-pub(in crate::store) fn resolve(
+pub(in crate::store) async fn resolve(
     db: &Connection,
     session: SessionId,
     id: ApprovalId,
     decision: Decision,
 ) -> Result<Approval, Fault> {
-    let mut approval = get(db, id)?;
+    let mut approval = get(db, id).await?;
     if approval.session != session {
         return Err(Fault::new(
             ErrorCode::WrongTarget,
@@ -383,8 +403,9 @@ pub(in crate::store) fn resolve(
         Decision::Deny => (ApprovalState::Denied, None, None),
         Decision::ApproveSession => (ApprovalState::Approved, Some(ApprovalChoice::Session), None),
         Decision::ApprovePrefix(prefix) => {
-            let request = request(db, &approval)?;
-            let binding = rules::read(db, id)?
+            let request = request(db, &approval).await?;
+            let binding = rules::read(db, id)
+                .await?
                 .ok_or_else(|| Fault::invalid("tool approval cannot remember a prefix"))?;
             let command = rules::command(&binding, &request)
                 .ok_or_else(|| Fault::invalid("tool approval has no shell command"))?;
@@ -400,28 +421,29 @@ pub(in crate::store) fn resolve(
             (ApprovalState::Denied, None, Some(reason))
         }
     };
-    let run = active(db, approval.turn)?;
+    let run = active(db, approval.turn).await?;
     if let Some(choice @ (ApprovalChoice::Session | ApprovalChoice::Prefix(_))) = &choice {
         if !approval.can_remember || approval.source != ApprovalSource::User {
             return Err(Fault::invalid("tool approval cannot be remembered"));
         }
-        let binding = rules::read(db, id)?
+        let binding = rules::read(db, id)
+            .await?
             .ok_or_else(|| Fault::invalid("tool approval has no captured owner"))?;
-        rules::validate(db, approval.turn, &request(db, &approval)?, &binding)?;
-        rules::insert(db, &run, &binding, choice, id)?;
+        rules::validate(db, approval.turn, &request(db, &approval).await?, &binding).await?;
+        rules::insert(db, &run, &binding, choice, id).await?;
     }
     approval.state = state;
     approval.choice = choice;
     approval.reason = reason;
-    put(db, &approval)?;
+    put(db, &approval).await?;
     Ok(approval)
 }
 
 /// Claims the decision immediately before the actor commits its transaction.
 /// Expiry can only be answered by this actor after the commit attempt has finished.
-pub(in crate::store) fn claim(
+pub(in crate::store) async fn claim(
     db: &Connection,
-    waiting: &Waiting,
+    waiting: &std::sync::Mutex<Waiting>,
     output: &Output,
 ) -> Result<(), Fault> {
     let Output::Approval(approval) = output else {
@@ -429,15 +451,16 @@ pub(in crate::store) fn claim(
     };
     check_waiter(waiting, approval.id)?;
     if approval.choice == Some(ApprovalChoice::Session) {
-        let run = runs::get(db, approval.turn)?;
+        let run = runs::get(db, approval.turn).await?;
         // Repeating an already committed choice remains idempotent after its run
         // ends. New decisions were checked by resolve in this same transaction.
         if run.status != Status::Running {
             return Ok(());
         }
-        let binding = rules::read(db, approval.id)?
+        let binding = rules::read(db, approval.id)
+            .await?
             .ok_or_else(|| Fault::invalid("tool approval has no captured owner"))?;
-        rules::apply_session(db, waiting, &run, &binding)?;
+        rules::apply_session(db, waiting, &run, &binding).await?;
     }
     Ok(())
 }
@@ -462,22 +485,31 @@ fn matches_decision(approval: &Approval, decision: &Decision) -> bool {
     approval.state == state && approval.choice == choice && approval.reason.as_deref() == reason
 }
 
-pub(super) fn connection_access(
+pub(super) async fn connection_access(
     db: &Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
     prepared: &Command,
 ) -> Result<(), Fault> {
-    active(db, turn)?;
-    let (entry, index) = super::calls::locate(db, turn, request)?;
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM agent_approvals WHERE turn=?1 AND call=?2",
-            params![turn.to_string(), call_id(request)?],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    active(db, turn).await?;
+    let (entry, index) = super::calls::locate(db, turn, request).await?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_approvals WHERE turn=?1 AND call=?2")
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![turn.to_string(), call_id(request)?])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let approval: Approval = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?
@@ -491,25 +523,35 @@ pub(super) fn connection_access(
             "connection approval is unavailable",
         ));
     }
-    prepared::check_connection(db, &approval, Some(prepared))
+    prepared::check_connection(db, &approval, Some(prepared)).await
 }
 
-pub(super) fn authorize(
+pub(super) async fn authorize(
     db: &mut Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
     prepared: Option<&Command>,
 ) -> Result<RequestId, Fault> {
-    let transaction = db.transaction().map_err(storage_error)?;
-    active(&transaction, turn)?;
-    let record: Option<(Vec<u8>, String, bool)> = transaction
-        .query_row(
-            "SELECT body,request,claimed FROM agent_approvals WHERE turn=?1 AND call=?2",
-            params![turn.to_string(), call_id(request)?],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let transaction = db.transaction().await.map_err(storage_error)?;
+    active(&transaction, turn).await?;
+    let record: Option<(Vec<u8>, String, bool)> = {
+        let mut statement = transaction
+            .prepare("SELECT body,request,claimed FROM agent_approvals WHERE turn=?1 AND call=?2")
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![turn.to_string(), call_id(request)?])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let Some((body, id, claimed)) = record else {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
@@ -523,13 +565,18 @@ pub(super) fn authorize(
             "tool approval is unavailable or already used",
         ));
     }
-    let body: Vec<u8> = transaction
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![turn.to_string(), approval.entry],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let body: Vec<u8> = {
+        let mut statement = transaction
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![turn.to_string(), approval.entry.as_str()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
     if !event
         .content()
@@ -541,7 +588,7 @@ pub(super) fn authorize(
             "tool arguments differ from the approved call",
         ));
     }
-    prepared::check_connection(&transaction, &approval, prepared)?;
+    prepared::check_connection(&transaction, &approval, prepared).await?;
     access::check(&approval, prepared)?;
     if let Some(startup) = &approval.startup {
         if !matches!(prepared, Some(Command::StartCodeServer { startup: actual }) if actual == startup)
@@ -551,7 +598,7 @@ pub(super) fn authorize(
                 "prepared language startup differs from approval",
             ));
         }
-        super::super::code::grant(&transaction, startup)?;
+        super::super::code::grant(&transaction, startup).await?;
     }
     if let Some(ssh) = &approval.ssh
         && !matches!(prepared, Some(Command::RunSsh { profile, expected_revision, .. } | Command::TransferSsh { profile, expected_revision, .. }) if *profile == ssh.profile && *expected_revision == ssh.expected_revision)
@@ -562,13 +609,18 @@ pub(super) fn authorize(
         ));
     }
     rules::check_prepared(&approval, prepared)?;
-    let previous: Vec<u8> = transaction
-        .query_row(
-            "SELECT prepared FROM agent_approvals WHERE id=?1",
-            [approval.id.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let previous: Vec<u8> = {
+        let mut statement = transaction
+            .prepare("SELECT prepared FROM agent_approvals WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([approval.id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let baseline: Option<Prepared> = serde_json::from_slice(&previous).map_err(storage_error)?;
     let mut captured = prepared.map(Prepared::new).transpose()?.flatten();
     if let (Some(captured), Some(baseline)) = (&mut captured, baseline) {
@@ -579,91 +631,119 @@ pub(super) fn authorize(
             "UPDATE agent_approvals SET claimed=1,prepared=?2 WHERE id=?1",
             params![approval.id.to_string(), encode(&captured)?],
         )
+        .await
         .map_err(storage_error)?;
-    transaction.commit().map_err(storage_error)?;
+    transaction.commit().await.map_err(storage_error)?;
     id.parse().map_err(storage_error)
 }
 
-pub(super) fn close(
+pub(super) async fn close(
     db: &Connection,
     turn: TurnId,
     state: ApprovalState,
 ) -> Result<Vec<Approval>, Fault> {
-    let mut query = db.prepare("SELECT body FROM agent_approvals WHERE turn=?1 AND json_extract(body,'$.state')='pending'").map_err(storage_error)?;
-    let mut approvals = query
-        .query_map([turn.to_string()], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|body| {
-            serde_json::from_slice::<Approval>(&body.map_err(storage_error)?).map_err(storage_error)
-        })
-        .collect::<Result<Vec<_>, Fault>>()?;
+    let mut query = db.prepare("SELECT body FROM agent_approvals WHERE turn=?1 AND json_extract(body,'$.state')='pending'").await.map_err(storage_error)?;
+    let mut approvals = {
+        let mut rows = query
+            .query([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|body| {
+        serde_json::from_slice::<Approval>(&body.map_err(storage_error)?).map_err(storage_error)
+    })
+    .collect::<Result<Vec<_>, Fault>>()?;
     for approval in &mut approvals {
         approval.state = state;
-        put(db, approval)?;
+        put(db, approval).await?;
     }
     Ok(approvals)
 }
 
-pub(super) fn list(
+pub(super) async fn list(
     db: &Connection,
     session: SessionId,
     entries: &[Entry],
 ) -> Result<Vec<Approval>, Fault> {
     let ids: Vec<_> = entries.iter().map(|entry| &entry.id).collect();
-    let mut query = db.prepare("SELECT a.body FROM agent_approvals a JOIN conversation_turns h ON h.turn=a.turn WHERE h.session=?1 AND (json_extract(a.body,'$.state')='pending' OR json_extract(a.body,'$.entry') IN (SELECT value FROM json_each(?2))) ORDER BY a.rowid").map_err(storage_error)?;
-    query
-        .query_map(
-            params![
+    let mut query = db.prepare("SELECT a.body FROM agent_approvals a JOIN conversation_turns h ON h.turn=a.turn WHERE h.session=?1 AND (json_extract(a.body,'$.state')='pending' OR json_extract(a.body,'$.entry') IN (SELECT value FROM json_each(?2))) ORDER BY a.rowid").await.map_err(storage_error)?;
+    {
+        let mut rows = query
+            .query(params![
                 session.to_string(),
                 serde_json::to_string(&ids).map_err(storage_error)?
-            ],
-            |row| row.get::<_, Vec<u8>>(0),
-        )
-        .map_err(storage_error)?
-        .map(|body| {
-            let mut approval: Approval =
-                serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error)?;
-            approval.session = session;
-            Ok(approval)
-        })
-        .collect()
+            ])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|body| {
+        let mut approval: Approval =
+            serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error)?;
+        approval.session = session;
+        Ok(approval)
+    })
+    .collect()
 }
 
-pub(super) fn get(db: &Connection, id: ApprovalId) -> Result<Approval, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM agent_approvals WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn get(db: &Connection, id: ApprovalId) -> Result<Approval, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_approvals WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     serde_json::from_slice(
         &body.ok_or_else(|| Fault::new(ErrorCode::NotFound, "approval does not exist"))?,
     )
     .map_err(storage_error)
 }
 
-fn put(db: &Connection, approval: &Approval) -> Result<(), Fault> {
+async fn put(db: &Connection, approval: &Approval) -> Result<(), Fault> {
     db.execute(
         "UPDATE agent_approvals SET body=?2 WHERE id=?1",
         params![approval.id.to_string(), encode(approval)?],
     )
+    .await
     .map_err(storage_error)?;
     Ok(())
 }
 
-pub(in crate::store) fn request(
+pub(in crate::store) async fn request(
     db: &Connection,
     approval: &Approval,
 ) -> Result<ToolConfirmationRequest, Fault> {
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![approval.turn.to_string(), approval.entry],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![approval.turn.to_string(), approval.entry.as_str()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
     let Some(adk_core::Part::FunctionCall { id, name, args, .. }) = event
         .content()

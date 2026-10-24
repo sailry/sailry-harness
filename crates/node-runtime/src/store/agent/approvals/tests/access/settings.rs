@@ -1,18 +1,22 @@
 use super::*;
 
-fn toggle(fixture: &Fixture, enabled: bool) {
-    let mut settings = crate::store::sandbox::read(&fixture.database.connection).unwrap();
+async fn toggle(fixture: &Fixture, enabled: bool) {
+    let mut settings = crate::store::sandbox::read(&fixture.database.connection)
+        .await
+        .unwrap();
     settings.enabled = enabled;
-    crate::store::sandbox::save(&fixture.database.connection, &settings).unwrap();
+    crate::store::sandbox::save(&fixture.database.connection, &settings)
+        .await
+        .unwrap();
 }
 
-#[test]
-fn captures_current_policy_without_changing_arguments() {
+#[tokio::test]
+async fn captures_current_policy_without_changing_arguments() {
     for permission in [Permission::Ask, Permission::Project, Permission::Full] {
-        let mut fixture = Fixture::with_permission(permission);
-        let binding = request_with_access(&mut fixture, None);
+        let mut fixture = Fixture::with_permission(permission).await;
+        let binding = request_with_access(&mut fixture, None).await;
         let original = fixture.request.args.clone();
-        toggle(&fixture, false);
+        toggle(&fixture, false).await;
         let approval = begin(
             &mut fixture.database,
             fixture.turn,
@@ -20,6 +24,7 @@ fn captures_current_policy_without_changing_arguments() {
             Some(&binding),
             &fixture.events,
         )
+        .await
         .unwrap();
         assert_eq!(approval.access, Some(Access::Unrestricted));
         assert_eq!(fixture.request.args, original);
@@ -29,10 +34,12 @@ fn captures_current_policy_without_changing_arguments() {
         } else {
             assert_eq!(approval.source, ApprovalSource::User);
             assert_eq!(approval.state, ApprovalState::Pending);
-            fixture.approve(approval.id);
+            fixture.approve(approval.id).await;
         }
         assert_eq!(
-            command_access(&fixture.database.connection, fixture.turn, &fixture.request).unwrap(),
+            command_access(&fixture.database.connection, fixture.turn, &fixture.request)
+                .await
+                .unwrap(),
             Access::Unrestricted
         );
         authorize(
@@ -41,16 +48,17 @@ fn captures_current_policy_without_changing_arguments() {
             &fixture.request,
             Some(&prepared(fixture.turn, Access::Unrestricted)),
         )
+        .await
         .unwrap();
     }
 }
 
-#[test]
-fn toggling_preserves_exact_approved_access() {
+#[tokio::test]
+async fn toggling_preserves_exact_approved_access() {
     for initially_enabled in [false, true] {
-        let mut fixture = Fixture::new();
-        let binding = request_with_access(&mut fixture, None);
-        toggle(&fixture, initially_enabled);
+        let mut fixture = Fixture::new().await;
+        let binding = request_with_access(&mut fixture, None).await;
+        toggle(&fixture, initially_enabled).await;
         let approval = begin(
             &mut fixture.database,
             fixture.turn,
@@ -58,13 +66,14 @@ fn toggling_preserves_exact_approved_access() {
             Some(&binding),
             &fixture.events,
         )
+        .await
         .unwrap();
         if approval.state == ApprovalState::Pending {
             // Toggle while this request is waiting for the user.
-            toggle(&fixture, !initially_enabled);
-            fixture.approve(approval.id);
+            toggle(&fixture, !initially_enabled).await;
+            fixture.approve(approval.id).await;
         } else {
-            toggle(&fixture, !initially_enabled);
+            toggle(&fixture, !initially_enabled).await;
         }
         let access = if initially_enabled {
             Access::Workspace
@@ -77,7 +86,9 @@ fn toggling_preserves_exact_approved_access() {
             Access::Workspace
         };
         assert_eq!(
-            command_access(&fixture.database.connection, fixture.turn, &fixture.request).unwrap(),
+            command_access(&fixture.database.connection, fixture.turn, &fixture.request)
+                .await
+                .unwrap(),
             access
         );
         assert_eq!(
@@ -87,6 +98,7 @@ fn toggling_preserves_exact_approved_access() {
                 &fixture.request,
                 Some(&prepared(fixture.turn, changed))
             )
+            .await
             .unwrap_err()
             .code,
             ErrorCode::PermissionDenied
@@ -97,6 +109,7 @@ fn toggling_preserves_exact_approved_access() {
             &fixture.request,
             Some(&prepared(fixture.turn, access)),
         )
+        .await
         .unwrap();
     }
 }

@@ -7,11 +7,7 @@ async fn fixture() -> (tempfile::TempDir, Store, Ingress, mpsc::Receiver<Job>) {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let directory = tempfile::tempdir().unwrap();
     let store = Store::start(
-        directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([3; 32]),
         None,
         Default::default(),

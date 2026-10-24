@@ -59,7 +59,7 @@ async fn expires_accounts_without_refresh_support() {
                     .reference();
                 let row = lifecycle::connect(&client, package.clone()).await;
                 let before: serde_json::Value =
-                    serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+                    serde_json::from_slice(&lifecycle::stored(&node, row.id).await).unwrap();
                 assert_eq!(before["grant"]["refresh"].is_null(), missing);
                 if !rejected {
                     tokio::time::sleep(Duration::from_millis(1100)).await;
@@ -83,7 +83,7 @@ async fn expires_accounts_without_refresh_support() {
                     }
                 }
                 let after: serde_json::Value =
-                    serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+                    serde_json::from_slice(&lifecycle::stored(&node, row.id).await).unwrap();
                 assert!(after["grant"].is_null());
                 for field in ["fields", "secrets", "auth_revision", "revision"] {
                     assert_eq!(
@@ -171,10 +171,16 @@ async fn preserves_accounts_when_new_authorization_fails() {
                 } else {
                     Some(lifecycle::connect(&client, package.clone()).await)
                 };
-                let before = previous.as_ref().map(|row| {
-                    serde_json::from_slice::<serde_json::Value>(&lifecycle::stored(&node, row.id))
-                        .unwrap()
-                });
+                let before = if let Some(row) = previous.as_ref() {
+                    Some(
+                        serde_json::from_slice::<serde_json::Value>(
+                            &lifecycle::stored(&node, row.id).await,
+                        )
+                        .unwrap(),
+                    )
+                } else {
+                    None
+                };
                 issuer.status.store(status, Ordering::SeqCst);
                 let attempt = attempt(&client, package, previous.as_ref()).await;
                 let LoginState::Failed(error) = state(&client, &attempt, |state| {
@@ -202,7 +208,7 @@ async fn preserves_accounts_when_new_authorization_fails() {
                     }
                 );
                 let after: serde_json::Value =
-                    serde_json::from_slice(&lifecycle::stored(&node, rows[0].id)).unwrap();
+                    serde_json::from_slice(&lifecycle::stored(&node, rows[0].id).await).unwrap();
                 if initial {
                     assert!(after["grant"].is_null());
                 } else {
@@ -236,7 +242,7 @@ async fn expires_rejected_rotations() {
             .reference();
         let row = lifecycle::connect(&client, package.clone()).await;
         let before: serde_json::Value =
-            serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+            serde_json::from_slice(&lifecycle::stored(&node, row.id).await).unwrap();
         let revision = before["grant_revision"].as_u64().unwrap();
         for (index, state) in ["connected", "expired"].into_iter().enumerate() {
             let (command, scope) = request(&package, worktree, row.id, true);
@@ -248,7 +254,7 @@ async fn expires_rejected_rotations() {
                 "{remote}/{index}"
             );
             let after: serde_json::Value =
-                serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, row.id).await).unwrap();
             assert_eq!(after["state"], state, "{remote}/{index}");
             assert_eq!(after["grant"].is_null(), index == 1);
             assert_eq!(
@@ -295,7 +301,7 @@ async fn invalidates_rejected_refreshes_and_health_checks() {
                 .reference();
             let row = lifecycle::connect(&client, package.clone()).await;
             let before: serde_json::Value =
-                serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, row.id).await).unwrap();
             let original = if probe {
                 resource.status.store(401, Ordering::SeqCst);
                 client.prepare(Command::ProbeConnection { connection: row.id })
@@ -330,7 +336,7 @@ async fn invalidates_rejected_refreshes_and_health_checks() {
             }
             assert_eq!(issuer.bodies.lock().unwrap().len(), 2, "{remote}/{probe}");
             let after: serde_json::Value =
-                serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, row.id).await).unwrap();
             assert_eq!(after["state"], "expired");
             assert!(after["grant"].is_null());
             assert_eq!(

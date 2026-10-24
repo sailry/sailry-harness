@@ -40,7 +40,7 @@ async fn escape_rejects_remembering_after_restart() {
             );
             assert_eq!(pending(&fixture.client, fixture.session.id).await, approval);
             assert!(!fixture.root.join("first.txt").exists());
-            assert!(!claimed(&fixture.node, &approval).1);
+            assert!(!claimed(&fixture.node, &approval).await.1);
         }
         process::decide(&fixture.client, &approval, Decision::Approve).await;
         let page = completed(&fixture.client, fixture.session.id, first.id).await;
@@ -74,7 +74,7 @@ async fn escape_rejects_remembering_after_restart() {
         );
         process::decide(&fixture.client, &approval, Decision::Deny).await;
         let page = completed(&fixture.client, fixture.session.id, turn.id).await;
-        assert!(!claimed(&fixture.node, &approval).1);
+        assert!(!claimed(&fixture.node, &approval).await.1);
         assert!(!fixture.root.join("second.txt").exists());
         assert!(page.approvals.iter().all(|approval| !matches!(
             approval.source,

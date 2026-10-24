@@ -15,16 +15,16 @@ impl Ingress {
     }
 }
 
-pub(super) fn list(database: &Database, turn: TurnId) -> Result<Vec<Worktree>, Fault> {
-    let run = calls::active(&database.connection, turn)?;
-    let root = database.worktree_root(run.worktree)?;
+pub(super) async fn list(database: &Database, turn: TurnId) -> Result<Vec<Worktree>, Fault> {
+    let run = calls::active(&database.connection, turn).await?;
+    let root = database.worktree_root(run.worktree).await?;
     if !root.is_dir() {
         return Err(Fault::new(
             ErrorCode::NotFound,
             "worktree directory is unavailable",
         ));
     }
-    let entries = super::super::worktrees::list(&database.connection)?;
+    let entries = super::super::worktrees::list(&database.connection).await?;
     let source = entries
         .iter()
         .find(|entry| entry.id == run.worktree)

@@ -1,6 +1,9 @@
 use super::*;
-use rusqlite::{Connection, OpenFlags, params};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
+use turso::{Connection, params};
 
 const SOURCE: &str = "<!doctype html><html><head><style>button{border-radius:6px}</style></head><body><button id='next'>Next</button><output id='count'>0</output><script>let count=0;document.getElementById('next').onclick=()=>document.getElementById('count').textContent=String(++count);</script></body></html>";
 
@@ -82,18 +85,19 @@ async fn retains_code_and_defaults_metadata() {
         let identity = fixture.node.id();
         drop(fixture.client);
         fixture.node.shutdown().await.unwrap();
-        let path = profile.join("storage/node.sqlite3");
+        let path = profile.join("storage/node.turso");
         let before_backups = backups(&profile);
-        let db = Connection::open(&path).unwrap();
-        let captures = records(&db, "SELECT body FROM agent_events ORDER BY rowid");
-        let requests = records(&db, "SELECT body FROM requests ORDER BY rowid");
+        let (database, db) = crate::database_fixture::open(&path, false).await;
+        let captures = records(&db, "SELECT body FROM agent_events ORDER BY rowid").await;
+        let requests = records(&db, "SELECT body FROM requests ORDER BY rowid").await;
         let outcomes = records(
             &db,
             "SELECT CAST(result AS BLOB) FROM requests WHERE result IS NOT NULL ORDER BY rowid",
-        );
-        let before = remove_kind(&db, "artifacts", "id", document.id);
-        let revision = remove_kind(&db, "artifact_revisions", "artifact", document.id);
-        drop(db);
+        )
+        .await;
+        let before = remove_kind(&db, "artifacts", "id", document.id).await;
+        let revision = remove_kind(&db, "artifact_revisions", "artifact", document.id).await;
+        crate::database_fixture::close(database, db).await;
 
         let node = Node::start_empty(&profile).await.unwrap();
         assert_eq!(node.id(), identity);
@@ -126,42 +130,39 @@ async fn retains_code_and_defaults_metadata() {
             .filter(|path| !before_backups.contains(path))
             .collect();
         assert_eq!(added.len(), 1);
-        // The completed backup is immutable; inspection must not create WAL sidecars.
-        let mut uri = url::Url::from_file_path(added[0]).unwrap();
-        uri.query_pairs_mut().append_pair("immutable", "1");
-        let backup = Connection::open_with_flags(
-            uri.as_str(),
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-        )
-        .unwrap();
-        assert_eq!(body(&backup, "artifacts", "id", document.id), before);
+        // The completed backup is immutable; inspection must not change its native family.
+        let frozen = files(added[0].parent().unwrap());
+        let (database, backup) = crate::database_fixture::open(added[0], true).await;
+        assert_eq!(body(&backup, "artifacts", "id", document.id).await, before);
         assert_eq!(
-            body(&backup, "artifact_revisions", "artifact", document.id),
+            body(&backup, "artifact_revisions", "artifact", document.id).await,
             revision
         );
-        drop(backup);
+        crate::database_fixture::close(database, backup).await;
+        assert_eq!(files(added[0].parent().unwrap()), frozen);
         assert_eq!(backups(&profile), saved);
-        let db = Connection::open(&path).unwrap();
+        let (database, db) = crate::database_fixture::open(&path, false).await;
         assert_eq!(
-            records(&db, "SELECT body FROM agent_events ORDER BY rowid"),
+            records(&db, "SELECT body FROM agent_events ORDER BY rowid").await,
             captures
         );
         assert_eq!(
-            records(&db, "SELECT body FROM requests ORDER BY rowid"),
+            records(&db, "SELECT body FROM requests ORDER BY rowid").await,
             requests
         );
         assert_eq!(
             records(
                 &db,
                 "SELECT CAST(result AS BLOB) FROM requests WHERE result IS NOT NULL ORDER BY rowid"
-            ),
+            )
+            .await,
             outcomes
         );
         let stored: artifact::Summary =
-            serde_json::from_slice(&body(&db, "artifacts", "id", document.id)).unwrap();
+            serde_json::from_slice(&body(&db, "artifacts", "id", document.id).await).unwrap();
         assert_eq!(stored, document);
         let mut invalid: Value =
-            serde_json::from_slice(&body(&db, "artifacts", "id", document.id)).unwrap();
+            serde_json::from_slice(&body(&db, "artifacts", "id", document.id).await).unwrap();
         invalid["kind"] = "unknown".into();
         db.execute(
             "UPDATE artifacts SET body=?1 WHERE id=?2",
@@ -170,16 +171,18 @@ async fn retains_code_and_defaults_metadata() {
                 document.id.to_string()
             ],
         )
+        .await
         .unwrap();
-        db.pragma_update(None, "journal_mode", "DELETE").unwrap();
-        drop(db);
+        crate::database_fixture::close(database, db).await;
         let bytes = fs::read(&path).unwrap();
+        let family = files(path.parent().unwrap());
         let error = Node::start_empty(&profile)
             .await
             .err()
             .expect("invalid artifact kind must fail startup");
         assert!(error.to_string().contains("existing data was not changed"));
         assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(files(path.parent().unwrap()), family);
         assert_eq!(backups(&profile), saved);
         assert_eq!(
             fs::read_to_string(
@@ -196,26 +199,28 @@ async fn retains_code_and_defaults_metadata() {
     }
 }
 
-fn records(db: &Connection, sql: &str) -> Vec<Vec<u8>> {
-    db.prepare(sql)
+async fn records(db: &Connection, sql: &str) -> Vec<Vec<u8>> {
+    let mut rows = db.query(sql, ()).await.unwrap();
+    let mut values = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        values.push(row.get(0).unwrap());
+    }
+    values
+}
+
+async fn body(db: &Connection, table: &str, field: &str, id: ArtifactId) -> Vec<u8> {
+    db.prepare(format!("SELECT body FROM {table} WHERE {field}=?1"))
+        .await
         .unwrap()
-        .query_map([], |row| row.get(0))
+        .query_row([id.to_string()])
+        .await
         .unwrap()
-        .collect::<Result<_, _>>()
+        .get(0)
         .unwrap()
 }
 
-fn body(db: &Connection, table: &str, field: &str, id: ArtifactId) -> Vec<u8> {
-    db.query_row(
-        &format!("SELECT body FROM {table} WHERE {field}=?1"),
-        [id.to_string()],
-        |row| row.get(0),
-    )
-    .unwrap()
-}
-
-fn remove_kind(db: &Connection, table: &str, field: &str, id: ArtifactId) -> Vec<u8> {
-    let mut value: Value = serde_json::from_slice(&body(db, table, field, id)).unwrap();
+async fn remove_kind(db: &Connection, table: &str, field: &str, id: ArtifactId) -> Vec<u8> {
+    let mut value: Value = serde_json::from_slice(&body(db, table, field, id).await).unwrap();
     assert_eq!(
         value.as_object_mut().unwrap().remove("kind"),
         Some(json!("document"))
@@ -223,8 +228,9 @@ fn remove_kind(db: &Connection, table: &str, field: &str, id: ArtifactId) -> Vec
     let before = serde_json::to_vec(&value).unwrap();
     db.execute(
         &format!("UPDATE {table} SET body=?1 WHERE {field}=?2"),
-        params![before, id.to_string()],
+        params![before.as_slice(), id.to_string()],
     )
+    .await
     .unwrap();
     before
 }
@@ -233,8 +239,17 @@ fn backups(profile: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<_> = fs::read_dir(profile.join("storage/backups"))
         .into_iter()
         .flatten()
-        .map(|entry| entry.unwrap().path())
+        .map(|entry| entry.unwrap().path().join("node.turso"))
         .collect();
     paths.sort();
     paths
+}
+
+fn files(directory: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_type().unwrap().is_file())
+        .map(|entry| (entry.file_name().into(), fs::read(entry.path()).unwrap()))
+        .collect()
 }

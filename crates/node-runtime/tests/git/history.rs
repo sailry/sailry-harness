@@ -206,12 +206,27 @@ async fn shares_read_only_history() {
         std::fs::read_to_string(root.join("中文.txt")).unwrap(),
         "Working copy must stay unchanged\n"
     );
-    let database = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
+
     assert_eq!(
-        database
-            .query_row("SELECT count(*) FROM requests", [], |row| row
-                .get::<_, i64>(0))
-            .unwrap(),
+        {
+            let sql = ("SELECT count(*) FROM requests").to_owned();
+            let parameters = ();
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+        }
+        .unwrap(),
         1
     );
     controller.close().await.unwrap();

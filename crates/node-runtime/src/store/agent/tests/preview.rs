@@ -1,20 +1,14 @@
 use super::{fixture::Fixture, *};
 
-#[test]
-fn snapshot_does_not_read_preview_bodies() {
-    use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
-    let mut fixture = Fixture::new();
-    fixture.completed(&["Public board content"]);
+#[tokio::test]
+async fn snapshot_does_not_read_preview_bodies() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["Public board content"]).await;
     fixture
         .database
         .connection
-        .authorizer(Some(|context: AuthContext<'_>| match context.action {
-            AuthAction::Read {
-                table_name: "agent_events",
-                ..
-            } => Authorization::Deny,
-            _ => Authorization::Allow,
-        }))
+        .execute_batch("BEGIN; ALTER TABLE agent_events RENAME TO hidden_events; COMMIT;")
+        .await
         .unwrap();
     let node = fixture.database.node;
     let (output, _) = crate::store::commands::execute(
@@ -24,24 +18,31 @@ fn snapshot_does_not_read_preview_bodies() {
         None,
         &Request::new(node, Command::Snapshot),
     )
+    .await
     .unwrap();
     assert!(matches!(output, Output::Snapshot(_)));
-    assert!(activity::previews(&fixture.database.connection, &[fixture.session]).is_err());
+    assert!(
+        activity::previews(&fixture.database.connection, &[fixture.session])
+            .await
+            .is_err()
+    );
 }
 
-#[test]
-fn validates_batch_and_session() {
-    let fixture = Fixture::new();
+#[tokio::test]
+async fn validates_batch_and_session() {
+    let fixture = Fixture::new().await;
     let db = &fixture.database.connection;
-    assert!(activity::previews(db, &[]).unwrap().is_empty());
+    assert!(activity::previews(db, &[]).await.unwrap().is_empty());
     assert_eq!(
         activity::previews(db, &vec![fixture.session; 33])
+            .await
             .unwrap_err()
             .code,
         ErrorCode::InvalidRequest
     );
     assert_eq!(
         activity::previews(db, &[SessionId::new()])
+            .await
             .unwrap_err()
             .code,
         ErrorCode::NotFound
@@ -54,39 +55,45 @@ fn validates_batch_and_session() {
     );
 }
 
-#[test]
-fn follows_current_run_and_preserves_source() {
-    let mut fixture = Fixture::new();
-    assert_eq!(preview(&fixture), None);
+#[tokio::test]
+async fn follows_current_run_and_preserves_source() {
+    let mut fixture = Fixture::new().await;
+    assert_eq!(preview(&fixture).await, None);
     let text = "进度".repeat(400);
-    fixture.completed(&["Earlier output", &text]);
-    let summary = preview(&fixture);
+    fixture.completed(&["Earlier output", &text]).await;
+    let summary = preview(&fixture).await;
     assert_eq!(summary, Some(text.chars().take(512).collect()));
-    history::rebuild(&mut fixture.database.connection).unwrap();
-    assert_eq!(preview(&fixture), summary);
-    let next = fixture.queued();
-    runs::start(&fixture.database.connection, next).unwrap();
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(preview(&fixture).await, summary);
+    let next = fixture.queued().await;
+    runs::start(&fixture.database.connection, next)
+        .await
+        .unwrap();
     runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
-    assert_eq!(preview(&fixture), None);
+    assert_eq!(preview(&fixture).await, None);
 }
 
-#[test]
-fn excludes_private_thoughts_and_user_text() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn excludes_private_thoughts_and_user_text() {
+    let mut fixture = Fixture::new().await;
     let public = message("assistant", "Checking the current workspace", false);
     let thought = message("assistant", "Private reasoning", true);
     let user = message("user", "User message", false);
-    fixture.append([public, thought, user]);
+    fixture.append([public, thought, user]).await;
     assert_eq!(
-        preview(&fixture).as_deref(),
+        preview(&fixture).await.as_deref(),
         Some("Checking the current workspace")
     );
 }
 
-fn preview(fixture: &Fixture) -> Option<String> {
+async fn preview(fixture: &Fixture) -> Option<String> {
     activity::previews(&fixture.database.connection, &[fixture.session])
+        .await
         .unwrap()
         .remove(0)
         .text

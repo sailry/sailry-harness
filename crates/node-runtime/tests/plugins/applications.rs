@@ -83,20 +83,24 @@ async fn refreshes_application_http() {
                 .code,
             ErrorCode::PermissionDenied
         );
-        let stored = || -> Vec<u8> {
-            rusqlite::Connection::open_with_flags(
-                node.profile().join("storage/node.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap()
-            .query_row(
-                "SELECT body FROM plugin_connections WHERE id=?1",
-                [row.id.to_string()],
-                |row| row.get(0),
-            )
+        let stored = async || -> Vec<u8> {
+            let id = row.id;
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    db.prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row([id.to_string()])
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap()
         };
-        let before = stored();
+        let before = stored().await;
         server.status.store(503, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(2100)).await;
         let failed = request("https://service.example.com/probe");
@@ -104,7 +108,7 @@ async fn refreshes_application_http() {
         assert!(!error.message.contains(issuer::SECRET));
         assert_eq!(client.execute(failed).await.unwrap_err(), error);
         assert_eq!(server.tokens.load(Ordering::SeqCst), 3);
-        assert_eq!(stored(), before);
+        assert_eq!(stored().await, before);
         server.status.store(200, Ordering::SeqCst);
         assert!(
             client

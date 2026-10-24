@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn page(
+pub(super) async fn page(
     db: &Connection,
     query: &catalog::Query,
     revision: u64,
@@ -13,19 +13,21 @@ pub(super) fn page(
     let mut more = false;
     let mut statement = db.prepare(
         "SELECT body FROM model_catalog WHERE id=?1 AND (?2 IS NULL OR provider=?2) ORDER BY provider",
-    ).map_err(storage_error)?;
+    ).await.map_err(storage_error)?;
     for id in ids
         .into_iter()
         .filter(|id| query.after.as_ref().is_none_or(|after| id > after))
     {
-        let rows = statement
-            .query_map(params![id, query.provider], |row| row.get::<_, Vec<u8>>(0))
+        let mut rows = statement
+            .query(params![id, query.provider.as_deref()])
+            .await
             .map_err(storage_error)?;
         let mut combined: Option<catalog::Model> = None;
         let mut seen = [false; 3];
-        for row in rows {
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
             let model = metadata::model(
-                &serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?,
+                &serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+                    .map_err(storage_error)?,
             )?;
             if let Some(current) = &mut combined {
                 merge(current, model, &mut seen);

@@ -151,7 +151,7 @@ async fn disconnects_credentials_retained_after_configuration_changes() {
         let package = info(execute(&client, install(worktree, 0)).await);
         let original = lifecycle::connect(&client, package.summary.reference()).await;
         let before: serde_json::Value =
-            serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
         let Output::Connection(changed) = execute(
             &client,
             Command::UpdateConnection {
@@ -173,7 +173,7 @@ async fn disconnects_credentials_retained_after_configuration_changes() {
         assert_eq!(changed.configured, ["client_secret"]);
         assert_eq!(changed.fields["client_id"], "changed-client");
         let saved: serde_json::Value =
-            serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
         assert!(saved["grant"].is_null());
         assert_eq!(saved["secrets"], before["secrets"]);
         let mut feed = client.subscribe_connections().await.unwrap();
@@ -201,7 +201,7 @@ async fn disconnects_credentials_retained_after_configuration_changes() {
         assert!(disconnected.configured.is_empty());
         assert!(!disconnected.can_disconnect);
         let saved: serde_json::Value =
-            serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
         assert!(saved["grant"].is_null());
         assert_eq!(saved["secrets"], json!({}));
         let public = serde_json::to_string(&(changed, snapshot, disconnected)).unwrap();
@@ -227,7 +227,7 @@ async fn projects_saved_credentials_independently_from_status() {
         let package = info(execute(&client, install(worktree, 0)).await);
         let row = lifecycle::connect(&client, package.summary.reference()).await;
         let original: serde_json::Value =
-            serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+            serde_json::from_slice(&lifecycle::stored(&node, row.id).await).unwrap();
         let profile = node.profile().to_owned();
         let node_id = node.id();
         node.shutdown().await.unwrap();
@@ -242,19 +242,23 @@ async fn projects_saved_credentials_independently_from_status() {
                     record["grant"] = serde_json::Value::Null;
                     record["secrets"] = json!({});
                 }
-                let database =
-                    rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+                let (database_handle, database) = crate::plugins::database_fixture::open(
+                    &(profile.join("storage/node.turso")),
+                    false,
+                )
+                .await;
                 database
                     .execute(
                         "UPDATE plugin_connections SET body=?1,revision=?2 WHERE id=?3",
-                        rusqlite::params![
+                        turso::params![
                             serde_json::to_vec(&record).unwrap(),
                             row.revision as i64,
                             row.id.to_string()
                         ],
                     )
+                    .await
                     .unwrap();
-                database.close().unwrap();
+                crate::plugins::database_fixture::close(database_handle, database).await;
                 let node = Node::start_empty(&profile).await.unwrap();
                 let client = Client::new(if remote {
                     controller.handle().remote(node.link().address())

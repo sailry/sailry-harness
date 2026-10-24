@@ -1,15 +1,19 @@
 use super::*;
 use sailry_protocol::notification::{Details, Draft, Kind};
 
-fn database() -> Connection {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch("CREATE TABLE notifications(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,body BLOB NOT NULL)").unwrap();
+async fn database() -> Connection {
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
+    db.execute_batch("CREATE TABLE counters(namespace TEXT PRIMARY KEY,value INTEGER NOT NULL CHECK(value>0)); CREATE TABLE notifications(sequence INTEGER PRIMARY KEY,id TEXT NOT NULL UNIQUE,body BLOB NOT NULL)").await.unwrap();
     db
 }
 
-fn publish(db: &Connection) -> Notice {
-    insert(
-        db,
+async fn publish(db: &Connection) -> Notice {
+    let transaction = db.unchecked_transaction().await.unwrap();
+    let notice = insert(
+        &transaction,
         "fixture".into(),
         Draft {
             title: "Completed task".into(),
@@ -23,19 +27,22 @@ fn publish(db: &Connection) -> Notice {
         },
         1000,
     )
-    .unwrap()
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+    notice
 }
 
-#[test]
-fn bulk_actions_preserve_unread_and_new_arrivals() {
-    let db = database();
-    let read = publish(&db);
-    let unread = publish(&db);
+#[tokio::test]
+async fn bulk_actions_preserve_unread_and_new_arrivals() {
+    let db = database().await;
+    let read = publish(&db).await;
+    let unread = publish(&db).await;
     let command = Command::MarkNotificationsRead { ids: vec![read.id] };
-    let (_, event) = execute(&db, &command, None).unwrap();
+    let (_, event) = execute(&db, &command, None).await.unwrap();
     assert_eq!(event, Some(Event::NotificationsRead { ids: vec![read.id] }));
-    assert_eq!(execute(&db, &command, None).unwrap().1, None);
-    let incoming = publish(&db);
+    assert_eq!(execute(&db, &command, None).await.unwrap().1, None);
+    let incoming = publish(&db).await;
     let (_, event) = execute(
         &db,
         &Command::DismissReadNotifications {
@@ -43,17 +50,18 @@ fn bulk_actions_preserve_unread_and_new_arrivals() {
         },
         None,
     )
+    .await
     .unwrap();
     assert_eq!(
         event,
         Some(Event::NotificationsDismissed { ids: vec![read.id] })
     );
-    assert_eq!(list(&db).unwrap(), vec![incoming, unread]);
+    assert_eq!(list(&db).await.unwrap(), vec![incoming, unread]);
 }
 
-#[test]
-fn bulk_commands_bound_the_captured_selection() {
-    let db = database();
+#[tokio::test]
+async fn bulk_commands_bound_the_captured_selection() {
+    let db = database().await;
     for command in [
         Command::MarkNotificationsRead {
             ids: vec![NotificationId::new(); LIMIT + 1],
@@ -63,7 +71,7 @@ fn bulk_commands_bound_the_captured_selection() {
         },
     ] {
         assert_eq!(
-            execute(&db, &command, None).unwrap_err().code,
+            execute(&db, &command, None).await.unwrap_err().code,
             ErrorCode::InvalidRequest
         );
     }

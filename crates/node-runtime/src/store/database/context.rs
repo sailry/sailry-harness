@@ -1,0 +1,172 @@
+//! Runtime facts outlive connections; each storage operation owns a short lease.
+use super::{Database, Handle, Lease, removal};
+use crate::{Error, store};
+use sailry_protocol::{NodeId, RequestId, WorktreeId};
+use std::{
+    collections::BTreeMap,
+    ops::Deref,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+
+pub(in crate::store) struct Facts {
+    pub node: NodeId,
+    pub profile: Option<PathBuf>,
+    pub feeds: store::agent::Feeds,
+    pub model_clients: Arc<crate::agent::model::registry::Registry>,
+    pub local_models: Option<Arc<crate::models::registry::Registry>>,
+    pub approvals: Mutex<store::agent::approvals::Waiting>,
+    pub questions: Mutex<store::agent::questions::Waiting>,
+    pub network_link: Mutex<Option<sailry_link::LinkHandle>>,
+    pub network_request: Mutex<Option<RequestId>>,
+    pub removals: Mutex<BTreeMap<WorktreeId, removal::Pending>>,
+    pub relocations: Mutex<BTreeMap<(NodeId, RequestId), Vec<PathBuf>>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub approval_commit: Mutex<Option<store::agent::approvals::fixture::Commit>>,
+}
+
+/// The existing Node owner retains handles and facts, never a live connection.
+pub(in crate::store) struct Storage {
+    pub handle: Arc<Handle>,
+    facts: Arc<Facts>,
+}
+
+impl Facts {
+    pub(super) fn new(node: NodeId, profile: Option<PathBuf>) -> Self {
+        Self {
+            node,
+            profile,
+            feeds: Default::default(),
+            model_clients: Default::default(),
+            local_models: None,
+            approvals: Default::default(),
+            questions: Default::default(),
+            network_link: Default::default(),
+            network_request: Default::default(),
+            removals: Default::default(),
+            relocations: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            approval_commit: Default::default(),
+        }
+    }
+}
+
+impl Storage {
+    pub(super) fn new(handle: Arc<Handle>, facts: Arc<Facts>) -> Self {
+        Self { handle, facts }
+    }
+
+    pub(in crate::store) async fn context(&self, readonly: bool) -> Result<Database, Error> {
+        let connection = self.handle.lease(readonly).await?;
+        Ok(Database::context(
+            self.handle.clone(),
+            self.facts.clone(),
+            connection,
+        ))
+    }
+
+    pub(in crate::store) async fn close(&self) -> Result<(), Error> {
+        drop(self.handle.pause().await?);
+        Ok(())
+    }
+}
+
+impl Deref for Storage {
+    type Target = Facts;
+    fn deref(&self) -> &Facts {
+        &self.facts
+    }
+}
+
+impl Database {
+    pub(super) fn context(handle: Arc<Handle>, facts: Arc<Facts>, connection: Lease) -> Self {
+        Self {
+            path: handle.path().to_owned(),
+            handle,
+            facts,
+            connection,
+        }
+    }
+
+    pub(in crate::store) fn configure(
+        &mut self,
+        feeds: store::agent::Feeds,
+        model_clients: Arc<crate::agent::model::registry::Registry>,
+    ) -> Result<(), sailry_protocol::Fault> {
+        let facts = Arc::get_mut(&mut self.facts)
+            .ok_or_else(|| super::storage_error("storage facts are already shared"))?;
+        facts.feeds = feeds;
+        facts.model_clients = model_clients;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(in crate::store) fn set_profile(
+        &mut self,
+        profile: Option<PathBuf>,
+    ) -> Result<(), sailry_protocol::Fault> {
+        Arc::get_mut(&mut self.facts)
+            .ok_or_else(|| super::storage_error("storage facts are already shared"))?
+            .profile = profile;
+        Ok(())
+    }
+
+    pub(in crate::store) fn into_storage(self) -> Storage {
+        drop(self.connection);
+        Storage::new(self.handle, self.facts)
+    }
+}
+
+impl Deref for Database {
+    type Target = Facts;
+    fn deref(&self) -> &Facts {
+        &self.facts
+    }
+}
+
+impl Storage {
+    /// Rehearse current plugin connection changes on a closed private snapshot.
+    pub(in crate::store) async fn prepare_plugin(
+        &self,
+        command: &sailry_protocol::Command,
+        output: &sailry_protocol::Output,
+    ) -> Result<(), Error> {
+        let sailry_protocol::Output::Plugin(info) = output else {
+            return Ok(());
+        };
+        let needs_update = {
+            let connection = self.handle.lease(true).await?;
+            store::plugins::connectors::needs_migration(connection.connection(), info).await?
+        };
+        if !needs_update {
+            return Ok(());
+        }
+        let exclusive = self.handle.exclusive().await?;
+        if !store::plugins::connectors::needs_migration(exclusive.connection(), info).await? {
+            return Ok(());
+        }
+        let closed = exclusive.close().await?;
+        let prepared = async {
+            let preview = super::schema::backup::preview(closed.path())?;
+            {
+                let database = super::engine(preview.path()).await?;
+                let mut connection = super::connect(&database).await?;
+                let transaction = connection.transaction().await?;
+                let mut result = Ok(output.clone());
+                store::plugins::finish(&transaction, self.profile.as_deref(), command, &mut result)
+                    .await?;
+                result?;
+                super::validation::stored(&transaction).await?;
+                super::schema::references(&transaction).await?;
+                transaction.commit().await?;
+                super::driver::checkpoint(&connection).await?;
+            }
+            super::schema::backup::save(closed.path())?;
+            Ok::<_, Error>(())
+        }
+        .await;
+        let reopened = closed.reopen().await;
+        reopened?;
+        prepared
+    }
+}

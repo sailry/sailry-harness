@@ -6,13 +6,13 @@ use sailry_protocol::{Command, ErrorCode, Fault, Request, plugin::Action};
 use crate::store::{commands, database::Database, sessions};
 
 impl Database {
-    pub(in crate::store) fn check_plugin(
+    pub(in crate::store) async fn check_plugin(
         &self,
         caller: sailry_protocol::NodeId,
         request: &Request,
     ) -> Result<(), Fault> {
         if matches!(request.command, Command::PluginTransaction { .. }) {
-            return super::transaction::check(self, caller, request);
+            return super::transaction::check(self, caller, request).await;
         }
         let Some(context) = &request.plugin else {
             return Ok(());
@@ -33,10 +33,10 @@ impl Database {
             context.surface,
             sailry_protocol::plugin::desktop::Surface::Card(_)
         ) {
-            return super::cards::check(&self.connection, self.node, caller, request);
+            return super::cards::check(&self.connection, self.node, caller, request).await;
         }
-        if super::connectors::check(&self.connection, request)? {
-            let package = self.plugin_package(caller, request)?;
+        if super::connectors::check(&self.connection, request).await? {
+            let package = self.plugin_package(caller, request).await?;
             if !package.summary.enabled || package.summary.reference() != context.package {
                 return Err(denied("connector package is unavailable or changed"));
             }
@@ -56,9 +56,10 @@ impl Database {
                 | Command::InstallLocalModel { .. }
                 | Command::DeleteLocalModel { .. }
         ) || matches!(request.command, Command::StartCodeServer { .. })
-            && super::super::code::startup_action(self, request)? == Action::ManageCode)
+            && super::super::code::startup_action(self, request).await? == Action::ManageCode)
             && !context.controller_settings()
-            && !super::required(&self.connection, &context.package.name)?
+            && !super::required(&self.connection, &context.package.name)
+                .await?
                 .summary
                 .enabled
         {
@@ -79,16 +80,18 @@ impl Database {
                 Command::WritePluginConversationValue { .. }
                     | Command::RemovePluginConversationValue { .. }
             ))
-            && !super::required(&self.connection, &context.package.name)?
+            && !super::required(&self.connection, &context.package.name)
+                .await?
                 .summary
                 .enabled
         {
             return Err(Fault::new(ErrorCode::NotConfigured, "plugin is disabled"));
         }
-        let connection = super::connections::action(&self.connection, context, request)?;
+        let connection = super::connections::action(&self.connection, context, request).await?;
         if connection.is_some()
             && context.turn.is_some()
-            && !super::required(&self.connection, &context.package.name)?
+            && !super::required(&self.connection, &context.package.name)
+                .await?
                 .summary
                 .enabled
         {
@@ -110,12 +113,10 @@ impl Database {
                 | Command::ListArtifactRevisions { id, session, .. } => (
                     Some(Action::ReadArtifacts),
                     None,
-                    Some(super::super::artifacts::scope(
-                        &self.connection,
-                        request,
-                        *id,
-                        *session,
-                    )?),
+                    Some(
+                        super::super::artifacts::scope(&self.connection, request, *id, *session)
+                            .await?,
+                    ),
                 ),
                 Command::QueryKnowledge(_)
                 | Command::ReadKnowledgeCitation(_)
@@ -166,11 +167,11 @@ impl Database {
                             && context.surface
                                 == sailry_protocol::plugin::desktop::Surface::Settings) =>
                 {
-                    super::super::roles::approvals::check(&self.connection, request)?;
+                    super::super::roles::approvals::check(&self.connection, request).await?;
                     (Some(Action::WriteRoles), None, None)
                 }
                 Command::SetSessionRoles { session, .. } if context.turn.is_some() => {
-                    super::super::roles::approvals::check(&self.connection, request)?;
+                    super::super::roles::approvals::check(&self.connection, request).await?;
                     (Some(Action::WriteRoles), context.worktree, Some(*session))
                 }
                 Command::ReadPluginSecret { .. }
@@ -247,7 +248,8 @@ impl Database {
                             None,
                             config,
                             Some(&context.package),
-                        )?;
+                        )
+                        .await?;
                     }
                     if context.worktree.is_some() && context.worktree != draft.worktree {
                         return Err(denied("session creation is outside the captured worktree"));
@@ -336,7 +338,8 @@ impl Database {
                         request.command,
                         Command::InstallLocalModel { .. } | Command::DeleteLocalModel { .. }
                     ) {
-                        super::super::local_models::approvals::check(&self.connection, request)?;
+                        super::super::local_models::approvals::check(&self.connection, request)
+                            .await?;
                     }
                     (Some(Action::InstallModels), None, None)
                 }
@@ -393,7 +396,7 @@ impl Database {
                     (Some(Action::ManageCode), context.worktree, context.session)
                 }
                 Command::StartCodeServer { startup } if context.turn.is_some() => (
-                    Some(super::super::code::startup_action(self, request)?),
+                    Some(super::super::code::startup_action(self, request).await?),
                     Some(startup.worktree),
                     context.session,
                 ),
@@ -464,7 +467,8 @@ impl Database {
                     if context.turn.is_some_and(|captured| captured != *turn) {
                         return Err(denied("command is outside the captured turn"));
                     }
-                    let run = super::super::agent::visible_run(&self.connection, session, *turn)?;
+                    let run =
+                        super::super::agent::visible_run(&self.connection, session, *turn).await?;
                     if run.origin.is_some() {
                         return Err(denied("plugin turn belongs to another session"));
                     }
@@ -488,7 +492,8 @@ impl Database {
                     (Some(Action::ControlTerminals), Some(launch.worktree), None)
                 }
                 Command::CloseTerminal { worktree, terminal } => {
-                    let info = super::super::terminals::required(&self.connection, *terminal)?;
+                    let info =
+                        super::super::terminals::required(&self.connection, *terminal).await?;
                     if info.worktree != Some(*worktree) {
                         return Err(denied("terminal belongs to another worktree"));
                     }
@@ -500,7 +505,8 @@ impl Database {
                 | Command::InputTerminal { terminal, .. }
                 | Command::ResizeTerminal { terminal, .. }
                 | Command::SetTerminalAppearance { terminal, .. } => {
-                    let info = super::super::terminals::required(&self.connection, *terminal)?;
+                    let info =
+                        super::super::terminals::required(&self.connection, *terminal).await?;
                     if info.access == Some(sailry_protocol::process::Access::Unrestricted)
                         && (matches!(request.command, Command::InputTerminal { .. })
                             || matches!(request.command, Command::OpenTerminal { .. })
@@ -527,11 +533,9 @@ impl Database {
                 | Command::ReadGitContext { worktree, .. }
                 | Command::ReadGitDiff { worktree, .. } => (
                     Some(Action::ReadGit),
-                    Some(super::repository::read_scope(
-                        &self.connection,
-                        context,
-                        *worktree,
-                    )?),
+                    Some(
+                        super::repository::read_scope(&self.connection, context, *worktree).await?,
+                    ),
                     None,
                 ),
                 Command::ListGitBranches { worktree }
@@ -562,11 +566,10 @@ impl Database {
                 | Command::CreateWorktree { .. }
                 | Command::CreateManagedWorktree { .. }
                 | Command::RemoveWorktree { .. } => (
-                    Some(super::repository::action(
-                        &self.connection,
-                        context,
-                        &request.command,
-                    )?),
+                    Some(
+                        super::repository::action(&self.connection, context, &request.command)
+                            .await?,
+                    ),
                     context.worktree,
                     None,
                 ),
@@ -582,12 +585,13 @@ impl Database {
                     let parent = context
                         .turn
                         .ok_or_else(|| denied("child guidance requires a parent turn"))?;
-                    let run = crate::store::agent::runs::get(&self.connection, *recipient)?;
+                    let run = crate::store::agent::runs::get(&self.connection, *recipient).await?;
                     let owned = crate::store::agent::delegation::owned(
                         &self.connection,
                         parent,
                         run.session,
-                    )?;
+                    )
+                    .await?;
                     if owned.turn != *recipient {
                         return Err(denied("child guidance recipient is no longer current"));
                     }
@@ -614,7 +618,8 @@ impl Database {
                     let session = context
                         .session
                         .ok_or_else(|| denied("plugin has no session scope"))?;
-                    let run = super::super::agent::visible_run(&self.connection, session, *turn)?;
+                    let run =
+                        super::super::agent::visible_run(&self.connection, session, *turn).await?;
                     if run.origin.is_some() {
                         return Err(denied("plugin turn belongs to another session"));
                     }
@@ -633,7 +638,7 @@ impl Database {
                     if *package == context.package
                         && (context.turn.is_some() || context.invocation.is_some()) =>
                 {
-                    let package = self.plugin_package(caller, request)?;
+                    let package = self.plugin_package(caller, request).await?;
                     let declaration = package
                         .extension
                         .as_ref()
@@ -671,10 +676,10 @@ impl Database {
             ));
         }
         if let Some(worktree) = context.worktree {
-            self.worktree_root(worktree)?;
+            self.worktree_root(worktree).await?;
         }
         if let Some(session) = context.session {
-            let session = commands::session(&self.connection, session)?;
+            let session = commands::session(&self.connection, session).await?;
             if Some(session.worktree) != context.worktree {
                 return Err(denied("plugin session belongs to another worktree"));
             }
@@ -687,14 +692,15 @@ impl Database {
                 sessions::writable(&session)?;
             }
         }
-        let package = self.plugin_package(caller, request)?;
+        let package = self.plugin_package(caller, request).await?;
         if let Some(turn) = context.turn {
             crate::store::agent::plugins::check_action(
                 &self.connection,
                 turn,
                 &request.command,
                 action.as_ref(),
-            )?;
+            )
+            .await?;
         }
         if context.surface == sailry_protocol::plugin::desktop::Surface::Permissions {
             let extension = package
@@ -827,7 +833,7 @@ impl Database {
         Ok(())
     }
 
-    pub(in crate::store) fn plugin_package(
+    pub(in crate::store) async fn plugin_package(
         &self,
         caller: sailry_protocol::NodeId,
         request: &Request,
@@ -839,17 +845,18 @@ impl Database {
         if let Command::CancelPluginCall { request } = &request.command {
             let mut running = context.clone();
             running.invocation = Some(*request);
-            super::invocations::package(&self.connection, caller, &running)
+            super::invocations::package(&self.connection, caller, &running).await
         } else if context.invocation.is_some() {
-            super::invocations::package(&self.connection, caller, context)
+            super::invocations::package(&self.connection, caller, context).await
         } else if context.turn.is_some() {
-            crate::store::agent::plugin_package(&self.connection, context)
+            crate::store::agent::plugin_package(&self.connection, context).await
         } else if let Some(info) =
-            crate::store::dispatch::jobs::package(&self.connection, self.node, caller, request)?
+            crate::store::dispatch::jobs::package(&self.connection, self.node, caller, request)
+                .await?
         {
             Ok(info)
         } else {
-            super::required(&self.connection, &context.package.name)
+            super::required(&self.connection, &context.package.name).await
         }
     }
 }

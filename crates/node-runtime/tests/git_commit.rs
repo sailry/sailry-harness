@@ -363,8 +363,21 @@ async fn restart_after_result_loss() {
         .request(&fixture.client, "Published once", false)
         .await;
     let profile = fixture.temp.path().join("node");
-    let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    database.execute_batch("CREATE TRIGGER lose_commit_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_commit_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
     assert_eq!(
         fixture
             .client
@@ -375,10 +388,21 @@ async fn restart_after_result_loss() {
         ErrorCode::OutcomeUnknown
     );
     let head = fixture.repository.head().unwrap().target().unwrap();
-    database
-        .execute_batch("DROP TRIGGER lose_commit_result")
-        .unwrap();
-    drop(database);
+    {
+        let sql = ("DROP TRIGGER lose_commit_result").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.node.shutdown().await.unwrap();
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());

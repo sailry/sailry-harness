@@ -200,6 +200,13 @@ async fn confines_both_roots() {
                 ErrorCode::Conflict,
             ),
             (
+                enclosing,
+                worktree,
+                "node/storage/node.turso",
+                "copy",
+                ErrorCode::Conflict,
+            ),
+            (
                 fixture.worktree,
                 enclosing,
                 "file",
@@ -279,8 +286,21 @@ async fn preserves_lost_completion() {
     let fixture = Fixture::empty().await;
     let (destination, worktree) = destination(&fixture).await;
     let profile = fixture._temp.path().join("node");
-    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
     let mut requests = Vec::new();
     for (index, client) in fixture.clients().into_iter().enumerate() {
         let from = format!("source-{index}");
@@ -302,8 +322,21 @@ async fn preserves_lost_completion() {
         );
         requests.push(request);
     }
-    db.execute_batch("DROP TRIGGER lose_result").unwrap();
-    drop(db);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.node.shutdown().await.unwrap();
     let node = Node::start_empty(profile).await.unwrap();
     for (index, client) in [

@@ -1,14 +1,16 @@
 use super::*;
 use sailry_protocol::tool::Operation;
 
-fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) {
-    let mut fixture = Fixture::with_package(Permission::Ask, mode, Some("delegation"));
+async fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) {
+    let mut fixture = Fixture::with_package(Permission::Ask, mode, Some("delegation")).await;
     let owner = super::super::super::plugins::read(&fixture.database.connection, fixture.turn)
+        .await
         .unwrap()
         .into_iter()
         .find(|package| package.name == "delegation")
         .unwrap();
     let role = crate::store::roles::list(&fixture.database.connection)
+        .await
         .unwrap()
         .remove(0);
     let (name, command) = match operation {
@@ -61,6 +63,7 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let binding = Binding {
         owner,
@@ -70,16 +73,17 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
     (fixture, binding, command)
 }
 
-#[test]
-fn requires_exact_claimed_commands() {
+#[tokio::test]
+async fn requires_exact_claimed_commands() {
     for operation in [
         Operation::SaveRole,
         Operation::RemoveRole,
         Operation::ApplyRoles,
     ] {
-        let (mut fixture, binding, command) = fixture(operation, WorkMode::Code);
-        let run =
-            super::super::super::calls::active(&fixture.database.connection, fixture.turn).unwrap();
+        let (mut fixture, binding, command) = fixture(operation, WorkMode::Code).await;
+        let run = super::super::super::calls::active(&fixture.database.connection, fixture.turn)
+            .await
+            .unwrap();
         let context = plugin::Context {
             invocation: None,
             turn: Some(fixture.turn),
@@ -91,6 +95,7 @@ fn requires_exact_claimed_commands() {
         let mut request = Request::new(fixture.database.node, command.clone()).with_plugin(context);
         assert_eq!(
             crate::store::roles::approvals::check(&fixture.database.connection, &request)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -102,17 +107,21 @@ fn requires_exact_claimed_commands() {
             Some(&binding),
             &fixture.events,
         )
+        .await
         .unwrap();
-        fixture.approve(approval.id);
+        fixture.approve(approval.id).await;
         request.id = authorize(
             &mut fixture.database.connection,
             fixture.turn,
             &fixture.request,
             Some(&command),
         )
+        .await
         .unwrap();
         assert!(
-            crate::store::roles::approvals::check(&fixture.database.connection, &request).is_ok()
+            crate::store::roles::approvals::check(&fixture.database.connection, &request)
+                .await
+                .is_ok()
         );
         let mut changed = request.clone();
         match &mut changed.command {
@@ -127,6 +136,7 @@ fn requires_exact_claimed_commands() {
         }
         assert_eq!(
             crate::store::roles::approvals::check(&fixture.database.connection, &changed)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -135,6 +145,7 @@ fn requires_exact_claimed_commands() {
         changed.id = RequestId::new();
         assert_eq!(
             crate::store::roles::approvals::check(&fixture.database.connection, &changed)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -151,6 +162,7 @@ fn requires_exact_claimed_commands() {
             }
             assert_eq!(
                 crate::store::roles::approvals::check(&fixture.database.connection, &changed)
+                    .await
                     .unwrap_err()
                     .code,
                 ErrorCode::PermissionDenied
@@ -159,14 +171,14 @@ fn requires_exact_claimed_commands() {
     }
 }
 
-#[test]
-fn planning_denies_mutations() {
+#[tokio::test]
+async fn planning_denies_mutations() {
     for operation in [
         Operation::SaveRole,
         Operation::RemoveRole,
         Operation::ApplyRoles,
     ] {
-        let (mut fixture, binding, _) = fixture(operation, WorkMode::Plan);
+        let (mut fixture, binding, _) = fixture(operation, WorkMode::Plan).await;
         assert_eq!(
             begin(
                 &mut fixture.database,
@@ -175,6 +187,7 @@ fn planning_denies_mutations() {
                 Some(&binding),
                 &fixture.events
             )
+            .await
             .unwrap_err()
             .code,
             ErrorCode::PermissionDenied

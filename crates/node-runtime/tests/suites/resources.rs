@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 #[path = "../agent_support/mod.rs"]
 mod agent_support;
+#[path = "../support/database.rs"]
+mod database_fixture;
 #[path = "../support/files.rs"]
 mod file_fixture;
 

@@ -2,7 +2,7 @@
 use super::*;
 use std::collections::BTreeSet;
 
-pub(in crate::store) fn execute(
+pub(in crate::store) async fn execute(
     db: &Connection,
     request: &Request,
 ) -> Result<(Output, Vec<Event>), Fault> {
@@ -18,24 +18,22 @@ pub(in crate::store) fn execute(
         ));
     }
     let mut ids = BTreeSet::new();
-    let sessions = expected
-        .iter()
-        .map(|expected| {
-            if !ids.insert(expected.session) {
-                return Err(Fault::invalid("session batch contains duplicate sessions"));
-            }
-            let session = commands::session(db, expected.session)?;
-            writable(&session)?;
-            commands::check_revision(session.revision, expected.revision)?;
-            Ok(session)
-        })
-        .collect::<Result<Vec<_>, Fault>>()?;
+    let mut sessions = Vec::with_capacity(expected.len());
+    for expected in expected {
+        if !ids.insert(expected.session) {
+            return Err(Fault::invalid("session batch contains duplicate sessions"));
+        }
+        let session = commands::session(db, expected.session).await?;
+        writable(&session)?;
+        commands::check_revision(session.revision, expected.revision)?;
+        sessions.push(session);
+    }
     let mut events = Vec::new();
     let mut archived = Vec::new();
     let mut removed = Vec::new();
     for session in sessions {
         if removing {
-            let (output, event) = remove(db, session.id, session.revision)?;
+            let (output, event) = remove(db, session.id, session.revision).await?;
             let Output::SessionsRemoved(ids) = output else {
                 unreachable!("session removal returns its owned sessions")
             };
@@ -44,7 +42,7 @@ pub(in crate::store) fn execute(
         } else if session.archived {
             archived.push(session);
         } else {
-            let (output, event) = archive(db, session.id, session.revision, true)?;
+            let (output, event) = archive(db, session.id, session.revision, true).await?;
             let Output::Session(session) = output else {
                 unreachable!("session archival returns its revision")
             };

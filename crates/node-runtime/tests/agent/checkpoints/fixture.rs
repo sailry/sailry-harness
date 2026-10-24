@@ -122,11 +122,24 @@ impl Fixture {
         })
     }
 
-    pub fn database(&self) -> rusqlite::Connection {
-        rusqlite::Connection::open(self.directory.path().join("node/storage/node.sqlite3")).unwrap()
-    }
-
-    pub fn counts(&self) -> (i64, i64) {
-        self.database().query_row("SELECT (SELECT count(*) FROM agent_events),(SELECT count(*) FROM file_checkpoints)", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap()
+    pub async fn counts(&self) -> (i64, i64) {
+        self.node
+            .with_storage(|database| {
+                Box::pin(async move {
+                    let row = database
+                        .prepare("SELECT (SELECT count(*) FROM agent_events),(SELECT count(*) FROM file_checkpoints)")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(())
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    Ok((
+                        row.get(0).map_err(crate::database_fixture::fault)?,
+                        row.get(1).map_err(crate::database_fixture::fault)?,
+                    ))
+                })
+            })
+            .await
+            .unwrap()
     }
 }

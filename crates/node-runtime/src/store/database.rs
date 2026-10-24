@@ -1,84 +1,84 @@
-use std::{path::Path, time::Duration};
+use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sailry_link::{Admission, Response};
 use sailry_protocol::*;
 use tokio::sync::{broadcast, oneshot};
+use turso::{Connection, params};
 
 use super::{commands, external::Work, mutations};
 use crate::Error;
 
+mod context;
+mod driver;
 mod relocation;
 mod removal;
+pub(in crate::store) use context::{Facts, Storage};
+pub(crate) use driver::{Exclusive, Handle, Lease, connect, open as engine};
+pub(in crate::store) mod counters;
 pub(super) mod schema;
+mod startup;
 pub(super) mod validation;
 
 const APPLICATION_ID: i64 = 0x5341_494c;
 
 pub(super) struct Database {
-    pub(super) connection: Connection,
-    pub(super) node: NodeId,
-    pub(super) feeds: super::agent::Feeds,
-    pub(super) model_clients: std::sync::Arc<crate::agent::model::registry::Registry>,
-    pub(super) approvals: super::agent::approvals::Waiting,
-    #[cfg(any(test, feature = "test-support"))]
-    pub(super) approval_commit: Option<super::agent::approvals::fixture::Commit>,
-    pub(super) questions: super::agent::questions::Waiting,
-    pub(super) profile: Option<std::path::PathBuf>,
-    pub(super) network_link: Option<sailry_link::LinkHandle>,
-    pub(super) network_request: Option<RequestId>,
-    local_models: Option<std::sync::Arc<crate::models::registry::Registry>>,
-    removals: std::collections::BTreeMap<WorktreeId, removal::Pending>,
-    relocations: std::collections::BTreeMap<(NodeId, RequestId), Vec<std::path::PathBuf>>,
+    pub(super) connection: Lease,
+    pub(super) handle: std::sync::Arc<Handle>,
+    pub(super) path: std::path::PathBuf,
+    facts: std::sync::Arc<Facts>,
 }
 
 impl Database {
-    pub(super) fn models(
+    pub(super) async fn models(
         &mut self,
         registry: std::sync::Arc<crate::models::registry::Registry>,
     ) -> Result<(), Fault> {
-        let catalog = super::local_models::read(&self.connection)?;
+        let catalog = super::local_models::read(&self.connection).await?;
         let prepared = registry.prepare(catalog.settings, catalog.definitions)?;
         registry.apply(prepared);
-        self.local_models = Some(registry);
+        std::sync::Arc::get_mut(&mut self.facts)
+            .ok_or_else(|| storage_error("model registry is already shared"))?
+            .local_models = Some(registry);
         Ok(())
     }
 
-    pub(super) fn worktree_root(&self, id: WorktreeId) -> Result<std::path::PathBuf, Fault> {
+    pub(super) async fn worktree_root(&self, id: WorktreeId) -> Result<std::path::PathBuf, Fault> {
         self.check_removing(id)?;
-        let path: Option<String> = self
+        let row = self
             .connection
-            .query_row(
-                "SELECT path FROM worktrees WHERE id=?1",
-                [id.to_string()],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(storage_error)?;
-        let root = path.map(std::path::PathBuf::from).ok_or_else(|| {
-            Fault::new(ErrorCode::NotFound, "worktree does not exist on this Node")
-        })?;
-        super::worktrees::present(&self.connection, id)?;
-        super::worktrees::materialize_session(
-            &self.connection,
-            self.profile.as_deref(),
-            id,
-            &root,
-        )?;
+            .prepare("SELECT path FROM worktrees WHERE id=?1")
+            .await
+            .map_err(storage_error)?
+            .query_row([id.to_string()])
+            .await;
+        let root = match row {
+            Ok(row) => std::path::PathBuf::from(row.get::<String>(0).map_err(storage_error)?),
+            Err(turso::Error::QueryReturnedNoRows) => {
+                return Err(Fault::new(
+                    ErrorCode::NotFound,
+                    "worktree does not exist on this Node",
+                ));
+            }
+            Err(error) => return Err(storage_error(error)),
+        };
+        super::worktrees::present(&self.connection, id).await?;
+        super::worktrees::materialize_session(&self.connection, self.profile.as_deref(), id, &root)
+            .await?;
         Ok(root)
     }
 
-    pub(super) fn resolve_credential(
+    pub(super) async fn resolve_credential(
         &self,
         reference: &CredentialRef,
         provider: ProviderId,
         authentication: Authentication,
     ) -> Result<Secret, Fault> {
         self.credential(reference, provider, authentication)
+            .await
             .map(|(_, secret)| secret)
     }
 
-    pub(super) fn credential(
+    pub(super) async fn credential(
         &self,
         reference: &CredentialRef,
         provider: ProviderId,
@@ -96,57 +96,61 @@ impl Database {
             provider,
             authentication,
         )
+        .await
     }
 
-    pub(super) fn addresses(&self) -> Result<Vec<sailry_link::EndpointAddr>, Fault> {
-        let mut query = self
+    pub(super) async fn addresses(&self) -> Result<Vec<sailry_link::EndpointAddr>, Fault> {
+        let mut rows = self
             .connection
-            .prepare("SELECT address FROM link_addresses ORDER BY identity")
+            .query("SELECT address FROM link_addresses ORDER BY identity", ())
+            .await
             .map_err(storage_error)?;
-        query
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(storage_error)?
-            .map(|row| {
-                serde_json::from_str(&row.map_err(storage_error)?)
-                    .map_err(|_| storage_error("invalid peer address"))
-            })
-            .collect()
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let body: String = row.get(0).map_err(storage_error)?;
+            values.push(
+                serde_json::from_str(&body).map_err(|_| storage_error("invalid peer address"))?,
+            );
+        }
+        Ok(values)
     }
 
-    pub(super) fn remember(&self, address: sailry_link::EndpointAddr) -> Result<(), Fault> {
+    pub(super) async fn remember(&self, address: sailry_link::EndpointAddr) -> Result<(), Fault> {
         let body = serde_json::to_string(&address).map_err(storage_error)?;
         if body.len() > 8192 || address.addrs.len() > 16 {
             return Err(Fault::invalid("peer address exceeds limits"));
         }
-        self.connection.execute("INSERT INTO link_addresses(identity,address) VALUES(?1,?2) ON CONFLICT(identity) DO UPDATE SET address=excluded.address", params![&address.id.as_bytes()[..], body]).map_err(storage_error)?;
+        self.connection.execute("INSERT INTO link_addresses(identity,address) VALUES(?1,?2) ON CONFLICT(identity) DO UPDATE SET address=excluded.address", params![&address.id.as_bytes()[..], body]).await.map_err(storage_error)?;
         Ok(())
     }
-    pub(super) fn peers(&self) -> Result<Vec<NodeId>, Fault> {
-        let mut query = self
+
+    pub(super) async fn peers(&self) -> Result<Vec<NodeId>, Fault> {
+        let mut rows = self
             .connection
-            .prepare("SELECT identity FROM link_peers ORDER BY identity")
+            .query("SELECT identity FROM link_peers ORDER BY identity", ())
+            .await
             .map_err(storage_error)?;
-        query
-            .query_map([], |row| row.get::<_, Vec<u8>>(0))
-            .map_err(storage_error)?
-            .map(|row| {
-                let bytes = row.map_err(storage_error)?;
-                Ok(NodeId(
-                    bytes
-                        .try_into()
-                        .map_err(|_| storage_error("invalid peer identity"))?,
-                ))
-            })
-            .collect()
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let bytes: [u8; 32] = row.get(0).map_err(storage_error)?;
+            values.push(NodeId(bytes));
+        }
+        Ok(values)
     }
 
-    pub(super) fn set_trust(&self, peer: NodeId, trusted: bool) -> Result<(), Fault> {
+    pub(super) async fn set_trust(&self, peer: NodeId, trusted: bool) -> Result<(), Fault> {
         if trusted {
             let count: i64 = self
                 .connection
-                .query_row("SELECT count(*) FROM link_peers", [], |row| row.get(0))
+                .prepare("SELECT count(*) FROM link_peers")
+                .await
+                .map_err(storage_error)?
+                .query_row(())
+                .await
+                .map_err(storage_error)?
+                .get(0)
                 .map_err(storage_error)?;
-            if count >= 128 && !self.peers()?.contains(&peer) {
+            if count >= 128 && !self.peers().await?.contains(&peer) {
                 return Err(Fault::new(
                     ErrorCode::Busy,
                     "paired device capacity exhausted",
@@ -157,142 +161,51 @@ impl Database {
                     "INSERT OR IGNORE INTO link_peers(identity) VALUES(?1)",
                     [&peer.0[..]],
                 )
+                .await
                 .map_err(storage_error)?;
         } else {
             self.connection
                 .execute("DELETE FROM link_peers WHERE identity=?1", [&peer.0[..]])
+                .await
                 .map_err(storage_error)?;
         }
         Ok(())
     }
 
     #[cfg(test)]
-    pub(super) fn open(
+    pub(super) async fn open(
         path: &Path,
         node: NodeId,
         profile: Option<std::path::PathBuf>,
     ) -> Result<Self, Error> {
-        Self::open_with_plugins(path, node, profile, None)
+        Self::open_with_plugins(path, node, profile, None).await
     }
 
-    pub(super) fn open_with_plugins(
-        path: &Path,
+    pub(super) fn open_with_plugins<'a>(
+        path: &'a Path,
         node: NodeId,
         profile: Option<std::path::PathBuf>,
-        plugins: Option<&crate::plugins::Host>,
-    ) -> Result<Self, Error> {
-        #[cfg(windows)]
-        crate::profile::windows::prepare_database(path)?;
-        if let Ok(metadata) = path.symlink_metadata() {
-            if !metadata.is_file() || metadata.is_symlink() {
-                return Err(Error::InvalidProfile {
-                    path: path.to_owned(),
-                    reason: "database must be a regular file",
-                });
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::MetadataExt;
-                if metadata.nlink() != 1 {
-                    return Err(Error::InvalidProfile {
-                        path: path.to_owned(),
-                        reason: "database must not be hard-linked",
-                    });
-                }
-            }
-        }
-        let mut connection = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE
-                | OpenFlags::SQLITE_OPEN_CREATE
-                | OpenFlags::SQLITE_OPEN_NO_MUTEX
-                | OpenFlags::SQLITE_OPEN_NOFOLLOW,
-        )?;
-        connection.busy_timeout(Duration::from_secs(1))?;
-        let schema = schema::prepare(&connection, path, node, plugins)?;
-        connection.pragma_update(None, "journal_mode", "WAL")?;
-        connection.pragma_update(None, "synchronous", "FULL")?;
-        connection.pragma_update(None, "foreign_keys", true)?;
-        let transaction = connection.transaction()?;
-        schema.initialize(&transaction)?;
-        transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
-        transaction.pragma_update(None, "user_version", 1)?;
-        let stored: Option<Vec<u8>> = transaction
-            .query_row("SELECT identity FROM node WHERE singleton=1", [], |row| {
-                row.get(0)
-            })
-            .optional()?;
-        if let Some(stored) = stored {
-            if stored != node.0 {
-                return Err(Error::Worker(
-                    "Node identity does not match its database".into(),
-                ));
-            }
-        } else {
-            transaction.execute(
-                "INSERT INTO node(singleton,identity) VALUES(1,?1)",
-                [&node.0[..]],
-            )?;
-        }
-        schema.plugins(&transaction)?;
-        super::plugins::connectors::login::recover(&transaction)
-            .map_err(|error| Error::Worker(error.message))?;
-        // An admission with no committed result is uncertain. Never replay it automatically.
-        transaction.execute(
-            "UPDATE requests SET status='unknown' WHERE status='admitted'",
-            [],
-        )?;
-        super::agent::recover(&transaction).map_err(|error| Error::Worker(error.to_string()))?;
-        super::dispatch::jobs::recover(&transaction, node)
-            .map_err(|error| Error::Worker(error.to_string()))?;
-        for mut info in super::terminals::list(&transaction)
-            .map_err(|error| Error::Worker(error.to_string()))?
-        {
-            if info.status == terminal::Status::Running {
-                info.status = terminal::Status::Stopped;
-                info.owner = None;
-                info.revision += 1;
-                if let Some(event) = super::terminals::record(&transaction, &info)
-                    .map_err(|error| Error::Worker(error.to_string()))?
-                {
-                    transaction.execute(
-                        "INSERT INTO events(body) VALUES(?1)",
-                        [encode(&event).map_err(|error| Error::Worker(error.to_string()))?],
-                    )?;
-                }
-            }
-        }
-        transaction.commit()?;
-        #[cfg(windows)]
-        crate::profile::windows::validate_database(path)?;
-        Ok(Self {
-            connection,
-            node,
-            removals: Default::default(),
-            profile,
-            relocations: Default::default(),
-            network_link: None,
-            network_request: None,
-            feeds: Default::default(),
-            model_clients: Default::default(),
-            local_models: None,
-            approvals: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            approval_commit: None,
-            questions: Default::default(),
+        plugins: Option<&'a crate::plugins::Host>,
+    ) -> sailry_link::Pending<'a, Result<Self, Error>> {
+        Box::pin(async move {
+            let (database, connection) = startup::open(path, node, plugins).await?;
+            drop(connection);
+            let handle = std::sync::Arc::new(Handle::new(path.to_owned(), database));
+            let connection = handle.lease(false).await?;
+            Ok(Self::context(
+                handle,
+                std::sync::Arc::new(Facts::new(node, profile)),
+                connection,
+            ))
         })
     }
 
-    pub(super) fn close(self) -> Result<(), Error> {
-        self.connection
-            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
-        self.connection
-            .close()
-            .map_err(|(_, error)| Error::Database(error))
+    pub(super) async fn close(self) -> Result<(), Error> {
+        self.into_storage().close().await
     }
 
     #[cfg(test)]
-    pub(super) fn dispatch(
+    pub(super) async fn dispatch(
         &mut self,
         caller: NodeId,
         request: Request,
@@ -306,385 +219,505 @@ impl Database {
             events,
             crate::files::Access::Restricted,
         )
+        .await
     }
 
-    pub(super) fn dispatch_with(
-        &mut self,
+    pub(super) fn dispatch_with<'a>(
+        &'a mut self,
         caller: NodeId,
         request: Request,
         reply: oneshot::Sender<Result<Admission, Fault>>,
-        events: &broadcast::Sender<EventEnvelope>,
+        events: &'a broadcast::Sender<EventEnvelope>,
         access: crate::files::Access,
-    ) -> Option<Work> {
-        if request.target != self.node || request.version != VERSION {
-            let _ = reply.send(Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            )));
-            return None;
-        }
-        let receipt = Receipt {
-            id: request.id,
-            durable: request.command.durable(),
-        };
-        let previous = match self.admit(caller, &request) {
-            Ok(previous) => previous,
-            Err(error) => {
-                let _ = reply.send(Err(error));
+    ) -> sailry_link::Pending<'a, Option<Work>> {
+        Box::pin(async move {
+            if request.target != self.node || request.version != VERSION {
+                let _ = reply.send(Err(Fault::new(
+                    ErrorCode::WrongTarget,
+                    "Node or protocol version mismatch",
+                )));
                 return None;
             }
-        };
-        let (completion, result) = oneshot::channel();
-        let plugin_command = super::plugins::command::resolve(self, &request);
-        // admit() has committed before this receipt can reach either transport.
-        let _ = reply.send(Ok(Admission {
-            receipt,
-            completion: result,
-        }));
-        let output = if let Some(previous) = previous {
-            previous
-        } else if request.command.durable()
-            && let Err(error) = self.check_plugin(caller, &request)
-        {
-            self.finish_external(caller, &request, Err(error), events)
-        } else if let Err(error) = self.check_removal_scope(&request.command) {
-            self.finish_external(caller, &request, Err(error), events)
-        } else if let Err(error) = plugin_command {
-            self.finish_external(caller, &request, Err(error), events)
-        } else if let Ok(Some(child)) = plugin_command {
-            return Some(Work::PluginExecution(Box::new(
-                super::plugins::execution::Execution {
-                    caller,
-                    request,
-                    input: super::plugins::execution::Input::Command(child),
-                    reply: completion,
-                },
-            )));
-        } else if matches!(
-            request.command,
-            Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. }
-        ) {
-            match super::network::prepare(self, caller, request, completion) {
-                Ok(execution) => return Some(Work::Network(execution)),
-                Err(failure) => {
-                    let (request, completion, error) = *failure;
-                    let result = self.finish_external(caller, &request, Err(error), events);
-                    let _ = completion.send(result);
+            let receipt = Receipt {
+                id: request.id,
+                durable: request.command.durable(),
+            };
+            let previous = match self.admit(caller, &request).await {
+                Ok(previous) => previous,
+                Err(error) => {
+                    let _ = reply.send(Err(error));
                     return None;
                 }
-            }
-        } else if matches!(
-            request.command,
-            Command::BeginProviderLogin { .. }
-                | Command::CompleteProviderLogin { .. }
-                | Command::CancelProviderLogin { .. }
-                | Command::StartConnectorLogin { .. }
-                | Command::SubmitConnectorInput { .. }
-                | Command::CancelConnectorLogin { .. }
-                | Command::ProbeConnection { .. }
-                | Command::InspectConnectorCli { .. }
-        ) {
-            return Some(Work::Login(super::login::Operation {
-                caller,
-                request,
-                reply: completion,
+            };
+            let (completion, result) = oneshot::channel();
+            let plugin_command = super::plugins::command::resolve(self, &request).await;
+            // admit() has committed before this receipt can reach either transport.
+            let _ = reply.send(Ok(Admission {
+                receipt,
+                completion: result,
             }));
-        } else if matches!(
-            request.command,
-            Command::InstallHost { .. }
-                | Command::UpdateSshHost { .. }
-                | Command::ReadHostInstall { .. }
-                | Command::CheckSsh { .. }
-                | Command::OpenSshTerminal { .. }
-                | Command::CloseSshTerminal { .. }
-                | Command::RunSsh { .. }
-                | Command::TransferSsh { .. }
-                | Command::BrowseSshDirectory { .. }
-                | Command::DownloadSshFile { .. }
-                | Command::FinishSshUpload { .. }
-                | Command::ModifySshFile { .. }
-                | Command::CancelSsh { .. }
-        ) {
-            let prepared = if matches!(
+            let output = if let Some(previous) = previous {
+                previous
+            } else if request.command.durable()
+                && let Err(error) = self.check_plugin(caller, &request).await
+            {
+                self.finish_external(caller, &request, Err(error), events)
+                    .await
+            } else if let Err(error) = self.check_removal_scope(&request.command).await {
+                self.finish_external(caller, &request, Err(error), events)
+                    .await
+            } else if let Err(error) = plugin_command {
+                self.finish_external(caller, &request, Err(error), events)
+                    .await
+            } else if let Ok(Some(child)) = plugin_command {
+                return Some(Work::PluginExecution(Box::new(
+                    super::plugins::execution::Execution {
+                        caller,
+                        request,
+                        input: super::plugins::execution::Input::Command(child),
+                        reply: completion,
+                    },
+                )));
+            } else if matches!(
                 request.command,
-                Command::CancelSsh { .. }
-                    | Command::CloseSshTerminal { .. }
-                    | Command::ReadHostInstall { .. }
+                Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. }
             ) {
-                Ok(None)
-            } else {
-                super::ssh::prepare(self, &request.command).map(Some)
-            };
-            match prepared {
-                Ok(operation) => {
-                    return Some(Work::Ssh(super::ssh::worker::Execution {
-                        caller,
-                        request,
-                        operation,
-                        reply: completion,
-                    }));
+                match super::network::prepare(self, caller, request, completion).await {
+                    Ok(execution) => return Some(Work::Network(execution)),
+                    Err(failure) => {
+                        let (request, completion, error) = *failure;
+                        let result = self
+                            .finish_external(caller, &request, Err(error), events)
+                            .await;
+                        let _ = completion.send(result);
+                        return None;
+                    }
                 }
-                Err(error) => self.finish_external(caller, &request, Err(error), events),
-            }
-        } else if matches!(
-            request.command,
-            Command::BrowseDatabase { .. }
-                | Command::CheckDatabase { .. }
-                | Command::TestDatabase { .. }
-                | Command::QueryDatabase { .. }
-                | Command::CancelDatabase { .. }
-        ) {
-            let prepared = if matches!(request.command, Command::CancelDatabase { .. }) {
-                Ok(None)
-            } else {
-                super::databases::prepare(self, &request.command).map(Some)
-            };
-            match prepared {
-                Ok(operation) => {
-                    return Some(Work::Database(super::databases::worker::Execution {
-                        caller,
-                        request,
-                        operation,
-                        reply: completion,
-                    }));
-                }
-                Err(error) => self.finish_external(caller, &request, Err(error), events),
-            }
-        } else if matches!(
-            request.command,
-            Command::GeneratePluginText { .. }
-                | Command::RequestPluginHttp(_)
-                | Command::ExecuteProviderHttp { .. }
-                | Command::CallPlugin { .. }
-                | Command::ReadPluginCallback { .. }
-                | Command::CancelPluginCall { .. }
-        ) {
-            match super::plugins::execution::prepare(self, caller, &request) {
-                Ok(input) => {
-                    return Some(Work::PluginExecution(Box::new(
-                        super::plugins::execution::Execution {
+            } else if matches!(
+                request.command,
+                Command::BeginProviderLogin { .. }
+                    | Command::CompleteProviderLogin { .. }
+                    | Command::CancelProviderLogin { .. }
+                    | Command::StartConnectorLogin { .. }
+                    | Command::SubmitConnectorInput { .. }
+                    | Command::CancelConnectorLogin { .. }
+                    | Command::ProbeConnection { .. }
+                    | Command::InspectConnectorCli { .. }
+            ) {
+                return Some(Work::Login(super::login::Operation {
+                    caller,
+                    request,
+                    reply: completion,
+                }));
+            } else if matches!(
+                request.command,
+                Command::InstallHost { .. }
+                    | Command::UpdateSshHost { .. }
+                    | Command::ReadHostInstall { .. }
+                    | Command::CheckSsh { .. }
+                    | Command::OpenSshTerminal { .. }
+                    | Command::CloseSshTerminal { .. }
+                    | Command::RunSsh { .. }
+                    | Command::TransferSsh { .. }
+                    | Command::BrowseSshDirectory { .. }
+                    | Command::DownloadSshFile { .. }
+                    | Command::FinishSshUpload { .. }
+                    | Command::ModifySshFile { .. }
+                    | Command::CancelSsh { .. }
+            ) {
+                let prepared = if matches!(
+                    request.command,
+                    Command::CancelSsh { .. }
+                        | Command::CloseSshTerminal { .. }
+                        | Command::ReadHostInstall { .. }
+                ) {
+                    Ok(None)
+                } else {
+                    super::ssh::prepare(self, &request.command).await.map(Some)
+                };
+                match prepared {
+                    Ok(operation) => {
+                        return Some(Work::Ssh(super::ssh::worker::Execution {
                             caller,
                             request,
-                            input,
+                            operation,
                             reply: completion,
-                        },
-                    )));
+                        }));
+                    }
+                    Err(error) => {
+                        self.finish_external(caller, &request, Err(error), events)
+                            .await
+                    }
                 }
-                Err(error) => self.finish_external(caller, &request, Err(error), events),
-            }
-        } else if matches!(
-            request.command,
-            Command::CloseTerminal { .. }
-                | Command::CheckPluginMcp { .. }
-                | Command::RestoreBackupFile { .. }
-                | Command::ExportBackup { .. }
-                | Command::RestoreBackup { .. }
-                | Command::StartCodeServer { .. }
-                | Command::StopCodeServer { .. }
-                | Command::InstallLocalModel { .. }
-                | Command::DeleteLocalModel { .. }
-                | Command::InstallCodeServer { .. }
-                | Command::UninstallCodeServer { .. }
-                | Command::UpdateCodeRules
-                | Command::UseExternalBrowser { .. }
-                | Command::UseBrowser { .. }
-                | Command::UseMedia { .. }
-        ) {
-            match super::resources::prepare(self, &request) {
-                Ok(()) => {
-                    return Some(Work::Resources(super::resources::Execution {
-                        caller,
-                        request,
-                        reply: completion,
-                    }));
-                }
-                Err(error) => self.finish_external(caller, &request, Err(error), events),
-            }
-        } else if matches!(request.command, Command::RunCommand { .. }) {
-            match super::processes::prepare(self, &request).and_then(|launch| {
-                if let Some(task) =
-                    super::agent::background::command_started(&self.connection, &request)?
-                {
-                    super::agent::background::publish(self, [task]);
-                }
-                Ok(launch)
-            }) {
-                Ok(launch) => {
-                    return Some(Work::Process(super::processes::Execution {
-                        caller,
-                        request,
-                        launch,
-                        reply: completion,
-                    }));
-                }
-                Err(error) => self.finish_external(caller, &request, Err(error), events),
-            }
-        } else if matches!(request.command, Command::CreateSessionAt { .. }) {
-            match super::forwarding::prepare(self, caller, &request) {
-                Ok(forwarded) => {
-                    return Some(Work::Session(super::forwarding::Transfer {
-                        caller,
-                        request,
-                        forwarded: Box::new(forwarded),
-                        reply: completion,
-                    }));
-                }
-                Err(error) => self.finish_external(caller, &request, Err(error), events),
-            }
-        } else if let Some(target) = mutations::target(&request.command) {
-            let roots = match target {
-                mutations::Target::NewProject => {
-                    let Command::CreateProject(draft) = &request.command else {
-                        unreachable!()
-                    };
-                    super::projects::prepare(draft).and_then(|path| {
-                        if matches!(
-                            draft.source,
-                            sailry_protocol::projects::Source::Clone { .. }
-                        ) {
-                            let parent = path.parent().unwrap().to_owned();
-                            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
-                            self.begin_relocation(caller, request.id, &[(parent, name)], access)?;
-                        }
-                        Ok((path.clone(), path))
-                    })
-                }
-                mutations::Target::ManagedWorktree { project, source } => {
-                    super::worktrees::select(&self.connection, project, Some(source))
-                        .and_then(|source| self.worktree_root(source))
-                        .and_then(|source| {
-                            super::worktrees::project_root(&self.connection, project)
-                                .map(|root| (source, crate::workspaces::worktrees(&root)))
-                        })
-                }
-                mutations::Target::Host => {
-                    let validation = if let Command::ManageFiles(action) = &request.command {
-                        crate::files::browser::targets(action).and_then(|paths| {
-                            self.begin_relocation(caller, request.id, &paths, access)
-                        })
-                    } else if let Command::RemoveProject { expected } = &request.command {
-                        self.begin_project_removal(caller, &request, expected)
-                    } else {
-                        Ok(())
-                    };
-                    validation.map(|()| (std::path::PathBuf::new(), std::path::PathBuf::new()))
-                }
-                mutations::Target::Plugin => {
-                    Ok((std::path::PathBuf::new(), std::path::PathBuf::new()))
-                }
-                mutations::Target::Worktree(id) => {
-                    self.worktree_root(id).map(|root| (root.clone(), root))
-                }
-                mutations::Target::Project(id) => {
-                    super::worktrees::project_root(&self.connection, id)
-                        .map(|root| (root.clone(), root))
-                }
-                mutations::Target::Worktrees { source, target } => self
-                    .worktree_root(source)
-                    .and_then(|source| self.worktree_root(target).map(|target| (source, target))),
-            };
-            let roots = roots.and_then(|(source, target)| {
-                let roots = mutations::Roots {
-                    source,
-                    target,
-                    access,
+            } else if matches!(
+                request.command,
+                Command::BrowseDatabase { .. }
+                    | Command::CheckDatabase { .. }
+                    | Command::TestDatabase { .. }
+                    | Command::QueryDatabase { .. }
+                    | Command::CancelDatabase { .. }
+            ) {
+                let prepared = if matches!(request.command, Command::CancelDatabase { .. }) {
+                    Ok(None)
+                } else {
+                    super::databases::prepare(self, &request.command)
+                        .await
+                        .map(Some)
                 };
-                if let Command::InstallPlugin {
-                    name,
-                    expected_revision,
-                    ..
+                match prepared {
+                    Ok(operation) => {
+                        return Some(Work::Database(super::databases::worker::Execution {
+                            caller,
+                            request,
+                            operation,
+                            reply: completion,
+                        }));
+                    }
+                    Err(error) => {
+                        self.finish_external(caller, &request, Err(error), events)
+                            .await
+                    }
                 }
-                | Command::InstallPluginUpload {
-                    name,
-                    expected_revision,
-                    ..
+            } else if matches!(
+                request.command,
+                Command::GeneratePluginText { .. }
+                    | Command::RequestPluginHttp(_)
+                    | Command::ExecuteProviderHttp { .. }
+                    | Command::CallPlugin { .. }
+                    | Command::ReadPluginCallback { .. }
+                    | Command::CancelPluginCall { .. }
+            ) {
+                match super::plugins::execution::prepare(self, caller, &request).await {
+                    Ok(input) => {
+                        return Some(Work::PluginExecution(Box::new(
+                            super::plugins::execution::Execution {
+                                caller,
+                                request,
+                                input,
+                                reply: completion,
+                            },
+                        )));
+                    }
+                    Err(error) => {
+                        self.finish_external(caller, &request, Err(error), events)
+                            .await
+                    }
                 }
-                | Command::InstallPluginSource {
-                    name,
-                    expected_revision,
-                    ..
+            } else if matches!(
+                request.command,
+                Command::CloseTerminal { .. }
+                    | Command::CheckPluginMcp { .. }
+                    | Command::RestoreBackupFile { .. }
+                    | Command::ExportBackup { .. }
+                    | Command::RestoreBackup { .. }
+                    | Command::StartCodeServer { .. }
+                    | Command::StopCodeServer { .. }
+                    | Command::InstallLocalModel { .. }
+                    | Command::DeleteLocalModel { .. }
+                    | Command::InstallCodeServer { .. }
+                    | Command::UninstallCodeServer { .. }
+                    | Command::UpdateCodeRules
+                    | Command::UseExternalBrowser { .. }
+                    | Command::UseBrowser { .. }
+                    | Command::UseMedia { .. }
+            ) {
+                match super::resources::prepare(self, &request).await {
+                    Ok(()) => {
+                        return Some(Work::Resources(super::resources::Execution {
+                            caller,
+                            request,
+                            reply: completion,
+                        }));
+                    }
+                    Err(error) => {
+                        self.finish_external(caller, &request, Err(error), events)
+                            .await
+                    }
                 }
-                | Command::InstallBundledPlugin {
-                    name,
-                    expected_revision,
+            } else if matches!(request.command, Command::RunCommand { .. }) {
+                match match super::processes::prepare(self, &request).await {
+                    Ok(value) => {
+                        (async |launch: super::processes::Prepared| {
+                            let transaction = self
+                                .connection
+                                .unchecked_transaction()
+                                .await
+                                .map_err(storage_error)?;
+                            let task =
+                                super::agent::background::command_started(&transaction, &request)
+                                    .await?;
+                            transaction.commit().await.map_err(storage_error)?;
+                            if let Some(task) = task {
+                                super::agent::background::publish(self, [task]).await;
+                            }
+                            Ok(launch)
+                        })(value)
+                        .await
+                    }
+                    Err(error) => Err(error),
+                } {
+                    Ok(launch) => {
+                        return Some(Work::Process(super::processes::Execution {
+                            caller,
+                            request,
+                            launch,
+                            reply: completion,
+                        }));
+                    }
+                    Err(error) => {
+                        self.finish_external(caller, &request, Err(error), events)
+                            .await
+                    }
                 }
-                | Command::InstallSkillUpload {
-                    name,
-                    expected_revision,
-                    ..
+            } else if matches!(request.command, Command::CreateSessionAt { .. }) {
+                match super::forwarding::prepare(self, caller, &request).await {
+                    Ok(forwarded) => {
+                        return Some(Work::Session(super::forwarding::Transfer {
+                            caller,
+                            request,
+                            forwarded: Box::new(forwarded),
+                            reply: completion,
+                        }));
+                    }
+                    Err(error) => {
+                        self.finish_external(caller, &request, Err(error), events)
+                            .await
+                    }
                 }
-                | Command::InstallRegistrySkill {
-                    name,
-                    expected_revision,
-                    ..
+            } else if let Some(target) = mutations::target(&request.command) {
+                let roots = match target {
+                    mutations::Target::NewProject => {
+                        let Command::CreateProject(draft) = &request.command else {
+                            unreachable!()
+                        };
+                        match super::projects::prepare(draft) {
+                            Ok(value) => {
+                                (async |path: std::path::PathBuf| {
+                                    if matches!(
+                                        draft.source,
+                                        sailry_protocol::projects::Source::Clone { .. }
+                                    ) {
+                                        let parent = path.parent().unwrap().to_owned();
+                                        let name =
+                                            path.file_name().unwrap().to_str().unwrap().to_owned();
+                                        self.begin_relocation(
+                                            caller,
+                                            request.id,
+                                            &[(parent, name)],
+                                            access,
+                                        )
+                                        .await?;
+                                    }
+                                    Ok((path.clone(), path))
+                                })(value)
+                                .await
+                            }
+                            Err(error) => Err(error),
+                        }
+                    }
+                    mutations::Target::ManagedWorktree { project, source } => {
+                        match match super::worktrees::select(
+                            &self.connection,
+                            project,
+                            Some(source),
+                        )
+                        .await
+                        {
+                            Ok(value) => {
+                                (async |source| self.worktree_root(source).await)(value).await
+                            }
+                            Err(error) => Err(error),
+                        } {
+                            Ok(value) => {
+                                (async |source| {
+                                    super::worktrees::project_root(&self.connection, project)
+                                        .await
+                                        .map(|root| (source, crate::workspaces::worktrees(&root)))
+                                })(value)
+                                .await
+                            }
+                            Err(error) => Err(error),
+                        }
+                    }
+                    mutations::Target::Host => {
+                        let validation = if let Command::ManageFiles(action) = &request.command {
+                            match crate::files::browser::targets(action) {
+                                Ok(value) => {
+                                    (async |paths: Vec<(std::path::PathBuf, String)>| {
+                                        self.begin_relocation(caller, request.id, &paths, access)
+                                            .await
+                                    })(value)
+                                    .await
+                                }
+                                Err(error) => Err(error),
+                            }
+                        } else if let Command::RemoveProject { expected } = &request.command {
+                            self.begin_project_removal(caller, &request, expected).await
+                        } else {
+                            Ok(())
+                        };
+                        validation.map(|()| (std::path::PathBuf::new(), std::path::PathBuf::new()))
+                    }
+                    mutations::Target::Plugin => {
+                        Ok((std::path::PathBuf::new(), std::path::PathBuf::new()))
+                    }
+                    mutations::Target::Worktree(id) => self
+                        .worktree_root(id)
+                        .await
+                        .map(|root| (root.clone(), root)),
+                    mutations::Target::Project(id) => {
+                        super::worktrees::project_root(&self.connection, id)
+                            .await
+                            .map(|root| (root.clone(), root))
+                    }
+                    mutations::Target::Worktrees { source, target } => {
+                        match self.worktree_root(source).await {
+                            Ok(value) => {
+                                (async |source| {
+                                    self.worktree_root(target)
+                                        .await
+                                        .map(|target| (source, target))
+                                })(value)
+                                .await
+                            }
+                            Err(error) => Err(error),
+                        }
+                    }
+                };
+                let roots = match roots {
+                    Ok(value) => {
+                        (async |(source, target)| {
+                            let roots = mutations::Roots {
+                                source,
+                                target,
+                                access,
+                            };
+                            if let Command::InstallPlugin {
+                                name,
+                                expected_revision,
+                                ..
+                            }
+                            | Command::InstallPluginUpload {
+                                name,
+                                expected_revision,
+                                ..
+                            }
+                            | Command::InstallPluginSource {
+                                name,
+                                expected_revision,
+                                ..
+                            }
+                            | Command::InstallBundledPlugin {
+                                name,
+                                expected_revision,
+                            }
+                            | Command::InstallSkillUpload {
+                                name,
+                                expected_revision,
+                                ..
+                            }
+                            | Command::InstallRegistrySkill {
+                                name,
+                                expected_revision,
+                                ..
+                            }
+                            | Command::InstallSkill {
+                                name,
+                                expected_revision,
+                                ..
+                            }
+                            | Command::InstallMcp {
+                                name,
+                                expected_revision,
+                                ..
+                            } = &request.command
+                            {
+                                super::plugins::check_install(
+                                    &self.connection,
+                                    name,
+                                    *expected_revision,
+                                )
+                                .await?;
+                            }
+                            if let Command::SetPluginEnabled {
+                                name,
+                                expected_revision,
+                                enabled: true,
+                            } = &request.command
+                            {
+                                super::plugins::prepare_enable(
+                                    &self.connection,
+                                    name,
+                                    *expected_revision,
+                                )
+                                .await?;
+                            }
+                            if let Command::RemoveWorktree { worktree, .. } = request.command {
+                                self.begin_removal(caller, &request, worktree, &roots.target)
+                                    .await?;
+                            }
+                            let mut paths = roots.entries(&request.command);
+                            if let Command::ApplyTurnHunk(selection) = &request.command {
+                                super::agent::checkpoints::hunks::prepare(
+                                    self,
+                                    selection,
+                                    &roots.target,
+                                )
+                                .await?;
+                            }
+                            if let Command::RestoreFileCheckpoint {
+                                session,
+                                checkpoint,
+                                worktree,
+                            } = request.command
+                            {
+                                let content = super::agent::checkpoints::restore::prepare(
+                                    self,
+                                    session,
+                                    checkpoint,
+                                    worktree,
+                                    &roots.target,
+                                )
+                                .await?;
+                                paths.push((roots.target.clone(), content.file.path));
+                            }
+                            if !paths.is_empty() {
+                                self.begin_relocation(caller, request.id, &paths, access)
+                                    .await?;
+                            }
+                            Ok(roots)
+                        })(value)
+                        .await
+                    }
+                    Err(error) => Err(error),
+                };
+                match roots {
+                    Ok(roots) => {
+                        return Some(Work::Mutation(mutations::Mutation {
+                            caller,
+                            request,
+                            roots,
+                            reply: completion,
+                        }));
+                    }
+                    Err(error) => {
+                        self.finish_external(caller, &request, Err(error), events)
+                            .await
+                    }
                 }
-                | Command::InstallSkill {
-                    name,
-                    expected_revision,
-                    ..
-                }
-                | Command::InstallMcp {
-                    name,
-                    expected_revision,
-                    ..
-                } = &request.command
-                {
-                    super::plugins::check_install(&self.connection, name, *expected_revision)?;
-                }
-                if let Command::SetPluginEnabled {
-                    name,
-                    expected_revision,
-                    enabled: true,
-                } = &request.command
-                {
-                    super::plugins::prepare_enable(&self.connection, name, *expected_revision)?;
-                }
-                if let Command::RemoveWorktree { worktree, .. } = request.command {
-                    self.begin_removal(caller, &request, worktree, &roots.target)?;
-                }
-                let mut paths = roots.entries(&request.command);
-                if let Command::ApplyTurnHunk(selection) = &request.command {
-                    super::agent::checkpoints::hunks::prepare(self, selection, &roots.target)?;
-                }
-                if let Command::RestoreFileCheckpoint {
-                    session,
-                    checkpoint,
-                    worktree,
-                } = request.command
-                {
-                    let content = super::agent::checkpoints::restore::prepare(
-                        self,
-                        session,
-                        checkpoint,
-                        worktree,
-                        &roots.target,
-                    )?;
-                    paths.push((roots.target.clone(), content.file.path));
-                }
-                if !paths.is_empty() {
-                    self.begin_relocation(caller, request.id, &paths, access)?;
-                }
-                Ok(roots)
-            });
-            match roots {
-                Ok(roots) => {
-                    return Some(Work::Mutation(mutations::Mutation {
-                        caller,
-                        request,
-                        roots,
-                        reply: completion,
-                    }));
-                }
-                Err(error) => self.finish_external(caller, &request, Err(error), events),
-            }
-        } else {
-            self.execute(caller, &request, events)
-        };
-        let _ = completion.send(output);
-        None
+            } else {
+                self.execute(caller, &request, events).await
+            };
+            let _ = completion.send(output);
+            None
+        })
     }
 
-    fn admit(&mut self, caller: NodeId, request: &Request) -> Result<Option<Response>, Fault> {
+    async fn admit(
+        &mut self,
+        caller: NodeId,
+        request: &Request,
+    ) -> Result<Option<Response>, Fault> {
         let encoded = zeroize::Zeroizing::new(encode(request)?);
         if encoded.len() > MAX_FRAME_BYTES {
             return Err(Fault::invalid("request exceeds the frame limit"));
@@ -731,300 +764,352 @@ impl Database {
         } else {
             encoded.to_vec()
         };
-        let transaction = self.connection.transaction().map_err(storage_error)?;
-        let previous: Option<(Vec<u8>, String, Option<String>)> = transaction
-            .query_row(
-                "SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2",
-                params![&caller.0[..], request.id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .await
             .map_err(storage_error)?;
+        let previous: Option<(Vec<u8>, String, Option<String>)> = (match (async {
+            let mut statement = transaction
+                .prepare("SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2")
+                .await?;
+            let row = statement
+                .query_row(params![&caller.0[..], request.id.to_string()])
+                .await?;
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+            mapped
+        })
+        .await
+        {
+            Ok(value) => Ok(Some(value)),
+            Err(turso::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(error),
+        })
+        .map_err(storage_error)?;
         if let Some((previous, status, result)) = previous {
-            if previous != body {
-                return Err(Fault::new(
-                    ErrorCode::Conflict,
-                    "request identifier was already used for different content",
-                ));
-            }
-            if status == "completed" {
-                return Ok(Some(super::outcomes::decode(
-                    &result.ok_or_else(|| storage_error("missing result"))?,
-                )?));
-            }
-            return Ok(Some(Err(Fault::new(
-                ErrorCode::OutcomeUnknown,
-                "request outcome requires reconciliation; automatic replay is disabled",
-            ))));
+            let previous = (|| {
+                if previous != body {
+                    return Err(Fault::new(
+                        ErrorCode::Conflict,
+                        "request identifier was already used for different content",
+                    ));
+                }
+                if status == "completed" {
+                    return Ok(Some(super::outcomes::decode(
+                        &result.ok_or_else(|| storage_error("missing result"))?,
+                    )?));
+                }
+                Ok(Some(Err(Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    "request outcome requires reconciliation; automatic replay is disabled",
+                ))))
+            })();
+            // A replay must end its read transaction before returning to its caller.
+            transaction.rollback().await.map_err(storage_error)?;
+            return previous;
         }
         transaction
             .execute(
                 "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
                 params![&caller.0[..], request.id.to_string(), body],
             )
+            .await
             .map_err(storage_error)?;
-        transaction.commit().map_err(storage_error)?;
+        transaction.commit().await.map_err(storage_error)?;
         Ok(None)
     }
 
-    fn execute(
-        &mut self,
+    fn execute<'a>(
+        &'a mut self,
         caller: NodeId,
-        request: &Request,
-        events: &broadcast::Sender<EventEnvelope>,
-    ) -> Response {
-        let approval = matches!(request.command, Command::ResolveApproval { .. });
-        if approval {
-            super::agent::approvals::prune(self, events)?;
-        }
-        let transaction = self.connection.transaction().map_err(storage_error)?;
-        // Commands validate before mutation. A savepoint also rolls back partial business errors.
-        transaction
-            .execute_batch("SAVEPOINT command")
-            .map_err(storage_error)?;
-        let mut review_changes = super::agent::review::Changes::new();
-        let mut model_configuration = None;
-        let outcome = if matches!(request.command, Command::PluginTransaction { .. }) {
-            super::plugins::transaction::execute(
-                &transaction,
-                self.node,
-                caller,
-                self.profile.as_deref(),
-                request,
-            )
-        } else if matches!(
-            request.command,
-            Command::ArchiveSessions { .. } | Command::RemoveSessions { .. }
-        ) {
-            super::sessions::batch::execute(&transaction, request)
-        } else {
-            commands::execute(
-                &transaction,
-                self.node,
-                caller,
-                self.profile.as_deref(),
-                request,
-            )
-            .map(|(output, event)| (output, event.into_iter().collect()))
-        };
-        let outcome = outcome.and_then(|(output, mut changes)| {
-            if self.profile.is_some()
-                && changes
-                    .iter()
-                    .any(|event| matches!(event, Event::PluginChanged(_)))
-                && super::knowledge::semantic::startup(
-                    &transaction,
-                    &sailry_link::CancellationToken::new(),
-                )?
-            {
-                changes.push(Event::KnowledgeCollectionsChanged);
+        request: &'a Request,
+        events: &'a broadcast::Sender<EventEnvelope>,
+    ) -> sailry_link::Pending<'a, Response> {
+        Box::pin(async move {
+            let approval = matches!(request.command, Command::ResolveApproval { .. });
+            if approval {
+                super::agent::approvals::prune(self, events).await?;
             }
-            if self.profile.is_some()
-                && super::knowledge::runtime::storage::changes(&request.command)
-                && super::knowledge::semantic::changed(
-                    &transaction,
-                    request,
-                    &sailry_link::CancellationToken::new(),
-                )?
-            {
-                changes.push(Event::KnowledgeCollectionsChanged);
-            }
-            if super::providers::quota::affected(&request.command) {
-                changes.extend(super::providers::quota::reconcile(&transaction, self.node)?);
-            }
-            review_changes.extend(super::agent::review::command(
-                &transaction,
-                request,
-                &output,
-            )?);
-            if matches!(
-                request.command,
-                Command::SaveLocalModelSettings(_) | Command::RegisterLocalModel { .. }
-            ) && let Some(registry) = &self.local_models
-            {
-                let catalog = super::local_models::read(&transaction)?;
-                model_configuration =
-                    Some(registry.prepare(catalog.settings, catalog.definitions)?);
-            }
-            Ok((output, changes))
-        });
-        let (mut result, changes) = match outcome {
-            Ok((output, changes)) => (Ok(output), changes),
-            Err(error) => {
-                review_changes.clear();
-                transaction
-                    .execute_batch("ROLLBACK TO command")
-                    .map_err(storage_error)?;
-                (Err(error), Vec::new())
-            }
-        };
-        if !approval {
-            transaction
-                .execute_batch("RELEASE command")
+            let transaction = self
+                .connection
+                .unchecked_transaction()
+                .await
                 .map_err(storage_error)?;
-        }
-        let mut envelopes = record(&transaction, self.node, changes)?;
-        let receipt = |result: &Response| -> Result<(), Fault> {
-            if request.command.durable() {
-                transaction.execute(
-                    "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2",
-                    params![&caller.0[..], request.id.to_string(), serde_json::to_string(result).map_err(storage_error)?],
-                ).map_err(storage_error)?;
-            }
-            Ok(())
-        };
-        receipt(&result)?;
-        #[cfg(any(test, feature = "test-support"))]
-        if approval && result.is_ok() {
-            super::agent::approvals::fixture::wait(&mut self.approval_commit, false, &transaction);
-        }
-        if approval
-            && let Ok(output) = &result
-            && let Err(error) =
-                super::agent::approvals::claim(&transaction, &self.approvals, output)
-        {
-            // The receipt is inside this savepoint too: no stale Approved result or
-            // session rule may survive when expiry won before the commit claim.
+            // Commands validate before mutation. A savepoint also rolls back partial business errors.
             transaction
-                .execute_batch("ROLLBACK TO command")
+                .execute_batch("SAVEPOINT command")
+                .await
                 .map_err(storage_error)?;
-            result = Err(error);
-            envelopes.clear();
-            review_changes.clear();
-            model_configuration = None;
-            receipt(&result)?;
-        }
-        if approval {
-            if let Ok(Output::Approval(approved)) = &result {
-                envelopes = record(
+            let mut review_changes = super::agent::review::Changes::new();
+            let mut model_configuration = None;
+            let outcome = if matches!(request.command, Command::PluginTransaction { .. }) {
+                super::plugins::transaction::execute(
                     &transaction,
                     self.node,
-                    vec![super::agent::activity::changed(
+                    caller,
+                    self.profile.as_deref(),
+                    request,
+                )
+                .await
+            } else if matches!(
+                request.command,
+                Command::ArchiveSessions { .. } | Command::RemoveSessions { .. }
+            ) {
+                super::sessions::batch::execute(&transaction, request).await
+            } else {
+                commands::execute(
+                    &transaction,
+                    self.node,
+                    caller,
+                    self.profile.as_deref(),
+                    request,
+                )
+                .await
+                .map(|(output, event)| (output, event.into_iter().collect()))
+            };
+            let outcome = match outcome {
+                Ok(value) => {
+                    (async |(output, mut changes): (Output, Vec<Event>)| {
+                        if self.profile.is_some()
+                            && changes
+                                .iter()
+                                .any(|event| matches!(event, Event::PluginChanged(_)))
+                            && super::knowledge::semantic::startup(
+                                &transaction,
+                                &sailry_link::CancellationToken::new(),
+                            )
+                            .await?
+                        {
+                            changes.push(Event::KnowledgeCollectionsChanged);
+                        }
+                        if self.profile.is_some()
+                            && super::knowledge::runtime::storage::changes(&request.command)
+                            && super::knowledge::semantic::changed(
+                                &transaction,
+                                request,
+                                &sailry_link::CancellationToken::new(),
+                            )
+                            .await?
+                        {
+                            changes.push(Event::KnowledgeCollectionsChanged);
+                        }
+                        if super::providers::quota::affected(&request.command) {
+                            changes.extend(
+                                super::providers::quota::reconcile(&transaction, self.node).await?,
+                            );
+                        }
+                        review_changes.extend(
+                            super::agent::review::command(&transaction, request, &output).await?,
+                        );
+                        if matches!(
+                            request.command,
+                            Command::SaveLocalModelSettings(_) | Command::RegisterLocalModel { .. }
+                        ) && let Some(registry) = &self.local_models
+                        {
+                            let catalog = super::local_models::read(&transaction).await?;
+                            model_configuration =
+                                Some(registry.prepare(catalog.settings, catalog.definitions)?);
+                        }
+                        Ok((output, changes))
+                    })(value)
+                    .await
+                }
+                Err(error) => Err(error),
+            };
+            let (mut result, changes) = match outcome {
+                Ok((output, changes)) => (Ok(output), changes),
+                Err(error) => {
+                    review_changes.clear();
+                    transaction
+                        .execute_batch("ROLLBACK TO command")
+                        .await
+                        .map_err(storage_error)?;
+                    (Err(error), Vec::new())
+                }
+            };
+            if !approval {
+                transaction
+                    .execute_batch("RELEASE command")
+                    .await
+                    .map_err(storage_error)?;
+            }
+            let mut envelopes = record(&transaction, self.node, changes).await?;
+            let receipt = async |result: &Response| -> Result<(), Fault> {
+                if request.command.durable() {
+                    transaction.execute(
+                    "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2",
+                    params![&caller.0[..], request.id.to_string(), serde_json::to_string(result).map_err(storage_error)?],
+                ).await.map_err(storage_error)?;
+                }
+                Ok(())
+            };
+            receipt(&result).await?;
+            #[cfg(any(test, feature = "test-support"))]
+            if approval && result.is_ok() {
+                super::agent::approvals::fixture::wait(&self.approval_commit, false, &transaction)
+                    .await;
+            }
+            if approval
+                && let Ok(output) = &result
+                && let Err(error) =
+                    super::agent::approvals::claim(&transaction, &self.approvals, output).await
+            {
+                // The receipt is inside this savepoint too: no stale Approved result or
+                // session rule may survive when expiry won before the commit claim.
+                transaction
+                    .execute_batch("ROLLBACK TO command")
+                    .await
+                    .map_err(storage_error)?;
+                result = Err(error);
+                envelopes.clear();
+                review_changes.clear();
+                model_configuration = None;
+                receipt(&result).await?;
+            }
+            if approval {
+                if let Ok(Output::Approval(approved)) = &result {
+                    envelopes = record(
                         &transaction,
-                        approved.session,
-                    )?],
-                )?;
-            }
-            transaction
-                .execute_batch("RELEASE command")
-                .map_err(storage_error)?;
-        }
-        #[cfg(any(test, feature = "test-support"))]
-        if approval && result.is_ok() {
-            super::agent::approvals::fixture::wait(&mut self.approval_commit, true, &transaction);
-        }
-        transaction.commit().map_err(storage_error)?;
-        if let Some(prepared) = model_configuration {
-            self.local_models
-                .as_ref()
-                .expect("local model owner was prepared")
-                .apply(prepared);
-        }
-        match &mut result {
-            Ok(Output::Conversation(history)) => {
-                history.sequence = self.feeds.sequence(history.page.session);
-            }
-            Ok(Output::TurnHistory(history)) => {
-                history.sequence = self.feeds.sequence(history.run.session);
-            }
-            _ => {}
-        }
-        for event in envelopes {
-            match &event.event {
-                Event::SessionChanged(session) if session.archived => {
-                    self.model_clients.evict(session.id)
+                        self.node,
+                        vec![
+                            super::agent::activity::changed(&transaction, approved.session).await?,
+                        ],
+                    )
+                    .await?;
                 }
-                Event::SessionsRemoved(ids) => {
-                    for id in ids {
-                        self.model_clients.evict(*id);
-                    }
+                transaction
+                    .execute_batch("RELEASE command")
+                    .await
+                    .map_err(storage_error)?;
+            }
+            #[cfg(any(test, feature = "test-support"))]
+            if approval && result.is_ok() {
+                super::agent::approvals::fixture::wait(&self.approval_commit, true, &transaction)
+                    .await;
+            }
+            transaction.commit().await.map_err(storage_error)?;
+            if let Some(prepared) = model_configuration {
+                self.local_models
+                    .as_ref()
+                    .expect("local model owner was prepared")
+                    .apply(prepared);
+            }
+            match &mut result {
+                Ok(Output::Conversation(history)) => {
+                    history.sequence = self.feeds.sequence(history.page.session);
                 }
-                Event::PluginChanged(package) => {
-                    super::agent::invalidate_package(self, &package.name)
+                Ok(Output::TurnHistory(history)) => {
+                    history.sequence = self.feeds.sequence(history.run.session);
                 }
-                Event::PluginRemoved { name } => super::agent::invalidate_package(self, name),
                 _ => {}
             }
-            let _ = events.send(event);
-        }
-        if let Ok(output) = &result {
-            for (session, change) in review_changes {
-                self.feeds.publish(self.node, session, change);
+            for event in envelopes {
+                match &event.event {
+                    Event::SessionChanged(session) if session.archived => {
+                        self.model_clients.evict(session.id)
+                    }
+                    Event::SessionsRemoved(ids) => {
+                        for id in ids {
+                            self.model_clients.evict(*id);
+                        }
+                    }
+                    Event::PluginChanged(package) => {
+                        super::agent::invalidate_package(self, &package.name).await
+                    }
+                    Event::PluginRemoved { name } => {
+                        super::agent::invalidate_package(self, name).await
+                    }
+                    _ => {}
+                }
+                let _ = events.send(event);
             }
-            super::agent::publish_command(self, output);
-        }
-        result
+            if let Ok(output) = &result {
+                for (session, change) in review_changes {
+                    self.feeds.publish(self.node, session, change);
+                }
+                super::agent::publish_command(self, output).await;
+            }
+            result
+        })
     }
 
-    pub(super) fn finish_external(
-        &mut self,
+    pub(super) fn finish_external<'a>(
+        &'a mut self,
         caller: NodeId,
-        request: &Request,
+        request: &'a Request,
         result: Response,
-        events: &broadcast::Sender<EventEnvelope>,
-    ) -> Response {
-        self.finish_external_with(caller, request, result, events, |_, _| Ok(None))
+        events: &'a broadcast::Sender<EventEnvelope>,
+    ) -> sailry_link::Pending<'a, Response> {
+        Box::pin(async move {
+            self.finish_external_with(caller, request, result, events, async |_, _| Ok(None))
+                .await
+        })
     }
 
-    pub(in crate::store) fn finish_external_with(
+    pub(in crate::store) async fn finish_external_with(
         &mut self,
         caller: NodeId,
         request: &Request,
         mut result: Response,
         events: &broadcast::Sender<EventEnvelope>,
-        finish: impl FnOnce(&Connection, &mut Response) -> Result<Option<Event>, Fault>,
+        finish: impl AsyncFnOnce(&Connection, &mut Response) -> Result<Option<Event>, Fault>,
     ) -> Response {
         if !request.command.durable() {
             return result;
         }
-        if let Ok(output) = &result
-            && let Err(error) = schema::prepare_plugin(
-                &self.connection,
-                self.profile.as_deref(),
-                &request.command,
-                output,
-            )
-        {
-            result = Err(storage_error(error));
-        }
         self.end_removal(caller, request);
-        self.relocations.remove(&(caller, request.id));
+        self.relocations
+            .lock()
+            .unwrap()
+            .remove(&(caller, request.id));
         let mut background = Vec::new();
         let mut deliveries = Vec::new();
-        let recorded = (|| {
-            let transaction = self.connection.transaction().map_err(storage_error)?;
-            let event = finish(&transaction, &mut result)?;
+        let recorded = (async || {
+            let transaction = self.connection.unchecked_transaction().await.map_err(storage_error)?;
+            let event = finish(&transaction, &mut result).await?;
             let event = match event {
                 Some(event) => Some(event),
-                None => super::worktrees::finish(
-                    &transaction,
-                    &mut result,
-                    matches!(request.command, Command::RegisterWorktree { .. }),
-                )?,
+                None => {
+                    super::worktrees::finish(
+                        &transaction,
+                        &mut result,
+                        matches!(request.command, Command::RegisterWorktree { .. }),
+                    )
+                    .await?
+                }
             };
             let event = match event {
                 Some(event) => Some(event),
-                None => super::terminals::finish(&transaction, &request.command, &mut result)?,
+                None => {
+                    super::terminals::finish(&transaction, &request.command, &mut result).await?
+                }
             };
             let event = match event {
                 Some(event) => Some(event),
-                None => super::plugins::finish(
-                    &transaction,
-                    self.profile.as_deref(),
-                    &request.command,
-                    &mut result,
-                )?,
+                None => {
+                    super::plugins::finish(
+                        &transaction,
+                        self.profile.as_deref(),
+                        &request.command,
+                        &mut result,
+                    )
+                    .await?
+                }
             };
             let event = match event {
                 Some(event) => Some(event),
-                None => super::projects::finish(&transaction, &request.command, &mut result)?,
+                None => {
+                    super::projects::finish(&transaction, &request.command, &mut result).await?
+                }
             };
-            super::attachments::finish(&transaction, caller, &request.command, &result)?;
+            super::attachments::finish(&transaction, caller, &request.command, &result).await?;
             if let Some(task) =
-                super::agent::background::finish_request(&transaction, request, &result)?
+                super::agent::background::finish_request(&transaction, request, &result).await?
             {
                 if let Some(turn) =
-                    super::agent::background::schedule(&transaction, self.node, task.session)?
+                    super::agent::background::schedule(&transaction, self.node, task.session)
+                        .await?
                 {
                     deliveries.push(turn);
                 }
@@ -1032,9 +1117,10 @@ impl Database {
             }
             let mut changes: Vec<_> = event.into_iter().collect();
             if let Some(Event::PluginChanged(summary)) = changes.first() {
-                let info = super::plugins::get(&transaction, &summary.name)?
+                let info = super::plugins::get(&transaction, &summary.name)
+                    .await?
                     .ok_or_else(|| storage_error("updated plugin is missing"))?;
-                changes.extend(super::plugins::options::migrate(&transaction, &info)?);
+                changes.extend(super::plugins::options::migrate(&transaction, &info).await?);
             }
             if self.profile.is_some()
                 && changes
@@ -1043,30 +1129,29 @@ impl Database {
                 && super::knowledge::semantic::startup(
                     &transaction,
                     &sailry_link::CancellationToken::new(),
-                )?
+                )
+                .await?
             {
                 changes.push(Event::KnowledgeCollectionsChanged);
             }
-            let envelopes = record(&transaction, self.node, changes)?;
+            let envelopes = record(&transaction, self.node, changes).await?;
             let changed = transaction.execute(
                 "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2 AND status='admitted'",
                 params![&caller.0[..], request.id.to_string(), serde_json::to_string(&result).map_err(storage_error)?],
-            ).map_err(storage_error)?;
+            ).await.map_err(storage_error)?;
             if changed != 1 {
                 return Err(storage_error("durable admission missing"));
             }
-            let delivered = deliveries
-                .iter()
-                .map(|turn| {
+            let delivered = { let mut selected = Vec::new(); for value in deliveries
+                .iter() { selected.push((async |turn: &QueuedTurn| {
                     Ok((
-                        super::agent::runs::get(&transaction, turn.id)?,
-                        super::agent::background::list(&transaction, turn.session)?,
+                        super::agent::runs::get(&transaction, turn.id).await?,
+                        super::agent::background::list(&transaction, turn.session).await?,
                     ))
-                })
-                .collect::<Result<Vec<_>, Fault>>()?;
-            transaction.commit().map_err(storage_error)?;
+                })(value).await?); } Ok::<_,Fault>(selected) }?;
+            transaction.commit().await.map_err(storage_error)?;
             Ok::<_, Fault>((envelopes, delivered))
-        })();
+        })().await;
         match recorded {
             Err(_) => {
                 let mut error = Fault::new(
@@ -1082,18 +1167,18 @@ impl Database {
                 Err(error)
             }
             Ok((envelopes, delivered)) => {
-                super::agent::background::publish(self, background);
+                super::agent::background::publish(self, background).await;
                 for (run, tasks) in delivered {
-                    super::agent::publish_run(self, run);
-                    super::agent::background::publish(self, tasks);
+                    super::agent::publish_run(self, run).await;
+                    super::agent::background::publish(self, tasks).await;
                 }
                 for event in envelopes {
                     match &event.event {
                         Event::PluginChanged(package) => {
-                            super::agent::invalidate_package(self, &package.name)
+                            super::agent::invalidate_package(self, &package.name).await
                         }
                         Event::PluginRemoved { name } => {
-                            super::agent::invalidate_package(self, name)
+                            super::agent::invalidate_package(self, name).await
                         }
                         _ => {}
                     }
@@ -1105,18 +1190,23 @@ impl Database {
     }
 }
 
-pub(super) fn record(
+pub(super) async fn record(
     db: &Connection,
     node: NodeId,
     changes: Vec<Event>,
 ) -> Result<Vec<EventEnvelope>, Fault> {
     let mut envelopes = Vec::with_capacity(changes.len());
     for event in changes {
-        db.execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
-            .map_err(storage_error)?;
+        let cursor = counters::next(db, counters::Namespace::Events).await?;
+        db.execute(
+            "INSERT INTO events(cursor,body) VALUES(?1,?2)",
+            params![cursor as i64, encode(&event)?],
+        )
+        .await
+        .map_err(storage_error)?;
         envelopes.push(EventEnvelope {
             node,
-            cursor: db.last_insert_rowid() as u64,
+            cursor,
             event,
         });
     }
@@ -1130,26 +1220,23 @@ pub(super) fn storage_error(_: impl std::fmt::Display) -> Fault {
     Fault::new(ErrorCode::Internal, "Node storage operation failed")
 }
 
-pub(super) fn validate_backup(db: &Connection, node: NodeId) -> Result<(), Fault> {
-    schema::validate_backup(db, node).map_err(storage_error)?;
-    validation::stored(db).map_err(storage_error)?;
+pub(super) async fn validate_backup(db: &Connection, node: NodeId) -> Result<(), Fault> {
+    schema::validate_backup(db, node)
+        .await
+        .map_err(storage_error)?;
+    validation::stored(db).await.map_err(storage_error)?;
     let integrity: String = db
-        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .prepare("PRAGMA integrity_check")
+        .await
+        .map_err(storage_error)?
+        .query_row(())
+        .await
+        .map_err(storage_error)?
+        .get(0)
         .map_err(storage_error)?;
     if integrity != "ok" {
         return Err(Fault::invalid("backup database integrity check failed"));
     }
-    let mut foreign = db
-        .prepare("PRAGMA foreign_key_check")
-        .map_err(storage_error)?;
-    if foreign
-        .query([])
-        .map_err(storage_error)?
-        .next()
-        .map_err(storage_error)?
-        .is_some()
-    {
-        return Err(Fault::invalid("backup database has invalid references"));
-    }
+    schema::references(db).await.map_err(storage_error)?;
     Ok(())
 }

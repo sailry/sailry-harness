@@ -621,11 +621,12 @@ async fn shares_opening_and_partial_retry_budget() {
                     Outcome::Failed,
                     Outcome::Succeeded
                 ]
-            ),
+            )
+            .await,
             recovered.id
         );
         assert_eq!(
-            observations::records(&profile, continuation, &[Outcome::Succeeded]),
+            observations::records(&profile, continuation, &[Outcome::Succeeded]).await,
             next.id
         );
     }

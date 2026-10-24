@@ -1,6 +1,10 @@
 use super::*;
 
-pub(super) fn save(db: &Connection, package: &str, schedule: &Schedule) -> Result<Schedule, Fault> {
+pub(super) async fn save(
+    db: &Connection,
+    package: &str,
+    schedule: &Schedule,
+) -> Result<Schedule, Fault> {
     name(&schedule.topic)?;
     data(&schedule.payload)?;
     let mut saved = schedule.clone();
@@ -37,13 +41,14 @@ pub(super) fn save(db: &Connection, package: &str, schedule: &Schedule) -> Resul
         package,
         "id",
         &schedule.id.to_string(),
-    )?;
+    )
+    .await?;
     check_revision(
         old.as_ref().map_or(0, |old| old.revision),
         schedule.revision,
     )?;
     if old.is_none() {
-        capacity(db, "dispatch_schedules", package)?;
+        capacity(db, "dispatch_schedules", package).await?;
     }
     saved.revision += 1;
     // Pausing suppresses the due index, not the consumed cursor. Re-enabling a
@@ -52,11 +57,11 @@ pub(super) fn save(db: &Connection, package: &str, schedule: &Schedule) -> Resul
         Some(old) => old.next_ms,
         None => Some(first),
     };
-    put(db, package, &saved)?;
+    put(db, package, &saved).await?;
     Ok(saved)
 }
 
-fn put(db: &Connection, package: &str, schedule: &Schedule) -> Result<(), Fault> {
+async fn put(db: &Connection, package: &str, schedule: &Schedule) -> Result<(), Fault> {
     budget(
         db,
         "dispatch_schedules",
@@ -64,39 +69,48 @@ fn put(db: &Connection, package: &str, schedule: &Schedule) -> Result<(), Fault>
         "id",
         &schedule.id.to_string(),
         schedule,
-    )?;
-    db.execute("INSERT INTO dispatch_schedules(package,id,next_ms,body) VALUES(?1,?2,?3,?4) ON CONFLICT(package,id) DO UPDATE SET next_ms=excluded.next_ms,body=excluded.body", params![package, schedule.id.to_string(), schedule.enabled.then_some(schedule.next_ms).flatten(), encode(schedule)?]).map_err(storage_error)?;
+    )
+    .await?;
+    db.execute("INSERT INTO dispatch_schedules(package,id,next_ms,body) VALUES(?1,?2,?3,?4) ON CONFLICT(package,id) DO UPDATE SET next_ms=excluded.next_ms,body=excluded.body", params![package, schedule.id.to_string(), schedule.enabled.then_some(schedule.next_ms).flatten(), encode(schedule)?]).await.map_err(storage_error)?;
     Ok(())
 }
 
-pub(super) fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault> {
-    let enabled: std::collections::BTreeSet<_> = super::super::plugins::list(db)?
+pub(super) async fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault> {
+    let enabled: std::collections::BTreeSet<_> = super::super::plugins::list(db)
+        .await?
         .into_iter()
         .filter(|info| info.enabled)
         .map(|info| info.name)
         .collect();
     let mut query = db
         .prepare("SELECT package,id FROM dispatch_schedules WHERE next_ms<=?1 ORDER BY next_ms")
+        .await
         .map_err(storage_error)?;
-    let records = query
-        .query_map([timestamp], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    let records = {
+        let mut rows = query.query([timestamp]).await.map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .filter(|row| {
+        row.as_ref().map_or(true, |(package, _)| {
+            package == native::OWNER || enabled.contains(package)
         })
-        .map_err(storage_error)?
-        .filter(|row| {
-            row.as_ref().map_or(true, |(package, _)| {
-                package == native::OWNER || enabled.contains(package)
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(storage_error)?;
+    })
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(storage_error)?;
     let mut changed = Vec::new();
     let mut attempted = 0;
     for (package, id) in records {
         if attempted == 64 {
             break;
         }
-        let mut schedule: Schedule = required(db, "dispatch_schedules", &package, "id", &id)?;
+        let mut schedule: Schedule =
+            required(db, "dispatch_schedules", &package, "id", &id).await?;
         let (scheduled_ms, next_ms) = match occurrence(&schedule, timestamp) {
             Ok(occurrence) => occurrence,
             Err(error) if error.code == ErrorCode::InvalidRequest => {
@@ -122,11 +136,13 @@ pub(super) fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault>
             scheduled_ms: Some(scheduled_ms),
         };
         db.execute_batch("SAVEPOINT dispatch_due")
+            .await
             .map_err(storage_error)?;
-        match events::publish(db, &event) {
+        match events::publish(db, &event).await {
             Ok((_, owners)) => changed.extend(owners),
             Err(error) => {
                 db.execute_batch("ROLLBACK TO dispatch_due; RELEASE dispatch_due")
+                    .await
                     .map_err(storage_error)?;
                 if error.code == ErrorCode::Busy {
                     continue;
@@ -135,27 +151,35 @@ pub(super) fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault>
             }
         }
         db.execute_batch("RELEASE dispatch_due")
+            .await
             .map_err(storage_error)?;
         schedule.next_ms = next_ms;
-        put(db, &package, &schedule)?;
+        put(db, &package, &schedule).await?;
     }
     changed.sort();
     changed.dedup();
     Ok(changed)
 }
 
-pub(super) fn next(db: &Connection, timestamp: i64) -> Result<Option<i64>, Fault> {
-    let mut query = db.prepare("SELECT package,min(next_ms) FROM dispatch_schedules WHERE next_ms IS NOT NULL GROUP BY package").map_err(storage_error)?;
-    let rows = query
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })
-        .map_err(storage_error)?;
+pub(super) async fn next(db: &Connection, timestamp: i64) -> Result<Option<i64>, Fault> {
+    let mut query = db.prepare("SELECT package,min(next_ms) FROM dispatch_schedules WHERE next_ms IS NOT NULL GROUP BY package").await.map_err(storage_error)?;
+    let rows = {
+        let mut rows = query.query(()).await.map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    };
     let mut next: Option<i64> = None;
     for row in rows {
         let (package, due) = row.map_err(storage_error)?;
         if package == native::OWNER
-            || super::super::plugins::get(db, &package)?.is_some_and(|info| info.summary.enabled)
+            || super::super::plugins::get(db, &package)
+                .await?
+                .is_some_and(|info| info.summary.enabled)
         {
             // A full delivery queue leaves its schedule unconsumed. Completions
             // wake us sooner; a bounded retry avoids spinning on overdue ticks.

@@ -4,13 +4,13 @@ use sailry_link::Admission;
 use sailry_protocol::{Receipt, Request, VERSION};
 use tokio::sync::oneshot;
 
-pub(in crate::store) fn current(
+pub(in crate::store) async fn current(
     db: &Connection,
     package: &plugin::Reference,
     surface: plugin::desktop::Surface,
 ) -> Result<Info, Fault> {
     if let plugin::desktop::Surface::Card(receipt) = surface {
-        let (mut info, summary) = super::cards::captured(db, receipt)?;
+        let (mut info, summary) = super::cards::captured(db, receipt).await?;
         if package != &summary.package {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
@@ -24,7 +24,7 @@ pub(in crate::store) fn current(
         }
         return Ok(info);
     }
-    let info = required(db, &package.name)?;
+    let info = required(db, &package.name).await?;
     if !info.summary.enabled && surface != plugin::desktop::Surface::Settings {
         return Err(Fault::new(ErrorCode::NotConfigured, "plugin is disabled"));
     }

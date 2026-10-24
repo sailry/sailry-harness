@@ -21,17 +21,23 @@ async fn shares_immutable_sources_and_preserves_offline_inventory() {
     for remote in [false, true] {
         let catalog = Catalog::start().await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
-        let ledger = node.profile().join("storage/node.sqlite3");
-        let count = || {
-            rusqlite::Connection::open_with_flags(
-                &ledger,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap()
-            .query_row::<i64, _, _>("SELECT count(*) FROM requests", [], |row| row.get(0))
+        let count = async || -> i64 {
+            node.with_storage(|db| {
+                Box::pin(async move {
+                    db.prepare("SELECT count(*) FROM requests")
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row(())
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap()
         };
-        let before = count();
+        let before = count().await;
         execute(&client, search("official-new")).await;
         let page = listing(&client, "fixture-skill", false).await;
         assert!(!page.unavailable);
@@ -84,7 +90,7 @@ async fn shares_immutable_sources_and_preserves_offline_inventory() {
         let offline = listing(&client, "", true).await;
         assert!(offline.unavailable);
         assert_eq!(offline.entries, legacy.entries);
-        assert_eq!(count(), before);
+        assert_eq!(count().await, before);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

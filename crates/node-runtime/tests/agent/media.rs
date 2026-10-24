@@ -350,23 +350,35 @@ async fn restores_frozen_execution() {
         else {
             panic!("fork expected")
         };
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let original: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM session_media WHERE session=?1",
-                [session.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
-        let copied: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM session_media WHERE session=?1",
-                [fork.id.to_string()],
-                |row| row.get(0),
-            )
+        let session_id = session.id;
+        let fork_id = fork.id;
+        let (original, copied): (Vec<u8>, Vec<u8>) = node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let original = db
+                        .prepare("SELECT body FROM session_media WHERE session=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([session_id.to_string()])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::database_fixture::fault)?;
+                    let copied = db
+                        .prepare("SELECT body FROM session_media WHERE session=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([fork_id.to_string()])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::database_fixture::fault)?;
+                    Ok((original, copied))
+                })
+            })
+            .await
             .unwrap();
         assert_eq!(original, copied);
-        drop(db);
         node.shutdown().await.unwrap();
         let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {

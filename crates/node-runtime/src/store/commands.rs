@@ -1,15 +1,16 @@
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::*;
+use turso::{Connection, params};
 
 use super::database::{encode, storage_error};
 
-pub(super) fn execute(
-    db: &Connection,
+pub(super) fn execute<'a>(
+    db: &'a Connection,
     node: NodeId,
     caller: NodeId,
-    profile: Option<&std::path::Path>,
-    request: &Request,
-) -> Result<(Output, Option<Event>), Fault> {
+    profile: Option<&'a std::path::Path>,
+    request: &'a Request,
+) -> sailry_link::Pending<'a, Result<(Output, Option<Event>), Fault>> {
+    // Select the handler before polling its async work.
     match &request.command {
         Command::ListConnectorTypes
         | Command::ListConnections
@@ -18,46 +19,60 @@ pub(super) fn execute(
         | Command::DisconnectConnection { .. }
         | Command::RemoveConnection { .. }
         | Command::ConfirmConnectorConsent { .. } => {
-            super::plugins::connectors::execute(db, profile, request)
+            Box::pin(async move { super::plugins::connectors::execute(db, profile, request).await })
         }
         Command::InspectConnectorCli { .. }
         | Command::StartConnectorLogin { .. }
         | Command::SubmitConnectorInput { .. }
         | Command::CancelConnectorLogin { .. }
-        | Command::ProbeConnection { .. } => Err(Fault::new(
-            ErrorCode::Internal,
-            "connector lifecycle command reached the synchronous handler",
-        )),
-        Command::DeliverBackground { .. } => Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "background delivery is internal Node input",
-        )),
+        | Command::ProbeConnection { .. } => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "connector lifecycle command reached the synchronous handler",
+            ))
+        }),
+        Command::DeliverBackground { .. } => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "background delivery is internal Node input",
+            ))
+        }),
         Command::WriteArtifact(_)
         | Command::ReadArtifact { .. }
         | Command::ListArtifacts { .. }
-        | Command::ListArtifactRevisions { .. } => super::artifacts::execute(db, profile, request),
-        Command::ListKnowledgeCollections => super::knowledge::list(db, request)
-            .map(|collections| (Output::KnowledgeCollections(collections), None)),
+        | Command::ListArtifactRevisions { .. } => {
+            Box::pin(async move { super::artifacts::execute(db, profile, request).await })
+        }
+        Command::ListKnowledgeCollections => Box::pin(async move {
+            super::knowledge::list(db, request)
+                .await
+                .map(|collections| (Output::KnowledgeCollections(collections), None))
+        }),
         Command::CreateKnowledgeCollection { .. }
         | Command::UpdateKnowledgeCollection { .. }
         | Command::DeleteKnowledgeCollection { .. }
         | Command::RebuildKnowledgeCollection { .. }
-        | Command::PauseKnowledgeCollection { .. } => super::knowledge::execute(db, request),
+        | Command::PauseKnowledgeCollection { .. } => {
+            Box::pin(async move { super::knowledge::execute(db, request).await })
+        }
         Command::SearchModels(_)
         | Command::ReadModelVersions { .. }
         | Command::ResolveModel { .. }
         | Command::RefreshLocalModel { .. }
         | Command::QueryKnowledge(_)
-        | Command::ReadKnowledgeCitation(_) => Err(Fault::new(
-            ErrorCode::Internal,
-            "knowledge execution must run outside the database",
-        )),
-        Command::StartSession(draft) => {
-            super::sessions::start(db, node, caller, profile, request, draft)
-        }
-        Command::ReadProjectCatalog => {
-            let projects = super::projects::list(db)?;
-            let worktrees = super::worktrees::list(db)?
+        | Command::ReadKnowledgeCitation(_) => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "knowledge execution must run outside the database",
+            ))
+        }),
+        Command::StartSession(draft) => Box::pin(async move {
+            super::sessions::start(db, node, caller, profile, request, draft).await
+        }),
+        Command::ReadProjectCatalog => Box::pin(async move {
+            let projects = super::projects::list(db).await?;
+            let worktrees = super::worktrees::list(db)
+                .await?
                 .into_iter()
                 .filter(|tree| {
                     projects
@@ -72,16 +87,17 @@ pub(super) fn execute(
                 }),
                 None,
             ))
-        }
-        Command::ReadWorktreeCatalog { worktree } => {
-            let entries = super::worktrees::list(db)?;
+        }),
+        Command::ReadWorktreeCatalog { worktree } => Box::pin(async move {
+            let entries = super::worktrees::list(db).await?;
             let source = entries
                 .iter()
                 .find(|entry| entry.id == *worktree)
                 .ok_or_else(|| {
                     Fault::new(ErrorCode::NotFound, "captured worktree is unavailable")
                 })?;
-            let projects = super::projects::list(db)?
+            let projects = super::projects::list(db)
+                .await?
                 .into_iter()
                 .filter(|project| Some(project.id) == source.project)
                 .collect();
@@ -99,85 +115,115 @@ pub(super) fn execute(
                 }),
                 None,
             ))
-        }
-        Command::ReportDiagnostic(report) => {
+        }),
+        Command::ReportDiagnostic(report) => Box::pin(async move {
             if request.plugin.is_some() {
                 return Err(Fault::new(
                     ErrorCode::PermissionDenied,
                     "system diagnostics require a controller",
                 ));
             }
-            super::notifications::diagnostics::report(db, report)
-        }
+            super::notifications::diagnostics::report(db, report).await
+        }),
         Command::PublishNotification { .. }
         | Command::MarkNotificationRead { .. }
         | Command::MarkNotificationsRead { .. }
         | Command::DismissReadNotifications { .. }
-        | Command::DismissNotifications { .. } => {
-            let admitted = request
+        | Command::DismissNotifications { .. } => Box::pin(async move {
+            let admitted = (match request
                 .plugin
                 .as_ref()
                 .filter(|context| context.invocation.is_some())
-                .map(|context| super::plugins::invocations::package(db, caller, context))
-                .transpose()?;
-            super::notifications::execute(db, &request.command, admitted)
-        }
-        Command::Dispatch { package, action } => {
+            {
+                Some(value) => Some(
+                    (async |context| {
+                        super::plugins::invocations::package(db, caller, context).await
+                    })(value)
+                    .await,
+                ),
+                None => None,
+            })
+            .transpose()?;
+            super::notifications::execute(db, &request.command, admitted).await
+        }),
+        Command::Dispatch { package, action } => Box::pin(async move {
             if let Some(context) = request
                 .plugin
                 .as_ref()
                 .filter(|context| context.invocation.is_some())
             {
-                super::plugins::invocations::package(db, caller, context)?;
-                super::dispatch::execute_admitted(db, package, action)
+                super::plugins::invocations::package(db, caller, context).await?;
+                super::dispatch::execute_admitted(db, package, action).await
             } else {
-                super::dispatch::execute(db, package, action)
+                super::dispatch::execute(db, package, action).await
             }
-        }
+        }),
         Command::UpdateProject {
             expected,
             name,
             path,
             appearance,
-        } => super::projects::update(db, expected, name, path, appearance),
-        Command::RemoveProject { expected } => super::projects::remove(db, expected),
-        Command::BrowseFiles { .. } | Command::ManageFiles(_) | Command::CreateProject(_) => {
-            Err(Fault::new(
-                ErrorCode::Internal,
-                "host file operations must run outside the database",
-            ))
+        } => {
+            Box::pin(
+                async move { super::projects::update(db, expected, name, path, appearance).await },
+            )
         }
-        Command::ListMediaModels => Ok((Output::MediaModels(super::media::catalog(db)?), None)),
-        Command::ReadMediaSettings => Ok((Output::MediaSettings(super::media::read(db)?), None)),
-        Command::SaveMediaSettings(settings) => super::media::save(db, settings),
-        Command::ReadHooks { worktree } => {
+        Command::RemoveProject { expected } => {
+            Box::pin(async move { super::projects::remove(db, expected).await })
+        }
+        Command::BrowseFiles { .. } | Command::ManageFiles(_) | Command::CreateProject(_) => {
+            Box::pin(async move {
+                Err(Fault::new(
+                    ErrorCode::Internal,
+                    "host file operations must run outside the database",
+                ))
+            })
+        }
+        Command::ListMediaModels => {
+            Box::pin(
+                async move { Ok((Output::MediaModels(super::media::catalog(db).await?), None)) },
+            )
+        }
+        Command::ReadMediaSettings => {
+            Box::pin(
+                async move { Ok((Output::MediaSettings(super::media::read(db).await?), None)) },
+            )
+        }
+        Command::SaveMediaSettings(settings) => {
+            Box::pin(async move { super::media::save(db, settings).await })
+        }
+        Command::ReadHooks { worktree } => Box::pin(async move {
             super::hooks::controller(request)?;
             Ok((
                 Output::HookSettings(super::hooks::state(
                     *worktree,
-                    super::hooks::read(db, *worktree)?,
+                    super::hooks::read(db, *worktree).await?,
                 )),
                 None,
             ))
-        }
+        }),
         Command::SaveHooks {
             worktree,
             settings,
             expected_revision,
-        } => {
+        } => Box::pin(async move {
             super::hooks::controller(request)?;
             Ok((
                 Output::HookSettings(super::hooks::state(
                     *worktree,
-                    super::hooks::save(db, *worktree, settings, *expected_revision)?,
+                    super::hooks::save(db, *worktree, settings, *expected_revision).await?,
                 )),
                 None,
             ))
+        }),
+        Command::DismissInstallation { .. } | Command::ReadInstallations { .. } => {
+            Box::pin(async move {
+                Err(Fault::new(
+                    ErrorCode::Internal,
+                    "installation observation must run outside the database",
+                ))
+            })
         }
-        Command::DismissInstallation { .. } | Command::ReadInstallations { .. } => Err(Fault::new(
-            ErrorCode::Internal,
-            "installation observation must run outside the database",
-        )),
         Command::ReadCode { .. }
         | Command::ListCodeServers { .. }
         | Command::StartCodeServer { .. }
@@ -190,144 +236,195 @@ pub(super) fn execute(
         | Command::ListCodeInstallations
         | Command::UninstallCodeServer { .. }
         | Command::ReadCodeRules
-        | Command::UpdateCodeRules => Err(Fault::new(
-            ErrorCode::Internal,
-            "language operations must run outside the database",
-        )),
-        Command::ReadCodeSettings => Ok((Output::CodeSettings(super::code::settings(db)?), None)),
+        | Command::UpdateCodeRules => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "language operations must run outside the database",
+            ))
+        }),
+        Command::ReadCodeSettings => {
+            Box::pin(
+                async move { Ok((Output::CodeSettings(super::code::settings(db).await?), None)) },
+            )
+        }
         Command::SaveCodeSettings {
             settings,
             expected_revision,
-        } => {
-            let saved = super::code::save(db, settings, *expected_revision)?;
+        } => Box::pin(async move {
+            let saved = super::code::save(db, settings, *expected_revision).await?;
             let changed = super::plugins::services::synchronize(
                 db,
                 sailry_protocol::plugin::Service::Language,
                 saved.enabled,
-            )?;
+            )
+            .await?;
             Ok((
                 Output::CodeSettings(saved),
                 changed.map(Event::PluginChanged),
             ))
+        }),
+        Command::ReadPowerSettings => {
+            Box::pin(
+                async move { Ok((Output::PowerSettings(super::power::read(db).await?), None)) },
+            )
         }
-        Command::ReadPowerSettings => Ok((Output::PowerSettings(super::power::read(db)?), None)),
-        Command::SavePowerSettings(settings) => super::power::save(db, settings),
-        Command::ReadTerminalSettings => Ok((
-            Output::TerminalSettings(super::terminals::settings::read(db)?),
-            None,
-        )),
-        Command::SaveTerminalSettings(settings) => super::terminals::settings::save(db, settings),
-        Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. } => Err(Fault::new(
-            ErrorCode::Internal,
-            "network configuration requires the Link worker",
-        )),
-        Command::ReadSandboxSettings => {
-            Ok((Output::SandboxSettings(super::sandbox::read(db)?), None))
+        Command::SavePowerSettings(settings) => {
+            Box::pin(async move { super::power::save(db, settings).await })
         }
-        Command::SaveSandboxSettings(settings) => super::sandbox::save(db, settings),
-        Command::ReadSearchSettings => Ok((Output::SearchSettings(super::search::read(db)?), None)),
-        Command::SaveSearchSettings(update) => super::search::save(db, request, update),
+        Command::ReadTerminalSettings => Box::pin(async move {
+            Ok((
+                Output::TerminalSettings(super::terminals::settings::read(db).await?),
+                None,
+            ))
+        }),
+        Command::SaveTerminalSettings(settings) => {
+            Box::pin(async move { super::terminals::settings::save(db, settings).await })
+        }
+        Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. } => {
+            Box::pin(async move {
+                Err(Fault::new(
+                    ErrorCode::Internal,
+                    "network configuration requires the Link worker",
+                ))
+            })
+        }
+        Command::ReadSandboxSettings => Box::pin(async move {
+            Ok((
+                Output::SandboxSettings(super::sandbox::read(db).await?),
+                None,
+            ))
+        }),
+        Command::SaveSandboxSettings(settings) => {
+            Box::pin(async move { super::sandbox::save(db, settings).await })
+        }
+        Command::ReadSearchSettings => {
+            Box::pin(
+                async move { Ok((Output::SearchSettings(super::search::read(db).await?), None)) },
+            )
+        }
+        Command::SaveSearchSettings(update) => {
+            Box::pin(async move { super::search::save(db, request, update).await })
+        }
         Command::ReadBackupSettings | Command::SaveBackupSettings(_) => {
-            super::backup::execute(db, request)
+            Box::pin(async move { super::backup::execute(db, request).await })
         }
         Command::ListBackups
         | Command::ExportBackup { .. }
         | Command::RestoreBackup { .. }
         | Command::RestoreBackupFile { .. }
         | Command::DownloadBackup { .. }
-        | Command::UploadBackup { .. } => Err(Fault::invalid(
-            "backup operation requires the resource worker",
-        )),
-        Command::ReadPythonSettings => {
+        | Command::UploadBackup { .. } => Box::pin(async move {
+            Err(Fault::invalid(
+                "backup operation requires the resource worker",
+            ))
+        }),
+        Command::ReadPythonSettings => Box::pin(async move {
             super::python::controller(request)?;
-            Ok((Output::PythonSettings(super::python::read(db)?), None))
+            Ok((Output::PythonSettings(super::python::read(db).await?), None))
+        }),
+        Command::SavePythonSettings(settings) => {
+            Box::pin(async move { super::python::save(db, request, settings).await })
         }
-        Command::SavePythonSettings(settings) => super::python::save(db, request, settings),
         Command::ReadLocalModelSettings
         | Command::SaveLocalModelSettings(_)
-        | Command::RegisterLocalModel { .. } => super::local_models::execute(db, request),
+        | Command::RegisterLocalModel { .. } => {
+            Box::pin(async move { super::local_models::execute(db, request).await })
+        }
         Command::Decide(_)
         | Command::ReadLocalModels { .. }
         | Command::CancelLocalModel { .. }
         | Command::InstallLocalModel { .. }
         | Command::DeleteLocalModel { .. } => {
-            Err(Fault::invalid("local model resource command expected"))
+            Box::pin(async move { Err(Fault::invalid("local model resource command expected")) })
         }
         Command::SearchWeb(_)
         | Command::CancelWebSearch { .. }
-        | Command::TestSearchDriver { .. } => Err(Fault::new(
-            ErrorCode::Internal,
-            "web search must run outside the database",
-        )),
-        Command::ListDatabases if request.plugin.is_some() => {
+        | Command::TestSearchDriver { .. } => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "web search must run outside the database",
+            ))
+        }),
+        Command::ListDatabases if request.plugin.is_some() => Box::pin(async move {
             let context = request.plugin.as_ref().expect("checked plugin context");
-            let profiles = super::databases::list(db)?
-                .into_iter()
-                .filter(|profile| {
-                    super::plugins::connections::check_target(
-                        db,
-                        context,
-                        connection::Resource::Database(profile.id),
-                    )
-                    .is_ok()
-                })
-                .collect();
+            let mut profiles = Vec::new();
+            for profile in super::databases::list(db).await? {
+                if super::plugins::connections::check_target(
+                    db,
+                    context,
+                    connection::Resource::Database(profile.id),
+                )
+                .await
+                .is_ok()
+                {
+                    profiles.push(profile);
+                }
+            }
             Ok((Output::DatabaseProfiles(profiles), None))
-        }
-        Command::ListSsh if request.plugin.is_some() => {
+        }),
+        Command::ListSsh if request.plugin.is_some() => Box::pin(async move {
             let context = request.plugin.as_ref().expect("checked plugin context");
-            let profiles = super::ssh::list(db)?
-                .into_iter()
-                .filter(|profile| {
-                    super::plugins::connections::check_target(
-                        db,
-                        context,
-                        connection::Resource::Ssh(profile.id),
-                    )
-                    .is_ok()
-                })
-                .collect();
+            let mut profiles = Vec::new();
+            for profile in super::ssh::list(db).await? {
+                if super::plugins::connections::check_target(
+                    db,
+                    context,
+                    connection::Resource::Ssh(profile.id),
+                )
+                .await
+                .is_ok()
+                {
+                    profiles.push(profile);
+                }
+            }
             Ok((Output::SshProfiles(profiles), None))
-        }
-        Command::ListSshTerminals { profile } => Ok((
-            Output::Terminals(
-                super::terminals::list(db)?
-                    .into_iter()
-                    .filter(|info| {
-                        info.ssh == Some(*profile)
-                            && info.owner == Some(caller)
-                            && info.status != terminal::Status::Closed
-                    })
-                    .collect(),
-            ),
-            None,
-        )),
+        }),
+        Command::ListSshTerminals { profile } => Box::pin(async move {
+            Ok((
+                Output::Terminals(
+                    super::terminals::list(db)
+                        .await?
+                        .into_iter()
+                        .filter(|info| {
+                            info.ssh == Some(*profile)
+                                && info.owner == Some(caller)
+                                && info.status != terminal::Status::Closed
+                        })
+                        .collect(),
+                ),
+                None,
+            ))
+        }),
         Command::ListDatabases | Command::SaveDatabase { .. } | Command::RemoveDatabase { .. } => {
-            super::databases::execute(db, &request.command)
+            Box::pin(async move { super::databases::execute(db, &request.command).await })
         }
         Command::ListSsh
         | Command::SaveSsh { .. }
         | Command::RemoveSsh { .. }
-        | Command::TrustSsh { .. } => super::ssh::execute(db, &request.command),
+        | Command::TrustSsh { .. } => {
+            Box::pin(async move { super::ssh::execute(db, &request.command).await })
+        }
         Command::ReadAttachment {
             worktree,
             attachment,
-        } => Ok((
-            Output::Attachment(super::attachments::read(db, *worktree, *attachment)?),
-            None,
-        )),
+        } => Box::pin(async move {
+            Ok((
+                Output::Attachment(super::attachments::read(db, *worktree, *attachment).await?),
+                None,
+            ))
+        }),
         Command::DiscardAttachment {
             worktree,
             attachment,
-        } => {
-            super::attachments::discard(db, caller, *worktree, *attachment)?;
+        } => Box::pin(async move {
+            super::attachments::discard(db, caller, *worktree, *attachment).await?;
             Ok((
                 Output::AttachmentDiscarded {
                     attachment: *attachment,
                 },
                 None,
             ))
-        }
+        }),
         Command::ReadPluginValue { .. }
         | Command::ReadPluginConversationValue { .. }
         | Command::ListPluginKeys { .. }
@@ -337,7 +434,7 @@ pub(super) fn execute(
         | Command::RemovePluginValue { .. }
         | Command::WritePluginConversationValue { .. }
         | Command::RemovePluginConversationValue { .. } => {
-            super::plugins::execute_storage(db, request)
+            Box::pin(async move { super::plugins::execute_storage(db, request).await })
         }
         Command::ReadPluginSettings { .. }
             if request
@@ -345,16 +442,20 @@ pub(super) fn execute(
                 .as_ref()
                 .is_some_and(|context| context.invocation.is_some() || context.turn.is_some()) =>
         {
-            let context = request.plugin.as_ref().expect("checked plugin context");
-            let info = if context.invocation.is_some() {
-                super::plugins::invocations::package(db, caller, context)?
-            } else {
-                super::agent::plugin_package(db, context)?
-            };
-            Ok((
-                Output::PluginSettings(super::plugins::settings::read_admitted(db, &info)?),
-                None,
-            ))
+            Box::pin(async move {
+                let context = request.plugin.as_ref().expect("checked plugin context");
+                let info = if context.invocation.is_some() {
+                    super::plugins::invocations::package(db, caller, context).await?
+                } else {
+                    super::agent::plugin_package(db, context).await?
+                };
+                Ok((
+                    Output::PluginSettings(
+                        super::plugins::settings::read_admitted(db, &info).await?,
+                    ),
+                    None,
+                ))
+            })
         }
         Command::ReadPluginConnection { card, .. }
             if request
@@ -362,25 +463,29 @@ pub(super) fn execute(
                 .as_ref()
                 .is_some_and(|context| context.invocation.is_some() || context.turn.is_some()) =>
         {
-            let context = request.plugin.as_ref().expect("checked plugin context");
-            let info = if context.invocation.is_some() {
-                super::plugins::invocations::package(db, caller, context)?
-            } else {
-                super::agent::plugin_package(db, context)?
-            };
+            Box::pin(async move {
+                let context = request.plugin.as_ref().expect("checked plugin context");
+                let info = if context.invocation.is_some() {
+                    super::plugins::invocations::package(db, caller, context).await?
+                } else {
+                    super::agent::plugin_package(db, context).await?
+                };
+                Ok((
+                    Output::PluginConnection(
+                        super::plugins::connection::read_admitted(db, profile, &info, card).await?,
+                    ),
+                    None,
+                ))
+            })
+        }
+        Command::ReadPluginConnection { package, card } => Box::pin(async move {
             Ok((
-                Output::PluginConnection(super::plugins::connection::read_admitted(
-                    db, profile, &info, card,
-                )?),
+                Output::PluginConnection(
+                    super::plugins::connection::read(db, profile, package, card).await?,
+                ),
                 None,
             ))
-        }
-        Command::ReadPluginConnection { package, card } => Ok((
-            Output::PluginConnection(super::plugins::connection::read(
-                db, profile, package, card,
-            )?),
-            None,
-        )),
+        }),
         Command::ListPlugins
         | Command::ReadPluginSettings { .. }
         | Command::ReadPluginSecret { .. }
@@ -391,99 +496,121 @@ pub(super) fn execute(
         | Command::ReadPluginVersion { .. }
         | Command::SetPluginEnabled { .. }
         | Command::SetPluginMcpAllowed { .. }
-        | Command::RemovePlugin { .. } => super::plugins::execute(db, profile, &request.command),
-        Command::ListRoles => Ok((Output::Roles(super::roles::list(db)?), None)),
+        | Command::RemovePlugin { .. } => {
+            Box::pin(async move { super::plugins::execute(db, profile, &request.command).await })
+        }
+        Command::ListRoles => {
+            Box::pin(async move { Ok((Output::Roles(super::roles::list(db).await?), None)) })
+        }
         Command::PutRole {
             role,
             expected_revision,
-        } => {
-            super::roles::approvals::check(db, request)?;
-            let role = super::roles::put(db, role, *expected_revision)?;
+        } => Box::pin(async move {
+            super::roles::approvals::check(db, request).await?;
+            let role = super::roles::put(db, role, *expected_revision).await?;
             Ok((Output::Role(role.clone()), Some(Event::RoleChanged(role))))
-        }
+        }),
         Command::RemoveRole {
             role,
             expected_revision,
-        } => {
-            super::roles::approvals::check(db, request)?;
-            super::roles::remove(db, *role, *expected_revision)?;
+        } => Box::pin(async move {
+            super::roles::approvals::check(db, request).await?;
+            super::roles::remove(db, *role, *expected_revision).await?;
             Ok((
-                Output::Roles(super::roles::list(db)?),
+                Output::Roles(super::roles::list(db).await?),
                 Some(Event::RoleRemoved { id: *role }),
             ))
-        }
+        }),
         Command::ResolveQuestion {
             session,
             question,
             response,
-        } => {
+        } => Box::pin(async move {
             if matches!(
                 response,
                 conversation::question::Response::StartCoding { .. }
             ) {
-                let accepted = Box::new(super::agent::questions::accept(db, caller, request)?);
+                let accepted =
+                    Box::new(super::agent::questions::accept(db, caller, request).await?);
                 return Ok((
                     Output::PlanAccepted(accepted.clone()),
                     Some(Event::PlanAccepted(accepted)),
                 ));
             }
-            let question = super::agent::questions::resolve(db, *session, *question, response)?;
+            let question =
+                super::agent::questions::resolve(db, *session, *question, response).await?;
             Ok((
                 Output::Question(question),
-                Some(super::agent::activity::changed(db, *session)?),
+                Some(super::agent::activity::changed(db, *session).await?),
             ))
-        }
+        }),
         Command::ResolveApproval {
             session,
             approval,
             decision,
-        } => {
+        } => Box::pin(async move {
             let approval =
-                super::agent::approvals::resolve(db, *session, *approval, decision.clone())?;
+                super::agent::approvals::resolve(db, *session, *approval, decision.clone()).await?;
             // The database owner records activity after claiming this decision
             // and applying any matching session approvals in the same transaction.
             Ok((Output::Approval(approval), None))
+        }),
+        Command::ListProviders => {
+            Box::pin(
+                async move { Ok((Output::Providers(super::agent::providers(db).await?), None)) },
+            )
         }
-        Command::ListProviders => Ok((Output::Providers(super::agent::providers(db)?), None)),
         Command::ReadProviderKey {
             provider,
             expected_revision,
-        } => Ok((
-            Output::ProviderKey(super::providers::authentication::provider_key(
-                db,
-                node,
-                *provider,
-                *expected_revision,
-            )?),
-            None,
-        )),
-        Command::ListChannelPresets { .. } => Err(Fault::new(
-            ErrorCode::Internal,
-            "model partner loading must run outside the database",
-        )),
-        Command::ReadCatalogStatus => Ok((
-            Output::CatalogStatus(super::providers::catalog::status(db)?),
-            None,
-        )),
-        Command::ReadModelCatalog(query) => Ok((
-            Output::ModelCatalog(super::providers::catalog::page(db, query)?),
-            None,
-        )),
+        } => Box::pin(async move {
+            Ok((
+                Output::ProviderKey(
+                    super::providers::authentication::provider_key(
+                        db,
+                        node,
+                        *provider,
+                        *expected_revision,
+                    )
+                    .await?,
+                ),
+                None,
+            ))
+        }),
+        Command::ListChannelPresets { .. } => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "model partner loading must run outside the database",
+            ))
+        }),
+        Command::ReadCatalogStatus => Box::pin(async move {
+            Ok((
+                Output::CatalogStatus(super::providers::catalog::status(db).await?),
+                None,
+            ))
+        }),
+        Command::ReadModelCatalog(query) => Box::pin(async move {
+            Ok((
+                Output::ModelCatalog(super::providers::catalog::page(db, query).await?),
+                None,
+            ))
+        }),
         Command::PutProvider {
             provider,
             expected_revision,
-        } => {
-            let provider = super::agent::put_provider(db, node, provider, *expected_revision)?;
+        } => Box::pin(async move {
+            let provider =
+                super::agent::put_provider(db, node, provider, *expected_revision).await?;
             Ok((
                 Output::Provider(provider.clone()),
                 Some(Event::ProviderChanged(provider)),
             ))
-        }
+        }),
         Command::SaveProvider {
             provider,
             expected_revision,
             secret,
-        } => {
+        } => Box::pin(async move {
             let mut provider = provider.clone();
             if let Some(secret) = secret {
                 if provider.authentication != Authentication::ApiKey {
@@ -501,187 +628,227 @@ pub(super) fn execute(
                         secret: secret.clone(),
                         expires_at_ms: None,
                     },
-                )?;
+                )
+                .await?;
                 provider.credential = Some(CredentialRef { node, id });
             }
-            let provider = super::agent::put_provider(db, node, &provider, *expected_revision)?;
+            let provider =
+                super::agent::put_provider(db, node, &provider, *expected_revision).await?;
             Ok((
                 Output::Provider(provider.clone()),
                 Some(Event::ProviderChanged(provider)),
             ))
-        }
+        }),
         Command::RemoveProvider {
             provider,
             expected_revision,
-        } => {
-            super::agent::remove_provider(db, *provider, *expected_revision)?;
+        } => Box::pin(async move {
+            super::agent::remove_provider(db, *provider, *expected_revision).await?;
             Ok((
-                Output::Providers(super::agent::providers(db)?),
+                Output::Providers(super::agent::providers(db).await?),
                 Some(Event::ProviderRemoved { id: *provider }),
             ))
+        }),
+        Command::ReadUsage(query) => Box::pin(async move {
+            Ok((
+                Output::Usage(super::agent::statistics::report::read(db, node, query).await?),
+                None,
+            ))
+        }),
+        Command::ReadActivityCatalog => Box::pin(async move {
+            Ok((
+                Output::ActivityCatalog(super::agent::activity::catalog(db, node).await?),
+                None,
+            ))
+        }),
+        Command::ReadActivity { sessions } => Box::pin(async move {
+            Ok((
+                Output::Activity(super::agent::activity::previews(db, sessions).await?),
+                None,
+            ))
+        }),
+        Command::ReadSession { session: id } => {
+            Box::pin(async move { Ok((Output::Session(session(db, *id).await?), None)) })
         }
-        Command::ReadUsage(query) => Ok((
-            Output::Usage(super::agent::statistics::report::read(db, node, query)?),
-            None,
-        )),
-        Command::ReadActivityCatalog => Ok((
-            Output::ActivityCatalog(super::agent::activity::catalog(db, node)?),
-            None,
-        )),
-        Command::ReadActivity { sessions } => Ok((
-            Output::Activity(super::agent::activity::previews(db, sessions)?),
-            None,
-        )),
-        Command::ReadSession { session: id } => Ok((Output::Session(session(db, *id)?), None)),
         Command::ReadConversation {
             session,
             before,
             limit,
-        } => Ok((
-            Output::Conversation(super::agent::read(db, *session, *before, *limit)?),
-            None,
-        )),
-        Command::ReadTurnCapture { session, turn } => Ok((
-            Output::QueuedTurn(super::captures::read(db, *session, *turn)?),
-            None,
-        )),
+        } => Box::pin(async move {
+            Ok((
+                Output::Conversation(super::agent::read(db, *session, *before, *limit).await?),
+                None,
+            ))
+        }),
+        Command::ReadTurnCapture { session, turn } => Box::pin(async move {
+            Ok((
+                Output::QueuedTurn(super::captures::read(db, *session, *turn).await?),
+                None,
+            ))
+        }),
         Command::ReadTurn {
             session,
             turn,
             expected_revision,
             before,
             limit,
-        } => {
+        } => Box::pin(async move {
             check_revision(
-                super::sessions::history_revision(db, *session)?,
+                super::sessions::history_revision(db, *session).await?,
                 *expected_revision,
             )?;
             Ok((
-                Output::TurnHistory(super::agent::read_turn(
-                    db, *session, *turn, *before, *limit,
-                )?),
+                Output::TurnHistory(
+                    super::agent::read_turn(db, *session, *turn, *before, *limit).await?,
+                ),
                 None,
             ))
-        }
-        Command::ListConversationAssets { session, query } => Ok((
-            Output::ConversationAssets(super::agent::assets::read(db, *session, query)?),
-            None,
-        )),
-        Command::SearchConversation { session, query } => Ok((
-            Output::ConversationMatches(super::agent::search(db, *session, query)?),
-            None,
-        )),
+        }),
+        Command::ListConversationAssets { session, query } => Box::pin(async move {
+            Ok((
+                Output::ConversationAssets(super::agent::assets::read(db, *session, query).await?),
+                None,
+            ))
+        }),
+        Command::SearchConversation { session, query } => Box::pin(async move {
+            Ok((
+                Output::ConversationMatches(super::agent::search(db, *session, query).await?),
+                None,
+            ))
+        }),
         Command::ListFileCheckpoints {
             session,
             turn,
             before,
             limit,
-        } => Ok((
-            Output::FileCheckpoints(super::agent::checkpoints::list(
-                db, *session, *turn, *before, *limit,
-            )?),
-            None,
-        )),
-        Command::ReadTurnDiff { session, turn } => Ok((
-            Output::TurnDiff(super::agent::checkpoints::diff(db, *session, *turn)?),
-            None,
-        )),
+        } => Box::pin(async move {
+            Ok((
+                Output::FileCheckpoints(
+                    super::agent::checkpoints::list(db, *session, *turn, *before, *limit).await?,
+                ),
+                None,
+            ))
+        }),
+        Command::ReadTurnDiff { session, turn } => Box::pin(async move {
+            Ok((
+                Output::TurnDiff(super::agent::checkpoints::diff(db, *session, *turn).await?),
+                None,
+            ))
+        }),
         Command::ReadTurnHunks {
             session,
             turn,
             path,
-        } => Ok((
-            Output::TurnHunks(super::agent::checkpoints::hunks::read(
-                db, *session, *turn, path,
-            )?),
-            None,
-        )),
+        } => Box::pin(async move {
+            Ok((
+                Output::TurnHunks(
+                    super::agent::checkpoints::hunks::read(db, *session, *turn, path).await?,
+                ),
+                None,
+            ))
+        }),
         Command::ReadFileCheckpoint {
             session,
             checkpoint,
-        } => Ok((
-            Output::FileCheckpoint(Box::new(super::agent::checkpoints::read(
-                db,
-                *session,
-                *checkpoint,
-            )?)),
-            None,
-        )),
+        } => Box::pin(async move {
+            Ok((
+                Output::FileCheckpoint(Box::new(
+                    super::agent::checkpoints::read(db, *session, *checkpoint).await?,
+                )),
+                None,
+            ))
+        }),
         Command::ForkConversation {
             session,
             through,
             expected_revision,
-        } => super::sessions::fork(db, *session, *through, *expected_revision),
+        } => Box::pin(async move {
+            super::sessions::fork(db, *session, *through, *expected_revision).await
+        }),
         Command::RewindConversation {
             session,
             through,
             expected_head,
             expected_revision,
-        } => super::sessions::rewind(
-            db,
-            *session,
-            *through,
-            *expected_head,
-            *expected_revision,
-            false,
-        ),
-        Command::ReplaceTurn { .. } => super::sessions::replace(db, caller, request),
-        Command::StartQueuedTurn { turn } => {
-            let queued = super::agent::runs::get(db, *turn)?;
-            super::sessions::writable(&session(db, queued.session)?)?;
-            let run = super::agent::start(db, *turn)?;
+        } => Box::pin(async move {
+            super::sessions::rewind(
+                db,
+                *session,
+                *through,
+                *expected_head,
+                *expected_revision,
+                false,
+            )
+            .await
+        }),
+        Command::ReplaceTurn { .. } => {
+            Box::pin(async move { super::sessions::replace(db, caller, request).await })
+        }
+        Command::StartQueuedTurn { turn } => Box::pin(async move {
+            let queued = super::agent::runs::get(db, *turn).await?;
+            super::sessions::writable(&session(db, queued.session).await?)?;
+            let run = super::agent::start(db, *turn).await?;
             Ok((
                 Output::Run(run.clone()),
-                Some(super::agent::activity::changed(db, run.session)?),
+                Some(super::agent::activity::changed(db, run.session).await?),
             ))
+        }),
+        Command::GuideTurn { .. } => {
+            Box::pin(async move { super::agent::delegation::guide(db, caller, request).await })
         }
-        Command::GuideTurn { .. } => super::agent::delegation::guide(db, caller, request),
         Command::ReadQueuedTurn { .. }
         | Command::EditQueuedTurn { .. }
         | Command::RemoveQueuedTurn { .. }
         | Command::SendQueuedTurn { .. }
         | Command::GuideQueuedTurn { .. }
         | Command::MoveQueuedTurn { .. }
-        | Command::SetQueuePaused { .. } => super::agent::queue::execute(db, caller, request),
-        Command::StopDispatchTurn { package, job } => {
+        | Command::SetQueuePaused { .. } => {
+            Box::pin(async move { super::agent::queue::execute(db, caller, request).await })
+        }
+        Command::StopDispatchTurn { package, job } => Box::pin(async move {
             if let Some(context) = request
                 .plugin
                 .as_ref()
                 .filter(|context| context.invocation.is_some())
             {
-                super::plugins::invocations::package(db, caller, context)?;
+                super::plugins::invocations::package(db, caller, context).await?;
             } else {
-                super::dispatch::available(db, package)?;
+                super::dispatch::available(db, package).await?;
             }
-            let turn = super::dispatch::jobs::turn(db, &package.name, *job)?;
-            let run = super::agent::stop(db, turn)?;
+            let turn = super::dispatch::jobs::turn(db, &package.name, *job).await?;
+            let run = super::agent::stop(db, turn).await?;
             Ok((
                 Output::Run(run.clone()),
-                Some(super::agent::activity::changed(db, run.session)?),
+                Some(super::agent::activity::changed(db, run.session).await?),
             ))
-        }
-        Command::StopTurn { turn } => {
-            let run = super::agent::stop(db, *turn)?;
+        }),
+        Command::StopTurn { turn } => Box::pin(async move {
+            let run = super::agent::stop(db, *turn).await?;
             Ok((
                 Output::Run(run.clone()),
-                Some(super::agent::activity::changed(db, run.session)?),
+                Some(super::agent::activity::changed(db, run.session).await?),
             ))
-        }
-        Command::ListTerminals { worktree } => Ok((
-            Output::Terminals(
-                super::terminals::list(db)?
-                    .into_iter()
-                    .filter(|info| info.worktree == Some(*worktree))
-                    .collect(),
-            ),
-            None,
-        )),
+        }),
+        Command::ListTerminals { worktree } => Box::pin(async move {
+            Ok((
+                Output::Terminals(
+                    super::terminals::list(db)
+                        .await?
+                        .into_iter()
+                        .filter(|info| info.worktree == Some(*worktree))
+                        .collect(),
+                ),
+                None,
+            ))
+        }),
         Command::BeginProviderLogin { .. }
         | Command::CompleteProviderLogin { .. }
-        | Command::CancelProviderLogin { .. } => Err(Fault::new(
-            ErrorCode::Internal,
-            "authorization command must use its lifecycle owner",
-        )),
+        | Command::CancelProviderLogin { .. } => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "authorization command must use its lifecycle owner",
+            ))
+        }),
         Command::CreateTerminal(_)
         | Command::OpenTerminal { .. }
         | Command::OpenToolTerminal { .. }
@@ -721,10 +888,12 @@ pub(super) fn execute(
         | Command::ClaimTerminal { .. }
         | Command::InputTerminal { .. }
         | Command::ResizeTerminal { .. }
-        | Command::SetTerminalAppearance { .. } => Err(Fault::new(
-            ErrorCode::Internal,
-            "terminal command must use its owner thread",
-        )),
+        | Command::SetTerminalAppearance { .. } => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "terminal command must use its owner thread",
+            ))
+        }),
         Command::PluginTransaction { .. }
         | Command::GeneratePluginText { .. }
         | Command::RequestPluginHttp(_)
@@ -826,16 +995,20 @@ pub(super) fn execute(
         | Command::TrashEntry { .. }
         | Command::TrashFile { .. }
         | Command::UpdateGitIndex { .. }
-        | Command::CreateGitCommit { .. } => Err(Fault::new(
-            ErrorCode::Internal,
-            "resource inspection must bypass the database",
-        )),
-        Command::ListCredentials => Ok((
-            super::providers::authentication::execute(db, &request.command)?,
-            None,
-        )),
-        Command::PutCredential { .. } | Command::RevokeCredential { .. } => {
-            let output = super::providers::authentication::execute(db, &request.command)?;
+        | Command::CreateGitCommit { .. } => Box::pin(async move {
+            Err(Fault::new(
+                ErrorCode::Internal,
+                "resource inspection must bypass the database",
+            ))
+        }),
+        Command::ListCredentials => Box::pin(async move {
+            Ok((
+                super::providers::authentication::execute(db, &request.command).await?,
+                None,
+            ))
+        }),
+        Command::PutCredential { .. } | Command::RevokeCredential { .. } => Box::pin(async move {
+            let output = super::providers::authentication::execute(db, &request.command).await?;
             let Output::Credential(credential) = &output else {
                 return Err(Fault::new(
                     ErrorCode::Internal,
@@ -844,70 +1017,88 @@ pub(super) fn execute(
             };
             let event = super::providers::authentication::changed(node, credential);
             Ok((output, Some(event)))
+        }),
+        Command::Snapshot => {
+            Box::pin(async move { Ok((Output::Snapshot(snapshot(db, node).await?), None)) })
         }
-        Command::Snapshot => Ok((Output::Snapshot(snapshot(db, node)?), None)),
-        Command::InspectRequest { id, digest } => Ok((
-            Output::RequestOutcome {
-                id: *id,
-                outcome: super::outcomes::inspect(db, caller, *id, digest)?,
-            },
-            None,
-        )),
+        Command::InspectRequest { id, digest } => Box::pin(async move {
+            Ok((
+                Output::RequestOutcome {
+                    id: *id,
+                    outcome: super::outcomes::inspect(db, caller, *id, digest).await?,
+                },
+                None,
+            ))
+        }),
         Command::RegisterProject { name, path } => {
-            super::projects::register(db, name, path, Default::default())
+            Box::pin(
+                async move { super::projects::register(db, name, path, Default::default()).await },
+            )
         }
         Command::SetDefaults {
             expected_revision,
             config,
-        } => {
+        } => Box::pin(async move {
             if config.resource.is_some() || config.assistant.is_some() {
                 return Err(sailry_protocol::Fault::invalid(
                     "default conversations cannot bind a resource or plugin assistant",
                 ));
             }
-            validate_config(db, node, config)?;
-            super::sessions::validate_model(db, config, None)?;
-            let current = defaults(db)?;
+            validate_config(db, node, config).await?;
+            super::sessions::validate_model(db, config, None).await?;
+            let current = defaults(db).await?;
             check_revision(current.revision, *expected_revision)?;
             super::plugins::options::validate(
                 db,
                 current.config.as_ref(),
                 config,
                 request.plugin.as_ref().map(|scope| &scope.package),
-            )?;
-            let previous: Option<Vec<u8>> = db
-                .query_row("SELECT config FROM defaults WHERE singleton=1", [], |row| {
-                    row.get(0)
-                })
-                .optional()
-                .map_err(storage_error)?;
+            )
+            .await?;
+            let previous: Option<Vec<u8>> = {
+                let mut statement = db
+                    .prepare("SELECT config FROM defaults WHERE singleton=1")
+                    .await
+                    .map_err(storage_error)?;
+                match statement.query_row(()).await {
+                    Ok(row) => {
+                        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        Some(mapped.map_err(storage_error)?)
+                    }
+                    Err(turso::Error::QueryReturnedNoRows) => None,
+                    Err(error) => return Err(storage_error(error).into()),
+                }
+            };
             let defaults = Defaults {
                 revision: next_revision(current.revision)?,
                 config: Some(config.clone()),
             };
-            db.execute("INSERT INTO defaults(singleton,revision,config) VALUES(1,?1,?2) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision,config=excluded.config", params![defaults.revision as i64, super::plugins::options::preserve(previous.as_deref(),config)?]).map_err(storage_error)?;
+            db.execute("INSERT INTO defaults(singleton,revision,config) VALUES(1,?1,?2) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision,config=excluded.config", params![defaults.revision as i64, super::plugins::options::preserve(previous.as_deref(),config)?]).await.map_err(storage_error)?;
             Ok((
                 Output::Defaults(defaults.clone()),
                 Some(Event::DefaultsChanged(defaults)),
             ))
-        }
+        }),
         Command::BindConnectionSession {
             session,
             expected_revision,
             resource,
-        } => super::connections::bind(db, profile, *session, *expected_revision, *resource),
+        } => Box::pin(async move {
+            super::connections::bind(db, profile, *session, *expected_revision, *resource).await
+        }),
         Command::CreateSession {
             project,
             worktree,
             config,
-        } => {
+        } => Box::pin(async move {
             let config = match config {
                 Some(config) => config.clone(),
-                None => defaults(db)?.config.ok_or_else(|| {
+                None => defaults(db).await?.config.ok_or_else(|| {
                     sailry_protocol::Fault::invalid("Node model defaults are not configured")
                 })?,
             };
-            let roles = super::sessions::roles::capture(db, node, super::roles::list(db)?)?;
+            let roles =
+                super::sessions::roles::capture(db, node, super::roles::list(db).await?).await?;
             super::sessions::create(
                 db,
                 node,
@@ -920,67 +1111,89 @@ pub(super) fn execute(
                     roles,
                 },
             )
-        }
+            .await
+        }),
         Command::ImportSession(bundle) => {
-            super::sessions::import(db, node, caller, profile, bundle)
+            Box::pin(
+                async move { super::sessions::import(db, node, caller, profile, bundle).await },
+            )
         }
         Command::RenameSession {
             session,
             expected_revision,
             title,
-        } => super::sessions::rename(db, *session, *expected_revision, title),
+        } => Box::pin(async move {
+            super::sessions::rename(db, *session, *expected_revision, title).await
+        }),
         Command::SetSessionRead {
             session,
             expected_revision,
             read,
-        } => super::sessions::attention::set(db, *session, *expected_revision, *read),
+        } => Box::pin(async move {
+            super::sessions::attention::set(db, *session, *expected_revision, *read).await
+        }),
         Command::SetSessionArchived {
             session,
             expected_revision,
             archived,
-        } => super::sessions::archive(db, *session, *expected_revision, *archived),
-        Command::ArchiveSessions { .. } | Command::RemoveSessions { .. } => Err(Fault::invalid(
-            "session batch requires its command transaction",
-        )),
+        } => Box::pin(async move {
+            super::sessions::archive(db, *session, *expected_revision, *archived).await
+        }),
+        Command::ArchiveSessions { .. } | Command::RemoveSessions { .. } => Box::pin(async move {
+            Err(Fault::invalid(
+                "session batch requires its command transaction",
+            ))
+        }),
         Command::SetSessionOrder {
             project,
             expected,
             sessions,
-        } => super::sessions::reorder(db, *project, expected, sessions),
+        } => Box::pin(
+            async move { super::sessions::reorder(db, *project, expected, sessions).await },
+        ),
         Command::RemoveSession {
             session,
             expected_revision,
-        } => super::sessions::remove(db, *session, *expected_revision),
-        Command::CreateSessionAt { .. } => Err(sailry_protocol::Fault::invalid(
-            "configuration forwarding requires the Node worker",
-        )),
+        } => {
+            Box::pin(async move { super::sessions::remove(db, *session, *expected_revision).await })
+        }
+        Command::CreateSessionAt { .. } => Box::pin(async move {
+            Err(sailry_protocol::Fault::invalid(
+                "configuration forwarding requires the Node worker",
+            ))
+        }),
         Command::MoveConversation {
             session,
             worktree,
             expected_revision,
-        } => super::sessions::location::move_to(db, *session, *worktree, *expected_revision),
+        } => Box::pin(async move {
+            super::sessions::location::move_to(db, *session, *worktree, *expected_revision).await
+        }),
         Command::ForkConversationAt {
             session,
             worktree,
             expected_revision,
-        } => super::sessions::location::fork_at(db, *session, *worktree, *expected_revision),
+        } => Box::pin(async move {
+            super::sessions::location::fork_at(db, *session, *worktree, *expected_revision).await
+        }),
         Command::SetSessionConfig {
             session: id,
             expected_revision,
             config,
-        } => {
-            validate_config(db, node, config)?;
-            let mut session = session(db, *id)?;
+        } => Box::pin(async move {
+            validate_config(db, node, config).await?;
+            let mut session = session(db, *id).await?;
             check_revision(session.revision, *expected_revision)?;
             super::plugins::options::validate(
                 db,
                 Some(&session.config),
                 config,
                 request.plugin.as_ref().map(|scope| &scope.package),
-            )?;
+            )
+            .await?;
             if session.delegation.is_some()
                 && config.mode != sailry_protocol::WorkMode::Plan
-                && super::agent::delegation::read_only(db, session.id)?
+                && super::agent::delegation::read_only(db, session.id).await?
             {
                 return Err(Fault::new(
                     ErrorCode::PermissionDenied,
@@ -1000,56 +1213,59 @@ pub(super) fn execute(
             } else if let Some(profile) = &mut session.profile {
                 profile.provider.credential = config.credential.clone();
             }
-            super::sessions::validate_model(db, config, session.profile.as_ref())?;
+            super::sessions::validate_model(db, config, session.profile.as_ref()).await?;
             session.config = config.clone();
-            revise_session(db, session)
-        }
+            revise_session(db, session).await
+        }),
         Command::SetSessionRoles {
             session: id,
             expected_revision,
             roles,
-        } => {
-            super::roles::approvals::check(db, request)?;
-            let mut session = session(db, *id)?;
+        } => Box::pin(async move {
+            super::roles::approvals::check(db, request).await?;
+            let mut session = session(db, *id).await?;
             super::sessions::writable(&session)?;
             check_revision(session.revision, *expected_revision)?;
-            session.roles = super::sessions::roles::select(db, node, roles)?;
-            revise_session(db, session)
-        }
+            session.roles = super::sessions::roles::select(db, node, roles).await?;
+            revise_session(db, session).await
+        }),
         Command::CompactContext {
             session: id,
             expected_revision,
-        } => {
-            let session = session(db, *id)?;
+        } => Box::pin(async move {
+            let session = session(db, *id).await?;
             check_revision(session.revision, *expected_revision)?;
-            let turn = super::agent::queue::compact(db, caller, request, session)?;
+            let turn = super::agent::queue::compact(db, caller, request, session).await?;
             Ok((
                 Output::QueuedTurn(turn.clone()),
-                Some(super::agent::activity::queued(db, turn)?),
+                Some(super::agent::activity::queued(db, turn).await?),
             ))
+        }),
+        Command::ContinueTurn { .. } => {
+            Box::pin(async move { super::agent::continuation::admit(db, caller, request).await })
         }
-        Command::ContinueTurn { .. } => super::agent::continuation::admit(db, caller, request),
         Command::SubmitTask {
             session: id,
             expected_revision,
             message,
-        } => {
+        } => Box::pin(async move {
             if request.plugin.is_some() {
                 return Err(Fault::new(
                     ErrorCode::PermissionDenied,
                     "task submission requires a native controller",
                 ));
             }
-            let session = session(db, *id)?;
+            let session = session(db, *id).await?;
             if let Some(revision) = expected_revision {
                 check_revision(session.revision, *revision)?;
             }
-            let turn = super::agent::queue::create(db, caller, request, session, message, true)?;
+            let turn =
+                super::agent::queue::create(db, caller, request, session, message, true).await?;
             Ok((
                 Output::QueuedTurn(turn.clone()),
-                Some(super::agent::activity::queued(db, turn)?),
+                Some(super::agent::activity::queued(db, turn).await?),
             ))
-        }
+        }),
         Command::QueueTurn {
             session: id,
             expected_revision,
@@ -1059,11 +1275,11 @@ pub(super) fn execute(
             session: id,
             expected_revision,
             message,
-        } => {
-            let session = session(db, *id)?;
+        } => Box::pin(async move {
+            let session = session(db, *id).await?;
             check_revision(session.revision, *expected_revision)?;
             let resume = matches!(request.command, Command::SubmitTurn { .. })
-                && super::agent::queue::can_resume(db, session.id)?;
+                && super::agent::queue::can_resume(db, session.id).await?;
             let turn = super::agent::queue::create(
                 db,
                 caller,
@@ -1071,19 +1287,20 @@ pub(super) fn execute(
                 session,
                 message,
                 matches!(request.command, Command::SubmitTurn { .. }),
-            )?;
+            )
+            .await?;
             if resume {
-                super::agent::queue::prioritize(db, &turn)?;
+                super::agent::queue::prioritize(db, &turn).await?;
             }
             Ok((
                 Output::QueuedTurn(turn.clone()),
-                Some(super::agent::activity::queued(db, turn)?),
+                Some(super::agent::activity::queued(db, turn).await?),
             ))
-        }
+        }),
     }
 }
 
-pub(super) fn validate_config(
+pub(super) async fn validate_config(
     db: &Connection,
     node: NodeId,
     config: &SessionConfig,
@@ -1104,7 +1321,7 @@ pub(super) fn validate_config(
         ));
     }
     if let Some(reference) = &config.credential {
-        super::providers::authentication::validate(db, reference.id, config.provider)?;
+        super::providers::authentication::validate(db, reference.id, config.provider).await?;
     }
     Ok(())
 }
@@ -1127,13 +1344,13 @@ fn next_revision(revision: u64) -> Result<u64, Fault> {
         .ok_or_else(|| sailry_protocol::Fault::invalid("configuration revision exhausted"))
 }
 
-pub(super) fn revise_session(
+pub(super) async fn revise_session(
     db: &Connection,
     mut session: Session,
 ) -> Result<(Output, Option<Event>), Fault> {
     super::sessions::writable(&session)?;
     session.revision = next_revision(session.revision)?;
-    insert_revision(db, &session)?;
+    insert_revision(db, &session).await?;
     db.execute(
         "UPDATE sessions SET revision=?2,worktree=?3 WHERE id=?1",
         params![
@@ -1142,6 +1359,7 @@ pub(super) fn revise_session(
             session.worktree.to_string()
         ],
     )
+    .await
     .map_err(storage_error)?;
     Ok((
         Output::Session(session.clone()),
@@ -1149,15 +1367,18 @@ pub(super) fn revise_session(
     ))
 }
 
-pub(super) fn insert_revision(db: &Connection, session: &Session) -> Result<(), Fault> {
-    let previous: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT config FROM session_revisions WHERE session=?1 ORDER BY revision DESC LIMIT 1",
-            [session.id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn insert_revision(db: &Connection, session: &Session) -> Result<(), Fault> {
+    let previous: Option<Vec<u8>> = {
+        let mut statement = db.prepare("SELECT config FROM session_revisions WHERE session=?1 ORDER BY revision DESC LIMIT 1").await.map_err(storage_error)?;
+        match statement.query_row([session.id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     db.execute(
         "INSERT INTO session_revisions(session,revision,config,profile,roles,worktree) VALUES(?1,?2,?3,?4,?5,?6)",
         params![
@@ -1168,20 +1389,27 @@ pub(super) fn insert_revision(db: &Connection, session: &Session) -> Result<(), 
             encode(&session.roles)?,
             session.worktree.to_string()
         ],
-    )
+    ).await
     .map_err(storage_error)?;
     Ok(())
 }
 
-pub(super) fn defaults(db: &Connection) -> Result<Defaults, Fault> {
-    let row: Option<(i64, Vec<u8>)> = db
-        .query_row(
-            "SELECT revision,config FROM defaults WHERE singleton=1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn defaults(db: &Connection) -> Result<Defaults, Fault> {
+    let row: Option<(i64, Vec<u8>)> = {
+        let mut statement = db
+            .prepare("SELECT revision,config FROM defaults WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(()).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     match row {
         Some((revision, config)) => Ok(Defaults {
             revision: revision.try_into().map_err(storage_error)?,
@@ -1194,16 +1422,35 @@ pub(super) fn defaults(db: &Connection) -> Result<Defaults, Fault> {
     }
 }
 
-pub(super) fn session(db: &Connection, id: SessionId) -> Result<Session, Fault> {
+pub(super) async fn session(db: &Connection, id: SessionId) -> Result<Session, Fault> {
     type StoredSession = (i64, Option<String>, i64, Vec<u8>, String, bool);
-    let row: Option<StoredSession> = db.query_row("SELECT s.rowid,s.project,s.revision,r.config,s.worktree,s.state='archived' FROM sessions s JOIN session_revisions r ON r.session=s.id AND r.revision=s.revision WHERE s.id=?1 AND s.state!='removed'", [id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))).optional().map_err(storage_error)?;
+    let row: Option<StoredSession> = {
+        let mut statement = db.prepare("SELECT s.rowid,s.project,s.revision,r.config,s.worktree,s.state='archived' FROM sessions s JOIN session_revisions r ON r.session=s.id AND r.revision=s.revision WHERE s.id=?1 AND s.state!='removed'").await.map_err(storage_error)?;
+        match statement.query_row([id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let (creation_order, project, revision, config, worktree, archived) =
         row.ok_or_else(|| Fault::new(ErrorCode::NotFound, "session does not exist on this Node"))?;
     Ok(Session {
         id,
         creation_order: creation_order.try_into().map_err(storage_error)?,
         archived,
-        activity: super::agent::activity::read(db, id)?,
+        activity: super::agent::activity::read(db, id).await?,
         project: project
             .map(|id| id.parse())
             .transpose()
@@ -1211,44 +1458,53 @@ pub(super) fn session(db: &Connection, id: SessionId) -> Result<Session, Fault> 
         worktree: worktree.parse().map_err(storage_error)?,
         revision: revision.try_into().map_err(storage_error)?,
         config: serde_json::from_slice(&config).map_err(storage_error)?,
-        roles: super::sessions::roles::read(db, id, revision.try_into().map_err(storage_error)?)?,
-        profile: super::sessions::profile(db, id, revision.try_into().map_err(storage_error)?)?,
-        fork: super::sessions::origin(db, id)?,
-        delegation: super::agent::delegation(db, id)?,
+        roles: super::sessions::roles::read(db, id, revision.try_into().map_err(storage_error)?)
+            .await?,
+        profile: super::sessions::profile(db, id, revision.try_into().map_err(storage_error)?)
+            .await?,
+        fork: super::sessions::origin(db, id).await?,
+        delegation: super::agent::delegation(db, id).await?,
     })
 }
 
-fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
-    let projects = super::projects::list(db)?;
-    let sessions = super::sessions::ordered(db)?
-        .into_iter()
-        .map(|id| session(db, id))
-        .collect::<Result<Vec<_>, Fault>>()?;
-    let turns = super::captures::list(db)?;
-    let cursor = db
-        .query_row("SELECT coalesce(max(cursor),0) FROM events", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .map_err(storage_error)?;
+async fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
+    let projects = super::projects::list(db).await?;
+    let sessions = {
+        let mut selected = Vec::new();
+        for value in super::sessions::ordered(db).await?.into_iter() {
+            selected.push((async |id| session(db, id).await)(value).await?);
+        }
+        Ok::<_, Fault>(selected)
+    }?;
+    let turns = super::captures::list(db).await?;
+    let cursor = {
+        let mut statement = db
+            .prepare("SELECT coalesce(max(cursor),0) FROM events")
+            .await
+            .map_err(storage_error)?;
+        let row = statement.query_row(()).await.map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     Ok(Snapshot {
         node,
-        worktrees: super::worktrees::list(db)?,
-        terminals: super::terminals::list(db)?,
-        power_settings_revision: super::power::read(db)?.revision,
-        terminal_settings_revision: super::terminals::settings::read(db)?.revision,
-        sandbox_settings_revision: super::sandbox::read(db)?.revision,
-        search_settings_revision: super::search::read(db)?.revision,
-        media_settings: super::media::read(db)?,
-        providers: super::agent::providers(db)?,
-        provider_quotas: super::providers::quota::list(db, node)?,
-        model_catalog: super::providers::catalog::status(db)?,
-        roles: super::roles::list(db)?,
-        ssh: super::ssh::list(db)?,
-        databases: super::databases::list(db)?,
-        plugins: super::plugins::list(db)?,
-        notifications: super::notifications::list(db)?,
+        worktrees: super::worktrees::list(db).await?,
+        terminals: super::terminals::list(db).await?,
+        power_settings_revision: super::power::read(db).await?.revision,
+        terminal_settings_revision: super::terminals::settings::read(db).await?.revision,
+        sandbox_settings_revision: super::sandbox::read(db).await?.revision,
+        search_settings_revision: super::search::read(db).await?.revision,
+        media_settings: super::media::read(db).await?,
+        providers: super::agent::providers(db).await?,
+        provider_quotas: super::providers::quota::list(db, node).await?,
+        model_catalog: super::providers::catalog::status(db).await?,
+        roles: super::roles::list(db).await?,
+        ssh: super::ssh::list(db).await?,
+        databases: super::databases::list(db).await?,
+        plugins: super::plugins::list(db).await?,
+        notifications: super::notifications::list(db).await?,
         cursor: cursor.try_into().map_err(storage_error)?,
-        defaults: defaults(db)?,
+        defaults: defaults(db).await?,
         projects,
         sessions,
         turns,

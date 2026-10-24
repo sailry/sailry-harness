@@ -1,12 +1,33 @@
 use super::*;
 use serde_json::json;
 
-fn count(db: &rusqlite::Connection) -> u64 {
-    db.prepare("SELECT body FROM events ORDER BY cursor")
-        .unwrap()
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .unwrap()
-        .map(|row| serde_json::from_slice::<Event>(&row.unwrap()).unwrap())
+async fn count(node: &Node) -> u64 {
+    let bodies = node
+        .with_storage(|db| {
+            Box::pin(async move {
+                let mut rows = db
+                    .query("SELECT body FROM events ORDER BY cursor", ())
+                    .await
+                    .map_err(crate::knowledge::database_fixture::fault)?;
+                let mut bodies = Vec::new();
+                while let Some(row) = rows
+                    .next()
+                    .await
+                    .map_err(crate::knowledge::database_fixture::fault)?
+                {
+                    bodies.push(
+                        row.get::<Vec<u8>>(0)
+                            .map_err(crate::knowledge::database_fixture::fault)?,
+                    );
+                }
+                Ok(bodies)
+            })
+        })
+        .await
+        .unwrap();
+    bodies
+        .into_iter()
+        .map(|body| serde_json::from_slice::<Event>(&body).unwrap())
         .filter(|event| matches!(event, Event::KnowledgeCollectionsChanged))
         .count() as u64
 }
@@ -146,10 +167,8 @@ async fn preserves_replay_and_atomic_index_rollback() {
             )
             .await,
         );
-        let database =
-            rusqlite::Connection::open(fixture.temp.path().join("node/storage/node.sqlite3"))
-                .unwrap();
-        let before = count(&database);
+
+        let before = count(&fixture.node).await;
         assert_eq!(client.execute(request).await.unwrap(), output);
         let after = list(&client)
             .await
@@ -163,9 +182,9 @@ async fn preserves_replay_and_atomic_index_rollback() {
         assert_eq!(paused.progress.status, Status::Paused);
         assert_eq!(paused.progress.sources, 1);
         assert_eq!(paused.progress.chunks, 1);
-        assert_eq!(count(&database), before);
+        assert_eq!(count(&fixture.node).await, before);
         run(&client, &context, Command::SearchPluginValues(recall())).await;
-        assert_eq!(count(&database), before);
+        assert_eq!(count(&fixture.node).await, before);
         assert_eq!(
             list(&client)
                 .await
@@ -212,8 +231,8 @@ async fn preserves_replay_and_atomic_index_rollback() {
         assert_eq!(baseline.progress.chunks, paused.progress.chunks);
         assert_eq!(baseline.rebuild, paused.rebuild);
         // The committed invalidation and the worker's Pending-to-Paused transition each publish once.
-        assert_eq!(count(&database), before + 2);
-        let before = count(&database);
+        assert_eq!(count(&fixture.node).await, before + 2);
+        let before = count(&fixture.node).await;
         assert_eq!(client.execute(mutation).await.unwrap(), updated);
         let replayed = list(&client)
             .await
@@ -221,7 +240,7 @@ async fn preserves_replay_and_atomic_index_rollback() {
             .find(|entry| entry.id == first.id)
             .unwrap();
         assert_eq!(replayed, baseline);
-        assert_eq!(count(&database), before);
+        assert_eq!(count(&fixture.node).await, before);
         let Output::PluginValue(raw) = run(
             &client,
             &context,
@@ -286,7 +305,7 @@ async fn preserves_replay_and_atomic_index_rollback() {
         assert_eq!(after.revision, changed.revision);
         assert_eq!(after.progress.generation, changed.progress.generation);
         assert_eq!(after, baseline);
-        assert_eq!(count(&database), before);
+        assert_eq!(count(&fixture.node).await, before);
     }
     fixture.close().await;
 }
@@ -359,16 +378,28 @@ async fn updates_registration_at_package_completion() {
             collection.progress.generation + 1
         );
         assert!(current.definition.shared_with.is_empty());
-        let database =
-            rusqlite::Connection::open(fixture.temp.path().join("node/storage/node.sqlite3"))
-                .unwrap();
-        let body: Vec<u8> = database
-            .query_row(
-                "SELECT body FROM knowledge_collections WHERE id=?1",
-                [collection.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+
+        let body: Vec<u8> = {
+            let sql = ("SELECT body FROM knowledge_collections WHERE id=?1").to_owned();
+            let parameters = turso::params![collection.id.to_string()];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::knowledge::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::knowledge::database_fixture::fault)?;
+                        let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        value.map_err(crate::knowledge::database_fixture::fault)
+                    })
+                })
+                .await
+        }
+        .unwrap();
         let stored: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(
             stored["capture"]["package"],

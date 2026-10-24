@@ -692,7 +692,7 @@ async fn execute_with(
                 }
                 if !event.llm_response.partial {
                     // The terminal response is committed; only its tools can follow.
-                    ingress.agents.model_settled(turn);
+                    ingress.agents.model_settled(turn).await;
                 }
                 if event.llm_response.partial {
                     if let Some(started) = durable_tool_start(&event) {

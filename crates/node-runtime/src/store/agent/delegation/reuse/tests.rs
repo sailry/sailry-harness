@@ -3,9 +3,10 @@ use super::*;
 use crate::store::agent::tests::command;
 use serde_json::json;
 
-fn install_provider(fixture: &mut Fixture) -> Provider {
-    let session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+async fn install_provider(fixture: &mut Fixture) -> Provider {
+    let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     let provider = Provider {
         request_max_retries: None,
         stream_max_retries: None,
@@ -32,26 +33,29 @@ fn install_provider(fixture: &mut Fixture) -> Provider {
             provider,
             expected_revision: 0,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("provider expected")
     };
     provider
 }
 
-fn captured(fixture: &Fixture, turn: TurnId) -> Provider {
+async fn captured(fixture: &Fixture, turn: TurnId) -> Provider {
     let body: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT provider FROM agent_runs WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     serde_json::from_slice(&body).unwrap()
 }
 
-fn settings_package(fixture: &Fixture) -> plugin::Info {
+async fn settings_package(fixture: &Fixture) -> plugin::Info {
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../plugins/examples")
         .canonicalize()
@@ -61,8 +65,14 @@ fn settings_package(fixture: &Fixture) -> plugin::Info {
         .unwrap();
     assert!(info.issues.is_empty(), "{:?}", info.issues);
     let mut result = Ok(Output::Plugin(info));
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
     crate::store::plugins::finish(
-        &fixture.database.connection,
+        &transaction,
         Some(fixture._root.path()),
         &Command::InstallPluginUpload {
             stream: StreamId::new(),
@@ -72,28 +82,33 @@ fn settings_package(fixture: &Fixture) -> plugin::Info {
         },
         &mut result,
     )
+    .await
     .unwrap();
+    transaction.commit().await.unwrap();
     let Output::Plugin(info) = result.unwrap() else {
         panic!("package expected")
     };
     info
 }
 
-#[test]
-fn preserves_snapshots() {
-    let mut fixture = setup();
-    let provider = install_provider(&mut fixture);
-    let role = profile(&mut fixture);
-    let first = start(&mut fixture);
-    let admitted = captured(&fixture, first);
+#[tokio::test]
+async fn preserves_snapshots() {
+    let mut fixture = setup().await;
+    let provider = install_provider(&mut fixture).await;
+    let role = profile(&mut fixture).await;
+    let first = start(&mut fixture).await;
+    let admitted = captured(&fixture, first).await;
     let child = invoke(
         &mut fixture,
         first,
         json!({"role":"review","task":"Initial child task"}),
     )
+    .await
     .unwrap();
     let original =
-        crate::store::commands::session(&fixture.database.connection, child.turn.session).unwrap();
+        crate::store::commands::session(&fixture.database.connection, child.turn.session)
+            .await
+            .unwrap();
     assert_eq!(original.profile.as_ref().unwrap().provider, admitted);
     let mut event = AdkEvent::new("child-history-fixture");
     event.author = "assistant".into();
@@ -105,11 +120,13 @@ fn preserves_snapshots() {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
-    finish(&mut fixture, child.turn.id);
-    finish(&mut fixture, first);
+    finish(&mut fixture, child.turn.id).await;
+    finish(&mut fixture, first).await;
     let original_history =
         history::pages::read(&fixture.database.connection, child.turn.session, None, 20)
+            .await
             .unwrap()
             .page;
     let mut changed = provider.clone();
@@ -122,11 +139,13 @@ fn preserves_snapshots() {
             provider: changed,
             expected_revision: provider.revision,
         },
-    );
+    )
+    .await;
     let mut parent = super::super::super::super::commands::session(
         &fixture.database.connection,
         fixture.session,
     )
+    .await
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
     let worktree = WorktreeId::new();
@@ -145,13 +164,16 @@ fn preserves_snapshots() {
             main: false,
         },
     )
+    .await
     .unwrap();
     parent.worktree = worktree;
     parent.config.effort = Effort::High;
     parent.config.model = "new-parent-model".into();
     super::super::super::super::commands::revise_session(&fixture.database.connection, parent)
+        .await
         .unwrap();
     let package = crate::store::plugins::get(&fixture.database.connection, "files")
+        .await
         .unwrap()
         .unwrap();
     command(
@@ -162,13 +184,15 @@ fn preserves_snapshots() {
             expected_revision: package.summary.revision,
             enabled: false,
         },
-    );
-    let second = start(&mut fixture);
+    )
+    .await;
+    let second = start(&mut fixture).await;
     let resumed = invoke(
         &mut fixture,
         second,
         json!({"session":child.turn.session,"task":"Continue the child task"}),
     )
+    .await
     .unwrap();
     assert_eq!(resumed.turn.session, child.turn.session);
     assert_ne!(resumed.turn.id, child.turn.id);
@@ -191,14 +215,19 @@ fn preserves_snapshots() {
     );
     assert_eq!(
         resumed.turn.plugins,
-        super::super::super::plugins::capture(&fixture.database.connection).unwrap()
+        super::super::super::plugins::capture(&fixture.database.connection)
+            .await
+            .unwrap()
     );
     assert_eq!(
-        super::super::super::plugins::read(&fixture.database.connection, child.turn.id).unwrap(),
+        super::super::super::plugins::read(&fixture.database.connection, child.turn.id)
+            .await
+            .unwrap(),
         child.turn.plugins
     );
     assert!(
         super::super::super::plugins::packages(&fixture.database.connection, &child.turn.plugins)
+            .await
             .unwrap()
             .iter()
             .any(|package| package.summary.name == "files")
@@ -208,15 +237,18 @@ fn preserves_snapshots() {
     let body: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT provider FROM agent_runs WHERE turn=?1",
-            [resumed.turn.id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([resumed.turn.id.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(body, encode(&admitted).unwrap());
     let db = &fixture.database.connection;
-    let current = crate::store::commands::session(db, child.turn.session).unwrap();
+    let current = crate::store::commands::session(db, child.turn.session)
+        .await
+        .unwrap();
     assert_eq!(current.id, original.id);
     assert_eq!(current.project, original.project);
     assert_eq!(current.worktree, original.worktree);
@@ -226,19 +258,30 @@ fn preserves_snapshots() {
     assert_eq!(current.profile, original.profile);
     assert_eq!(current.delegation, original.delegation);
     let current_history = history::pages::read(db, child.turn.session, None, 20)
+        .await
         .unwrap()
         .page;
     assert_eq!(current_history.entries, original_history.entries);
     assert_eq!(current_history.runs[0], original_history.runs[0]);
-    assert_eq!(read(db, child.turn.session).unwrap().unwrap().turn, first);
-    assert_eq!(origin(db, resumed.turn.id).unwrap().unwrap().turn, second);
     assert_eq!(
-        db.query_row("SELECT COUNT(*) FROM sessions", [], |row| row
-            .get::<_, i64>(0))
+        read(db, child.turn.session).await.unwrap().unwrap().turn,
+        first
+    );
+    assert_eq!(
+        origin(db, resumed.turn.id).await.unwrap().unwrap().turn,
+        second
+    );
+    assert_eq!(
+        db.prepare("SELECT COUNT(*) FROM sessions")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
             .unwrap(),
         2
     );
-    let summaries = fixture.read(None, 20).page.children;
+    let summaries = fixture.read(None, 20).await.page.children;
     assert_eq!(
         summaries
             .iter()
@@ -248,29 +291,33 @@ fn preserves_snapshots() {
     );
 }
 
-#[test]
-fn retains_read_only_mode_after_role_changes() {
-    let mut fixture = setup();
-    let first = start(&mut fixture);
+#[tokio::test]
+async fn retains_read_only_mode_after_role_changes() {
+    let mut fixture = setup().await;
+    let first = start(&mut fixture).await;
     let child = invoke(
         &mut fixture,
         first,
         json!({"role":"explore","task":"Inspect sources"}),
     )
+    .await
     .unwrap();
     let frozen = child.child.as_ref().unwrap().role.clone().unwrap();
-    finish(&mut fixture, child.turn.id);
-    finish(&mut fixture, first);
+    finish(&mut fixture, child.turn.id).await;
+    finish(&mut fixture, first).await;
     let mut changed = frozen.clone();
     changed.read_only = false;
     changed.key = "writable".into();
-    crate::store::roles::put(&fixture.database.connection, &changed, frozen.revision).unwrap();
-    let second = start(&mut fixture);
+    crate::store::roles::put(&fixture.database.connection, &changed, frozen.revision)
+        .await
+        .unwrap();
+    let second = start(&mut fixture).await;
     let resumed = invoke(
         &mut fixture,
         second,
         json!({"session":child.turn.session,"task":"Continue inspecting"}),
     )
+    .await
     .unwrap();
     assert_eq!(resumed.turn.session, child.turn.session);
     assert_eq!(resumed.turn.config.mode, WorkMode::Plan);
@@ -278,16 +325,17 @@ fn retains_read_only_mode_after_role_changes() {
     assert_eq!(resumed.child.unwrap().role, Some(frozen));
 }
 
-#[test]
-fn captures_current_resources() {
-    let mut fixture = setup();
-    let package = settings_package(&fixture);
-    let parent = start(&mut fixture);
+#[tokio::test]
+async fn captures_current_resources() {
+    let mut fixture = setup().await;
+    let package = settings_package(&fixture).await;
+    let parent = start(&mut fixture).await;
     let child = invoke(
         &mut fixture,
         parent,
         json!({"role":null,"task":"Initial task"}),
     )
+    .await
     .unwrap();
     assert_eq!(
         child.plugin_settings["project-summary"]
@@ -296,13 +344,14 @@ fn captures_current_resources() {
             .values["include_untracked"],
         json!(true)
     );
-    finish(&mut fixture, child.turn.id);
-    finish(&mut fixture, parent);
+    finish(&mut fixture, child.turn.id).await;
+    finish(&mut fixture, parent).await;
     crate::store::agent::tests::fixture::package(
         &fixture.database,
         fixture._root.path(),
         "code-review",
-    );
+    )
+    .await;
     let Output::PluginSettings(settings) = command(
         &mut fixture.database,
         &fixture.events,
@@ -311,16 +360,19 @@ fn captures_current_resources() {
             values: std::collections::BTreeMap::from([("include_untracked".into(), json!(false))]),
             secrets: Default::default(),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("settings expected")
     };
     assert_eq!(settings.package.settings_revision, 1);
-    let parent = start(&mut fixture);
+    let parent = start(&mut fixture).await;
     let resumed = invoke(
         &mut fixture,
         parent,
         json!({"session":child.turn.session,"task":"Updated task"}),
     )
+    .await
     .unwrap();
     assert_eq!(resumed.turn.session, child.turn.session);
     assert!(resumed.turn.plugins.contains(&settings.package));
@@ -347,6 +399,7 @@ fn captures_current_resources() {
     );
     let old =
         super::super::super::plugins::packages(&fixture.database.connection, &child.turn.plugins)
+            .await
             .unwrap();
     let old = old
         .iter()
@@ -354,17 +407,21 @@ fn captures_current_resources() {
         .unwrap();
     assert_eq!(
         crate::store::plugins::settings::read_admitted(&fixture.database.connection, old)
+            .await
             .unwrap()
             .values["include_untracked"],
         json!(true)
     );
     assert_eq!(
-        super::super::super::plugins::read(&fixture.database.connection, child.turn.id).unwrap(),
+        super::super::super::plugins::read(&fixture.database.connection, child.turn.id)
+            .await
+            .unwrap(),
         child.turn.plugins
     );
-    finish(&mut fixture, resumed.turn.id);
-    finish(&mut fixture, parent);
+    finish(&mut fixture, resumed.turn.id).await;
+    finish(&mut fixture, parent).await;
     let current = crate::store::plugins::get(&fixture.database.connection, "project-summary")
+        .await
         .unwrap()
         .unwrap();
     command(
@@ -374,13 +431,15 @@ fn captures_current_resources() {
             name: "project-summary".into(),
             expected_revision: current.summary.revision,
         },
-    );
-    let parent = start(&mut fixture);
+    )
+    .await;
+    let parent = start(&mut fixture).await;
     let next = invoke(
         &mut fixture,
         parent,
         json!({"session":child.turn.session,"task":"Task after removal"}),
     )
+    .await
     .unwrap();
     assert_eq!(next.turn.session, child.turn.session);
     assert!(
@@ -392,11 +451,13 @@ fn captures_current_resources() {
     );
     assert!(!next.plugin_settings.contains_key("project-summary"));
     for (turn, expected) in [(&child.turn, true), (&resumed.turn, false)] {
-        let references =
-            super::super::super::plugins::read(&fixture.database.connection, turn.id).unwrap();
+        let references = super::super::super::plugins::read(&fixture.database.connection, turn.id)
+            .await
+            .unwrap();
         assert_eq!(references, turn.plugins);
         let retained =
             super::super::super::plugins::packages(&fixture.database.connection, &references)
+                .await
                 .unwrap();
         let retained = retained
             .iter()
@@ -404,6 +465,7 @@ fn captures_current_resources() {
             .unwrap();
         assert_eq!(
             crate::store::plugins::settings::read_admitted(&fixture.database.connection, retained)
+                .await
                 .unwrap()
                 .values["include_untracked"],
             json!(expected)
@@ -413,29 +475,36 @@ fn captures_current_resources() {
         fixture
             .database
             .connection
-            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT COUNT(*) FROM sessions")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
             .unwrap(),
         2
     );
 }
 
-#[test]
-fn keeps_unlisted_provider() {
-    let mut fixture = setup();
-    let provider = install_provider(&mut fixture);
-    let parent = start(&mut fixture);
-    let admitted = captured(&fixture, parent);
+#[tokio::test]
+async fn keeps_unlisted_provider() {
+    let mut fixture = setup().await;
+    let provider = install_provider(&mut fixture).await;
+    let parent = start(&mut fixture).await;
+    let admitted = captured(&fixture, parent).await;
     let child = invoke(
         &mut fixture,
         parent,
         json!({"role":null,"task":"Initial task"}),
     )
+    .await
     .unwrap();
     let original =
-        crate::store::commands::session(&fixture.database.connection, child.turn.session).unwrap();
-    finish(&mut fixture, child.turn.id);
-    finish(&mut fixture, parent);
+        crate::store::commands::session(&fixture.database.connection, child.turn.session)
+            .await
+            .unwrap();
+    finish(&mut fixture, child.turn.id).await;
+    finish(&mut fixture, parent).await;
     command(
         &mut fixture.database,
         &fixture.events,
@@ -443,24 +512,28 @@ fn keeps_unlisted_provider() {
             provider: provider.id,
             expected_revision: provider.revision,
         },
-    );
+    )
+    .await;
     assert!(
         crate::store::agent::providers::get(&fixture.database.connection, provider.id)
+            .await
             .unwrap()
             .is_none()
     );
-    let parent = start(&mut fixture);
+    let parent = start(&mut fixture).await;
     let resumed = invoke(
         &mut fixture,
         parent,
         json!({"session":child.turn.session,"task":"Private profile task"}),
     )
+    .await
     .unwrap();
     assert_eq!(resumed.turn.session, child.turn.session);
     assert_eq!(resumed.turn.config, original.config);
     assert_eq!(resumed.provider, Some(admitted));
     assert_eq!(
         crate::store::commands::session(&fixture.database.connection, child.turn.session)
+            .await
             .unwrap()
             .profile,
         original.profile
@@ -469,23 +542,28 @@ fn keeps_unlisted_provider() {
         fixture
             .database
             .connection
-            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT COUNT(*) FROM sessions")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
             .unwrap(),
         2
     );
 }
 
-#[test]
-fn rejects_missing_founding_skill() {
+#[tokio::test]
+async fn rejects_missing_founding_skill() {
     for remove in [false, true] {
-        let mut fixture = setup();
+        let mut fixture = setup().await;
         crate::store::agent::tests::fixture::package(
             &fixture.database,
             fixture._root.path(),
             "code-review",
-        );
-        let original = profile(&mut fixture);
+        )
+        .await;
+        let original = profile(&mut fixture).await;
         let mut role = original.clone();
         role.skills = vec!["code-review:code-review".into()];
         let Output::Role(role) = command(
@@ -495,7 +573,9 @@ fn rejects_missing_founding_skill() {
                 role,
                 expected_revision: original.revision,
             },
-        ) else {
+        )
+        .await
+        else {
             panic!("role expected")
         };
         command(
@@ -506,17 +586,20 @@ fn rejects_missing_founding_skill() {
                 expected_revision: 2,
                 roles: vec![role.reference()],
             },
-        );
-        let parent = start(&mut fixture);
+        )
+        .await;
+        let parent = start(&mut fixture).await;
         let child = invoke(
             &mut fixture,
             parent,
             json!({"role":"review","task":"Initial review"}),
         )
+        .await
         .unwrap();
-        finish(&mut fixture, child.turn.id);
-        finish(&mut fixture, parent);
+        finish(&mut fixture, child.turn.id).await;
+        finish(&mut fixture, parent).await;
         let package = crate::store::plugins::get(&fixture.database.connection, "code-review")
+            .await
             .unwrap()
             .unwrap();
         let change = if remove {
@@ -531,13 +614,14 @@ fn rejects_missing_founding_skill() {
                 enabled: false,
             }
         };
-        command(&mut fixture.database, &fixture.events, change);
-        let parent = start(&mut fixture);
+        command(&mut fixture.database, &fixture.events, change).await;
+        let parent = start(&mut fixture).await;
         let error = invoke(
             &mut fixture,
             parent,
             json!({"session":child.turn.session,"task":"Unavailable review"}),
         )
+        .await
         .err()
         .unwrap();
         assert_eq!(error.code, ErrorCode::InvalidRequest);
@@ -546,10 +630,12 @@ fn rejects_missing_founding_skill() {
             &fixture.database.connection,
             &child.turn.plugins,
         )
+        .await
         .unwrap();
         assert!(crate::plugins::resources::skill(&retained, "code-review:code-review").is_ok());
         assert_eq!(
             super::super::child(&fixture.database.connection, child.turn.id)
+                .await
                 .unwrap()
                 .unwrap()
                 .role,
@@ -559,27 +645,32 @@ fn rejects_missing_founding_skill() {
             fixture
                 .database
                 .connection
-                .query_row("SELECT COUNT(*) FROM agent_delegations", [], |row| row
-                    .get::<_, i64>(0))
+                .prepare("SELECT COUNT(*) FROM agent_delegations")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .and_then(|row| row.get::<i64>(0))
                 .unwrap(),
             1
         );
     }
 }
 
-#[test]
-fn keeps_founding_role() {
-    let mut fixture = setup();
-    let original = profile(&mut fixture);
-    let parent = start(&mut fixture);
+#[tokio::test]
+async fn keeps_founding_role() {
+    let mut fixture = setup().await;
+    let original = profile(&mut fixture).await;
+    let parent = start(&mut fixture).await;
     let child = invoke(
         &mut fixture,
         parent,
         json!({"role":"review","task":"Inspect"}),
     )
+    .await
     .unwrap();
-    finish(&mut fixture, child.turn.id);
-    finish(&mut fixture, parent);
+    finish(&mut fixture, child.turn.id).await;
+    finish(&mut fixture, parent).await;
     let mut changed = original.clone();
     changed.key = "updated".into();
     changed.name = "Changed review".into();
@@ -592,7 +683,9 @@ fn keeps_founding_role() {
             role: changed,
             expected_revision: original.revision,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("role expected")
     };
     command(
@@ -603,30 +696,37 @@ fn keeps_founding_role() {
             expected_revision: 2,
             roles: vec![changed.reference()],
         },
-    );
-    let parent = start(&mut fixture);
+    )
+    .await;
+    let parent = start(&mut fixture).await;
     let resumed = invoke(
         &mut fixture,
         parent,
         json!({"session":child.turn.session,"task":"Continue"}),
     )
+    .await
     .unwrap();
     assert_eq!(resumed.child.unwrap().role, Some(original.clone()));
     let summary = children::get(
         &fixture.database.connection,
-        &runs::get(&fixture.database.connection, resumed.turn.id).unwrap(),
+        &runs::get(&fixture.database.connection, resumed.turn.id)
+            .await
+            .unwrap(),
     )
+    .await
     .unwrap()
     .unwrap();
     assert_eq!(summary.name, Some(original.name));
     assert_eq!(summary.origin.role, Some(original.id));
 }
 
-#[test]
-fn rejects_missing_foreign_and_busy_children() {
-    let mut fixture = setup();
-    let parent = start(&mut fixture);
-    let child = invoke(&mut fixture, parent, json!({"role":null,"task":"Inspect"})).unwrap();
+#[tokio::test]
+async fn rejects_missing_foreign_and_busy_children() {
+    let mut fixture = setup().await;
+    let parent = start(&mut fixture).await;
+    let child = invoke(&mut fixture, parent, json!({"role":null,"task":"Inspect"}))
+        .await
+        .unwrap();
     for (session, code) in [
         (json!(child.turn.session), ErrorCode::Busy),
         (json!(SessionId::new()), ErrorCode::NotFound),
@@ -639,26 +739,29 @@ fn rejects_missing_foreign_and_busy_children() {
                 parent,
                 json!({"session":session,"task":"Resume"})
             )
+            .await
             .err()
             .unwrap()
             .code,
             code
         );
     }
-    finish(&mut fixture, child.turn.id);
+    finish(&mut fixture, child.turn.id).await;
     let consumed = super::super::super::background::consume_child(
         &fixture.database.connection,
         parent,
         child.turn.session,
         child.turn.id,
     )
+    .await
     .unwrap();
     assert_eq!(consumed.len(), 1);
-    finish(&mut fixture, parent);
+    finish(&mut fixture, parent).await;
     let original = super::super::super::super::commands::session(
         &fixture.database.connection,
         fixture.session,
     )
+    .await
     .unwrap();
     let Output::Session(other) = command(
         &mut fixture.database,
@@ -668,17 +771,20 @@ fn rejects_missing_foreign_and_busy_children() {
             worktree: Some(original.worktree),
             config: Some(original.config),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("session expected")
     };
     fixture.session = other.id;
-    let parent = start(&mut fixture);
+    let parent = start(&mut fixture).await;
     assert_eq!(
         invoke(
             &mut fixture,
             parent,
             json!({"session":child.turn.session,"task":"Resume"})
         )
+        .await
         .err()
         .unwrap()
         .code,
@@ -688,28 +794,33 @@ fn rejects_missing_foreign_and_busy_children() {
         fixture
             .database
             .connection
-            .query_row("SELECT COUNT(*) FROM agent_delegations", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT COUNT(*) FROM agent_delegations")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
             .unwrap(),
         1
     );
 }
 
-#[test]
-fn rejects_changed_role_or_scope() {
-    let mut fixture = setup();
-    profile(&mut fixture);
-    let parent = start(&mut fixture);
+#[tokio::test]
+async fn rejects_changed_role_or_scope() {
+    let mut fixture = setup().await;
+    profile(&mut fixture).await;
+    let parent = start(&mut fixture).await;
     let child = invoke(
         &mut fixture,
         parent,
         json!({"role":"review","task":"Inspect"}),
     )
+    .await
     .unwrap();
-    finish(&mut fixture, child.turn.id);
+    finish(&mut fixture, child.turn.id).await;
     for role in [Value::Null, json!("missing")] {
         let args = json!({"session":child.turn.session,"role":role,"task":"Resume"});
-        assert!(invoke(&mut fixture, parent, args).is_err());
+        assert!(invoke(&mut fixture, parent, args).await.is_err());
     }
     let location = tempfile::tempdir().unwrap();
     let scope = WorktreeId::new();
@@ -728,6 +839,7 @@ fn rejects_changed_role_or_scope() {
             main: false,
         },
     )
+    .await
     .unwrap();
     assert_eq!(
         invoke(
@@ -735,6 +847,7 @@ fn rejects_changed_role_or_scope() {
             parent,
             json!({"session":child.turn.session,"worktree":scope,"task":"Resume"})
         )
+        .await
         .err()
         .unwrap()
         .code,
@@ -742,41 +855,48 @@ fn rejects_changed_role_or_scope() {
     );
 }
 
-#[test]
-fn bounds_parent_permissions() {
+#[tokio::test]
+async fn bounds_parent_permissions() {
     for (permission, mode) in [
         (Permission::Ask, WorkMode::Code),
         (Permission::Full, WorkMode::Plan),
     ] {
-        let mut fixture = setup();
+        let mut fixture = setup().await;
         let mut session = super::super::super::super::commands::session(
             &fixture.database.connection,
             fixture.session,
         )
+        .await
         .unwrap();
         session.config.permission = Permission::Full;
         super::super::super::super::commands::revise_session(&fixture.database.connection, session)
+            .await
             .unwrap();
-        let parent = start(&mut fixture);
-        let child = invoke(&mut fixture, parent, json!({"role":null,"task":"Inspect"})).unwrap();
-        finish(&mut fixture, child.turn.id);
-        finish(&mut fixture, parent);
+        let parent = start(&mut fixture).await;
+        let child = invoke(&mut fixture, parent, json!({"role":null,"task":"Inspect"}))
+            .await
+            .unwrap();
+        finish(&mut fixture, child.turn.id).await;
+        finish(&mut fixture, parent).await;
         let mut session = super::super::super::super::commands::session(
             &fixture.database.connection,
             fixture.session,
         )
+        .await
         .unwrap();
         session.config.permission = permission;
         session.config.mode = mode;
         super::super::super::super::commands::revise_session(&fixture.database.connection, session)
+            .await
             .unwrap();
-        let parent = start(&mut fixture);
+        let parent = start(&mut fixture).await;
         assert_eq!(
             invoke(
                 &mut fixture,
                 parent,
                 json!({"session":child.turn.session,"task":"Resume"})
             )
+            .await
             .err()
             .unwrap()
             .code,

@@ -2,13 +2,29 @@ use super::persistence::{read, save, state};
 use super::*;
 use plugin::settings::SecretUpdate;
 
-fn counts(profile: &Path) -> (i64, i64, i64) {
-    let db = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    db.query_row("SELECT (SELECT count(*) FROM plugin_packages),(SELECT count(*) FROM plugin_settings),(SELECT count(*) FROM plugin_settings,json_each(plugin_settings.body,'$.slots') WHERE json_each.type='text')", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap()
+async fn values(db: &turso::Connection) -> Result<(i64, i64, i64), Fault> {
+    let row = db.prepare("SELECT (SELECT count(*) FROM plugin_packages),(SELECT count(*) FROM plugin_settings),(SELECT count(*) FROM plugin_settings,json_each(plugin_settings.body,'$.slots') WHERE json_each.type='text')")
+            .await.map_err(crate::plugins::database_fixture::fault)?.query_row(()).await.map_err(crate::plugins::database_fixture::fault)?;
+    Ok((
+        row.get(0)
+            .map_err(crate::plugins::database_fixture::fault)?,
+        row.get(1)
+            .map_err(crate::plugins::database_fixture::fault)?,
+        row.get(2)
+            .map_err(crate::plugins::database_fixture::fault)?,
+    ))
+}
+
+async fn counts(node: &Node) -> (i64, i64, i64) {
+    node.with_storage(|db| Box::pin(values(db))).await.unwrap()
+}
+
+async fn closed(profile: &Path) -> (i64, i64, i64) {
+    let (handle, db) =
+        crate::plugins::database_fixture::open(&profile.join("storage/node.turso"), true).await;
+    let result = values(&db).await.unwrap();
+    crate::plugins::database_fixture::close(handle, db).await;
+    result
 }
 
 #[tokio::test]
@@ -20,7 +36,7 @@ async fn prunes_unused() {
             panic!("plugin list expected")
         };
         let baseline = i64::try_from(defaults.len()).unwrap();
-        assert_eq!(counts(&profile), (baseline, 0, 0));
+        assert_eq!(counts(&node).await, (baseline, 0, 0));
         let source = directory.path().join("source/package");
         declare(&source, "Settings");
         let installed = info(execute(&client, install(worktree, 0)).await);
@@ -62,9 +78,9 @@ async fn prunes_unused() {
         );
         let saved = read(&client, &disabled.summary.reference()).await;
         let packages = profile.join("plugins/packages");
-        assert_eq!(counts(&profile), (baseline + 2, 2, 2));
+        assert_eq!(counts(&node).await, (baseline + 2, 2, 2));
         node.shutdown().await.unwrap();
-        assert_eq!(counts(&profile), (baseline + 1, 1, 1));
+        assert_eq!(closed(&profile).await, (baseline + 1, 1, 1));
         assert!(!packages.join(&installed.summary.digest).exists());
         assert!(packages.join(&disabled.summary.digest).is_dir());
         assert!(source.join("plugin.json").exists());
@@ -83,7 +99,7 @@ async fn prunes_unused() {
         assert_eq!(read(&client, &saved.package).await, saved);
         assert_eq!(state(client.execute(request.clone()).await.unwrap()), first);
         assert_eq!(
-            counts(&profile),
+            counts(&node).await,
             (baseline + 1, 1, 1),
             "old receipts do not recreate collected settings"
         );
@@ -96,7 +112,7 @@ async fn prunes_unused() {
         )
         .await;
         node.shutdown().await.unwrap();
-        assert_eq!(counts(&profile), (baseline, 0, 0));
+        assert_eq!(closed(&profile).await, (baseline, 0, 0));
         assert!(!packages.join(&disabled.summary.digest).exists());
 
         let node = Node::start(&profile).await.unwrap();
@@ -122,7 +138,7 @@ async fn prunes_unused() {
         );
         assert_eq!(third.package.settings_revision, 3);
         node.shutdown().await.unwrap();
-        assert_eq!(counts(&profile), (baseline + 1, 1, 1));
+        assert_eq!(closed(&profile).await, (baseline + 1, 1, 1));
         controller.close().await.unwrap();
     }
 }
@@ -133,11 +149,12 @@ async fn rejects_unexpected_schema() {
     let profile = directory.path().join("node");
     let node = Node::start(&profile).await.unwrap();
     node.shutdown().await.unwrap();
-    let path = profile.join("storage/node.sqlite3");
-    let db = rusqlite::Connection::open(&path).unwrap();
+    let path = profile.join("storage/node.turso");
+    let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
     db.execute_batch("ALTER TABLE plugins ADD COLUMN unexpected TEXT DEFAULT 'retained';")
+        .await
         .unwrap();
-    drop(db);
+    crate::plugins::database_fixture::close(db_handle, db).await;
     let before = fs::read(&path).unwrap();
     assert!(Node::start(&profile).await.is_err());
     assert_eq!(fs::read(&path).unwrap(), before);

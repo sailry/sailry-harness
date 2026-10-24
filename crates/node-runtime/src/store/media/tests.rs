@@ -141,19 +141,16 @@ fn keeps_fallback_without_primary() {
     assert!(!models.contains_key(&Kind::Video));
 }
 
-#[test]
-fn captures_login_override_options() {
+#[tokio::test]
+async fn captures_login_override_options() {
     let (mut provider, _) = fixture();
     let directory = tempfile::tempdir().unwrap();
     let database = crate::store::database::Database::open(
-        &directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        &directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([18; 32]),
         None,
     )
+    .await
     .unwrap();
     provider.authentication = Authentication::ChatGpt;
     provider.endpoint = crate::providers::login::CHATGPT_ENDPOINT.into();
@@ -164,8 +161,11 @@ fn captures_login_override_options() {
         provider: provider.id,
         model: "image-model".into(),
     };
-    crate::store::agent::providers::put(&database.connection, database.node, &provider, 0).unwrap();
+    crate::store::agent::providers::put(&database.connection, database.node, &provider, 0)
+        .await
+        .unwrap();
     let saved = crate::store::agent::providers::get(&database.connection, provider.id)
+        .await
         .unwrap()
         .unwrap();
     let snapshot = resolve(
@@ -175,6 +175,7 @@ fn captures_login_override_options() {
             bindings: [(Kind::Vision, Some(binding))].into_iter().collect(),
         },
     )
+    .await
     .unwrap();
     let resolved = &snapshot[&Kind::Vision].as_ref().unwrap().provider;
     assert!(resolved.models[0].vision);
@@ -184,30 +185,29 @@ fn captures_login_override_options() {
         sailry_protocol::conversation::oauth::Options::defaults(Authentication::ChatGpt)
     );
     let current = crate::store::agent::providers::get(&database.connection, provider.id)
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(current, saved);
 }
 
-#[test]
-fn resolves_catalog_without_rewriting_provider() {
+#[tokio::test]
+async fn resolves_catalog_without_rewriting_provider() {
     let (mut provider, _) = fixture();
     provider.credential = None;
     let directory = tempfile::tempdir().unwrap();
     let database = crate::store::database::Database::open(
-        &directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        &directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([20; 32]),
         None,
     )
+    .await
     .unwrap();
     let saved =
         crate::store::agent::providers::put(&database.connection, database.node, &provider, 0)
+            .await
             .unwrap();
-    let initial = catalog(&database.connection).unwrap();
+    let initial = catalog(&database.connection).await.unwrap();
     assert!(initial[0].kinds.contains(&Kind::Vision));
     let reference =
         serde_json::json!({"id":"image-model", "modalities":{"input":["text"],"output":["text"]}});
@@ -217,6 +217,7 @@ fn resolves_catalog_without_rewriting_provider() {
             "INSERT INTO model_catalog(provider,id,body) VALUES(?1,?2,?3)",
             params!["fixture", "image-model", encode(&reference).unwrap()],
         )
+        .await
         .unwrap();
     let status = sailry_protocol::conversation::catalog::Status {
         revision: 1,
@@ -230,46 +231,50 @@ fn resolves_catalog_without_rewriting_provider() {
             "INSERT INTO model_catalog_status(id,body) VALUES(1,?1)",
             [encode(&status).unwrap()],
         )
+        .await
         .unwrap();
-    let resolved = catalog(&database.connection).unwrap();
+    let resolved = catalog(&database.connection).await.unwrap();
     assert_eq!(resolved.len(), 1);
     assert_eq!(resolved[0].kinds, [Kind::Image, Kind::Video]);
     assert_eq!(
-        crate::store::agent::providers::get(&database.connection, provider.id).unwrap(),
+        crate::store::agent::providers::get(&database.connection, provider.id)
+            .await
+            .unwrap(),
         Some(saved)
     );
 }
 
-#[test]
-fn preserves_settings_revisions() {
+#[tokio::test]
+async fn preserves_settings_revisions() {
     let directory = tempfile::tempdir().unwrap();
     let database = crate::store::database::Database::open(
-        &directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        &directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([19; 32]),
         None,
     )
+    .await
     .unwrap();
     let settings = media::Settings {
         revision: 0,
         bindings: [(Kind::Image, None)].into(),
     };
-    let (Output::MediaSettings(saved), event) = save(&database.connection, &settings).unwrap()
+    let (Output::MediaSettings(saved), event) =
+        save(&database.connection, &settings).await.unwrap()
     else {
         panic!("media settings expected")
     };
     assert_eq!(saved.revision, 1);
     assert_eq!(saved.bindings, settings.bindings);
     assert_eq!(event, Some(Event::MediaSettingsChanged(saved.clone())));
-    assert_eq!(read(&database.connection).unwrap(), saved);
+    assert_eq!(read(&database.connection).await.unwrap(), saved);
     assert_eq!(
-        save(&database.connection, &settings).unwrap_err().code,
+        save(&database.connection, &settings)
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::RevisionConflict
     );
-    assert_eq!(read(&database.connection).unwrap(), saved);
+    assert_eq!(read(&database.connection).await.unwrap(), saved);
 }
 
 #[test]

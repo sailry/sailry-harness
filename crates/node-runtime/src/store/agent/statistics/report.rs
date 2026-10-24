@@ -19,17 +19,23 @@ const HALF_HOUR: i64 = 1_800_000;
 const MAX_ROWS: usize = 100_000;
 const MAX_GROUPS: usize = 4096;
 
-pub(in crate::store) fn read(
+pub(in crate::store) async fn read(
     db: &Connection,
     node: NodeId,
     query: &Query,
 ) -> Result<Report, Fault> {
     let (start, end) = query::validate(query)?;
-    let cursor = db
-        .query_row("SELECT coalesce(max(cursor),0) FROM events", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .map_err(storage_error)? as u64;
+    let cursor = {
+        let mut statement = db
+            .prepare("SELECT coalesce(max(cursor),0) FROM events")
+            .await
+            .map_err(storage_error)?;
+        statement
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
+            .map_err(storage_error)?
+    } as u64;
     let offset = i64::from(query.utc_offset_minutes) * 60_000;
     let mut days = buckets(query.start_ms, query.end_ms, DAY, offset);
     let recent_start = query.start_ms.max(query.end_ms - 2 * DAY);
@@ -41,7 +47,7 @@ pub(in crate::store) fn read(
     let mut prices = pricing::Catalog::default();
     let mut requests = BTreeMap::new();
     let mut has_more = false;
-    let mut statement = db.prepare(query::ROWS).map_err(storage_error)?;
+    let mut statement = db.prepare(query::ROWS).await.map_err(storage_error)?;
     let mut rows = statement
         .query(params![
             start.format("%Y-%m-%dT%H:%M:%S").to_string(),
@@ -52,9 +58,10 @@ pub(in crate::store) fn read(
             serde_json::to_string(&query.models).map_err(storage_error)?,
             MAX_ROWS as i64 + 1,
         ])
+        .await
         .map_err(storage_error)?;
     let mut count = 0;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         count += 1;
         if count > MAX_ROWS {
             return Err(sailry_protocol::Fault::invalid(
@@ -70,32 +77,32 @@ pub(in crate::store) fn read(
             continue;
         }
         let tokens = Usage {
-            input: row.get::<_, i64>(1).map_err(storage_error)? as u64,
-            output: row.get::<_, i64>(2).map_err(storage_error)? as u64,
-            cached_input: row.get::<_, i64>(3).map_err(storage_error)? as u64,
-            reasoning: row.get::<_, i64>(4).map_err(storage_error)? as u64,
+            input: row.get::<i64>(1).map_err(storage_error)? as u64,
+            output: row.get::<i64>(2).map_err(storage_error)? as u64,
+            cached_input: row.get::<i64>(3).map_err(storage_error)? as u64,
+            reasoning: row.get::<i64>(4).map_err(storage_error)? as u64,
         };
-        let provider: sailry_protocol::ProviderId = query::id(row, 5)?;
+        let provider: sailry_protocol::ProviderId = query::id(&row, 5)?;
         let model: String = row.get(6).map_err(storage_error)?;
         let provider_name = row
-            .get::<_, Option<String>>(19)
+            .get::<Option<String>>(19)
             .map_err(storage_error)?
             .unwrap_or_else(|| provider.to_string());
         let scope_name: String = row.get(20).map_err(storage_error)?;
-        let cost = prices.estimate(db, row)?;
+        let cost = prices.estimate(db, &row).await?;
         let elapsed = row
-            .get::<_, Option<i64>>(13)
+            .get::<Option<i64>>(13)
             .map_err(storage_error)?
             .filter(|value| *value > 0)
             .map(|value| value as u64);
         let project: Option<ProjectId> = row
-            .get::<_, Option<String>>(7)
+            .get::<Option<String>>(7)
             .map_err(storage_error)?
             .map(|id| id.parse())
             .transpose()
             .map_err(storage_error)?;
         let connection = row
-            .get::<_, Option<String>>(21)
+            .get::<Option<String>>(21)
             .map_err(storage_error)?
             .map(|value| serde_json::from_str::<sailry_protocol::connection::Resource>(&value))
             .transpose()
@@ -105,13 +112,13 @@ pub(in crate::store) fn read(
                 Key::Project(project),
                 Key::Worktree {
                     project,
-                    worktree: query::id(row, 8)?,
+                    worktree: query::id(&row, 8)?,
                 },
             ),
             (None, Some(resource)) => (Key::Connection(resource), Key::Connection(resource)),
             (None, None) => {
                 let assistant = row
-                    .get::<_, Option<String>>(22)
+                    .get::<Option<String>>(22)
                     .map_err(storage_error)?
                     .map(|value| {
                         serde_json::from_str::<sailry_protocol::plugin::conversation::Binding>(
@@ -125,7 +132,7 @@ pub(in crate::store) fn read(
                         package: assistant.package.name,
                         id: assistant.id,
                     },
-                    None => Key::Session(query::id(row, 16)?),
+                    None => Key::Session(query::id(&row, 16)?),
                 };
                 (owner.clone(), owner)
             }
@@ -183,25 +190,25 @@ pub(in crate::store) fn read(
         let position = Position {
             timestamp_ms: timestamp,
             node,
-            sequence: row.get::<_, i64>(15).map_err(storage_error)? as u64,
+            sequence: row.get::<i64>(15).map_err(storage_error)? as u64,
         };
         if query.before.is_none_or(|before| position < before) {
             requests.insert(
                 position,
                 Request {
                     position,
-                    session: query::id(row, 16)?,
+                    session: query::id(&row, 16)?,
                     session_title: None,
-                    turn: query::id(row, 17)?,
+                    turn: query::id(&row, 17)?,
                     project,
-                    worktree: query::id(row, 8)?,
+                    worktree: query::id(&row, 8)?,
                     provider,
                     model,
                     tokens,
                     usd_micros: cost.map(|cost| cost.usd_micros),
                     elapsed_us: elapsed,
                     first_token_us: row
-                        .get::<_, Option<i64>>(18)
+                        .get::<Option<i64>>(18)
                         .map_err(storage_error)?
                         .filter(|value| {
                             *value >= 0 && elapsed.is_some_and(|elapsed| *value as u64 <= elapsed)
@@ -217,11 +224,13 @@ pub(in crate::store) fn read(
             }
         }
     }
+    drop(rows);
+    drop(statement);
     let mut items: Vec<Request> = requests.into_values().rev().collect();
     let mut titles = BTreeMap::new();
     for item in &mut items {
         if let std::collections::btree_map::Entry::Vacant(entry) = titles.entry(item.session) {
-            let title = crate::store::agent::activity::title(db, item.session)?;
+            let title = crate::store::agent::activity::title(db, item.session).await?;
             entry.insert(Some(title).filter(|title| !title.trim().is_empty()));
         }
         item.session_title = titles[&item.session].clone();
@@ -229,7 +238,9 @@ pub(in crate::store) fn read(
     let report = Report {
         node,
         cursor,
-        pricing_updated_at_ms: crate::store::providers::catalog::status(db)?.updated_at_ms,
+        pricing_updated_at_ms: crate::store::providers::catalog::status(db)
+            .await?
+            .updated_at_ms,
         query: query.clone(),
         totals,
         days,

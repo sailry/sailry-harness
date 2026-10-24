@@ -1,13 +1,16 @@
 use super::*;
 
-#[test]
-fn keeps_model_settings_controller_owned() {
-    let db = database();
-    let owner = package(&db, "owner", 'a', &["storage.read"]);
-    let previous = settings(&db, &request(Command::ReadLocalModelSettings)).unwrap();
+#[tokio::test]
+async fn keeps_model_settings_controller_owned() {
+    let db = database().await;
+    let owner = package(&db, "owner", 'a', &["storage.read"]).await;
+    let previous = settings(&db, &request(Command::ReadLocalModelSettings))
+        .await
+        .unwrap();
     assert_eq!(previous, sailry_protocol::models::Settings::default());
     assert_eq!(
         settings(&db, &captured(&owner, Command::ReadLocalModelSettings))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -17,6 +20,7 @@ fn keeps_model_settings_controller_owned() {
             &db,
             &captured(&owner, Command::SaveLocalModelSettings(previous.clone()))
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
@@ -31,16 +35,19 @@ fn keeps_model_settings_controller_owned() {
         settings.mirror = Some(mirror.into());
         assert_eq!(
             execute(&db, &request(Command::SaveLocalModelSettings(settings)))
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidRequest
         );
     }
-    assert_eq!(local_models::settings(&db).unwrap(), previous);
+    assert_eq!(local_models::settings(&db).await.unwrap(), previous);
     let mut settings = previous.clone();
     settings.mirror = Some("https://models.example/public/models".into());
     let (Output::LocalModelSettings(saved), event) =
-        execute(&db, &request(Command::SaveLocalModelSettings(settings))).unwrap()
+        execute(&db, &request(Command::SaveLocalModelSettings(settings)))
+            .await
+            .unwrap()
     else {
         panic!("settings expected")
     };
@@ -51,25 +58,28 @@ fn keeps_model_settings_controller_owned() {
     ));
     assert_eq!(
         execute(&db, &request(Command::SaveLocalModelSettings(previous)))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::RevisionConflict
     );
-    assert_eq!(local_models::settings(&db).unwrap(), saved);
+    assert_eq!(local_models::settings(&db).await.unwrap(), saved);
 }
 
-#[test]
-fn invalidates_only_collections_following_default() {
-    let db = database();
-    let owner = package(&db, "owner", 'a', &["storage.read"]);
-    let following = insert(&db, &owner, storage());
+#[tokio::test]
+async fn invalidates_only_collections_following_default() {
+    let db = database().await;
+    let owner = package(&db, "owner", 'a', &["storage.read"]).await;
+    let following = insert(&db, &owner, storage()).await;
     let mut definition = storage();
     definition.model = Some("bge-small-zh".to_owned());
-    let pinned = insert(&db, &owner, definition);
-    let mut settings = local_models::settings(&db).unwrap();
+    let pinned = insert(&db, &owner, definition).await;
+    let mut settings = local_models::settings(&db).await.unwrap();
     select_model(&mut settings, Some("potion-multi".into()));
-    execute(&db, &request(Command::SaveLocalModelSettings(settings))).unwrap();
-    let snapshot = catalog(&db).unwrap();
+    execute(&db, &request(Command::SaveLocalModelSettings(settings)))
+        .await
+        .unwrap();
+    let snapshot = catalog(&db).await.unwrap();
     let following = &snapshot
         .collections
         .iter()
@@ -87,18 +97,20 @@ fn invalidates_only_collections_following_default() {
             .collection,
         pinned
     );
-    let original = raw(&db);
-    let mut settings = local_models::settings(&db).unwrap();
+    let original = raw(&db).await;
+    let mut settings = local_models::settings(&db).await.unwrap();
     settings.mirror = Some("https://models.example/".into());
-    execute(&db, &request(Command::SaveLocalModelSettings(settings))).unwrap();
-    assert_eq!(raw(&db), original);
+    execute(&db, &request(Command::SaveLocalModelSettings(settings)))
+        .await
+        .unwrap();
+    assert_eq!(raw(&db).await, original);
 }
 
-#[test]
-fn guards_revision_generation_and_progress() {
-    let db = database();
-    let owner = package(&db, "owner", 'a', &["storage.read"]);
-    let original = insert(&db, &owner, storage());
+#[tokio::test]
+async fn guards_revision_generation_and_progress() {
+    let db = database().await;
+    let owner = package(&db, "owner", 'a', &["storage.read"]).await;
+    let original = insert(&db, &owner, storage()).await;
     let mut changed = original.definition.clone();
     changed.name = "Updated".into();
     let updated = create(
@@ -111,10 +123,11 @@ fn guards_revision_generation_and_progress() {
                 definition: changed,
             },
         ),
-    );
+    )
+    .await;
     assert_eq!(updated.revision, 2);
     assert_eq!(updated.progress.generation, 2);
-    let before = raw(&db);
+    let before = raw(&db).await;
     for command in [
         Command::RebuildKnowledgeCollection {
             id: original.id,
@@ -126,13 +139,17 @@ fn guards_revision_generation_and_progress() {
         },
     ] {
         assert_eq!(
-            execute(&db, &captured(&owner, command)).unwrap_err().code,
+            execute(&db, &captured(&owner, command))
+                .await
+                .unwrap_err()
+                .code,
             ErrorCode::RevisionConflict
         );
-        assert_eq!(raw(&db), before);
+        assert_eq!(raw(&db).await, before);
     }
     assert_eq!(
         progress(&db, original.id, 1, &original.progress)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::RevisionConflict
@@ -144,16 +161,24 @@ fn guards_revision_generation_and_progress() {
     completed.chunks = 4;
     completed.model = Some("potion-multi".to_owned());
     assert_eq!(
-        progress(&db, original.id, 2, &completed).unwrap_err().code,
+        progress(&db, original.id, 2, &completed)
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::RevisionConflict
     );
     completed.model = Some("granite-multi".to_owned());
     assert!(matches!(
-        progress(&db, original.id, 2, &completed).unwrap(),
+        progress(&db, original.id, 2, &completed).await.unwrap(),
         Some(Event::KnowledgeCollectionsChanged)
     ));
-    assert!(progress(&db, original.id, 2, &completed).unwrap().is_none());
-    let stored = &catalog(&db).unwrap().collections[0].collection;
+    assert!(
+        progress(&db, original.id, 2, &completed)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let stored = &catalog(&db).await.unwrap().collections[0].collection;
     assert_eq!(stored.revision, updated.revision);
     assert_eq!(stored.progress, completed);
     let rebuilt = create(
@@ -165,7 +190,8 @@ fn guards_revision_generation_and_progress() {
                 expected_revision: 2,
             },
         ),
-    );
+    )
+    .await;
     assert_eq!(
         rebuilt.progress,
         knowledge::Progress {
@@ -174,35 +200,39 @@ fn guards_revision_generation_and_progress() {
         }
     );
     assert_eq!(
-        progress(&db, original.id, 2, &completed).unwrap_err().code,
+        progress(&db, original.id, 2, &completed)
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::RevisionConflict
     );
 }
 
-#[test]
-fn rejects_exhaustion_before_partial_writes() {
-    let db = database();
-    let owner = package(&db, "owner", 'a', &["storage.read"]);
-    insert(&db, &owner, storage());
-    insert(&db, &owner, storage());
-    let mut entries = catalog(&db).unwrap().collections;
+#[tokio::test]
+async fn rejects_exhaustion_before_partial_writes() {
+    let db = database().await;
+    let owner = package(&db, "owner", 'a', &["storage.read"]).await;
+    insert(&db, &owner, storage()).await;
+    insert(&db, &owner, storage()).await;
+    let mut entries = catalog(&db).await.unwrap().collections;
     entries[1].collection.progress.generation = i64::MAX as u64;
-    collections::persist(&db, &entries[1]).unwrap();
-    let before = raw(&db);
-    let previous = local_models::settings(&db).unwrap();
+    collections::persist(&db, &entries[1]).await.unwrap();
+    let before = raw(&db).await;
+    let previous = local_models::settings(&db).await.unwrap();
     let mut changed = previous.clone();
     select_model(&mut changed, None);
     assert_eq!(
         execute(&db, &request(Command::SaveLocalModelSettings(changed)))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::InvalidRequest
     );
-    assert_eq!(raw(&db), before);
-    assert_eq!(local_models::settings(&db).unwrap(), previous);
+    assert_eq!(raw(&db).await, before);
+    assert_eq!(local_models::settings(&db).await.unwrap(), previous);
     entries[0].collection.revision = i64::MAX as u64;
-    collections::persist(&db, &entries[0]).unwrap();
-    let before = raw(&db);
+    collections::persist(&db, &entries[0]).await.unwrap();
+    let before = raw(&db).await;
     let change = captured(
         &owner,
         Command::RebuildKnowledgeCollection {
@@ -211,8 +241,8 @@ fn rejects_exhaustion_before_partial_writes() {
         },
     );
     assert_eq!(
-        execute(&db, &change).unwrap_err().code,
+        execute(&db, &change).await.unwrap_err().code,
         ErrorCode::InvalidRequest
     );
-    assert_eq!(raw(&db), before);
+    assert_eq!(raw(&db).await, before);
 }

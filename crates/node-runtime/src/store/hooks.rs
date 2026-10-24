@@ -4,12 +4,12 @@ use super::{
     agent::{Invocation, Operation},
     database::{encode, storage_error},
 };
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
     hooks::{Phase, Settings},
     *,
 };
 use tokio::sync::oneshot;
+use turso::{Connection, params};
 
 pub(super) fn controller(request: &Request) -> Result<(), Fault> {
     if request.plugin.is_some() {
@@ -29,40 +29,51 @@ pub(super) fn state(worktree: WorktreeId, settings: Settings) -> hooks::State {
     }
 }
 
-pub(super) fn read(db: &Connection, worktree: WorktreeId) -> Result<Settings, Fault> {
-    let exists: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM worktrees WHERE id=?1)",
-            [worktree.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+pub(super) async fn read(db: &Connection, worktree: WorktreeId) -> Result<Settings, Fault> {
+    let exists: bool = {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM worktrees WHERE id=?1)")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([worktree.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if !exists {
         return Err(Fault::new(
             ErrorCode::NotFound,
             "worktree does not exist on this Node",
         ));
     }
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM hook_settings WHERE worktree=?1",
-            [worktree.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM hook_settings WHERE worktree=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([worktree.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
         .map(|settings| settings.unwrap_or_default())
 }
 
-pub(super) fn save(
+pub(super) async fn save(
     db: &Connection,
     worktree: WorktreeId,
     settings: &Settings,
     expected: u64,
 ) -> Result<Settings, Fault> {
-    let current = read(db, worktree)?;
+    let current = read(db, worktree).await?;
     if current.revision != expected || settings.revision != expected {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -99,22 +110,27 @@ pub(super) fn save(
         .checked_add(1)
         .filter(|revision| *revision <= i64::MAX as u64)
         .ok_or_else(|| Fault::invalid("hook revision limit exceeded"))?;
-    db.execute("INSERT INTO hook_settings(worktree,body) VALUES(?1,?2) ON CONFLICT(worktree) DO UPDATE SET body=excluded.body", params![worktree.to_string(), encode(&settings)?]).map_err(storage_error)?;
+    db.execute("INSERT INTO hook_settings(worktree,body) VALUES(?1,?2) ON CONFLICT(worktree) DO UPDATE SET body=excluded.body", params![worktree.to_string(), encode(&settings)?]).await.map_err(storage_error)?;
     Ok(settings)
 }
 
-pub(in crate::store) fn frozen(db: &Connection, turn: TurnId) -> Result<Settings, Fault> {
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT hooks FROM agent_runs WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+pub(in crate::store) async fn frozen(db: &Connection, turn: TurnId) -> Result<Settings, Fault> {
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT hooks FROM agent_runs WHERE turn=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     serde_json::from_slice(&body).map_err(storage_error)
 }
 
-pub(in crate::store) fn claim(
+pub(in crate::store) async fn claim(
     db: &Connection,
     turn: TurnId,
     phase: Phase,
@@ -123,7 +139,16 @@ pub(in crate::store) fn claim(
     if phase == Phase::TurnEnd && ordinal != 0 {
         return Err(Fault::invalid("invalid end-hook receipt"));
     }
-    let (config, status, kind): (Vec<u8>, String, String) = db.query_row("SELECT r.config,json_extract(a.body,'$.status'),t.kind FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision JOIN agent_runs a ON a.turn=t.id WHERE t.id=?1", [turn.to_string()], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).map_err(storage_error)?;
+    let (config, status, kind): (Vec<u8>, String, String) = {
+        let mut statement = db.prepare("SELECT r.config,json_extract(a.body,'$.status'),t.kind FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision JOIN agent_runs a ON a.turn=t.id WHERE t.id=?1").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> =
+            (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+        mapped.map_err(storage_error)?
+    };
     let config: SessionConfig = serde_json::from_slice(&config).map_err(storage_error)?;
     if kind != "task" || config.mode == WorkMode::Plan || status != "running" {
         return Err(Fault::new(
@@ -131,7 +156,7 @@ pub(in crate::store) fn claim(
             "hooks cannot execute in this turn",
         ));
     }
-    if frozen(db, turn)?.scripts(phase).next().is_none() {
+    if frozen(db, turn).await?.scripts(phase).next().is_none() {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "hook is not enabled in the admitted turn",
@@ -144,6 +169,7 @@ pub(in crate::store) fn claim(
             "INSERT OR IGNORE INTO hook_executions(turn,phase,ordinal) VALUES(?1,?2,?3)",
             params![turn.to_string(), phase.name(), ordinal],
         )
+        .await
         .map_err(storage_error)?;
     if inserted != 1 {
         return Err(Fault::new(
@@ -154,14 +180,14 @@ pub(in crate::store) fn claim(
     Ok(())
 }
 
-pub(in crate::store) fn finish(
+pub(in crate::store) async fn finish(
     db: &Connection,
     turn: TurnId,
     phase: Phase,
     ordinal: u64,
     result: &Result<process::Outcome, Fault>,
 ) -> Result<(), Fault> {
-    let count = db.execute("UPDATE hook_executions SET result=?4 WHERE turn=?1 AND phase=?2 AND ordinal=?3 AND result IS NULL", params![turn.to_string(),phase.name(),i64::try_from(ordinal).map_err(storage_error)?,encode(result)?]).map_err(storage_error)?;
+    let count = db.execute("UPDATE hook_executions SET result=?4 WHERE turn=?1 AND phase=?2 AND ordinal=?3 AND result IS NULL", params![turn.to_string(),phase.name(),i64::try_from(ordinal).map_err(storage_error)?,encode(result)?]).await.map_err(storage_error)?;
     if count != 1 {
         return Err(Fault::new(
             ErrorCode::Conflict,

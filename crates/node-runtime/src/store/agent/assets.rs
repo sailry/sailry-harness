@@ -5,12 +5,12 @@ mod extract;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::store) fn read(
+pub(in crate::store) async fn read(
     db: &Connection,
     session: SessionId,
     query: &Query,
 ) -> Result<assets::Page, Fault> {
-    check_session(db, session)?;
+    check_session(db, session).await?;
     if !(1..=assets::MAX_GROUPS).contains(&query.limit)
         || query
             .before
@@ -21,13 +21,15 @@ pub(in crate::store) fn read(
         ));
     }
     if let Some(before) = query.before {
-        let visible: bool = db
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM conversation_events WHERE session=?1 AND sequence=?2)",
-                params![session.to_string(), before as i64],
-                |row| row.get(0),
-            )
-            .map_err(storage_error)?;
+        let visible: bool = {
+            let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM conversation_events WHERE session=?1 AND sequence=?2)").await.map_err(storage_error)?;
+            let row = statement
+                .query_row(params![session.to_string(), before as i64])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
         if !visible {
             return Err(Fault::new(
                 ErrorCode::WrongTarget,
@@ -35,24 +37,28 @@ pub(in crate::store) fn read(
             ));
         }
     }
-    let mut statement = db.prepare(history::EVENTS_QUERY).map_err(storage_error)?;
+    let mut statement = db
+        .prepare(history::EVENTS_QUERY)
+        .await
+        .map_err(storage_error)?;
     let mut rows = statement
         .query(params![
             session.to_string(),
             query.before.unwrap_or(i64::MAX as u64) as i64,
             257
         ])
+        .await
         .map_err(storage_error)?;
     let mut page = assets::Page {
         session,
-        revision: crate::store::sessions::history_revision(db, session)?,
+        revision: crate::store::sessions::history_revision(db, session).await?,
         groups: Vec::new(),
         next_before: None,
     };
     let mut scanned = 0;
     let mut bytes = 0;
     let mut last = None;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         if scanned == 256
             || bytes >= 4 * 1024 * 1024
             || page.groups.len() == usize::from(query.limit)
@@ -60,7 +66,7 @@ pub(in crate::store) fn read(
             page.next_before = last;
             break;
         }
-        let sequence = row.get::<_, i64>(0).map_err(storage_error)? as u64;
+        let sequence = row.get::<i64>(0).map_err(storage_error)? as u64;
         let turn: String = row.get(1).map_err(storage_error)?;
         let turn = turn.parse().map_err(storage_error)?;
         let body: Vec<u8> = row.get(2).map_err(storage_error)?;
@@ -76,16 +82,22 @@ pub(in crate::store) fn read(
         if query.kind.is_some_and(|filter| filter != kind) {
             continue;
         }
-        let entry = history::project(db, sequence, turn, &event)?;
-        let run = runs::visible(db, session, turn)?;
-        let root: Option<String> = db
-            .query_row(
-                "SELECT path FROM worktrees WHERE id=?1",
-                [run.worktree.to_string()],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(storage_error)?;
+        let entry = history::project(db, sequence, turn, &event).await?;
+        let run = runs::visible(db, session, turn).await?;
+        let root: Option<String> = {
+            let mut statement = db
+                .prepare("SELECT path FROM worktrees WHERE id=?1")
+                .await
+                .map_err(storage_error)?;
+            match statement.query_row([run.worktree.to_string()]).await {
+                Ok(row) => {
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
+            }
+        };
         let items = extract::items(&entry, root.as_deref());
         if !items.is_empty() {
             page.groups.push(Group {

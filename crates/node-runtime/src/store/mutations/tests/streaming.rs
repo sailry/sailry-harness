@@ -281,15 +281,37 @@ async fn bypasses_blocked_storage_and_file_workers() {
                 ("answer".into(), vec![Part::Text("first second".into())])
             ]
         );
-        let database =
-            rusqlite::Connection::open(fixture.directory.path().join("node.sqlite3")).unwrap();
-        let persisted: Vec<Event> = database
-            .prepare("SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence")
-            .unwrap()
-            .query_map([turn.id.to_string()], |row| row.get::<_, Vec<u8>>(0))
-            .unwrap()
-            .map(|body| serde_json::from_slice(&body.unwrap()).unwrap())
-            .collect();
+        let turn_id = turn.id;
+        let persisted: Vec<Event> = fixture
+            .store
+            .ingress
+            .with_storage(move |database| {
+                Box::pin(async move {
+                    let mut rows = database
+                        .query(
+                            "SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence",
+                            [turn_id.to_string()],
+                        )
+                        .await
+                        .map_err(crate::store::database::storage_error)?;
+                    let mut events = Vec::new();
+                    while let Some(row) = rows
+                        .next()
+                        .await
+                        .map_err(crate::store::database::storage_error)?
+                    {
+                        let body: Vec<u8> =
+                            row.get(0).map_err(crate::store::database::storage_error)?;
+                        events.push(
+                            serde_json::from_slice(&body)
+                                .map_err(crate::store::database::storage_error)?,
+                        );
+                    }
+                    Ok(events)
+                })
+            })
+            .await
+            .unwrap();
         assert_eq!(
             persisted
                 .iter()

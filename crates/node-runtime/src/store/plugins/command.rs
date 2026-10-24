@@ -3,7 +3,7 @@ use super::*;
 use crate::store::{commands, database::Database};
 use sailry_protocol::{NodeId, Request};
 
-pub(in crate::store) fn resolve(
+pub(in crate::store) async fn resolve(
     db: &Database,
     request: &Request,
 ) -> Result<Option<Request>, Fault> {
@@ -29,17 +29,17 @@ pub(in crate::store) fn resolve(
     };
     let end = text.find(char::is_whitespace).unwrap_or(text.len());
     let name = &text[..end];
-    let session = commands::session(&db.connection, *session)?;
+    let session = commands::session(&db.connection, *session).await?;
     if let Some(revision) = expected_revision {
         commands::check_revision(session.revision, revision)?;
     }
     crate::store::sessions::writable(&session)?;
     let references = if let Some(assistant) = &session.config.assistant {
-        crate::store::agent::plugins::assistant(&db.connection, assistant)?
+        crate::store::agent::plugins::assistant(&db.connection, assistant).await?
     } else {
-        crate::store::agent::plugins::capture(&db.connection)?
+        crate::store::agent::plugins::capture(&db.connection).await?
     };
-    let packages = crate::store::agent::plugins::packages(&db.connection, &references)?;
+    let packages = crate::store::agent::plugins::packages(&db.connection, &references).await?;
     let mut selected = None;
     for package in packages {
         let Some(command) = package

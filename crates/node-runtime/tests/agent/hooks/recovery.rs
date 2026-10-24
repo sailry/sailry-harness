@@ -76,17 +76,21 @@ async fn never_replays_end_after_restart() {
         assert!(!root.join("later-script.txt").exists());
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-        let db =
-            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
+        let (database, db) =
+            crate::database_fixture::open(&directory.path().join("node/storage/node.turso"), true)
+                .await;
         assert_eq!(
-            db.query_row(
-                "SELECT count(*) FROM hook_executions WHERE turn=?1 AND phase='turn_end'",
-                [turn.id.to_string()],
-                |row| row.get::<_, i64>(0)
-            )
-            .unwrap(),
+            db.prepare("SELECT count(*) FROM hook_executions WHERE turn=?1 AND phase='turn_end'")
+                .await
+                .unwrap()
+                .query_row([turn.id.to_string()])
+                .await
+                .unwrap()
+                .get::<i64>(0)
+                .unwrap(),
             1
         );
+        crate::database_fixture::close(database, db).await;
     }
 }
 
@@ -214,17 +218,23 @@ async fn records_end_once_for_each_turn() {
         let directory = fixture.directory.path().to_path_buf();
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
-        let db = rusqlite::Connection::open(directory.join("node/storage/node.sqlite3")).unwrap();
-        let mut query = db
-            .prepare("SELECT body FROM agent_events WHERE session=?1")
+        let (database, db) =
+            crate::database_fixture::open(&directory.join("node/storage/node.turso"), true).await;
+        let mut rows = db
+            .query(
+                "SELECT body FROM agent_events WHERE session=?1",
+                [fixture.session.id.to_string()],
+            )
+            .await
             .unwrap();
-        let events = query
-            .query_map([fixture.session.id.to_string()], |row| {
-                row.get::<_, Vec<u8>>(0)
-            })
-            .unwrap()
-            .map(|row| serde_json::from_slice::<adk_core::Event>(&row.unwrap()).unwrap())
-            .collect::<Vec<_>>();
+        let mut events = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            events.push(
+                serde_json::from_slice::<adk_core::Event>(&row.get::<Vec<u8>>(0).unwrap()).unwrap(),
+            );
+        }
+        drop(rows);
+        crate::database_fixture::close(database, db).await;
         let hooks = events
             .iter()
             .filter_map(|event| event.provider_metadata.get("sailry.hook"))

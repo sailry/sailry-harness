@@ -1,7 +1,7 @@
 //! Protected MCP slots bind to a concrete immutable server declaration.
 use super::*;
 
-pub(in crate::store::plugins) fn current(
+pub(in crate::store::plugins) async fn current(
     db: &Connection,
     info: &Info,
     configured: Option<&plugin::mcp::Configuration>,
@@ -18,13 +18,15 @@ pub(in crate::store::plugins) fn current(
     let declared = if let Some(configured) = configured {
         configured.clone()
     } else {
-        let file: String = db
-            .query_row(
-                "SELECT file FROM pragma_database_list WHERE name='main'",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(storage_error)?;
+        let file: String = {
+            let mut statement = db
+                .prepare("SELECT file FROM pragma_database_list WHERE name='main'")
+                .await
+                .map_err(storage_error)?;
+            let row = statement.query_row(()).await.map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
         let path = std::path::Path::new(&file);
         let profile = (!file.is_empty())
             .then(|| {

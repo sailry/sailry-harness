@@ -5,7 +5,6 @@ use super::{
     external::Completed,
 };
 use futures::FutureExt;
-use rusqlite::{Connection, OptionalExtension};
 use sailry_link::{CancellationToken, LinkHandle, NetworkScope, RelaySelection, Response};
 use sailry_protocol::{
     network::{Selection, Settings},
@@ -17,6 +16,7 @@ use tokio::{
     runtime::Handle,
     sync::{mpsc, oneshot},
 };
+use turso::Connection;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,32 +25,38 @@ pub(super) struct Stored {
     selection: Selection,
 }
 
-fn stored(db: &Connection) -> Result<Option<Stored>, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM network_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn stored(db: &Connection) -> Result<Option<Stored>, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM network_settings WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(()).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
 }
 
-pub(super) fn validate_stored(db: &Connection) -> Result<(), Fault> {
-    if let Some(saved) = stored(db)? {
+pub(super) async fn validate_stored(db: &Connection) -> Result<(), Fault> {
+    if let Some(saved) = stored(db).await? {
         transport(&saved.selection).validate()?;
     }
     Ok(())
 }
 
-pub(super) fn scope(db: &Connection, fallback: NetworkScope) -> Result<NetworkScope, Fault> {
+pub(super) async fn scope(db: &Connection, fallback: NetworkScope) -> Result<NetworkScope, Fault> {
     // Direct endpoints are explicit isolated/test transports, never Internet settings.
     if matches!(fallback, NetworkScope::Direct(_)) {
         return Ok(fallback);
     }
-    Ok(match stored(db)?.map(|saved| saved.selection) {
+    Ok(match stored(db).await?.map(|saved| saved.selection) {
         Some(Selection::Iroh) => NetworkScope::Internet,
         Some(Selection::Custom { relays }) => {
             RelaySelection::Custom(relays.clone()).validate()?;
@@ -74,9 +80,9 @@ fn configured(value: RelaySelection) -> Selection {
     }
 }
 
-fn read(db: &Connection, link: &LinkHandle) -> Result<Settings, Fault> {
+async fn read(db: &Connection, link: &LinkHandle) -> Result<Settings, Fault> {
     let effective = link.relay_selection()?.map(configured);
-    let saved = stored(db)?;
+    let saved = stored(db).await?;
     Ok(Settings {
         revision: saved.as_ref().map_or(0, |saved| saved.revision),
         selection: saved
@@ -98,21 +104,21 @@ pub(super) struct Execution {
 
 type Rejected = Box<(Request, oneshot::Sender<Response>, Fault)>;
 
-pub(super) fn prepare(
+pub(super) async fn prepare(
     db: &mut Database,
     caller: NodeId,
     request: Request,
     reply: oneshot::Sender<Response>,
 ) -> Result<Execution, Rejected> {
-    let prepared = (|| {
+    let prepared = (async || {
         if request.plugin.is_some() {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
                 "network configuration requires a controller",
             ));
         }
-        let link = db.network_link.clone().ok_or_else(super::unavailable)?;
-        let mut settings = read(&db.connection, &link)?;
+        let link = db.network_link.lock().unwrap().clone().ok_or_else(super::unavailable)?;
+        let mut settings = read(&db.connection, &link).await?;
         let change = if let Command::SaveNetworkSettings {
             expected_revision,
             selection: desired,
@@ -123,7 +129,7 @@ pub(super) fn prepare(
                     "direct-only endpoint has no relay transport",
                 ));
             }
-            if db.network_request.is_some() {
+            if db.network_request.lock().unwrap().is_some() {
                 return Err(Fault::new(
                     ErrorCode::Busy,
                     "network configuration is changing",
@@ -145,16 +151,16 @@ pub(super) fn prepare(
                 revision,
                 selection: desired.clone(),
             };
-            db.connection.execute("INSERT INTO network_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&saved)?]).map_err(storage_error)?;
+            db.connection.execute("INSERT INTO network_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&saved)?]).await.map_err(storage_error)?;
             settings.revision = revision;
             settings.selection = Some(desired.clone());
-            db.network_request = Some(request.id);
+            *db.network_request.lock().unwrap() = Some(request.id);
             Some(change)
         } else {
             None
         };
         Ok((link, settings, change))
-    })();
+    })().await;
     match prepared {
         Ok((link, settings, change)) => Ok(Execution {
             caller,
@@ -168,9 +174,9 @@ pub(super) fn prepare(
     }
 }
 
-pub(super) fn release(db: &mut Database, request: &Request) {
-    if db.network_request == Some(request.id) {
-        db.network_request = None;
+pub(super) async fn release(db: &mut Database, request: &Request) {
+    if *db.network_request.lock().unwrap() == Some(request.id) {
+        *db.network_request.lock().unwrap() = None;
     }
 }
 

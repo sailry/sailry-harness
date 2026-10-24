@@ -3,15 +3,17 @@ use fixture::Fixture;
 use sailry_protocol::plugin::{self, storage::ConversationEntry, transaction::Operation};
 use serde_json::{Value, json};
 
-fn prepare(fixture: &Fixture) -> plugin::Context {
+async fn prepare(fixture: &Fixture) -> plugin::Context {
     let profile = fixture._root.path().join("profile");
     std::fs::create_dir(&profile).unwrap();
-    fixture::package(&fixture.database, &profile, "goals");
+    fixture::package(&fixture.database, &profile, "goals").await;
     let package = crate::store::plugins::get(&fixture.database.connection, "goals")
+        .await
         .unwrap()
         .unwrap();
-    let session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     plugin::Context {
         package: package.summary.reference(),
         surface: Default::default(),
@@ -22,23 +24,19 @@ fn prepare(fixture: &Fixture) -> plugin::Context {
     }
 }
 
-fn execute(fixture: &mut Fixture, request: Request) -> Result<Output, Fault> {
+async fn execute(fixture: &mut Fixture, request: Request) -> Result<Output, Fault> {
     let (reply, response) = oneshot::channel();
     assert!(
         fixture
             .database
             .dispatch(fixture.database.node, request, reply, &fixture.events)
+            .await
             .is_none()
     );
-    response
-        .blocking_recv()
-        .unwrap()?
-        .completion
-        .blocking_recv()
-        .unwrap()
+    response.await.unwrap()?.completion.await.unwrap()
 }
 
-fn write(
+async fn write(
     fixture: &mut Fixture,
     context: &plugin::Context,
     value: Option<Value>,
@@ -56,23 +54,24 @@ fn write(
         },
     };
     let request = Request::new(fixture.database.node, command).with_plugin(context.clone());
-    let Output::PluginConversationValue(entry) = execute(fixture, request).unwrap() else {
+    let Output::PluginConversationValue(entry) = execute(fixture, request).await.unwrap() else {
         panic!("entry expected")
     };
     entry
 }
 
-fn read(fixture: &Fixture, session: SessionId) -> ConversationEntry {
+async fn read(fixture: &Fixture, session: SessionId) -> ConversationEntry {
     crate::store::plugins::storage::conversation::read(
         &fixture.database.connection,
         "goals",
         session,
         "state",
     )
+    .await
     .unwrap()
 }
 
-fn fork(fixture: &mut Fixture, source: SessionId, through: TurnId) -> SessionId {
+async fn fork(fixture: &mut Fixture, source: SessionId, through: TurnId) -> SessionId {
     let Output::Session(session) = command(
         &mut fixture.database,
         &fixture.events,
@@ -81,55 +80,61 @@ fn fork(fixture: &mut Fixture, source: SessionId, through: TurnId) -> SessionId 
             through,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("session expected")
     };
     session.id
 }
 
-#[test]
-fn branches_preserve_prefixes() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&fixture);
+#[tokio::test]
+async fn branches_preserve_prefixes() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&fixture).await;
     let source = fixture.session;
-    let first = fixture.completed(&["First result"]);
+    let first = fixture.completed(&["First result"]).await;
     let initial = write(
         &mut fixture,
         &context,
         Some(json!({"phase":"initial","text":"Evidence 中文 🙂"})),
         0,
-    );
-    let head = fixture.completed(&["Second result"]);
+    )
+    .await;
+    let head = fixture.completed(&["Second result"]).await;
     let latest = write(
         &mut fixture,
         &context,
         Some(json!({"phase":"final"})),
         initial.revision,
-    );
-    let prefix = fork(&mut fixture, source, first);
-    let full = fork(&mut fixture, source, head);
-    assert_eq!(read(&fixture, prefix).value, initial.value);
-    assert!(read(&fixture, prefix).restored);
-    assert_eq!(read(&fixture, full).value, latest.value);
-    assert_eq!(read(&fixture, source), latest);
+    )
+    .await;
+    let prefix = fork(&mut fixture, source, first).await;
+    let full = fork(&mut fixture, source, head).await;
+    assert_eq!(read(&fixture, prefix).await.value, initial.value);
+    assert!(read(&fixture, prefix).await.restored);
+    assert_eq!(read(&fixture, full).await.value, latest.value);
+    assert_eq!(read(&fixture, source).await, latest);
     assert_eq!(
         crate::store::plugins::storage::conversation::sequence(&fixture.database.connection)
+            .await
             .unwrap(),
         2
     );
 
-    let cleared = write(&mut fixture, &context, None, latest.revision);
+    let cleared = write(&mut fixture, &context, None, latest.revision).await;
     assert!(!cleared.present);
-    let tombstone = fork(&mut fixture, source, head);
-    assert!(!read(&fixture, tombstone).present);
-    assert!(read(&fixture, tombstone).restored);
-    let next = fixture.completed(&["New result"]);
+    let tombstone = fork(&mut fixture, source, head).await;
+    assert!(!read(&fixture, tombstone).await.present);
+    assert!(read(&fixture, tombstone).await.restored);
+    let next = fixture.completed(&["New result"]).await;
     write(
         &mut fixture,
         &context,
         Some(json!({"phase":"replacement"})),
         cleared.revision,
-    );
+    )
+    .await;
     command(
         &mut fixture.database,
         &fixture.events,
@@ -139,27 +144,29 @@ fn branches_preserve_prefixes() {
             expected_head: next,
             expected_revision: 1,
         },
-    );
-    let nested = fork(&mut fixture, full, first);
-    assert_eq!(read(&fixture, nested).value, initial.value);
-    assert_eq!(read(&fixture, full).value, latest.value);
-    assert_eq!(read(&fixture, prefix).value, initial.value);
-    assert!(!read(&fixture, source).present);
+    )
+    .await;
+    let nested = fork(&mut fixture, full, first).await;
+    assert_eq!(read(&fixture, nested).await.value, initial.value);
+    assert_eq!(read(&fixture, full).await.value, latest.value);
+    assert_eq!(read(&fixture, prefix).await.value, initial.value);
+    assert!(!read(&fixture, source).await.present);
 }
 
-#[test]
-fn rewind_advances_revisions() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&fixture);
-    let first = fixture.completed(&["First result"]);
-    let initial = write(&mut fixture, &context, Some(json!({"phase":"initial"})), 0);
-    let head = fixture.completed(&["Second result"]);
+#[tokio::test]
+async fn rewind_advances_revisions() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&fixture).await;
+    let first = fixture.completed(&["First result"]).await;
+    let initial = write(&mut fixture, &context, Some(json!({"phase":"initial"})), 0).await;
+    let head = fixture.completed(&["Second result"]).await;
     let latest = write(
         &mut fixture,
         &context,
         Some(json!({"phase":"final"})),
         initial.revision,
-    );
+    )
+    .await;
     let request = Request::new(
         fixture.database.node,
         Command::RewindConversation {
@@ -170,20 +177,20 @@ fn rewind_advances_revisions() {
         },
     );
     let source = fixture.session;
-    let branch = fork(&mut fixture, source, head);
-    let output = execute(&mut fixture, request.clone()).unwrap();
+    let branch = fork(&mut fixture, source, head).await;
+    let output = execute(&mut fixture, request.clone()).await.unwrap();
     let Output::Rewound(rewind) = &output else {
         panic!("rewind expected")
     };
-    let restored = read(&fixture, fixture.session);
+    let restored = read(&fixture, fixture.session).await;
     assert!(rewind.backup.is_none());
     assert_eq!(restored.value, initial.value);
     assert!(restored.restored);
     assert_eq!(restored.revision, latest.revision + 1);
-    assert_eq!(read(&fixture, branch).value, latest.value);
-    assert!(read(&fixture, branch).restored);
-    assert_eq!(execute(&mut fixture, request).unwrap(), output);
-    assert_eq!(read(&fixture, fixture.session), restored);
+    assert_eq!(read(&fixture, branch).await.value, latest.value);
+    assert!(read(&fixture, branch).await.restored);
+    assert_eq!(execute(&mut fixture, request).await.unwrap(), output);
+    assert_eq!(read(&fixture, fixture.session).await, restored);
     let stale = Request::new(
         fixture.database.node,
         Command::WritePluginConversationValue {
@@ -194,10 +201,10 @@ fn rewind_advances_revisions() {
     )
     .with_plugin(context);
     assert_eq!(
-        execute(&mut fixture, stale).unwrap_err().code,
+        execute(&mut fixture, stale).await.unwrap_err().code,
         ErrorCode::RevisionConflict
     );
-    let prefix = fork(&mut fixture, source, first);
+    let prefix = fork(&mut fixture, source, first).await;
     let Output::Rewound(empty) = command(
         &mut fixture.database,
         &fixture.events,
@@ -207,27 +214,29 @@ fn rewind_advances_revisions() {
             expected_head: first,
             expected_revision: rewind.revision,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("rewind expected")
     };
-    let absent = read(&fixture, fixture.session);
+    let absent = read(&fixture, fixture.session).await;
     assert!(empty.backup.is_none());
     assert!(!absent.present);
     assert!(absent.restored);
     assert_eq!(absent.revision, restored.revision + 1);
-    assert_eq!(read(&fixture, prefix).value, initial.value);
+    assert_eq!(read(&fixture, prefix).await.value, initial.value);
 }
 
-#[test]
-fn backup_keeps_clear() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&fixture);
-    let first = fixture.completed(&["First result"]);
-    let initial = write(&mut fixture, &context, Some(json!(true)), 0);
-    let head = fixture.completed(&["Second result"]);
-    write(&mut fixture, &context, None, initial.revision);
+#[tokio::test]
+async fn backup_keeps_clear() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&fixture).await;
+    let first = fixture.completed(&["First result"]).await;
+    let initial = write(&mut fixture, &context, Some(json!(true)), 0).await;
+    let head = fixture.completed(&["Second result"]).await;
+    write(&mut fixture, &context, None, initial.revision).await;
     let source = fixture.session;
-    let branch = fork(&mut fixture, source, head);
+    let branch = fork(&mut fixture, source, head).await;
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -237,25 +246,27 @@ fn backup_keeps_clear() {
             expected_head: head,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("rewind expected")
     };
-    assert_eq!(read(&fixture, fixture.session).value, initial.value);
+    assert_eq!(read(&fixture, fixture.session).await.value, initial.value);
     assert!(rewind.backup.is_none());
-    let backup = read(&fixture, branch);
+    let backup = read(&fixture, branch).await;
     assert!(!backup.present);
     assert!(backup.restored);
     assert_eq!(backup.value, Value::Null);
 }
 
-#[test]
-fn empty_rewind_clears_unanchored_values() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&fixture);
-    let initial = write(&mut fixture, &context, Some(json!("before input")), 0);
-    let head = fixture.completed(&["First result"]);
+#[tokio::test]
+async fn empty_rewind_clears_unanchored_values() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&fixture).await;
+    let initial = write(&mut fixture, &context, Some(json!("before input")), 0).await;
+    let head = fixture.completed(&["First result"]).await;
     let source = fixture.session;
-    let branch = fork(&mut fixture, source, head);
+    let branch = fork(&mut fixture, source, head).await;
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -265,35 +276,38 @@ fn empty_rewind_clears_unanchored_values() {
             expected_head: head,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("rewind expected")
     };
-    let absent = read(&fixture, fixture.session);
+    let absent = read(&fixture, fixture.session).await;
     assert!(rewind.backup.is_none());
     assert!(!absent.present);
     assert!(absent.restored);
     assert_eq!(absent.revision, initial.revision + 1);
-    assert_eq!(read(&fixture, branch).value, initial.value);
+    assert_eq!(read(&fixture, branch).await.value, initial.value);
     let references: i64 = fixture
         .database
         .connection
-        .query_row(
-            "SELECT count(*) FROM plugin_conversation_history WHERE session=?1",
-            [fixture.session.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT count(*) FROM plugin_conversation_history WHERE session=?1")
+        .await
+        .unwrap()
+        .query_row([fixture.session.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(references, 0);
 }
 
-#[test]
-fn admission_anchors_state() {
+#[tokio::test]
+async fn admission_anchors_state() {
     for existing in [false, true] {
-        let mut fixture = Fixture::new();
-        let context = prepare(&fixture);
+        let mut fixture = Fixture::new().await;
+        let context = prepare(&fixture).await;
         let initial = if existing {
-            let turn = fixture.completed(&["Previous result"]);
-            write(&mut fixture, &context, Some(json!("previous")), 0);
+            let turn = fixture.completed(&["Previous result"]).await;
+            write(&mut fixture, &context, Some(json!("previous")), 0).await;
             Some(turn)
         } else {
             None
@@ -316,25 +330,23 @@ fn admission_anchors_state() {
             },
         )
         .with_plugin(context);
-        let output = execute(&mut fixture, request.clone()).unwrap();
+        let output = execute(&mut fixture, request.clone()).await.unwrap();
         let Output::PluginTransaction(outputs) = &output else {
             panic!("transaction expected")
         };
         let Output::QueuedTurn(turn) = &outputs[1] else {
             panic!("turn expected")
         };
-        let anchor: String = fixture.database.connection.query_row(
-            "SELECT turn FROM plugin_conversation_history WHERE session=?1 ORDER BY record DESC LIMIT 1",
-            [fixture.session.to_string()], |row| row.get(0),
-        ).unwrap();
+        let anchor: String = fixture.database.connection.prepare("SELECT turn FROM plugin_conversation_history WHERE session=?1 ORDER BY record DESC LIMIT 1").await.unwrap().query_row([fixture.session.to_string()]).await.and_then(|row| row.get(0)).unwrap();
         assert_eq!(anchor, turn.id.to_string());
-        assert_eq!(execute(&mut fixture, request).unwrap(), output);
+        assert_eq!(execute(&mut fixture, request).await.unwrap(), output);
         if let Some(initial) = initial {
             let source = fixture.session;
-            let branch = fork(&mut fixture, source, initial);
-            assert_eq!(read(&fixture, branch).value, json!("previous"));
+            let branch = fork(&mut fixture, source, initial).await;
+            assert_eq!(read(&fixture, branch).await.value, json!("previous"));
         }
         let invocation = runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .unwrap();
         assert_eq!(invocation.turn.id, turn.id);
@@ -345,10 +357,11 @@ fn admission_anchors_state() {
             None,
             &fixture.events,
         )
+        .await
         .unwrap();
         let source = fixture.session;
-        let full = fork(&mut fixture, source, turn.id);
-        assert_eq!(read(&fixture, full).value, json!("new input"));
+        let full = fork(&mut fixture, source, turn.id).await;
+        assert_eq!(read(&fixture, full).await.value, json!("new input"));
         command(
             &mut fixture.database,
             &fixture.events,
@@ -358,7 +371,8 @@ fn admission_anchors_state() {
                 expected_head: turn.id,
                 expected_revision: 1,
             },
-        );
-        assert!(!read(&fixture, fixture.session).present);
+        )
+        .await;
+        assert!(!read(&fixture, fixture.session).await.present);
     }
 }

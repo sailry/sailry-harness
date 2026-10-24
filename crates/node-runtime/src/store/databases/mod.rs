@@ -1,40 +1,53 @@
 //! Profile ownership adapted from sailry-code 67ae9fa0 sailry-connections.
 use super::database::{Database, encode, storage_error};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
     database::{Connection as Target, Engine, Profile},
     *,
 };
+use turso::{Connection, params};
 
 pub(in crate::store) mod credentials;
 pub(super) mod worker;
 
-pub(super) fn list(db: &Connection) -> Result<Vec<Profile>, Fault> {
+pub(super) async fn list(db: &Connection) -> Result<Vec<Profile>, Fault> {
     let mut query = db
         .prepare("SELECT body FROM database_profiles ORDER BY id")
+        .await
         .map_err(storage_error)?;
-    query
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|row| serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error))
-        .collect()
+    {
+        let mut rows = query.query(()).await.map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|row| serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error))
+    .collect()
 }
 
-pub(super) fn read(db: &Connection, id: DatabaseId) -> Result<Option<Profile>, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM database_profiles WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn read(db: &Connection, id: DatabaseId) -> Result<Option<Profile>, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM database_profiles WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
 }
 
-fn current(db: &Connection, id: DatabaseId, revision: u64) -> Result<Profile, Fault> {
-    let profile = read(db, id)?.ok_or_else(|| {
+async fn current(db: &Connection, id: DatabaseId, revision: u64) -> Result<Profile, Fault> {
+    let profile = read(db, id).await?.ok_or_else(|| {
         Fault::new(
             ErrorCode::NotFound,
             "database profile does not exist on this Node",
@@ -44,23 +57,23 @@ fn current(db: &Connection, id: DatabaseId, revision: u64) -> Result<Profile, Fa
     Ok(profile)
 }
 
-pub(super) fn execute(
+pub(super) async fn execute(
     db: &Connection,
     command: &Command,
 ) -> Result<(Output, Option<Event>), Fault> {
     match command {
-        Command::ListDatabases => Ok((Output::DatabaseProfiles(list(db)?), None)),
+        Command::ListDatabases => Ok((Output::DatabaseProfiles(list(db).await?), None)),
         Command::SaveDatabase {
             profile,
             expected_revision,
             password,
         } => {
-            let previous = read(db, profile.id)?;
+            let previous = read(db, profile.id).await?;
             super::commands::check_revision(
                 previous.as_ref().map_or(0, |profile| profile.revision),
                 *expected_revision,
             )?;
-            super::connections::validate(db, profile.sharing.as_ref())?;
+            super::connections::validate(db, profile.sharing.as_ref()).await?;
             let mut profile = profile.clone();
             profile.name = profile.name.trim().into();
             if profile.name.is_empty() || profile.name.len() > 256 {
@@ -69,7 +82,7 @@ pub(super) fn execute(
                 ));
             }
             validate(&profile.connection, password.as_ref())?;
-            validate_ssh(db, &profile.connection)?;
+            validate_ssh(db, &profile.connection).await?;
             profile.revision = expected_revision
                 .checked_add(1)
                 .filter(|revision| *revision <= i64::MAX as u64)
@@ -80,16 +93,16 @@ pub(super) fn execute(
                 && password.is_none()
                 && !matches!(profile.connection, Target::Sqlite { .. })
             {
-                credentials::check(db, profile.id, &profile.connection)?;
+                credentials::check(db, profile.id, &profile.connection).await?;
             }
-            let target = credentials::capture(db, &profile.connection)?;
+            let target = credentials::capture(db, &profile.connection).await?;
             let password = if matches!(profile.connection, Target::Sqlite { .. }) {
                 Some("")
             } else {
                 password.as_ref().map(Secret::expose)
             };
             if previous.is_none() {
-                if list(db)?.len() >= 128 {
+                if list(db).await?.len() >= 128 {
                     return Err(Fault::new(
                         ErrorCode::Busy,
                         "database profile capacity exhausted",
@@ -103,10 +116,10 @@ pub(super) fn execute(
                         password.unwrap_or(""),
                         target
                     ],
-                )
+                ).await
                 .map_err(storage_error)?;
             } else {
-                db.execute("UPDATE database_profiles SET body=?2,password=COALESCE(?3,password),password_target=?4 WHERE id=?1", params![profile.id.to_string(), encode(&profile)?, password, target]).map_err(storage_error)?;
+                db.execute("UPDATE database_profiles SET body=?2,password=COALESCE(?3,password),password_target=?4 WHERE id=?1", params![profile.id.to_string(), encode(&profile)?, password, target]).await.map_err(storage_error)?;
             }
             Ok((
                 Output::DatabaseProfile(profile.clone()),
@@ -117,14 +130,15 @@ pub(super) fn execute(
             profile,
             expected_revision,
         } => {
-            current(db, *profile, *expected_revision)?;
+            current(db, *profile, *expected_revision).await?;
             db.execute(
                 "DELETE FROM database_profiles WHERE id=?1",
                 [profile.to_string()],
             )
+            .await
             .map_err(storage_error)?;
             Ok((
-                Output::DatabaseProfiles(list(db)?),
+                Output::DatabaseProfiles(list(db).await?),
                 Some(Event::DatabaseRemoved { id: *profile }),
             ))
         }
@@ -134,7 +148,7 @@ pub(super) fn execute(
     }
 }
 
-pub(super) fn prepare(
+pub(super) async fn prepare(
     database: &Database,
     command: &Command,
 ) -> Result<crate::databases::Operation, Fault> {
@@ -144,7 +158,7 @@ pub(super) fn prepare(
         password,
     } = command
     {
-        let previous = read(&database.connection, profile.id)?;
+        let previous = read(&database.connection, profile.id).await?;
         super::commands::check_revision(
             previous.as_ref().map_or(0, |profile| profile.revision),
             *expected_revision,
@@ -153,22 +167,25 @@ pub(super) fn prepare(
         let password = if let Some(password) = password {
             password.clone()
         } else if previous.is_some() && !matches!(profile.connection, Target::Sqlite { .. }) {
-            credentials::check(&database.connection, profile.id, &profile.connection)?;
-            Secret::new(
-                database
+            credentials::check(&database.connection, profile.id, &profile.connection).await?;
+            Secret::new({
+                let mut statement = database
                     .connection
-                    .query_row(
-                        "SELECT password FROM database_profiles WHERE id=?1",
-                        [profile.id.to_string()],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .map_err(storage_error)?,
-            )
+                    .prepare("SELECT password FROM database_profiles WHERE id=?1")
+                    .await
+                    .map_err(storage_error)?;
+                let row = statement
+                    .query_row([profile.id.to_string()])
+                    .await
+                    .map_err(storage_error)?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                mapped.map_err(storage_error)?
+            })
         } else {
             Secret::new(String::new())
         };
         return Ok(crate::databases::Operation {
-            ssh: prepare_ssh(database, &profile.connection)?,
+            ssh: prepare_ssh(database, &profile.connection).await?,
             profile: profile.clone(),
             password,
             query: None,
@@ -219,7 +236,7 @@ pub(super) fn prepare(
             ));
         }
     };
-    let mut profile = current(&database.connection, id, revision)?;
+    let mut profile = current(&database.connection, id, revision).await?;
     if matches!(
         command,
         Command::QueryDatabase {
@@ -230,7 +247,7 @@ pub(super) fn prepare(
         profile.read_only = true;
     }
     if !matches!(profile.connection, Target::Sqlite { .. }) {
-        credentials::check(&database.connection, id, &profile.connection)?;
+        credentials::check(&database.connection, id, &profile.connection).await?;
     }
     let selected = match command {
         Command::QueryDatabase { database, .. } | Command::BrowseDatabase { database, .. } => {
@@ -251,16 +268,21 @@ pub(super) fn prepare(
             return Err(sailry_protocol::Fault::invalid("unknown SQLite database"));
         }
     }
-    let password = database
-        .connection
-        .query_row(
-            "SELECT password FROM database_profiles WHERE id=?1",
-            [id.to_string()],
-            |row| row.get::<_, String>(0),
-        )
-        .map_err(storage_error)?;
+    let password = {
+        let mut statement = database
+            .connection
+            .prepare("SELECT password FROM database_profiles WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     Ok(crate::databases::Operation {
-        ssh: prepare_ssh(database, &profile.connection)?,
+        ssh: prepare_ssh(database, &profile.connection).await?,
         profile,
         password: Secret::new(password),
         query,
@@ -360,11 +382,11 @@ fn validate_network(
     Ok(())
 }
 
-fn validate_ssh(db: &Connection, connection: &Target) -> Result<Option<ssh::Profile>, Fault> {
+async fn validate_ssh(db: &Connection, connection: &Target) -> Result<Option<ssh::Profile>, Fault> {
     let Target::Ssh { ssh, .. } = connection else {
         return Ok(None);
     };
-    super::ssh::read(db, *ssh)?.map(Some).ok_or_else(|| {
+    super::ssh::read(db, *ssh).await?.map(Some).ok_or_else(|| {
         Fault::new(
             ErrorCode::NotFound,
             "SSH connection does not exist on this Node",
@@ -372,11 +394,11 @@ fn validate_ssh(db: &Connection, connection: &Target) -> Result<Option<ssh::Prof
     })
 }
 
-fn prepare_ssh(
+async fn prepare_ssh(
     database: &Database,
     connection: &Target,
 ) -> Result<Option<crate::databases::Ssh>, Fault> {
-    let Some(profile) = validate_ssh(&database.connection, connection)? else {
+    let Some(profile) = validate_ssh(&database.connection, connection).await? else {
         return Ok(None);
     };
     let operation = super::ssh::prepare(
@@ -385,7 +407,8 @@ fn prepare_ssh(
             profile: profile.id,
             expected_revision: profile.revision,
         },
-    )?;
+    )
+    .await?;
     Ok(Some(crate::databases::Ssh {
         profile: operation.profile,
         credential: operation.credential,

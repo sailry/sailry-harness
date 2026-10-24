@@ -5,13 +5,13 @@ use sailry_protocol::plugin::Action;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::store) fn check_action(
+pub(in crate::store) async fn check_action(
     db: &Connection,
     turn: TurnId,
     command: &Command,
     action: Option<&Action>,
 ) -> Result<(), Fault> {
-    if permissions::config(db, turn)?.mode != WorkMode::Plan {
+    if permissions::config(db, turn).await?.mode != WorkMode::Plan {
         return Ok(());
     }
     let allowed = action.is_some_and(Action::read_only)

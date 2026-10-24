@@ -131,21 +131,27 @@ async fn publishes_child_usage_to_parent() {
         fixture.node.shutdown().await.unwrap();
         fixture.controller.handle().disconnect(id).await;
         let profile = fixture.directory.path().join("node");
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let (database, mut db) =
+            crate::database_fixture::open(&profile.join("storage/node.turso"), false).await;
+        let transaction = db.transaction().await.unwrap();
         for model in ["fixture-a", "fixture-child"] {
-            db.execute(
-                "INSERT INTO model_catalog(provider,id,body) VALUES('openai',?1,?2)",
-                rusqlite::params![
-                    model,
-                    serde_json::to_vec(&json!({
-                        "id":model,"cost":{"input":1,"output":1,"cache_read":1}
-                    }))
-                    .unwrap()
-                ],
-            )
-            .unwrap();
+            transaction
+                .execute(
+                    "INSERT INTO model_catalog(provider,id,body) VALUES('openai',?1,?2)",
+                    turso::params![
+                        model,
+                        serde_json::to_vec(&json!({
+                            "id":model,"cost":{"input":1,"output":1,"cache_read":1}
+                        }))
+                        .unwrap()
+                    ],
+                )
+                .await
+                .unwrap();
         }
+        transaction.commit().await.unwrap();
         drop(db);
+        drop(database);
         fixture.node = Node::start_empty(&profile).await.unwrap();
         fixture.client = Client::new(if remote {
             fixture

@@ -114,20 +114,35 @@ async fn atomic_save() {
             panic!("credentials expected")
         };
         assert_eq!(credentials.len(), 1);
-        let db = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-        let bodies: Vec<Vec<u8>> = db
-            .prepare("SELECT body FROM requests UNION ALL SELECT body FROM agent_events")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .collect::<Result<_, _>>()
+        let bodies: Vec<Vec<u8>> = node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    let mut statement = db
+                        .prepare(
+                            "SELECT body FROM requests UNION ALL SELECT body FROM agent_events",
+                        )
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut rows = statement
+                        .query(())
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut bodies = Vec::new();
+                    while let Some(row) =
+                        rows.next().await.map_err(crate::database_fixture::fault)?
+                    {
+                        bodies.push(row.get(0).map_err(crate::database_fixture::fault)?);
+                    }
+                    Ok(bodies)
+                })
+            })
+            .await
             .unwrap();
         assert!(
             bodies
                 .iter()
                 .all(|body| !String::from_utf8_lossy(body).contains(marker))
         );
-        drop(db);
         provider.enabled = false;
         client
             .execute(client.prepare(Command::PutProvider {

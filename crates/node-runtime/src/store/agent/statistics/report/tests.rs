@@ -37,13 +37,15 @@ fn event(timestamp_ms: i64, input: i32) -> AdkEvent {
     event
 }
 
-fn report(fixture: &Fixture, query: &Query) -> Report {
-    read(&fixture.database.connection, fixture.database.node, query).unwrap()
+async fn report(fixture: &Fixture, query: &Query) -> Report {
+    read(&fixture.database.connection, fixture.database.node, query)
+        .await
+        .unwrap()
 }
 
-fn session(fixture: &mut Fixture) -> Session {
+async fn session(fixture: &mut Fixture) -> Session {
     let Output::Snapshot(snapshot) =
-        command(&mut fixture.database, &fixture.events, Command::Snapshot)
+        command(&mut fixture.database, &fixture.events, Command::Snapshot).await
     else {
         panic!("snapshot expected");
     };
@@ -54,11 +56,11 @@ fn session(fixture: &mut Fixture) -> Session {
         .unwrap()
 }
 
-#[test]
-fn estimates_custom_endpoints() {
+#[tokio::test]
+async fn estimates_custom_endpoints() {
     use serde_json::json;
-    let mut fixture = Fixture::new();
-    let session = session(&mut fixture);
+    let mut fixture = Fixture::new().await;
+    let session = session(&mut fixture).await;
     command(
         &mut fixture.database,
         &fixture.events,
@@ -84,7 +86,8 @@ fn estimates_custom_endpoints() {
             },
             expected_revision: 0,
         },
-    );
+    )
+    .await;
     fixture
         .database
         .connection
@@ -95,12 +98,13 @@ fn estimates_custom_endpoints() {
             )
             .unwrap()],
         )
+        .await
         .unwrap();
     let mut reported = event(START, 10);
     reported.llm_response.usage_metadata.as_mut().unwrap().cost = Some(0.5);
-    fixture.append([reported]);
-    fixture.append([event(START + DAY, 10)]);
-    let priced = report(&fixture, &query());
+    fixture.append([reported]).await;
+    fixture.append([event(START + DAY, 10)]).await;
+    let priced = report(&fixture, &query()).await;
     assert_eq!(priced.totals.cost.as_ref().unwrap().usd_micros, 98);
     assert_eq!(priced.totals.cost.as_ref().unwrap().responses, 2);
     assert_eq!(
@@ -115,6 +119,7 @@ fn estimates_custom_endpoints() {
     assert_eq!(priced.days[1].metrics.cost.as_ref().unwrap().usd_micros, 49);
     assert_eq!(
         super::super::read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .cost,
         priced.totals.cost
@@ -130,9 +135,9 @@ fn estimates_custom_endpoints() {
             .execute(
                 "UPDATE agent_runs SET provider=CAST(json_set(provider,'$.authentication',?1) AS BLOB)",
                 [serde_json::to_value(authentication).unwrap().as_str().unwrap()],
-            )
+            ).await
             .unwrap();
-        let estimated = report(&fixture, &query());
+        let estimated = report(&fixture, &query()).await;
         assert_eq!(estimated.totals.cost, priced.totals.cost);
         assert!(
             estimated
@@ -143,6 +148,7 @@ fn estimates_custom_endpoints() {
         );
         assert_eq!(
             super::super::read(&fixture.database.connection, fixture.session)
+                .await
                 .unwrap()
                 .cost,
             priced.totals.cost
@@ -151,18 +157,20 @@ fn estimates_custom_endpoints() {
     fixture
         .database
         .connection
-        .execute("DELETE FROM providers", [])
+        .execute("DELETE FROM providers", ())
+        .await
         .unwrap();
-    fixture.append([event(START + 2 * DAY, 10)]);
-    let partial = report(&fixture, &query());
+    fixture.append([event(START + 2 * DAY, 10)]).await;
+    let partial = report(&fixture, &query()).await;
     assert_eq!(partial.totals.responses, 3);
     assert_eq!(partial.totals.cost, priced.totals.cost);
     fixture
         .database
         .connection
-        .execute("DELETE FROM model_catalog", [])
+        .execute("DELETE FROM model_catalog", ())
+        .await
         .unwrap();
-    let unavailable = report(&fixture, &query());
+    let unavailable = report(&fixture, &query()).await;
     assert_eq!(unavailable.totals.responses, 3);
     assert_eq!(unavailable.totals.cost, None);
     assert!(
@@ -174,16 +182,17 @@ fn estimates_custom_endpoints() {
     );
     assert_eq!(
         super::super::read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .cost,
         None
     );
 }
 
-#[test]
-fn companion_costs() {
+#[tokio::test]
+async fn companion_costs() {
     use serde_json::json;
-    let mut fixture = Fixture::new();
+    let mut fixture = Fixture::new().await;
     let provider = ProviderId::new();
     let binding = json!({"provider":Provider {
         request_max_retries: None,
@@ -214,6 +223,7 @@ fn companion_costs() {
                 fixture.session.to_string()
             ],
         )
+        .await
         .unwrap();
     fixture
         .database
@@ -225,6 +235,7 @@ fn companion_costs() {
                     .unwrap(),
             ],
         )
+        .await
         .unwrap();
     for kind in ["vision", "image"] {
         let mut entry = event(START, 10);
@@ -232,12 +243,12 @@ fn companion_costs() {
         entry
             .provider_metadata
             .insert("sailry_media".into(), kind.into());
-        fixture.append([entry]);
+        fixture.append([entry]).await;
     }
     let mut selection = query();
     selection.providers = vec![provider];
     selection.models = vec!["companion".into()];
-    let usage = report(&fixture, &selection);
+    let usage = report(&fixture, &selection).await;
     assert_eq!(usage.totals.responses, 2);
     assert_eq!(usage.totals.tokens.unwrap().input, 20);
     assert_eq!(
@@ -255,15 +266,15 @@ fn companion_costs() {
     );
 }
 
-#[test]
-fn attributes_follow_usage_to_sent_revisions() {
-    let mut fixture = Fixture::new();
-    let source = session(&mut fixture);
+#[tokio::test]
+async fn attributes_follow_usage_to_sent_revisions() {
+    let mut fixture = Fixture::new().await;
+    let source = session(&mut fixture).await;
     let mut first = event(START, 10);
     first
         .provider_metadata
         .insert("sailry_media".into(), "image".into());
-    fixture.append([first]);
+    fixture.append([first]).await;
     let mut config = source.config.clone();
     config.provider = ProviderId::new();
     config.model = "revised-model".into();
@@ -275,38 +286,40 @@ fn attributes_follow_usage_to_sent_revisions() {
             expected_revision: source.revision,
             config: config.clone(),
         },
-    );
+    )
+    .await;
     let mut second = event(START + DAY, 20);
     second
         .provider_metadata
         .insert("sailry_media".into(), "vision".into());
-    fixture.append([second]);
+    fixture.append([second]).await;
     for (config, input) in [(&source.config, 10), (&config, 20)] {
         let mut selected = query();
         selected.providers = vec![config.provider];
         selected.models = vec![config.model.clone()];
-        let usage = report(&fixture, &selected);
+        let usage = report(&fixture, &selected).await;
         assert_eq!(usage.totals.responses, 1);
         assert_eq!(usage.totals.tokens.unwrap().input, input);
         assert_eq!(usage.requests.items.len(), 1);
     }
-    let overall = report(&fixture, &query());
+    let overall = report(&fixture, &query()).await;
     assert_eq!(overall.totals.responses, 2);
     assert_eq!(overall.totals.tokens.unwrap().input, 30);
     assert_eq!(
         super::super::read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .responses,
         2
     );
 }
 
-#[test]
-fn preserves_branch_ownership() {
-    let mut fixture = Fixture::new();
-    let source = session(&mut fixture);
+#[tokio::test]
+async fn preserves_branch_ownership() {
+    let mut fixture = Fixture::new().await;
+    let source = session(&mut fixture).await;
     let entry = event(START, 10);
-    let first = fixture.append([entry.clone(), entry]);
+    let first = fixture.append([entry.clone(), entry]).await;
     let mut changed = source.config.clone();
     changed.provider = ProviderId::new();
     changed.model = "changed-model".into();
@@ -318,7 +331,8 @@ fn preserves_branch_ownership() {
             expected_revision: 1,
             config: changed.clone(),
         },
-    );
+    )
+    .await;
     let Output::Session(fork) = command(
         &mut fixture.database,
         &fixture.events,
@@ -327,12 +341,14 @@ fn preserves_branch_ownership() {
             through: first,
             expected_revision: 2,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("fork expected");
     };
     fixture.session = fork.id;
-    fixture.append([event(START + DAY, 20)]);
-    let before = report(&fixture, &query());
+    fixture.append([event(START + DAY, 20)]).await;
+    let before = report(&fixture, &query()).await;
     assert_eq!(before.totals.responses, 2);
     assert_eq!(before.totals.tokens.as_ref().unwrap().input, 30);
     assert_eq!(before.groups.len(), 2);
@@ -383,8 +399,9 @@ fn preserves_branch_ownership() {
             expected_head: first,
             expected_revision: 1,
         },
-    );
-    let after = report(&fixture, &query());
+    )
+    .await;
+    let after = report(&fixture, &query()).await;
     assert!(after.cursor > before.cursor);
     assert_eq!(after.totals, before.totals);
     assert_eq!(after.groups, before.groups);
@@ -394,9 +411,17 @@ fn preserves_branch_ownership() {
     filtered.worktrees = vec![source.worktree];
     filtered.providers = vec![changed.provider];
     filtered.models = vec![changed.model];
-    assert_eq!(report(&fixture, &filtered).totals.tokens.unwrap().input, 20);
+    assert_eq!(
+        report(&fixture, &filtered)
+            .await
+            .totals
+            .tokens
+            .unwrap()
+            .input,
+        20
+    );
     filtered.models = vec![source.config.model.clone()];
-    let empty = report(&fixture, &filtered);
+    let empty = report(&fixture, &filtered).await;
     assert_eq!(empty.totals, Metrics::default());
     assert!(empty.resources.is_empty());
     assert!(
@@ -420,7 +445,7 @@ fn preserves_branch_ownership() {
         let mut query = query();
         query.dimension = dimension;
         query.providers = vec![source.config.provider];
-        let filtered = report(&fixture, &query);
+        let filtered = report(&fixture, &query).await;
         assert!(filtered.days.iter().chain(&filtered.recent).all(|point| {
             point
                 .models
@@ -444,21 +469,23 @@ fn preserves_branch_ownership() {
     }
 }
 
-#[test]
-fn preserves_bucket_boundaries() {
-    let mut fixture = Fixture::new();
-    assert_eq!(report(&fixture, &query()).totals, Metrics::default());
-    fixture.completed(&["No reported usage"]);
+#[tokio::test]
+async fn preserves_bucket_boundaries() {
+    let mut fixture = Fixture::new().await;
+    assert_eq!(report(&fixture, &query()).await.totals, Metrics::default());
+    fixture.completed(&["No reported usage"]).await;
     let mut precise = event(START + 999, i32::MAX);
     precise.timestamp += chrono::Duration::microseconds(999);
-    fixture.append([
-        event(START - 1, 1),
-        event(START, 10),
-        precise,
-        event(START + DAY, 20),
-        event(START + 3 * DAY, 1),
-    ]);
-    let report = report(&fixture, &query());
+    fixture
+        .append([
+            event(START - 1, 1),
+            event(START, 10),
+            precise,
+            event(START + DAY, 20),
+            event(START + 3 * DAY, 1),
+        ])
+        .await;
+    let report = report(&fixture, &query()).await;
     assert_eq!(report.totals.responses, 3);
     assert_eq!(
         report.totals.tokens.as_ref().unwrap().input,
@@ -483,6 +510,7 @@ fn preserves_bucket_boundaries() {
     query.end_ms = START + 1000;
     assert_eq!(
         read(&fixture.database.connection, fixture.database.node, &query)
+            .await
             .unwrap()
             .totals
             .responses,
@@ -490,9 +518,9 @@ fn preserves_bucket_boundaries() {
     );
 }
 
-#[test]
-fn rejects_oversized_queries() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn rejects_oversized_queries() {
+    let mut fixture = Fixture::new().await;
     for (start, end) in [
         (-1, 1),
         (0, 0),
@@ -505,6 +533,7 @@ fn rejects_oversized_queries() {
         query.end_ms = end;
         assert_eq!(
             read(&fixture.database.connection, fixture.database.node, &query)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidRequest
@@ -518,74 +547,101 @@ fn rejects_oversized_queries() {
             fixture.database.node,
             &filters
         )
+        .await
         .is_err()
     );
-    fixture.append([event(START, 1)]);
-    fixture
+    fixture.append([event(START, 1)]).await;
+    let transaction = fixture
         .database
         .connection
-        .execute(
-            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<?1)
-         INSERT INTO agent_events(session,id,turn,body)
-         SELECT e.session,'report-limit-'||n.i,e.turn,json_set(e.body,'$.id','report-limit-'||n.i)
-         FROM (SELECT * FROM agent_events LIMIT 1) e,n",
-            [MAX_ROWS as i64],
-        )
+        .transaction_with_behavior(turso::transaction::TransactionBehavior::Concurrent)
+        .await
         .unwrap();
+    let first = crate::store::database::counters::next(
+        &transaction,
+        crate::store::database::counters::Namespace::AgentEvents,
+    )
+    .await
+    .unwrap();
+    let indices = serde_json::to_string(&(0..MAX_ROWS).collect::<Vec<_>>()).unwrap();
+    transaction
+        .execute(
+            "INSERT INTO agent_events(sequence,session,id,turn,body)
+         SELECT ?1+n.value,e.session,'report-limit-'||n.value,e.turn,
+           CAST(json_set(e.body,'$.id','report-limit-'||n.value) AS BLOB)
+         FROM (SELECT * FROM agent_events LIMIT 1) e,json_each(?2) n",
+            params![first as i64, indices],
+        )
+        .await
+        .unwrap();
+    // This bulk fixture reserves its entire explicit range in the same transaction.
+    transaction
+        .execute(
+            "UPDATE counters SET value=?1 WHERE namespace='agent_events'",
+            [i64::try_from(first + MAX_ROWS as u64 - 1).unwrap()],
+        )
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
     let error = read(
         &fixture.database.connection,
         fixture.database.node,
         &query(),
     )
+    .await
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidRequest);
     assert!(error.message.contains("row limit"));
 }
 
-#[test]
-fn reads_indexed_metadata() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn reads_indexed_metadata() {
+    let mut fixture = Fixture::new().await;
     for _ in 0..8 {
         let mut event = event(START, 10);
         event.set_content(adk_core::Content::new("model").with_text("x".repeat(1024 * 1024)));
-        fixture.append([event]);
+        fixture.append([event]).await;
     }
     let db = &fixture.database.connection;
     let mut plan = db
         .prepare(&format!("EXPLAIN QUERY PLAN {}", query::ROWS))
+        .await
         .unwrap();
-    let details = plan
-        .query_map(
-            params![
-                "2021-01-01T00:00:00",
-                "2021-01-04T00:00:00",
-                "[]",
-                "[]",
-                "[]",
-                "[]",
-                MAX_ROWS as i64 + 1
-            ],
-            |row| row.get::<_, String>(3),
-        )
-        .unwrap()
-        .collect::<Result<Vec<_>, _>>()
+    let mut rows = plan
+        .query(params![
+            "2021-01-01T00:00:00",
+            "2021-01-04T00:00:00",
+            "[]",
+            "[]",
+            "[]",
+            "[]",
+            MAX_ROWS as i64 + 1
+        ])
+        .await
         .unwrap();
+    let mut details = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        details.push(row.get::<String>(3).unwrap());
+    }
+    drop(rows);
+    drop(plan);
     assert!(
         details.iter().any(|line| line.contains("agent_usage_time")),
         "{details:?}"
     );
-    let report = report(&fixture, &query());
+    let report = report(&fixture, &query()).await;
     assert_eq!(report.totals.responses, 8);
     let encoded = serde_json::to_vec(&report).unwrap();
     // Resource labels and latency are part of the report, model response bodies are not.
     assert!(encoded.len() < 20 * 1024);
     db.execute(
         "UPDATE agent_events SET body=json_set(body,'$.content.parts[0].text','short')",
-        [],
+        (),
     )
+    .await
     .unwrap();
     assert_eq!(
         encoded,
-        serde_json::to_vec(&read(db, fixture.database.node, &query()).unwrap()).unwrap()
+        serde_json::to_vec(&read(db, fixture.database.node, &query()).await.unwrap()).unwrap()
     );
 }

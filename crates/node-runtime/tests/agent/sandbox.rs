@@ -126,7 +126,7 @@ async fn confines_default_commands_under_every_permission() {
                 assert_eq!(approval.access, Some(Access::Workspace));
                 assert!(!approval.can_remember);
                 assert_eq!(approval.prefix, None);
-                assert!(approvals::rules::claimed(&fixture.node, approval).1);
+                assert!(approvals::rules::claimed(&fixture.node, approval).await.1);
             }
             let Output::Commands(commands) = fixture
                 .client
@@ -221,8 +221,8 @@ async fn escape_requires_consent_in_ask_and_project() {
                 page.approvals[1].reason.as_deref(),
                 Some("Stay within this workspace")
             );
-            assert!(approvals::rules::claimed(&fixture.node, &first).1);
-            assert!(!approvals::rules::claimed(&fixture.node, &second).1);
+            assert!(approvals::rules::claimed(&fixture.node, &first).await.1);
+            assert!(!approvals::rules::claimed(&fixture.node, &second).await.1);
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();
         }
@@ -282,7 +282,7 @@ async fn unrestricted_commands_run_automatically_in_full() {
             assert_eq!(approval.choice, None);
             assert!(!approval.can_remember);
             assert_eq!(approval.prefix, None);
-            assert!(approvals::rules::claimed(&fixture.node, approval).1);
+            assert!(approvals::rules::claimed(&fixture.node, approval).await.1);
         }
         let Output::Commands(commands) = fixture
             .client

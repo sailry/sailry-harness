@@ -188,21 +188,30 @@ async fn manages_without_projects() {
                     .contains(secret)
             );
         }
-        let db = rusqlite::Connection::open_with_flags(
-            node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
+
+        let (body, result): (Vec<u8>, String) = {
+            let sql = ("SELECT body,result FROM requests WHERE id=?1").to_owned();
+            let parameters = turso::params![request.id.to_string()];
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let value: turso::Result<_> =
+                        (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                    value.map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
+        }
         .unwrap();
-        let (body, result): (Vec<u8>, String) = db
-            .query_row(
-                "SELECT body,result FROM requests WHERE id=?1",
-                [request.id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
         assert!(body.starts_with(b"credential-v1:"));
         assert!(!result.contains(secret));
-        drop(db);
+
         drop(subscription);
         drop(client);
         node.shutdown().await.unwrap();

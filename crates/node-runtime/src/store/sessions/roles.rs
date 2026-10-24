@@ -2,7 +2,7 @@
 use super::*;
 use crate::store::{agent::providers, database::Database};
 
-pub(in crate::store) fn select(
+pub(in crate::store) async fn select(
     db: &Connection,
     node: NodeId,
     references: &[role::Reference],
@@ -11,19 +11,18 @@ pub(in crate::store) fn select(
     if ids.len() != references.len() {
         return Err(Fault::invalid("session roles must be distinct"));
     }
-    let profiles = references
-        .iter()
-        .map(|reference| {
-            let profile = crate::store::roles::get(db, reference.id)?
-                .ok_or_else(|| Fault::new(ErrorCode::NotFound, "role does not exist"))?;
-            crate::store::commands::check_revision(profile.revision, reference.revision)?;
-            Ok(profile)
-        })
-        .collect::<Result<Vec<_>, Fault>>()?;
-    capture(db, node, profiles)
+    let mut profiles = Vec::with_capacity(references.len());
+    for reference in references {
+        let profile = crate::store::roles::get(db, reference.id)
+            .await?
+            .ok_or_else(|| Fault::new(ErrorCode::NotFound, "role does not exist"))?;
+        crate::store::commands::check_revision(profile.revision, reference.revision)?;
+        profiles.push(profile);
+    }
+    capture(db, node, profiles).await
 }
 
-pub(in crate::store) fn capture(
+pub(in crate::store) async fn capture(
     db: &Connection,
     node: NodeId,
     profiles: Vec<role::Profile>,
@@ -39,22 +38,22 @@ pub(in crate::store) fn capture(
                 .iter()
                 .any(|provider| provider.id == model.provider)
         {
-            let mut provider = providers::get(db, model.provider)?.ok_or_else(|| {
+            let mut provider = providers::get(db, model.provider).await?.ok_or_else(|| {
                 Fault::new(ErrorCode::NotConfigured, "role provider is unavailable")
             })?;
-            crate::store::providers::presets::capture(db, &mut provider)?;
+            crate::store::providers::presets::capture(db, &mut provider).await?;
             crate::providers::login::capture(&mut provider)?;
             snapshot.providers.push(provider);
         }
     }
-    validate(db, node, &snapshot)?;
+    validate(db, node, &snapshot).await?;
     Ok(snapshot)
 }
 
-fn validate(db: &Connection, node: NodeId, snapshot: &role::Snapshot) -> Result<(), Fault> {
+async fn validate(db: &Connection, node: NodeId, snapshot: &role::Snapshot) -> Result<(), Fault> {
     snapshot.validate()?;
     for provider in &snapshot.providers {
-        providers::validate(db, node, provider)?;
+        providers::validate(db, node, provider).await?;
     }
     for profile in &snapshot.profiles {
         if let Some(model) = &profile.model {
@@ -69,53 +68,51 @@ fn validate(db: &Connection, node: NodeId, snapshot: &role::Snapshot) -> Result<
     Ok(())
 }
 
-pub(in crate::store) fn read(
+pub(in crate::store) async fn read(
     db: &Connection,
     session: SessionId,
     revision: u64,
 ) -> Result<role::Snapshot, Fault> {
     let body: Vec<u8> = db
-        .query_row(
-            "SELECT roles FROM session_revisions WHERE session=?1 AND revision=?2",
-            params![session.to_string(), revision as i64],
-            |row| row.get(0),
-        )
+        .prepare("SELECT roles FROM session_revisions WHERE session=?1 AND revision=?2")
+        .await
+        .map_err(storage_error)?
+        .query_row(params![session.to_string(), revision as i64])
+        .await
+        .and_then(|row| row.get(0))
         .map_err(storage_error)?;
     serde_json::from_slice(&body).map_err(storage_error)
 }
 
-pub(in crate::store) fn export(
+pub(in crate::store) async fn export(
     database: &Database,
     snapshot: &role::Snapshot,
 ) -> Result<Vec<role::ProviderSecret>, Fault> {
-    snapshot
-        .providers
-        .iter()
-        .filter_map(|provider| {
-            provider
-                .credential
-                .as_ref()
-                .map(|reference| (provider, reference))
-        })
-        .map(|(provider, reference)| {
-            crate::providers::login::transferable(provider.authentication)?;
-            let secret =
-                database.resolve_credential(reference, provider.id, provider.authentication)?;
-            let metadata =
-                crate::store::providers::authentication::get(&database.connection, reference.id)?
-                    .ok_or_else(|| {
+    let mut secrets = Vec::new();
+    for provider in &snapshot.providers {
+        let Some(reference) = &provider.credential else {
+            continue;
+        };
+        crate::providers::login::transferable(provider.authentication)?;
+        let secret = database
+            .resolve_credential(reference, provider.id, provider.authentication)
+            .await?;
+        let metadata =
+            crate::store::providers::authentication::get(&database.connection, reference.id)
+                .await?
+                .ok_or_else(|| {
                     Fault::new(ErrorCode::NotFound, "source credential does not exist")
                 })?;
-            Ok(role::ProviderSecret {
-                provider: provider.id,
-                secret,
-                expires_at_ms: metadata.expires_at_ms,
-            })
-        })
-        .collect()
+        secrets.push(role::ProviderSecret {
+            provider: provider.id,
+            secret,
+            expires_at_ms: metadata.expires_at_ms,
+        });
+    }
+    Ok(secrets)
 }
 
-pub(in crate::store) fn import(
+pub(in crate::store) async fn import(
     db: &Connection,
     node: NodeId,
     caller: NodeId,
@@ -147,7 +144,7 @@ pub(in crate::store) fn import(
     }
     let mut snapshot = snapshot.clone();
     for provider in &mut snapshot.providers {
-        crate::store::providers::presets::capture(db, provider)?;
+        crate::store::providers::presets::capture(db, provider).await?;
         crate::providers::login::capture(provider)?;
         let original = provider.id;
         provider.id = ProviderId::new();
@@ -170,7 +167,8 @@ pub(in crate::store) fn import(
                     revoked: false,
                 },
                 &credential.secret,
-            )?;
+            )
+            .await?;
             provider.credential = Some(CredentialRef { node, id });
         }
         for profile in &mut snapshot.profiles {
@@ -184,26 +182,29 @@ pub(in crate::store) fn import(
         if !crate::store::providers::presets::partner_policy(&configured)? {
             configured.binding = None;
         }
-        crate::store::providers::configuration::retain(db, &configured)?;
+        crate::store::providers::configuration::retain(db, &configured).await?;
     }
-    validate(db, node, &snapshot)?;
+    validate(db, node, &snapshot).await?;
     Ok(snapshot)
 }
 
 /// Resolve declarations for a newly admitted root turn without changing its selected roles.
-pub(in crate::store) fn refresh(
+pub(in crate::store) async fn refresh(
     db: &Connection,
     snapshot: &mut role::Snapshot,
 ) -> Result<(), Fault> {
     for provider in &mut snapshot.providers {
-        crate::store::providers::presets::refresh(db, provider)?;
+        crate::store::providers::presets::refresh(db, provider).await?;
         crate::providers::login::capture(provider)?;
     }
     Ok(())
 }
 
-pub(in crate::store) fn for_turn(db: &Connection, turn: TurnId) -> Result<role::Snapshot, Fault> {
-    let body:Vec<u8>=db.query_row("SELECT coalesce(t.roles,r.roles) FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1",[turn.to_string()],|row|row.get(0)).map_err(storage_error)?;
+pub(in crate::store) async fn for_turn(
+    db: &Connection,
+    turn: TurnId,
+) -> Result<role::Snapshot, Fault> {
+    let body:Vec<u8>=db.prepare("SELECT coalesce(t.roles,r.roles) FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1").await.map_err(storage_error)?.query_row([turn.to_string()]).await.and_then(|row|row.get(0)).map_err(storage_error)?;
     let snapshot: role::Snapshot = serde_json::from_slice(&body).map_err(storage_error)?;
     snapshot
         .validate()

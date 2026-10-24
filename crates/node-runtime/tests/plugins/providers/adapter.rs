@@ -55,22 +55,17 @@ export function classify(){return {class:'unavailable',message:'Synthetic failur
     fs::write(path, manifest.to_string()).unwrap();
 }
 
-fn last_attempt(
-    profile: &Path,
+async fn last_attempt(
+    node: &Node,
     turn: TurnId,
 ) -> sailry_protocol::conversation::observation::Attempt {
-    let db = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let value: String = db.query_row(
-        "SELECT json_extract(body,'$.event_metadata.sailry_model_observation') FROM agent_events WHERE turn=?1 AND json_type(body,'$.event_metadata.sailry_model_observation')='text' ORDER BY sequence DESC LIMIT 1",
-        [turn.to_string()], |row| row.get(0),
-    ).unwrap();
-    let request: sailry_protocol::conversation::observation::Request =
-        serde_json::from_str(&value).unwrap();
-    request.attempts.last().unwrap().clone()
+    let value: String = node.with_storage(move |db| Box::pin(async move {
+        db.prepare("SELECT json_extract(body,'$.event_metadata.sailry_model_observation') FROM agent_events WHERE turn=?1 AND json_type(body,'$.event_metadata.sailry_model_observation')='text' ORDER BY sequence DESC LIMIT 1")
+            .await.map_err(crate::plugins::database_fixture::fault)?
+            .query_row([turn.to_string()]).await.map_err(crate::plugins::database_fixture::fault)?
+            .get(0).map_err(crate::plugins::database_fixture::fault)
+    })).await.unwrap();
+    serde_json::from_str(&value).unwrap()
 }
 
 #[tokio::test]
@@ -140,7 +135,7 @@ async fn runs_captured_translations_without_manual_approval() {
             panic!("turn expected")
         };
         finish(&client, session.id, first.id).await;
-        let original = captured(node.profile(), first.id);
+        let original = captured(&node, first.id).await;
         assert!(
             original
                 .binding
@@ -182,14 +177,14 @@ async fn runs_captured_translations_without_manual_approval() {
         };
         finish(&client, session.id, second.id).await;
         assert_eq!(
-            captured(node.profile(), second.id).binding.unwrap().package,
+            captured(&node, second.id).await.binding.unwrap().package,
             Some(updated.summary.reference())
         );
         assert_eq!(
             server.requests.lock().unwrap().last().unwrap()["translated"],
             2
         );
-        assert_eq!(captured(node.profile(), first.id), original);
+        assert_eq!(captured(&node, first.id).await, original);
         provider.consent = None;
         let Output::Provider(updated) = execute(
             &client,
@@ -209,11 +204,11 @@ async fn runs_captured_translations_without_manual_approval() {
         };
         finish(&client, session.id, third.id).await;
         assert!(server.requests.lock().unwrap().len() > count);
-        assert!(captured(node.profile(), third.id).consent.is_none());
-        assert_eq!(captured(node.profile(), first.id), original);
+        assert!(captured(&node, third.id).await.consent.is_none());
+        assert_eq!(captured(&node, first.id).await, original);
         use sailry_protocol::conversation::observation::Outcome;
         assert_eq!(
-            last_attempt(node.profile(), third.id).outcome,
+            last_attempt(&node, third.id).await.outcome,
             Outcome::Succeeded
         );
         for cancel in [false, true] {
@@ -272,7 +267,7 @@ async fn runs_captured_translations_without_manual_approval() {
             })
             .await
             .unwrap();
-            let attempt = last_attempt(node.profile(), turn.id);
+            let attempt = last_attempt(&node, turn.id).await;
             assert_eq!(
                 attempt.outcome,
                 if cancel {
@@ -655,24 +650,41 @@ export function decode_discovery(input) {
     fs::write(path, source).unwrap();
 }
 
-fn stored_state(profile: &Path) -> (i64, Vec<[u8; 32]>) {
-    let db = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let requests = db
-        .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
-        .unwrap();
-    let mut query = db
-        .prepare("SELECT body FROM providers ORDER BY id")
-        .unwrap();
-    let providers = query
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .unwrap()
-        .map(|body| *blake3::hash(&body.unwrap()).as_bytes())
-        .collect();
-    (requests, providers)
+async fn stored_state(node: &Node) -> (i64, Vec<[u8; 32]>) {
+    node.with_storage(|db| {
+        Box::pin(async move {
+            let requests = db
+                .prepare("SELECT count(*) FROM requests")
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::plugins::database_fixture::fault)?;
+            let mut rows = db
+                .query("SELECT body FROM providers ORDER BY id", ())
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?;
+            let mut providers = Vec::new();
+            while let Some(row) = rows
+                .next()
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+            {
+                providers.push(
+                    *blake3::hash(
+                        &row.get::<Vec<u8>>(0)
+                            .map_err(crate::plugins::database_fixture::fault)?,
+                    )
+                    .as_bytes(),
+                );
+            }
+            Ok((requests, providers))
+        })
+    })
+    .await
+    .unwrap()
 }
 
 async fn discover(
@@ -714,7 +726,7 @@ async fn discovers_without_message_access() {
             id: "example".into(),
             route: None,
         };
-        let before = stored_state(node.profile());
+        let before = stored_state(&node).await;
         let draft = discover(
             &client,
             discovery::Source::Draft(discovery::Draft {
@@ -727,7 +739,7 @@ async fn discovers_without_message_access() {
             }),
         )
         .await;
-        assert_eq!(stored_state(node.profile()), before);
+        assert_eq!(stored_state(&node).await, before);
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         assert_eq!(draft.endpoint, server.endpoint);
         assert_eq!(draft.models.len(), 1);
@@ -753,7 +765,7 @@ async fn discovers_without_message_access() {
         };
         assert!(provider.consent.is_none());
         assert!(provider.credential.is_some());
-        let before = stored_state(node.profile());
+        let before = stored_state(&node).await;
         let saved = discover(
             &client,
             discovery::Source::Saved {
@@ -764,7 +776,7 @@ async fn discovers_without_message_access() {
         )
         .await;
         assert_eq!(saved, draft);
-        assert_eq!(stored_state(node.profile()), before);
+        assert_eq!(stored_state(&node).await, before);
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
@@ -919,7 +931,7 @@ async fn captures_declared_feature_choices() {
             );
             finish(&client, session.id, turn.id).await;
             assert_eq!(
-                captured(node.profile(), turn.id).models[0]
+                captured(&node, turn.id).await.models[0]
                     .capabilities
                     .as_ref()
                     .unwrap()

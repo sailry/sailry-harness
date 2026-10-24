@@ -27,7 +27,7 @@ pub(super) fn settle(ingress: &Arc<Ingress>, recipient: TurnId) -> BeforeToolCal
     Box::new(move |_| {
         let ingress = ingress.clone();
         Box::pin(async move {
-            if !ingress.agents.model_settled(recipient) {
+            if !ingress.agents.model_settled(recipient).await {
                 return Err(AdkError::agent("turn yielded to queued guidance"));
             }
             Ok(None)

@@ -6,32 +6,38 @@ fn binding(info: &Info) -> Option<Service> {
     info.extension.as_ref()?.enabled_service
 }
 
-pub(super) fn initial(db: &Connection, info: &Info) -> Result<Option<bool>, Fault> {
+pub(super) async fn initial(db: &Connection, info: &Info) -> Result<Option<bool>, Fault> {
     match binding(info) {
-        Some(Service::Language) => Ok(Some(super::super::code::settings(db)?.enabled)),
+        Some(Service::Language) => Ok(Some(super::super::code::settings(db).await?.enabled)),
         None => Ok(None),
     }
 }
 
-pub(in crate::store) fn enabled(db: &Connection, service: Service) -> Result<Option<bool>, Fault> {
-    if let Some(name) = owner(db, service, true)? {
-        return Ok(Some(super::required(db, &name)?.summary.enabled));
+pub(in crate::store) async fn enabled(
+    db: &Connection,
+    service: Service,
+) -> Result<Option<bool>, Fault> {
+    if let Some(name) = owner(db, service, true).await? {
+        return Ok(Some(super::required(db, &name).await?.summary.enabled));
     }
-    Ok(owner(db, service, false)?.map(|_| false))
+    Ok(owner(db, service, false).await?.map(|_| false))
 }
 
-pub(super) fn apply(db: &Connection, info: &Info, enabled: bool) -> Result<(), Fault> {
+pub(super) async fn apply(db: &Connection, info: &Info, enabled: bool) -> Result<(), Fault> {
     match binding(info) {
-        Some(Service::Language) => super::super::code::enable(db, enabled),
+        Some(Service::Language) => super::super::code::enable(db, enabled).await,
         None => Ok(()),
     }
 }
 
-pub(super) fn check(db: &Connection, info: &Info) -> Result<(), Fault> {
+pub(super) async fn check(db: &Connection, info: &Info) -> Result<(), Fault> {
     let Some(service) = binding(info) else {
         return Ok(());
     };
-    if owner(db, service, true)?.is_some_and(|name| name != info.summary.name) {
+    if owner(db, service, true)
+        .await?
+        .is_some_and(|name| name != info.summary.name)
+    {
         return Err(Fault::invalid(
             "Node service already has an installed package binding",
         ));
@@ -39,31 +45,40 @@ pub(super) fn check(db: &Connection, info: &Info) -> Result<(), Fault> {
     Ok(())
 }
 
-fn owner(db: &Connection, service: Service, installed: bool) -> Result<Option<String>, Fault> {
+async fn owner(
+    db: &Connection,
+    service: Service,
+    installed: bool,
+) -> Result<Option<String>, Fault> {
     let mut query = db
         .prepare("SELECT body FROM plugins WHERE installed=?1 ORDER BY name")
+        .await
         .map_err(storage_error)?;
-    for row in query
-        .query_map([installed], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
     {
-        let info: Info =
-            serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
-        if binding(&info) == Some(service) {
-            return Ok(Some(info.summary.name));
+        let mut rows = query.query([installed]).await.map_err(storage_error)?;
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let row: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+
+            let info: Info =
+                serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
+            if binding(&info) == Some(service) {
+                return Ok(Some(info.summary.name));
+            }
         }
     }
     Ok(None)
 }
 
-pub(in crate::store) fn synchronize(
+pub(in crate::store) async fn synchronize(
     db: &Connection,
     service: Service,
     enabled: bool,
 ) -> Result<Option<Summary>, Fault> {
-    let name = owner(db, service, true)?.or(owner(db, service, false)?);
+    let name = owner(db, service, true)
+        .await?
+        .or(owner(db, service, false).await?);
     match name {
-        Some(name) => super::synchronize(db, &name, enabled),
+        Some(name) => super::synchronize(db, &name, enabled).await,
         None => Ok(None),
     }
 }

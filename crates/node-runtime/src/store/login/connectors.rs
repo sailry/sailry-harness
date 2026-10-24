@@ -38,7 +38,7 @@ pub(in crate::store) enum Progress {
 }
 
 impl Worker {
-    pub(super) fn inspect_connector(
+    pub(super) async fn inspect_connector(
         &mut self,
         database: &mut Database,
         caller: NodeId,
@@ -54,31 +54,43 @@ impl Worker {
             unreachable!()
         };
         if self.pending >= 16 || self.closed.is_cancelled() {
-            let _ = reply.send(database.finish_external(
-                caller,
-                &request,
-                Err(Fault::new(ErrorCode::Busy, "connector workers are busy")),
-                events,
-            ));
+            let _ = reply.send(
+                database
+                    .finish_external(
+                        caller,
+                        &request,
+                        Err(Fault::new(ErrorCode::Busy, "connector workers are busy")),
+                        events,
+                    )
+                    .await,
+            );
             return;
         }
-        let declaration = connections::declaration(&database.connection, package, connector);
+        let declaration = connections::declaration(&database.connection, package, connector).await;
         let declaration = match declaration {
             Ok((_, declaration)) if request.plugin.is_none() => declaration,
             Ok(_) => {
-                let _ = reply.send(database.finish_external(
-                    caller,
-                    &request,
-                    Err(Fault::new(
-                        ErrorCode::PermissionDenied,
-                        "local credential inspection requires a controller",
-                    )),
-                    events,
-                ));
+                let _ = reply.send(
+                    database
+                        .finish_external(
+                            caller,
+                            &request,
+                            Err(Fault::new(
+                                ErrorCode::PermissionDenied,
+                                "local credential inspection requires a controller",
+                            )),
+                            events,
+                        )
+                        .await,
+                );
                 return;
             }
             Err(error) => {
-                let _ = reply.send(database.finish_external(caller, &request, Err(error), events));
+                let _ = reply.send(
+                    database
+                        .finish_external(caller, &request, Err(error), events)
+                        .await,
+                );
                 return;
             }
         };
@@ -99,7 +111,7 @@ impl Worker {
                 .await;
         });
     }
-    pub(super) fn connector_command(
+    pub(super) async fn connector_command(
         &mut self,
         database: &mut Database,
         caller: NodeId,
@@ -115,7 +127,7 @@ impl Worker {
                 method,
                 input,
             } => {
-                let prepared = (|| {
+                let prepared = (async || {
                     if self.closed.is_cancelled() {
                         return Err(super::super::unavailable());
                     }
@@ -123,9 +135,10 @@ impl Worker {
                         &database.connection,
                         database.profile.as_deref(),
                         &request.command,
-                    )?;
+                    )
+                    .await?;
                     let previous = if connection.is_some() {
-                        Some(connections::read(&database.connection, record.id)?)
+                        Some(connections::read(&database.connection, record.id).await?)
                     } else {
                         None
                     };
@@ -159,16 +172,21 @@ impl Worker {
                         record.grant = None;
                     }
                     connections::login::begin(&mut record, request.id, previous);
-                    let info =
-                        connections::declaration(&database.connection, package, connector)?.0;
+                    let info = connections::declaration(&database.connection, package, connector)
+                        .await?
+                        .0;
                     let settings =
-                        crate::store::plugins::settings::resolve(&database.connection, &info)?;
+                        crate::store::plugins::settings::resolve(&database.connection, &info)
+                            .await?;
                     Ok((record, declaration, info, settings))
-                })();
+                })()
+                .await;
                 let (record, declaration, info, settings) = match prepared {
                     Ok(prepared) => prepared,
                     Err(error) => {
-                        return database.finish_external(caller, request, Err(error), events);
+                        return database
+                            .finish_external(caller, request, Err(error), events)
+                            .await;
                     }
                 };
                 let attempt = Attempt {
@@ -177,16 +195,18 @@ impl Worker {
                     package: package.clone(),
                     revision: record.revision,
                 };
-                let output = database.finish_external_with(
-                    caller,
-                    request,
-                    Ok(Output::ConnectorLogin(attempt.clone())),
-                    events,
-                    |db, _| {
-                        connections::save(db, &record)?;
-                        Ok(Some(Event::PluginChanged(info.summary.clone())))
-                    },
-                )?;
+                let output = database
+                    .finish_external_with(
+                        caller,
+                        request,
+                        Ok(Output::ConnectorLogin(attempt.clone())),
+                        events,
+                        async |db, _| {
+                            connections::save(db, &record).await?;
+                            Ok(Some(Event::PluginChanged(info.summary.clone())))
+                        },
+                    )
+                    .await?;
                 self.connectors
                     .retain(|_, entry| !entry.finished || entry.updates.receiver_count() > 0);
                 let (updates, _) = watch::channel(LoginUpdate {
@@ -247,15 +267,17 @@ impl Worker {
                     .get(&(caller, *attempt))
                     .ok_or_else(missing)?;
                 if request.plugin.is_some() && entry.context.as_ref() != request.plugin.as_ref() {
-                    return database.finish_external(
-                        caller,
-                        request,
-                        Err(Fault::new(
-                            ErrorCode::PermissionDenied,
-                            "connector attempt belongs to another surface",
-                        )),
-                        events,
-                    );
+                    return database
+                        .finish_external(
+                            caller,
+                            request,
+                            Err(Fault::new(
+                                ErrorCode::PermissionDenied,
+                                "connector attempt belongs to another surface",
+                            )),
+                            events,
+                        )
+                        .await;
                 }
                 if entry.finished
                     || entry.callback.is_none()
@@ -263,15 +285,19 @@ impl Worker {
                     || input.expose().len() > 16 * 1024
                     || input.expose().chars().any(char::is_control)
                 {
-                    return database.finish_external(
-                        caller,
-                        request,
-                        Err(Fault::invalid("connector is not awaiting valid input")),
-                        events,
-                    );
+                    return database
+                        .finish_external(
+                            caller,
+                            request,
+                            Err(Fault::invalid("connector is not awaiting valid input")),
+                            events,
+                        )
+                        .await;
                 }
                 let output = Output::ConnectorLogin(entry.updates.borrow().attempt.clone());
-                let result = database.finish_external(caller, request, Ok(output), events)?;
+                let result = database
+                    .finish_external(caller, request, Ok(output), events)
+                    .await?;
                 if let Some(entry) = self.connectors.get_mut(&(caller, *attempt))
                     && let Some(callback) = entry.callback.take()
                 {
@@ -286,28 +312,28 @@ impl Worker {
                     .get(&(caller, *attempt))
                     .ok_or_else(missing)?;
                 if request.plugin.is_some() && entry.context.as_ref() != request.plugin.as_ref() {
-                    return database.finish_external(
-                        caller,
-                        request,
-                        Err(Fault::new(
-                            ErrorCode::PermissionDenied,
-                            "connector attempt belongs to another surface",
-                        )),
-                        events,
-                    );
+                    return database
+                        .finish_external(
+                            caller,
+                            request,
+                            Err(Fault::new(
+                                ErrorCode::PermissionDenied,
+                                "connector attempt belongs to another surface",
+                            )),
+                            events,
+                        )
+                        .await;
                 }
                 let output = Output::ConnectorLogin(entry.updates.borrow().attempt.clone());
                 if entry.finished {
-                    return database.finish_external(caller, request, Ok(output), events);
+                    return database
+                        .finish_external(caller, request, Ok(output), events)
+                        .await;
                 }
                 let baseline = entry.record.clone();
-                let result = database.finish_external_with(
-                    caller,
-                    request,
-                    Ok(output),
-                    events,
-                    |db, _| {
-                        let mut record = match connections::read(db, baseline.id) {
+                let result = database
+                    .finish_external_with(caller, request, Ok(output), events, async |db, _| {
+                        let mut record = match connections::read(db, baseline.id).await {
                             Ok(record) => record,
                             Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
                             Err(error) => return Err(error),
@@ -319,11 +345,12 @@ impl Worker {
                         )? {
                             return Ok(None);
                         }
-                        connections::save(db, &record)?;
-                        Ok(super::super::plugins::get(db, &record.plugin)?
+                        connections::save(db, &record).await?;
+                        Ok(super::super::plugins::get(db, &record.plugin)
+                            .await?
                             .map(|info| Event::PluginChanged(info.summary)))
-                    },
-                )?;
+                    })
+                    .await?;
                 if let Some(entry) = self.connectors.get_mut(&(caller, *attempt)) {
                     entry.finished = true;
                     entry.callback.take();
@@ -337,7 +364,7 @@ impl Worker {
         }
     }
 
-    pub(super) fn probe_connector(
+    pub(super) async fn probe_connector(
         &mut self,
         database: &mut Database,
         caller: NodeId,
@@ -349,16 +376,20 @@ impl Worker {
             unreachable!()
         };
         if self.pending >= 16 || self.closed.is_cancelled() {
-            let _ = reply.send(database.finish_external(
-                caller,
-                &request,
-                Err(Fault::new(ErrorCode::Busy, "connector workers are busy")),
-                events,
-            ));
+            let _ = reply.send(
+                database
+                    .finish_external(
+                        caller,
+                        &request,
+                        Err(Fault::new(ErrorCode::Busy, "connector workers are busy")),
+                        events,
+                    )
+                    .await,
+            );
             return;
         }
-        let prepared = (|| {
-            let record = connections::read(&database.connection, connection)?;
+        let prepared = (async || {
+            let record = connections::read(&database.connection, connection).await?;
             // A pending sign-in owns the row until it finishes.
             if record.login.is_some() {
                 return Err(Fault::new(
@@ -373,12 +404,18 @@ impl Worker {
                 record.auth_revision,
                 true,
             )
+            .await
             .map(|target| (record, target))
-        })();
+        })()
+        .await;
         let (baseline, target) = match prepared {
             Ok(target) => target,
             Err(error) => {
-                let _ = reply.send(database.finish_external(caller, &request, Err(error), events));
+                let _ = reply.send(
+                    database
+                        .finish_external(caller, &request, Err(error), events)
+                        .await,
+                );
                 return;
             }
         };
@@ -408,7 +445,7 @@ impl Worker {
         });
     }
 
-    pub(super) fn connector_progress(
+    pub(super) async fn connector_progress(
         &mut self,
         database: &mut Database,
         progress: Progress,
@@ -437,7 +474,7 @@ impl Worker {
                 entry.finished = true;
                 entry.callback.take();
                 self.pending -= 1;
-                let result = commit(database, &entry.record, result, true, events);
+                let result = commit(database, &entry.record, result, true, events).await;
                 entry.set(match result {
                     Ok(connection) => LoginState::Connected(connection),
                     Err(error) if error.code == ErrorCode::Cancelled => LoginState::Cancelled,
@@ -452,9 +489,14 @@ impl Worker {
                 result,
             } => {
                 self.pending -= 1;
-                let result =
-                    commit(database, &baseline, result, false, events).map(Output::Connection);
-                let _ = reply.send(database.finish_external(caller, &request, result, events));
+                let result = commit(database, &baseline, result, false, events)
+                    .await
+                    .map(Output::Connection);
+                let _ = reply.send(
+                    database
+                        .finish_external(caller, &request, result, events)
+                        .await,
+                );
             }
         }
     }
@@ -500,7 +542,7 @@ impl Subscription for Updates {
     }
 }
 
-fn commit(
+async fn commit(
     database: &mut Database,
     baseline: &Record,
     result: Result<Box<crate::plugins::connectors::Target>, Fault>,
@@ -510,9 +552,13 @@ fn commit(
     if !replace && let Err(error) = &result {
         return Err(error.clone());
     }
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let mut record = connections::read(&transaction, baseline.id)?;
-    let checked = (|| {
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
+    let mut record = connections::read(&transaction, baseline.id).await?;
+    let checked = (async || {
         if record.revision != baseline.revision
             || record.auth_revision != baseline.auth_revision
             || record.login.as_ref().map(|login| login.attempt)
@@ -523,16 +569,18 @@ fn commit(
                 "connection changed",
             ));
         }
-        let info = connections::info(&transaction, &record.plugin)?;
+        let info = connections::info(&transaction, &record.plugin).await?;
         let (_, declaration) =
-            connections::declaration(&transaction, &info.summary.reference(), &record.connector)?;
+            connections::declaration(&transaction, &info.summary.reference(), &record.connector)
+                .await?;
         let current = connections::bound(
             &transaction,
             database.profile.as_deref(),
             &info,
             &declaration,
             record.method,
-        )?;
+        )
+        .await?;
         if !connections::consent::same(&record.plugin, record.bound.as_ref(), current.as_ref()) {
             return Err(Fault::new(
                 ErrorCode::RevisionConflict,
@@ -540,7 +588,8 @@ fn commit(
             ));
         }
         Ok(())
-    })();
+    })()
+    .await;
     // Authorization failures may mark a first connection Failed; conflicts never do.
     let (outcome, failed) = match (checked, result) {
         (Err(error), _) => (Err(error), false),
@@ -568,24 +617,27 @@ fn commit(
             (outcome, false)
         }
     };
-    let persist = |transaction: rusqlite::Transaction<'_>,
-                   record: &Record|
-     -> Result<connector::Connection, Fault> {
-        connections::save(&transaction, record)?;
-        let projected = connections::project(&transaction, database.profile.as_deref(), record)?;
-        let changed = super::super::plugins::get(&transaction, &record.plugin)?
+    let persist = async |transaction: turso::transaction::Transaction<'_>,
+                         record: &Record|
+           -> Result<connector::Connection, Fault> {
+        connections::save(&transaction, record).await?;
+        let projected =
+            connections::project(&transaction, database.profile.as_deref(), record).await?;
+        let changed = super::super::plugins::get(&transaction, &record.plugin)
+            .await?
             .map(|info| Event::PluginChanged(info.summary))
             .into_iter()
             .collect();
-        let envelopes = super::super::database::record(&transaction, database.node, changed)?;
-        transaction.commit().map_err(storage_error)?;
+        let envelopes =
+            super::super::database::record(&transaction, database.node, changed).await?;
+        transaction.commit().await.map_err(storage_error)?;
         for envelope in envelopes {
             let _ = events.send(envelope);
         }
         Ok(projected)
     };
     match outcome {
-        Ok(()) => persist(transaction, &record),
+        Ok(()) => persist(transaction, &record).await,
         Err(error) => {
             if replace
                 && let Some(login) = &baseline.login
@@ -599,7 +651,7 @@ fn commit(
                     },
                 )?
             {
-                persist(transaction, &record)?;
+                persist(transaction, &record).await?;
             }
             Err(error)
         }

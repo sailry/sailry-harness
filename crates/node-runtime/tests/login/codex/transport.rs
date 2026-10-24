@@ -8,16 +8,28 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[path = "../../agent/providers/native/server.rs"]
 pub(super) mod native;
 
-pub(super) fn expire(fixture: &Fixture, provider: &Provider) {
-    let db =
-        rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3")).unwrap();
-    let bytes: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM providers WHERE id=?1",
-            [provider.id.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
+pub(super) async fn expire(fixture: &Fixture, provider: &Provider) {
+    let bytes: Vec<u8> = {
+        let sql = ("SELECT body FROM providers WHERE id=?1").to_owned();
+        let parameters = turso::params![provider.id.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
+    .unwrap();
     let mut body: Value = serde_json::from_slice(&bytes).unwrap();
     let reference = provider.credential.as_ref().unwrap();
     let stored = &mut body["authorizations"][reference.id.to_string()];
@@ -28,10 +40,21 @@ pub(super) fn expire(fixture: &Fixture, provider: &Provider) {
     grant["expires_at_ms"] = json!(1);
     stored["key"] = json!(grant.to_string());
     assert_eq!(
-        db.execute(
-            "UPDATE providers SET body=?1 WHERE id=?2",
-            rusqlite::params![serde_json::to_vec(&body).unwrap(), provider.id.to_string()]
-        )
+        {
+            let sql = ("UPDATE providers SET body=?1 WHERE id=?2").to_owned();
+            let parameters =
+                turso::params![serde_json::to_vec(&body).unwrap(), provider.id.to_string()];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.execute(sql, parameters)
+                            .await
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
         .unwrap(),
         1
     );
@@ -89,7 +112,7 @@ async fn reconnects_only_after_headers_change() {
             assert_eq!(answer(&page, first.id), native::ANSWER);
             assert_eq!(exchanges.load(Ordering::SeqCst), 1);
             assert_eq!(model.upgrades.lock().unwrap().len(), 1);
-            expire(&fixture, &provider);
+            expire(&fixture, &provider).await;
             let (_, next) = super::super::execution::submit(&fixture.client, &session).await;
             let page =
                 super::super::execution::finished(&fixture.client, &next, Status::Completed).await;

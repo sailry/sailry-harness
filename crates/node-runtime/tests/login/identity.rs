@@ -108,27 +108,62 @@ pub(super) fn callback(authorization: &str) -> Secret {
     Secret::new(callback.into())
 }
 
+async fn exchange(node: &Node, arrived: &tokio::sync::Notify, release: &tokio::sync::Notify) {
+    tokio::time::timeout(Duration::from_secs(5), arrived.notified())
+        .await
+        .expect("token exchange deadline");
+    let registration: String = node
+        .with_storage(|db| {
+            Box::pin(async move {
+                db.prepare("SELECT client_id FROM oauth_registrations")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(())
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get(0)
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        registration, CLIENT,
+        "registration must be durable before exchange"
+    );
+    release.notify_one();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retains_registration_and_host_after_expired_code() {
     for remote in [false, true] {
         let exchanges = std::sync::atomic::AtomicUsize::new(0);
-        let profile = Arc::new(std::sync::Mutex::new(None::<std::path::PathBuf>));
-        let stored = profile.clone();
+        let arrived = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let received = arrived.clone();
+        let held = release.clone();
         let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            if request.path == "/api/accounts/oauth/token" {
-                let db = rusqlite::Connection::open_with_flags(
-                    stored.lock().unwrap().as_ref().unwrap(),
-                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-                ).unwrap();
-                let registration: String = db.query_row("SELECT client_id FROM oauth_registrations", [], |row| row.get(0)).unwrap();
-                assert_eq!(registration, CLIENT, "registration must be durable before exchange");
-                if exchanges.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    Reply::Raw("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"invalid_grant\"}".into())
-                } else { standard(request) }
-            } else { standard(request) }
-        }).await;
+    if request.path == "/api/accounts/oauth/token" {
+        let remaining = if exchanges.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"invalid_grant\"}".to_owned()
+        } else {
+            let Reply::Json(value) = standard(request) else {
+                panic!("token JSON response expected");
+            };
+            format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{value}")
+        };
+        received.notify_one();
+        Reply::Staged {
+            initial: String::new(),
+            release: held.clone(),
+            remaining,
+        }
+    } else {
+        standard(request)
+    }
+})
+.await;
         let fixture = Fixture::empty(remote, &server).await;
-        *profile.lock().unwrap() = Some(fixture.node.profile().join("storage/node.sqlite3"));
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let (_, first) = start(&fixture.client, &provider).await;
         let first_url = browser(&fixture.client, &first).await;
@@ -140,7 +175,10 @@ async fn retains_registration_and_host_after_expired_code() {
         assert_eq!(first_fields["client_id"], "dynamic_agent_client");
         let returned = callback(&first_url);
         let private_url = returned.expose().to_owned();
-        let callback_request = complete(&fixture.client, &first, returned).await;
+        let (callback_request, ()) = tokio::join!(
+            complete(&fixture.client, &first, returned),
+            exchange(&fixture.node, &arrived, &release),
+        );
         let mut stream = fixture.client.subscribe_login(first.id).await.unwrap();
         assert!(matches!(
             terminal(&mut stream).await.state,
@@ -155,28 +193,41 @@ async fn retains_registration_and_host_after_expired_code() {
             panic!("credentials expected")
         };
         assert!(credentials.is_empty());
-        let db = rusqlite::Connection::open_with_flags(
-            fixture.node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let mut query = db
-            .prepare("SELECT CAST(body AS TEXT),coalesce(result,'') FROM requests")
-            .unwrap();
-        for row in query
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .unwrap()
-        {
-            let (body, result) = row.unwrap();
+
+        let rows = {
+            let sql = ("SELECT CAST(body AS TEXT),coalesce(result,'') FROM requests").to_owned();
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let mut rows = db
+                            .query(sql, ())
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        let mut values = Vec::new();
+                        while let Some(row) =
+                            rows.next().await.map_err(crate::database_fixture::fault)?
+                        {
+                            values.push((
+                                row.get::<String>(0)
+                                    .map_err(crate::database_fixture::fault)?,
+                                row.get::<String>(1)
+                                    .map_err(crate::database_fixture::fault)?,
+                            ));
+                        }
+                        Ok(values)
+                    })
+                })
+                .await
+                .unwrap()
+        };
+        for (body, result) in rows {
             assert!(!body.contains(&private_url));
             assert!(!result.contains(&private_url));
             no_secrets(&body);
             no_secrets(&result);
         }
-        drop(query);
-        drop(db);
+
         assert_eq!(
             fixture.client.execute(callback_request).await.unwrap(),
             Output::ProviderLogin(first)
@@ -196,7 +247,10 @@ async fn retains_registration_and_host_after_expired_code() {
         );
         assert!(!second_fields.contains_key("agent_name_hint"));
         assert_ne!(second_fields["state"], first_fields["state"]);
-        complete(&fixture.client, &second, callback(&second_url)).await;
+        let (_, ()) = tokio::join!(
+            complete(&fixture.client, &second, callback(&second_url)),
+            exchange(&fixture.node, &arrived, &release),
+        );
         let mut stream = fixture.client.subscribe_login(second.id).await.unwrap();
         assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
         fixture.close().await;
@@ -212,9 +266,8 @@ async fn requires_durable_registration_before_exchange() {
         .await;
         let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
-        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-            .unwrap();
-        db.execute_batch("CREATE TRIGGER reject_registration BEFORE INSERT ON oauth_registrations BEGIN SELECT RAISE(ABORT,'isolated registration failure'); END;").unwrap();
+
+        {let sql=("CREATE TRIGGER reject_registration BEFORE INSERT ON oauth_registrations BEGIN SELECT RAISE(ABORT,'isolated registration failure'); END;").to_owned();fixture.node.with_storage(move |db| Box::pin(async move {db.execute_batch(sql).await.map_err(crate::database_fixture::fault)})).await}.unwrap();
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
         let login::State::Failed(error) = terminal(&mut stream).await.state else {
@@ -230,7 +283,7 @@ async fn requires_durable_registration_before_exchange() {
                 .unwrap(),
             Output::Credentials(vec![])
         );
-        drop(db);
+
         fixture.close().await;
     }
 }

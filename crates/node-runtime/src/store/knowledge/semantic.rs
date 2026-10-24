@@ -34,7 +34,7 @@ pub(crate) struct Materialized {
     pub(crate) stale: bool,
 }
 
-pub(in crate::store) fn prepare(
+pub(in crate::store) async fn prepare(
     db: &Connection,
     request: &Request,
     stop: &CancellationToken,
@@ -44,7 +44,7 @@ pub(in crate::store) fn prepare(
         .plugin
         .as_ref()
         .ok_or_else(|| denied("plugin provenance is required"))?;
-    sources::package(db, context)?;
+    sources::package(db, context).await?;
     let Command::SearchPluginValues(query) = &request.command else {
         return Err(Fault::invalid("plugin storage search expected"));
     };
@@ -54,7 +54,7 @@ pub(in crate::store) fn prepare(
             .as_ref()
             .is_some_and(|text| !text.trim().is_empty())
     {
-        selected(db, &context.package, stop)?
+        selected(db, &context.package, stop).await?
     } else {
         vec![]
     };
@@ -62,25 +62,26 @@ pub(in crate::store) fn prepare(
     let Command::SearchPluginValues(keyword_query) = &lexical.command else {
         unreachable!()
     };
-    let keyword = search::ranked(db, &context.package.name, keyword_query)?;
-    let eligible = eligible(db, &context.package, &collections, stop)?;
+    let keyword = search::ranked(db, &context.package.name, keyword_query).await?;
+    let eligible = eligible(db, &context.package, &collections, stop).await?;
     Ok(Plan {
         package: context.package.clone(),
         collections,
         keyword,
         eligible,
-        embedding: super::super::local_models::settings(db)?
+        embedding: super::super::local_models::settings(db)
+            .await?
             .choice(sailry_protocol::models::Kind::Embedding),
     })
 }
 
-fn selected(
+async fn selected(
     db: &Connection,
     reference: &plugin::Reference,
     stop: &CancellationToken,
 ) -> Result<Vec<Stored>, Fault> {
-    let declarations = declarations(db, reference)?;
-    let stored = collections::load(db)?;
+    let declarations = declarations(db, reference).await?;
+    let stored = collections::load(db).await?;
     let mut selected = Vec::new();
     for declaration in declarations {
         check(stop)?;
@@ -100,19 +101,22 @@ fn selected(
     Ok(selected)
 }
 
-pub(in crate::store) fn startup(db: &Connection, stop: &CancellationToken) -> Result<bool, Fault> {
+pub(in crate::store) async fn startup(
+    db: &Connection,
+    stop: &CancellationToken,
+) -> Result<bool, Fault> {
     let mut changed = false;
-    for summary in super::super::plugins::list(db)? {
+    for summary in super::super::plugins::list(db).await? {
         check(stop)?;
         if summary.enabled {
-            changed |= ensure(db, &summary.reference(), stop)?.1;
+            changed |= ensure(db, &summary.reference(), stop).await?.1;
         }
     }
     Ok(changed)
 }
 
 /// Completion observation runs this before a successful storage receipt is returned.
-pub(in crate::store) fn changed(
+pub(in crate::store) async fn changed(
     db: &Connection,
     request: &Request,
     stop: &CancellationToken,
@@ -120,8 +124,8 @@ pub(in crate::store) fn changed(
     let Some(context) = &request.plugin else {
         return Ok(false);
     };
-    let (_, mut changed) = ensure(db, &context.package, stop)?;
-    for mut stored in collections::load(db)? {
+    let (_, mut changed) = ensure(db, &context.package, stop).await?;
+    for mut stored in collections::load(db).await? {
         check(stop)?;
         if automatic(&stored)
             && stored
@@ -132,29 +136,38 @@ pub(in crate::store) fn changed(
             && stored.collection.progress.status != knowledge::Status::Pending
         {
             collections::advance(&mut stored)?;
-            collections::persist(db, &stored)?;
+            collections::persist(db, &stored).await?;
             changed = true;
         }
     }
     Ok(changed)
 }
 
-fn ensure(
+async fn ensure(
     db: &Connection,
     reference: &plugin::Reference,
     stop: &CancellationToken,
 ) -> Result<(Vec<Stored>, bool), Fault> {
-    let declarations = declarations(db, reference)?;
-    let mut stored = collections::load(db)?;
+    let declarations = declarations(db, reference).await?;
+    let mut stored = collections::load(db).await?;
     let mut selected = Vec::new();
     let mut changed = false;
     for declaration in declarations {
         check(stop)?;
         let prefix = selector(&declaration);
-        let exists: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM plugin_values WHERE name=?1 AND value IS NOT NULL AND index_data IS NOT NULL AND (?2=1 AND key=?3 OR ?2=0 AND substr(key,1,length(?3))=?3) AND json_type(index_data,'$.source')='object')",
-            params![reference.name, declaration.key.is_some(), prefix], |row| row.get(0),
-        ).map_err(storage_error)?;
+        let exists: bool = {
+            let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM plugin_values WHERE name=?1 AND value IS NOT NULL AND index_data IS NOT NULL AND (?2=1 AND key=?3 OR ?2=0 AND substr(key,1,length(?3))=?3) AND json_type(index_data,'$.source')='object')").await.map_err(storage_error)?;
+            let row = statement
+                .query_row(params![
+                    reference.name.as_str(),
+                    declaration.key.is_some(),
+                    prefix
+                ])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
         if !exists {
             continue;
         }
@@ -166,7 +179,7 @@ fn ensure(
                     "semantic registration identifier is already owned",
                 ));
             }
-            let latest = super::super::plugins::get(db, &reference.name)?;
+            let latest = super::super::plugins::get(db, &reference.name).await?;
             // An old admitted turn retains access without replacing a newer package capture.
             if previous.capture.package.as_ref() != Some(reference)
                 && latest
@@ -175,7 +188,7 @@ fn ensure(
             {
                 previous.capture.package = Some(reference.clone());
                 collections::advance(previous)?;
-                collections::persist(db, previous)?;
+                collections::persist(db, previous).await?;
                 changed = true;
             }
             selected.push(previous.clone());
@@ -212,7 +225,7 @@ fn ensure(
                 },
                 automatic: true,
             };
-            collections::persist(db, &entry)?;
+            collections::persist(db, &entry).await?;
             selected.push(entry.clone());
             stored.push(entry);
             changed = true;
@@ -221,11 +234,12 @@ fn ensure(
     Ok((selected, changed))
 }
 
-fn declarations(
+async fn declarations(
     db: &Connection,
     reference: &plugin::Reference,
 ) -> Result<Vec<plugin::storage::Collection>, Fault> {
-    let package = super::super::agent::plugins::packages(db, std::slice::from_ref(reference))?
+    let package = super::super::agent::plugins::packages(db, std::slice::from_ref(reference))
+        .await?
         .pop()
         .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "captured plugin is unavailable"))?;
     Ok(package
@@ -295,7 +309,7 @@ pub(in crate::store) fn automatic(stored: &Stored) -> bool {
     })
 }
 
-pub(in crate::store) fn sources(
+pub(in crate::store) async fn sources(
     db: &Connection,
     stored: &Stored,
     after: Option<&str>,
@@ -310,24 +324,25 @@ pub(in crate::store) fn sources(
     {
         return Err(Fault::invalid("invalid automatic storage source page"));
     }
-    let declaration = captured(db, stored)?;
+    let declaration = captured(db, stored).await?;
     let reference = stored
         .capture
         .package
         .as_ref()
         .expect("validated automatic capture");
-    let namespace = values::semantic::Namespace::from_reference(db, reference)?;
+    let namespace = values::semantic::Namespace::from_reference(db, reference).await?;
     let mut statement = db.prepare(
         "SELECT key FROM plugin_values WHERE name=?1 AND value IS NOT NULL AND index_data IS NOT NULL AND (?2=1 AND key=?3 OR ?2=0 AND substr(key,1,length(?3))=?3) AND (?4 IS NULL OR key>?4) ORDER BY key LIMIT ?5"
-    ).map_err(storage_error)?;
+    ).await.map_err(storage_error)?;
     let mut rows = statement
         .query(params![
-            reference.name,
+            reference.name.as_str(),
             declaration.key.is_some(),
             selector(&declaration),
             after,
             i64::from(limit) + 1
         ])
+        .await
         .map_err(storage_error)?;
     let mut page = super::storage::PageRaw {
         records: vec![],
@@ -335,14 +350,14 @@ pub(in crate::store) fn sources(
     };
     let mut last = None;
     let mut scanned = 0;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         check(stop)?;
         if scanned == limit {
             page.after = last;
             break;
         }
         let key: String = row.get(0).map_err(storage_error)?;
-        if let Some(record) = values::semantic::record(db, &namespace, &key)? {
+        if let Some(record) = values::semantic::record(db, &namespace, &key).await? {
             page.records.push(convert(record)?);
         }
         last = Some(key);
@@ -351,14 +366,14 @@ pub(in crate::store) fn sources(
     Ok(page)
 }
 
-pub(in crate::store) fn source(
+pub(in crate::store) async fn source(
     db: &Connection,
     stored: &Stored,
     key: &str,
     stop: &CancellationToken,
 ) -> Result<Option<super::storage::Record>, Fault> {
     check(stop)?;
-    let declaration = match captured(db, stored) {
+    let declaration = match captured(db, stored).await {
         Ok(declaration) => declaration,
         Err(error) if error.code == ErrorCode::RevisionConflict => return Ok(None),
         Err(error) => return Err(error),
@@ -371,20 +386,22 @@ pub(in crate::store) fn source(
         .package
         .as_ref()
         .expect("validated automatic capture");
-    let namespace = values::semantic::Namespace::from_reference(db, reference)?;
-    values::semantic::record(db, &namespace, key)?
+    let namespace = values::semantic::Namespace::from_reference(db, reference).await?;
+    values::semantic::record(db, &namespace, key)
+        .await?
         .map(convert)
         .transpose()
 }
 
-pub(in crate::store) fn unchanged(
+pub(in crate::store) async fn unchanged(
     db: &Connection,
     stored: &Stored,
     record: &super::storage::Record,
     stop: &CancellationToken,
 ) -> Result<bool, Fault> {
-    Ok(
-        source(db, stored, &record.key, stop)?.is_some_and(|current| {
+    Ok(source(db, stored, &record.key, stop)
+        .await?
+        .is_some_and(|current| {
             current.revision == record.revision
                 && current.hash == record.hash
                 && current.source == record.source
@@ -393,15 +410,14 @@ pub(in crate::store) fn unchanged(
                 && current.title == record.title
                 && current.body == record.body
                 && current.tags == record.tags
-        }),
-    )
+        }))
 }
 
-fn captured(db: &Connection, stored: &Stored) -> Result<plugin::storage::Collection, Fault> {
+async fn captured(db: &Connection, stored: &Stored) -> Result<plugin::storage::Collection, Fault> {
     if !automatic(stored) {
         return Err(Fault::invalid("automatic storage collection expected"));
     }
-    let current = collections::load(db)?.into_iter().any(|current| {
+    let current = collections::load(db).await?.into_iter().any(|current| {
         current.automatic == stored.automatic
             && current.collection.id == stored.collection.id
             && current.collection.revision == stored.collection.revision
@@ -422,7 +438,8 @@ fn captured(db: &Connection, stored: &Stored) -> Result<plugin::storage::Collect
         .package
         .as_ref()
         .ok_or_else(|| Fault::invalid("automatic storage capture is missing"))?;
-    declarations(db, reference)?
+    declarations(db, reference)
+        .await?
         .into_iter()
         .find(|declaration| identifier(&reference.name, declaration) == stored.collection.id)
         .ok_or_else(|| denied("captured package no longer declares this semantic collection"))
@@ -448,7 +465,7 @@ fn convert(record: values::semantic::Record) -> Result<super::storage::Record, F
     })
 }
 
-fn eligible(
+async fn eligible(
     db: &Connection,
     reference: &plugin::Reference,
     collections: &[Stored],
@@ -457,7 +474,8 @@ fn eligible(
     if collections.is_empty() {
         return Ok(BTreeSet::new());
     }
-    let declarations = declarations(db, reference)?
+    let declarations = declarations(db, reference)
+        .await?
         .into_iter()
         .filter(|declaration| {
             collections
@@ -467,13 +485,22 @@ fn eligible(
         .collect::<Vec<_>>();
     let mut statement = db.prepare(
         "SELECT v.key FROM plugin_values v WHERE v.name=?1 AND v.value IS NOT NULL AND v.index_data IS NOT NULL AND json_type(v.index_data,'$.source')='object' AND EXISTS(SELECT 1 FROM plugin_values original WHERE original.name=v.name AND original.key=json_extract(v.index_data,'$.source.key') AND original.value IS NOT NULL) ORDER BY v.key LIMIT ?2"
-    ).map_err(storage_error)?;
-    let rows = statement
-        .query_map(
-            params![reference.name, plugin::storage::MAX_NAMESPACE_KEYS as i64],
-            |row| row.get::<_, String>(0),
-        )
-        .map_err(storage_error)?;
+    ).await.map_err(storage_error)?;
+    let rows = {
+        let mut rows = statement
+            .query(params![
+                reference.name.as_str(),
+                plugin::storage::MAX_NAMESPACE_KEYS as i64
+            ])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    };
     let mut keys = BTreeSet::new();
     for row in rows {
         check(stop)?;
@@ -488,7 +515,7 @@ fn eligible(
     Ok(keys)
 }
 
-pub(in crate::store) fn materialize(
+pub(in crate::store) async fn materialize(
     db: &Connection,
     request: &Request,
     plan: &Plan,
@@ -500,16 +527,17 @@ pub(in crate::store) fn materialize(
         .plugin
         .as_ref()
         .ok_or_else(|| denied("plugin provenance is required"))?;
-    sources::package(db, context)?;
+    sources::package(db, context).await?;
     if context.package != plan.package {
         return Err(denied("semantic plan belongs to another capture"));
     }
     if selection.mode != knowledge::Mode::Keyword
-        && super::super::local_models::settings(db)?
+        && super::super::local_models::settings(db)
+            .await?
             .choice(sailry_protocol::models::Kind::Embedding)
             != plan.embedding
     {
-        return fallback(db, request);
+        return fallback(db, request).await;
     }
     let Command::SearchPluginValues(query) = &request.command else {
         return Err(Fault::invalid("plugin storage search expected"));
@@ -553,7 +581,7 @@ pub(in crate::store) fn materialize(
                     "semantic result is outside the captured collections",
                 ));
             };
-            let record = match super::storage::record(db, stored, key, stop) {
+            let record = match super::storage::record(db, stored, key, stop).await {
                 Ok(record) => record,
                 Err(error)
                     if matches!(
@@ -561,27 +589,28 @@ pub(in crate::store) fn materialize(
                         ErrorCode::RevisionConflict | ErrorCode::InvalidRequest
                     ) =>
                 {
-                    return fallback(db, request);
+                    return fallback(db, request).await;
                 }
                 Err(error) => return Err(error),
             };
             let Some(record) = record else {
-                return fallback(db, request);
+                return fallback(db, request).await;
             };
             if identity(&record)? != stamp.revision {
-                return fallback(db, request);
+                return fallback(db, request).await;
             }
             if !query.all.iter().all(|tag| record.tags.contains(tag))
                 || !query.any.is_empty() && !query.any.iter().any(|tag| record.tags.contains(tag))
             {
-                return fallback(db, request);
+                return fallback(db, request).await;
             }
         } else if !keyword.contains_key(key.as_str()) {
             return Err(denied("semantic result has no captured ranking"));
         }
         let mut read = request.clone();
         read.command = Command::ReadPluginValue { key: key.clone() };
-        let (Output::PluginValue(entry), _) = super::super::plugins::execute_storage(db, &read)?
+        let (Output::PluginValue(entry), _) =
+            super::super::plugins::execute_storage(db, &read).await?
         else {
             return Err(Fault::new(ErrorCode::Internal, "plugin entry expected"));
         };
@@ -590,7 +619,7 @@ pub(in crate::store) fn materialize(
                 .get(key.as_str())
                 .is_some_and(|revision| *revision != entry.revision)
         {
-            return fallback(db, request);
+            return fallback(db, request).await;
         }
         page.entries.push(entry);
         if serde_json::to_vec(&Output::PluginSearch(page.clone()))
@@ -608,9 +637,9 @@ pub(in crate::store) fn materialize(
     Ok(Materialized { page, stale: false })
 }
 
-fn fallback(db: &Connection, request: &Request) -> Result<Materialized, Fault> {
+async fn fallback(db: &Connection, request: &Request) -> Result<Materialized, Fault> {
     let (Output::PluginSearch(mut page), _) =
-        super::super::plugins::execute_storage(db, &lexical(request))?
+        super::super::plugins::execute_storage(db, &lexical(request)).await?
     else {
         return Err(Fault::new(ErrorCode::Internal, "plugin search expected"));
     };

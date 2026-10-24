@@ -423,8 +423,21 @@ async fn lost_result_is_not_replayed() {
         let (tree, command) = fixture.create("lost-result", client).await;
         let before = snapshot(client).await;
         let profile = fixture.node.profile().to_owned();
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+        {
+            let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.execute_batch(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+                .unwrap()
+        };
         let request = client.prepare(command);
         assert_eq!(
             client.execute(request.clone()).await.unwrap_err().code,
@@ -432,8 +445,21 @@ async fn lost_result_is_not_replayed() {
         );
         assert!(!Path::new(&tree.path).exists());
         assert_eq!(snapshot(client).await, before);
-        db.execute_batch("DROP TRIGGER lose_result").unwrap();
-        drop(db);
+        {
+            let sql = ("DROP TRIGGER lose_result").to_owned();
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.execute_batch(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+                .unwrap()
+        };
+
         fixture.node.shutdown().await.unwrap();
         std::fs::create_dir(&tree.path).unwrap();
         std::fs::write(Path::new(&tree.path).join("sentinel"), "replacement").unwrap();

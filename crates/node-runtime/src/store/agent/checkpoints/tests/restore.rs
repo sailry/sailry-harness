@@ -1,7 +1,7 @@
 use super::*;
 use crate::store::{agent::checkpoints::restore::prepare, external::Work};
 
-fn captured(
+async fn captured(
     fixture: &mut Fixture,
 ) -> (
     TurnId,
@@ -10,9 +10,11 @@ fn captured(
     WorktreeId,
     std::path::PathBuf,
 ) {
-    let turn = running(fixture);
-    let request = approved(fixture, turn, "file.txt", Some("before"), "after");
-    capture(&mut fixture.database, turn, &request, Some("before")).unwrap();
+    let turn = running(fixture).await;
+    let request = approved(fixture, turn, "file.txt", Some("before"), "after").await;
+    capture(&mut fixture.database, turn, &request, Some("before"))
+        .await
+        .unwrap();
     let file = list(
         &fixture.database.connection,
         fixture.session,
@@ -20,42 +22,45 @@ fn captured(
         None,
         20,
     )
+    .await
     .unwrap()
     .files
     .remove(0);
-    let root = fixture.database.worktree_root(file.worktree).unwrap();
+    let root = fixture.database.worktree_root(file.worktree).await.unwrap();
     (turn, request, file.id, file.worktree, root)
 }
 
-fn dispatch(fixture: &mut Fixture, request: Request) -> Work {
+async fn dispatch(fixture: &mut Fixture, request: Request) -> Work {
     let (reply, _) = oneshot::channel();
     fixture
         .database
         .dispatch(fixture.database.node, request, reply, &fixture.events)
+        .await
         .unwrap()
 }
 
-fn rejected(fixture: &mut Fixture, command: Command) -> ErrorCode {
+async fn rejected(fixture: &mut Fixture, command: Command) -> ErrorCode {
     let (reply, response) = oneshot::channel();
     let node = fixture.database.node;
     assert!(
         fixture
             .database
             .dispatch(node, Request::new(node, command), reply, &fixture.events)
+            .await
             .is_none()
     );
     response
-        .blocking_recv()
+        .await
         .unwrap()
         .unwrap()
         .completion
-        .blocking_recv()
+        .await
         .unwrap()
         .unwrap_err()
         .code
 }
 
-fn finish(fixture: &mut Fixture, request: &Request, result: Result<Output, Fault>) {
+async fn finish(fixture: &mut Fixture, request: &Request, result: Result<Output, Fault>) {
     // Exercise each original receipt state without rerunning a physical mutation.
     fixture
         .database
@@ -64,24 +69,29 @@ fn finish(fixture: &mut Fixture, request: &Request, result: Result<Output, Fault
             "UPDATE requests SET status='admitted',result=NULL WHERE id=?1",
             [request.id.to_string()],
         )
+        .await
         .unwrap();
     assert_eq!(
-        fixture.database.finish_external(
-            fixture.database.node,
-            request,
-            result.clone(),
-            &fixture.events
-        ),
+        fixture
+            .database
+            .finish_external(
+                fixture.database.node,
+                request,
+                result.clone(),
+                &fixture.events
+            )
+            .await,
         result
     );
 }
 
-#[test]
-fn validates_status_outcome_and_scope() {
-    let mut fixture = Fixture::new();
-    let (turn, _request, id, worktree, root) = captured(&mut fixture);
+#[tokio::test]
+async fn validates_status_outcome_and_scope() {
+    let mut fixture = Fixture::new().await;
+    let (turn, _request, id, worktree, root) = captured(&mut fixture).await;
     assert_eq!(
         prepare(&fixture.database, fixture.session, id, worktree, &root)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Busy
@@ -93,17 +103,19 @@ fn validates_status_outcome_and_scope() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert_eq!(
         prepare(&fixture.database, fixture.session, id, worktree, &root)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Conflict
     );
     // A scoped tool operation must reach admission while its turn is active.
-    let mut fixture = Fixture::new();
-    let (turn, request, id, worktree, root) = captured(&mut fixture);
-    dispatch(&mut fixture, request.clone());
+    let mut fixture = Fixture::new().await;
+    let (turn, request, id, worktree, root) = captured(&mut fixture).await;
+    dispatch(&mut fixture, request.clone()).await;
     runs::finish(
         &mut fixture.database,
         turn,
@@ -111,9 +123,11 @@ fn validates_status_outcome_and_scope() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert_eq!(
         prepare(&fixture.database, fixture.session, id, worktree, &root)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Busy
@@ -126,9 +140,11 @@ fn validates_status_outcome_and_scope() {
             "UPDATE requests SET status='unknown' WHERE id=?1",
             [request.id.to_string()],
         )
+        .await
         .unwrap();
     assert_eq!(
         prepare(&fixture.database, fixture.session, id, worktree, &root)
+            .await
             .unwrap()
             .file
             .outcome,
@@ -139,8 +155,9 @@ fn validates_status_outcome_and_scope() {
             &mut fixture,
             &request,
             Err(Fault::new(code, "injected write outcome")),
-        );
-        let result = prepare(&fixture.database, fixture.session, id, worktree, &root);
+        )
+        .await;
+        let result = prepare(&fixture.database, fixture.session, id, worktree, &root).await;
         if code == ErrorCode::OutcomeUnknown {
             result.unwrap();
         } else {
@@ -156,10 +173,14 @@ fn validates_status_outcome_and_scope() {
         &mut fixture,
         &request,
         Ok(Output::FileWritten(written.clone())),
-    );
-    prepare(&fixture.database, fixture.session, id, worktree, &root).unwrap();
+    )
+    .await;
+    prepare(&fixture.database, fixture.session, id, worktree, &root)
+        .await
+        .unwrap();
     assert_eq!(
         prepare(&fixture.database, SessionId::new(), id, worktree, &root)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::WrongTarget
@@ -172,6 +193,7 @@ fn validates_status_outcome_and_scope() {
             WorktreeId::new(),
             &root
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::WrongTarget
@@ -184,6 +206,7 @@ fn validates_status_outcome_and_scope() {
             worktree,
             &root.join("changed")
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::WrongTarget
@@ -195,20 +218,22 @@ fn validates_status_outcome_and_scope() {
             path: "another.txt".into(),
             ..written
         })),
-    );
+    )
+    .await;
     assert_eq!(
         prepare(&fixture.database, fixture.session, id, worktree, &root)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Conflict
     );
 }
 
-#[test]
-fn rechecks_queued_membership() {
-    let mut fixture = Fixture::new();
-    let (turn, write, id, worktree, root) = captured(&mut fixture);
-    dispatch(&mut fixture, write.clone());
+#[tokio::test]
+async fn rechecks_queued_membership() {
+    let mut fixture = Fixture::new().await;
+    let (turn, write, id, worktree, root) = captured(&mut fixture).await;
+    dispatch(&mut fixture, write.clone()).await;
     finish(
         &mut fixture,
         &write,
@@ -217,7 +242,8 @@ fn rechecks_queued_membership() {
             revision: version("after").revision,
             size: 5,
         })),
-    );
+    )
+    .await;
     runs::finish(
         &mut fixture.database,
         turn,
@@ -225,6 +251,7 @@ fn rechecks_queued_membership() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     std::fs::write(root.join("file.txt"), "after").unwrap();
     let request = Request::new(
@@ -236,7 +263,7 @@ fn rechecks_queued_membership() {
         },
     );
     assert!(request.command.durable());
-    let Work::Mutation(pending) = dispatch(&mut fixture, request.clone()) else {
+    let Work::Mutation(pending) = dispatch(&mut fixture, request.clone()).await else {
         panic!("mutation expected")
     };
     assert_eq!(pending.roots.target, root);
@@ -245,11 +272,11 @@ fn rechecks_queued_membership() {
         path: root.join("file.txt").to_str().unwrap().into(),
     };
     assert_eq!(
-        rejected(&mut fixture, registration.clone()),
+        rejected(&mut fixture, registration.clone()).await,
         ErrorCode::Busy
     );
     let session = fixture.session;
-    let retained = fixture.fork(session, turn);
+    let retained = fixture.fork(session, turn).await;
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -259,14 +286,18 @@ fn rechecks_queued_membership() {
             expected_head: turn,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("rewind expected")
     };
-    let result = prepare(&fixture.database, fixture.session, id, worktree, &root).unwrap_err();
+    let result = prepare(&fixture.database, fixture.session, id, worktree, &root)
+        .await
+        .unwrap_err();
     assert_eq!(result.code, ErrorCode::WrongTarget);
-    finish(&mut fixture, &request, Err(result));
+    finish(&mut fixture, &request, Err(result)).await;
     assert_eq!(
-        rejected(&mut fixture, registration),
+        rejected(&mut fixture, registration).await,
         ErrorCode::InvalidRequest
     );
     assert_eq!(
@@ -274,15 +305,17 @@ fn rechecks_queued_membership() {
         "after"
     );
     assert!(rewind.backup.is_none());
-    prepare(&fixture.database, retained.id, id, worktree, &root).unwrap();
+    prepare(&fixture.database, retained.id, id, worktree, &root)
+        .await
+        .unwrap();
 }
 
-#[test]
-fn rechecks_after_rewind() {
+#[tokio::test]
+async fn rechecks_after_rewind() {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let mut fixture = Fixture::new();
-    let (turn, write, id, worktree, root) = captured(&mut fixture);
-    dispatch(&mut fixture, write.clone());
+    let mut fixture = Fixture::new().await;
+    let (turn, write, id, worktree, root) = captured(&mut fixture).await;
+    dispatch(&mut fixture, write.clone()).await;
     finish(
         &mut fixture,
         &write,
@@ -291,7 +324,8 @@ fn rechecks_after_rewind() {
             revision: version("after").revision,
             size: 5,
         })),
-    );
+    )
+    .await;
     runs::finish(
         &mut fixture.database,
         turn,
@@ -299,12 +333,13 @@ fn rechecks_after_rewind() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     std::fs::write(root.join("file.txt"), "after").unwrap();
-    let path = std::path::PathBuf::from(fixture.database.connection.path().unwrap());
+    let path = fixture.database.path.clone();
     let node = fixture.database.node;
-    fixture.database.close().unwrap();
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
+    fixture.database.close().await.unwrap();
+    {
         use sailry_client::Client;
         use sailry_link::Local;
         let (entered, mut waiting) = tokio::sync::mpsc::unbounded_channel();
@@ -402,5 +437,5 @@ fn rechecks_after_rewind() {
             "before"
         );
         store.shutdown().await.unwrap();
-    });
+    }
 }

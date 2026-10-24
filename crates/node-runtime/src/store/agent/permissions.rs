@@ -2,27 +2,30 @@
 use super::*;
 use adk_core::ToolConfirmationRequest;
 
-pub(super) fn config(db: &Connection, turn: TurnId) -> Result<SessionConfig, Fault> {
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT r.config FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+pub(super) async fn config(db: &Connection, turn: TurnId) -> Result<SessionConfig, Fault> {
+    let body: Vec<u8> = {
+        let mut statement = db.prepare("SELECT r.config FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     serde_json::from_slice(&body).map_err(storage_error)
 }
 
-pub(super) fn source(
+pub(super) async fn source(
     db: &Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
 ) -> Result<ApprovalSource, Fault> {
-    let config = config(db, turn)?;
-    let operation = super::plugins::operation(db, turn, &request.tool_name)?;
+    let config = config(db, turn).await?;
+    let operation = super::plugins::operation(db, turn, &request.tool_name).await?;
     if operation == Some(sailry_protocol::tool::Operation::WriteArtifact) {
-        let run = super::calls::active(db, turn)?;
-        if super::super::commands::session(db, run.session)?
+        let run = super::calls::active(db, turn).await?;
+        if super::super::commands::session(db, run.session)
+            .await?
             .delegation
             .is_some()
         {
@@ -40,7 +43,7 @@ pub(super) fn source(
         ));
     }
     if operation == Some(sailry_protocol::tool::Operation::RunCommand) {
-        let access = super::super::sandbox::effective(db, &request.args)?;
+        let access = super::super::sandbox::effective(db, &request.args).await?;
         return Ok(
             if access == sailry_protocol::process::Access::Workspace
                 && crate::process::sandbox::SUPPORTED
@@ -54,8 +57,8 @@ pub(super) fn source(
         );
     }
     let command_flow =
-        operation.is_none() && super::plugins::command_flow(db, turn, &request.tool_name)?;
-    if command_flow && !super::super::sandbox::read(db)?.enabled {
+        operation.is_none() && super::plugins::command_flow(db, turn, &request.tool_name).await?;
+    if command_flow && !super::super::sandbox::read(db).await?.enabled {
         return Ok(if config.permission == Permission::Full {
             ApprovalSource::Full
         } else {
@@ -78,7 +81,8 @@ pub(super) fn source(
                 | sailry_protocol::tool::Operation::DeleteValue
                 | sailry_protocol::tool::Operation::StorageTransaction
         )
-    ) || operation.is_none() && super::plugins::storage_flow(db, turn, &request.tool_name)?
+    ) || operation.is_none()
+        && super::plugins::storage_flow(db, turn, &request.tool_name).await?
     {
         // The operation and grant belong to the admitted package. Admission still
         // checks its live availability, scope and exact private KV mutations.
@@ -122,15 +126,16 @@ pub(super) fn source(
     })
 }
 
-pub(super) fn code_source(
+pub(super) async fn code_source(
     db: &Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
     startup: &sailry_protocol::code::Startup,
 ) -> Result<ApprovalSource, Fault> {
-    let run = super::calls::active(db, turn)?;
+    let run = super::calls::active(db, turn).await?;
     if run.worktree != startup.worktree
-        || !super::plugins::operation(db, turn, &request.tool_name)?
+        || !super::plugins::operation(db, turn, &request.tool_name)
+            .await?
             .is_some_and(crate::code::handles)
     {
         return Err(Fault::new(
@@ -139,10 +144,10 @@ pub(super) fn code_source(
         ));
     }
     crate::files::path::components(&startup.root, true)?;
-    if super::super::code::approved(db, startup)? {
+    if super::super::code::approved(db, startup).await? {
         return Ok(ApprovalSource::CodeRule);
     }
-    Ok(match config(db, turn)?.permission {
+    Ok(match config(db, turn).await?.permission {
         Permission::Ask => ApprovalSource::User,
         Permission::Project => ApprovalSource::Project,
         Permission::Full => ApprovalSource::Full,

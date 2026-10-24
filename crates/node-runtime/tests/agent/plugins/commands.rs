@@ -138,17 +138,23 @@ async fn reuses_approved_arguments() {
         }
         assert!(results(&page)[0].get("isError").is_none());
         assert!(!fixture.root.join("denied.txt").exists());
-        let database =
-            rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-                .unwrap();
-        let id: String = database
-            .query_row(
-                "SELECT request FROM agent_approvals WHERE id=?1",
-                [first.id.to_string()],
-                |row| row.get(0),
-            )
+        let approval = first.id;
+        let id: String = fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.prepare("SELECT request FROM agent_approvals WHERE id=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([approval.to_string()])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get::<String>(0)
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
-        drop(database);
         let request = Request {
             id: id.parse().unwrap(),
             ..fixture
@@ -237,7 +243,7 @@ async fn retains_background_processes_and_scopes_public_actions() {
             Some(sailry_protocol::process::Access::Unrestricted)
         );
         assert!(!approval.can_remember);
-        assert!(approvals::rules::claimed(&fixture.node, approval).1);
+        assert!(approvals::rules::claimed(&fixture.node, approval).await.1);
         let result = results(&page);
         assert_eq!(result[0]["kind"], "command_started", "{page:?}");
         let id: RequestId = serde_json::from_value(result[0]["data"]["id"].clone()).unwrap();

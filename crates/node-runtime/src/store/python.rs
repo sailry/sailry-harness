@@ -4,20 +4,26 @@ use super::{
     database::{encode, storage_error},
     unavailable,
 };
-use rusqlite::{Connection, OptionalExtension};
 use sailry_link::Admission;
 use sailry_protocol::{ErrorCode, Event, Fault, Output, Request, python::Settings};
 use tokio::sync::oneshot;
+use turso::Connection;
 
-pub(super) fn read(db: &Connection) -> Result<Settings, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM python_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn read(db: &Connection) -> Result<Settings, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM python_settings WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(()).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let settings = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?
@@ -26,21 +32,21 @@ pub(super) fn read(db: &Connection) -> Result<Settings, Fault> {
     Ok(settings)
 }
 
-pub(super) fn save(
+pub(super) async fn save(
     db: &Connection,
     request: &Request,
     settings: &Settings,
 ) -> Result<(Output, Option<Event>), Fault> {
     controller(request)?;
     settings.validate()?;
-    super::commands::check_revision(read(db)?.revision, settings.revision)?;
+    super::commands::check_revision(read(db).await?.revision, settings.revision)?;
     let mut updated = settings.clone();
     updated.revision = updated
         .revision
         .checked_add(1)
         .filter(|revision| *revision <= i64::MAX as u64)
         .ok_or_else(|| Fault::invalid("Python settings revision is exhausted"))?;
-    db.execute("INSERT INTO python_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&updated)?])
+    db.execute("INSERT INTO python_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&updated)?]).await
         .map_err(storage_error)?;
     Ok((
         Output::PythonSettings(updated.clone()),

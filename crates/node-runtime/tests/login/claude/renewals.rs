@@ -1,23 +1,32 @@
 use super::*;
 
-fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
-    let db = rusqlite::Connection::open_with_flags(
-        fixture.node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
+async fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
+    let body: Vec<u8> = {
+        let sql = ("SELECT provider FROM agent_runs WHERE turn=?1").to_owned();
+        let parameters = turso::params![turn.id.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
     .unwrap();
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT provider FROM agent_runs WHERE turn=?1",
-            [turn.id.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
     serde_json::from_slice(&body).unwrap()
 }
 
-fn rotated(fixture: &Fixture, provider: &Provider) {
-    let private = grant(fixture, provider);
+async fn rotated(fixture: &Fixture, provider: &Provider) {
+    let private = grant(fixture, provider).await;
     assert!(private["access"] == REFRESHED && private["refresh"] == ROTATED);
     assert_eq!(private["renewal_pending"], false);
 }
@@ -46,7 +55,7 @@ async fn restores_rotated_tokens_and_tool_continuations() {
         let provider = connected(&fixture).await;
         let session = super::super::execution::session(&fixture, &provider).await;
         std::fs::write(fixture.node.profile().join("instructions.md"), INSTRUCTION).unwrap();
-        expire(&fixture, &provider);
+        expire(&fixture, &provider).await;
         let fixture = super::super::execution::renewals::restart(fixture, &server, remote).await;
         let (request, turn) = super::super::execution::submit(&fixture.client, &session).await;
         let page =
@@ -77,18 +86,18 @@ async fn restores_rotated_tokens_and_tool_continuations() {
             );
         }
         assert_eq!(
-            captured(&fixture, &turn).oauth,
+            captured(&fixture, &turn).await.oauth,
             Options::defaults(Authentication::ClaudeOAuth)
         );
         assert_eq!(saved(&fixture.client, provider.id).await, provider);
-        rotated(&fixture, &provider);
+        rotated(&fixture, &provider).await;
         assert_eq!(exchanges.load(Ordering::SeqCst), 1);
         assert_eq!(
             fixture.client.execute(request).await.unwrap(),
             Output::QueuedTurn(turn)
         );
         let fixture = super::super::execution::renewals::restart(fixture, &server, remote).await;
-        rotated(&fixture, &provider);
+        rotated(&fixture, &provider).await;
         let (_, next) = super::super::execution::submit(&fixture.client, &session).await;
         let page =
             super::super::execution::finished(&fixture.client, &next, Status::Completed).await;
@@ -139,7 +148,7 @@ async fn finishes_rotation_after_observer_cancellation() {
         let first = super::super::execution::session(&fixture, &provider).await;
         let second = super::super::execution::session(&fixture, &provider).await;
         std::fs::write(fixture.node.profile().join("instructions.md"), INSTRUCTION).unwrap();
-        expire(&fixture, &provider);
+        expire(&fixture, &provider).await;
         let (_, stopped) = super::super::execution::submit(&fixture.client, &first).await;
         server.wait_requests(4).await;
         let (_, waiting) = super::super::execution::submit(&fixture.client, &second).await;
@@ -161,9 +170,9 @@ async fn finishes_rotation_after_observer_cancellation() {
             super::super::execution::finished(&fixture.client, &waiting, Status::Completed).await;
         redacted(&page);
         assert_eq!(answer(&page, waiting.id), ANSWER);
-        rotated(&fixture, &provider);
+        rotated(&fixture, &provider).await;
         let fixture = super::super::execution::renewals::restart(fixture, &server, remote).await;
-        rotated(&fixture, &provider);
+        rotated(&fixture, &provider).await;
         let (_, next) = super::super::execution::submit(&fixture.client, &first).await;
         let page =
             super::super::execution::finished(&fixture.client, &next, Status::Completed).await;
@@ -204,7 +213,7 @@ async fn retains_uncertain_refresh_without_replay() {
             let fixture = Fixture::empty(remote, &server).await;
             let provider = connected(&fixture).await;
             let session = super::super::execution::session(&fixture, &provider).await;
-            expire(&fixture, &provider);
+            expire(&fixture, &provider).await;
             let (_, turn) = super::super::execution::submit(&fixture.client, &session).await;
             server.wait_requests(4).await;
             if mode == "denied" {
@@ -212,7 +221,7 @@ async fn retains_uncertain_refresh_without_replay() {
                     super::super::execution::finished(&fixture.client, &turn, Status::Failed).await;
                 redacted(&page);
             }
-            assert_eq!(grant(&fixture, &provider)["renewal_pending"], true);
+            assert_eq!(grant(&fixture, &provider).await["renewal_pending"], true);
             let fixture =
                 super::super::execution::renewals::restart(fixture, &server, remote).await;
             if mode == "shutdown" {

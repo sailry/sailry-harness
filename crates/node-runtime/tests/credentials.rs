@@ -223,21 +223,41 @@ async fn lifecycle(remote: bool) {
         let result = client.execute(client.prepare(command)).await.unwrap();
         assert!(!serde_json::to_string(&result).unwrap().contains(marker));
     }
-    let db = rusqlite::Connection::open(execution.profile().join("storage/node.sqlite3")).unwrap();
+
     for query in [
         "SELECT CAST(body AS TEXT) FROM requests",
         "SELECT result FROM requests",
         "SELECT CAST(body AS TEXT) FROM events",
     ] {
-        let mut statement = db.prepare(query).unwrap();
-        for row in statement
-            .query_map([], |row| row.get::<_, Option<String>>(0))
-            .unwrap()
-        {
-            assert!(!row.unwrap().unwrap_or_default().contains(marker));
+        let bodies = {
+            let sql = (query).to_owned();
+            execution
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let mut rows = db
+                            .query(sql, ())
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        let mut values = Vec::new();
+                        while let Some(row) =
+                            rows.next().await.map_err(crate::database_fixture::fault)?
+                        {
+                            values.push(
+                                row.get::<Option<String>>(0)
+                                    .map_err(crate::database_fixture::fault)?,
+                            );
+                        }
+                        Ok(values)
+                    })
+                })
+                .await
+                .unwrap()
+        };
+        for body in bodies {
+            assert!(!body.unwrap_or_default().contains(marker));
         }
     }
-    drop(db);
+
     let path = execution.profile().to_owned();
     controller.shutdown().await.unwrap();
     execution.shutdown().await.unwrap();
@@ -341,16 +361,25 @@ async fn rejects_unavailable_credentials() {
         ErrorCode::RevisionConflict
     );
     // Model elapsed wall time without slowing the test or modifying the process clock.
-    let db = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-    db.execute(
-        "UPDATE providers SET body=CAST(json_set(body,?1,1) AS BLOB) WHERE id=?2",
-        rusqlite::params![
+
+    {
+        let sql =
+            ("UPDATE providers SET body=CAST(json_set(body,?1,1) AS BLOB) WHERE id=?2").to_owned();
+        let parameters = turso::params![
             format!("$.authorizations.\"{id}\".expires_at_ms"),
             provider.to_string()
-        ],
-    )
+        ];
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute(sql, parameters)
+                    .await
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
+    }
     .unwrap();
-    drop(db);
+
     assert_eq!(
         node.resolve_credential(reference, provider)
             .await
@@ -367,15 +396,22 @@ async fn rejects_unsupported_storage() {
     let path = directory.path().join("node");
     let node = Node::start_empty(&path).await.unwrap();
     node.shutdown().await.unwrap();
-    let db = rusqlite::Connection::open(path.join("storage/node.sqlite3")).unwrap();
+    let (db_handle, db) =
+        crate::database_fixture::open(&(path.join("storage/node.turso")), false).await;
     assert_eq!(
-        db.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+        db.prepare("PRAGMA user_version")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
             .unwrap(),
         1
     );
-    db.pragma_update(None, "user_version", 2).unwrap();
-    drop(db);
-    let database = path.join("storage/node.sqlite3");
+    db.pragma_update("user_version", 2).await.unwrap();
+    crate::database_fixture::close(db_handle, db).await;
+    let database = path.join("storage/node.turso");
     let before = std::fs::read(&database).unwrap();
     assert!(Node::start_empty(&path).await.is_err());
     assert_eq!(std::fs::read(database).unwrap(), before);

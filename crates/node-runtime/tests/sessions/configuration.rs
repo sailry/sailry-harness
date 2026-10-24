@@ -225,7 +225,7 @@ async fn defers_unused_archive_validation() {
                 .unwrap();
             drop(client);
             node.shutdown().await.unwrap();
-            let path = profile.join("storage/node.sqlite3");
+            let path = profile.join("storage/node.turso");
             let invalid = "{\"private_marker\":true}";
             let corrupt = match owner {
                 "receipt" => serde_json::from_str::<Result<Output, Fault>>(invalid).is_err(),
@@ -234,17 +234,20 @@ async fn defers_unused_archive_validation() {
                 _ => unreachable!(),
             };
             assert!(corrupt, "{owner} fixture must be invalid (remote={remote})");
-            let db = rusqlite::Connection::open(&path).unwrap();
+            let (handle, mut database) = crate::database_fixture::open(&path, false).await;
+            let transaction = database.transaction().await.unwrap();
+            let db = &transaction;
             if owner == "capture" {
                 let updated = db
                     .execute(
                         "UPDATE session_revisions SET config=?1 WHERE session=?2 AND revision=?3",
-                        rusqlite::params![
+                        turso::params![
                             invalid.as_bytes(),
                             session.id.to_string(),
                             session.revision as i64
                         ],
                     )
+                    .await
                     .unwrap();
                 assert_eq!(updated, 1, "capture injection (remote={remote})");
             }
@@ -252,28 +255,34 @@ async fn defers_unused_archive_validation() {
                 let updated = db
                     .execute(
                         "UPDATE requests SET result=?1 WHERE id=?2",
-                        rusqlite::params![invalid, request.id.to_string()],
+                        turso::params![invalid, request.id.to_string()],
                     )
+                    .await
                     .unwrap();
                 assert_eq!(updated, 1, "receipt injection (remote={remote})");
             }
             if owner == "history" {
+                let sequence: i64 = db.prepare("INSERT INTO counters(namespace,value) VALUES('agent_events',1) ON CONFLICT(namespace) DO UPDATE SET value=counters.value+1 WHERE counters.value<9223372036854775807 RETURNING value").await.unwrap().query_row(()).await.unwrap().get(0).unwrap();
                 db.execute(
-            "INSERT INTO agent_events(session,id,turn,body) VALUES(?1,'invalid-archive',?2,?3)",
-            rusqlite::params![
+            "INSERT INTO agent_events(sequence,session,id,turn,body) VALUES(?1,?2,'invalid-archive',?3,?4)",
+            turso::params![
+                sequence,
                 session.id.to_string(),
                 turn.id.to_string(),
                 invalid.as_bytes()
             ],
         )
+        .await
         .unwrap();
                 db.execute(
                     "INSERT INTO conversation_events(session,sequence) VALUES(?1,?2)",
-                    rusqlite::params![session.id.to_string(), db.last_insert_rowid()],
+                    turso::params![session.id.to_string(), sequence],
                 )
+                .await
                 .unwrap();
             }
-            db.close().unwrap();
+            transaction.commit().await.unwrap();
+            crate::database_fixture::close(handle, database).await;
             let node = Node::start_empty(&profile).await.unwrap();
             let client = Client::new(if remote {
                 controller.handle().remote(node.link().address())
@@ -291,7 +300,7 @@ async fn defers_unused_archive_validation() {
             assert_eq!(error.code, ErrorCode::Internal);
             assert!(!error.message.contains("private_marker"));
             node.shutdown().await.unwrap();
-            let db = rusqlite::Connection::open(&path).unwrap();
+            let (handle, db) = crate::database_fixture::open(&path, false).await;
             let sql = match owner {
                 "receipt" => "SELECT CAST(result AS BLOB) FROM requests WHERE id=?1",
                 "capture" => "SELECT config FROM session_revisions WHERE session=?1 AND revision=1",
@@ -304,11 +313,18 @@ async fn defers_unused_archive_validation() {
                 "history" => "invalid-archive".into(),
                 _ => unreachable!(),
             };
-            let stored: Vec<u8> = db.query_row(sql, [id], |row| row.get(0)).unwrap();
-            assert_eq!(stored, invalid.as_bytes());
-            db.execute_batch("DROP INDEX events_kind; PRAGMA journal_mode=DELETE")
+            let stored: Vec<u8> = db
+                .prepare(sql)
+                .await
+                .unwrap()
+                .query_row([id])
+                .await
+                .unwrap()
+                .get(0)
                 .unwrap();
-            db.close().unwrap();
+            assert_eq!(stored, invalid.as_bytes());
+            db.execute_batch("DROP INDEX events_kind").await.unwrap();
+            crate::database_fixture::close(handle, db).await;
             let before = std::fs::read(&path).unwrap();
             let error = Node::start_empty(&profile)
                 .await

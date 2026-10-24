@@ -32,37 +32,38 @@ pub(in crate::store::agent::statistics) const ROWS: &str = "WITH selected AS (
     json_extract(e.body,'$.provider_metadata.sailry_timing.elapsed_us'),
     json_extract(e.body,'$.event_metadata.sailry_media'),e.delegated FROM responses e";
 
-pub(in crate::store::agent::statistics) fn read(
+pub(in crate::store::agent::statistics) async fn read(
     db: &Connection,
     session: SessionId,
 ) -> Result<(Metrics, Metrics), Fault> {
     let mut own = Metrics::default();
     let mut delegated = Metrics::default();
     let mut prices = pricing::Catalog::default();
-    let mut statement = db.prepare(ROWS).map_err(storage_error)?;
+    let mut statement = db.prepare(ROWS).await.map_err(storage_error)?;
     let mut rows = statement
         .query([session.to_string()])
+        .await
         .map_err(storage_error)?;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         let tokens = Usage {
-            input: row.get::<_, i64>(1).map_err(storage_error)? as u64,
-            output: row.get::<_, i64>(2).map_err(storage_error)? as u64,
-            cached_input: row.get::<_, i64>(3).map_err(storage_error)? as u64,
-            reasoning: row.get::<_, i64>(4).map_err(storage_error)? as u64,
+            input: row.get::<i64>(1).map_err(storage_error)? as u64,
+            output: row.get::<i64>(2).map_err(storage_error)? as u64,
+            cached_input: row.get::<i64>(3).map_err(storage_error)? as u64,
+            reasoning: row.get::<i64>(4).map_err(storage_error)? as u64,
         };
         let elapsed = row
-            .get::<_, Option<i64>>(13)
+            .get::<Option<i64>>(13)
             .map_err(storage_error)?
             .filter(|value| *value > 0)
             .map(|value| value as u64);
         add(
-            if row.get::<_, bool>(15).map_err(storage_error)? {
+            if row.get::<bool>(15).map_err(storage_error)? {
                 &mut delegated
             } else {
                 &mut own
             },
             &tokens,
-            prices.estimate(db, row)?.as_ref(),
+            prices.estimate(db, &row).await?.as_ref(),
             elapsed,
         )?;
     }

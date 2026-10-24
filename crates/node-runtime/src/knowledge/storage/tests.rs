@@ -99,10 +99,12 @@ fn retains_unindexed_and_partial_keyword_results() {
     assert!(missing.stamps.is_empty());
 }
 
-#[test]
-fn filters_any_tags_before_bounded_vector_ranks() {
+#[tokio::test]
+async fn filters_any_tags_before_bounded_vector_ranks() {
     let directory = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-    let mut index = Index::open(&directory.path().join("knowledge.db")).unwrap();
+    let index = Index::open(&directory.path().join("knowledge.turso"))
+        .await
+        .unwrap();
     let binding = Binding {
         id: KnowledgeId::new(),
         generation: 1,
@@ -111,7 +113,7 @@ fn filters_any_tags_before_bounded_vector_ranks() {
         rebuild: 0,
         paused: false,
     };
-    index.bind(&binding).unwrap();
+    index.bind(&binding).await.unwrap();
     for number in 0..121 {
         let selected = number == 120;
         let document = Document {
@@ -129,7 +131,7 @@ fn filters_any_tags_before_bounded_vector_ranks() {
                 vector::Vector::quantize(if selected { &[0.9, 0.1] } else { &[1., 0.] }).unwrap(),
             ),
         };
-        index.replace(&binding, &document, &[part]).unwrap();
+        index.replace(&binding, &document, &[part]).await.unwrap();
     }
     let query = Query {
         query: "vector".into(),
@@ -146,6 +148,7 @@ fn filters_any_tags_before_bounded_vector_ranks() {
     let stop = CancellationToken::new();
     let unfiltered = index
         .candidates(&query, &[binding.clone()], &embeddings, &[], &stop)
+        .await
         .unwrap();
     assert_eq!(unfiltered.len(), 100);
     assert!(unfiltered.iter().all(|hit| hit.citation.path != "meta/120"));
@@ -157,6 +160,7 @@ fn filters_any_tags_before_bounded_vector_ranks() {
             &["project".into(), "global".into()],
             &stop,
         )
+        .await
         .unwrap();
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].citation.path, "meta/120");
@@ -171,6 +175,7 @@ fn filters_any_tags_before_bounded_vector_ranks() {
                 &["project".into()],
                 &stop
             )
+            .await
             .unwrap()
             .is_empty()
     );

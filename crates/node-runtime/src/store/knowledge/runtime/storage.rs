@@ -26,25 +26,29 @@ pub(in crate::store) fn changes(command: &Command) -> bool {
     )
 }
 
-pub(in crate::store) fn prepare(
+pub(in crate::store) async fn prepare(
     database: &mut Database,
     request: &Request,
     stop: &CancellationToken,
     _events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<super::super::semantic::Plan, Fault> {
-    super::super::semantic::prepare(&database.connection, request, stop)
+    super::super::semantic::prepare(&database.connection, request, stop).await
 }
 
-pub(in crate::store) fn register(
+pub(in crate::store) async fn register(
     database: &mut Database,
     stop: &CancellationToken,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let changed = super::super::semantic::startup(&transaction, stop)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
+    let changed = super::super::semantic::startup(&transaction, stop).await?;
     let changes = changed.then_some(Event::KnowledgeCollectionsChanged);
-    let envelopes = record(&transaction, database.node, changes.into_iter().collect())?;
-    transaction.commit().map_err(storage_error)?;
+    let envelopes = record(&transaction, database.node, changes.into_iter().collect()).await?;
+    transaction.commit().await.map_err(storage_error)?;
     for envelope in envelopes {
         let _ = events.send(envelope);
     }

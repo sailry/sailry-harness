@@ -80,7 +80,7 @@ async fn stages_and_rejects_selected_blocks() {
         let original = review(&fixture).await;
         assert_eq!(original.hunks.len(), 2);
         assert!(!original.partial);
-        let counts = fixture.counts();
+        let counts = fixture.counts().await;
         let current = after.replace("line 15\n", "manual 15\n");
         std::fs::write(fixture.root.join("source.txt"), &current).unwrap();
         std::fs::write(fixture.root.join("manual.txt"), "Unrelated staged data\n").unwrap();
@@ -143,7 +143,7 @@ async fn stages_and_rejects_selected_blocks() {
         );
         assert_eq!(fixture.client.execute(rejection).await.unwrap(), output);
         assert_eq!(review(&fixture).await, original);
-        assert_eq!(fixture.counts(), counts);
+        assert_eq!(fixture.counts().await, counts);
         assert_eq!(
             fixture
                 .client
@@ -359,7 +359,7 @@ async fn recovers_original_receipts_across_restart() {
         let fixture = Fixture::git(remote, &[("source.txt", Some(&before), &after)]).await;
         let original = review(&fixture).await;
         let snapshot = status(&fixture).await;
-        let counts = fixture.counts();
+        let counts = fixture.counts().await;
         let staged = fixture.client.prepare(Command::ApplyTurnHunk(selection(
             &fixture,
             &original.hunks[0],
@@ -394,7 +394,10 @@ async fn recovers_original_receipts_across_restart() {
             hunk::Operation::Reject,
             &snapshot,
         )));
-        fixture.database().execute_batch("CREATE TRIGGER lose_hunk BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+        fixture.node.with_storage(|db| Box::pin(async move {
+            db.execute_batch("CREATE TRIGGER lose_hunk BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;")
+                .await.map_err(crate::database_fixture::fault)
+        })).await.unwrap();
         assert_eq!(
             fixture
                 .client
@@ -409,8 +412,15 @@ async fn recovers_original_receipts_across_restart() {
             after.replace("changed 26\n", "line 26\n")
         );
         fixture
-            .database()
-            .execute_batch("DROP TRIGGER lose_hunk")
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.execute_batch("DROP TRIGGER lose_hunk")
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
         let replacement = "Manual replacement survives original-ID replay\n";
         std::fs::write(fixture.root.join("source.txt"), replacement).unwrap();
@@ -440,8 +450,13 @@ async fn recovers_original_receipts_across_restart() {
             replacement
         );
         assert_eq!(history(&client, fixture.session.id).await, fixture.history);
-        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let actual = database.query_row("SELECT (SELECT count(*) FROM agent_events),(SELECT count(*) FROM file_checkpoints)", [], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,i64>(1)?))).unwrap();
+        let actual: (i64, i64) = node.with_storage(|database| Box::pin(async move {
+            let row = database
+                .prepare("SELECT (SELECT count(*) FROM agent_events),(SELECT count(*) FROM file_checkpoints)")
+                .await.map_err(crate::database_fixture::fault)?
+                .query_row(()).await.map_err(crate::database_fixture::fault)?;
+            Ok((row.get(0).map_err(crate::database_fixture::fault)?, row.get(1).map_err(crate::database_fixture::fault)?))
+        })).await.unwrap();
         assert_eq!(actual, counts);
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

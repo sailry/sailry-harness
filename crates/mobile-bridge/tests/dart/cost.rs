@@ -108,8 +108,8 @@ fn restores_partial_costs_across_nodes() {
                 .unwrap();
             }
             node.shutdown().await.unwrap();
-            pricing::seed(&profile);
-            seed_catalog(&profile);
+            pricing::seed(&profile).await;
+            seed_catalog(&profile).await;
             Node::start(&profile).await.unwrap()
         });
         nodes.push(node);
@@ -128,15 +128,12 @@ fn restores_partial_costs_across_nodes() {
     assert_eq!(model.requests.lock().unwrap().len(), 3);
 }
 
-fn seed_catalog(profile: &std::path::Path) {
-    let db = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
-    )
-    .unwrap();
+async fn seed_catalog(profile: &std::path::Path) {
+    let (database, db) =
+        crate::database_fixture::open(&profile.join("storage/node.turso"), false).await;
     db.execute(
         "INSERT INTO model_catalog(provider,id,body) VALUES('openai',?1,?2)",
-        rusqlite::params![
+        turso::params![
             "priced-fixture",
             serde_json::to_vec(&serde_json::json!({
                 "id": "priced-fixture",
@@ -145,5 +142,7 @@ fn seed_catalog(profile: &std::path::Path) {
             .unwrap()
         ],
     )
+    .await
     .unwrap();
+    crate::database_fixture::close(database, db).await;
 }

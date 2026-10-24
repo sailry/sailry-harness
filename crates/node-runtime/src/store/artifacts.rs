@@ -3,12 +3,12 @@ use super::{
     commands,
     database::{encode, storage_error},
 };
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
     artifact::{self, Revision, Summary},
     *,
 };
 use std::path::Path;
+use turso::{Connection, params};
 #[path = "artifact/history.rs"]
 mod history;
 #[path = "artifact/reads.rs"]
@@ -18,55 +18,67 @@ pub(in crate::store) use history::{cleanup, prune};
 #[path = "artifact/tests.rs"]
 mod tests;
 
-pub(super) fn execute(
+pub(super) async fn execute(
     db: &Connection,
     profile: Option<&Path>,
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     let output = match &request.command {
-        Command::WriteArtifact(draft) => write(db, profile, request, draft)?,
+        Command::WriteArtifact(draft) => write(db, profile, request, draft).await?,
         Command::ReadArtifact {
             id,
             revision,
             session,
-        } => Output::Artifact(read(
-            db,
-            profile,
-            *id,
-            *revision,
-            scope(db, request, *id, *session)?,
-        )?),
+        } => Output::Artifact(
+            read(
+                db,
+                profile,
+                *id,
+                *revision,
+                scope(db, request, *id, *session).await?,
+            )
+            .await?,
+        ),
         Command::ListArtifacts {
             session,
             after,
             limit,
-        } => Output::Artifacts(list(db, *session, *after, *limit)?),
+        } => Output::Artifacts(list(db, *session, *after, *limit).await?),
         Command::ListArtifactRevisions {
             id,
             before,
             limit,
             session,
-        } => Output::ArtifactRevisions(revisions(
-            db,
-            *id,
-            *before,
-            *limit,
-            scope(db, request, *id, *session)?,
-        )?),
+        } => Output::ArtifactRevisions(
+            revisions(
+                db,
+                *id,
+                *before,
+                *limit,
+                scope(db, request, *id, *session).await?,
+            )
+            .await?,
+        ),
         _ => return Err(Fault::invalid("artifact command required")),
     };
     Ok((output, None))
 }
 
-pub(in crate::store) fn required(db: &Connection, id: ArtifactId) -> Result<Summary, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM artifacts WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(in crate::store) async fn required(db: &Connection, id: ArtifactId) -> Result<Summary, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM artifacts WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let value: Summary = serde_json::from_slice(
         &body.ok_or_else(|| Fault::new(ErrorCode::NotFound, "artifact does not exist"))?,
     )
@@ -77,7 +89,7 @@ pub(in crate::store) fn required(db: &Connection, id: ArtifactId) -> Result<Summ
     Ok(value)
 }
 
-pub(in crate::store) fn scope(
+pub(in crate::store) async fn scope(
     db: &Connection,
     request: &Request,
     id: ArtifactId,
@@ -87,8 +99,10 @@ pub(in crate::store) fn scope(
     if captured.is_some() && session.is_some() && captured != session {
         return Err(denied("artifact read is outside the captured session"));
     }
-    let session = captured.or(session).unwrap_or(required(db, id)?.session);
-    commands::session(db, session).map_err(|error| {
+    let session = captured
+        .or(session)
+        .unwrap_or(required(db, id).await?.session);
+    commands::session(db, session).await.map_err(|error| {
         if captured.is_some() {
             denied("artifact read has no live captured session")
         } else {
@@ -98,7 +112,7 @@ pub(in crate::store) fn scope(
     Ok(session)
 }
 
-fn write(
+async fn write(
     db: &Connection,
     profile: Option<&Path>,
     request: &Request,
@@ -119,11 +133,11 @@ fn write(
     if context.invocation.is_some() {
         return Err(denied("callbacks cannot write conversation artifacts"));
     }
-    let owner = commands::session(db, session)?;
+    let owner = commands::session(db, session).await?;
     if owner.delegation.is_some() {
         return Err(denied("delegated sessions cannot write artifacts"));
     }
-    let run = super::agent::visible_run(db, session, turn)?;
+    let run = super::agent::visible_run(db, session, turn).await?;
     if run.origin.is_some()
         || run.status != conversation::Status::Running
         || Some(run.worktree) != context.worktree
@@ -133,7 +147,7 @@ fn write(
             "artifact turn is no longer active",
         ));
     }
-    authorize(db, request, context, draft)?;
+    authorize(db, request, context, draft).await?;
     if !artifact::label(&draft.title, false)
         || !artifact::label(&draft.summary, true)
         || draft.id.is_some() != draft.expected_revision.is_some()
@@ -142,7 +156,11 @@ fn write(
             "invalid artifact title, summary or expected revision",
         ));
     }
-    let previous = draft.id.map(|id| required(db, id)).transpose()?;
+    let previous = (match draft.id {
+        Some(value) => Some((async |id| required(db, id).await)(value).await),
+        None => None,
+    })
+    .transpose()?;
     if let Some(previous) = &previous {
         if previous.session != session || previous.package.name != context.package.name {
             return Err(denied("artifact belongs to another session or package"));
@@ -154,7 +172,7 @@ fn write(
             ));
         }
     }
-    let package = super::agent::plugins::package(db, context)?;
+    let package = super::agent::plugins::package(db, context).await?;
     let allowed_classes = package
         .extension
         .as_ref()
@@ -206,13 +224,20 @@ fn write(
             "artifact metadata exceeds the response budget",
         ));
     }
-    let referenced: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM artifact_revisions WHERE artifact=?1 AND revision=?2)",
-            params![artifact.id.to_string(), artifact.revision],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let referenced: bool = {
+        let mut statement = db
+            .prepare(
+                "SELECT EXISTS(SELECT 1 FROM artifact_revisions WHERE artifact=?1 AND revision=?2)",
+            )
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![artifact.id.to_string(), artifact.revision])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if referenced {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -223,28 +248,51 @@ fn write(
     // metadata transaction. Referenced revisions remain immutable.
     let digest =
         crate::files::artifacts::write(profile, session, artifact.id, artifact.revision, &html)?;
-    db.execute("INSERT INTO artifacts(id,session,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET body=excluded.body",params![artifact.id.to_string(),session.to_string(),encode(&artifact)?]).map_err(storage_error)?;
-    db.execute("INSERT INTO artifact_revisions(artifact,revision,body,digest,warnings) VALUES(?1,?2,?3,?4,?5)",params![artifact.id.to_string(),artifact.revision,encode(&artifact)?,digest,encode(&warnings)?]).map_err(storage_error)?;
+    let rowid = if previous.is_some() {
+        db.prepare("SELECT rowid FROM artifacts WHERE id=?1")
+            .await
+            .map_err(storage_error)?
+            .query_row([artifact.id.to_string()])
+            .await
+            .map_err(storage_error)?
+            .get::<i64>(0)
+            .map_err(storage_error)?
+    } else {
+        crate::store::database::counters::next(
+            db,
+            crate::store::database::counters::Namespace::Artifacts,
+        )
+        .await? as i64
+    };
+    db.execute("INSERT INTO artifacts(rowid,id,session,body) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET body=excluded.body",params![rowid,artifact.id.to_string(),session.to_string(),encode(&artifact)?]).await.map_err(storage_error)?;
+    db.execute("INSERT INTO artifact_revisions(artifact,revision,body,digest,warnings) VALUES(?1,?2,?3,?4,?5)",params![artifact.id.to_string(),artifact.revision,encode(&artifact)?,digest,encode(&warnings)?]).await.map_err(storage_error)?;
     Ok(Output::ArtifactWritten { artifact, warnings })
 }
 
-fn authorize(
+async fn authorize(
     db: &Connection,
     request: &Request,
     context: &plugin::Context,
     draft: &artifact::Write,
 ) -> Result<(), Fault> {
-    let row: Option<(Vec<u8>, Vec<u8>)> = db
-        .query_row(
-            "SELECT body,binding FROM agent_approvals WHERE request=?1 AND turn=?2 AND claimed=1",
-            params![
+    let row: Option<(Vec<u8>, Vec<u8>)> = {
+        let mut statement = db.prepare("SELECT body,binding FROM agent_approvals WHERE request=?1 AND turn=?2 AND claimed=1").await.map_err(storage_error)?;
+        match statement
+            .query_row(params![
                 request.id.to_string(),
                 context.turn.expect("checked turn").to_string()
-            ],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+            ])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let (body, binding) =
         row.ok_or_else(|| denied("artifact write has no claimed tool approval"))?;
     let approval: conversation::Approval = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -258,13 +306,18 @@ fn authorize(
     {
         return Err(denied("artifact write is outside its captured approval"));
     }
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![approval.turn.to_string(), approval.entry],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![approval.turn.to_string(), approval.entry])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let event: adk_core::Event = serde_json::from_slice(&body).map_err(storage_error)?;
     let matches = event
         .content()
@@ -288,32 +341,37 @@ fn authorize(
     Ok(())
 }
 
-fn read(
+async fn read(
     db: &Connection,
     profile: Option<&Path>,
     id: ArtifactId,
     revision: Option<u32>,
     session: SessionId,
 ) -> Result<artifact::Content, Fault> {
-    let latest = required(db, id)?;
+    let latest = required(db, id).await?;
     let visible = if latest.session == session {
         latest.revision
     } else {
-        revisions(db, id, None, 1, session)?
+        revisions(db, id, None, 1, session)
+            .await?
             .items
             .first()
             .map(|value| value.revision)
             .ok_or_else(|| denied("artifact has no publication in this conversation"))?
     };
     let revision = revision.unwrap_or(visible);
-    let row: Option<(Vec<u8>, String, Vec<u8>)> = db
-        .query_row(
-            "SELECT body,digest,warnings FROM artifact_revisions WHERE artifact=?1 AND revision=?2",
-            params![id.to_string(), revision],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let row: Option<(Vec<u8>, String, Vec<u8>)> = {
+        let mut statement = db.prepare("SELECT body,digest,warnings FROM artifact_revisions WHERE artifact=?1 AND revision=?2").await.map_err(storage_error)?;
+        match statement.query_row(params![id.to_string(), revision]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let (body, digest, warnings) =
         row.ok_or_else(|| Fault::new(ErrorCode::NotFound, "artifact revision does not exist"))?;
     let artifact: Summary = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -327,7 +385,7 @@ fn read(
     {
         return Err(storage_error("invalid stored artifact revision"));
     }
-    if artifact.session != session && !history::published(db, session, &artifact)? {
+    if artifact.session != session && !history::published(db, session, &artifact).await? {
         return Err(denied(
             "artifact revision is outside the conversation history",
         ));
@@ -351,24 +409,30 @@ fn read(
     })
 }
 
-pub(in crate::store) fn list(
+pub(in crate::store) async fn list(
     db: &Connection,
     session: SessionId,
     after: Option<ArtifactId>,
     limit: u16,
 ) -> Result<artifact::Page, Fault> {
-    commands::session(db, session)?;
+    commands::session(db, session).await?;
     let limit = page_limit(limit)?;
     let boundary = if let Some(id) = after {
-        if required(db, id)?.session != session {
+        if required(db, id).await?.session != session {
             return Err(Fault::invalid("artifact cursor belongs to another session"));
         }
-        db.query_row(
-            "SELECT rowid FROM artifacts WHERE id=?1",
-            [id.to_string()],
-            |row| row.get::<_, i64>(0),
-        )
-        .map_err(storage_error)?
+        {
+            let mut statement = db
+                .prepare("SELECT rowid FROM artifacts WHERE id=?1")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row([id.to_string()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+            mapped.map_err(storage_error)?
+        }
     } else {
         i64::MAX
     };
@@ -376,13 +440,20 @@ pub(in crate::store) fn list(
         .prepare(
             "SELECT body FROM artifacts WHERE session=?1 AND rowid<?2 ORDER BY rowid DESC LIMIT ?3",
         )
+        .await
         .map_err(storage_error)?;
-    let rows = query
-        .query_map(
-            params![session.to_string(), boundary, i64::from(limit) + 1],
-            |row| row.get::<_, Vec<u8>>(0),
-        )
-        .map_err(storage_error)?;
+    let rows = {
+        let mut rows = query
+            .query(params![session.to_string(), boundary, i64::from(limit) + 1])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    };
     let mut items = Vec::new();
     let mut more = false;
     let mut bytes = encode(&artifact::Page {
@@ -416,22 +487,23 @@ pub(in crate::store) fn list(
     })
 }
 
-fn revisions(
+async fn revisions(
     db: &Connection,
     id: ArtifactId,
     before: Option<u32>,
     limit: u16,
     session: SessionId,
 ) -> Result<artifact::RevisionPage, Fault> {
-    let latest = required(db, id)?;
+    let latest = required(db, id).await?;
     let owner = latest.session;
     let limit = page_limit(limit)?;
-    let mut query=db.prepare("SELECT body FROM artifact_revisions WHERE artifact=?1 AND revision<?2 ORDER BY revision DESC").map_err(storage_error)?;
+    let mut query=db.prepare("SELECT body FROM artifact_revisions WHERE artifact=?1 AND revision<?2 ORDER BY revision DESC").await.map_err(storage_error)?;
     let mut rows = query
         .query(params![
             id.to_string(),
             before.map(i64::from).unwrap_or(i64::MAX)
         ])
+        .await
         .map_err(storage_error)?;
     let mut items = Vec::new();
     let mut more = false;
@@ -440,10 +512,9 @@ fn revisions(
         next_before: Some(u32::MAX),
     })?
     .len();
-    while let Some(row) = rows.next().map_err(storage_error)? {
-        let value: Summary =
-            serde_json::from_slice(&row.get::<_, Vec<u8>>(0).map_err(storage_error)?)
-                .map_err(storage_error)?;
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let value: Summary = serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+            .map_err(storage_error)?;
         if !value.valid()
             || value.id != id
             || value.session != owner
@@ -453,7 +524,7 @@ fn revisions(
         {
             return Err(storage_error("invalid stored artifact revision"));
         }
-        if owner != session && !history::published(db, session, &value)? {
+        if owner != session && !history::published(db, session, &value).await? {
             continue;
         }
         if items.len() == usize::from(limit) {
@@ -506,20 +577,22 @@ fn denied(message: &str) -> Fault {
     Fault::new(ErrorCode::PermissionDenied, message)
 }
 
-pub(in crate::store) fn validate_stored(db: &Connection) -> Result<(), Fault> {
-    validate(db, true)
+pub(in crate::store) async fn validate_stored(db: &Connection) -> Result<(), Fault> {
+    validate(db, true).await
 }
 
-pub(in crate::store) fn validate_current(db: &Connection) -> Result<(), Fault> {
-    validate(db, false)
+pub(in crate::store) async fn validate_current(db: &Connection) -> Result<(), Fault> {
+    validate(db, false).await
 }
 
-fn validate(db: &Connection, archives: bool) -> Result<(), Fault> {
-    let missing: bool = db.query_row(
-        if archives { "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL) OR EXISTS(SELECT 1 FROM artifact_revisions WHERE json_type(body,'$.kind') IS NULL)" }
-        else { "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL)" },
-        [], |row| row.get(0),
-    ).map_err(storage_error)?;
+async fn validate(db: &Connection, archives: bool) -> Result<(), Fault> {
+    let missing: bool = {
+        let mut statement = db.prepare(if archives { "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL) OR EXISTS(SELECT 1 FROM artifact_revisions WHERE json_type(body,'$.kind') IS NULL)" }
+        else { "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL)" }).await.map_err(storage_error)?;
+        let row = statement.query_row(()).await.map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if missing {
         return Err(storage_error(
             "stored artifact metadata is missing its kind",
@@ -530,21 +603,20 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Fault> {
     } else {
         "SELECT a.id,a.session,a.body,r.revision,r.body,r.digest,r.warnings FROM artifacts a JOIN artifact_revisions r ON r.artifact=a.id AND r.revision=json_extract(a.body,'$.revision')"
     };
-    let mut query = db.prepare(sql).map_err(storage_error)?;
-    let mut rows = query.query([]).map_err(storage_error)?;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    let mut query = db.prepare(sql).await.map_err(storage_error)?;
+    let mut rows = query.query(()).await.map_err(storage_error)?;
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         let id: String = row.get(0).map_err(storage_error)?;
         let session: String = row.get(1).map_err(storage_error)?;
         let latest: Summary =
-            serde_json::from_slice(&row.get::<_, Vec<u8>>(2).map_err(storage_error)?)
+            serde_json::from_slice(&row.get::<Vec<u8>>(2).map_err(storage_error)?)
                 .map_err(storage_error)?;
         let revision: u32 = row.get(3).map_err(storage_error)?;
-        let value: Summary =
-            serde_json::from_slice(&row.get::<_, Vec<u8>>(4).map_err(storage_error)?)
-                .map_err(storage_error)?;
+        let value: Summary = serde_json::from_slice(&row.get::<Vec<u8>>(4).map_err(storage_error)?)
+            .map_err(storage_error)?;
         let digest: String = row.get(5).map_err(storage_error)?;
         let warnings: Vec<String> =
-            serde_json::from_slice(&row.get::<_, Vec<u8>>(6).map_err(storage_error)?)
+            serde_json::from_slice(&row.get::<Vec<u8>>(6).map_err(storage_error)?)
                 .map_err(storage_error)?;
         if !latest.valid()
             || !value.valid()
@@ -564,12 +636,17 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Fault> {
             return Err(storage_error("incompatible stored artifact metadata"));
         }
     }
-    let missing:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM artifacts a WHERE NOT EXISTS(SELECT 1 FROM artifact_revisions r WHERE r.artifact=a.id AND r.revision=json_extract(a.body,'$.revision')))",[],|row|row.get(0)).map_err(storage_error)?;
+    let missing: bool = {
+        let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM artifacts a WHERE NOT EXISTS(SELECT 1 FROM artifact_revisions r WHERE r.artifact=a.id AND r.revision=json_extract(a.body,'$.revision')))").await.map_err(storage_error)?;
+        let row = statement.query_row(()).await.map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if missing {
         return Err(storage_error("artifact latest revision is missing"));
     }
     if archives {
-        history::validate(db)?;
+        history::validate(db).await?;
     }
     Ok(())
 }

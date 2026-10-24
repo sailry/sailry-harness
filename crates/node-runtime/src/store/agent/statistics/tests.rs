@@ -26,32 +26,33 @@ fn timed(input: i32, output: i32, first_token_us: u64) -> AdkEvent {
     response
 }
 
-#[test]
-fn follows_latest_recorded_first_text() {
-    let mut fixture = Fixture::new();
-    let read_time = |fixture: &Fixture| {
+#[tokio::test]
+async fn follows_latest_recorded_first_text() {
+    let mut fixture = Fixture::new().await;
+    let read_time = async |fixture: &Fixture| {
         read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .first_token_us
     };
-    fixture.append([timed(100, 20, 125_000)]);
-    assert_eq!(read_time(&fixture), Some(125_000));
+    fixture.append([timed(100, 20, 125_000)]).await;
+    assert_eq!(read_time(&fixture).await, Some(125_000));
     let mut media = timed(500, 40, 1_000);
     media
         .provider_metadata
         .insert("sailry_media".into(), "image".into());
-    fixture.append([media]);
-    assert_eq!(read_time(&fixture), Some(125_000));
-    fixture.append([event(200, 30)]);
+    fixture.append([media]).await;
+    assert_eq!(read_time(&fixture).await, Some(125_000));
+    fixture.append([event(200, 30)]).await;
     assert_eq!(
-        read_time(&fixture),
+        read_time(&fixture).await,
         None,
         "missing timing resets stale latency"
     );
-    fixture.append([timed(40, 8, 0)]);
-    assert_eq!(read_time(&fixture), Some(0));
-    fixture.completed(&["Unmetered response"]);
-    assert_eq!(read_time(&fixture), None);
+    fixture.append([timed(40, 8, 0)]).await;
+    assert_eq!(read_time(&fixture).await, Some(0));
+    fixture.completed(&["Unmetered response"]).await;
+    assert_eq!(read_time(&fixture).await, None);
     for invalid in [
         serde_json::json!(-1),
         serde_json::json!(1.5),
@@ -60,26 +61,32 @@ fn follows_latest_recorded_first_text() {
         let mut response = event(50, 10);
         response.llm_response.provider_metadata =
             Some(serde_json::json!({"sailry_timing":{"first_token_us":invalid}}));
-        fixture.append([response]);
-        assert_eq!(read_time(&fixture), None);
+        fixture.append([response]).await;
+        assert_eq!(read_time(&fixture).await, None);
     }
 }
 
-#[test]
-fn counts_reported_usage_once() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn counts_reported_usage_once() {
+    let mut fixture = Fixture::new().await;
     assert_eq!(
-        read(&fixture.database.connection, fixture.session).unwrap(),
+        read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         Statistics::default()
     );
-    fixture.queued();
+    fixture.queued().await;
     assert_eq!(
-        read(&fixture.database.connection, fixture.session).unwrap(),
+        read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         Statistics::default()
     );
-    fixture.completed(&["No usage reported"]);
+    fixture.completed(&["No usage reported"]).await;
     assert_eq!(
-        read(&fixture.database.connection, fixture.session).unwrap(),
+        read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         Statistics {
             turns: 1,
             responses: 0,
@@ -92,10 +99,14 @@ fn counts_reported_usage_once() {
         }
     );
     let first = event(i32::MAX, 4);
-    fixture.append([first.clone(), first, event(i32::MAX, 4)]);
-    fixture.append([event(-1, -5)]);
+    fixture
+        .append([first.clone(), first, event(i32::MAX, 4)])
+        .await;
+    fixture.append([event(-1, -5)]).await;
     assert_eq!(
-        read(&fixture.database.connection, fixture.session).unwrap(),
+        read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         Statistics {
             turns: 3,
             responses: 3,
@@ -116,30 +127,34 @@ fn counts_reported_usage_once() {
     );
     assert_eq!(
         read(&fixture.database.connection, SessionId::new())
+            .await
             .unwrap_err()
             .code,
         ErrorCode::NotFound
     );
 }
 
-#[test]
-fn follows_visible_history() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn follows_visible_history() {
+    let mut fixture = Fixture::new().await;
     let source = fixture.session;
-    let first = fixture.append([event(10, 4)]);
+    let first = fixture.append([event(10, 4)]).await;
     let mut last = first;
     for _ in 0..24 {
-        last = fixture.append([event(10, 4)]);
+        last = fixture.append([event(10, 4)]).await;
     }
-    let totals = read(&fixture.database.connection, source).unwrap();
+    let totals = read(&fixture.database.connection, source).await.unwrap();
     assert_eq!(totals.turns, 25);
     assert_eq!(totals.responses, 25);
     assert_eq!(totals.usage.as_ref().unwrap().input, 250);
     assert_eq!(totals.context_tokens, Some(14));
-    let page = fixture.read(None, 1);
+    let page = fixture.read(None, 1).await;
     assert_eq!(page.page.entries.len(), 1);
-    fixture.read(page.page.next_before, 2);
-    assert_eq!(read(&fixture.database.connection, source).unwrap(), totals);
+    fixture.read(page.page.next_before, 2).await;
+    assert_eq!(
+        read(&fixture.database.connection, source).await.unwrap(),
+        totals
+    );
     let Output::Session(fork) = command(
         &mut fixture.database,
         &fixture.events,
@@ -148,23 +163,29 @@ fn follows_visible_history() {
             through: first,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("fork expected");
     };
     assert_eq!(
         read(&fixture.database.connection, fork.id)
+            .await
             .unwrap()
             .responses,
         1
     );
     fixture.session = fork.id;
-    fixture.append([event(20, 8)]);
-    let fork_totals = read(&fixture.database.connection, fork.id).unwrap();
+    fixture.append([event(20, 8)]).await;
+    let fork_totals = read(&fixture.database.connection, fork.id).await.unwrap();
     assert_eq!(fork_totals.responses, 2);
     assert_eq!(fork_totals.usage.as_ref().unwrap().input, 30);
     assert_eq!(fork_totals.context_tokens, Some(28));
-    assert_eq!(read(&fixture.database.connection, source).unwrap(), totals);
-    let retained = fixture.fork(source, last);
+    assert_eq!(
+        read(&fixture.database.connection, source).await.unwrap(),
+        totals
+    );
+    let retained = fixture.fork(source, last).await;
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -174,47 +195,76 @@ fn follows_visible_history() {
             expected_head: last,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("rewind expected");
     };
     assert_eq!(
         read(&fixture.database.connection, source)
+            .await
             .unwrap()
             .responses,
         1
     );
     assert!(rewind.backup.is_none());
     assert_eq!(
-        read(&fixture.database.connection, retained.id).unwrap(),
+        read(&fixture.database.connection, retained.id)
+            .await
+            .unwrap(),
         totals
     );
     assert_eq!(
-        read(&fixture.database.connection, fork.id).unwrap(),
+        read(&fixture.database.connection, fork.id).await.unwrap(),
         fork_totals
     );
-    fixture
+    let index = fixture
         .database
         .connection
-        .execute_batch("REINDEX agent_usage")
+        .prepare("SELECT sql FROM sqlite_schema WHERE type='index' AND name='agent_usage' AND tbl_name='agent_events'")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<String>(0)
         .unwrap();
-    super::super::history::rebuild(&mut fixture.database.connection).unwrap();
+    let transaction = turso::transaction::Transaction::new_unchecked(
+        &fixture.database.connection,
+        turso::transaction::TransactionBehavior::Deferred,
+    )
+    .await
+    .unwrap();
+    transaction
+        .execute("DROP INDEX agent_usage", ())
+        .await
+        .unwrap();
+    transaction.execute_batch(index).await.unwrap();
+    transaction.commit().await.unwrap();
+    super::super::history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
     assert_eq!(
-        read(&fixture.database.connection, retained.id).unwrap(),
+        read(&fixture.database.connection, retained.id)
+            .await
+            .unwrap(),
         totals
     );
 }
 
-#[test]
-fn invalidates_stale_context() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn invalidates_stale_context() {
+    let mut fixture = Fixture::new().await;
     let original = timed(100, 20, 125_000);
-    fixture.append([original.clone()]);
-    let read_context = |fixture: &Fixture| {
+    fixture.append([original.clone()]).await;
+    let read_context = async |fixture: &Fixture| {
         let tokens = read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .context_tokens;
         assert_eq!(
             context_usage(&fixture.database.connection, fixture.session)
+                .await
                 .unwrap()
                 .filter(|usage| usage.observed)
                 .map(|usage| usage.tokens),
@@ -222,9 +272,10 @@ fn invalidates_stale_context() {
         );
         tokens
     };
-    assert_eq!(read_context(&fixture), Some(120));
+    assert_eq!(read_context(&fixture).await, Some(120));
     assert_eq!(
         read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .first_token_us,
         Some(125_000)
@@ -233,18 +284,19 @@ fn invalidates_stale_context() {
     media
         .provider_metadata
         .insert("sailry_media".into(), "image".into());
-    fixture.append([media]);
-    assert_eq!(read_context(&fixture), Some(120));
-    fixture.completed(&["Unmetered response"]);
-    assert_eq!(read_context(&fixture), None);
+    fixture.append([media]).await;
+    assert_eq!(read_context(&fixture).await, Some(120));
+    fixture.completed(&["Unmetered response"]).await;
+    assert_eq!(read_context(&fixture).await, None);
     assert_eq!(
         read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .first_token_us,
         None
     );
-    fixture.append([timed(200, 30, 250_000)]);
-    assert_eq!(read_context(&fixture), Some(230));
+    fixture.append([timed(200, 30, 250_000)]).await;
+    assert_eq!(read_context(&fixture).await, Some(230));
     let mut summary = AdkEvent::new("summary-fixture");
     summary.author = "system".into();
     summary
@@ -257,27 +309,28 @@ fn invalidates_stale_context() {
     });
     summary.llm_response.usage_metadata = event(400, 50).llm_response.usage_metadata;
     summary.llm_response.provider_metadata = timed(400, 50, 1_000).llm_response.provider_metadata;
-    fixture.append([summary]);
-    assert_eq!(read_context(&fixture), None);
+    fixture.append([summary]).await;
+    assert_eq!(read_context(&fixture).await, None);
     assert_eq!(
         read(&fixture.database.connection, fixture.session)
+            .await
             .unwrap()
             .first_token_us,
         None,
         "summary timing is not resumed context timing"
     );
-    fixture.append([event(40, 8)]);
-    assert_eq!(read_context(&fixture), Some(48));
+    fixture.append([event(40, 8)]).await;
+    assert_eq!(read_context(&fixture).await, Some(48));
 }
 
-#[test]
-fn restores_unique_usage() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn restores_unique_usage() {
+    let mut fixture = Fixture::new().await;
     let mut response = event(10, 4);
     response.llm_response.usage_metadata.as_mut().unwrap().cost = Some(0.0123);
     response.llm_response.provider_metadata =
         Some(serde_json::json!({"sailry_timing":{"elapsed_us":2_000_000}}));
-    let first = fixture.append([response.clone(), response]);
+    let first = fixture.append([response.clone(), response]).await;
     fixture
         .database
         .connection
@@ -288,6 +341,7 @@ fn restores_unique_usage() {
             )
             .unwrap()],
         )
+        .await
         .unwrap();
     fixture
         .database
@@ -299,8 +353,11 @@ fn restores_unique_usage() {
             )
             .unwrap()],
         )
+        .await
         .unwrap();
-    let expected = read(&fixture.database.connection, fixture.session).unwrap();
+    let expected = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert_eq!(
         expected.cost,
         Some(sailry_protocol::usage::Cost {
@@ -322,8 +379,10 @@ fn restores_unique_usage() {
             responses: 1
         })
     );
-    fixture.append([event(10, 4)]);
-    let partial = read(&fixture.database.connection, fixture.session).unwrap();
+    fixture.append([event(10, 4)]).await;
+    let partial = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert_eq!(partial.responses, 2);
     assert_eq!(partial.cost, expected.cost);
     assert_eq!(partial.generation, expected.generation);
@@ -335,37 +394,42 @@ fn restores_unique_usage() {
             through: first,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("fork expected");
     };
     assert_eq!(
-        read(&fixture.database.connection, fork.id).unwrap(),
+        read(&fixture.database.connection, fork.id).await.unwrap(),
         expected
     );
 }
 
-#[test]
-fn reads_indexed_totals() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn reads_indexed_totals() {
+    let mut fixture = Fixture::new().await;
     for _ in 0..8 {
         let mut entry = event(10, 4);
         entry.set_content(adk_core::Content::new("model").with_text("x".repeat(1024 * 1024)));
-        fixture.append([entry]);
+        fixture.append([entry]).await;
     }
     let db = &fixture.database.connection;
     let mut plan = db
         .prepare(&format!("EXPLAIN QUERY PLAN {}", report::SESSION_ROWS))
+        .await
         .unwrap();
-    let details = plan
-        .query_map([fixture.session.to_string()], |row| row.get::<_, String>(3))
-        .unwrap()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
+    let mut rows = plan.query([fixture.session.to_string()]).await.unwrap();
+    let mut details = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        details.push(row.get::<String>(3).unwrap());
+    }
+    drop(rows);
+    drop(plan);
     assert!(
         details.iter().any(|line| line.contains("agent_usage")),
         "{details:?}"
     );
-    let totals = read(db, fixture.session).unwrap();
+    let totals = read(db, fixture.session).await.unwrap();
     assert_eq!(totals.responses, 8);
     assert_eq!(totals.usage.as_ref().unwrap().input, 80);
     let mut own = serde_json::to_value(&totals).unwrap();

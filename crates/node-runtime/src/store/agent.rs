@@ -37,10 +37,10 @@ use super::{
 };
 use adk_core::{AdkError, Event as AdkEvent};
 use adk_session::{GetRequest, Session as AdkSession};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{conversation::*, *};
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
+use turso::{Connection, params};
 
 pub(crate) use approvals::Binding as ApprovalBinding;
 pub(crate) use approvals::results::{Denial, enrich as enrich_denials};
@@ -534,51 +534,44 @@ impl Ingress {
     }
 }
 
-pub(super) fn execute(
-    database: &mut Database,
+pub(super) fn execute<'a>(
+    database: &'a mut Database,
     operation: Operation,
-    events: &broadcast::Sender<EventEnvelope>,
-    controls: &crate::agent::Controls,
-) {
+    events: &'a broadcast::Sender<EventEnvelope>,
+    controls: &'a crate::agent::Controls,
+) -> sailry_link::Pending<'a, ()> {
+    // Select the handler before polling its async work.
     match operation {
         Operation::ClaimHook {
             turn,
             phase,
             ordinal,
             reply,
-        } => {
-            let _ = reply.send(super::hooks::claim(
-                &database.connection,
-                turn,
-                phase,
-                ordinal,
-            ));
-        }
+        } => Box::pin(async move {
+            let _ =
+                reply.send(super::hooks::claim(&database.connection, turn, phase, ordinal).await);
+        }),
         Operation::FinishHook {
             turn,
             phase,
             ordinal,
             result,
             reply,
-        } => {
-            let _ = reply.send(super::hooks::finish(
-                &database.connection,
-                turn,
-                phase,
-                ordinal,
-                &result,
-            ));
-        }
-        Operation::Worktrees { turn, reply } => {
-            let _ = reply.send(worktrees::list(database, turn));
-        }
+        } => Box::pin(async move {
+            let _ = reply.send(
+                super::hooks::finish(&database.connection, turn, phase, ordinal, &result).await,
+            );
+        }),
+        Operation::Worktrees { turn, reply } => Box::pin(async move {
+            let _ = reply.send(worktrees::list(database, turn).await);
+        }),
         Operation::ReadHistory {
             source,
             query,
             reply,
-        } => {
-            let _ = reply.send(references::history::execute(database, source, query));
-        }
+        } => Box::pin(async move {
+            let _ = reply.send(references::history::execute(database, source, query).await);
+        }),
         Operation::Connection {
             turn,
             package,
@@ -586,71 +579,71 @@ pub(super) fn execute(
             action,
             captured,
             reply,
-        } => {
-            let _ = reply.send(connections::command(
-                &database.connection,
-                turn,
-                &package,
-                target,
-                action,
-                &captured,
-            ));
-        }
+        } => Box::pin(async move {
+            let _ = reply.send(
+                connections::command(
+                    &database.connection,
+                    turn,
+                    &package,
+                    target,
+                    action,
+                    &captured,
+                )
+                .await,
+            );
+        }),
         Operation::ConnectionStatus {
             turn,
             package,
             targets,
             captured,
             reply,
-        } => {
-            let _ = reply.send(connections::status(
-                &database.connection,
-                turn,
-                &package,
-                &targets,
-                &captured,
-            ));
-        }
+        } => Box::pin(async move {
+            let _ = reply.send(
+                connections::status(&database.connection, turn, &package, &targets, &captured)
+                    .await,
+            );
+        }),
         Operation::ConnectionNames {
             turn,
             entries,
             captured,
             reply,
-        } => {
-            let _ = reply.send(connections::names(
-                &database.connection,
-                turn,
-                &entries,
-                &captured,
-            ));
-        }
+        } => Box::pin(async move {
+            let _ = reply
+                .send(connections::names(&database.connection, turn, &entries, &captured).await);
+        }),
         Operation::ConnectionTrust {
             turn,
             package,
             inspection,
             captured,
             reply,
-        } => {
-            let _ = reply.send(connections::trust(
-                &database.connection,
-                turn,
-                &package,
-                inspection,
-                &captured,
-            ));
-        }
-        Operation::Attachment { turn, id, reply } => {
-            let result = calls::active(&database.connection, turn)
-                .and_then(|_| super::attachments::turns::resolve(&database.connection, turn, id));
+        } => Box::pin(async move {
+            let _ = reply.send(
+                connections::trust(&database.connection, turn, &package, inspection, &captured)
+                    .await,
+            );
+        }),
+        Operation::Attachment { turn, id, reply } => Box::pin(async move {
+            let result = match calls::active(&database.connection, turn).await {
+                Ok(value) => {
+                    (async |_| {
+                        super::attachments::turns::resolve(&database.connection, turn, id).await
+                    })(value)
+                    .await
+                }
+                Err(error) => Err(error),
+            };
             let _ = reply.send(result);
-        }
+        }),
         Operation::Image {
             session,
             image,
             reply,
-        } => {
-            let _ = reply.send(images::resolve(&database.connection, session, &image));
-        }
+        } => Box::pin(async move {
+            let _ = reply.send(images::resolve(&database.connection, session, &image).await);
+        }),
         Operation::Delegate {
             turn,
             request,
@@ -658,157 +651,175 @@ pub(super) fn execute(
             message,
             token,
             reply,
-        } => {
+        } => Box::pin(async move {
             let result = if controls.stopped.is_cancelled() || token.is_cancelled() {
                 Err(super::unavailable())
             } else {
-                delegation::admit(database, turn, &request, arguments, message, events)
+                delegation::admit(database, turn, &request, arguments, message, events).await
             };
             if let Ok(invocation) = &result {
                 controls.register(invocation.turn.id, invocation.turn.session, token);
             }
             let _ = reply.send(result);
-        }
-        Operation::ClaimChild { turn, token, reply } => {
+        }),
+        Operation::ClaimChild { turn, token, reply } => Box::pin(async move {
             let result = if controls.stopped.is_cancelled() || token.is_cancelled() {
                 let status = if controls.stopped.is_cancelled() {
                     Status::Interrupted
                 } else {
                     Status::Cancelled
                 };
-                delegation::finish_queued(database, turn, status, None, events)
+                delegation::finish_queued(database, turn, status, None, events).await
             } else {
-                delegation::claim(database, turn, events)
+                delegation::claim(database, turn, events).await
             };
             if matches!(result, Ok(status) if status != Status::Queued) {
                 controls.wake.notify_waiters();
             }
             let _ = reply.send(result);
-        }
+        }),
         Operation::FinishQueuedChild {
             turn,
             status,
             error,
             reply,
-        } => {
+        } => Box::pin(async move {
             let status = if controls.stopped.is_cancelled() {
                 Status::Interrupted
             } else {
                 status
             };
-            let result = delegation::finish_queued(database, turn, status, error, events);
+            let result = delegation::finish_queued(database, turn, status, error, events).await;
             controls.wake.notify_waiters();
             let _ = reply.send(result);
-        }
-        Operation::CommandFinished(completed) => {
-            let result = (|| -> Result<(), Fault> {
-                let tx = database.connection.transaction().map_err(storage_error)?;
+        }),
+        Operation::CommandFinished(completed) => Box::pin(async move {
+            let result = (async || -> Result<(), Fault> {
+                let tx = database
+                    .connection
+                    .unchecked_transaction()
+                    .await
+                    .map_err(storage_error)?;
                 let task = background::command_finished(
                     &tx,
                     &completed.snapshot,
                     completed.elapsed_ms,
                     completed.explicit,
-                )?;
+                )
+                .await?;
                 let scheduled =
-                    background::schedule(&tx, database.node, completed.snapshot.info.session)?;
-                tx.commit().map_err(storage_error)?;
-                background::publish(database, task);
+                    background::schedule(&tx, database.node, completed.snapshot.info.session)
+                        .await?;
+                tx.commit().await.map_err(storage_error)?;
+                background::publish(database, task).await;
                 if let Some(turn) = scheduled {
-                    feed::run(database, runs::get(&database.connection, turn.id)?);
+                    feed::run(database, runs::get(&database.connection, turn.id).await?).await;
                     database.feeds.publish(
                         database.node,
                         turn.session,
-                        Change::Queue(queue::read(&database.connection, turn.session)?),
+                        Change::Queue(queue::read(&database.connection, turn.session).await?),
                     );
                     background::publish(
                         database,
-                        background::list(&database.connection, turn.session)?,
-                    );
+                        background::list(&database.connection, turn.session).await?,
+                    )
+                    .await;
                 }
                 Ok(())
-            })();
+            })()
+            .await;
             if let Err(error) = result {
                 eprintln!("background completion persistence failed: {error}");
             }
-        }
+        }),
         Operation::ConsumeCommand {
             parent,
             snapshot,
             reply,
-        } => {
-            let result = (|| -> Result<(), Fault> {
-                let tx = database.connection.transaction().map_err(storage_error)?;
-                let tasks = background::consume_command(&tx, parent, &snapshot)?;
-                tx.commit().map_err(storage_error)?;
-                background::publish(database, tasks);
+        } => Box::pin(async move {
+            let result = (async || -> Result<(), Fault> {
+                let tx = database
+                    .connection
+                    .unchecked_transaction()
+                    .await
+                    .map_err(storage_error)?;
+                let tasks = background::consume_command(&tx, parent, &snapshot).await?;
+                tx.commit().await.map_err(storage_error)?;
+                background::publish(database, tasks).await;
                 Ok(())
-            })();
+            })()
+            .await;
             let _ = reply.send(result);
-        }
+        }),
         Operation::CollectChild {
             parent,
             child,
             turn,
             reply,
-        } => {
-            let result = (|| -> Result<(), Fault> {
-                let tx = database.connection.transaction().map_err(storage_error)?;
-                let tasks = background::consume_child(&tx, parent, child, turn)?;
-                tx.commit().map_err(storage_error)?;
-                background::publish(database, tasks);
+        } => Box::pin(async move {
+            let result = (async || -> Result<(), Fault> {
+                let tx = database
+                    .connection
+                    .unchecked_transaction()
+                    .await
+                    .map_err(storage_error)?;
+                let tasks = background::consume_child(&tx, parent, child, turn).await?;
+                tx.commit().await.map_err(storage_error)?;
+                background::publish(database, tasks).await;
                 Ok(())
-            })();
+            })()
+            .await;
             let _ = reply.send(result);
-        }
+        }),
         Operation::ChildState {
             parent,
             child,
             exact,
             reply,
-        } => {
-            let _ = reply.send(delegation::control::state_at(
-                &database.connection,
-                parent,
-                child,
-                exact,
-            ));
-        }
-        Operation::PendingGuidance { recipient, reply } => {
+        } => Box::pin(async move {
+            let _ = reply.send(
+                delegation::control::state_at(&database.connection, parent, child, exact).await,
+            );
+        }),
+        Operation::PendingGuidance { recipient, reply } => Box::pin(async move {
             let _ = reply.send(
                 queue::guidance::pending(&database.connection, recipient)
+                    .await
                     .map(|pending| pending.is_some()),
             );
-        }
+        }),
         Operation::Checkpoint {
             turn,
             request,
             before,
             reply,
-        } => {
-            let _ = reply.send(checkpoints::capture(
-                database,
-                turn,
-                &request,
-                before.as_deref(),
-            ));
-        }
+        } => Box::pin(async move {
+            let _ =
+                reply.send(checkpoints::capture(database, turn, &request, before.as_deref()).await);
+        }),
         Operation::Ask {
             turn,
             request,
             reply,
-        } => match questions::begin(database, turn, &request, events) {
-            Ok(question) => {
-                database.questions.insert(question.id, (turn, reply));
+        } => Box::pin(async move {
+            match questions::begin(database, turn, &request, events).await {
+                Ok(question) => {
+                    database
+                        .questions
+                        .lock()
+                        .unwrap()
+                        .insert(question.id, (turn, reply));
+                }
+                Err(error) => {
+                    let _ = reply.send(Err(error));
+                }
             }
-            Err(error) => {
-                let _ = reply.send(Err(error));
-            }
-        },
-        Operation::CancelInput { turn, call } => {
-            if let Err(error) = elicitation::cancel(database, turn, &call, events) {
+        }),
+        Operation::CancelInput { turn, call } => Box::pin(async move {
+            if let Err(error) = elicitation::cancel(database, turn, &call, events).await {
                 eprintln!("MCP input persistence failed: {error}");
             }
-        }
+        }),
         Operation::Confirm {
             turn,
             owner,
@@ -819,7 +830,7 @@ pub(super) fn execute(
             ssh,
             prepared,
             reply,
-        } => {
+        } => Box::pin(async move {
             if reply.is_closed() || std::time::Instant::now() >= deadline {
                 let _ = reply.send(Ok(Decision::Deny));
                 return;
@@ -835,135 +846,145 @@ pub(super) fn execute(
                     prepared: prepared.as_ref(),
                 },
                 events,
-            ) {
+            )
+            .await
+            {
                 Ok(approval) if approval.state == ApprovalState::Approved => {
                     let _ = reply.send(Ok(Decision::Approve));
                 }
                 Ok(approval) => {
                     database
                         .approvals
+                        .lock()
+                        .unwrap()
                         .insert(approval.id, (turn, owner, deadline, Some(reply)));
                 }
                 Err(error) => {
                     let _ = reply.send(Err(error));
                 }
             }
-        }
+        }),
         #[cfg(any(test, feature = "test-support"))]
-        Operation::ApprovalCommitFixture { gate, reply } => {
-            database.approval_commit = Some(gate);
+        Operation::ApprovalCommitFixture { gate, reply } => Box::pin(async move {
+            *database.approval_commit.lock().unwrap() = Some(gate);
             let _ = reply.send(());
-        }
-        Operation::CancelApproval { turn, call, owner } => {
-            if let Err(error) = approvals::cancel(database, turn, &call, owner, events) {
+        }),
+        Operation::CancelApproval { turn, call, owner } => Box::pin(async move {
+            if let Err(error) = approvals::cancel(database, turn, &call, owner, events).await {
                 eprintln!("approval cancellation persistence failed: {error}");
             }
-        }
+        }),
         Operation::Authorize {
             turn,
             request,
             prepared,
             reply,
-        } => {
-            let _ = reply.send(approvals::authorize(
-                &mut database.connection,
-                turn,
-                &request,
-                prepared.as_ref(),
-            ));
-        }
-        Operation::Denials { turn, reply } => {
-            let _ = reply.send(approvals::results::read(&database.connection, turn));
-        }
+        } => Box::pin(async move {
+            let _ = reply.send(
+                approvals::authorize(&mut database.connection, turn, &request, prepared.as_ref())
+                    .await,
+            );
+        }),
+        Operation::Denials { turn, reply } => Box::pin(async move {
+            let _ = reply.send(approvals::results::read(&database.connection, turn).await);
+        }),
         Operation::ConnectionAccess {
             turn,
             request,
             prepared,
             reply,
-        } => {
-            let _ = reply.send(approvals::connection_access(
-                &database.connection,
-                turn,
-                &request,
-                &prepared,
-            ));
-        }
+        } => Box::pin(async move {
+            let _ = reply.send(
+                approvals::connection_access(&database.connection, turn, &request, &prepared).await,
+            );
+        }),
         Operation::CommandAccess {
             turn,
             request,
             reply,
-        } => {
-            let _ = reply.send(approvals::command_access(
-                &database.connection,
-                turn,
-                &request,
-            ));
-        }
+        } => Box::pin(async move {
+            let _ =
+                reply.send(approvals::command_access(&database.connection, turn, &request).await);
+        }),
         Operation::Subscribe {
             session,
             closed,
             reply,
-        } => {
-            let result = read(&database.connection, session, None, 20).and_then(|history| {
-                let statistics = statistics::read(&database.connection, session)?;
-                database.feeds.subscribe(
-                    database.node,
-                    history,
-                    statistics,
-                    super::artifacts::list(
-                        &database.connection,
-                        session,
-                        None,
-                        sailry_protocol::artifact::MAX_PAGE_LIMIT,
-                    )?,
-                    closed,
-                )
-            });
+        } => Box::pin(async move {
+            let result = match read(&database.connection, session, None, 20).await {
+                Ok(value) => {
+                    (async |history| {
+                        let statistics = statistics::read(&database.connection, session).await?;
+                        database.feeds.subscribe(
+                            database.node,
+                            history,
+                            statistics,
+                            super::artifacts::list(
+                                &database.connection,
+                                session,
+                                None,
+                                sailry_protocol::artifact::MAX_PAGE_LIMIT,
+                            )
+                            .await?,
+                            closed,
+                        )
+                    })(value)
+                    .await
+                }
+                Err(error) => Err(error),
+            };
             let _ = reply.send(result);
-        }
+        }),
         Operation::ContextHistory {
             session,
             turn,
             reply,
-        } => {
-            let _ = reply.send(compaction::history(&database.connection, session, turn));
-        }
-        Operation::ContextUsage { session, reply } => {
-            let result = check_session(&database.connection, session)
-                .and_then(|_| statistics::context_usage(&database.connection, session));
+        } => Box::pin(async move {
+            let _ = reply.send(compaction::history(&database.connection, session, turn).await);
+        }),
+        Operation::ContextUsage { session, reply } => Box::pin(async move {
+            let result = match check_session(&database.connection, session).await {
+                Ok(value) => {
+                    (async |_| statistics::context_usage(&database.connection, session).await)(
+                        value,
+                    )
+                    .await
+                }
+                Err(error) => Err(error),
+            };
             let _ = reply.send(result);
-        }
+        }),
         Operation::Get {
             turn,
             request,
             reply,
-        } => {
-            let _ = reply.send(sessions::get(&database.connection, turn, request));
-        }
+        } => Box::pin(async move {
+            let _ = reply.send(sessions::get(&database.connection, turn, request).await);
+        }),
         Operation::Append {
             session,
             turn,
             event,
             reply,
-        } => {
-            let _ = reply.send(history::append(database, session, turn, event, events));
-        }
-        Operation::Claim { token, reply } => {
+        } => Box::pin(async move {
+            let _ = reply.send(history::append(database, session, turn, event, events).await);
+        }),
+        Operation::Claim { token, reply } => Box::pin(async move {
             let result = if controls.stopped.is_cancelled() {
                 Ok(None)
             } else {
-                runs::claim(database, events)
+                runs::claim(database, events).await
             };
             if let Ok(Some(invocation)) = &result {
                 controls.register(invocation.turn.id, invocation.turn.session, token);
             }
             let _ = reply.send(result);
-        }
-        Operation::YieldGuidance { recipient, reply } => {
+        }),
+        Operation::YieldGuidance { recipient, reply } => Box::pin(async move {
             let result = if controls.stopped.is_cancelled() {
                 Ok(false)
             } else {
-                queue::guidance::yield_run(database, recipient, events)
+                queue::guidance::yield_run(database, recipient, events).await
             };
             if matches!(result, Ok(true)) {
                 controls.yield_run(recipient);
@@ -973,25 +994,27 @@ pub(super) fn execute(
                 controls.model_started(recipient);
             }
             let _ = reply.send(result);
-        }
+        }),
         Operation::ClaimGuidance {
             recipient,
             token,
             reply,
-        } => {
+        } => Box::pin(async move {
             let result = if controls.stopped.is_cancelled() || token.is_cancelled() {
-                queue::guidance::retain(database, recipient, events).map(|_| None)
+                queue::guidance::retain(database, recipient, events)
+                    .await
+                    .map(|_| None)
             } else {
-                runs::claim_guidance(database, recipient, events)
+                runs::claim_guidance(database, recipient, events).await
             };
             if let Ok(Some(invocation)) = &result {
                 controls.register(invocation.turn.id, invocation.turn.session, token);
             }
             let _ = reply.send(result);
-        }
-        Operation::RetainGuidance { recipient, reply } => {
-            let _ = reply.send(queue::guidance::retain(database, recipient, events));
-        }
+        }),
+        Operation::RetainGuidance { recipient, reply } => Box::pin(async move {
+            let _ = reply.send(queue::guidance::retain(database, recipient, events).await);
+        }),
         Operation::Finish {
             turn,
             status,
@@ -999,14 +1022,14 @@ pub(super) fn execute(
             owner,
             review,
             reply,
-        } => {
-            let result = (|| {
+        } => Box::pin(async move {
+            let result = (async || {
                 let owner_stopped = owner
                     .as_ref()
                     .is_some_and(sailry_link::CancellationToken::is_cancelled);
                 if owner_stopped {
                     controls.cancel(turn);
-                    queue::guidance::retain(database, turn, events)?;
+                    queue::guidance::retain(database, turn, events).await?;
                 }
                 // Resolve after every earlier Stop in this actor, not from a
                 // Runner's stale cancellation observation or queue contents.
@@ -1031,37 +1054,43 @@ pub(super) fn execute(
                 } else {
                     error
                 };
-                runs::finish_with(database, turn, status, error, review, events)
-            })();
+                runs::finish_with(database, turn, status, error, review, events).await
+            })()
+            .await;
             let _ = reply.send(result);
-        }
+        }),
     }
 }
 
-fn changed(db: &Connection, node: NodeId, session: SessionId) -> Result<EventEnvelope, Fault> {
-    let event = activity::changed(db, session)?;
-    db.execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
-        .map_err(storage_error)?;
-    Ok(EventEnvelope {
-        node,
-        cursor: db.last_insert_rowid() as u64,
-        event,
-    })
+async fn changed(
+    db: &Connection,
+    node: NodeId,
+    session: SessionId,
+) -> Result<EventEnvelope, Fault> {
+    let event = activity::changed(db, session).await?;
+    super::database::record(db, node, vec![event])
+        .await?
+        .pop()
+        .ok_or_else(|| storage_error("event was not recorded"))
 }
 
 fn adk_error(error: Fault) -> AdkError {
     AdkError::session(error.to_string())
 }
 
-fn check_session(db: &Connection, session: SessionId) -> Result<(), Fault> {
-    if db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND state!='removed')",
-            [session.to_string()],
-            |row| row.get::<_, bool>(0),
-        )
-        .map_err(storage_error)?
-    {
+async fn check_session(db: &Connection, session: SessionId) -> Result<(), Fault> {
+    if {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND state!='removed')")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([session.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<bool>(0))(&row);
+        mapped.map_err(storage_error)?
+    } {
         Ok(())
     } else {
         Err(Fault::new(

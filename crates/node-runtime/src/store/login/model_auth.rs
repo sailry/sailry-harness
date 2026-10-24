@@ -1,8 +1,8 @@
 //! Captures package authentication through the existing provider login worker.
 use super::*;
 use crate::providers::login::plugin::{Capture, Target, flow};
-use rusqlite::Connection;
 use sailry_protocol::plugin::{Action, model_auth};
+use turso::Connection;
 
 pub(super) struct Configuration {
     pub capture: Capture,
@@ -18,7 +18,7 @@ pub(super) struct Prepared {
     pub returned: Option<oneshot::Sender<Secret>>,
 }
 
-pub(super) fn configuration(
+pub(super) async fn configuration(
     db: &Connection,
     provider: &Provider,
     attempt: RequestId,
@@ -26,7 +26,7 @@ pub(super) fn configuration(
 ) -> Result<Configuration, Fault> {
     let mut captured = provider.clone();
     if options.is_none() {
-        crate::store::providers::presets::capture_read(db, &mut captured)?;
+        crate::store::providers::presets::capture_read(db, &mut captured).await?;
     }
     let options = options
         .cloned()
@@ -46,7 +46,7 @@ pub(super) fn configuration(
             origin.clone().ok_or_else(missing)?,
         ),
         _ if managed(provider.authentication) => {
-            let (info, declaration) = alias(db, provider.authentication)?;
+            let (info, declaration) = alias(db, provider.authentication).await?;
             let origin = crate::store::providers::consent::origin(&info);
             (
                 info.summary.reference(),
@@ -57,7 +57,8 @@ pub(super) fn configuration(
         }
         _ => return Err(missing()),
     };
-    let info = crate::store::agent::plugins::packages(db, std::slice::from_ref(&package))?
+    let info = crate::store::agent::plugins::packages(db, std::slice::from_ref(&package))
+        .await?
         .pop()
         .ok_or_else(missing)?;
     let extension = info.extension.as_ref().ok_or_else(missing)?;
@@ -77,7 +78,7 @@ pub(super) fn configuration(
     {
         return Err(missing());
     }
-    let resolved = crate::store::plugins::settings::resolve(db, &info)?;
+    let resolved = crate::store::plugins::settings::resolve(db, &info).await?;
     let mut fields = BTreeMap::new();
     let client_id = declaration.client.client_id.clone().or_else(|| {
         declaration
@@ -131,13 +132,13 @@ pub(super) fn configuration(
     })
 }
 
-pub(super) fn prepare(
+pub(super) async fn prepare(
     db: &Connection,
     provider: &Provider,
     attempt: RequestId,
     redirect: Option<&str>,
 ) -> Result<Prepared, Fault> {
-    let configuration = configuration(db, provider, attempt, None)?;
+    let configuration = configuration(db, provider, attempt, None).await?;
     let (redirect, callback, returned) = match &configuration.declaration.flow {
         model_auth::Flow::Pkce {
             redirect: mode,
@@ -274,12 +275,12 @@ where
     Ok(grant)
 }
 
-pub(super) fn complete(
+pub(super) async fn complete(
     db: &Connection,
     provider: &Provider,
     capture: &Capture,
 ) -> Result<(), Fault> {
-    let current = configuration(db, provider, capture.attempt, None)?;
+    let current = configuration(db, provider, capture.attempt, None).await?;
     capture.check(
         current.capture.attempt,
         current.capture.provider,
@@ -300,16 +301,16 @@ pub(in crate::store) fn managed(authentication: Authentication) -> bool {
     )
 }
 
-fn alias(
+async fn alias(
     db: &Connection,
     authentication: Authentication,
 ) -> Result<(sailry_protocol::plugin::Info, model_auth::Declaration), Fault> {
     let mut found = None;
-    for summary in crate::store::plugins::list(db)? {
+    for summary in crate::store::plugins::list(db).await? {
         if !summary.enabled {
             continue;
         }
-        let Some(info) = crate::store::plugins::get(db, &summary.name)? else {
+        let Some(info) = crate::store::plugins::get(db, &summary.name).await? else {
             continue;
         };
         if !info.issues.is_empty() {
@@ -336,27 +337,27 @@ fn alias(
     found.ok_or_else(missing)
 }
 
-pub(in crate::store) fn presentation(
+pub(in crate::store) async fn presentation(
     db: &Connection,
     authentication: Authentication,
 ) -> Result<Option<model_auth::Presentation>, Fault> {
     if !managed(authentication) || authentication == Authentication::Plugin {
         return Ok(None);
     }
-    match alias(db, authentication) {
+    match alias(db, authentication).await {
         Ok((_, declaration)) => Ok(Some(declaration.flow.presentation())),
         Err(error) if error.code == ErrorCode::NotConfigured => Ok(None),
         Err(error) => Err(error),
     }
 }
 
-pub(in crate::store) fn legacy_target(
+pub(in crate::store) async fn legacy_target(
     db: &Connection,
     provider: &Provider,
     package: &str,
     flow: &str,
 ) -> Result<Target, Fault> {
-    let current = configuration(db, provider, RequestId::new(), None)?;
+    let current = configuration(db, provider, RequestId::new(), None).await?;
     if current.target.package != package
         || current.target.flow != flow
         || current.target.origin != sailry_protocol::conversation::consent::Origin::Bundled
@@ -366,13 +367,14 @@ pub(in crate::store) fn legacy_target(
     Ok(current.target)
 }
 
-pub(in crate::store) fn check_binding(
+pub(in crate::store) async fn check_binding(
     db: &Connection,
     credential: &Credential,
     target: &Target,
 ) -> Result<(), Fault> {
     let saved =
-        crate::store::providers::authentication::binding(db, credential.id, credential.provider)?
+        crate::store::providers::authentication::binding(db, credential.id, credential.provider)
+            .await?
             .ok_or_else(missing)?;
     if !crate::store::providers::consent::same_origin(
         &target.package,

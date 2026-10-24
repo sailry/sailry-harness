@@ -195,8 +195,21 @@ async fn preserves_uncertain_replacements() {
     let destination = destination_volume(&fixture.root);
     let worktree = register(&fixture.clients()[0], destination.path()).await;
     let profile = fixture._temp.path().join("node");
-    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
     let mut requests = Vec::new();
     for client in fixture.clients() {
         let entry = Entry::new(&fixture.root);
@@ -221,8 +234,21 @@ async fn preserves_uncertain_replacements() {
         fs::write(destination.path().join(&entry.name), "external edit").unwrap();
         requests.push((request, entry));
     }
-    db.execute_batch("DROP TRIGGER lose_result").unwrap();
-    drop(db);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.node.shutdown().await.unwrap();
     let node = Node::start(profile).await.unwrap();
     for ((request, entry), client) in requests.into_iter().zip([

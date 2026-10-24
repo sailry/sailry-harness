@@ -1,16 +1,20 @@
 use super::*;
 use crate::store::database::{record, storage_error};
 
-pub(super) fn save(
+pub(super) async fn save(
     database: &mut Database,
     expected: &Provider,
     credential: Option<&Credential>,
     authorized: Authorized,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Option<Fault>, Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
     let mut provider =
-        crate::store::providers::current(&transaction, expected.id, expected.revision)?;
+        crate::store::providers::current(&transaction, expected.id, expected.revision).await?;
     if provider != *expected {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -18,7 +22,8 @@ pub(super) fn save(
         ));
     }
     if let Some(credential) = credential {
-        let current = crate::store::providers::authentication::get(&transaction, credential.id)?;
+        let current =
+            crate::store::providers::authentication::get(&transaction, credential.id).await?;
         if current.as_ref() != Some(credential) {
             return Err(Fault::new(
                 ErrorCode::RevisionConflict,
@@ -27,18 +32,19 @@ pub(super) fn save(
         }
     }
     authorized.grant.validate(provider.authentication)?;
-    let previous = credential
-        .filter(|value| !value.revoked)
-        .map(|credential| {
+    let previous = match credential.filter(|value| !value.revoked) {
+        Some(credential) => Some(
             crate::store::providers::authentication::resolve(
                 &transaction,
                 credential.id,
                 provider.id,
                 provider.authentication,
             )
-            .and_then(|(_, key)| Grant::decode(provider.authentication, &key))
-        })
-        .transpose()?;
+            .await
+            .and_then(|(_, key)| Grant::decode(provider.authentication, &key))?,
+        ),
+        None => None,
+    };
     // Only grants with comparable identities can reuse an existing authorization.
     // Opaque interactive flows receive a new identity so captured turns stay isolated.
     let same_account = previous.as_ref().is_some_and(|previous| {
@@ -64,9 +70,10 @@ pub(super) fn save(
         &transaction,
         value,
         &authorized.grant.encode()?,
-    )?;
+    )
+    .await?;
     if let Some(binding) = authorized.binding {
-        crate::store::providers::authentication::bind(&transaction, &value, *binding)?;
+        crate::store::providers::authentication::bind(&transaction, &value, *binding).await?;
     }
     provider.credential = Some(CredentialRef {
         node: database.node,
@@ -94,16 +101,14 @@ pub(super) fn save(
     let model_error = match authorized.models {
         Ok(models) => {
             let mut completed = provider.clone();
-            super::models::seed(&transaction, &mut completed, &models, changed_account)
-                .and_then(|()| {
-                    crate::store::agent::providers::validate(
-                        &transaction,
-                        database.node,
-                        &completed,
-                    )
-                })
-                .map(|()| provider = completed)
-                .err()
+            async {
+                super::models::seed(&transaction, &mut completed, &models, changed_account).await?;
+                crate::store::agent::providers::validate(&transaction, database.node, &completed)
+                    .await
+            }
+            .await
+            .map(|()| provider = completed)
+            .err()
         }
         Err(error) => Some(error),
     };
@@ -112,11 +117,12 @@ pub(super) fn save(
         database.node,
         &provider,
         expected.revision,
-    )?;
+    )
+    .await?;
     let mut changes = Vec::new();
     if changed_account {
-        for id in crate::store::sessions::ordered(&transaction)? {
-            let mut session = crate::store::commands::session(&transaction, id)?;
+        for id in crate::store::sessions::ordered(&transaction).await? {
+            let mut session = crate::store::commands::session(&transaction, id).await?;
             if session.delegation.is_none()
                 && session.config.provider == provider.id
                 && session.config.credential == expected.credential
@@ -145,18 +151,16 @@ pub(super) fn save(
                 if let Some(profile) = &mut session.profile {
                     profile.provider.credential = provider.credential.clone();
                 }
-                let (_, event) = crate::store::commands::revise_session(&transaction, session)?;
+                let (_, event) =
+                    crate::store::commands::revise_session(&transaction, session).await?;
                 changes.extend(event);
             }
         }
     }
     changes.insert(0, Event::ProviderChanged(provider));
-    changes.extend(crate::store::providers::quota::reconcile(
-        &transaction,
-        database.node,
-    )?);
-    let envelopes = record(&transaction, database.node, changes)?;
-    transaction.commit().map_err(storage_error)?;
+    changes.extend(crate::store::providers::quota::reconcile(&transaction, database.node).await?);
+    let envelopes = record(&transaction, database.node, changes).await?;
+    transaction.commit().await.map_err(storage_error)?;
     for envelope in envelopes {
         let _ = events.send(envelope);
     }

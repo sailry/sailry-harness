@@ -15,6 +15,7 @@ use std::{
 };
 
 const MANIFEST: &str = "sailry-backup.json";
+const DATABASES: [&str; 2] = ["node.turso", "knowledge.turso"];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,25 +62,74 @@ impl Snapshot {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn database_path(&self) -> Result<PathBuf, Fault> {
         let directory = files::path::root(self.directory.path())?;
         directory.create_dir("storage").map_err(io)?;
         let storage = directory.open_dir_nofollow("storage").map_err(io)?;
-        let _ = create(&storage, "node.sqlite3")?;
-        Ok(self.directory.path().join("storage/node.sqlite3"))
+        let _ = create(&storage, "node.turso")?;
+        Ok(self.directory.path().join("storage/node.turso"))
     }
 
+    #[cfg(test)]
     pub(crate) fn database(&mut self, cancel: &CancellationToken) -> Result<(), Fault> {
         let directory = files::path::root(&self.directory.path().join("storage"))?;
-        let mut file = files::open_regular(&directory, "node.sqlite3")?.into_std();
-        let size = file.metadata().map_err(io)?.len();
-        let sha256 = hash(&mut file, size, cancel)?;
-        self.add(File {
-            path: "storage/node.sqlite3".into(),
-            size,
-            sha256,
-            mode: 0o600,
-        })
+        for path in crate::profile::database_files(Path::new("node.turso"))
+            .into_iter()
+            .take(2)
+        {
+            let name = path.to_str().unwrap();
+            let mut file = files::open_regular(&directory, name)?.into_std();
+            let size = file.metadata().map_err(io)?.len();
+            let sha256 = hash(&mut file, size, cancel)?;
+            self.add(File {
+                path: format!("storage/{name}"),
+                size,
+                sha256,
+                mode: 0o600,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The caller has checkpointed and dropped every handle to this database.
+    pub(crate) fn freeze(
+        &mut self,
+        source: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<(), Fault> {
+        source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| DATABASES.contains(name))
+            .ok_or_else(|| Fault::invalid("invalid native backup database name"))?;
+        let directory = files::path::root(
+            source
+                .parent()
+                .ok_or_else(|| Fault::invalid("backup database parent is missing"))?,
+        )?;
+        for (index, path) in crate::profile::database_files(source)
+            .into_iter()
+            .enumerate()
+        {
+            cancelled(cancel)?;
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| Fault::invalid("invalid native backup database name"))?;
+            match directory.symlink_metadata(name) {
+                Err(error) if index >= 2 && error.kind() == std::io::ErrorKind::NotFound => {
+                    continue;
+                }
+                Err(error) => return Err(io(error)),
+                Ok(metadata) if !metadata.is_file() || metadata.is_symlink() => {
+                    return Err(Fault::invalid("backup database must be a regular file"));
+                }
+                Ok(_) => {}
+            }
+            self.copy(&directory, name, &format!("storage/{name}"), 0, cancel)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn capture(
@@ -193,6 +243,9 @@ impl Snapshot {
         }
         let mut input = files::open_regular(source, name)?.into_std();
         let before = input.metadata().map_err(io)?;
+        if database(relative) {
+            regular_database(&before)?;
+        }
         if self.size.saturating_add(before.len()) > MAX_BYTES || self.paths.len() >= MAX_FILES {
             return Err(Fault::invalid("backup source exceeds the export limit"));
         }
@@ -212,7 +265,11 @@ impl Snapshot {
         #[cfg(unix)]
         let mode = {
             use std::os::unix::fs::PermissionsExt;
-            0o600 | (before.permissions().mode() & 0o100)
+            if database(relative) {
+                0o600
+            } else {
+                0o600 | (before.permissions().mode() & 0o100)
+            }
         };
         #[cfg(not(unix))]
         let mode = 0o600;
@@ -296,6 +353,64 @@ pub(crate) struct Packed {
 }
 
 impl Manifest {
+    /// Native validation may checkpoint sidecars while relocating the staged profile.
+    pub(crate) fn refresh_databases(
+        &mut self,
+        root: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<(), Fault> {
+        let directory = files::path::root(&root.join("storage"))?;
+        let mut files = Vec::new();
+        for name in DATABASES {
+            let present = match directory.symlink_metadata(name) {
+                Ok(_) => true,
+                Err(error)
+                    if name != "node.turso" && error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    false
+                }
+                Err(error) => return Err(io(error)),
+            };
+            for (index, path) in crate::profile::database_files(Path::new(name))
+                .into_iter()
+                .enumerate()
+            {
+                cancelled(cancel)?;
+                let name = path
+                    .to_str()
+                    .ok_or_else(|| Fault::invalid("invalid native backup database name"))?;
+                match directory.symlink_metadata(name) {
+                    Err(error)
+                        if (!present || index >= 2)
+                            && error.kind() == std::io::ErrorKind::NotFound =>
+                    {
+                        continue;
+                    }
+                    Err(error) => return Err(io(error)),
+                    Ok(_) if !present => {
+                        return Err(Fault::invalid("backup database sidecar has no main file"));
+                    }
+                    Ok(_) => {}
+                }
+                let mut input = files::open_regular(&directory, name)?.into_std();
+                let metadata = input.metadata().map_err(io)?;
+                regular_database(&metadata)?;
+                let size = metadata.len();
+                let sha256 = hash(&mut input, size, cancel)?;
+                files.push(File {
+                    path: format!("storage/{name}"),
+                    size,
+                    sha256,
+                    mode: 0o600,
+                });
+            }
+        }
+        self.files.retain(|file| !database(&file.path));
+        self.files.extend(files);
+        self.files.sort_by(|left, right| left.path.cmp(&right.path));
+        self.validate()
+    }
+
     pub(crate) fn validate(&self) -> Result<(), Fault> {
         if self.version != 1 || !self.original_profile.is_absolute() || self.files.len() > MAX_FILES
         {
@@ -306,7 +421,7 @@ impl Manifest {
         for file in &self.files {
             files::path::components(&file.path, false)?;
             let valid = file.path == "link.key"
-                || file.path == "storage/node.sqlite3"
+                || database(&file.path)
                 || file.path.starts_with("plugins/packages/")
                 || file.path.starts_with("attachments/")
                 || file.path.starts_with("artifacts/")
@@ -328,11 +443,45 @@ impl Manifest {
                 .filter(|size| *size <= MAX_BYTES)
                 .ok_or_else(|| Fault::invalid("backup content exceeds the restore limit"))?;
         }
-        if !paths.contains("storage/node.sqlite3") || !paths.contains("link.key") {
+        if !paths.contains("storage/node.turso") || !paths.contains("link.key") {
             return Err(Fault::invalid("backup database or identity is missing"));
+        }
+        for name in DATABASES {
+            let family = crate::profile::database_files(&Path::new("storage").join(name));
+            if family
+                .iter()
+                .any(|path| path.to_str().is_some_and(|path| paths.contains(path)))
+                && family[..2]
+                    .iter()
+                    .any(|path| path.to_str().is_none_or(|path| !paths.contains(path)))
+            {
+                return Err(Fault::invalid("backup database or logical log is missing"));
+            }
         }
         Ok(())
     }
+}
+
+fn database(path: &str) -> bool {
+    DATABASES.iter().any(|name| {
+        crate::profile::database_files(&Path::new("storage").join(name))
+            .iter()
+            .any(|candidate| candidate.to_str() == Some(path))
+    })
+}
+
+fn regular_database(metadata: &std::fs::Metadata) -> Result<(), Fault> {
+    if !metadata.is_file() {
+        return Err(Fault::invalid("backup database must be a regular file"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err(Fault::invalid("backup database must not be hard-linked"));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn unpack(

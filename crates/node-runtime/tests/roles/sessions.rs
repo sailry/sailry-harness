@@ -551,15 +551,24 @@ async fn rejects_inconsistent_imports() {
     source.shutdown().await.unwrap();
     controller.close().await.unwrap();
     target.shutdown().await.unwrap();
-    let db =
-        rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
+    let (database, db) =
+        crate::database_fixture::open(&directory.path().join("node/storage/node.turso"), true)
+            .await;
     for table in ["requests", "events"] {
         let body = format!(
             "SELECT count(*) FROM {table} WHERE CAST(body AS TEXT) LIKE '%isolated-import-role-secret%'"
         );
         assert_eq!(
-            db.query_row(&body, [], |row| row.get::<_, i64>(0)).unwrap(),
+            db.prepare(&body)
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get::<i64>(0)
+                .unwrap(),
             0
         );
     }
+    crate::database_fixture::close(database, db).await;
 }

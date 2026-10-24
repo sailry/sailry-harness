@@ -63,24 +63,45 @@ async fn removes_only_owned_authorization() {
         assert_ne!(accounts[0].id, accounts[1].id);
         let (_, captured) = submit(&fixture, true).await;
         assert!(captured.plugins.contains(&packages[0].summary.reference()));
-        let db = rusqlite::Connection::open_with_flags(
-            fixture.node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let history = || -> (i64, i64, i64) {
-            (
-                db.query_row("SELECT count(*) FROM plugin_settings", [], |row| row.get(0))
-                    .unwrap(),
-                db.query_row("SELECT count(*) FROM plugin_packages", [], |row| row.get(0))
-                    .unwrap(),
-                db.query_row("SELECT count(*) FROM turn_connections", [], |row| {
-                    row.get(0)
+        let history = async || {
+            fixture
+                .node
+                .with_storage(|db| {
+                    Box::pin(async move {
+                        let settings = db
+                            .prepare("SELECT count(*) FROM plugin_settings")
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row(())
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .get::<i64>(0)
+                            .map_err(crate::database_fixture::fault)?;
+                        let packages = db
+                            .prepare("SELECT count(*) FROM plugin_packages")
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row(())
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .get::<i64>(0)
+                            .map_err(crate::database_fixture::fault)?;
+                        let connections = db
+                            .prepare("SELECT count(*) FROM turn_connections")
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row(())
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .get::<i64>(0)
+                            .map_err(crate::database_fixture::fault)?;
+                        Ok((settings, packages, connections))
+                    })
                 })
-                .unwrap(),
-            )
+                .await
+                .unwrap()
         };
-        let before = history();
+        let before = history().await;
         execute(
             &fixture.client,
             Command::RemovePlugin {
@@ -89,7 +110,7 @@ async fn removes_only_owned_authorization() {
             },
         )
         .await;
-        assert_eq!(history(), before);
+        assert_eq!(history().await, before);
         let Output::Connections(rows) = execute(&fixture.client, Command::ListConnections).await
         else {
             panic!("connections expected")
@@ -99,24 +120,41 @@ async fn removes_only_owned_authorization() {
             rows.iter().find(|row| row.id == accounts[1].id).unwrap(),
             &accounts[1]
         );
-        let owned: i64 = db
-            .query_row(
-                "SELECT count(*) FROM plugin_connections WHERE plugin='mcp-first'",
-                [],
-                |row| row.get(0),
-            )
+        let owned = fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.prepare("SELECT count(*) FROM plugin_connections WHERE plugin='mcp-first'")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(())
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get::<i64>(0)
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
         assert_eq!(owned, 0);
-        let sibling: i64 = db
-            .query_row(
-                "SELECT count(*) FROM plugin_connections WHERE plugin='mcp-second'",
-                [],
-                |row| row.get(0),
-            )
+        let sibling = fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.prepare("SELECT count(*) FROM plugin_connections WHERE plugin='mcp-second'")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(())
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get::<i64>(0)
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
         assert_eq!(sibling, 1);
         assert!(model.requests.lock().unwrap().is_empty());
-        drop(db);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

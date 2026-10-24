@@ -50,6 +50,13 @@ async fn confines_owned_roots() {
                 ErrorCode::Conflict,
             ),
             (
+                enclosing,
+                worktree,
+                "node/storage/node.turso",
+                "moved",
+                ErrorCode::Conflict,
+            ),
+            (
                 fixture.worktree,
                 enclosing,
                 "file",

@@ -1,5 +1,6 @@
 use super::*;
 use sailry_protocol::backup::Destination;
+use std::time::Duration;
 
 fn destination() -> Destination {
     Destination {
@@ -11,10 +12,287 @@ fn destination() -> Destination {
     }
 }
 
-#[test]
-fn preserves_private_credentials_and_conflicts() {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("../schema.sql")).unwrap();
+struct Fixture {
+    storage: Storage,
+    knowledge: Arc<Handle>,
+    _root: tempfile::TempDir,
+}
+
+impl Fixture {
+    async fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().canonicalize().unwrap().join("profile");
+        crate::profile::private_directory(&profile.join("storage")).unwrap();
+        let identity = sailry_link::Identity::open(&profile).unwrap();
+        let database = Database::open(
+            &profile.join("storage/node.turso"),
+            identity.id(),
+            Some(profile.clone()),
+        )
+        .await
+        .unwrap();
+        let transaction = turso::transaction::Transaction::new_unchecked(
+            &database.connection,
+            TransactionBehavior::Concurrent,
+        )
+        .await
+        .unwrap();
+        execute(
+            &transaction,
+            &Request::new(
+                identity.id(),
+                Command::SaveBackupSettings(Update {
+                    settings: Settings::default(),
+                    identity: SecretUpdate::Keep,
+                    secret: SecretUpdate::Keep,
+                    session_token: SecretUpdate::Keep,
+                    passphrase: SecretUpdate::Replace(Secret::new(
+                        "isolated backup fixture passphrase".into(),
+                    )),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        transaction
+            .execute(
+                "INSERT INTO counters(namespace,value) VALUES('sessions',73)",
+                (),
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        let path = profile.join("storage/knowledge.turso");
+        let knowledge = Arc::new(Handle::new(
+            path.clone(),
+            super::super::database::engine(&path).await.unwrap(),
+        ));
+        let connection = knowledge.lease(false).await.unwrap();
+        connection.execute_batch("BEGIN; CREATE TABLE marker(body TEXT NOT NULL); INSERT INTO marker(body) VALUES('initial'); COMMIT;").await.unwrap();
+        drop(connection);
+        Self {
+            storage: database.into_storage(),
+            knowledge,
+            _root: root,
+        }
+    }
+
+    async fn close(self) {
+        drop(self.knowledge.pause().await.unwrap());
+        self.storage.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn restores_frozen_databases_and_watermarks() {
+    let fixture = Fixture::new().await;
+    let profile = fixture.storage.profile.as_ref().unwrap();
+    let legacy = profile.join("storage/node.sqlite3");
+    std::fs::write(&legacy, b"untouched legacy fixture").unwrap();
+    let cancel = CancellationToken::new();
+    let source = source(&fixture.storage, Some(&fixture.knowledge), 1, &cancel)
+        .await
+        .unwrap();
+    for path in ["storage/node.turso", "storage/knowledge.turso"]
+        .into_iter()
+        .flat_map(|name| {
+            crate::profile::database_files(Path::new(name))
+                .into_iter()
+                .take(2)
+        })
+    {
+        assert!(
+            source
+                .snapshot
+                .manifest
+                .files
+                .iter()
+                .any(|file| Path::new(&file.path) == path),
+            "{}",
+            path.display()
+        );
+    }
+    assert!(
+        !source
+            .snapshot
+            .manifest
+            .files
+            .iter()
+            .any(|file| file.path == "storage/node.sqlite3")
+    );
+    let connection = fixture.storage.handle.lease(false).await.unwrap();
+    let transaction = turso::transaction::Transaction::new_unchecked(
+        &connection,
+        TransactionBehavior::Concurrent,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        super::super::database::counters::next(
+            &transaction,
+            super::super::database::counters::Namespace::Sessions,
+        )
+        .await
+        .unwrap(),
+        74
+    );
+    transaction.commit().await.unwrap();
+    drop(connection);
+    let connection = fixture.knowledge.lease(false).await.unwrap();
+    connection
+        .execute("UPDATE marker SET body='changed'", ())
+        .await
+        .unwrap();
+    drop(connection);
+    let (_, mut snapshot, roots) = capture(source, &cancel).unwrap();
+    snapshot.capture(&roots, &cancel).unwrap();
+    let packed = snapshot.pack(&cancel).unwrap();
+    let record = backup::record(&packed, uuid::Uuid::new_v4().to_string()).unwrap();
+    let target = fixture
+        ._root
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("restored");
+    let (restored, path) = publish(
+        packed.file,
+        &target,
+        RecordSource::Known(record.clone()),
+        &cancel,
+    )
+    .await
+    .unwrap();
+    assert_eq!(restored, record);
+    assert_eq!(path, target);
+    assert_eq!(std::fs::read(&legacy).unwrap(), b"untouched legacy fixture");
+    assert!(!target.join("storage/node.sqlite3").exists());
+    for name in ["node.turso", "knowledge.turso"] {
+        assert!(crate::profile::database_files(&target.join("storage").join(name))[1].is_file());
+    }
+    let path = target.join("storage/node.turso");
+    let handle = Handle::new(
+        path.clone(),
+        super::super::database::engine(&path).await.unwrap(),
+    );
+    let connection = handle.lease(false).await.unwrap();
+    let transaction = turso::transaction::Transaction::new_unchecked(
+        &connection,
+        TransactionBehavior::Concurrent,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        super::super::database::counters::next(
+            &transaction,
+            super::super::database::counters::Namespace::Sessions,
+        )
+        .await
+        .unwrap(),
+        74
+    );
+    transaction.commit().await.unwrap();
+    drop(connection);
+    drop(handle.pause().await.unwrap());
+    let path = target.join("storage/knowledge.turso");
+    let handle = Handle::new(
+        path.clone(),
+        super::super::database::engine(&path).await.unwrap(),
+    );
+    let connection = handle.lease(true).await.unwrap();
+    assert_eq!(
+        connection
+            .prepare("SELECT body FROM marker")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<String>(0)
+            .unwrap(),
+        "initial"
+    );
+    drop(connection);
+    drop(handle.pause().await.unwrap());
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn reopens_both_handles_after_copy_failure() {
+    let fixture = Fixture::new().await;
+    let cancel = CancellationToken::new();
+    let profile = fixture.storage.profile.as_ref().unwrap();
+    let snapshot = Snapshot::new(profile, fixture.storage.node).unwrap();
+    let collision = snapshot.database_path().unwrap();
+    std::fs::write(collision, b"existing destination fixture").unwrap();
+    let main = fixture.storage.handle.exclusive().await.unwrap();
+    let knowledge = fixture.knowledge.exclusive().await.unwrap();
+    let plan = plan(main.connection(), Some(1)).await.unwrap();
+    let fault = freeze(main, Some(knowledge), plan, Vec::new(), snapshot, &cancel)
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(fault.code, ErrorCode::Unavailable);
+    let main = fixture.storage.handle.lease(true).await.unwrap();
+    assert_eq!(read(&main).await.unwrap().settings.revision, 1);
+    drop(main);
+    let knowledge = fixture.knowledge.lease(true).await.unwrap();
+    assert_eq!(
+        knowledge
+            .prepare("SELECT body FROM marker")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<String>(0)
+            .unwrap(),
+        "initial"
+    );
+    drop(knowledge);
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn cancels_with_active_knowledge_lease() {
+    let fixture = Fixture::new().await;
+    let knowledge = fixture.knowledge.lease(true).await.unwrap();
+    let cancel = CancellationToken::new();
+    let mut pending = Box::pin(source(
+        &fixture.storage,
+        Some(&fixture.knowledge),
+        1,
+        &cancel,
+    ));
+    tokio::select! {
+        biased;
+        _ = &mut pending => panic!("backup must wait for the knowledge lease"),
+        _ = tokio::task::yield_now() => {}
+    }
+    cancel.cancel();
+    assert_eq!(pending.await.err().unwrap().code, ErrorCode::Cancelled);
+    drop(knowledge);
+    let main = fixture.storage.handle.lease(true).await.unwrap();
+    assert_eq!(read(&main).await.unwrap().settings.revision, 1);
+    drop(main);
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn preserves_private_credentials_and_conflicts() {
+    let root = tempfile::tempdir().unwrap();
+    let database = Database::open(
+        &root.path().join("node.turso"),
+        sailry_protocol::NodeId([1; 32]),
+        None,
+    )
+    .await
+    .unwrap();
+    let db = turso::transaction::Transaction::new_unchecked(
+        &database.connection,
+        TransactionBehavior::Concurrent,
+    )
+    .await
+    .unwrap();
     let mut settings = Settings {
         destination: Some(destination()),
         ..Settings::default()
@@ -30,17 +308,17 @@ fn preserves_private_credentials_and_conflicts() {
         sailry_protocol::NodeId([1; 32]),
         Command::SaveBackupSettings(command),
     );
-    let (output, event) = execute(&db, &request).unwrap();
+    let (output, event) = execute(&db, &request).await.unwrap();
     let public = serde_json::to_string(&(output.clone(), event)).unwrap();
     assert!(!public.contains("private-user"));
     assert!(!public.contains("private-password"));
     assert!(!public.contains("private-backup-passphrase"));
     assert_eq!(
-        read(&db).unwrap().auth.secret.unwrap().expose(),
+        read(&db).await.unwrap().auth.secret.unwrap().expose(),
         "private-password"
     );
     assert_eq!(
-        execute(&db, &request).unwrap_err().code,
+        execute(&db, &request).await.unwrap_err().code,
         ErrorCode::RevisionConflict
     );
     let Output::BackupSettings(saved) = output else {
@@ -60,14 +338,16 @@ fn preserves_private_credentials_and_conflicts() {
             passphrase: SecretUpdate::Keep,
         }),
     );
-    execute(&db, &request).unwrap();
-    assert!(!read(&db).unwrap().settings.credentials_configured);
-    assert!(read(&db).unwrap().auth.secret.is_none());
-    assert!(read(&db).unwrap().settings.passphrase_configured);
+    execute(&db, &request).await.unwrap();
+    assert!(!read(&db).await.unwrap().settings.credentials_configured);
+    assert!(read(&db).await.unwrap().auth.secret.is_none());
+    assert!(read(&db).await.unwrap().settings.passphrase_configured);
     assert_eq!(
-        read(&db).unwrap().auth.passphrase.unwrap().expose(),
+        read(&db).await.unwrap().auth.passphrase.unwrap().expose(),
         "private-backup-passphrase"
     );
+    db.commit().await.unwrap();
+    database.close().await.unwrap();
 }
 
 #[test]
@@ -108,23 +388,29 @@ fn confines_empty_restore_targets() {
     );
 }
 
-#[test]
-fn relocates_only_current_owned_paths() {
+#[tokio::test]
+async fn relocates_only_current_owned_paths() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
     let original = root.join("original");
     let target = root.join("restored");
     let staging = root.join("staging");
     std::fs::create_dir_all(staging.join("storage")).unwrap();
-    let db = Connection::open(staging.join("storage/node.sqlite3")).unwrap();
-    db.execute_batch("CREATE TABLE projects(id TEXT PRIMARY KEY,path TEXT); CREATE TABLE worktrees(id TEXT PRIMARY KEY,path TEXT); CREATE TABLE knowledge_collections(id TEXT PRIMARY KEY,body BLOB); CREATE TABLE session_revisions(body BLOB);").unwrap();
+    let path = staging.join("storage/node.turso");
+    let handle = Handle::new(
+        path.clone(),
+        super::super::database::engine(&path).await.unwrap(),
+    );
+    let db = handle.lease(false).await.unwrap();
+    db.execute_batch("BEGIN; CREATE TABLE projects(id TEXT PRIMARY KEY,path TEXT); CREATE TABLE worktrees(id TEXT PRIMARY KEY,path TEXT); CREATE TABLE knowledge_collections(id TEXT PRIMARY KEY,body BLOB); CREATE TABLE session_revisions(body BLOB); COMMIT;").await.unwrap();
     let owned = original.join("worktrees/example");
     let external = root.join("external");
     for table in ["projects", "worktrees"] {
         db.execute(
             &format!("INSERT INTO {table}(id,path) VALUES('owned',?1),('external',?2)"),
-            rusqlite::params![owned.to_str().unwrap(), external.to_str().unwrap()],
+            params![owned.to_str().unwrap(), external.to_str().unwrap()],
         )
+        .await
         .unwrap();
     }
     let capture =
@@ -133,6 +419,7 @@ fn relocates_only_current_owned_paths() {
         "INSERT INTO session_revisions(body) VALUES(?1)",
         [capture.as_bytes()],
     )
+    .await
     .unwrap();
     let collection = super::super::knowledge::Stored {
         collection: sailry_protocol::knowledge::Collection {
@@ -162,41 +449,58 @@ fn relocates_only_current_owned_paths() {
     };
     db.execute(
         "INSERT INTO knowledge_collections(id,body) VALUES(?1,?2)",
-        rusqlite::params![
+        params![
             collection.collection.id.to_string(),
             encode(&collection).unwrap()
         ],
     )
+    .await
     .unwrap();
     drop(db);
-    relocate(&staging, &original, &target).unwrap();
-    let db = Connection::open(staging.join("storage/node.sqlite3")).unwrap();
+    let closed = handle.pause().await.unwrap();
+    relocate(&staging, &original, &target).await.unwrap();
+    closed.reopen().await.unwrap();
+    let db = handle.lease(true).await.unwrap();
     for table in ["projects", "worktrees"] {
-        let owned: String = db
-            .query_row(
-                &format!("SELECT path FROM {table} WHERE id='owned'"),
-                [],
-                |row| row.get(0),
-            )
+        let owned = db
+            .prepare(format!("SELECT path FROM {table} WHERE id='owned'"))
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<String>(0)
             .unwrap();
         assert_eq!(owned, target.join("worktrees/example").to_string_lossy());
-        let untouched: String = db
-            .query_row(
-                &format!("SELECT path FROM {table} WHERE id='external'"),
-                [],
-                |row| row.get(0),
-            )
+        let untouched = db
+            .prepare(format!("SELECT path FROM {table} WHERE id='external'"))
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<String>(0)
             .unwrap();
         assert_eq!(untouched, external.to_string_lossy());
     }
-    let history: Vec<u8> = db
-        .query_row("SELECT body FROM session_revisions", [], |row| row.get(0))
+    let history = db
+        .prepare("SELECT body FROM session_revisions")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<Vec<u8>>(0)
         .unwrap();
     assert_eq!(history, capture.as_bytes());
-    let body: Vec<u8> = db
-        .query_row("SELECT body FROM knowledge_collections", [], |row| {
-            row.get(0)
-        })
+    let body = db
+        .prepare("SELECT body FROM knowledge_collections")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<Vec<u8>>(0)
         .unwrap();
     let relocated: super::super::knowledge::Stored = serde_json::from_slice(&body).unwrap();
     let sailry_protocol::knowledge::Source::File { path } = relocated.collection.definition.source
@@ -215,6 +519,8 @@ fn relocates_only_current_owned_paths() {
         collection.collection.revision
     );
     assert!(!original.exists());
+    drop(db);
+    drop(handle.pause().await.unwrap());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -353,18 +659,37 @@ async fn copies_consistent_state_without_blocking_commands() {
         };
         let digest =
             crate::files::artifacts::write(&profile, session.id, artifact.id, 1, html).unwrap();
-        let db = Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        db.execute(
-            "INSERT INTO artifacts(id,session,body) VALUES(?1,?2,?3)",
-            rusqlite::params![
-                artifact.id.to_string(),
-                session.id.to_string(),
-                encode(&artifact).unwrap()
-            ],
-        )
+        let stored = artifact.clone();
+        let saved_digest = digest.clone();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let transaction = db
+                    .transaction_with_behavior(TransactionBehavior::Concurrent)
+                    .await
+                    .map_err(storage_error)?;
+                let sequence = super::super::database::counters::next(
+                    &transaction,
+                    super::super::database::counters::Namespace::Artifacts,
+                )
+                .await?;
+                transaction
+                    .execute(
+                        "INSERT INTO artifacts(rowid,id,session,body) VALUES(?1,?2,?3,?4)",
+                        params![
+                            sequence as i64,
+                            stored.id.to_string(),
+                            stored.session.to_string(),
+                            encode(&stored)?
+                        ],
+                    )
+                    .await
+                    .map_err(storage_error)?;
+                transaction.execute("INSERT INTO artifact_revisions(artifact,revision,body,digest,warnings) VALUES(?1,1,?2,?3,?4)",params![stored.id.to_string(),encode(&stored)?,saved_digest,encode(&Vec::<String>::new())?]).await.map_err(storage_error)?;
+                transaction.commit().await.map_err(storage_error)
+            })
+        })
+        .await
         .unwrap();
-        db.execute("INSERT INTO artifact_revisions(artifact,revision,body,digest,warnings) VALUES(?1,1,?2,?3,?4)",rusqlite::params![artifact.id.to_string(),encode(&artifact).unwrap(),&digest,encode(&Vec::<String>::new()).unwrap()]).unwrap();
-        drop(db);
         let resources = node.ingress.backup_resources.clone().read_owned().await;
         let (reply, source) = tokio::sync::oneshot::channel();
         node.ingress
@@ -380,16 +705,9 @@ async fn copies_consistent_state_without_blocking_commands() {
         let (release, wait) = std::sync::mpsc::channel();
         let worker = tokio::task::spawn_blocking(move || {
             let stop = CancellationToken::new();
-            let (plan, mut snapshot, roots) = capture_with(source, &stop, move |db| {
-                assert_eq!(
-                    db.pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
-                        .unwrap(),
-                    "wal"
-                );
-                let _ = entered.send(());
-                wait.recv().map_err(storage_error)?;
-                Ok(())
-            })?;
+            let (plan, mut snapshot, roots) = capture(source, &stop)?;
+            let _ = entered.send(());
+            wait.recv().map_err(storage_error)?;
             snapshot.capture(&roots, &stop)?;
             drop(resources);
             Ok::<_, Fault>((plan, snapshot.pack(&stop)?, roots))
@@ -418,32 +736,35 @@ async fn copies_consistent_state_without_blocking_commands() {
         })
         .await
         .expect("physical cleanup must wait for the snapshot lease");
-        let current = Connection::open_with_flags(
-            profile.join("storage/node.sqlite3"),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        assert_eq!(
-            current
-                .query_row(
-                    "SELECT state FROM sessions WHERE id=?1",
-                    [session.id.to_string()],
-                    |row| row.get::<_, String>(0)
-                )
-                .unwrap(),
-            "removed"
-        );
-        assert_eq!(
-            current
-                .query_row(
-                    "SELECT count(*) FROM artifacts WHERE id=?1",
-                    [artifact.id.to_string()],
-                    |row| row.get::<_, i64>(0)
-                )
-                .unwrap(),
-            0
-        );
-        drop(current);
+        let artifact_id = artifact.id;
+        let (state, count) = node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let state = db
+                        .prepare("SELECT state FROM sessions WHERE id=?1")
+                        .await
+                        .map_err(storage_error)?
+                        .query_row([session.id.to_string()])
+                        .await
+                        .map_err(storage_error)?
+                        .get::<String>(0)
+                        .map_err(storage_error)?;
+                    let count = db
+                        .prepare("SELECT count(*) FROM artifacts WHERE id=?1")
+                        .await
+                        .map_err(storage_error)?
+                        .query_row([artifact_id.to_string()])
+                        .await
+                        .map_err(storage_error)?
+                        .get::<i64>(0)
+                        .map_err(storage_error)?;
+                    Ok((state, count))
+                })
+            })
+            .await
+            .unwrap();
+        assert_eq!(state, "removed");
+        assert_eq!(count, 0);
         assert!(matches!(
             removal.completion.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Empty)
@@ -506,34 +827,57 @@ async fn copies_consistent_state_without_blocking_commands() {
             &CancellationToken::new(),
         )
         .unwrap();
-        let copied = Connection::open_with_flags(
-            restored.join("storage/node.sqlite3"),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
+        let path = restored.join("storage/node.turso");
+        let handle = Handle::new(
+            path.clone(),
+            super::super::database::engine(&path).await.unwrap(),
+        );
+        let copied = handle.lease(true).await.unwrap();
         assert_eq!(
             copied
-                .pragma_query_value(None, "integrity_check", |row| row.get::<_, String>(0))
+                .prepare("PRAGMA integrity_check")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get::<String>(0)
                 .unwrap(),
             "ok"
         );
         assert_eq!(
             copied
-                .query_row(
-                    "SELECT state FROM sessions WHERE id=?1",
-                    [session.id.to_string()],
-                    |row| row.get::<_, String>(0)
-                )
+                .prepare("PRAGMA journal_mode")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get::<String>(0)
+                .unwrap(),
+            "mvcc"
+        );
+        assert_eq!(
+            copied
+                .prepare("SELECT state FROM sessions WHERE id=?1")
+                .await
+                .unwrap()
+                .query_row([session.id.to_string()])
+                .await
+                .unwrap()
+                .get::<String>(0)
                 .unwrap(),
             "active"
         );
         assert_eq!(
             copied
-                .query_row(
-                    "SELECT digest FROM plugin_packages WHERE name='example'",
-                    [],
-                    |row| row.get::<_, String>(0)
-                )
+                .prepare("SELECT digest FROM plugin_packages WHERE name='example'")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get::<String>(0)
                 .unwrap(),
             original.summary.digest
         );
@@ -563,25 +907,30 @@ async fn copies_consistent_state_without_blocking_commands() {
         );
         assert_eq!(
             copied
-                .query_row(
-                    "SELECT count(*) FROM artifacts WHERE id=?1",
-                    [artifact.id.to_string()],
-                    |row| row.get::<_, i64>(0)
-                )
+                .prepare("SELECT count(*) FROM artifacts WHERE id=?1")
+                .await
+                .unwrap()
+                .query_row([artifact.id.to_string()])
+                .await
+                .unwrap()
+                .get::<i64>(0)
                 .unwrap(),
             1
         );
         assert_eq!(
             copied
-                .query_row(
-                    "SELECT count(*) FROM plugin_packages WHERE digest=?1",
-                    [updated.summary.digest],
-                    |row| row.get::<_, i64>(0)
-                )
+                .prepare("SELECT count(*) FROM plugin_packages WHERE digest=?1")
+                .await
+                .unwrap()
+                .query_row([updated.summary.digest])
+                .await
+                .unwrap()
+                .get::<i64>(0)
                 .unwrap(),
             0
         );
         drop(copied);
+        drop(handle.pause().await.unwrap());
         drop(packed);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
@@ -632,10 +981,22 @@ fn excludes_plugin_contexts() {
     );
 }
 
-#[test]
-fn rejects_invalid_schedule_without_writing() {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("../schema.sql")).unwrap();
+#[tokio::test]
+async fn rejects_invalid_schedule_without_writing() {
+    let root = tempfile::tempdir().unwrap();
+    let database = Database::open(
+        &root.path().join("node.turso"),
+        sailry_protocol::NodeId([1; 32]),
+        None,
+    )
+    .await
+    .unwrap();
+    let db = turso::transaction::Transaction::new_unchecked(
+        &database.connection,
+        TransactionBehavior::Concurrent,
+    )
+    .await
+    .unwrap();
     for schedule in [
         sailry_protocol::backup::Schedule {
             enabled: true,
@@ -673,11 +1034,13 @@ fn rejects_invalid_schedule_without_writing() {
             }),
         );
         assert_eq!(
-            execute(&db, &request).unwrap_err().code,
+            execute(&db, &request).await.unwrap_err().code,
             ErrorCode::InvalidRequest
         );
-        assert_eq!(read(&db).unwrap().settings, Settings::default());
-        let records:i64 = db.query_row("SELECT (SELECT count(*) FROM dispatch_handlers)+(SELECT count(*) FROM dispatch_schedules)",[],|row|row.get(0)).unwrap();
+        assert_eq!(read(&db).await.unwrap().settings, Settings::default());
+        let records = db.prepare("SELECT (SELECT count(*) FROM dispatch_handlers)+(SELECT count(*) FROM dispatch_schedules)").await.unwrap().query_row(()).await.unwrap().get::<i64>(0).unwrap();
         assert_eq!(records, 0);
     }
+    db.commit().await.unwrap();
+    database.close().await.unwrap();
 }

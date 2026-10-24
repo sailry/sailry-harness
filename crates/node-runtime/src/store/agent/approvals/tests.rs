@@ -13,131 +13,145 @@ mod roles;
 mod rules;
 
 struct Fixture {
-    _directory: tempfile::TempDir,
     path: std::path::PathBuf,
     database: Database,
     events: broadcast::Sender<EventEnvelope>,
     turn: TurnId,
     session: SessionId,
     request: ToolConfirmationRequest,
+    _directory: tempfile::TempDir,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    fn new() -> sailry_link::Pending<'static, Self> {
         Self::with_permission(Permission::Ask)
     }
 
-    fn with_permission(permission: Permission) -> Self {
+    fn with_permission(permission: Permission) -> sailry_link::Pending<'static, Self> {
         Self::with_mode(permission, sailry_protocol::WorkMode::Code)
     }
 
-    fn with_mode(permission: Permission, mode: sailry_protocol::WorkMode) -> Self {
+    fn with_mode(
+        permission: Permission,
+        mode: sailry_protocol::WorkMode,
+    ) -> sailry_link::Pending<'static, Self> {
         Self::with_catalog(permission, mode, false)
     }
 
-    fn with_catalog(permission: Permission, mode: sailry_protocol::WorkMode, code: bool) -> Self {
+    fn with_catalog(
+        permission: Permission,
+        mode: sailry_protocol::WorkMode,
+        code: bool,
+    ) -> sailry_link::Pending<'static, Self> {
         Self::with_package(permission, mode, code.then_some("code"))
     }
 
-    fn with_package(
+    fn with_package<'a>(
         permission: Permission,
         mode: sailry_protocol::WorkMode,
-        package: Option<&str>,
-    ) -> Self {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3");
-        let mut database = Database::open(&path, NodeId([31; 32]), None).unwrap();
-        super::super::tests::fixture::files(&database, directory.path());
-        if let Some(package) = package {
-            super::super::tests::fixture::package(&database, directory.path(), package);
-        }
-        let (events, _) = broadcast::channel(64);
-        let Output::Project(project) = command(
-            &mut database,
-            &events,
-            Command::RegisterProject {
-                name: "Approval fixture".into(),
-                path: directory.path().to_str().unwrap().into(),
-            },
-        ) else {
-            panic!("project expected")
-        };
-        let Output::Session(session) = command(
-            &mut database,
-            &events,
-            Command::CreateSession {
-                project: Some(project.id),
-                worktree: None,
-                config: Some(SessionConfig {
-                    features: Default::default(),
-                    assistant: None,
-                    resource: None,
-                    provider: ProviderId::new(),
-                    model: "fixture".into(),
-                    effort: Effort::Low,
-                    mode,
-                    options: Default::default(),
-                    permission,
-                    credential: None,
-                }),
-            },
-        ) else {
-            panic!("session expected")
-        };
-        let Output::QueuedTurn(turn) = command(
-            &mut database,
-            &events,
-            Command::SubmitTurn {
+        package: Option<&'a str>,
+    ) -> sailry_link::Pending<'a, Self> {
+        Box::pin(async move {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().canonicalize().unwrap().join("node.turso");
+            let mut database = Database::open(&path, NodeId([31; 32]), None).await.unwrap();
+            super::super::tests::fixture::files(&database, directory.path()).await;
+            if let Some(package) = package {
+                super::super::tests::fixture::package(&database, directory.path(), package).await;
+            }
+            let (events, _) = broadcast::channel(64);
+            let Output::Project(project) = command(
+                &mut database,
+                &events,
+                Command::RegisterProject {
+                    name: "Approval fixture".into(),
+                    path: directory.path().to_str().unwrap().into(),
+                },
+            )
+            .await
+            else {
+                panic!("project expected")
+            };
+            let Output::Session(session) = command(
+                &mut database,
+                &events,
+                Command::CreateSession {
+                    project: Some(project.id),
+                    worktree: None,
+                    config: Some(SessionConfig {
+                        features: Default::default(),
+                        assistant: None,
+                        resource: None,
+                        provider: ProviderId::new(),
+                        model: "fixture".into(),
+                        effort: Effort::Low,
+                        mode,
+                        options: Default::default(),
+                        permission,
+                        credential: None,
+                    }),
+                },
+            )
+            .await
+            else {
+                panic!("session expected")
+            };
+            let Output::QueuedTurn(turn) = command(
+                &mut database,
+                &events,
+                Command::SubmitTurn {
+                    session: session.id,
+                    expected_revision: 1,
+                    message: "fixture".into(),
+                },
+            )
+            .await
+            else {
+                panic!("turn expected")
+            };
+            assert_eq!(
+                runs::claim(&mut database, &events)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .turn
+                    .id,
+                turn.id
+            );
+            let request = ToolConfirmationRequest {
+                acting: None,
+                origin: None,
+                tool_name: crate::plugins::tools::alias("files", "write_file"),
+                function_call_id: Some("call-fixture".into()),
+                args: json!({"path": "资料.txt", "text": "中文 🙂", "expected_revision": null}),
+            };
+            let mut event = AdkEvent::new("fixture");
+            event.author = "assistant".into();
+            event.set_content(adk_core::Content {
+                role: "model".into(),
+                parts: vec![adk_core::Part::FunctionCall {
+                    id: request.function_call_id.clone(),
+                    name: request.tool_name.clone(),
+                    args: request.args.clone(),
+                    thought_signature: None,
+                }],
+            });
+            history::append(&mut database, session.id, turn.id, event, &events)
+                .await
+                .unwrap();
+            Self {
+                _directory: directory,
+                path,
+                database,
+                events,
+                turn: turn.id,
                 session: session.id,
-                expected_revision: 1,
-                message: "fixture".into(),
-            },
-        ) else {
-            panic!("turn expected")
-        };
-        assert_eq!(
-            runs::claim(&mut database, &events)
-                .unwrap()
-                .unwrap()
-                .turn
-                .id,
-            turn.id
-        );
-        let request = ToolConfirmationRequest {
-            acting: None,
-            origin: None,
-            tool_name: crate::plugins::tools::alias("files", "write_file"),
-            function_call_id: Some("call-fixture".into()),
-            args: json!({"path": "资料.txt", "text": "中文 🙂", "expected_revision": null}),
-        };
-        let mut event = AdkEvent::new("fixture");
-        event.author = "assistant".into();
-        event.set_content(adk_core::Content {
-            role: "model".into(),
-            parts: vec![adk_core::Part::FunctionCall {
-                id: request.function_call_id.clone(),
-                name: request.tool_name.clone(),
-                args: request.args.clone(),
-                thought_signature: None,
-            }],
-        });
-        history::append(&mut database, session.id, turn.id, event, &events).unwrap();
-        Self {
-            _directory: directory,
-            path,
-            database,
-            events,
-            turn: turn.id,
-            session: session.id,
-            request,
-        }
+                request,
+            }
+        })
     }
 
-    fn begin(&mut self) -> Approval {
+    async fn begin(&mut self) -> Approval {
         begin(
             &mut self.database,
             self.turn,
@@ -145,10 +159,11 @@ impl Fixture {
             None,
             &self.events,
         )
+        .await
         .unwrap()
     }
 
-    fn approve(&mut self, id: ApprovalId) {
+    async fn approve(&mut self, id: ApprovalId) {
         command(
             &mut self.database,
             &self.events,
@@ -157,14 +172,15 @@ impl Fixture {
                 approval: id,
                 decision: Decision::Approve,
             },
-        );
+        )
+        .await;
     }
 }
 
-#[test]
-fn consumes_exact_arguments_once() {
-    let mut fixture = Fixture::new();
-    let approval = fixture.begin();
+#[tokio::test]
+async fn consumes_exact_arguments_once() {
+    let mut fixture = Fixture::new().await;
+    let approval = fixture.begin().await;
     assert!(
         begin(
             &mut fixture.database,
@@ -173,6 +189,7 @@ fn consumes_exact_arguments_once() {
             None,
             &fixture.events
         )
+        .await
         .is_err()
     );
     assert_eq!(
@@ -182,11 +199,12 @@ fn consumes_exact_arguments_once() {
             &fixture.request,
             None
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
     );
-    fixture.approve(approval.id);
+    fixture.approve(approval.id).await;
     let mut changed = fixture.request.clone();
     changed.args["text"] = json!("different content");
     assert_eq!(
@@ -196,6 +214,7 @@ fn consumes_exact_arguments_once() {
             &changed,
             None
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
@@ -209,6 +228,7 @@ fn consumes_exact_arguments_once() {
             &changed,
             None
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
@@ -219,6 +239,7 @@ fn consumes_exact_arguments_once() {
         &fixture.request,
         None,
     )
+    .await
     .unwrap();
     assert_eq!(
         authorize(
@@ -227,6 +248,7 @@ fn consumes_exact_arguments_once() {
             &fixture.request,
             None
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
@@ -238,15 +260,16 @@ fn consumes_exact_arguments_once() {
             approval.id,
             Decision::Deny
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::Conflict
     );
 }
 
-#[test]
-fn rejects_invalid_decisions() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn rejects_invalid_decisions() {
+    let mut fixture = Fixture::new().await;
     let mut changed = fixture.request.clone();
     changed.args["path"] = json!("another.txt");
     assert!(
@@ -257,14 +280,16 @@ fn rejects_invalid_decisions() {
             None,
             &fixture.events
         )
+        .await
         .is_err()
     );
-    let approval = fixture.begin();
+    let approval = fixture.begin().await;
     command(
         &mut fixture.database,
         &fixture.events,
         Command::StopTurn { turn: fixture.turn },
-    );
+    )
+    .await;
     assert_eq!(
         resolve(
             &fixture.database.connection,
@@ -272,12 +297,14 @@ fn rejects_invalid_decisions() {
             approval.id,
             Decision::Approve
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::Conflict
     );
     assert_eq!(
         get(&fixture.database.connection, approval.id)
+            .await
             .unwrap()
             .state,
         ApprovalState::Pending
@@ -289,28 +316,31 @@ fn rejects_invalid_decisions() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert_eq!(
         get(&fixture.database.connection, approval.id)
+            .await
             .unwrap()
             .state,
         ApprovalState::Cancelled
     );
 }
 
-#[test]
-fn closes_pending_on_restart() {
-    let mut fixture = Fixture::new();
-    let approval = fixture.begin();
+#[tokio::test]
+async fn closes_pending_on_restart() {
+    let mut fixture = Fixture::new().await;
+    let approval = fixture.begin().await;
     let node = fixture.database.node;
-    drop(fixture.database);
-    let database = Database::open(&fixture.path, node, None).unwrap();
+    fixture.database.close().await.unwrap();
+    let database = Database::open(&fixture.path, node, None).await.unwrap();
     assert_eq!(
-        get(&database.connection, approval.id).unwrap().state,
+        get(&database.connection, approval.id).await.unwrap().state,
         ApprovalState::Interrupted
     );
     assert_eq!(
         runs::get(&database.connection, fixture.turn)
+            .await
             .unwrap()
             .status,
         Status::Interrupted
@@ -322,11 +352,13 @@ fn closes_pending_on_restart() {
             approval.id,
             Decision::Approve
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::Conflict
     );
     let page = history::pages::read(&database.connection, fixture.session, None, 100)
+        .await
         .unwrap()
         .page;
     assert_eq!(page.entries.len(), 1);

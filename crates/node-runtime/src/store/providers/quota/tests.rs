@@ -151,14 +151,10 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new() -> Self {
+    async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3");
-        let database = Database::open(&path, NodeId([41; 32]), None).unwrap();
+        let path = directory.path().canonicalize().unwrap().join("node.turso");
+        let database = Database::open(&path, NodeId([41; 32]), None).await.unwrap();
         let provider_id = ProviderId::new();
         let credential = authentication::put(
             &database.connection,
@@ -173,6 +169,7 @@ impl Fixture {
             },
             &Self::grant(),
         )
+        .await
         .unwrap();
         let provider = Provider {
             request_max_retries: None,
@@ -196,7 +193,9 @@ impl Fixture {
                 id: credential.id,
             }),
         };
-        configuration::publish(&database.connection, &provider).unwrap();
+        configuration::publish(&database.connection, &provider)
+            .await
+            .unwrap();
         let (events, _) = broadcast::channel(64);
         Self {
             _directory: directory,
@@ -239,22 +238,26 @@ impl Fixture {
         }
     }
 
-    fn observe(&mut self, observed_ms: u64, used: Option<u32>) {
+    async fn observe(&mut self, observed_ms: u64, used: Option<u32>) {
         let observation = self.observation(observed_ms, used);
-        observe(&mut self.database, observation, &self.events).unwrap();
+        observe(&mut self.database, observation, &self.events)
+            .await
+            .unwrap();
     }
 
-    fn quotas(&self) -> Vec<Snapshot> {
-        list(&self.database.connection, self.database.node).unwrap()
+    async fn quotas(&self) -> Vec<Snapshot> {
+        list(&self.database.connection, self.database.node)
+            .await
+            .unwrap()
     }
 }
 
-#[test]
-fn accepts_current_binding() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn accepts_current_binding() {
+    let mut fixture = Fixture::new().await;
     let mut events = fixture.events.subscribe();
-    fixture.observe(100, Some(2_500));
-    let quota = fixture.quotas().pop().unwrap();
+    fixture.observe(100, Some(2_500)).await;
+    let quota = fixture.quotas().await.pop().unwrap();
     assert_eq!(
         quota.credential,
         fixture.provider.credential.clone().unwrap()
@@ -270,10 +273,10 @@ fn accepts_current_binding() {
     );
 }
 
-#[test]
-fn ignores_stale_bindings() {
+#[tokio::test]
+async fn ignores_stale_bindings() {
     for case in ["node", "provider", "credential", "revision"] {
-        let mut fixture = Fixture::new();
+        let mut fixture = Fixture::new().await;
         let mut observation = fixture.observation(100, Some(2_500));
         match case {
             "node" => observation.credential.node = NodeId([42; 32]),
@@ -282,30 +285,32 @@ fn ignores_stale_bindings() {
             "revision" => observation.revision += 1,
             _ => unreachable!(),
         }
-        observe(&mut fixture.database, observation, &fixture.events).unwrap();
-        assert!(fixture.quotas().is_empty(), "{case}");
+        observe(&mut fixture.database, observation, &fixture.events)
+            .await
+            .unwrap();
+        assert!(fixture.quotas().await.is_empty(), "{case}");
     }
 }
 
-#[test]
-fn unknown_masks_older_observations() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn unknown_masks_older_observations() {
+    let mut fixture = Fixture::new().await;
     let mut events = fixture.events.subscribe();
-    fixture.observe(100, Some(2_500));
+    fixture.observe(100, Some(2_500)).await;
     events.try_recv().unwrap();
-    fixture.observe(200, None);
+    fixture.observe(200, None).await;
     assert!(matches!(
         events.try_recv().unwrap().event,
         Event::ProviderQuotaChanged { quota: None, .. }
     ));
-    fixture.observe(150, Some(5_000));
-    assert!(fixture.quotas().is_empty());
+    fixture.observe(150, Some(5_000)).await;
+    assert!(fixture.quotas().await.is_empty());
     assert!(events.try_recv().is_err());
-    fixture.observe(201, None);
+    fixture.observe(201, None).await;
     assert!(events.try_recv().is_err());
-    fixture.observe(202, Some(10_050));
+    fixture.observe(202, Some(10_050)).await;
     assert_eq!(
-        fixture.quotas()[0]
+        fixture.quotas().await[0]
             .five_hour
             .as_ref()
             .unwrap()
@@ -314,26 +319,27 @@ fn unknown_masks_older_observations() {
     );
 }
 
-#[test]
-fn retains_newer_observations() {
-    let mut fixture = Fixture::new();
-    fixture.observe(200, Some(5_000));
-    fixture.observe(100, Some(2_500));
-    let quota = fixture.quotas().pop().unwrap();
+#[tokio::test]
+async fn retains_newer_observations() {
+    let mut fixture = Fixture::new().await;
+    fixture.observe(200, Some(5_000)).await;
+    fixture.observe(100, Some(2_500)).await;
+    let quota = fixture.quotas().await.pop().unwrap();
     assert_eq!(quota.observed_ms, 200);
     assert_eq!(quota.five_hour.unwrap().used_basis_points, 5_000);
 }
 
-#[test]
-fn unknown_wins_equal_timestamps() {
+#[tokio::test]
+async fn unknown_wins_equal_timestamps() {
     for observations in [[Some(2_500), None], [None, Some(2_500)]] {
-        let mut fixture = Fixture::new();
+        let mut fixture = Fixture::new().await;
         for used in observations {
-            fixture.observe(100, used);
+            fixture.observe(100, used).await;
         }
-        assert!(fixture.quotas().is_empty());
+        assert!(fixture.quotas().await.is_empty());
         assert_eq!(
             configuration::load(&fixture.database.connection, fixture.provider.id)
+                .await
                 .unwrap()
                 .unwrap()
                 .quota
@@ -344,15 +350,15 @@ fn unknown_wins_equal_timestamps() {
     }
 }
 
-#[test]
-fn equal_time_keeps_known_values() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn equal_time_keeps_known_values() {
+    let mut fixture = Fixture::new().await;
     let mut events = fixture.events.subscribe();
-    fixture.observe(100, Some(2_500));
+    fixture.observe(100, Some(2_500)).await;
     events.try_recv().unwrap();
-    fixture.observe(100, Some(5_000));
+    fixture.observe(100, Some(5_000)).await;
     assert_eq!(
-        fixture.quotas()[0]
+        fixture.quotas().await[0]
             .five_hour
             .as_ref()
             .unwrap()
@@ -365,21 +371,26 @@ fn equal_time_keeps_known_values() {
         used_basis_points: 100,
         reset_at_ms: None,
     });
-    observe(&mut fixture.database, observation, &fixture.events).unwrap();
-    assert!(fixture.quotas()[0].seven_day.is_none());
+    observe(&mut fixture.database, observation, &fixture.events)
+        .await
+        .unwrap();
+    assert!(fixture.quotas().await[0].seven_day.is_none());
 }
 
-#[test]
-fn clears_credential_replacement() {
-    let mut fixture = Fixture::new();
-    fixture.observe(100, Some(2_500));
+#[tokio::test]
+async fn clears_credential_replacement() {
+    let mut fixture = Fixture::new().await;
+    fixture.observe(100, Some(2_500)).await;
     authentication::put(
         &fixture.database.connection,
         fixture.credential.clone(),
         &Fixture::grant(),
     )
+    .await
     .unwrap();
-    let changes = reconcile(&fixture.database.connection, fixture.database.node).unwrap();
+    let changes = reconcile(&fixture.database.connection, fixture.database.node)
+        .await
+        .unwrap();
     assert_eq!(
         changes,
         vec![Event::ProviderQuotaChanged {
@@ -387,17 +398,18 @@ fn clears_credential_replacement() {
             quota: None
         }]
     );
-    assert!(fixture.quotas().is_empty());
-    fixture.observe(200, Some(5_000));
-    assert!(fixture.quotas().is_empty());
+    assert!(fixture.quotas().await.is_empty());
+    fixture.observe(200, Some(5_000)).await;
+    assert!(fixture.quotas().await.is_empty());
 }
 
-#[test]
-fn clears_changed_provider_binding() {
+#[tokio::test]
+async fn clears_changed_provider_binding() {
     for case in ["selection", "disabled", "type", "unlisted"] {
-        let mut fixture = Fixture::new();
-        fixture.observe(100, Some(2_500));
+        let mut fixture = Fixture::new().await;
+        fixture.observe(100, Some(2_500)).await;
         let mut stored = configuration::load(&fixture.database.connection, fixture.provider.id)
+            .await
             .unwrap()
             .unwrap();
         match case {
@@ -407,30 +419,36 @@ fn clears_changed_provider_binding() {
             "unlisted" => stored.listed = false,
             _ => unreachable!(),
         }
-        configuration::save(&fixture.database.connection, &stored).unwrap();
+        configuration::save(&fixture.database.connection, &stored)
+            .await
+            .unwrap();
         assert_eq!(
             reconcile(&fixture.database.connection, fixture.database.node)
+                .await
                 .unwrap()
                 .len(),
             1,
             "{case}"
         );
-        fixture.observe(200, Some(5_000));
-        assert!(fixture.quotas().is_empty(), "{case}");
+        fixture.observe(200, Some(5_000)).await;
+        assert!(fixture.quotas().await.is_empty(), "{case}");
     }
 }
 
-#[test]
-fn retains_unrelated_provider_edits() {
-    let mut fixture = Fixture::new();
-    fixture.observe(100, Some(2_500));
+#[tokio::test]
+async fn retains_unrelated_provider_edits() {
+    let mut fixture = Fixture::new().await;
+    fixture.observe(100, Some(2_500)).await;
     fixture.provider.name = "Renamed fixture".into();
     fixture.provider.revision += 1;
-    configuration::publish(&fixture.database.connection, &fixture.provider).unwrap();
+    configuration::publish(&fixture.database.connection, &fixture.provider)
+        .await
+        .unwrap();
     assert!(
         reconcile(&fixture.database.connection, fixture.database.node)
+            .await
             .unwrap()
             .is_empty()
     );
-    assert_eq!(fixture.quotas()[0].observed_ms, 100);
+    assert_eq!(fixture.quotas().await[0].observed_ms, 100);
 }

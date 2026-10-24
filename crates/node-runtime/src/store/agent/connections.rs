@@ -28,8 +28,8 @@ impl Catalog {
     }
 }
 
-pub(crate) fn catalog(db: &Connection, session: SessionId) -> Result<Catalog, Fault> {
-    let session = super::super::commands::session(db, session)?;
+pub(crate) async fn catalog(db: &Connection, session: SessionId) -> Result<Catalog, Fault> {
+    let session = super::super::commands::session(db, session).await?;
     let allowed = |target, sharing: Option<&sailry_protocol::connection::Sharing>| {
         super::super::connections::permits(
             session.config.resource,
@@ -40,11 +40,13 @@ pub(crate) fn catalog(db: &Connection, session: SessionId) -> Result<Catalog, Fa
     };
     Ok(Catalog {
         bound: session.config.resource,
-        databases: super::super::databases::list(db)?
+        databases: super::super::databases::list(db)
+            .await?
             .into_iter()
             .filter(|profile| allowed(Resource::Database(profile.id), profile.sharing.as_ref()))
             .collect(),
-        ssh: super::super::ssh::list(db)?
+        ssh: super::super::ssh::list(db)
+            .await?
             .into_iter()
             .filter(|profile| allowed(Resource::Ssh(profile.id), profile.sharing.as_ref()))
             .collect(),
@@ -103,7 +105,7 @@ impl Ingress {
     }
 }
 
-pub(super) fn command(
+pub(super) async fn command(
     db: &Connection,
     turn: TurnId,
     package: &plugin::Reference,
@@ -111,18 +113,18 @@ pub(super) fn command(
     action: Action,
     captured: &[Resource],
 ) -> Result<Command, Fault> {
-    let run = super::calls::active(db, turn)?;
+    let run = super::calls::active(db, turn).await?;
     match action {
         Action::ListDatabases => return Ok(Command::ListDatabases),
         Action::ListSsh => return Ok(Command::ListSsh),
         Action::SaveDatabase(input) => {
-            return management::database(db, turn, package, captured, input);
+            return management::database(db, turn, package, captured, input).await;
         }
-        Action::SaveSsh(input) => return management::ssh(db, turn, package, captured, input),
+        Action::SaveSsh(input) => return management::ssh(db, turn, package, captured, input).await,
         _ => {}
     }
     let target = target.ok_or_else(|| Fault::invalid("connection target is required"))?;
-    check(db, turn, package, target, captured)?;
+    check(db, turn, package, target, captured).await?;
     let denied = || {
         Fault::new(
             ErrorCode::PermissionDenied,
@@ -131,7 +133,9 @@ pub(super) fn command(
     };
     match target {
         Resource::Database(id) => {
-            let profile = super::super::databases::read(db, id)?.ok_or_else(denied)?;
+            let profile = super::super::databases::read(db, id)
+                .await?
+                .ok_or_else(denied)?;
             match action {
                 Action::Catalog { database } => Ok(Command::BrowseDatabase {
                     profile: id,
@@ -157,7 +161,7 @@ pub(super) fn command(
             }
         }
         Resource::Ssh(id) => {
-            let profile = super::super::ssh::read(db, id)?.ok_or_else(denied)?;
+            let profile = super::super::ssh::read(db, id).await?.ok_or_else(denied)?;
             match action {
                 Action::Run {
                     command,
@@ -190,26 +194,39 @@ pub(super) fn command(
     }
 }
 
-pub(in crate::store) fn created(
+pub(in crate::store) async fn created(
     db: &Connection,
     turn: TurnId,
     package: &plugin::Reference,
     target: Resource,
 ) -> Result<bool, Fault> {
-    super::calls::active(db, turn)?;
-    if super::permissions::config(db, turn)?.resource.is_some() {
+    super::calls::active(db, turn).await?;
+    if super::permissions::config(db, turn)
+        .await?
+        .resource
+        .is_some()
+    {
         return Ok(false);
     }
-    let mut query = db.prepare("SELECT a.prepared,r.result,a.binding FROM agent_approvals a JOIN turns t ON t.id=a.turn JOIN requests r ON r.id=a.request AND r.caller=t.caller WHERE a.turn=?1 AND a.claimed=1 AND json_extract(a.body,'$.state')='approved' AND r.status='completed'").map_err(storage_error)?;
-    let records = query
-        .query_map([turn.to_string()], |row| {
-            Ok((
-                row.get::<_, Vec<u8>>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Vec<u8>>(2)?,
-            ))
-        })
-        .map_err(storage_error)?;
+    let mut query = db.prepare("SELECT a.prepared,r.result,a.binding FROM agent_approvals a JOIN turns t ON t.id=a.turn JOIN requests r ON r.id=a.request AND r.caller=t.caller WHERE a.turn=?1 AND a.claimed=1 AND json_extract(a.body,'$.state')='approved' AND r.status='completed'").await.map_err(storage_error)?;
+    let records = {
+        let mut rows = query
+            .query([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| {
+                Ok((
+                    row.get::<Vec<u8>>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<Vec<u8>>(2)?,
+                ))
+            })(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    };
     for record in records {
         let (prepared_body, result_body, binding_body) = record.map_err(storage_error)?;
         let binding: Option<ApprovalBinding> =
@@ -248,18 +265,18 @@ pub(in crate::store) fn created(
     Ok(false)
 }
 
-fn check(
+async fn check(
     db: &Connection,
     turn: TurnId,
     package: &plugin::Reference,
     target: Resource,
     captured: &[Resource],
 ) -> Result<(), Fault> {
-    let run = super::calls::active(db, turn)?;
-    if created(db, turn, package, target)? {
+    let run = super::calls::active(db, turn).await?;
+    if created(db, turn, package, target).await? {
         return Ok(());
     }
-    let available = catalog(db, run.session)?;
+    let available = catalog(db, run.session).await?;
     let permitted = match target {
         Resource::Database(id) => available.databases.iter().any(|p| p.id == id),
         Resource::Ssh(id) => available.ssh.iter().any(|p| p.id == id),
@@ -335,31 +352,39 @@ impl Ingress {
     }
 }
 
-pub(super) fn names(
+pub(super) async fn names(
     db: &Connection,
     turn: TurnId,
     entries: &[(plugin::Reference, Resource)],
     captured: &[Resource],
 ) -> Result<Vec<Option<String>>, Fault> {
-    entries
-        .iter()
-        .map(|(package, target)| {
-            if !created(db, turn, package, *target)? {
-                return Ok(None);
-            }
-            check(db, turn, package, *target, captured)?;
-            let name = match target {
-                Resource::Database(id) => {
-                    super::super::databases::read(db, *id)?.map(|profile| profile.name)
-                }
-                Resource::Ssh(id) => super::super::ssh::read(db, *id)?.map(|profile| profile.name),
-            };
-            Ok(name.filter(|name| !name.trim().is_empty()))
-        })
-        .collect()
+    {
+        let mut selected = Vec::new();
+        for value in entries.iter() {
+            selected.push(
+                (async |(package, target): &(plugin::Reference, Resource)| {
+                    if !created(db, turn, package, *target).await? {
+                        return Ok(None);
+                    }
+                    check(db, turn, package, *target, captured).await?;
+                    let name = match target {
+                        Resource::Database(id) => super::super::databases::read(db, *id)
+                            .await?
+                            .map(|profile| profile.name),
+                        Resource::Ssh(id) => super::super::ssh::read(db, *id)
+                            .await?
+                            .map(|profile| profile.name),
+                    };
+                    Ok(name.filter(|name| !name.trim().is_empty()))
+                })(value)
+                .await?,
+            );
+        }
+        Ok::<_, Fault>(selected)
+    }
 }
 
-pub(super) fn status(
+pub(super) async fn status(
     db: &Connection,
     turn: TurnId,
     package: &plugin::Reference,
@@ -368,24 +393,32 @@ pub(super) fn status(
 ) -> Result<std::collections::BTreeMap<Resource, bool>, Fault> {
     let mut result = std::collections::BTreeMap::new();
     for target in targets {
-        match check(db, turn, package, *target, captured) {
+        match check(db, turn, package, *target, captured).await {
             Ok(()) => {}
             Err(error) if error.code == ErrorCode::PermissionDenied => continue,
             Err(error) => return Err(error),
         }
         let missing = if let Resource::Database(id) = target {
-            let profile = super::super::databases::read(db, *id)?.ok_or_else(|| {
-                Fault::new(ErrorCode::NotFound, "database connection does not exist")
-            })?;
+            let profile = super::super::databases::read(db, *id)
+                .await?
+                .ok_or_else(|| {
+                    Fault::new(ErrorCode::NotFound, "database connection does not exist")
+                })?;
             if matches!(profile.connection, database::Connection::Sqlite { .. }) {
                 false
             } else {
-                db.query_row(
-                    "SELECT length(password)=0 FROM database_profiles WHERE id=?1",
-                    [id.to_string()],
-                    |row| row.get(0),
-                )
-                .map_err(storage_error)?
+                {
+                    let mut statement = db
+                        .prepare("SELECT length(password)=0 FROM database_profiles WHERE id=?1")
+                        .await
+                        .map_err(storage_error)?;
+                    let row = statement
+                        .query_row([id.to_string()])
+                        .await
+                        .map_err(storage_error)?;
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    mapped.map_err(storage_error)?
+                }
             }
         } else {
             false
@@ -395,7 +428,7 @@ pub(super) fn status(
     Ok(result)
 }
 
-pub(super) fn trust(
+pub(super) async fn trust(
     db: &Connection,
     turn: TurnId,
     package: &plugin::Reference,
@@ -408,8 +441,9 @@ pub(super) fn trust(
         key,
         changed,
     } = inspection;
-    check(db, turn, package, Resource::Ssh(profile), captured)?;
-    let profile = super::super::ssh::read(db, profile)?
+    check(db, turn, package, Resource::Ssh(profile), captured).await?;
+    let profile = super::super::ssh::read(db, profile)
+        .await?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "SSH connection does not exist"))?;
     super::super::commands::check_revision(profile.revision, expected_revision)?;
     Ok(ssh::Trust {
@@ -422,7 +456,7 @@ pub(super) fn trust(
     })
 }
 
-pub(super) fn validate_trust(
+pub(super) async fn validate_trust(
     db: &Connection,
     turn: TurnId,
     binding: Option<&ApprovalBinding>,
@@ -445,10 +479,15 @@ pub(super) fn validate_trust(
             )
         })
         .ok_or_else(denied)?;
-    if !super::plugins::read(db, turn)?.contains(&binding.owner) {
+    if !super::plugins::read(db, turn)
+        .await?
+        .contains(&binding.owner)
+    {
         return Err(denied());
     }
-    let profile = super::super::ssh::read(db, trust.profile)?.ok_or_else(denied)?;
+    let profile = super::super::ssh::read(db, trust.profile)
+        .await?
+        .ok_or_else(denied)?;
     if profile.revision != trust.expected_revision
         || profile.host != trust.host
         || profile.port != trust.port
@@ -460,9 +499,12 @@ pub(super) fn validate_trust(
     Ok(())
 }
 
-pub(in crate::store) fn owner(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
-    super::calls::active(db, turn)
+pub(in crate::store) async fn owner(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
+    super::calls::active(db, turn).await
 }
-pub(in crate::store) fn bound(db: &Connection, turn: TurnId) -> Result<Option<Resource>, Fault> {
-    Ok(super::permissions::config(db, turn)?.resource)
+pub(in crate::store) async fn bound(
+    db: &Connection,
+    turn: TurnId,
+) -> Result<Option<Resource>, Fault> {
+    Ok(super::permissions::config(db, turn).await?.resource)
 }

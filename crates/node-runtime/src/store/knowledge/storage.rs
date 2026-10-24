@@ -1,7 +1,6 @@
 //! Explicit collections read raw values from their durable captured namespace.
 use super::{Stored, collections};
 use crate::store::database::storage_error;
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault,
@@ -9,6 +8,7 @@ use sailry_protocol::{
     plugin::storage::{self, Scope},
 };
 use serde_json::Value;
+use turso::{Connection, params};
 
 #[cfg(test)]
 mod tests;
@@ -37,7 +37,7 @@ struct Raw {
     index: Option<Vec<u8>>,
 }
 
-pub(in crate::store) fn page(
+pub(in crate::store) async fn page(
     db: &Connection,
     stored: &Stored,
     after: Option<&str>,
@@ -48,25 +48,29 @@ pub(in crate::store) fn page(
     if !(1..=16).contains(&limit) || after.is_some_and(|key| !valid_key(key)) {
         return Err(Fault::invalid("invalid knowledge source page"));
     }
-    if !current(db, stored)? {
+    if !current(db, stored).await? {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "knowledge collection changed",
         ));
     }
     if stored.automatic {
-        return super::semantic::sources(db, stored, after, limit, stop);
+        return super::semantic::sources(db, stored, after, limit, stop).await;
     }
     let (name, scope, prefix) = namespace(stored)?;
     let mut statement = db.prepare(match scope {
         Scope::Node => "SELECT key FROM plugin_values WHERE name=?1 AND value IS NOT NULL AND substr(key,1,length(?2))=?2 AND (?3 IS NULL OR key>?3) ORDER BY key LIMIT ?4",
         Scope::Conversation => "SELECT v.key FROM plugin_conversation_values v JOIN plugin_conversation_records r ON r.sequence=v.record WHERE v.name=?1 AND r.value IS NOT NULL AND substr(v.key,1,length(?2))=?2 AND (?3 IS NULL OR v.key>?3) AND v.session=?5 ORDER BY v.key LIMIT ?4",
-    }).map_err(storage_error)?;
+    }).await.map_err(storage_error)?;
     let session = stored.capture.session.map(|id| id.to_string());
     let mut rows = if scope == Scope::Node {
-        statement.query(params![name, prefix, after, i64::from(limit) + 1])
+        statement
+            .query(params![name, prefix, after, i64::from(limit) + 1])
+            .await
     } else {
-        statement.query(params![name, prefix, after, i64::from(limit) + 1, session])
+        statement
+            .query(params![name, prefix, after, i64::from(limit) + 1, session])
+            .await
     }
     .map_err(storage_error)?;
     let mut page = PageRaw {
@@ -75,14 +79,14 @@ pub(in crate::store) fn page(
     };
     let mut last = None;
     let mut scanned = 0;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         check(stop)?;
         if scanned == limit {
             page.after = last;
             break;
         }
         let key: String = row.get(0).map_err(storage_error)?;
-        if let Some(record) = capture(db, stored, &key)? {
+        if let Some(record) = capture(db, stored, &key).await? {
             page.records.push(record);
         }
         last = Some(key);
@@ -91,27 +95,27 @@ pub(in crate::store) fn page(
     Ok(page)
 }
 
-pub(in crate::store) fn unchanged(
+pub(in crate::store) async fn unchanged(
     db: &Connection,
     stored: &Stored,
     record: &Record,
     stop: &CancellationToken,
 ) -> Result<bool, Fault> {
     check(stop)?;
-    if !current(db, stored)? {
+    if !current(db, stored).await? {
         return Ok(false);
     }
     if stored.automatic {
-        return super::semantic::unchanged(db, stored, record, stop);
+        return super::semantic::unchanged(db, stored, record, stop).await;
     }
     let (_, _, prefix) = namespace(stored)?;
     if !record.key.starts_with(prefix) {
         return Ok(false);
     }
-    let Some(metadata) = read(db, stored, &record.key)? else {
+    let Some(metadata) = read(db, stored, &record.key).await? else {
         return Ok(false);
     };
-    let Some(source) = read(db, stored, &record.source.key)? else {
+    let Some(source) = read(db, stored, &record.source.key).await? else {
         return Ok(false);
     };
     Ok(metadata.revision == record.revision
@@ -120,31 +124,31 @@ pub(in crate::store) fn unchanged(
         && *blake3::hash(&source.body).as_bytes() == record.source_hash)
 }
 
-pub(in crate::store) fn record(
+pub(in crate::store) async fn record(
     db: &Connection,
     stored: &Stored,
     key: &str,
     stop: &CancellationToken,
 ) -> Result<Option<Record>, Fault> {
     check(stop)?;
-    if !current(db, stored)? {
+    if !current(db, stored).await? {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "knowledge collection changed",
         ));
     }
     if stored.automatic {
-        return super::semantic::source(db, stored, key, stop);
+        return super::semantic::source(db, stored, key, stop).await;
     }
     let (_, _, prefix) = namespace(stored)?;
     if !valid_key(key) || !key.starts_with(prefix) {
         return Err(Fault::invalid("knowledge key is outside its source"));
     }
-    capture(db, stored, key)
+    capture(db, stored, key).await
 }
 
-fn current(db: &Connection, stored: &Stored) -> Result<bool, Fault> {
-    Ok(collections::load(db)?.into_iter().any(|current| {
+async fn current(db: &Connection, stored: &Stored) -> Result<bool, Fault> {
+    Ok(collections::load(db).await?.into_iter().any(|current| {
         current.collection.id == stored.collection.id
             && current.collection.revision == stored.collection.revision
             && current.collection.rebuild == stored.collection.rebuild
@@ -174,8 +178,8 @@ fn namespace(stored: &Stored) -> Result<(&str, Scope, &str), Fault> {
     Ok((&package.name, *scope, prefix))
 }
 
-fn capture(db: &Connection, stored: &Stored, key: &str) -> Result<Option<Record>, Fault> {
-    let Some(raw) = read(db, stored, key)? else {
+async fn capture(db: &Connection, stored: &Stored, key: &str) -> Result<Option<Record>, Fault> {
+    let Some(raw) = read(db, stored, key).await? else {
         return Ok(None);
     };
     let value: Value = serde_json::from_slice(&raw.body).map_err(storage_error)?;
@@ -195,7 +199,7 @@ fn capture(db: &Connection, stored: &Stored, key: &str) -> Result<Option<Record>
             key: key.into(),
             pointer: String::new(),
         });
-    let Some(original) = read(db, stored, &source.key)? else {
+    let Some(original) = read(db, stored, &source.key).await? else {
         return Ok(None);
     };
     let body = if index.as_ref().is_some_and(|index| index.source.is_some()) {
@@ -234,15 +238,26 @@ fn capture(db: &Connection, stored: &Stored, key: &str) -> Result<Option<Record>
     }))
 }
 
-fn read(db: &Connection, stored: &Stored, key: &str) -> Result<Option<Raw>, Fault> {
+async fn read(db: &Connection, stored: &Stored, key: &str) -> Result<Option<Raw>, Fault> {
     if !valid_key(key) {
         return Err(Fault::invalid("invalid knowledge storage key"));
     }
     let (name, scope, _) = namespace(stored)?;
-    let row: Option<(i64, Vec<u8>, Option<Vec<u8>>)> = match scope {
-        Scope::Node => db.query_row("SELECT revision,value,index_data FROM plugin_values WHERE name=?1 AND key=?2 AND value IS NOT NULL", params![name,key], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))),
-        Scope::Conversation => db.query_row("SELECT v.revision,r.value,NULL FROM plugin_conversation_values v JOIN plugin_conversation_records r ON r.sequence=v.record WHERE v.name=?1 AND v.session=?2 AND v.key=?3 AND r.value IS NOT NULL", params![name,stored.capture.session.map(|id| id.to_string()),key], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))),
-    }.optional().map_err(storage_error)?;
+    let result: turso::Result<(i64, Vec<u8>, Option<Vec<u8>>)> = match scope {
+        Scope::Node => (async { let mut statement = db.prepare("SELECT revision,value,index_data FROM plugin_values WHERE name=?1 AND key=?2 AND value IS NOT NULL").await?;
+let row = statement.query_row(params![name,key]).await?;
+let mapped: turso::Result<_> = (|row: &turso::Row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)))(&row);
+mapped }).await,
+        Scope::Conversation => (async { let mut statement = db.prepare("SELECT v.revision,r.value,NULL FROM plugin_conversation_values v JOIN plugin_conversation_records r ON r.sequence=v.record WHERE v.name=?1 AND v.session=?2 AND v.key=?3 AND r.value IS NOT NULL").await?;
+let row = statement.query_row(params![name,stored.capture.session.map(|id| id.to_string()),key]).await?;
+let mapped: turso::Result<_> = (|row: &turso::Row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)))(&row);
+mapped }).await,
+    };
+    let row = match result {
+        Ok(row) => Some(row),
+        Err(turso::Error::QueryReturnedNoRows) => None,
+        Err(error) => return Err(storage_error(error)),
+    };
     row.map(|(revision, body, index)| {
         if body.len() > storage::MAX_VALUE_BYTES
             || index

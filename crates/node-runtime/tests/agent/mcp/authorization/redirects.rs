@@ -43,7 +43,8 @@ async fn registers_changed_callback() {
             let (_, attempt, url) = begin(&fixture.client, info.summary.reference(), false).await;
             let original = complete(&fixture.client, &attempt, &url).await;
             let before: Value =
-                serde_json::from_slice(&lifecycle::stored(&fixture.node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&fixture.node, original.id).await)
+                    .unwrap();
             let attempt = restart(&fixture.client, &original).await;
             let LoginState::Browser { url, .. } = state(&fixture.client, &attempt, |state| {
                 matches!(state, LoginState::Browser { .. })
@@ -63,7 +64,8 @@ async fn registers_changed_callback() {
                 REDIRECT
             );
             let pending: Value =
-                serde_json::from_slice(&lifecycle::stored(&fixture.node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&fixture.node, original.id).await)
+                    .unwrap();
             assert_eq!(pending["grant"], before["grant"]);
             let current = complete(&fixture.client, &attempt, &url).await;
             assert_eq!(current.id, original.id);
@@ -99,7 +101,8 @@ async fn retains_grant_when_reauthorization_fails() {
             let (_, attempt, url) = begin(&fixture.client, info.summary.reference(), false).await;
             let original = complete(&fixture.client, &attempt, &url).await;
             let before: Value =
-                serde_json::from_slice(&lifecycle::stored(&fixture.node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&fixture.node, original.id).await)
+                    .unwrap();
             if matches!(failure, Failure::Registration) {
                 issuer.registration_status.store(503, Ordering::SeqCst);
             }
@@ -137,7 +140,8 @@ async fn retains_grant_when_reauthorization_fails() {
             assert_eq!(issuer.registrations.load(Ordering::SeqCst), 2);
             assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
             let after: Value =
-                serde_json::from_slice(&lifecycle::stored(&fixture.node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&fixture.node, original.id).await)
+                    .unwrap();
             for field in [
                 "grant",
                 "grant_revision",

@@ -10,31 +10,38 @@ fn stamp() -> Stat {
     }
 }
 
-#[test]
-fn checks_exact_witness_and_processed_model() {
-    let (_directory, mut index) = open();
+#[tokio::test]
+async fn checks_exact_witness_and_processed_model() {
+    let (_directory, index) = open().await;
     let selected = binding();
-    index.bind(&selected).unwrap();
+    index.bind(&selected).await.unwrap();
     let mut document = document("notes.md");
     document.embedded = false;
     index
         .replace(&selected, &document, &[part("cached content", None)])
+        .await
         .unwrap();
     let stat = stamp();
     assert!(
         !index
             .cached(&selected, &document.locator, stat, &document.tags, false)
+            .await
             .unwrap()
     );
-    index.remember(&selected, &document.locator, stat).unwrap();
+    index
+        .remember(&selected, &document.locator, stat)
+        .await
+        .unwrap();
     assert!(
         index
             .cached(&selected, &document.locator, stat, &document.tags, false)
+            .await
             .unwrap()
     );
     assert!(
         !index
             .cached(&selected, &document.locator, stat, &document.tags, true)
+            .await
             .unwrap()
     );
     for changed in [
@@ -58,17 +65,20 @@ fn checks_exact_witness_and_processed_model() {
         assert!(
             !index
                 .cached(&selected, &document.locator, changed, &document.tags, false)
+                .await
                 .unwrap()
         );
     }
     assert!(
         !index
             .cached(&selected, "other.md", stat, &document.tags, false)
+            .await
             .unwrap()
     );
     assert!(
         !index
             .cached(&selected, &document.locator, stat, &["other".into()], false)
+            .await
             .unwrap()
     );
     let changed = Binding {
@@ -78,19 +88,22 @@ fn checks_exact_witness_and_processed_model() {
     assert!(
         !index
             .cached(&changed, &document.locator, stat, &document.tags, false)
+            .await
             .unwrap()
     );
     assert_eq!(
         index
             .remember(&changed, &document.locator, stat)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Cancelled
     );
-    index.bind(&changed).unwrap();
+    index.bind(&changed).await.unwrap();
     assert!(
         index
             .cached(&changed, &document.locator, stat, &document.tags, false)
+            .await
             .unwrap()
     );
     document.embedded = true;
@@ -100,16 +113,22 @@ fn checks_exact_witness_and_processed_model() {
             &document,
             &[part("cached content", Some(&[1., 0.]))],
         )
+        .await
         .unwrap();
     assert!(
         !index
             .cached(&changed, &document.locator, stat, &document.tags, true)
+            .await
             .unwrap()
     );
-    index.remember(&changed, &document.locator, stat).unwrap();
+    index
+        .remember(&changed, &document.locator, stat)
+        .await
+        .unwrap();
     assert!(
         index
             .cached(&changed, &document.locator, stat, &document.tags, true)
+            .await
             .unwrap()
     );
     let model = Binding {
@@ -117,33 +136,41 @@ fn checks_exact_witness_and_processed_model() {
         model: Some(("granite-multi".to_owned(), 3)),
         ..changed.clone()
     };
-    index.bind(&model).unwrap();
+    index.bind(&model).await.unwrap();
     assert!(
         !index
             .cached(&model, &document.locator, stat, &document.tags, true)
+            .await
             .unwrap()
     );
     assert!(
         index
             .cached(&model, &document.locator, stat, &document.tags, false)
+            .await
             .unwrap()
     );
-    index.prune(&model, &[]).unwrap();
+    index.prune(&model, &[]).await.unwrap();
+    let lease = index.lease(true).await.unwrap();
     assert_eq!(
-        index
-            .db
-            .query_row("SELECT count(*) FROM file_stamps", [], |row| row
-                .get::<_, i64>(0))
+        lease
+            .connection()
+            .prepare("SELECT count(*) FROM file_stamps")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
             .unwrap(),
         0
     );
 }
 
-#[test]
-fn fills_missing_derived_table_without_losing_sources() {
-    let (directory, mut index) = open();
+#[tokio::test]
+async fn fills_missing_derived_table_without_losing_sources() {
+    let (directory, index) = open().await;
     let selected = binding();
-    index.bind(&selected).unwrap();
+    index.bind(&selected).await.unwrap();
     let document = document("notes.md");
     index
         .replace(
@@ -151,30 +178,49 @@ fn fills_missing_derived_table_without_losing_sources() {
             &document,
             &[part("cached content", Some(&[1., 0.]))],
         )
+        .await
         .unwrap();
-    index.db.execute_batch("DROP TABLE file_stamps").unwrap();
+    index
+        .lease(false)
+        .await
+        .unwrap()
+        .connection()
+        .execute_batch("DROP TABLE file_stamps")
+        .await
+        .unwrap();
     drop(index);
-    let index = Index::open(&directory.path().join("knowledge.db")).unwrap();
-    assert_eq!(index.counts(&selected).unwrap(), (1, 1));
-    assert!(index.unchanged(&selected, &document).unwrap());
+    let index = Index::open(&directory.path().join("knowledge.turso"))
+        .await
+        .unwrap();
+    assert_eq!(index.counts(&selected).await.unwrap(), (1, 1));
+    assert!(index.unchanged(&selected, &document).await.unwrap());
     assert!(
         !index
             .cached(&selected, &document.locator, stamp(), &document.tags, true)
+            .await
             .unwrap()
     );
     index
         .remember(&selected, &document.locator, stamp())
+        .await
         .unwrap();
     assert!(
         index
             .cached(&selected, &document.locator, stamp(), &document.tags, true)
+            .await
             .unwrap()
     );
+    let lease = index.lease(true).await.unwrap();
     assert_eq!(
-        index
-            .db
-            .query_row("SELECT version FROM metadata", [], |row| row
-                .get::<_, i64>(0))
+        lease
+            .connection()
+            .prepare("SELECT version FROM metadata")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
             .unwrap(),
         1
     );

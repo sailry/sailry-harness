@@ -1,5 +1,5 @@
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::*;
+use turso::{Connection, params};
 
 #[cfg(test)]
 mod tests;
@@ -29,7 +29,7 @@ pub(super) struct Configuration {
     pub roles: role::Snapshot,
 }
 
-pub(super) fn create(
+pub(super) async fn create(
     db: &Connection,
     node: NodeId,
     profile: Option<&std::path::Path>,
@@ -38,18 +38,18 @@ pub(super) fn create(
     mut settings: Configuration,
 ) -> Result<(Output, Option<Event>), Fault> {
     if let Some(profile) = &mut settings.profile {
-        super::providers::presets::capture(db, &mut profile.provider)?;
+        super::providers::presets::capture(db, &mut profile.provider).await?;
         crate::providers::login::capture(&mut profile.provider)?;
     }
-    commands::validate_config(db, node, &settings.config)?;
-    super::plugins::options::validate(db, None, &settings.config, None)?;
-    validate_model(db, &settings.config, settings.profile.as_ref())?;
-    assistants::validate(db, project, &settings.config)?;
+    commands::validate_config(db, node, &settings.config).await?;
+    super::plugins::options::validate(db, None, &settings.config, None).await?;
+    validate_model(db, &settings.config, settings.profile.as_ref()).await?;
+    assistants::validate(db, project, &settings.config).await?;
     let id = SessionId::new();
     let worktree = match (project, settings.config.resource) {
-        (Some(project), None) => super::worktrees::select(db, project, worktree)?,
+        (Some(project), None) => super::worktrees::select(db, project, worktree).await?,
         (None, Some(resource)) => {
-            let owned = super::connections::workspace(db, profile, resource)?;
+            let owned = super::connections::workspace(db, profile, resource).await?;
             if worktree.is_some_and(|id| id != owned) {
                 return Err(sailry_protocol::Fault::invalid(
                     "worktree does not belong to the connection",
@@ -59,7 +59,7 @@ pub(super) fn create(
         }
         (None, None) if settings.config.assistant.is_some() => {
             let binding = settings.config.assistant.as_ref().unwrap();
-            let owned = assistants::workspace(db, profile, binding)?;
+            let owned = assistants::workspace(db, profile, binding).await?;
             if worktree.is_some_and(|id| id != owned) {
                 return Err(sailry_protocol::Fault::invalid(
                     "worktree does not belong to the plugin assistant",
@@ -73,7 +73,7 @@ pub(super) fn create(
                     "an unassigned conversation creates its own workspace",
                 ));
             }
-            super::worktrees::reserve_session(db, profile, id)?
+            super::worktrees::reserve_session(db, profile, id).await?
         }
         _ => {
             return Err(sailry_protocol::Fault::invalid(
@@ -95,22 +95,22 @@ pub(super) fn create(
         fork: None,
         delegation: None,
     };
-    session.creation_order = insert(db, &session)?;
-    super::media::freeze(db, session.id, None)?;
+    session.creation_order = insert(db, &session).await?;
+    super::media::freeze(db, session.id, None).await?;
     Ok((
         Output::Session(session.clone()),
         Some(Event::SessionChanged(Box::new(session))),
     ))
 }
 
-pub(super) fn validate_model(
+pub(super) async fn validate_model(
     db: &Connection,
     config: &SessionConfig,
     profile: Option<&SessionProfile>,
 ) -> Result<(), Fault> {
     let provider = match profile {
         Some(profile) => Some(profile.provider.clone()),
-        None => super::agent::providers::get(db, config.provider)?,
+        None => super::agent::providers::get(db, config.provider).await?,
     };
     if let Some(provider) = provider {
         super::agent::providers::selection(&provider, config)?;
@@ -122,18 +122,21 @@ pub(super) fn validate_model(
     Ok(())
 }
 
-pub(in crate::store) fn insert(db: &Connection, session: &Session) -> Result<u64, Fault> {
+pub(in crate::store) async fn insert(db: &Connection, session: &Session) -> Result<u64, Fault> {
+    let creation_order =
+        super::database::counters::next(db, super::database::counters::Namespace::Sessions).await?;
     db.execute(
-        "INSERT INTO sessions(id,project,worktree,revision) VALUES(?1,?2,?3,1)",
+        "INSERT INTO sessions(rowid,id,project,worktree,revision) VALUES(?1,?2,?3,?4,1)",
         params![
+            creation_order as i64,
             session.id.to_string(),
             session.project.map(|id| id.to_string()),
             session.worktree.to_string()
         ],
     )
+    .await
     .map_err(storage_error)?;
-    let creation_order = db.last_insert_rowid().try_into().map_err(storage_error)?;
-    commands::insert_revision(db, session)?;
+    commands::insert_revision(db, session).await?;
     Ok(creation_order)
 }
 
@@ -147,25 +150,30 @@ pub(in crate::store) fn writable(session: &Session) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(super) fn profile(
+pub(super) async fn profile(
     db: &Connection,
     id: SessionId,
     revision: u64,
 ) -> Result<Option<SessionProfile>, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT profile FROM session_revisions WHERE session=?1 AND revision=?2",
-            params![id.to_string(), revision as i64],
-            |row| row.get(0),
-        )
-        .optional()
+    let body: Option<Vec<u8>> = match db
+        .prepare("SELECT profile FROM session_revisions WHERE session=?1 AND revision=?2")
+        .await
         .map_err(storage_error)?
-        .flatten();
+        .query_row(params![id.to_string(), revision as i64])
+        .await
+        .and_then(|row| row.get(0))
+    {
+        Ok(value) => Ok(Some(value)),
+        Err(turso::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(error),
+    }
+    .map_err(storage_error)?
+    .flatten();
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
 }
 
-pub(super) fn import(
+pub(super) async fn import(
     db: &Connection,
     node: NodeId,
     caller: NodeId,
@@ -209,17 +217,19 @@ pub(super) fn import(
                 revoked: false,
             },
             secret,
-        )?;
+        )
+        .await?;
         provider.credential = Some(CredentialRef { node, id });
     }
-    super::agent::providers::validate(db, node, &provider)?;
-    super::providers::configuration::retain(db, &provider)?;
+    super::agent::providers::validate(db, node, &provider).await?;
+    super::providers::configuration::retain(db, &provider).await?;
     let mut config = bundle.config.clone();
     config.provider = provider.id;
     config.credential = provider.credential.clone();
-    let roles = roles::import(db, node, caller, &bundle.roles, &bundle.role_credentials)?;
+    let roles = roles::import(db, node, caller, &bundle.roles, &bundle.role_credentials).await?;
     if let Some(binding) = &mut config.assistant {
-        let installed = crate::store::plugins::get(db, &binding.package.name)?
+        let installed = crate::store::plugins::get(db, &binding.package.name)
+            .await?
             .filter(|info| info.summary.enabled && info.summary.digest == binding.package.digest)
             .ok_or_else(|| {
                 sailry_protocol::Fault::invalid(
@@ -243,4 +253,5 @@ pub(super) fn import(
             roles,
         },
     )
+    .await
 }

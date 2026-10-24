@@ -242,14 +242,20 @@ async fn skips_same_version_bundled_content() {
         assert_eq!(current.summary.version, bundled.version);
         assert_ne!(current.summary.digest, bundled.digest);
         current.origin = Some(plugin::Origin::Bundled);
-        let database =
-            rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-        database
-            .execute(
-                "UPDATE plugins SET body=?1 WHERE name='reminders'",
-                [serde_json::to_vec(&current).unwrap()],
-            )
-            .unwrap();
+
+        {
+            let sql = ("UPDATE plugins SET body=?1 WHERE name='reminders'").to_owned();
+            let parameters = turso::params![serde_json::to_vec(&current).unwrap()];
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute(sql, parameters)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
+        }
+        .unwrap();
         let before = stored(&node);
         catalog.requests.lock().unwrap().clear();
         let batch = check(&client, std::slice::from_ref(&current.summary)).await;
@@ -366,18 +372,32 @@ async fn offers_bundled_updates_on_catalog_failure() {
             )
             .await,
         );
-        let database =
-            rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-        let private = || {
-            database
-                .query_row(
-                    "SELECT body FROM plugin_settings WHERE plugin='reminders' AND revision=?1",
-                    [current.summary.settings_revision as i64],
-                    |row| row.get::<_, Vec<u8>>(0),
-                )
-                .unwrap()
+
+        let private = async || {
+            {
+                let sql =
+                    ("SELECT body FROM plugin_settings WHERE plugin='reminders' AND revision=?1")
+                        .to_owned();
+                let parameters = turso::params![current.summary.settings_revision as i64];
+                node.with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?;
+                        let value: turso::Result<_> =
+                            (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+                        value.map_err(crate::plugins::database_fixture::fault)
+                    })
+                })
+                .await
+            }
+            .unwrap()
         };
-        let body = private();
+        let body = private().await;
         let saved: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(
             saved["mcp"]["mcpServers"]["service"]["url"],
@@ -415,7 +435,7 @@ async fn offers_bundled_updates_on_catalog_failure() {
         assert_eq!(candidate.summary.version, bundled.version);
         assert_eq!(candidate.summary.digest, bundled.digest);
         assert_eq!(stored(&node), before);
-        assert_eq!(private(), body);
+        assert_eq!(private().await, body);
         assert_eq!(
             info(
                 execute(
@@ -444,7 +464,7 @@ async fn offers_bundled_updates_on_catalog_failure() {
             assert_eq!(invalid.reports[0].available, offline.reports[0].available);
             assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
             assert_eq!(stored(&node), before);
-            assert_eq!(private(), body);
+            assert_eq!(private().await, body);
             assert_eq!(
                 info(
                     execute(
@@ -477,7 +497,7 @@ async fn offers_bundled_updates_on_catalog_failure() {
             updated.summary.settings_revision,
             current.summary.settings_revision
         );
-        assert_eq!(private(), body);
+        assert_eq!(private().await, body);
         assert_eq!(
             info(
                 execute(

@@ -53,17 +53,20 @@ pub(super) async fn connect(
     row
 }
 
-pub(super) fn stored(node: &Node, id: plugin::connector::Id) -> Vec<u8> {
-    rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap()
-    .query_row(
-        "SELECT body FROM plugin_connections WHERE id=?1",
-        [id.to_string()],
-        |row| row.get(0),
-    )
+pub(super) async fn stored(node: &Node, id: plugin::connector::Id) -> Vec<u8> {
+    node.with_storage(move |db| {
+        Box::pin(async move {
+            db.prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .query_row([id.to_string()])
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::plugins::database_fixture::fault)
+        })
+    })
+    .await
     .unwrap()
 }
 
@@ -95,7 +98,7 @@ async fn rotates_without_losing_refresh_credentials() {
             assert_eq!(fields["client_secret"], "private-client-marker");
         }
         let before: serde_json::Value =
-            serde_json::from_slice(&stored(&node, original.id)).unwrap();
+            serde_json::from_slice(&stored(&node, original.id).await).unwrap();
         let Output::Connection(row) = execute(
             &client,
             Command::UpdateConnection {
@@ -117,7 +120,8 @@ async fn rotates_without_losing_refresh_credentials() {
         };
         assert_eq!(row.revision, original.revision + 1);
         assert_eq!(row.state, State::Connected);
-        let after: serde_json::Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        let after: serde_json::Value =
+            serde_json::from_slice(&stored(&node, row.id).await).unwrap();
         for field in ["auth_revision", "grant", "grant_revision", "secrets"] {
             assert_eq!(after[field], before[field]);
         }
@@ -181,13 +185,13 @@ async fn rotates_without_losing_refresh_credentials() {
 
         for status in [503, 403, 1] {
             issuer.status.store(status, Ordering::SeqCst);
-            let before = stored(&node, row.id);
+            let before = stored(&node, row.id).await;
             let original = request("/unauthorized", "POST");
             let count = resource.requests.lock().unwrap().len();
             let error = client.execute(original.clone()).await.unwrap_err();
             assert_ne!(error.code, ErrorCode::PermissionDenied, "{status}");
             assert_eq!(client.execute(original).await.unwrap_err(), error);
-            assert_eq!(stored(&node, row.id), before, "{status}");
+            assert_eq!(stored(&node, row.id).await, before, "{status}");
             assert_eq!(resource.requests.lock().unwrap().len() - count, 1);
         }
 
@@ -207,7 +211,8 @@ async fn rotates_without_losing_refresh_credentials() {
         };
         assert_eq!(rows[0].state, State::Expired);
         assert!(rows[0].configured.contains(&"client_secret".into()));
-        let rejected: serde_json::Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        let rejected: serde_json::Value =
+            serde_json::from_slice(&stored(&node, row.id).await).unwrap();
         assert!(rejected["grant"].is_null());
         drop(other);
         controller.close().await.unwrap();

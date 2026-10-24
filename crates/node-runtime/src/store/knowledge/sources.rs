@@ -2,14 +2,18 @@ use super::*;
 use sailry_protocol::plugin::Action;
 use std::path::Path;
 
-pub(super) fn package(db: &Connection, context: &plugin::Context) -> Result<plugin::Info, Fault> {
+pub(super) async fn package(
+    db: &Connection,
+    context: &plugin::Context,
+) -> Result<plugin::Info, Fault> {
     // Shared admission checks the running turn or callback before these handlers.
     if context.turn.is_some() || context.invocation.is_some() {
-        return crate::store::agent::plugins::packages(db, std::slice::from_ref(&context.package))?
+        return crate::store::agent::plugins::packages(db, std::slice::from_ref(&context.package))
+            .await?
             .pop()
             .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "captured plugin is unavailable"));
     }
-    let info = current(db, &context.package.name)?;
+    let info = current(db, &context.package.name).await?;
     if info.summary.reference() != context.package {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -19,8 +23,9 @@ pub(super) fn package(db: &Connection, context: &plugin::Context) -> Result<plug
     Ok(info)
 }
 
-fn current(db: &Connection, name: &str) -> Result<plugin::Info, Fault> {
-    let info = super::super::plugins::get(db, name)?
+async fn current(db: &Connection, name: &str) -> Result<plugin::Info, Fault> {
+    let info = super::super::plugins::get(db, name)
+        .await?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "knowledge owner plugin is unavailable"))?;
     if !info.summary.enabled {
         return Err(Fault::new(
@@ -31,7 +36,7 @@ fn current(db: &Connection, name: &str) -> Result<plugin::Info, Fault> {
     Ok(info)
 }
 
-pub(super) fn owner(
+pub(super) async fn owner(
     db: &Connection,
     request: &Request,
     selected: Option<&str>,
@@ -42,7 +47,7 @@ pub(super) fn owner(
                 "plugin collection ownership comes from its captured package",
             ));
         }
-        let info = package(db, context)?;
+        let info = package(db, context).await?;
         Ok((
             Owner::Plugin {
                 name: info.summary.name.clone(),
@@ -54,7 +59,7 @@ pub(super) fn owner(
             },
         ))
     } else if let Some(name) = selected {
-        let info = current(db, name)?;
+        let info = current(db, name).await?;
         Ok((
             Owner::Plugin { name: name.into() },
             Capture {
@@ -92,7 +97,7 @@ pub(super) fn readable(stored: &Stored, info: &plugin::Info) -> bool {
     }
 }
 
-pub(super) fn validate(
+pub(super) async fn validate(
     db: &Connection,
     request: &Request,
     definition: &Definition,
@@ -102,11 +107,11 @@ pub(super) fn validate(
     for pattern in &definition.globs {
         globset::Glob::new(pattern).map_err(|_| Fault::invalid("invalid knowledge source glob"))?;
     }
-    let info = request
-        .plugin
-        .as_ref()
-        .map(|context| package(db, context))
-        .transpose()?;
+    let info = (match request.plugin.as_ref() {
+        Some(value) => Some((async |context| package(db, context).await)(value).await),
+        None => None,
+    })
+    .transpose()?;
     match &definition.source {
         Source::Worktree { worktree, path } => {
             if let Some(context) = &request.plugin
@@ -117,14 +122,20 @@ pub(super) fn validate(
                     "knowledge source is outside the captured file access",
                 ));
             }
-            let root: Option<String> = db
-                .query_row(
-                    "SELECT path FROM worktrees WHERE id=?1",
-                    [worktree.to_string()],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(storage_error)?;
+            let root: Option<String> = {
+                let mut statement = db
+                    .prepare("SELECT path FROM worktrees WHERE id=?1")
+                    .await
+                    .map_err(storage_error)?;
+                match statement.query_row([worktree.to_string()]).await {
+                    Ok(row) => {
+                        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        Some(mapped.map_err(storage_error)?)
+                    }
+                    Err(turso::Error::QueryReturnedNoRows) => None,
+                    Err(error) => return Err(storage_error(error).into()),
+                }
+            };
             let root = root.ok_or_else(|| {
                 Fault::new(ErrorCode::NotFound, "knowledge worktree is unavailable")
             })?;
@@ -200,14 +211,20 @@ pub(super) fn validate(
                 let session = capture
                     .session
                     .ok_or_else(|| denied("conversation storage requires a captured session"))?;
-                let worktree: Option<String> = db
-                    .query_row(
-                        "SELECT worktree FROM sessions WHERE id=?1 AND state!='removed'",
-                        [session.to_string()],
-                        |row| row.get(0),
-                    )
-                    .optional()
-                    .map_err(storage_error)?;
+                let worktree: Option<String> = {
+                    let mut statement = db
+                        .prepare("SELECT worktree FROM sessions WHERE id=?1 AND state!='removed'")
+                        .await
+                        .map_err(storage_error)?;
+                    match statement.query_row([session.to_string()]).await {
+                        Ok(row) => {
+                            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                            Some(mapped.map_err(storage_error)?)
+                        }
+                        Err(turso::Error::QueryReturnedNoRows) => None,
+                        Err(error) => return Err(storage_error(error).into()),
+                    }
+                };
                 let worktree = worktree
                     .ok_or_else(|| {
                         Fault::new(ErrorCode::NotFound, "knowledge conversation is unavailable")
@@ -226,7 +243,7 @@ pub(super) fn validate(
         }
     }
     for name in &definition.shared_with {
-        current(db, name)?;
+        current(db, name).await?;
     }
     Ok(())
 }

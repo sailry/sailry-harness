@@ -204,9 +204,7 @@ async fn completes_from_the_cached_reference() {
             .await;
             let fixture = Fixture::empty(remote, &server).await;
             let provider = create(&fixture.client, authentication, api).await;
-            let db =
-                rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-                    .unwrap();
+
             for (source, reference) in [
                 (
                     "openai",
@@ -221,19 +219,30 @@ async fn completes_from_the_cached_reference() {
                     json!({"id":"unknown","limit":{"context":32768,"output":1024},"tool_call":false}),
                 ),
             ] {
-                db.execute(
-                    "INSERT INTO model_catalog(provider,id,body) VALUES(?1,?2,?3)",
-                    rusqlite::params![
+                {
+                    let sql =
+                        ("INSERT INTO model_catalog(provider,id,body) VALUES(?1,?2,?3)").to_owned();
+                    let parameters = turso::params![
                         source,
                         reference["id"].as_str().unwrap(),
                         serde_json::to_vec(&reference).unwrap()
-                    ],
-                )
+                    ];
+                    fixture
+                        .node
+                        .with_storage(move |db| {
+                            Box::pin(async move {
+                                db.execute(sql, parameters)
+                                    .await
+                                    .map_err(crate::database_fixture::fault)
+                            })
+                        })
+                        .await
+                }
                 .unwrap();
             }
-            db.execute(
-                "INSERT INTO model_catalog_status(id,body) VALUES(1,?1)",
-                [
+            {
+                let sql = ("INSERT INTO model_catalog_status(id,body) VALUES(1,?1)").to_owned();
+                let parameters = turso::params![
                     serde_json::to_vec(&sailry_protocol::conversation::catalog::Status {
                         revision: 1,
                         models: 3,
@@ -241,10 +250,20 @@ async fn completes_from_the_cached_reference() {
                         ..Default::default()
                     })
                     .unwrap(),
-                ],
-            )
+                ];
+                fixture
+                    .node
+                    .with_storage(move |db| {
+                        Box::pin(async move {
+                            db.execute(sql, parameters)
+                                .await
+                                .map_err(crate::database_fixture::fault)
+                        })
+                    })
+                    .await
+            }
             .unwrap();
-            drop(db);
+
             let (_, attempt) = begin(&fixture.client, &provider).await;
             let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
             let update = terminal(&mut stream).await;

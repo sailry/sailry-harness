@@ -1,703 +1,234 @@
 use super::*;
-use crate::store::database::Database;
 
-mod connections;
+mod definitions;
 mod indexes;
-mod local_models;
+mod references;
+mod search;
 
-mod comparison {
-    use super::*;
-
-    const CURRENT: &str = "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept'); CREATE INDEX records_value ON records(value);";
-
-    #[test]
-    fn accepts_matching_definitions() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("create table records (id integer primary key, /* value */ value text default 'Kept'); create index records_value on records (value);").unwrap();
-        verify(&connection, Path::new("fixture"), CURRENT).unwrap();
-    }
-
-    #[test]
-    fn accepts_typed_hook_defaults() {
-        let current = "CREATE TABLE agent_runs(hooks BLOB NOT NULL)";
-        for value in [
-            br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null}"#.to_vec(),
-            serde_json::to_vec(&sailry_protocol::hooks::Settings::default()).unwrap(),
-        ] {
-            let connection = Connection::open_in_memory().unwrap();
-            let encoded = value
-                .iter()
-                .map(|byte| format!("{byte:02X}"))
-                .collect::<String>();
-            connection
-                .execute_batch(&format!(
-                    "CREATE TABLE agent_runs(hooks BLOB NOT NULL DEFAULT X'{encoded}')"
-                ))
-                .unwrap();
-            let before = objects(&connection).unwrap();
-            verify(&connection, Path::new("fixture"), current).unwrap();
-            assert_eq!(objects(&connection).unwrap(), before);
-        }
-    }
-
-    #[test]
-    fn rejects_missing_objects() {
-        for sql in [
-            "",
-            "CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept')",
-        ] {
-            let connection = Connection::open_in_memory().unwrap();
-            connection.execute_batch(sql).unwrap();
-            let before = objects(&connection).unwrap();
-            assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
-            assert_eq!(objects(&connection).unwrap(), before);
-        }
-    }
-
-    #[test]
-    fn rejects_column_changes() {
-        for columns in [
-            "id INTEGER PRIMARY KEY",
-            "id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept', unused TEXT",
-            "id INTEGER PRIMARY KEY, value INTEGER DEFAULT 'Kept'",
-            "id INTEGER PRIMARY KEY, value TEXT NOT NULL DEFAULT 'Kept'",
-            "id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Changed'",
-        ] {
-            let connection = Connection::open_in_memory().unwrap();
-            connection
-                .execute_batch(&format!("CREATE TABLE records({columns})"))
-                .unwrap();
-            let before = objects(&connection).unwrap();
-            assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
-            assert_eq!(objects(&connection).unwrap(), before);
-        }
-    }
-
-    #[test]
-    fn rejects_constraint_changes() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept', UNIQUE(value)); CREATE INDEX records_value ON records(value);").unwrap();
-        let before = objects(&connection).unwrap();
-        assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
-        assert_eq!(objects(&connection).unwrap(), before);
-    }
-
-    #[test]
-    fn rejects_table_options() {
-        for options in ["STRICT", "WITHOUT ROWID"] {
-            let connection = Connection::open_in_memory().unwrap();
-            connection.execute_batch(&format!("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept') {options}; CREATE INDEX records_value ON records(value);")).unwrap();
-            let before = objects(&connection).unwrap();
-            assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
-            assert_eq!(objects(&connection).unwrap(), before);
-        }
-    }
-
-    #[test]
-    fn rejects_index_changes() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT DEFAULT 'Kept'); CREATE INDEX records_value ON records(id);").unwrap();
-        let before = objects(&connection).unwrap();
-        assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
-        assert_eq!(objects(&connection).unwrap(), before);
-    }
-
-    #[test]
-    fn rejects_unexpected_objects() {
-        for sql in [
-            "CREATE TABLE retained(value TEXT)",
-            "CREATE TABLE sqlitex_retained(value TEXT)",
-            "CREATE INDEX retained ON records(id)",
-            "CREATE VIEW retained AS SELECT value FROM records",
-            "CREATE TRIGGER retained AFTER INSERT ON records BEGIN DELETE FROM records; END",
-        ] {
-            let connection = Connection::open_in_memory().unwrap();
-            connection.execute_batch(CURRENT).unwrap();
-            connection.execute_batch(sql).unwrap();
-            let before = objects(&connection).unwrap();
-            assert!(verify(&connection, Path::new("fixture"), CURRENT).is_err());
-            assert_eq!(objects(&connection).unwrap(), before);
-        }
-    }
-
-    #[test]
-    fn rejects_trigger_matching_index_name() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch(CURRENT).unwrap();
-        connection.execute_batch("DROP INDEX records_value; CREATE TRIGGER records_value AFTER INSERT ON records BEGIN DELETE FROM records; END; CREATE INDEX records_value ON records(value);").unwrap();
-        let before = objects(&connection).unwrap();
-        assert_eq!(before.len(), 3);
-        let error = verify(&connection, Path::new("fixture"), CURRENT).unwrap_err();
-        assert!(error.to_string().contains("records_value\" (trigger)"));
-        assert_eq!(objects(&connection).unwrap(), before);
-    }
-}
-
-mod corpus_indexes {
-    use super::*;
-    use crate::store::plugins::storage::search;
-
-    fn fixture() -> Connection {
-        let db = Connection::open_in_memory().unwrap();
-        db.execute_batch(DDL).unwrap();
-        db.execute(
-            "INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES('example','entry',1,?1,?2)",
-            rusqlite::params![
-                b"true".as_slice(),
-                br#"{"fields":["title","body"],"tags":[],"order":1}"#.as_slice()
-            ],
-        )
+async fn fixture(ddl: &str) -> (tempfile::TempDir, turso::Database, Connection) {
+    let directory = tempfile::tempdir().unwrap();
+    let database = super::super::engine(&directory.path().join("node.turso"))
+        .await
         .unwrap();
-        db
-    }
-
-    fn create(db: &Connection) {
-        for definition in search::definitions(db).unwrap() {
-            db.execute_batch(&definition).unwrap();
-        }
-    }
-
-    fn unchanged(db: &Connection, accepts: bool) {
-        let before = objects(db).unwrap();
-        let changes = db.total_changes();
-        assert_eq!(verify(db, Path::new("fixture"), DDL).is_ok(), accepts);
-        assert_eq!(objects(db).unwrap(), before);
-        assert_eq!(db.total_changes(), changes);
-    }
-
-    #[test]
-    fn accepts_registered_and_empty_indexes() {
-        let db = fixture();
-        create(&db);
-        unchanged(&db, true);
-        db.execute("UPDATE plugin_values SET value=NULL,index_data=NULL", [])
-            .unwrap();
-        unchanged(&db, true);
-    }
-
-    #[test]
-    fn rejects_missing_index() {
-        unchanged(&fixture(), false);
-    }
-
-    #[test]
-    fn rejects_orphaned_namespaces() {
-        let db = fixture();
-        create(&db);
-        db.execute("DELETE FROM plugin_values", []).unwrap();
-        unchanged(&db, false);
-    }
-
-    #[test]
-    fn rejects_changed_definitions() {
-        let db = fixture();
-        let definition = search::definitions(&db)
-            .unwrap()
-            .remove(0)
-            .replace("field1", "other");
-        db.execute_batch(&definition).unwrap();
-        unchanged(&db, false);
-    }
-
-    #[test]
-    fn rejects_missing_shadow_tables() {
-        let db = fixture();
-        create(&db);
-        let name = format!("plugin_search_{}_config", blake3::hash(b"example").to_hex());
-        db.execute_batch(&format!("DROP TABLE {name}")).unwrap();
-        unchanged(&db, false);
-    }
+    let connection = super::super::connect(&database).await.unwrap();
+    connection.execute_batch(ddl).await.unwrap();
+    (directory, database, connection)
 }
 
-mod declarations {
-    use super::*;
+const CURRENT: &str = "CREATE TABLE records(id INTEGER PRIMARY KEY,value TEXT DEFAULT 'Kept'); CREATE INDEX records_value ON records(value)";
 
-    #[test]
-    fn handles_commas_comments_and_literals() {
-        let definition = Table::parse("CREATE TABLE records(id INTEGER PRIMARY KEY, -- current key\n value TEXT DEFAULT 'a,b--c' CHECK(value IN ('a,b--c','it''s fine')), note TEXT /* unused, */ DEFAULT '/*literal*/', UNIQUE(value,note))").unwrap();
-        assert_eq!(definition.columns.len(), 3);
-        assert_eq!(definition.constraints.len(), 1);
-        assert!(definition.columns["value"].contains("'a,b--c'"));
-        assert_eq!(
-            normalize("value text DEFAULT 'Keep Case'"),
-            "VALUE TEXT DEFAULT'Keep Case'"
-        );
-        assert_ne!(normalize("value INT EGER"), normalize("value INTEGER"));
-        assert_ne!(
-            normalize("value TEXT DEFAULT 'A'"),
-            normalize("value TEXT DEFAULT 'a'")
-        );
-    }
-
-    #[test]
-    fn inspects_all_current_tables() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch(DDL).unwrap();
-        for ((kind, _), sql) in objects(&connection).unwrap() {
-            if kind == "table" {
-                assert!(!Table::parse(&sql).unwrap().columns.is_empty());
-            }
-        }
-        verify(&connection, Path::new("fixture"), DDL).unwrap();
-    }
+#[tokio::test]
+async fn accepts_matching_definitions() {
+    let (_directory, _database, connection) = fixture("create table records(id integer primary key, /* value */ value text default 'Kept'); create index records_value on records(value)").await;
+    let expected = expected(CURRENT, &[]).await.unwrap();
+    verify_objects(&connection, Path::new("fixture"), &expected)
+        .await
+        .unwrap();
 }
 
-mod startup {
-    use super::*;
-    use sailry_protocol::RequestId;
-    use std::{ffi::OsString, path::PathBuf};
-
-    fn queue_receipt() -> serde_json::Value {
-        serde_json::json!({"Ok": {
-            "kind": "queue",
-            "data": {
-                "session": sailry_protocol::SessionId::new(),
-                "queue": {"revision": 3, "paused": true, "items": [{
-                    "turn": sailry_protocol::TurnId::new(), "kind": "task", "revision": 2,
-                    "config_revision": 1, "ready": false, "guidance": null,
-                    "preview": "Retained input", "truncated": false, "attachments": []
-                }]},
-                "runs": []
-            }
-        }})
-    }
-
-    #[test]
-    fn retains_unrecorded_queue_identity() {
-        let (directory, path, node) = fixture("");
-        let connection = Connection::open(&path).unwrap();
-        let receipt = queue_receipt().to_string();
-        connection
-            .execute(
-                "UPDATE requests SET status='completed',result=?1",
-                [&receipt],
-            )
-            .unwrap();
-        let before = std::fs::read(&path).unwrap();
-        let files = entries(directory.path());
-        let changes = connection.total_changes();
-        let schema = prepare(&connection, &path, node, None).unwrap();
-        assert!(matches!(&schema.0, State::Current));
-        schema.initialize(&connection).unwrap();
-        assert_eq!(connection.total_changes(), changes);
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        assert_eq!(entries(directory.path()), files);
-        let stored: (Vec<u8>, String, String) = connection
-            .query_row("SELECT body,status,result FROM requests", [], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })
-            .unwrap();
-        assert_eq!(stored, (b"kept".to_vec(), "completed".into(), receipt));
-        let decoded = crate::store::outcomes::decode(&stored.2).unwrap();
-        let Ok(sailry_protocol::Output::Queue(update)) = decoded else {
-            panic!("queue receipt expected");
+#[tokio::test]
+async fn rejects_changed_columns_and_constraints() {
+    let expected = expected(CURRENT, &[]).await.unwrap();
+    for columns in [
+        "id INTEGER PRIMARY KEY",
+        "id INTEGER PRIMARY KEY,value TEXT DEFAULT 'Changed'",
+        "id INTEGER PRIMARY KEY,value INTEGER DEFAULT 'Kept'",
+        "id INTEGER PRIMARY KEY,value TEXT DEFAULT 'Kept',extra TEXT",
+        "id INTEGER PRIMARY KEY,value TEXT DEFAULT 'Kept',UNIQUE(value)",
+    ] {
+        let index_column = if columns.contains("value") {
+            "value"
+        } else {
+            "id"
         };
-        assert_eq!(update.queue.items[0].request, None);
-        assert!(!directory.path().join("backups").exists());
-    }
-
-    #[test]
-    fn rejects_invalid_queue_identity_during_upgrade() {
-        for missing_revision in [false, true] {
-            let (directory, path, node) = fixture("");
-            let connection = Connection::open(&path).unwrap();
-            let mut receipt = queue_receipt();
-            let item = &mut receipt["Ok"]["data"]["queue"]["items"][0];
-            if missing_revision {
-                item.as_object_mut().unwrap().remove("revision");
-            } else {
-                item["request"] = serde_json::json!("invalid-request-id");
-            }
-            connection
-                .execute(
-                    "UPDATE requests SET status='completed',result=?1",
-                    [receipt.to_string()],
-                )
-                .unwrap();
-            // Unused completed receipts validate when read, and always during upgrades.
-            assert!(matches!(
-                prepare(&connection, &path, node, None).unwrap().0,
-                State::Current
-            ));
-            assert!(crate::store::outcomes::decode(&receipt.to_string()).is_err());
-            connection.execute_batch("DROP INDEX events_kind").unwrap();
-            let before = std::fs::read(&path).unwrap();
-            let files = entries(directory.path());
-            let changes = connection.total_changes();
-            let error = prepare(&connection, &path, node, None)
-                .err()
-                .unwrap()
-                .to_string();
-            assert!(
-                error.contains("invalid stored JSON in requests.result"),
-                "{error}"
-            );
-            assert!(error.contains("(Data)"), "{error}");
-            assert!(error.contains("existing data was not changed"), "{error}");
-            assert_eq!(connection.total_changes(), changes);
-            assert_eq!(std::fs::read(&path).unwrap(), before);
-            assert_eq!(entries(directory.path()), files);
-        }
-    }
-
-    #[test]
-    fn adds_missing_tables() {
-        for table in [
-            "agent_continuations",
-            "plugin_conversation_records",
-            "plugin_conversation_history",
-            "plugin_conversation_values",
-            "plugin_values",
-            "dispatch_jobs",
-            "model_catalog_status",
-            "sandbox_settings",
-            "search_settings",
-            "removed_worktrees",
-        ] {
-            let (directory, path, node) = fixture(&format!("DROP TABLE {table}"));
-            let connection = upgraded(directory.path(), &path, node);
-            assert!(
-                connection
-                    .prepare(&format!("SELECT * FROM {table}"))
-                    .is_ok()
-            );
-        }
-    }
-
-    #[test]
-    fn adds_missing_columns() {
-        for (table, column) in [
-            ("agent_runs", "provider"),
-            ("agent_runs", "hooks"),
-            ("agent_runs", "input"),
-            ("turns", "roles"),
-            ("plugin_values", "index_data"),
-            ("sessions", "state"),
-            ("agent_approvals", "prepared"),
-        ] {
-            let (directory, path, node) =
-                fixture(&format!("ALTER TABLE {table} DROP COLUMN {column}"));
-            let connection = upgraded(directory.path(), &path, node);
-            assert!(
-                connection
-                    .prepare(&format!("SELECT {column} FROM {table}"))
-                    .is_ok()
-            );
-        }
-    }
-
-    #[test]
-    fn preserves_typed_hook_default_in_backup() {
-        let value = br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null}"#;
-        let encoded = value
-            .iter()
-            .map(|byte| format!("{byte:02X}"))
-            .collect::<String>();
-        let (directory, path, node) = fixture(&format!(
-            "ALTER TABLE agent_runs DROP COLUMN hooks; ALTER TABLE agent_runs ADD COLUMN hooks BLOB NOT NULL DEFAULT X'{encoded}'; DROP TABLE code_settings"
-        ));
-        let original = objects(&Connection::open(&path).unwrap()).unwrap();
-        let connection = upgraded(directory.path(), &path, node);
-        assert_eq!(
-            objects(&connection)
-                .unwrap()
-                .get(&("table".into(), "agent_runs".into())),
-            original.get(&("table".into(), "agent_runs".into()))
-        );
-        let backups = directory.path().join("backups");
-        let previous = Connection::open_with_flags(
-            backups.join(&entries(&backups)[0]),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        assert_eq!(objects(&previous).unwrap(), original);
-    }
-
-    #[test]
-    fn rejects_changed_hook_defaults_without_writing() {
-        let default = br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null}"#;
-        for (declaration, value) in [
-            (
-                "hooks BLOB NOT NULL",
-                br#"{"revision":0,"enabled":true,"before_tool":null,"after_tool":null,"turn_end":null}"#.as_slice(),
-            ),
-            ("hooks BLOB NOT NULL", b"{".as_slice()),
-            (
-                "hooks BLOB NOT NULL",
-                br#"{"revision":0,"enabled":false,"before_tool":null,"after_tool":null,"turn_end":null,"foreign":false}"#.as_slice(),
-            ),
-            ("hooks TEXT NOT NULL", default.as_slice()),
-            ("hooks BLOB", default.as_slice()),
-            (
-                "hooks BLOB NOT NULL CHECK(json_valid(hooks))",
-                default.as_slice(),
-            ),
-        ] {
-            let encoded = value
-                .iter()
-                .map(|byte| format!("{byte:02X}"))
-                .collect::<String>();
-            let (directory, path, node) = fixture(&format!(
-                "ALTER TABLE agent_runs DROP COLUMN hooks; ALTER TABLE agent_runs ADD COLUMN {declaration} DEFAULT X'{encoded}'; DROP TABLE code_settings"
-            ));
-            rejected(directory.path(), &path, node, "agent_runs.hooks");
-        }
-    }
-
-    #[test]
-    fn index_changes_preserve_profile() {
-        let (directory, path, node) = fixture(
-            "DROP INDEX dispatch_handlers_source; CREATE INDEX dispatch_handlers_source ON dispatch_handlers(topic,source)",
-        );
-        rejected(directory.path(), &path, node, "dispatch_handlers_source");
-    }
-
-    #[test]
-    fn adds_missing_indexes() {
-        let (directory, path, node) = fixture("DROP INDEX dispatch_handlers_source");
-        let connection = upgraded(directory.path(), &path, node);
+        let (_directory, _database, connection) = fixture(&format!(
+            "CREATE TABLE records({columns}); CREATE INDEX records_value ON records({index_column})"
+        ))
+        .await;
+        let before = objects(&connection).await.unwrap();
         assert!(
-            objects(&connection)
-                .unwrap()
-                .contains_key(&("index".into(), "dispatch_handlers_source".into()))
+            verify_objects(&connection, Path::new("fixture"), &expected)
+                .await
+                .is_err()
         );
+        assert_eq!(objects(&connection).await.unwrap(), before);
     }
+}
 
-    #[test]
-    fn malformed_json_preserves_diagnostics_and_profile() {
-        for source in ["plugins.body", "requests.result"] {
-            let (directory, path, node) = fixture("");
-            let connection = Connection::open(&path).unwrap();
-            let malformed = br#"{"token":"diagnostic-secret-marker""#;
-            if source == "plugins.body" {
-                connection.execute("INSERT INTO plugins(name,revision,installed,body) VALUES('fixture',1,1,?1)", [malformed.as_slice()]).unwrap();
-            } else {
-                connection
-                    .execute(
-                        "UPDATE requests SET result=?1",
-                        [std::str::from_utf8(malformed).unwrap()],
-                    )
-                    .unwrap();
-            }
-            connection.close().unwrap();
-            let before = std::fs::read(&path).unwrap();
-            let files = entries(directory.path());
-            let error = Database::open(&path, node, None).err().unwrap().to_string();
-            assert!(
-                error.contains(&format!("invalid stored JSON in {source}, record 1")),
-                "{error}"
-            );
-            assert!(error.contains("line 1"), "{error}");
-            assert!(error.contains("existing data was not changed"), "{error}");
-            assert!(!error.contains("diagnostic-secret-marker"), "{error}");
-            assert_eq!(std::fs::read(&path).unwrap(), before);
-            assert_eq!(entries(directory.path()), files);
-            let connection =
-                Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-                    .unwrap();
-            assert_eq!(
-                connection
-                    .query_row("SELECT status FROM requests", [], |row| row
-                        .get::<_, String>(0))
-                    .unwrap(),
-                "admitted"
-            );
-        }
-    }
-
-    #[test]
-    fn unexpected_storage_preserves_profile() {
-        for (sql, name) in [
-            (
-                "CREATE TABLE retained(value TEXT); INSERT INTO retained VALUES('kept')",
-                "retained",
-            ),
-            (
-                "CREATE TABLE sqlitex_retained(value TEXT); INSERT INTO sqlitex_retained VALUES('kept')",
-                "sqlitex_retained",
-            ),
-            (
-                "ALTER TABLE agent_runs ADD COLUMN unused BLOB",
-                "agent_runs.unused",
-            ),
-            (
-                "CREATE VIEW retained AS SELECT id FROM sessions",
-                "retained",
-            ),
-            (
-                "CREATE TRIGGER retained AFTER INSERT ON events BEGIN DELETE FROM events; END",
-                "retained",
-            ),
-        ] {
-            let (directory, path, node) = fixture(sql);
-            rejected(directory.path(), &path, node, name);
-        }
-    }
-
-    #[test]
-    fn unowned_storage_is_not_fresh() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("database.sqlite3");
-        let connection = Connection::open(&path).unwrap();
-        connection.execute_batch("CREATE TABLE sqlitex_retained(value TEXT); INSERT INTO sqlitex_retained VALUES('kept')").unwrap();
-        connection.close().unwrap();
-        let before = std::fs::read(&path).unwrap();
-        let files = entries(directory.path());
-        let error = Database::open(&path, NodeId([65; 32]), None)
-            .err()
-            .unwrap()
+#[tokio::test]
+async fn reports_altered_fields_before_constraints() {
+    for (ddl, alteration, detail) in [
+        (
+            "CREATE TABLE records(id TEXT PRIMARY KEY REFERENCES records(id),value BLOB)",
+            "ALTER TABLE records ADD COLUMN unused BLOB",
+            "records.unused",
+        ),
+        (
+            "CREATE TABLE records(name TEXT NOT NULL,key TEXT NOT NULL,index_data BLOB,PRIMARY KEY(name,key))",
+            "ALTER TABLE records DROP COLUMN index_data; ALTER TABLE records ADD COLUMN index_data TEXT",
+            "records.index_data",
+        ),
+    ] {
+        let (_directory, _database, connection) = fixture(ddl).await;
+        let expected = objects(&connection).await.unwrap();
+        connection.execute_batch(alteration).await.unwrap();
+        let before = objects(&connection).await.unwrap();
+        let error = plan::Plan::prepare(&connection, Path::new("fixture"), &expected, &[])
+            .await
+            .unwrap_err()
             .to_string();
-        assert!(error.contains("application_id is 0x0"), "{error}");
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        assert_eq!(entries(directory.path()), files);
-        let connection =
-            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        assert_eq!(
-            connection
-                .query_row("SELECT value FROM sqlitex_retained", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            "kept"
-        );
-    }
-
-    pub(super) fn fixture(sql: &str) -> (tempfile::TempDir, PathBuf, NodeId) {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("database.sqlite3");
-        let node = NodeId([63; 32]);
-        let database = Database::open(&path, node, None).unwrap();
-        database
-            .connection
-            .execute(
-                "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
-                rusqlite::params![
-                    &node.0[..],
-                    RequestId::new().to_string(),
-                    b"kept".as_slice()
-                ],
-            )
-            .unwrap();
-        database.connection.execute_batch(sql).unwrap();
-        database.close().unwrap();
-        let connection = Connection::open(&path).unwrap();
-        connection
-            .pragma_update(None, "journal_mode", "DELETE")
-            .unwrap();
-        connection.close().unwrap();
-        (directory, path, node)
-    }
-
-    pub(super) fn rejected(
-        directory: &Path,
-        path: &Path,
-        node: NodeId,
-        detail: &str,
-    ) -> Connection {
-        let before = std::fs::read(path).unwrap();
-        let files = entries(directory);
-        let error = Database::open(path, node, None).err().unwrap().to_string();
-        assert!(
-            error.contains("incompatible development database"),
-            "{error}"
-        );
         assert!(error.contains(detail), "{error}");
         assert!(error.contains("existing data was not changed"), "{error}");
-        assert_eq!(std::fs::read(path).unwrap(), before);
-        assert_eq!(entries(directory), files);
-        let connection =
-            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        assert_eq!(
-            connection
-                .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
-                .unwrap(),
-            "delete"
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT status FROM requests", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            "admitted"
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT identity FROM node", [], |row| row
-                    .get::<_, Vec<u8>>(0))
-                .unwrap(),
-            node.0
-        );
-        connection
+        assert_eq!(objects(&connection).await.unwrap(), before);
     }
+}
 
-    pub(super) fn entries(directory: &Path) -> Vec<OsString> {
-        let mut entries = std::fs::read_dir(directory)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect::<Vec<_>>();
-        entries.sort();
-        entries
+#[tokio::test]
+async fn rejects_constraint_changes_without_writes() {
+    let expected = expected(CURRENT, &[]).await.unwrap();
+    let (_directory, _database, connection) = fixture(
+        "CREATE TABLE records(id INTEGER PRIMARY KEY,value TEXT DEFAULT 'Kept',UNIQUE(value)); CREATE INDEX records_value ON records(value)",
+    )
+    .await;
+    let before = objects(&connection).await.unwrap();
+    let error = plan::Plan::prepare(&connection, Path::new("fixture"), &expected, &[])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("current constraints"), "{error}");
+    assert!(error.contains("existing data was not changed"), "{error}");
+    assert_eq!(objects(&connection).await.unwrap(), before);
+}
+
+#[tokio::test]
+async fn rejects_unowned_objects() {
+    let expected = expected(CURRENT, &[]).await.unwrap();
+    for ddl in [
+        "CREATE TABLE unowned(value TEXT)",
+        "CREATE INDEX unowned ON records(id)",
+        "CREATE VIEW unowned AS SELECT value FROM records",
+    ] {
+        let (_directory, _database, connection) = fixture(CURRENT).await;
+        connection.execute_batch(ddl).await.unwrap();
+        let before = objects(&connection).await.unwrap();
+        assert!(
+            verify_objects(&connection, Path::new("fixture"), &expected)
+                .await
+                .is_err()
+        );
+        assert_eq!(objects(&connection).await.unwrap(), before);
     }
+}
 
-    pub(super) fn upgraded(directory: &Path, path: &Path, node: NodeId) -> Connection {
-        let database = Database::open(path, node, None).unwrap();
-        database.close().unwrap();
-        let backups = directory.join("backups");
-        let files = entries(&backups);
-        assert_eq!(files.len(), 1);
-        let previous = Connection::open_with_flags(
-            backups.join(&files[0]),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
+#[tokio::test]
+async fn adds_current_defaults_in_one_transaction() {
+    let (_directory, _database, connection) = fixture(
+        "CREATE TABLE agent_runs(id INTEGER PRIMARY KEY); INSERT INTO agent_runs VALUES(1)",
+    )
+    .await;
+    let current = "CREATE TABLE agent_runs(id INTEGER PRIMARY KEY,hooks BLOB NOT NULL)";
+    let expected = expected(current, &[]).await.unwrap();
+    let plan = plan::Plan::prepare(&connection, Path::new("fixture"), &expected, &[])
+        .await
         .unwrap();
-        assert_eq!(
-            previous
-                .query_row("SELECT status FROM requests", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            "admitted"
-        );
-        assert_eq!(
-            previous
-                .query_row("SELECT body FROM requests", [], |row| row
-                    .get::<_, Vec<u8>>(0))
-                .unwrap(),
-            b"kept"
-        );
-        drop(previous);
-        let database = Database::open(path, node, None).unwrap();
-        database.close().unwrap();
-        assert_eq!(entries(&backups), files);
-        let connection =
-            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        assert_eq!(
-            connection
-                .query_row("SELECT identity FROM node", [], |row| row
-                    .get::<_, Vec<u8>>(0))
-                .unwrap(),
-            node.0
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT status FROM requests", [], |row| row
-                    .get::<_, String>(0))
-                .unwrap(),
-            "unknown"
-        );
-        assert_eq!(
-            connection
-                .query_row("SELECT body FROM requests", [], |row| row
-                    .get::<_, Vec<u8>>(0))
-                .unwrap(),
-            b"kept"
-        );
+    assert!(!plan.is_empty());
+    connection.execute("BEGIN", ()).await.unwrap();
+    plan.apply(&connection).await.unwrap();
+    verify_objects(&connection, Path::new("fixture"), &expected)
+        .await
+        .unwrap();
+    let hooks = connection
+        .prepare("SELECT hooks FROM agent_runs WHERE id=1")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<Vec<u8>>(0)
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<sailry_protocol::hooks::Settings>(&hooks).unwrap(),
+        sailry_protocol::hooks::Settings::default()
+    );
+    connection.execute("ROLLBACK", ()).await.unwrap();
+    assert_eq!(
         connection
+            .prepare("SELECT count(*) FROM pragma_table_info('agent_runs') WHERE name='hooks'")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn refuses_missing_required_defaults() {
+    let (_directory, _database, connection) =
+        fixture("CREATE TABLE records(id INTEGER PRIMARY KEY); INSERT INTO records VALUES(1)")
+            .await;
+    let expected = expected(
+        "CREATE TABLE records(id INTEGER PRIMARY KEY,value TEXT NOT NULL)",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(
+        plan::Plan::prepare(&connection, Path::new("fixture"), &expected, &[])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("requires a default")
+    );
+    assert_eq!(
+        connection
+            .prepare("SELECT count(*) FROM records")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn rejects_unowned_native_metadata() {
+    let expected = Objects::new();
+    let mut actual = Objects::from([(
+        ("table".into(), "__turso_internal_foreign".into()),
+        "CREATE TABLE __turso_internal_foreign(value BLOB)".into(),
+    )]);
+    check_backing(&mut actual, &expected, Path::new("fixture")).unwrap();
+    assert!(actual.contains_key(&("table".into(), "__turso_internal_foreign".into())));
+}
+
+#[tokio::test]
+async fn keeps_contract_versions_at_one() {
+    let (_directory, _database, connection) = fixture(DDL).await;
+    connection
+        .pragma_update("application_id", super::super::APPLICATION_ID)
+        .await
+        .unwrap();
+    connection.pragma_update("user_version", 1).await.unwrap();
+    connection
+        .execute(
+            "INSERT INTO node(singleton,identity) VALUES(1,?1)",
+            [NodeId([1; 32]).0.to_vec()],
+        )
+        .await
+        .unwrap();
+    assert!(!ownership(&connection, Path::new("fixture")).await.unwrap());
+    identity(&connection, Path::new("fixture"), NodeId([1; 32]))
+        .await
+        .unwrap();
+    for (pragma, value) in [("user_version", 2), ("application_id", 1)] {
+        connection.pragma_update(pragma, value).await.unwrap();
+        assert!(ownership(&connection, Path::new("fixture")).await.is_err());
     }
 }

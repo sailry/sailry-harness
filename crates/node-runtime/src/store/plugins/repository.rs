@@ -1,17 +1,17 @@
 //! Repository grants retain the captured checkout and its registered project.
-use rusqlite::Connection;
 use sailry_protocol::{
     Command, ErrorCode, Fault, Worktree, WorktreeId,
     plugin::{Action, Context},
 };
+use turso::Connection;
 
 use crate::store::worktrees;
 
-fn source(db: &Connection, context: &Context) -> Result<(Worktree, Vec<Worktree>), Fault> {
+async fn source(db: &Connection, context: &Context) -> Result<(Worktree, Vec<Worktree>), Fault> {
     let captured = context
         .worktree
         .ok_or_else(|| denied("repository action requires a worktree"))?;
-    let entries = worktrees::list(db)?;
+    let entries = worktrees::list(db).await?;
     let source = entries
         .iter()
         .find(|entry| entry.id == captured)
@@ -28,7 +28,7 @@ fn in_project(source: &Worktree, target: WorktreeId, entries: &[Worktree]) -> bo
                 .any(|entry| entry.id == target && entry.project == source.project)
 }
 
-pub(super) fn read_scope(
+pub(super) async fn read_scope(
     db: &Connection,
     context: &Context,
     target: WorktreeId,
@@ -39,19 +39,19 @@ pub(super) fn read_scope(
     if context.turn.is_none() {
         return Err(denied("Git read is outside the captured worktree"));
     }
-    let (source, entries) = source(db, context)?;
+    let (source, entries) = source(db, context).await?;
     if !in_project(&source, target, &entries) {
         return Err(denied("Git read is outside the captured project"));
     }
     Ok(source.id)
 }
 
-pub(super) fn action(
+pub(super) async fn action(
     db: &Connection,
     context: &Context,
     command: &Command,
 ) -> Result<Action, Fault> {
-    let (source, entries) = source(db, context)?;
+    let (source, entries) = source(db, context).await?;
     let project = source
         .project
         .ok_or_else(|| denied("worktree management requires a project"))?;

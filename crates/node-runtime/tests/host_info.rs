@@ -88,16 +88,23 @@ async fn shares_transient_inspection() {
     let admission = transport.dispatch(request).await.unwrap();
     assert!(!admission.receipt.durable);
     admission.completion.await.unwrap().unwrap();
-    let database = rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let rows: i64 = database
-        .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
+    let rows: i64 = node
+        .with_storage(|database| {
+            Box::pin(async move {
+                database
+                    .prepare("SELECT count(*) FROM requests")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(())
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get(0)
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
         .unwrap();
     assert_eq!(rows, 0);
-    drop(database);
 
     tokio::time::sleep(Duration::from_millis(1100)).await;
     let fresh = inspect(&remote).await;

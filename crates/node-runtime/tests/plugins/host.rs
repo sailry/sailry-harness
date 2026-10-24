@@ -431,18 +431,22 @@ async fn interrupted_admission_is_not_replayed() {
         drop(client);
         node.shutdown().await.unwrap();
         // An isolated crash fixture, never the user's running profile.
-        let db =
-            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
+        let (db_handle, db) = crate::plugins::database_fixture::open(
+            &(directory.path().join("node/storage/node.turso")),
+            false,
+        )
+        .await;
         db.execute(
             "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
-            rusqlite::params![
+            turso::params![
                 &caller.0[..],
                 request.id.to_string(),
                 serde_json::to_vec(&request).unwrap()
             ],
         )
+        .await
         .unwrap();
-        drop(db);
+        crate::plugins::database_fixture::close(db_handle, db).await;
         let node = Node::start_empty_with_plugin_catalog(
             directory.path().join("node"),
             "http://127.0.0.1:9/",

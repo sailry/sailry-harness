@@ -21,7 +21,7 @@ pub(in crate::store) enum Input {
     Cancel(RequestId),
 }
 
-pub(in crate::store) fn prepare(
+pub(in crate::store) async fn prepare(
     db: &Database,
     caller: NodeId,
     request: &Request,
@@ -39,9 +39,9 @@ pub(in crate::store) fn prepare(
         &request.command
     {
         if matches!(request.command, Command::ReadPluginCallback { .. }) {
-            db.check_plugin(caller, request)?;
+            db.check_plugin(caller, request).await?;
         }
-        let info = db.plugin_package(caller, request)?;
+        let info = db.plugin_package(caller, request).await?;
         if !info
             .extension
             .as_ref()
@@ -62,10 +62,13 @@ pub(in crate::store) fn prepare(
         return Ok(Input::Script(Box::new(info)));
     }
     if let Command::RequestPluginHttp(http) = &request.command {
-        return super::http::prepare(db, request, http).map(|input| Input::Http(Box::new(input)));
+        return super::http::prepare(db, request, http)
+            .await
+            .map(|input| Input::Http(Box::new(input)));
     }
     if matches!(request.command, Command::ExecuteProviderHttp { .. }) {
         return super::super::providers::resources::prepare(db, caller, request)
+            .await
             .map(|input| Input::Http(Box::new(input)));
     }
     let Command::GeneratePluginText {
@@ -79,13 +82,13 @@ pub(in crate::store) fn prepare(
     if prompt.trim().is_empty() || prompt.len() > 64 * 1024 {
         return Err(Fault::invalid("plugin prompt must contain 1–65536 bytes"));
     }
-    let (mut provider, mut config) = super::models::resolve(&db.connection, model)?;
-    super::super::providers::presets::capture(&db.connection, &mut provider)?;
+    let (mut provider, mut config) = super::models::resolve(&db.connection, model).await?;
+    super::super::providers::presets::capture(&db.connection, &mut provider).await?;
     crate::providers::login::capture(&mut provider)?;
     if let Some(effort) = effort {
         config.effort = *effort;
     }
-    super::super::commands::validate_config(&db.connection, db.node, &config)?;
+    super::super::commands::validate_config(&db.connection, db.node, &config).await?;
     Ok(Input::Text {
         provider,
         config,

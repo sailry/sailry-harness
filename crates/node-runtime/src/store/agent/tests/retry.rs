@@ -1,8 +1,8 @@
 use super::*;
 
-#[test]
-fn preserves_optional_error_text() {
-    let mut fixture = fixture::Fixture::new();
+#[tokio::test]
+async fn preserves_optional_error_text() {
+    let mut fixture = fixture::Fixture::new().await;
     let errors = [
         None,
         Some("First upstream error"),
@@ -20,8 +20,8 @@ fn preserves_optional_error_text() {
             .insert("sailry_retry".into(), value.to_string());
         event
     });
-    fixture.append(events);
-    let history = fixture.read(None, 100);
+    fixture.append(events).await;
+    let history = fixture.read(None, 100).await;
     let retries: Vec<_> = history
         .page
         .entries
@@ -38,13 +38,16 @@ fn preserves_optional_error_text() {
         assert_eq!(retry["limit"], 5);
         assert_eq!(retry["error"].as_str(), error);
     }
-    assert_eq!(history.page.entries, fixture.read(None, 100).page.entries);
+    assert_eq!(
+        history.page.entries,
+        fixture.read(None, 100).await.page.entries
+    );
 }
 
-#[test]
-fn retains_persistent_and_fallback_records() {
+#[tokio::test]
+async fn retains_persistent_and_fallback_records() {
     use sailry_protocol::conversation::recovery::{Retry, Transport};
-    let mut fixture = fixture::Fixture::new();
+    let mut fixture = fixture::Fixture::new().await;
     let notices = [
         Retry {
             attempt: 8,
@@ -67,16 +70,18 @@ fn retains_persistent_and_fallback_records() {
             error: Some("socket closed".into()),
         },
     ];
-    fixture.append(notices.iter().map(|notice| {
-        let mut event = AdkEvent::new("retry-fixture");
-        event.author = "system".into();
-        event.provider_metadata.insert(
-            "sailry_retry".into(),
-            serde_json::to_string(notice).unwrap(),
-        );
-        event
-    }));
-    let page = fixture.read(None, 100).page;
+    fixture
+        .append(notices.iter().map(|notice| {
+            let mut event = AdkEvent::new("retry-fixture");
+            event.author = "system".into();
+            event.provider_metadata.insert(
+                "sailry_retry".into(),
+                serde_json::to_string(notice).unwrap(),
+            );
+            event
+        }))
+        .await;
+    let page = fixture.read(None, 100).await.page;
     let values: Vec<_> = page
         .entries
         .iter()
@@ -87,33 +92,34 @@ fn retains_persistent_and_fallback_records() {
         })
         .collect();
     assert_eq!(values, notices);
-    assert_eq!(page.entries, fixture.read(None, 100).page.entries);
+    assert_eq!(page.entries, fixture.read(None, 100).await.page.entries);
 }
 
-#[test]
-fn telemetry_preserves_visible_events() {
-    let fixture = fixture::Fixture::new();
+#[tokio::test]
+async fn telemetry_preserves_visible_events() {
+    let fixture = fixture::Fixture::new().await;
     let mut event = AdkEvent::new("telemetry-fixture");
     event.author = "system".into();
     event
         .provider_metadata
         .insert("sailry_model_observation".into(), "{}".into());
     let pure = serde_json::to_value(event).unwrap();
-    let visible = |body: &serde_json::Value| -> bool {
+    let visible = async |body: &serde_json::Value| -> bool {
         fixture
             .database
             .connection
-            .query_row(
-                &format!(
-                    "SELECT {} FROM (SELECT ?1 AS body) e",
-                    history::VISIBLE_EVENT
-                ),
-                [serde_json::to_string(body).unwrap()],
-                |row| row.get(0),
-            )
+            .prepare(&format!(
+                "SELECT {} FROM (SELECT ?1 AS body) e",
+                history::VISIBLE_EVENT
+            ))
+            .await
+            .unwrap()
+            .query_row([serde_json::to_string(body).unwrap()])
+            .await
+            .and_then(|row| row.get(0))
             .unwrap()
     };
-    assert!(!visible(&pure));
+    assert!(!visible(&pure).await);
     for (field, value) in [
         ("state_delta", serde_json::json!({"state":true})),
         ("artifact_delta", serde_json::json!({"file":1})),
@@ -129,7 +135,7 @@ fn telemetry_preserves_visible_events() {
     ] {
         let mut mixed = pure.clone();
         mixed["actions"][field] = value;
-        assert!(visible(&mixed), "action {field} remains visible");
+        assert!(visible(&mixed).await, "action {field} remains visible");
     }
     for (field, value) in [
         (
@@ -141,15 +147,15 @@ fn telemetry_preserves_visible_events() {
     ] {
         let mut mixed = pure.clone();
         mixed[field] = value;
-        assert!(visible(&mixed), "response {field} remains visible");
+        assert!(visible(&mixed).await, "response {field} remains visible");
     }
     let mut retry = pure.clone();
     retry["event_metadata"]["sailry_retry"] = "{}".into();
-    assert!(visible(&retry));
+    assert!(visible(&retry).await);
     let mut missing = pure;
     missing["actions"]
         .as_object_mut()
         .unwrap()
         .remove("state_delta");
-    assert!(visible(&missing));
+    assert!(visible(&missing).await);
 }

@@ -259,15 +259,23 @@ async fn bounds_approved_results() {
             fixture.client.execute(decision.clone()).await.unwrap(),
             receipt
         );
-        let database =
-            rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-                .unwrap();
-        let id: String = database
-            .query_row(
-                "SELECT request FROM agent_approvals WHERE id=?1",
-                [first.id.to_string()],
-                |row| row.get(0),
-            )
+        let approval_id = first.id;
+        let id: String = fixture
+            .node
+            .with_storage(move |database| {
+                Box::pin(async move {
+                    database
+                        .prepare("SELECT request FROM agent_approvals WHERE id=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([approval_id.to_string()])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
         let Output::Plugin(package) = fixture
             .client
@@ -303,13 +311,24 @@ async fn bounds_approved_results() {
                     session: Some(session),
                 })
         };
-        let body: Vec<u8> = database
-            .query_row("SELECT body FROM requests WHERE id=?1", [id], |row| {
-                row.get(0)
+        let body: Vec<u8> = fixture
+            .node
+            .with_storage(move |database| {
+                Box::pin(async move {
+                    database
+                        .prepare("SELECT body FROM requests WHERE id=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([id])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::database_fixture::fault)
+                })
             })
+            .await
             .unwrap();
         assert!(body.starts_with(b"command-v1:"));
-        drop(database);
         let expected = Output::CommandResult(output[0].clone());
         assert_eq!(
             fixture.client.execute(request.clone()).await.unwrap(),
@@ -554,27 +573,42 @@ async fn delivers_completion_without_consuming_controller_reads() {
         let mut retained_bodies = Vec::new();
         drop(fixture.client);
         fixture.node.shutdown().await.unwrap();
-        let path = fixture.directory.path().join("node/storage/node.sqlite3");
+        let path = fixture.directory.path().join("node/storage/node.turso");
         let old_event_cursor;
         {
-            let db = rusqlite::Connection::open(&path).unwrap();
+            let (database, connection) = crate::database_fixture::open(&path, false).await;
+            let db = connection.unchecked_transaction().await.unwrap();
             db.execute_batch("ALTER TABLE turns DROP COLUMN instructions")
+                .await
                 .unwrap();
             let settings = json!({"revision":3,"resume":false});
             db.execute(
                 "INSERT INTO background_settings(singleton,body) VALUES(1,?1)",
                 [serde_json::to_vec(&settings).unwrap()],
             )
+            .await
             .unwrap();
+            old_event_cursor = db
+                .prepare("INSERT INTO counters(namespace,value) VALUES(?1,1) ON CONFLICT(namespace) DO UPDATE SET value=counters.value+1 WHERE counters.value<9223372036854775807 RETURNING value")
+                .await
+                .unwrap()
+                .query_row(["events"])
+                .await
+                .unwrap()
+                .get::<i64>(0)
+                .unwrap();
             db.execute(
-                "INSERT INTO events(body) VALUES(?1)",
-                [serde_json::to_vec(
-                    &json!({"kind":"background_settings_changed","data":{"revision":3}}),
-                )
-                .unwrap()],
+                "INSERT INTO events(cursor,body) VALUES(?1,?2)",
+                turso::params![
+                    old_event_cursor,
+                    serde_json::to_vec(
+                        &json!({"kind":"background_settings_changed","data":{"revision":3}}),
+                    )
+                    .unwrap()
+                ],
             )
+            .await
             .unwrap();
-            old_event_cursor = db.last_insert_rowid();
             for (id, status) in [(completed, "completed"), (uncertain, "admitted")] {
                 let mut request =
                     serde_json::to_value(Request::new(target, Command::ReadNetworkSettings))
@@ -587,11 +621,20 @@ async fn delivers_completion_without_consuming_controller_reads() {
                 });
                 db.execute(
                     "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,?4,?5)",
-                    rusqlite::params![caller.0.as_slice(), id.to_string(), body, status, result],
+                    turso::params![
+                        caller.0.as_slice(),
+                        id.to_string(),
+                        body.as_slice(),
+                        status,
+                        result
+                    ],
                 )
+                .await
                 .unwrap();
                 retained_bodies.push((id, body));
             }
+            db.commit().await.unwrap();
+            crate::database_fixture::close(database, connection).await;
         }
         fixture.node = Node::start_empty(fixture.directory.path().join("node"))
             .await
@@ -631,27 +674,41 @@ async fn delivers_completion_without_consuming_controller_reads() {
             }
         }
         {
-            let db = rusqlite::Connection::open_with_flags(
-                &path,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
             for (id, body) in &retained_bodies {
-                let retained: Vec<u8> = db
-                    .query_row(
-                        "SELECT body FROM requests WHERE caller=?1 AND id=?2",
-                        rusqlite::params![caller.0.as_slice(), id.to_string()],
-                        |row| row.get(0),
-                    )
+                let id = *id;
+                let retained: Vec<u8> = fixture
+                    .node
+                    .with_storage(move |db| {
+                        Box::pin(async move {
+                            db.prepare("SELECT body FROM requests WHERE caller=?1 AND id=?2")
+                                .await
+                                .map_err(crate::database_fixture::fault)?
+                                .query_row(turso::params![caller.0.as_slice(), id.to_string()])
+                                .await
+                                .map_err(crate::database_fixture::fault)?
+                                .get(0)
+                                .map_err(crate::database_fixture::fault)
+                        })
+                    })
+                    .await
                     .unwrap();
                 assert_eq!(&retained, body);
             }
-            let bytes: Vec<u8> = db
-                .query_row(
-                    "SELECT body FROM events WHERE cursor=?1",
-                    [old_event_cursor],
-                    |row| row.get(0),
-                )
+            let bytes: Vec<u8> = fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.prepare("SELECT body FROM events WHERE cursor=?1")
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row([old_event_cursor])
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .get(0)
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
                 .unwrap();
             let Event::RetainedRecord(event) = serde_json::from_slice(&bytes).unwrap() else {
                 panic!("retained event expected")

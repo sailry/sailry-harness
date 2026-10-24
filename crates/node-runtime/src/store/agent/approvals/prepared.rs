@@ -49,7 +49,7 @@ impl Prepared {
 
 /// Script argument transformations stay behind their existing approval. Freeze
 /// available target revisions first; never evaluate package code inside Store.
-pub(super) fn baseline(
+pub(super) async fn baseline(
     db: &Connection,
     turn: TurnId,
     binding: Option<&Binding>,
@@ -68,7 +68,8 @@ pub(super) fn baseline(
     let applicable = if let Some(operation) = binding.operation {
         connections(operation)
     } else {
-        super::super::plugins::packages(db, std::slice::from_ref(&binding.owner))?
+        super::super::plugins::packages(db, std::slice::from_ref(&binding.owner))
+            .await?
             .iter()
             .any(|package| {
                 package
@@ -91,8 +92,8 @@ pub(super) fn baseline(
     if !applicable {
         return Ok(None);
     }
-    let run = super::super::calls::active(db, turn)?;
-    let catalog = super::super::connections::catalog(db, run.session)?;
+    let run = super::super::calls::active(db, turn).await?;
+    let catalog = super::super::connections::catalog(db, run.session).await?;
     let targets = catalog
         .databases
         .into_iter()
@@ -111,7 +112,7 @@ pub(super) fn baseline(
     }))
 }
 
-pub(super) fn check_connection(
+pub(super) async fn check_connection(
     db: &Connection,
     approval: &Approval,
     command: Option<&Command>,
@@ -144,13 +145,18 @@ pub(super) fn check_connection(
         ) => Some((Resource::Ssh(*profile), *expected_revision)),
         _ => return Ok(()),
     };
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT prepared FROM agent_approvals WHERE id=?1",
-            [approval.id.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT prepared FROM agent_approvals WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([approval.id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let frozen: Option<Prepared> = serde_json::from_slice(&body).map_err(storage_error)?;
     if let (Some(frozen), Some(command)) = (frozen, command)
         && (frozen.matches(command)?

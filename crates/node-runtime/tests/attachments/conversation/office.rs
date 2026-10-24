@@ -43,20 +43,28 @@ async fn keeps_compatible_pdf_turns_usable() {
                 .await
                 .unwrap();
             let turn = queue(&client, &session, input("Summarize the PDF", &[&pdf])).await;
-            let capture = |turn: TurnId| {
-                let db = rusqlite::Connection::open_with_flags(
-                    fixture.node.profile().join("storage/node.sqlite3"),
-                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-                )
-                .unwrap();
-                db.query_row(
-                    "SELECT r.body FROM requests r JOIN turns t ON t.request=r.id AND t.caller=r.caller WHERE t.id=?1",
-                    [turn.to_string()],
-                    |row| row.get::<_, Vec<u8>>(0),
-                )
-                .unwrap()
+            let capture = async |turn: TurnId| {
+                let sql = ("SELECT r.body FROM requests r JOIN turns t ON t.request=r.id AND t.caller=r.caller WHERE t.id=?1").to_owned();
+                let parameters = turso::params![turn.to_string()];
+                fixture
+                    .node
+                    .with_storage(move |db| {
+                        Box::pin(async move {
+                            let row = db
+                                .prepare(sql)
+                                .await
+                                .map_err(crate::file_fixture::database::fault)?
+                                .query_row(parameters)
+                                .await
+                                .map_err(crate::file_fixture::database::fault)?;
+                            let value = row.get::<Vec<u8>>(0);
+                            value.map_err(crate::file_fixture::database::fault)
+                        })
+                    })
+                    .await
+                    .unwrap()
             };
-            let sent = capture(turn.id);
+            let sent = capture(turn.id).await;
             let original = run(&client, &turn).await;
             assert_eq!(
                 original.runs[0].status,
@@ -92,7 +100,7 @@ async fn keeps_compatible_pdf_turns_usable() {
                     .flat_map(|entry| &entry.parts)
                     .any(|part| { *part == Part::Attachment(pdf.clone()) })
             );
-            assert_eq!(capture(turn.id), sent);
+            assert_eq!(capture(turn.id).await, sent);
             assert_eq!(download(&client, &pdf).await, bytes);
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), 3);

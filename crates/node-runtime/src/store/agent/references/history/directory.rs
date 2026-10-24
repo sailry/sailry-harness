@@ -27,7 +27,7 @@ struct Page {
     next_before: Option<u64>,
 }
 
-pub(super) fn read(
+pub(super) async fn read(
     db: &Connection,
     node: NodeId,
     source: &Session,
@@ -43,7 +43,7 @@ pub(super) fn read(
     {
         return Err(Fault::invalid("session directory bounds are invalid"));
     }
-    let revision = revision(db, source, options.include_current)?;
+    let revision = revision(db, source, options.include_current).await?;
     if options
         .revision
         .as_ref()
@@ -55,17 +55,23 @@ pub(super) fn read(
         ));
     }
     if let Some(before) = options.before {
-        let id: Option<String> = db
-            .query_row(
-                "SELECT id FROM sessions WHERE rowid=?1 AND state!='removed'",
-                [before as i64],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(storage_error)?;
+        let id: Option<String> = {
+            let mut statement = db
+                .prepare("SELECT id FROM sessions WHERE rowid=?1 AND state!='removed'")
+                .await
+                .map_err(storage_error)?;
+            match statement.query_row([before as i64]).await {
+                Ok(row) => {
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
+            }
+        };
         let id =
             id.ok_or_else(|| Fault::new(ErrorCode::NotFound, "session cursor is unavailable"))?;
-        visible(db, source.project, id.parse().map_err(storage_error)?)?;
+        visible(db, source.project, id.parse().map_err(storage_error)?).await?;
     }
     let mut query = db
         .prepare(
@@ -74,6 +80,7 @@ pub(super) fn read(
                AND (?3 OR id!=?4)
              ORDER BY rowid DESC LIMIT ?5",
         )
+        .await
         .map_err(storage_error)?;
     let mut rows = query
         .query(params![
@@ -83,6 +90,7 @@ pub(super) fn read(
             source.id.to_string(),
             (MAX_SCANNED + 1) as i64,
         ])
+        .await
         .map_err(storage_error)?;
     let text = options.text.map(|text| text.trim().to_lowercase());
     let mut page = Page {
@@ -94,20 +102,20 @@ pub(super) fn read(
     };
     let mut scanned = 0;
     let mut last = None;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         if scanned == MAX_SCANNED || page.sessions.len() == usize::from(limit) {
             page.next_before = last;
             break;
         }
         scanned += 1;
-        let creation_order = row.get::<_, i64>(0).map_err(storage_error)? as u64;
+        let creation_order = row.get::<i64>(0).map_err(storage_error)? as u64;
         last = Some(creation_order);
         let id: SessionId = row
-            .get::<_, String>(1)
+            .get::<String>(1)
             .map_err(storage_error)?
             .parse()
             .map_err(storage_error)?;
-        let activity = activity::read(db, id)?;
+        let activity = activity::read(db, id).await?;
         let updated_ms = activity
             .run
             .as_ref()
@@ -129,13 +137,13 @@ pub(super) fn read(
             title: activity.title,
             project: source.project,
             worktree: row
-                .get::<_, String>(2)
+                .get::<String>(2)
                 .map_err(storage_error)?
                 .parse()
                 .map_err(storage_error)?,
-            archived: row.get::<_, String>(3).map_err(storage_error)? == "archived",
+            archived: row.get::<String>(3).map_err(storage_error)? == "archived",
             creation_order,
-            history_revision: row.get::<_, i64>(4).map_err(storage_error)? as u64,
+            history_revision: row.get::<i64>(4).map_err(storage_error)? as u64,
             turn: activity.run.as_ref().map(|run| run.turn),
             status: activity.run.as_ref().map(|run| run.status),
             updated_ms,
@@ -144,7 +152,11 @@ pub(super) fn read(
     serde_json::to_value(page).map_err(storage_error)
 }
 
-fn revision(db: &Connection, source: &Session, include_current: bool) -> Result<String, Fault> {
+async fn revision(
+    db: &Connection,
+    source: &Session,
+    include_current: bool,
+) -> Result<String, Fault> {
     let mut query = db
         .prepare(
             "SELECT s.rowid,s.id,s.worktree,s.state,s.history_revision,
@@ -155,6 +167,7 @@ fn revision(db: &Connection, source: &Session, include_current: bool) -> Result<
                 (json_extract(a.body,'$.status')='queued'),t.rowid DESC LIMIT 1)
          FROM sessions s WHERE s.project IS ?1 AND (?2 OR s.id!=?4) ORDER BY s.rowid",
         )
+        .await
         .map_err(storage_error)?;
     let mut rows = query
         .query(params![
@@ -163,20 +176,21 @@ fn revision(db: &Connection, source: &Session, include_current: bool) -> Result<
             SESSION_TITLE,
             source.id.to_string()
         ])
+        .await
         .map_err(storage_error)?;
     let mut hasher = blake3::Hasher::new();
-    while let Some(row) = rows.next().map_err(storage_error)? {
-        let body = row.get::<_, Option<Vec<u8>>>(6).map_err(storage_error)?;
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let body = row.get::<Option<Vec<u8>>>(6).map_err(storage_error)?;
         let run = body
             .map(|body| serde_json::from_slice::<Run>(&body).map_err(storage_error))
             .transpose()?;
         let metadata = (
-            row.get::<_, i64>(0).map_err(storage_error)?,
-            row.get::<_, String>(1).map_err(storage_error)?,
-            row.get::<_, String>(2).map_err(storage_error)?,
-            row.get::<_, String>(3).map_err(storage_error)?,
-            row.get::<_, i64>(4).map_err(storage_error)?,
-            row.get::<_, Option<Vec<u8>>>(5).map_err(storage_error)?,
+            row.get::<i64>(0).map_err(storage_error)?,
+            row.get::<String>(1).map_err(storage_error)?,
+            row.get::<String>(2).map_err(storage_error)?,
+            row.get::<String>(3).map_err(storage_error)?,
+            row.get::<i64>(4).map_err(storage_error)?,
+            row.get::<Option<Vec<u8>>>(5).map_err(storage_error)?,
             run.map(|run| (run.turn, run.status, run.started_ms, run.finished_ms)),
         );
         hasher.update(&serde_json::to_vec(&metadata).map_err(storage_error)?);

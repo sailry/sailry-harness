@@ -2,6 +2,7 @@ use super::super::*;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::BTreeMap,
+    path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
 };
 

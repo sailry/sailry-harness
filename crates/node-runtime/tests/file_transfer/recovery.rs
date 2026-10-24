@@ -4,10 +4,22 @@ use super::*;
 async fn preserves_uncertain_publication() {
     let fixture = Fixture::start().await;
     std::fs::write(fixture.source.root.join("file"), "source contents").unwrap();
-    let database =
-        rusqlite::Connection::open(fixture.destination.profile.join("storage/node.sqlite3"))
-            .unwrap();
-    database.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        fixture
+            .destination
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
     let mut pending = Vec::new();
     for pair in PATHS {
         let (source, target) = fixture.clients(pair);
@@ -38,8 +50,22 @@ async fn preserves_uncertain_publication() {
         );
         pending.push((pair.1, path, request));
     }
-    database.execute_batch("DROP TRIGGER lose_result").unwrap();
-    drop(database);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        fixture
+            .destination
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.destination.node.shutdown().await.unwrap();
     // Source availability is not required to recover an admitted destination request.
     fixture.source.node.shutdown().await.unwrap();

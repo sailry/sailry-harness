@@ -1,37 +1,50 @@
 //! Connection ownership follows sailry-code 67ae9fa0 sailry-connections.
 //! Profiles and credentials now share the Node transaction and admission owner.
 use super::database::{encode, storage_error};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{ssh::*, *};
+use turso::{Connection, params};
 
 pub(super) mod worker;
 
-pub(super) fn list(db: &Connection) -> Result<Vec<Profile>, Fault> {
+pub(super) async fn list(db: &Connection) -> Result<Vec<Profile>, Fault> {
     let mut query = db
         .prepare("SELECT body FROM ssh_profiles ORDER BY id")
+        .await
         .map_err(storage_error)?;
-    query
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|row| serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error))
-        .collect()
+    {
+        let mut rows = query.query(()).await.map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Vec<u8>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|row| serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error))
+    .collect()
 }
 
-pub(super) fn read(db: &Connection, id: SshId) -> Result<Option<Profile>, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM ssh_profiles WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn read(db: &Connection, id: SshId) -> Result<Option<Profile>, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM ssh_profiles WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
 }
 
-fn current(db: &Connection, id: SshId, revision: u64) -> Result<Profile, Fault> {
-    let profile = read(db, id)?.ok_or_else(|| {
+async fn current(db: &Connection, id: SshId, revision: u64) -> Result<Profile, Fault> {
+    let profile = read(db, id).await?.ok_or_else(|| {
         Fault::new(
             ErrorCode::NotFound,
             "SSH profile does not exist on this Node",
@@ -41,23 +54,23 @@ fn current(db: &Connection, id: SshId, revision: u64) -> Result<Profile, Fault> 
     Ok(profile)
 }
 
-pub(super) fn execute(
+pub(super) async fn execute(
     db: &Connection,
     command: &Command,
 ) -> Result<(Output, Option<Event>), Fault> {
     match command {
-        Command::ListSsh => Ok((Output::SshProfiles(list(db)?), None)),
+        Command::ListSsh => Ok((Output::SshProfiles(list(db).await?), None)),
         Command::SaveSsh {
             profile,
             expected_revision,
             credential,
         } => {
-            let previous = read(db, profile.id)?;
+            let previous = read(db, profile.id).await?;
             super::commands::check_revision(
                 previous.as_ref().map_or(0, |p| p.revision),
                 *expected_revision,
             )?;
-            super::connections::validate(db, profile.sharing.as_ref())?;
+            super::connections::validate(db, profile.sharing.as_ref()).await?;
             let mut profile = profile.clone();
             profile.name = profile.name.trim().into();
             profile.host = profile.host.trim().into();
@@ -127,10 +140,11 @@ pub(super) fn execute(
                         credential.as_deref().expect("new credential").as_str()
                     ],
                 )
+                .await
                 .map_err(storage_error)?;
             } else {
                 db.execute("UPDATE ssh_profiles SET body=?2,credential=COALESCE(?3,credential) WHERE id=?1",
-                    params![profile.id.to_string(), encode(&profile)?, credential.as_deref().map(String::as_str)]).map_err(storage_error)?;
+                    params![profile.id.to_string(), encode(&profile)?, credential.as_deref().map(String::as_str)]).await.map_err(storage_error)?;
             }
             Ok((
                 Output::SshProfile(profile.clone()),
@@ -142,7 +156,7 @@ pub(super) fn execute(
             expected_revision,
             key,
         } => {
-            let mut profile = current(db, *profile, *expected_revision)?;
+            let mut profile = current(db, *profile, *expected_revision).await?;
             use base64::Engine;
             let digest = key.fingerprint.strip_prefix("SHA256:").and_then(|value| {
                 base64::engine::general_purpose::STANDARD_NO_PAD
@@ -164,6 +178,7 @@ pub(super) fn execute(
                 "UPDATE ssh_profiles SET body=?2 WHERE id=?1",
                 params![profile.id.to_string(), encode(&profile)?],
             )
+            .await
             .map_err(storage_error)?;
             Ok((
                 Output::SshProfile(profile.clone()),
@@ -174,14 +189,15 @@ pub(super) fn execute(
             profile,
             expected_revision,
         } => {
-            current(db, *profile, *expected_revision)?;
+            current(db, *profile, *expected_revision).await?;
             db.execute(
                 "DELETE FROM ssh_profiles WHERE id=?1",
                 [profile.to_string()],
             )
+            .await
             .map_err(storage_error)?;
             Ok((
-                Output::SshProfiles(list(db)?),
+                Output::SshProfiles(list(db).await?),
                 Some(Event::SshRemoved { id: *profile }),
             ))
         }
@@ -191,7 +207,7 @@ pub(super) fn execute(
     }
 }
 
-pub(super) fn prepare(
+pub(super) async fn prepare(
     database: &super::database::Database,
     command: &Command,
 ) -> Result<crate::ssh::Operation, Fault> {
@@ -337,7 +353,7 @@ pub(super) fn prepare(
                 *profile,
                 *expected_revision,
                 Task::Transfer {
-                    root: database.worktree_root(transfer.worktree)?,
+                    root: database.worktree_root(transfer.worktree).await?,
                     profile: database.profile.clone(),
                     transfer: transfer.clone(),
                     timeout_ms: *timeout_ms,
@@ -346,14 +362,16 @@ pub(super) fn prepare(
         }
         _ => return Err(sailry_protocol::Fault::invalid("SSH operation expected")),
     };
-    let profile = current(db, id, revision)?;
+    let profile = current(db, id, revision).await?;
     let credential = zeroize::Zeroizing::new(
-        db.query_row::<String, _, _>(
-            "SELECT credential FROM ssh_profiles WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?,
+        db.prepare("SELECT credential FROM ssh_profiles WHERE id=?1")
+            .await
+            .map_err(storage_error)?
+            .query_row([id.to_string()])
+            .await
+            .map_err(storage_error)?
+            .get::<String>(0)
+            .map_err(storage_error)?,
     );
     let credential = serde_json::from_str(&credential).map_err(storage_error)?;
     Ok(crate::ssh::Operation {

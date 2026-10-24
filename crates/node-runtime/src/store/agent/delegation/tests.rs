@@ -2,17 +2,21 @@ use super::*;
 use crate::store::agent::tests::fixture::Fixture;
 use serde_json::json;
 
-#[test]
-fn canonical_admission_and_recovery() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn canonical_admission_and_recovery() {
+    let mut fixture = Fixture::new().await;
     crate::store::agent::tests::fixture::package(
         &fixture.database,
         fixture._root.path(),
         "delegation",
-    );
-    let parent = fixture.queued();
-    runs::start(&fixture.database.connection, parent).unwrap();
+    )
+    .await;
+    let parent = fixture.queued().await;
+    runs::start(&fixture.database.connection, parent)
+        .await
+        .unwrap();
     runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     let request = ToolConfirmationRequest {
@@ -31,6 +35,7 @@ fn canonical_admission_and_recovery() {
             None,
             &fixture.events
         )
+        .await
         .is_err()
     );
     let mut event = AdkEvent::new("parent-invocation");
@@ -51,6 +56,7 @@ fn canonical_admission_and_recovery() {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let mut forged = request.clone();
     forged.args["task"] = json!("Changed task");
@@ -63,15 +69,19 @@ fn canonical_admission_and_recovery() {
             None,
             &fixture.events
         )
+        .await
         .is_err()
     );
-    let count = |db: &Connection| {
-        db.query_row("SELECT COUNT(*) FROM requests", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .unwrap()
+    let count = async |db: &Connection| {
+        db.prepare("SELECT COUNT(*) FROM requests")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .and_then(|row| row.get::<i64>(0))
+            .unwrap()
     };
-    let requests = count(&fixture.database.connection);
+    let requests = count(&fixture.database.connection).await;
     let child = admit(
         &mut fixture.database,
         parent,
@@ -80,14 +90,16 @@ fn canonical_admission_and_recovery() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
-    assert_eq!(count(&fixture.database.connection), requests);
+    assert_eq!(count(&fixture.database.connection).await, requests);
     assert_eq!(child.message.text, "Independent task");
     assert_eq!(child.turn.config.effort, Effort::Low);
     assert_eq!(child.turn.config.permission, Permission::Ask);
     assert!(child.child.unwrap().role.is_none());
-    let captured =
-        history::pages::read(&fixture.database.connection, child.turn.session, None, 20).unwrap();
+    let captured = history::pages::read(&fixture.database.connection, child.turn.session, None, 20)
+        .await
+        .unwrap();
     assert!(captured.page.entries.is_empty());
     assert_eq!(captured.page.runs[0].status, Status::Queued);
     assert_eq!(
@@ -96,6 +108,7 @@ fn canonical_admission_and_recovery() {
     );
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );
@@ -108,6 +121,7 @@ fn canonical_admission_and_recovery() {
             None,
             &fixture.events
         )
+        .await
         .err()
         .unwrap()
         .code,
@@ -115,29 +129,44 @@ fn canonical_admission_and_recovery() {
     );
     assert!(
         history::pages::read(&fixture.database.connection, child.turn.session, None, 20)
+            .await
             .unwrap()
             .page
             .entries
             .is_empty()
     );
-    runs::recover(&fixture.database.connection).unwrap();
+    {
+        let transaction = turso::transaction::Transaction::new_unchecked(
+            &fixture.database.connection,
+            turso::transaction::TransactionBehavior::Concurrent,
+        )
+        .await
+        .unwrap();
+        runs::recover(&transaction).await.unwrap();
+        transaction.commit().await.unwrap();
+    };
     assert_eq!(
         runs::get(&fixture.database.connection, parent)
+            .await
             .unwrap()
             .status,
         Status::Interrupted
     );
     let recovered =
-        history::pages::read(&fixture.database.connection, child.turn.session, None, 20).unwrap();
+        history::pages::read(&fixture.database.connection, child.turn.session, None, 20)
+            .await
+            .unwrap();
     assert_eq!(recovered.page.runs[0].input, captured.page.runs[0].input);
     assert_eq!(
         runs::get(&fixture.database.connection, child.turn.id)
+            .await
             .unwrap()
             .status,
         Status::Interrupted
     );
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );
@@ -150,10 +179,12 @@ fn canonical_admission_and_recovery() {
             None,
             &fixture.events
         )
+        .await
         .is_err()
     );
     assert!(
         read(&fixture.database.connection, child.turn.session)
+            .await
             .unwrap()
             .is_some()
     );

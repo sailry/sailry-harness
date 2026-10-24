@@ -33,7 +33,7 @@ async fn preserves_healthy_accounts_and_concurrent_changes() {
                 .reference();
             let original = lifecycle::connect(&client, package.clone()).await;
             let before: serde_json::Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             let mut input = Input {
                 redirect: Some("http://127.0.0.1:43191/auth/callback".into()),
                 ..Default::default()
@@ -64,7 +64,7 @@ async fn preserves_healthy_accounts_and_concurrent_changes() {
             })
             .await;
             let started: serde_json::Value =
-                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
             let mutation = match change {
                 Change::Unchanged | Change::PendingSecret => None,
                 Change::Disabled => Some(Command::SetConnectionEnabled {
@@ -95,8 +95,11 @@ async fn preserves_healthy_accounts_and_concurrent_changes() {
             if let Some(mutation) = mutation {
                 execute(&client, mutation).await;
             }
-            let retained =
-                (!matches!(change, Change::Removed)).then(|| lifecycle::stored(&node, original.id));
+            let retained = if !matches!(change, Change::Removed) {
+                Some(lifecycle::stored(&node, original.id).await)
+            } else {
+                None
+            };
             let cancel = client.prepare(Command::CancelConnectorLogin {
                 attempt: attempt.id,
             });
@@ -118,7 +121,7 @@ async fn preserves_healthy_accounts_and_concurrent_changes() {
                 assert_eq!(rows[0].state, State::Connected);
                 assert_eq!(rows[0].revision, attempt.revision);
                 let after: serde_json::Value =
-                    serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+                    serde_json::from_slice(&lifecycle::stored(&node, original.id).await).unwrap();
                 for field in [
                     "method",
                     "fields",
@@ -145,7 +148,7 @@ async fn preserves_healthy_accounts_and_concurrent_changes() {
                 assert!(rows.is_empty());
             } else {
                 assert_eq!(
-                    lifecycle::stored(&node, original.id),
+                    lifecycle::stored(&node, original.id).await,
                     retained.unwrap(),
                     "{remote}/{change:?}"
                 );

@@ -210,11 +210,12 @@ async fn rejects_unexpected_profile_without_changes() {
     let profile = directory.path().join("node");
     let node = Node::start(&profile).await.unwrap();
     node.shutdown().await.unwrap();
-    let path = profile.join("storage/node.sqlite3");
-    let db = rusqlite::Connection::open(&path).unwrap();
+    let path = profile.join("storage/node.turso");
+    let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
     db.execute_batch("ALTER TABLE node ADD COLUMN unexpected TEXT DEFAULT 'retained';")
+        .await
         .unwrap();
-    drop(db);
+    crate::plugins::database_fixture::close(db_handle, db).await;
     let before = fs::read(&path).unwrap();
     assert!(Node::start(&profile).await.is_err());
     assert!(
@@ -266,14 +267,15 @@ async fn restores_defaults_without_resetting_plugins() {
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
         let profile = directory.path().join("node");
-        let path = profile.join("storage/node.sqlite3");
-        let db = rusqlite::Connection::open(&path).unwrap();
+        let path = profile.join("storage/node.turso");
+        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
         db.execute_batch(
             "ALTER TABLE node DROP COLUMN plugin_defaults;
              ALTER TABLE agent_approvals DROP COLUMN prepared;",
         )
+        .await
         .unwrap();
-        drop(db);
+        crate::plugins::database_fixture::close(db_handle, db).await;
         let node = Node::start(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -291,78 +293,149 @@ async fn restores_defaults_without_resetting_plugins() {
         };
         let client = Client::new(transport);
         assert_eq!(execute(&client, Command::ListPlugins).await, before);
-        let db = rusqlite::Connection::open(&path).unwrap();
+
         assert_eq!(
-            db.query_row("SELECT plugin_defaults FROM node", [], |row| row
-                .get::<_, i64>(0))
-                .unwrap(),
+            {
+                let parameters = ();
+                let sql = "SELECT plugin_defaults FROM node";
+                node.with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?;
+                        let result: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        result.map_err(crate::plugins::database_fixture::fault)
+                    })
+                })
+                .await
+                .unwrap()
+            },
             1
         );
-        let (kind, required, default) = db
-            .query_row(
-                "SELECT type, \"notnull\", dflt_value
-                 FROM pragma_table_info('agent_approvals') WHERE name='prepared'",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
-            )
-            .unwrap();
+        let (kind, required, default) = {
+            let parameters = ();
+            let sql = "SELECT type, \"notnull\", dflt_value FROM pragma_table_info('agent_approvals') WHERE name='prepared'";
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let result: turso::Result<_> = (|row: &turso::Row| {
+                        Ok((
+                            row.get::<String>(0)?,
+                            row.get::<i64>(1)?,
+                            row.get::<String>(2)?,
+                        ))
+                    })(&row);
+                    result.map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap()
+        };
         assert_eq!(kind, "BLOB");
         assert_eq!(required, 1);
-        let prepared: Vec<u8> = db
-            .query_row(&format!("SELECT {default}"), [], |row| row.get(0))
-            .unwrap();
+        let prepared: Vec<u8> = {
+            let parameters = ();
+            let sql = format!("SELECT {default}");
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    result.map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap()
+        };
         assert_eq!(prepared.as_slice(), b"null");
         assert_eq!(
-            db.query_row("SELECT count(*) FROM agent_approvals", [], |row| row
-                .get::<_, i64>(0))
-                .unwrap(),
+            {
+                let parameters = ();
+                let sql = "SELECT count(*) FROM agent_approvals";
+                node.with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?;
+                        let result: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        result.map_err(crate::plugins::database_fixture::fault)
+                    })
+                })
+                .await
+                .unwrap()
+            },
             0
         );
-        drop(db);
         let backup = fs::read_dir(profile.join("storage/backups"))
             .unwrap()
             .map(|entry| entry.unwrap().path())
             .collect::<Vec<_>>();
         assert_eq!(backup.len(), 1);
-        let previous = rusqlite::Connection::open_with_flags(
-            &backup[0],
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
+        let (previous_handle, previous) =
+            crate::plugins::database_fixture::open(&(backup[0].join("node.turso")), true).await;
         assert!(
             previous
                 .prepare("SELECT plugin_defaults FROM node")
+                .await
                 .is_err()
         );
         assert!(
             previous
                 .prepare("SELECT prepared FROM agent_approvals")
+                .await
                 .is_err()
         );
         assert_eq!(
-            previous
-                .query_row("SELECT count(*) FROM plugins", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            db_count(&path)
+            (async {
+                let mut statement = previous.prepare("SELECT count(*) FROM plugins").await?;
+                let row = statement.query_row(()).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap(),
+            db_count(&node).await
         );
-        drop(previous);
+        crate::plugins::database_fixture::close(previous_handle, previous).await;
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }
 }
 
-fn db_count(path: &std::path::Path) -> i64 {
-    rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .unwrap()
-        .query_row("SELECT count(*) FROM plugins", [], |row| row.get(0))
-        .unwrap()
+async fn db_count(node: &Node) -> i64 {
+    node.with_storage(move |db| {
+        Box::pin(async move {
+            db.prepare("SELECT count(*) FROM plugins")
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::plugins::database_fixture::fault)
+        })
+    })
+    .await
+    .unwrap()
 }
 
 async fn removed_default(name: &str, enabled: bool) {
@@ -923,14 +996,17 @@ async fn preserves_unshipped_installed_package() {
         // An earlier distribution may have supplied this ordinary installed package.
         // Removing it from today's catalog must not delete private installed records.
         original.origin = Some(plugin::Origin::Bundled);
-        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let (database_handle, database) =
+            crate::plugins::database_fixture::open(&(profile.join("storage/node.turso")), false)
+                .await;
         database
             .execute(
                 "UPDATE plugins SET body=?1 WHERE name='knowledge'",
                 [serde_json::to_vec(&original).unwrap()],
             )
+            .await
             .unwrap();
-        drop(database);
+        crate::plugins::database_fixture::close(database_handle, database).await;
         let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();

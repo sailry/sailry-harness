@@ -1,17 +1,20 @@
 use super::*;
 use sailry_protocol::plugin::connector::State;
 
-pub(super) fn stored(node: &Node, id: plugin::connector::Id) -> Vec<u8> {
-    rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap()
-    .query_row(
-        "SELECT body FROM plugin_connections WHERE id=?1",
-        [id.to_string()],
-        |row| row.get(0),
-    )
+pub(super) async fn stored(node: &Node, id: plugin::connector::Id) -> Vec<u8> {
+    node.with_storage(move |db| {
+        Box::pin(async move {
+            db.prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .query_row([id.to_string()])
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .get::<Vec<u8>>(0)
+                .map_err(crate::database_fixture::fault)
+        })
+    })
+    .await
     .unwrap()
 }
 
@@ -101,18 +104,18 @@ async fn preserves_and_rejects_refresh_credentials() {
                 assert_eq!(saved.revision, row.revision + 1);
                 assert_eq!(saved.state, State::Connected);
 
-                let before = stored(&fixture.node, row.id);
+                let before = stored(&fixture.node, row.id).await;
                 let refreshes = issuer.refreshes.load(Ordering::SeqCst);
                 issuer.status.store(503, Ordering::SeqCst);
                 issuer.expire();
                 call(&fixture).await;
                 assert!(issuer.refreshes.load(Ordering::SeqCst) > refreshes);
-                assert_eq!(stored(&fixture.node, row.id), before);
+                assert_eq!(stored(&fixture.node, row.id).await, before);
                 assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
                 issuer.status.store(200, Ordering::SeqCst);
                 recover(&fixture, &peer, 2).await;
 
-                let before = stored(&fixture.node, row.id);
+                let before = stored(&fixture.node, row.id).await;
                 issuer.status.store(0, Ordering::SeqCst);
                 issuer.expire();
                 let refreshes = issuer.refreshes.load(Ordering::SeqCst);
@@ -127,7 +130,7 @@ async fn preserves_and_rejects_refresh_credentials() {
                 execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
                 let page = finish(&fixture, turn.id).await;
                 assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
-                assert_eq!(stored(&fixture.node, row.id), before);
+                assert_eq!(stored(&fixture.node, row.id).await, before);
                 issuer.status.store(200, Ordering::SeqCst);
                 recover(&fixture, &peer, 3).await;
 
@@ -144,7 +147,7 @@ async fn preserves_and_rejects_refresh_credentials() {
                 };
                 assert_eq!(rows[0].state, State::Expired);
                 let rejected: Value =
-                    serde_json::from_slice(&stored(&fixture.node, row.id)).unwrap();
+                    serde_json::from_slice(&stored(&fixture.node, row.id).await).unwrap();
                 assert!(rejected["grant"].is_null());
                 for marker in ["access-initial", "refresh-initial", "client-private-marker"] {
                     assert!(!serde_json::to_string(&page).unwrap().contains(marker));
@@ -180,7 +183,7 @@ async fn reports_rejected_probe_renewals_as_expired() {
                 let (_, attempt, url) =
                     begin(&fixture.client, info.summary.reference(), false).await;
                 let row = complete(&fixture.client, &attempt, &url).await;
-                let before = stored(&fixture.node, row.id);
+                let before = stored(&fixture.node, row.id).await;
                 let revision: Value = serde_json::from_slice(&before).unwrap();
                 assert_eq!(row.state, State::Connected);
                 assert_eq!(revision["state"], "connected");
@@ -196,7 +199,8 @@ async fn reports_rejected_probe_renewals_as_expired() {
                     )
                     .await
                     .unwrap_err();
-                let after: Value = serde_json::from_slice(&stored(&fixture.node, row.id)).unwrap();
+                let after: Value =
+                    serde_json::from_slice(&stored(&fixture.node, row.id).await).unwrap();
                 let rejected = matches!(status, 400 | 401);
                 assert_eq!(
                     error.code,
@@ -228,7 +232,7 @@ async fn reports_rejected_probe_renewals_as_expired() {
                     );
                 } else {
                     assert_eq!(rows[0].state, State::Connected);
-                    assert_eq!(stored(&fixture.node, row.id), before);
+                    assert_eq!(stored(&fixture.node, row.id).await, before);
                 }
                 let public = serde_json::to_string(&(error, rows)).unwrap();
                 for secret in ["access-initial", "refresh-initial", "client-private-marker"] {
@@ -260,7 +264,7 @@ async fn expires_rejected_post_rotations() {
             authorized.iter().all(|head| head.starts_with("GET /mcp ")),
             "MCP authorization stages: initial={initial:?}, waiting={waiting:?}, authorized={authorized:?}"
         );
-        let before: Value = serde_json::from_slice(&stored(&fixture.node, row.id)).unwrap();
+        let before: Value = serde_json::from_slice(&stored(&fixture.node, row.id).await).unwrap();
         let revision = before["grant_revision"].as_u64().unwrap();
         issuer.denied.store(true, Ordering::SeqCst);
         for (index, state) in [State::Connected, State::Expired].into_iter().enumerate() {
@@ -273,7 +277,8 @@ async fn expires_rejected_post_rotations() {
             };
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].state, state);
-            let after: Value = serde_json::from_slice(&stored(&fixture.node, row.id)).unwrap();
+            let after: Value =
+                serde_json::from_slice(&stored(&fixture.node, row.id).await).unwrap();
             assert_eq!(
                 after["grant_revision"].as_u64().unwrap(),
                 revision + 1 + index as u64

@@ -132,29 +132,51 @@ async fn preserves_uncertain_inventory() {
         .join("attachments")
         .join(AttachmentId::new().to_string());
     std::fs::write(&orphan, b"unfinished").unwrap();
-    let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    database
-        .execute(
-            "INSERT INTO attachments(id,worktree,caller,body) VALUES('invalid',?1,?2,?3)",
-            rusqlite::params![
-                fixture.worktree.to_string(),
-                &fixture.node.id().0[..],
-                serde_json::to_vec(&attachment).unwrap()
-            ],
-        )
-        .unwrap();
-    drop(database);
+
+    {
+        let sql = ("INSERT INTO attachments(id,worktree,caller,body) VALUES('invalid',?1,?2,?3)")
+            .to_owned();
+        let parameters = turso::params![
+            fixture.worktree.to_string(),
+            &fixture.node.id().0[..],
+            serde_json::to_vec(&attachment).unwrap()
+        ];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute(sql, parameters)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.node.shutdown().await.unwrap();
     assert!(orphan.exists());
     fixture.node = Node::start_empty(&profile).await.unwrap();
     assert!(orphan.exists());
     let [client, _] = fixture.clients();
     assert_eq!(download(&client, &attachment).await, b"bytes");
-    let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    database
-        .execute("DELETE FROM attachments WHERE id='invalid'", [])
-        .unwrap();
-    drop(database);
+
+    {
+        let sql = ("DELETE FROM attachments WHERE id='invalid'").to_owned();
+        let parameters = ();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute(sql, parameters)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.controller.close().await.unwrap();
     fixture.node.shutdown().await.unwrap();
     assert!(!orphan.exists());

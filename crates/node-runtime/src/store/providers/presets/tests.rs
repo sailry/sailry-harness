@@ -3,25 +3,22 @@ use crate::store::database::Database;
 use sailry_protocol::{NodeId, ProviderId, conversation::ModelApi};
 use serde_json::json;
 
-fn database() -> (tempfile::TempDir, Database) {
+async fn database() -> (tempfile::TempDir, Database) {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory
-        .path()
-        .canonicalize()
-        .unwrap()
-        .join("node.sqlite3");
-    let database = Database::open(&path, NodeId([17; 32]), None).unwrap();
+    let path = directory.path().canonicalize().unwrap().join("node.turso");
+    let database = Database::open(&path, NodeId([17; 32]), None).await.unwrap();
     (directory, database)
 }
 
-fn package(db: &Connection, digest: &str, value: u32) -> plugin::Info {
+async fn package(db: &Connection, digest: &str, value: u32) -> plugin::Info {
     let preset = json!({"id":"example","name":"Example channel","routes":[{"protocol":"openai-chat-completions","endpoint":"http://localhost:11434/v1"}],"policies":[{"models":["fixture"],"body":{"example":value}}]});
     let info:plugin::Info=serde_json::from_value(json!({"summary":{"name":"example","revision":value,"digest":digest,"settings_revision":0,"enabled":true,"version":format!("0.1.{value}"),"description":null},"icon":null,"extension":{"api_version":"v1","model_providers":[preset]},"settings":null})).unwrap();
-    db.execute("INSERT OR REPLACE INTO plugins(name,revision,settings_revision,installed,body) VALUES('example',?1,0,1,?2)",params![value,encode(&info).unwrap()]).unwrap();
+    db.execute("INSERT OR REPLACE INTO plugins(name,revision,settings_revision,installed,body) VALUES('example',?1,0,1,?2)",params![value,encode(&info).unwrap()]).await.unwrap();
     db.execute(
         "INSERT OR REPLACE INTO plugin_packages(digest,name,body) VALUES(?1,'example',?2)",
         params![digest, encode(&info).unwrap()],
     )
+    .await
     .unwrap();
     info
 }
@@ -54,14 +51,14 @@ fn provider() -> Provider {
     }
 }
 
-#[test]
-fn freezes_new_and_inherited_bindings() {
-    let (_directory, database) = database();
+#[tokio::test]
+async fn freezes_new_and_inherited_bindings() {
+    let (_directory, database) = database().await;
     let db = &database.connection;
-    let first = package(db, &"a".repeat(64), 1);
+    let first = package(db, &"a".repeat(64), 1).await;
     let configured = provider();
     let mut admitted = configured.clone();
-    capture(db, &mut admitted).unwrap();
+    capture(db, &mut admitted).await.unwrap();
     assert_eq!(
         admitted.binding.as_ref().unwrap().package,
         Some(first.summary.reference())
@@ -77,9 +74,9 @@ fn freezes_new_and_inherited_bindings() {
             .body["example"],
         1
     );
-    let second = package(db, &"b".repeat(64), 2);
+    let second = package(db, &"b".repeat(64), 2).await;
     let mut next = configured.clone();
-    capture(db, &mut next).unwrap();
+    capture(db, &mut next).await.unwrap();
     assert_eq!(
         next.binding.as_ref().unwrap().package,
         Some(second.summary.reference())
@@ -89,56 +86,60 @@ fn freezes_new_and_inherited_bindings() {
         2
     );
     let inherited = admitted.clone();
-    capture(db, &mut admitted).unwrap();
+    capture(db, &mut admitted).await.unwrap();
     assert_eq!(admitted, inherited);
-    db.execute("UPDATE plugins SET installed=0 WHERE name='example'", [])
+    db.execute("UPDATE plugins SET installed=0 WHERE name='example'", ())
+        .await
         .unwrap();
     assert_eq!(
-        capture(db, &mut configured.clone()).unwrap_err().code,
+        capture(db, &mut configured.clone()).await.unwrap_err().code,
         ErrorCode::NotConfigured
     );
-    capture(db, &mut admitted).unwrap();
+    capture(db, &mut admitted).await.unwrap();
     assert_eq!(admitted, inherited);
     assert!(configured.binding.is_none());
-    assert!(validate(db, &admitted).is_err());
+    assert!(validate(db, &admitted).await.is_err());
     db.execute(
         "DELETE FROM plugin_packages WHERE digest=?1",
         [first.summary.digest],
     )
+    .await
     .unwrap();
     assert_eq!(
-        verify(db, &admitted).unwrap_err().code,
+        verify(db, &admitted).await.unwrap_err().code,
         ErrorCode::NotConfigured
     );
 }
 
-#[test]
-fn retains_partner_declarations_across_reopen() {
-    let (directory, database) = database();
+#[tokio::test]
+async fn retains_partner_declarations_across_reopen() {
+    let (directory, database) = database().await;
     let catalog = crate::providers::presets::parse(include_bytes!(
         "../../../../tests/fixtures/model-presets.json"
     ))
     .unwrap();
-    let first = list(&database.connection, Some(&catalog), false).unwrap();
+    let first = list(&database.connection, Some(&catalog), false)
+        .await
+        .unwrap();
     assert!(
         first
             .entries
             .iter()
             .any(|entry| entry.source == Source::Partner)
     );
-    drop(database);
+    database.close().await.unwrap();
     let database = Database::open(
-        &directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        &directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([17; 32]),
         None,
     )
+    .await
     .unwrap();
     assert_eq!(
-        list(&database.connection, None, true).unwrap().entries,
+        list(&database.connection, None, true)
+            .await
+            .unwrap()
+            .entries,
         first.entries
     );
     let mut provider = provider();
@@ -148,21 +149,21 @@ fn retains_partner_declarations_across_reopen() {
         id: "example".into(),
         route: None,
     });
-    capture(&database.connection, &mut provider).unwrap();
+    capture(&database.connection, &mut provider).await.unwrap();
     assert!(provider.binding.is_some());
     assert!(provider.binding.as_ref().unwrap().package.is_none());
 }
 
-#[test]
-fn refreshes_roles_without_changing_captured_configuration() {
+#[tokio::test]
+async fn refreshes_roles_without_changing_captured_configuration() {
     use sailry_protocol::{
         RoleId,
         conversation::consent::{Approval, Origin, Scope, Scopes},
         role,
     };
-    let (_directory, database) = database();
+    let (_directory, database) = database().await;
     let db = &database.connection;
-    let mut info = package(db, &"a".repeat(64), 1);
+    let mut info = package(db, &"a".repeat(64), 1).await;
     info.origin = Some(plugin::Origin::Bundled);
     let mut extension = serde_json::to_value(info.extension.as_ref().unwrap()).unwrap();
     extension["actions"] = json!(["models.provide"]);
@@ -174,11 +175,13 @@ fn refreshes_roles_without_changing_captured_configuration() {
         "UPDATE plugins SET body=?1 WHERE name='example'",
         [encode(&info).unwrap()],
     )
+    .await
     .unwrap();
     db.execute(
         "UPDATE plugin_packages SET body=?1 WHERE digest=?2",
-        params![encode(&info).unwrap(), info.summary.digest],
+        params![encode(&info).unwrap(), info.summary.digest.as_str()],
     )
+    .await
     .unwrap();
     let mut configured = provider();
     configured.api = ModelApi::Plugin;
@@ -190,9 +193,11 @@ fn refreshes_roles_without_changing_captured_configuration() {
             credentials: false,
         },
     }));
-    crate::store::providers::configuration::publish(db, &configured).unwrap();
+    crate::store::providers::configuration::publish(db, &configured)
+        .await
+        .unwrap();
     let mut admitted = configured.clone();
-    capture(db, &mut admitted).unwrap();
+    capture(db, &mut admitted).await.unwrap();
     let mut roster = role::Snapshot {
         profiles: vec![role::Profile {
             id: RoleId::new(),
@@ -219,18 +224,26 @@ fn refreshes_roles_without_changing_captured_configuration() {
         credentials: true,
     };
     configured.endpoint = "https://changed.invalid".into();
-    crate::store::providers::configuration::publish(db, &configured).unwrap();
-    crate::store::sessions::roles::refresh(db, &mut roster).unwrap();
+    crate::store::providers::configuration::publish(db, &configured)
+        .await
+        .unwrap();
+    crate::store::sessions::roles::refresh(db, &mut roster)
+        .await
+        .unwrap();
     assert_eq!(roster.providers[0].endpoint, admitted.endpoint);
     let original = admitted.clone();
-    capture(db, &mut admitted).unwrap();
+    capture(db, &mut admitted).await.unwrap();
     assert_eq!(admitted, original);
     assert!(crate::store::providers::consent::check(&admitted, Scope::Messages).is_ok());
     crate::store::providers::consent::check(&admitted, Scope::Credentials).unwrap();
     configured.consent.as_mut().unwrap().scopes.messages = true;
-    crate::store::providers::configuration::publish(db, &configured).unwrap();
+    crate::store::providers::configuration::publish(db, &configured)
+        .await
+        .unwrap();
     roster.providers[0] = original.clone();
-    crate::store::sessions::roles::refresh(db, &mut roster).unwrap();
+    crate::store::sessions::roles::refresh(db, &mut roster)
+        .await
+        .unwrap();
     assert_eq!(roster.providers[0].endpoint, original.endpoint);
     assert!(
         roster.providers[0]
@@ -243,9 +256,9 @@ fn refreshes_roles_without_changing_captured_configuration() {
     assert!(!original.consent.as_ref().unwrap().scopes.credentials);
 }
 
-#[test]
-fn retains_saved_policy_after_partner_removal() {
-    let (_directory, database) = database();
+#[tokio::test]
+async fn retains_saved_policy_after_partner_removal() {
+    let (_directory, database) = database().await;
     let db = &database.connection;
     let mut catalog = crate::providers::presets::parse(include_bytes!(
         "../../../../tests/fixtures/model-presets.json"
@@ -282,10 +295,10 @@ fn retains_saved_policy_after_partner_removal() {
         serde_json::from_value(json!({"models":["fixture"],"body":{"thinking":{"enabled":true}}}))
             .unwrap(),
     ];
-    list(db, Some(&catalog), false).unwrap();
+    list(db, Some(&catalog), false).await.unwrap();
     let mut selected = provider();
     selected.preset.as_mut().unwrap().source = Source::Partner;
-    save_policy(db, &mut selected, None).unwrap();
+    save_policy(db, &mut selected, None).await.unwrap();
     let original = selected.clone();
     assert_eq!(
         selected
@@ -299,11 +312,13 @@ fn retains_saved_policy_after_partner_removal() {
         "X-Example-Key"
     );
     catalog.partners.clear();
-    list(db, Some(&catalog), false).unwrap();
-    capture(db, &mut selected).unwrap();
+    list(db, Some(&catalog), false).await.unwrap();
+    capture(db, &mut selected).await.unwrap();
     assert_eq!(selected, original);
     selected.name = "Renamed saved channel".into();
-    save_policy(db, &mut selected, Some(&original)).unwrap();
+    save_policy(db, &mut selected, Some(&original))
+        .await
+        .unwrap();
     assert_eq!(selected.binding, original.binding);
     selected.binding.as_mut().unwrap().package = Some(plugin::Reference {
         name: "other".into(),
@@ -313,53 +328,68 @@ fn retains_saved_policy_after_partner_removal() {
     assert!(partner_policy(&selected).is_err());
     let mut legacy = original;
     legacy.binding = None;
-    capture(db, &mut legacy).unwrap();
+    capture(db, &mut legacy).await.unwrap();
     assert!(legacy.binding.unwrap().key_injection.is_none());
 }
 
-#[test]
-fn discards_only_a_corrupt_suggestion_cache() {
-    let (directory, database) = database();
+#[tokio::test]
+async fn discards_only_a_corrupt_suggestion_cache() {
+    let (directory, database) = database().await;
     database
         .connection
         .execute(
             "INSERT INTO channel_presets(singleton,body) VALUES(1,?1)",
             [b"not JSON".as_slice()],
         )
+        .await
         .unwrap();
     let before: i64 = database
         .connection
-        .query_row("SELECT count(*) FROM providers", [], |row| row.get(0))
+        .prepare("SELECT count(*) FROM providers")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get(0)
         .unwrap();
-    drop(database);
+    database.close().await.unwrap();
     let database = Database::open(
-        &directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        &directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([17; 32]),
         None,
     )
+    .await
     .unwrap();
     assert_eq!(
         database
             .connection
-            .query_row("SELECT count(*) FROM channel_presets", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT count(*) FROM channel_presets")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
             .unwrap(),
         0
     );
     assert_eq!(
         database
             .connection
-            .query_row("SELECT count(*) FROM providers", [], |row| row
-                .get::<_, i64>(0))
+            .prepare("SELECT count(*) FROM providers")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
             .unwrap(),
         before
     );
     assert!(
         !list(&database.connection, None, true)
+            .await
             .unwrap()
             .entries
             .is_empty()

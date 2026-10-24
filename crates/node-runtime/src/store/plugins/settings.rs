@@ -30,8 +30,8 @@ pub(in crate::store) struct Stored {
     pub(super) oauth: Option<history::Authorized>,
 }
 
-pub(super) fn current(db: &Connection, package: &plugin::Reference) -> Result<Info, Fault> {
-    let info = required(db, &package.name)?;
+pub(super) async fn current(db: &Connection, package: &plugin::Reference) -> Result<Info, Fault> {
+    let info = required(db, &package.name).await?;
     if info.summary.reference() != *package {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -41,7 +41,7 @@ pub(super) fn current(db: &Connection, package: &plugin::Reference) -> Result<In
     Ok(info)
 }
 
-pub(super) fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault> {
+pub(super) async fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault> {
     if info.summary.settings_revision == 0 {
         return Ok(Stored {
             schema: info.settings.clone(),
@@ -55,14 +55,26 @@ pub(super) fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault> {
             oauth: None,
         });
     }
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2",
-            params![info.summary.name, info.summary.settings_revision as i64],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2")
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![
+                info.summary.name.as_str(),
+                info.summary.settings_revision as i64
+            ])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     serde_json::from_slice(&body.ok_or_else(|| {
         Fault::new(
             ErrorCode::NotConfigured,
@@ -72,7 +84,7 @@ pub(super) fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault> {
     .map_err(storage_error)
 }
 
-pub(in crate::store) fn validate_revision(
+pub(in crate::store) async fn validate_revision(
     db: &Connection,
     package: &plugin::Reference,
 ) -> Result<(), Fault> {
@@ -84,13 +96,21 @@ pub(in crate::store) fn validate_revision(
             "invalid plugin configuration revision",
         ));
     }
-    let exists: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM plugin_settings WHERE plugin=?1 AND revision=?2)",
-            params![package.name, package.settings_revision as i64],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let exists: bool = {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM plugin_settings WHERE plugin=?1 AND revision=?2)")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![
+                package.name.as_str(),
+                package.settings_revision as i64
+            ])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if exists {
         Ok(())
     } else {
@@ -143,9 +163,9 @@ fn can_keep(
     !stored.slots.get(name).is_some_and(Option::is_some)
 }
 
-fn project(db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault> {
+async fn project(db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault> {
     // Missing legacy targets remain stored but cannot authorize a new destination.
-    let resolved = targets::current(db, info, stored.mcp.as_ref());
+    let resolved = targets::current(db, info, stored.mcp.as_ref()).await;
     let targets_available = resolved.is_ok();
     let targets = resolved.unwrap_or_default();
     let schema = info.settings.as_ref().ok_or_else(|| {
@@ -197,18 +217,21 @@ fn project(db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault
     })
 }
 
-pub(in crate::store) fn read(db: &Connection, package: &plugin::Reference) -> Result<State, Fault> {
-    let info = current(db, package)?;
-    project(db, &info, &stored(db, &info)?)
+pub(in crate::store) async fn read(
+    db: &Connection,
+    package: &plugin::Reference,
+) -> Result<State, Fault> {
+    let info = current(db, package).await?;
+    project(db, &info, &stored(db, &info).await?).await
 }
 
-pub(in crate::store) fn read_secret(
+pub(in crate::store) async fn read_secret(
     db: &Connection,
     package: &plugin::Reference,
     field: &str,
 ) -> Result<Option<sailry_protocol::Secret>, Fault> {
-    let info = current(db, package)?;
-    let saved = stored(db, &info)?;
+    let info = current(db, package).await?;
+    let saved = stored(db, &info).await?;
     let schema = info
         .settings
         .as_ref()
@@ -222,32 +245,32 @@ pub(in crate::store) fn read_secret(
             "setting is not a declared secret slot",
         ));
     }
-    let targets = targets::current(db, &info, saved.mcp.as_ref())?;
+    let targets = targets::current(db, &info, saved.mcp.as_ref()).await?;
     if !same_binding(&saved, schema, field, &targets) {
         return Err(sailry_protocol::Fault::invalid("setting binding changed"));
     }
     Ok(saved.slots.get(field).cloned().flatten())
 }
 
-pub(in crate::store) fn read_admitted(db: &Connection, info: &Info) -> Result<State, Fault> {
-    project(db, info, &stored(db, info)?)
+pub(in crate::store) async fn read_admitted(db: &Connection, info: &Info) -> Result<State, Fault> {
+    project(db, info, &stored(db, info).await?).await
 }
 
-pub(in crate::store) fn save(
+pub(in crate::store) async fn save(
     db: &Connection,
     package: &plugin::Reference,
     values: &BTreeMap<String, Value>,
     updates: &BTreeMap<String, SecretUpdate>,
 ) -> Result<State, Fault> {
-    let mut info = current(db, package)?;
+    let mut info = current(db, package).await?;
     let schema = info.settings.as_ref().ok_or_else(|| {
         Fault::new(
             ErrorCode::NotConfigured,
             "plugin has no valid settings form",
         )
     })?;
-    let previous = stored(db, &info)?;
-    let targets = match targets::current(db, &info, previous.mcp.as_ref()) {
+    let previous = stored(db, &info).await?;
+    let targets = match targets::current(db, &info, previous.mcp.as_ref()).await {
         Ok(targets) => targets,
         Err(_)
             if updates
@@ -260,7 +283,7 @@ pub(in crate::store) fn save(
     };
     validate_values(schema, values)?;
     let models = if schema.properties.values().any(|field| field.model) {
-        super::models::catalog(db)?.models
+        super::models::catalog(db).await?.models
     } else {
         vec![]
     };
@@ -361,7 +384,8 @@ pub(in crate::store) fn save(
                     if let Some(value) = saved.slots.get_mut(name) {
                         *value = None;
                     }
-                })?;
+                })
+                .await?;
                 slots.insert(name.clone(), None);
             }
         }
@@ -377,19 +401,24 @@ pub(in crate::store) fn save(
         github: previous.github,
         oauth: previous.oauth,
     };
-    persist(db, &mut info, &saved)?;
-    super::super::dispatch::settings_changed(db, &info.summary.reference())?;
-    project(db, &info, &saved)
+    persist(db, &mut info, &saved).await?;
+    super::super::dispatch::settings_changed(db, &info.summary.reference()).await?;
+    project(db, &info, &saved).await
 }
 
-pub(super) fn persist(db: &Connection, info: &mut Info, saved: &Stored) -> Result<(), Fault> {
-    let next: i64 = db
-        .query_row(
-            "SELECT settings_revision FROM plugins WHERE name=?1",
-            [&info.summary.name],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+pub(super) async fn persist(db: &Connection, info: &mut Info, saved: &Stored) -> Result<(), Fault> {
+    let next: i64 = {
+        let mut statement = db
+            .prepare("SELECT settings_revision FROM plugins WHERE name=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([info.summary.name.as_str()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     info.summary.settings_revision = next
         .checked_add(1)
         .ok_or_else(|| sailry_protocol::Fault::invalid("plugin configuration revision exhausted"))?
@@ -397,24 +426,29 @@ pub(super) fn persist(db: &Connection, info: &mut Info, saved: &Stored) -> Resul
     db.execute(
         "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,?2,?3)",
         params![
-            info.summary.name,
+            info.summary.name.as_str(),
             info.summary.settings_revision as i64,
             encode(saved)?
         ],
     )
+    .await
     .map_err(storage_error)?;
     // The inventory tombstone retains this counter when unused revisions are collected.
     db.execute(
         "UPDATE plugins SET settings_revision=?2 WHERE name=?1",
-        params![info.summary.name, info.summary.settings_revision as i64],
+        params![
+            info.summary.name.as_str(),
+            info.summary.settings_revision as i64
+        ],
     )
+    .await
     .map_err(storage_error)?;
-    info.summary.revision = super::next(db, &info.summary.name)?;
-    super::save(db, info, true)
+    info.summary.revision = super::next(db, &info.summary.name).await?;
+    super::save(db, info, true).await
 }
 
-pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved, Fault> {
-    let saved = stored(db, info)?;
+pub(in crate::store) async fn resolve(db: &Connection, info: &Info) -> Result<Resolved, Fault> {
+    let saved = stored(db, info).await?;
     if info.settings.is_none() {
         if info
             .extension
@@ -433,14 +467,14 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
             mcp_allowed: saved.mcp_allowed,
         });
     }
-    let state = project(db, info, &saved)?;
+    let state = project(db, info, &saved).await?;
     if !state.ready {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
             "plugin settings are incomplete or changed",
         ));
     }
-    authorize_slots(db, info, &saved, &state.configured)?;
+    authorize_slots(db, info, &saved, &state.configured).await?;
     let secrets = state
         .configured
         .iter()
@@ -464,7 +498,7 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
     })
 }
 
-fn authorize_slots(
+async fn authorize_slots(
     db: &Connection,
     info: &Info,
     saved: &Stored,
@@ -475,14 +509,20 @@ fn authorize_slots(
     }
     // Tombstones retain the latest declaration after removal. Historical bytes
     // remain replayable, but cannot restore a slot retired into a connector.
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM plugins WHERE name=?1",
-            [&info.summary.name],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM plugins WHERE name=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([info.summary.name.as_str()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let current: Option<Info> = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?;
@@ -505,36 +545,45 @@ fn authorize_slots(
     ))
 }
 
-pub(in crate::store) fn capture(
+pub(in crate::store) async fn capture(
     db: &Connection,
     packages: &[Info],
 ) -> BTreeMap<String, Result<Resolved, Fault>> {
-    packages
-        .iter()
-        .map(|info| (info.summary.name.clone(), resolve(db, info)))
-        .collect()
+    let mut selected = BTreeMap::new();
+    for info in packages {
+        selected.insert(info.summary.name.clone(), resolve(db, info).await);
+    }
+    selected
 }
 
-pub(super) fn revisions(db: &Connection, plugin: &str) -> Result<Vec<(i64, Stored)>, Fault> {
+pub(super) async fn revisions(db: &Connection, plugin: &str) -> Result<Vec<(i64, Stored)>, Fault> {
     let mut query = db
         .prepare("SELECT revision,body FROM plugin_settings WHERE plugin=?1")
+        .await
         .map_err(storage_error)?;
-    query
-        .query_map([plugin], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
-        })
-        .map_err(storage_error)?
-        .map(|row| {
-            let (revision, body) = row.map_err(storage_error)?;
-            Ok((
-                revision,
-                serde_json::from_slice(&body).map_err(storage_error)?,
-            ))
-        })
-        .collect()
+    (async {
+        let mut rows = query.query([plugin]).await?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get::<i64>(0)?, row.get::<Vec<u8>>(1)?)))(&row);
+            values.push(mapped);
+        }
+        Ok::<_, turso::Error>(values.into_iter())
+    })
+    .await
+    .map_err(storage_error)?
+    .map(|row| {
+        let (revision, body) = row.map_err(storage_error)?;
+        Ok((
+            revision,
+            serde_json::from_slice(&body).map_err(storage_error)?,
+        ))
+    })
+    .collect()
 }
 
-pub(super) fn update_revision(
+pub(super) async fn update_revision(
     db: &Connection,
     plugin: &str,
     revision: i64,
@@ -544,18 +593,19 @@ pub(super) fn update_revision(
         "UPDATE plugin_settings SET body=?3 WHERE plugin=?1 AND revision=?2",
         params![plugin, revision, encode(saved)?],
     )
+    .await
     .map_err(storage_error)?;
     Ok(())
 }
 
-pub(super) fn edit_revisions(
+pub(super) async fn edit_revisions(
     db: &Connection,
     plugin: &str,
     mut edit: impl FnMut(&mut Stored),
 ) -> Result<(), Fault> {
-    for (revision, mut saved) in revisions(db, plugin)? {
+    for (revision, mut saved) in revisions(db, plugin).await? {
         edit(&mut saved);
-        update_revision(db, plugin, revision, &saved)?;
+        update_revision(db, plugin, revision, &saved).await?;
     }
     Ok(())
 }

@@ -1,7 +1,8 @@
-//! Bounded FTS queries over each captured package's private corpus.
+//! Native FTS over each captured package's private, rebuildable corpus.
 use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 use storage::{Index, Search, SearchPage};
+use turso::{Connection, params};
 mod indexes;
 pub(in crate::store) use indexes::{apply as rebuild, validate};
 #[cfg(test)]
@@ -11,76 +12,84 @@ fn table(name: &str) -> String {
     format!("plugin_search_{}", blake3::hash(name.as_bytes()).to_hex())
 }
 
-fn definition(name: &str) -> String {
+fn definition(name: &str) -> [String; 2] {
     let table = table(name);
-    format!(
-        "CREATE VIRTUAL TABLE {table} USING fts5(field0,field1,cjk0,cjk1,key UNINDEXED,tags UNINDEXED,ordinal UNINDEXED,tokenize='unicode61 remove_diacritics 2 tokenchars ''+#''')"
-    )
+    [
+        format!(
+            "CREATE TABLE {table}(id INTEGER PRIMARY KEY,key TEXT NOT NULL UNIQUE,field0 TEXT NOT NULL,field1 TEXT NOT NULL,cjk0 TEXT NOT NULL,cjk1 TEXT NOT NULL,tags TEXT NOT NULL,ordinal INTEGER NOT NULL)"
+        ),
+        format!(
+            "CREATE INDEX {table}_fts ON {table} USING fts(field0,field1,cjk0,cjk1) WITH(tokenizer='whitespace')"
+        ),
+    ]
 }
 
-/// Reconstruct current schemas from durable corpus namespaces, including empty indexes.
-/// The caller creates these only in a reference database, never in the stored profile.
-pub(in crate::store) fn definitions(db: &Connection) -> Result<Vec<String>, Fault> {
+/// Current declarations include previously created, now empty corpora.
+/// The schema owner reports a missing nullable column before applying its NULL default.
+pub(in crate::store) async fn definitions(
+    db: &Connection,
+    has_index_data: bool,
+) -> Result<Vec<String>, Fault> {
     let mut definitions = Vec::new();
-    for (name, indexed) in catalog(db)? {
-        if indexed || exists(db, &table(&name))? {
-            definitions.push(definition(&name));
+    for (name, indexed) in catalog(db, has_index_data).await? {
+        if indexed || exists(db, &table(&name)).await? {
+            definitions.extend(definition(&name));
         }
     }
     Ok(definitions)
 }
 
-fn catalog(db: &Connection) -> Result<Vec<(String, bool)>, Fault> {
-    let mut query = db
-        .prepare(
-            "SELECT name, max(index_data IS NOT NULL) FROM plugin_values GROUP BY name ORDER BY name",
-        )
-        .map_err(storage_error)?;
-    let names = query
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
-        })
-        .map_err(storage_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(storage_error)?;
+async fn catalog(db: &Connection, has_index_data: bool) -> Result<Vec<(String, bool)>, Fault> {
+    let sql = if has_index_data {
+        "SELECT name,max(index_data IS NOT NULL) FROM plugin_values GROUP BY name ORDER BY name"
+    } else {
+        "SELECT name,0 FROM plugin_values GROUP BY name ORDER BY name"
+    };
+    let mut rows = db.query(sql, ()).await.map_err(storage_error)?;
+    let mut names = Vec::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        names.push((
+            row.get(0).map_err(storage_error)?,
+            row.get(1).map_err(storage_error)?,
+        ));
+    }
     Ok(names)
 }
 
-fn exists(db: &Connection, table: &str) -> Result<bool, Fault> {
-    db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
-        [table],
-        |row| row.get(0),
-    )
-    .map_err(storage_error)
+async fn exists(db: &Connection, table: &str) -> Result<bool, Fault> {
+    db.prepare("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?1)")
+        .await
+        .map_err(storage_error)?
+        .query_row([table])
+        .await
+        .map_err(storage_error)?
+        .get(0)
+        .map_err(storage_error)
 }
 
-/// Reads never create or repair an index. Metadata is the durable ownership marker.
-pub(super) fn check(db: &Connection, name: &str) -> Result<bool, Fault> {
+/// Admission can select its existing DDL transaction before the first corpus write.
+pub(in crate::store) async fn missing(db: &Connection, name: &str) -> Result<bool, Fault> {
+    Ok(!exists(db, &table(name)).await?)
+}
+
+/// Reads validate the derived corpus without creating or repairing it.
+pub(super) async fn check(db: &Connection, name: &str) -> Result<bool, Fault> {
+    let records = indexes::records(db, name).await?;
     let table = table(name);
-    let expected: i64 = db
-        .query_row(
-            "SELECT count(*) FROM plugin_values WHERE name=?1 AND index_data IS NOT NULL",
-            [name],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
-    if !exists(db, &table)? {
-        return if expected == 0 {
+    if !exists(db, &table).await? {
+        return if records.is_empty() {
             Ok(false)
         } else {
             Err(storage_error("plugin search index is missing"))
         };
     }
-    let actual: i64 = db
-        .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-            row.get(0)
-        })
-        .map_err(storage_error)?;
-    let matched: i64 = db.query_row(&format!("SELECT count(*) FROM {table} f JOIN plugin_values v ON v.rowid=f.rowid WHERE v.name=?1 AND v.value IS NOT NULL AND v.index_data IS NOT NULL AND f.key=v.key AND f.field0=json_extract(v.index_data,'$.fields[0]') AND f.field1=json_extract(v.index_data,'$.fields[1]') AND f.tags=json_extract(v.index_data,'$.tags') AND f.ordinal=json_extract(v.index_data,'$.order')"), [name], |row| row.get(0)).map_err(storage_error)?;
-    if expected != actual || matched != expected {
-        return Err(storage_error("plugin search index is inconsistent"));
+    let indexed: bool = db.prepare("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='index' AND name=?1 AND tbl_name=?2)").await.map_err(storage_error)?
+        .query_row(params![format!("{table}_fts"), table.as_str()]).await.map_err(storage_error)?
+        .get(0).map_err(storage_error)?;
+    if !indexed {
+        return Err(storage_error("plugin search index is missing"));
     }
+    indexes::consistent(db, &table, &records).await?;
     Ok(true)
 }
 
@@ -97,9 +106,7 @@ pub(in crate::store) fn validate_index(index: &Index) -> Result<(), Fault> {
         || index.source.as_ref().is_some_and(|source| !source.valid())
         || serde_json::to_vec(index).map_or(true, |bytes| bytes.len() > storage::MAX_INDEX_BYTES)
     {
-        return Err(sailry_protocol::Fault::invalid(
-            "invalid plugin search index",
-        ));
+        return Err(Fault::invalid("invalid plugin search index"));
     }
     Ok(())
 }
@@ -121,44 +128,40 @@ fn validate_query(query: &Search) -> Result<(), Fault> {
         || query.weights.contains(&0)
         || query.limit == 0
     {
-        return Err(sailry_protocol::Fault::invalid(
-            "invalid plugin search query",
-        ));
+        return Err(Fault::invalid("invalid plugin search query"));
     }
     Ok(())
 }
 
-/// Called inside the existing admission transaction after the KV row is replaced.
-pub(super) fn replace(
+/// The native index tracks this derived row in the same KV admission transaction.
+pub(super) async fn replace(
     db: &Connection,
     name: &str,
     key: &str,
     index: Option<&Index>,
 ) -> Result<(), Fault> {
     let table = table(name);
-    if !exists(db, &table)? {
+    if !exists(db, &table).await? {
         if index.is_none() {
             return Ok(());
         }
-        db.execute_batch(&definition(name)).map_err(storage_error)?;
+        for ddl in definition(name) {
+            db.execute_batch(ddl).await.map_err(storage_error)?;
+        }
     }
-    let rowid: i64 = db
-        .query_row(
-            "SELECT rowid FROM plugin_values WHERE name=?1 AND key=?2",
-            params![name, key],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
-    db.execute(&format!("DELETE FROM {table} WHERE rowid=?1"), [rowid])
-        .map_err(storage_error)?;
     if let Some(index) = index {
         let tags = serde_json::to_string(&index.tags).map_err(storage_error)?;
-        db.execute(&format!("INSERT INTO {table}(rowid,field0,field1,cjk0,cjk1,key,tags,ordinal) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)"), params![rowid,index.fields[0],index.fields[1],crate::knowledge::text::index(&index.fields[0]),crate::knowledge::text::index(&index.fields[1]),key,tags,index.order]).map_err(storage_error)?;
+        db.execute(&format!("INSERT INTO {table}(key,field0,field1,cjk0,cjk1,tags,ordinal) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(key) DO UPDATE SET field0=excluded.field0,field1=excluded.field1,cjk0=excluded.cjk0,cjk1=excluded.cjk1,tags=excluded.tags,ordinal=excluded.ordinal"),
+            params![key, crate::knowledge::text::field(&index.fields[0]), crate::knowledge::text::field(&index.fields[1]), crate::knowledge::text::index(&index.fields[0]), crate::knowledge::text::index(&index.fields[1]), tags, index.order]).await.map_err(storage_error)?;
+    } else {
+        db.execute(&format!("DELETE FROM {table} WHERE key=?1"), [key])
+            .await
+            .map_err(storage_error)?;
     }
     Ok(())
 }
 
-pub(super) fn read(db: &Connection, name: &str, query: &Search) -> Result<SearchPage, Fault> {
+pub(super) async fn read(db: &Connection, name: &str, query: &Search) -> Result<SearchPage, Fault> {
     validate_query(query)?;
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -173,39 +176,36 @@ pub(super) fn read(db: &Connection, name: &str, query: &Search) -> Result<Search
         mode: storage::Mode::Keyword,
         indexing: false,
     };
-    if !check(db, name)? {
+    let expression = expression(query);
+    if (!query.terms.is_empty() && expression.is_empty()) || !check(db, name).await? {
         return Ok(page);
     }
-    let table = table(name);
-    let sql = statement(&table, query, "v.key,v.revision,v.value");
-    let mut statement = db.prepare(&sql).map_err(storage_error)?;
+    let sql = statement(&table(name), query, "v.key,v.revision,v.value");
     let parameters = parameters(
         name,
         query,
+        expression,
         i64::from(query.limit.min(storage::MAX_PAGE_LIMIT)) + 1,
         query.offset,
     )?;
-    let mut rows = statement
-        .query(rusqlite::params_from_iter(parameters.iter()))
-        .map_err(storage_error)?;
-    while let Some(row) = rows.next().map_err(storage_error)? {
+    let mut rows = db.query(&sql, parameters).await.map_err(storage_error)?;
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
         if page.entries.len() == usize::from(query.limit.min(storage::MAX_PAGE_LIMIT)) {
             page.next = Some(query.offset.saturating_add(page.entries.len() as u16));
             break;
         }
         let revision: i64 = row.get(1).map_err(storage_error)?;
         let body: Vec<u8> = row.get(2).map_err(storage_error)?;
-        let entry = Entry {
+        page.entries.push(Entry {
             key: row.get(0).map_err(storage_error)?,
-            revision: u64::try_from(revision)
+            revision: revision
+                .try_into()
                 .ok()
                 .filter(|revision| *revision > 0)
                 .ok_or_else(|| storage_error("invalid plugin value revision"))?,
             value: serde_json::from_slice(&body).map_err(storage_error)?,
             present: true,
-        };
-        page.entries.push(entry);
-        // Include the output envelope, exact SDK revision strings and a possible next offset.
+        });
         if serde_json::to_vec(&Output::PluginSearch(page.clone()))
             .map_err(storage_error)?
             .len()
@@ -218,76 +218,103 @@ pub(super) fn read(db: &Connection, name: &str, query: &Search) -> Result<Search
             break;
         }
     }
+    drop(rows);
     Ok(page)
 }
 
-/// Ranked keys keep semantic fusion bounded without loading every JSON value.
-pub(in crate::store) fn ranked(
+/// Semantic fusion receives only ranked keys and revisions, not all JSON values.
+pub(in crate::store) async fn ranked(
     db: &Connection,
     name: &str,
     query: &Search,
 ) -> Result<Vec<(String, u64)>, Fault> {
     validate_query(query)?;
-    if !check(db, name)? {
+    let expression = expression(query);
+    if (!query.terms.is_empty() && expression.is_empty()) || !check(db, name).await? {
         return Ok(Vec::new());
     }
     let sql = statement(&table(name), query, "v.key,v.revision");
-    let mut statement = db.prepare(&sql).map_err(storage_error)?;
-    let parameters = parameters(name, query, storage::MAX_NAMESPACE_KEYS as i64, 0)?;
-    let rows = statement
-        .query_map(rusqlite::params_from_iter(parameters.iter()), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })
+    let mut rows = db
+        .query(
+            &sql,
+            parameters(
+                name,
+                query,
+                expression,
+                storage::MAX_NAMESPACE_KEYS as i64,
+                0,
+            )?,
+        )
+        .await
         .map_err(storage_error)?;
-    rows.map(|row| {
-        let (key, revision) = row.map_err(storage_error)?;
-        let revision = u64::try_from(revision)
+    let mut entries = Vec::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let revision: i64 = row.get(1).map_err(storage_error)?;
+        let revision = revision
+            .try_into()
             .ok()
             .filter(|revision| *revision > 0)
             .ok_or_else(|| storage_error("invalid plugin value revision"))?;
-        Ok((key, revision))
-    })
-    .collect()
+        entries.push((row.get(0).map_err(storage_error)?, revision));
+    }
+    Ok(entries)
+}
+
+fn expression(query: &Search) -> String {
+    let terms = query
+        .terms
+        .iter()
+        .map(|term| crate::knowledge::text::phrase(term))
+        .filter(|term| !term.is_empty())
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    if terms.is_empty() {
+        return String::new();
+    }
+    ["field0", "field1", "cjk0", "cjk1"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, field)| format!("{field}:({terms})^{}", query.weights[index % 2]))
+        .collect::<Vec<_>>()
+        .join(" OR ")
 }
 
 fn statement(table: &str, query: &Search, columns: &str) -> String {
-    let (matching, ordering) = if query.terms.is_empty() {
-        (String::new(), String::new())
+    // In Turso 0.8.3, adding a secondary sort to its direct FTS scan can
+    // discard score ordering. Materialize native scores before ACL/tag joins
+    // and pagination; no top-N boundary precedes those filters.
+    let (candidates, source, ordering) = if query.terms.is_empty() {
+        (String::new(), format!("{table} f"), String::new())
     } else {
         (
-            format!("AND {table} MATCH ?2"),
-            format!("bm25({table},?5,?6,?5,?6),"),
+            format!(
+                "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?2) AS score FROM {table} WHERE fts_match(field0,field1,cjk0,cjk1,?2)) "
+            ),
+            format!("candidates c JOIN {table} f ON f.id=c.id"),
+            "c.score DESC,".into(),
         )
     };
     format!(
-        "SELECT {columns} FROM {table} f JOIN plugin_values v ON v.rowid=f.rowid WHERE v.name=?1 {matching} AND NOT EXISTS(SELECT 1 FROM json_each(?3) wanted WHERE NOT EXISTS(SELECT 1 FROM json_each(f.tags) tag WHERE tag.value=wanted.value)) AND (json_array_length(?4)=0 OR EXISTS(SELECT 1 FROM json_each(?4) wanted JOIN json_each(f.tags) tag ON tag.value=wanted.value)) ORDER BY {ordering} f.ordinal DESC,v.key ASC LIMIT ?7 OFFSET ?8"
+        "{candidates}SELECT {columns} FROM {source} JOIN plugin_values v ON v.name=?1 AND v.key=f.key WHERE v.value IS NOT NULL AND v.index_data IS NOT NULL AND NOT EXISTS(SELECT 1 FROM json_each(?3) wanted WHERE NOT EXISTS(SELECT 1 FROM json_each(f.tags) tag WHERE tag.value=wanted.value)) AND (json_array_length(?4)=0 OR EXISTS(SELECT 1 FROM json_each(?4) wanted JOIN json_each(f.tags) tag ON tag.value=wanted.value)) ORDER BY {ordering}f.ordinal DESC,v.key ASC LIMIT ?5 OFFSET ?6"
     )
 }
 
 fn parameters(
     name: &str,
     query: &Search,
+    expression: String,
     limit: i64,
     offset: u16,
-) -> Result<[rusqlite::types::Value; 8], Fault> {
-    // Quote every term; callers cannot inject MATCH operators or column selectors.
-    let terms = query
-        .terms
-        .iter()
-        .map(|term| crate::knowledge::text::phrase(term))
-        .collect::<Vec<_>>()
-        .join(" OR ");
+) -> Result<[turso::Value; 6], Fault> {
     Ok([
         name.to_owned().into(),
-        terms.into(),
+        expression.into(),
         serde_json::to_string(&query.all)
             .map_err(storage_error)?
             .into(),
         serde_json::to_string(&query.any)
             .map_err(storage_error)?
             .into(),
-        i64::from(query.weights[0]).into(),
-        i64::from(query.weights[1]).into(),
         limit.into(),
         i64::from(offset).into(),
     ])

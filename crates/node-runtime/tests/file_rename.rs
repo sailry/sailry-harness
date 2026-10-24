@@ -166,6 +166,7 @@ async fn protects_owned_roots() {
             "node",
             "node/storage",
             "node/storage/node.sqlite3",
+            "node/storage/node.turso",
         ] {
             assert_eq!(
                 client
@@ -219,8 +220,19 @@ async fn preserves_uncertain_results() {
         .await
         .unwrap();
     let remote = Client::new(controller.handle().remote(address));
-    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
     let mut requests = Vec::new();
     for (index, client) in [&local, &remote].into_iter().enumerate() {
         let from = format!("source-{index}");
@@ -235,8 +247,19 @@ async fn preserves_uncertain_results() {
         std::fs::write(project.join(&from), "replacement").unwrap();
         requests.push(request);
     }
-    db.execute_batch("DROP TRIGGER lose_result").unwrap();
-    drop(db);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
+
     node.shutdown().await.unwrap();
     let node = Node::start_empty(&profile).await.unwrap();
     let local = Client::new(node.local());

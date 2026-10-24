@@ -1,9 +1,9 @@
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{ErrorCode, Fault, NodeId, Output, RequestId, RequestOutcome};
+use turso::{Connection, params};
 
 use super::database::storage_error;
 
-pub(super) fn inspect(
+pub(super) async fn inspect(
     db: &Connection,
     caller: NodeId,
     id: RequestId,
@@ -16,14 +16,24 @@ pub(super) fn inspect(
     {
         return Err(Fault::invalid("invalid request digest"));
     }
-    let previous: Option<(Vec<u8>, String, Option<String>)> = db
-        .query_row(
-            "SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2",
-            params![&caller.0[..], id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let previous: Option<(Vec<u8>, String, Option<String>)> = {
+        let mut statement = db
+            .prepare("SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![&caller.0[..], id.to_string()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let Some((body, status, result)) = previous else {
         return Ok(RequestOutcome::NotAdmitted);
     };

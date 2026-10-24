@@ -318,8 +318,19 @@ async fn recovers_lost_result() {
         });
         let project = register(&client, &root).await;
         let before = snapshot(&client).await;
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+        {
+            let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap()
+        };
         let destination = temp.path().join("linked");
         let request = client.prepare(command(project.id, &destination, "linked", head));
         assert_eq!(
@@ -335,8 +346,19 @@ async fn recovers_lost_result() {
             Some(head)
         );
         assert_eq!(snapshot(&client).await, before);
-        db.execute_batch("DROP TRIGGER lose_result").unwrap();
-        drop(db);
+        {
+            let sql = ("DROP TRIGGER lose_result").to_owned();
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap()
+        };
+
         node.shutdown().await.unwrap();
         std::fs::write(destination.join("file"), "later edit").unwrap();
         let node = Node::start_empty(&profile).await.unwrap();

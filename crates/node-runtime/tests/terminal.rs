@@ -195,19 +195,27 @@ async fn shares_process_and_input_ownership() {
         .find(|tree| tree.project == Some(project.id) && tree.main)
         .unwrap()
         .id;
-    let count = || {
-        rusqlite::Connection::open(node.profile().join("storage/node.sqlite3"))
-            .unwrap()
-            .query_row("SELECT count(*) FROM requests", [], |row| {
-                row.get::<_, i64>(0)
+    let count = async || {
+        node.with_storage(|db| {
+            Box::pin(async move {
+                db.prepare("SELECT count(*) FROM requests")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(())
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get::<i64>(0)
+                    .map_err(crate::database_fixture::fault)
             })
-            .unwrap()
+        })
+        .await
+        .unwrap()
     };
     for index in 0..2 {
         let client = Client::new(transports[index].clone());
         let other = Client::new(transports[1 - index].clone());
         let request = client.prepare(Command::CreateTerminal(launch(worktree)));
-        let before = count();
+        let before = count().await;
         let admitted = client.dispatch(request.clone()).await.unwrap();
         assert!(admitted.receipt.durable);
         let output = admitted.completion.await.unwrap().unwrap();
@@ -221,7 +229,7 @@ async fn shares_process_and_input_ownership() {
         command(&client, &info, "printf '%s%s\\n' 'pty-' 'ready'").await;
         until(&mut *stream, &mut projection, "pty-ready").await;
         assert_eq!(
-            count(),
+            count().await,
             before + 1,
             "input and screen updates must not enter the durable ledger"
         );
@@ -316,7 +324,7 @@ async fn shares_process_and_input_ownership() {
             .unwrap();
         assert!(matches!(&closed, Output::Terminal(info) if info.status == Status::Closed));
         assert_eq!(other.execute(closing).await.unwrap(), closed);
-        assert_eq!(count(), before + 2);
+        assert_eq!(count().await, before + 2);
     }
     drop(transports);
     controller.close().await.unwrap();

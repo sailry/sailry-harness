@@ -34,8 +34,8 @@ async fn restores_catalog_estimates() {
                 finished(&writer, session.id, turn.id).await;
             }
             node.shutdown().await.unwrap();
-            pricing::seed(&profile);
-            seed_metadata(&profile, &session.config.model, authentication, catalog);
+            pricing::seed(&profile).await;
+            seed_metadata(&profile, &session.config.model, authentication, catalog).await;
             let node = Node::start_empty(&profile).await.unwrap();
             let controller = if remote {
                 Some(
@@ -137,39 +137,43 @@ async fn restores_catalog_estimates() {
     }
 }
 
-fn seed_metadata(
+async fn seed_metadata(
     profile: &std::path::Path,
     model: &str,
     authentication: Authentication,
     catalog: bool,
 ) {
-    let db = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
-    )
-    .unwrap();
+    let (_database, mut db) =
+        crate::database_fixture::open(&profile.join("storage/node.turso"), false).await;
+    let transaction = db.transaction().await.unwrap();
     // Only the stopped fixture's frozen metadata changes; no authentication or API is called.
-    db.execute(
-        "UPDATE agent_runs SET provider=CAST(json_set(provider,'$.authentication',?1) AS BLOB)",
-        [serde_json::to_value(authentication)
-            .unwrap()
-            .as_str()
-            .unwrap()],
-    )
-    .unwrap();
+    transaction
+        .execute(
+            "UPDATE agent_runs SET provider=CAST(json_set(provider,'$.authentication',?1) AS BLOB)",
+            [serde_json::to_value(authentication)
+                .unwrap()
+                .as_str()
+                .unwrap()],
+        )
+        .await
+        .unwrap();
     if !catalog {
+        transaction.commit().await.unwrap();
         return;
     }
-    db.execute(
-        "INSERT INTO model_catalog(provider,id,body) VALUES('openai',?1,?2)",
-        rusqlite::params![
-            model,
-            serde_json::to_vec(&serde_json::json!({
-                "id": model,
-                "cost": {"input":1,"output":1,"cache_read":1,"cache_write":1}
-            }))
-            .unwrap()
-        ],
-    )
-    .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO model_catalog(provider,id,body) VALUES('openai',?1,?2)",
+            turso::params![
+                model,
+                serde_json::to_vec(&serde_json::json!({
+                    "id": model,
+                    "cost": {"input":1,"output":1,"cache_read":1,"cache_write":1}
+                }))
+                .unwrap()
+            ],
+        )
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
 }

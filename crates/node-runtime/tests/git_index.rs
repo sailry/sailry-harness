@@ -206,17 +206,37 @@ async fn preserves_uncertain_result() {
     let id = setup(&client, &root).await;
     std::fs::write(root.join("tracked"), "published\n").unwrap();
     let request = change(&client, id, GitIndexChange::Stage, &["tracked"]).await;
-    let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    database.execute_batch("CREATE TRIGGER lose_git_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_git_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
     assert_eq!(
         client.execute(request.clone()).await.unwrap_err().code,
         ErrorCode::OutcomeUnknown
     );
     assert_eq!(staged(&repository, "tracked"), "published\n");
-    database
-        .execute_batch("DROP TRIGGER lose_git_result")
-        .unwrap();
-    drop(database);
+    {
+        let sql = ("DROP TRIGGER lose_git_result").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
+
     node.shutdown().await.unwrap();
     std::fs::write(root.join("tracked"), "external\n").unwrap();
     let mut index = repository.index().unwrap();

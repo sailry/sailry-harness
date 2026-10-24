@@ -25,7 +25,7 @@ struct PendingGrant {
 }
 
 impl Worker {
-    pub(in crate::store) fn authorize(
+    pub(in crate::store) async fn authorize(
         &mut self,
         database: &mut Database,
         reference: CredentialRef,
@@ -35,18 +35,19 @@ impl Worker {
         reply: oneshot::Sender<Result<Authorization, Fault>>,
     ) {
         let plugin = if super::model_auth::managed(authentication) {
-            let prepared = crate::store::agent::providers::get(&database.connection, provider)
-                .and_then(|value| {
-                    value.ok_or_else(|| Fault::new(ErrorCode::NotFound, "provider does not exist"))
-                })
-                .and_then(|value| {
-                    super::model_auth::configuration(
-                        &database.connection,
-                        &value,
-                        RequestId::new(),
-                        Some(&options),
-                    )
-                });
+            let prepared = async {
+                let provider = crate::store::agent::providers::get(&database.connection, provider)
+                    .await?
+                    .ok_or_else(|| Fault::new(ErrorCode::NotFound, "provider does not exist"))?;
+                super::model_auth::configuration(
+                    &database.connection,
+                    &provider,
+                    RequestId::new(),
+                    Some(&options),
+                )
+                .await
+            }
+            .await;
             match prepared {
                 Ok(value) => Some(value),
                 Err(error) => {
@@ -57,8 +58,10 @@ impl Worker {
         } else {
             None
         };
-        let authorization = (|| {
-            let (credential, secret) = database.credential(&reference, provider, authentication)?;
+        let authorization = (async || {
+            let (credential, secret) = database
+                .credential(&reference, provider, authentication)
+                .await?;
             let grant = Grant::decode(authentication, &secret)?;
             if authentication != Authentication::Plugin
                 && super::model_auth::managed(authentication)
@@ -72,7 +75,8 @@ impl Worker {
                             Fault::new(ErrorCode::NotConfigured, "channel plugin is not captured")
                         })?
                         .target,
-                )?;
+                )
+                .await?;
             }
             if let Grant::Plugin { record, .. } = &grant {
                 record.matches(
@@ -85,7 +89,8 @@ impl Worker {
                 )?;
             }
             Ok::<_, Fault>(Authorization { grant, credential })
-        })();
+        })()
+        .await;
         let authorization = match authorization {
             Ok(value) => value,
             Err(error) => {
@@ -112,6 +117,7 @@ impl Worker {
         let Some((id, grant)) = self
             .renewals
             .begin(database, authorization, reply, &self.events)
+            .await
         else {
             return;
         };
@@ -192,7 +198,7 @@ impl Worker {
 }
 
 impl Renewals {
-    fn begin(
+    async fn begin(
         &mut self,
         database: &mut Database,
         authorization: Authorization,
@@ -276,9 +282,10 @@ impl Renewals {
         // Copilot's GET exchange does not rotate the GitHub grant; a later
         // generation may request it again after a failed read.
         let saved = if grant.renewal_pending() {
-            grant
-                .encode()
-                .and_then(|secret| save(database, metadata, &secret, events))
+            match grant.encode() {
+                Ok(secret) => save(database, metadata, &secret, events).await,
+                Err(error) => Err(error),
+            }
         } else {
             Ok(metadata)
         };
@@ -301,7 +308,7 @@ impl Renewals {
         Some((id, grant))
     }
 
-    pub(super) fn finish(
+    pub(super) async fn finish(
         &mut self,
         database: &mut Database,
         id: CredentialId,
@@ -332,14 +339,18 @@ impl Renewals {
                     *renewal_rejected = error.code == ErrorCode::PermissionDenied;
                 }
                 if authentication::get(&database.connection, id)
+                    .await
                     .ok()
                     .flatten()
                     .as_ref()
                     == Some(&pending.expected)
                 {
-                    match previous.encode().and_then(|secret| {
-                        save(database, pending.expected.clone(), &secret, events)
-                    }) {
+                    match match previous.encode() {
+                        Ok(secret) => {
+                            save(database, pending.expected.clone(), &secret, events).await
+                        }
+                        Err(error) => Err(error),
+                    } {
                         Ok(_) => Err(error),
                         Err(storage) => Err(storage),
                     }
@@ -349,13 +360,24 @@ impl Renewals {
             }
             result => result,
         };
-        let result = result.and_then(|grant| {
-            if authentication::get(&database.connection, id)?.as_ref() != Some(&pending.expected) {
-                return Err(changed());
+        let result = match result {
+            Ok(grant) => {
+                async {
+                    if authentication::get(&database.connection, id)
+                        .await?
+                        .as_ref()
+                        != Some(&pending.expected)
+                    {
+                        return Err(changed());
+                    }
+                    let credential =
+                        save(database, pending.expected, &grant.encode()?, events).await?;
+                    Ok(Authorization { grant, credential })
+                }
+                .await
             }
-            let credential = save(database, pending.expected, &grant.encode()?, events)?;
-            Ok(Authorization { grant, credential })
-        });
+            Err(error) => Err(error),
+        };
         for reply in pending.waiting {
             let _ = reply.send(result.clone());
         }
@@ -391,19 +413,23 @@ impl Ingress {
     }
 }
 
-fn save(
+async fn save(
     database: &mut Database,
     credential: Credential,
     secret: &Secret,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Credential, Fault> {
     let node = database.node;
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let credential = authentication::put(&transaction, credential, secret)?;
+    let transaction = database
+        .connection
+        .transaction()
+        .await
+        .map_err(storage_error)?;
+    let credential = authentication::put(&transaction, credential, secret).await?;
     let mut changes = vec![authentication::changed(node, &credential)];
-    changes.extend(quota::reconcile(&transaction, node)?);
-    let envelopes = record(&transaction, node, changes)?;
-    transaction.commit().map_err(storage_error)?;
+    changes.extend(quota::reconcile(&transaction, node).await?);
+    let envelopes = record(&transaction, node, changes).await?;
+    transaction.commit().await.map_err(storage_error)?;
     for envelope in envelopes {
         let _ = events.send(envelope);
     }

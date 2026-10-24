@@ -1,4 +1,5 @@
-//! Literal Unicode keywords retain the original text outside the derived index.
+//! Native FTS receives normalized derived fields; original source text stays intact.
+use unicode_normalization::{UnicodeNormalization as _, char::is_combining_mark};
 
 #[cfg(test)]
 mod tests;
@@ -26,6 +27,27 @@ fn separated(text: &str) -> String {
     result
 }
 
+/// Match the previous Unicode word boundaries, folding accents and case before
+/// the native whitespace tokenizer. Programming-language suffixes stay literal.
+pub(crate) fn field(text: &str) -> String {
+    let mut result = String::new();
+    let mut separated = true;
+    for character in text
+        .nfkd()
+        .filter(|character| !is_combining_mark(*character))
+        .flat_map(char::to_lowercase)
+    {
+        if character.is_alphanumeric() || matches!(character, '+' | '#') {
+            result.push(character);
+            separated = false;
+        } else if !separated {
+            result.push(' ');
+            separated = true;
+        }
+    }
+    result.trim_end().to_owned()
+}
+
 /// Keep a complete phrase stream, followed by adjacent CJK bigrams.
 pub(crate) fn index(text: &str) -> String {
     if !text.chars().any(cjk) {
@@ -45,11 +67,16 @@ pub(crate) fn index(text: &str) -> String {
             previous = None;
         }
     }
-    result
+    field(&result)
 }
 
 fn quoted(text: &str) -> String {
-    format!("\"{}\"", text.replace('"', "\"\""))
+    let text = field(text);
+    if text.is_empty() {
+        String::new()
+    } else {
+        format!("\"{}\"", text.replace('\\', "\\\\").replace('\"', "\\\""))
+    }
 }
 
 /// One explicit plugin term remains a literal phrase.
@@ -66,6 +93,9 @@ pub(crate) fn query(text: &str) -> String {
     let mut word = String::new();
     let mut ideographs = Vec::new();
     for character in text.chars() {
+        if is_combining_mark(character) {
+            continue;
+        }
         if cjk(character) {
             take_word(&mut terms, &mut word);
             ideographs.push(character);
@@ -81,7 +111,7 @@ pub(crate) fn query(text: &str) -> String {
     take_word(&mut terms, &mut word);
     take_bigrams(&mut terms, &mut ideographs);
     if terms.is_empty() {
-        return quoted("");
+        return String::new();
     }
     terms
         .into_iter()
@@ -92,15 +122,19 @@ pub(crate) fn query(text: &str) -> String {
 
 fn take_word(terms: &mut std::collections::BTreeSet<String>, word: &mut String) {
     if !word.is_empty() {
-        terms.insert(std::mem::take(word));
+        terms.insert(field(&std::mem::take(word)));
     }
 }
 
 fn take_bigrams(terms: &mut std::collections::BTreeSet<String>, characters: &mut Vec<char>) {
     if characters.len() == 1 {
-        terms.insert(characters[0].to_string());
+        terms.insert(field(&characters[0].to_string()));
     } else {
-        terms.extend(characters.windows(2).map(|pair| pair.iter().collect()));
+        terms.extend(
+            characters
+                .windows(2)
+                .map(|pair| field(&pair.iter().collect::<String>())),
+        );
     }
     characters.clear();
 }

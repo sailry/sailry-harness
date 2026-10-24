@@ -3,14 +3,14 @@ use super::*;
 #[cfg(test)]
 mod tests;
 
-pub(super) fn restore(
+pub(super) async fn restore(
     db: &Connection,
     parent: &Run,
     previous: &Session,
     args: &Arguments,
     has_role: bool,
 ) -> Result<(Session, Option<role::Profile>), Fault> {
-    let session = super::super::super::commands::session(db, args.session.unwrap())?;
+    let session = super::super::super::commands::session(db, args.session.unwrap()).await?;
     let origin = session
         .delegation
         .as_ref()
@@ -21,10 +21,15 @@ pub(super) fn restore(
             "child belongs to another parent",
         ));
     }
-    let busy: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))",
-        [session.id.to_string()], |row| row.get(0),
-    ).map_err(storage_error)?;
+    let busy: bool = {
+        let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([session.id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if busy {
         return Err(Fault::new(
             ErrorCode::Busy,
@@ -41,14 +46,14 @@ pub(super) fn restore(
         ));
     }
     if let Some(project) = previous.project {
-        super::super::super::worktrees::select(db, project, Some(session.worktree))?;
+        super::super::super::worktrees::select(db, project, Some(session.worktree)).await?;
     } else if session.worktree != parent.worktree {
         return Err(Fault::new(
             ErrorCode::WrongTarget,
             "child belongs to another worktree",
         ));
     }
-    let config = super::super::permissions::config(db, parent.turn)?;
+    let config = super::super::permissions::config(db, parent.turn).await?;
     let permission = |permission| match permission {
         Permission::Ask => 0,
         Permission::Project => 1,
@@ -62,18 +67,25 @@ pub(super) fn restore(
             "child exceeds the parent turn's permissions",
         ));
     }
-    let source: String = db.query_row(
-        "SELECT t.id FROM turns t JOIN agent_runs a ON a.turn=t.id WHERE t.session=?1 AND json_extract(a.body,'$.status')!='queued' ORDER BY t.rowid DESC LIMIT 1",
-        [session.id.to_string()], |row| row.get(0),
-    ).map_err(storage_error)?;
+    let source: String = {
+        let mut statement = db.prepare("SELECT t.id FROM turns t JOIN agent_runs a ON a.turn=t.id WHERE t.session=?1 AND json_extract(a.body,'$.status')!='queued' ORDER BY t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([session.id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let source = source.parse().map_err(storage_error)?;
-    let role = child(db, source)?
+    let role = child(db, source)
+        .await?
         .ok_or_else(|| storage_error("child execution has no delegation"))?
         .role;
     if has_role {
         let selected = match args.role.as_deref() {
             Some(key) => Some(
-                super::super::super::sessions::roles::for_turn(db, parent.turn)?
+                super::super::super::sessions::roles::for_turn(db, parent.turn)
+                    .await?
                     .profiles
                     .into_iter()
                     .find(|role| role.key == key)

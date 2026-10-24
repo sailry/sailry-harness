@@ -15,7 +15,7 @@ async fn captured_versions() {
         .await;
         let client = &fixture.client;
         let files = &fixture.files;
-        let counts = fixture.counts();
+        let counts = fixture.counts().await;
         let mut watch = fixture
             .transport
             .subscribe(Topic::Files(fixture.session.worktree))
@@ -95,10 +95,12 @@ async fn captured_versions() {
                 .files,
             *files
         );
-        assert_eq!(fixture.counts(), counts);
+        assert_eq!(fixture.counts().await, counts);
 
-        let db = fixture.database();
-        db.execute_batch("CREATE TRIGGER lose_restore BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+        fixture.node.with_storage(|db| Box::pin(async move {
+            db.execute_batch("CREATE TRIGGER lose_restore BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;")
+                .await.map_err(crate::database_fixture::fault)
+        })).await.unwrap();
         let lost = fixture.restore(&files[0]);
         assert_eq!(
             client.execute(lost.clone()).await.unwrap_err().code,
@@ -108,8 +110,17 @@ async fn captured_versions() {
             std::fs::read_to_string(fixture.root.join("lost.txt")).unwrap(),
             "lost before"
         );
-        db.execute_batch("DROP TRIGGER lose_restore").unwrap();
-        drop(db);
+        fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.execute_batch("DROP TRIGGER lose_restore")
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap();
         std::fs::write(fixture.root.join("lost.txt"), "replacement").unwrap();
         drop(watch);
         fixture.node.shutdown().await.unwrap();

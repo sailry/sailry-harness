@@ -67,21 +67,23 @@ async fn restores(direct: bool) {
     // its Node is stopped. This exercises canonical history without
     // depending on capture permissions or a second media database.
     {
-        let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let (handle, mut db) =
+            crate::file_fixture::database::open(&profile.join("storage/node.turso"), false).await;
+        let transaction = db.transaction().await.unwrap();
         for (_, turn) in &records {
             let rows = {
-                let mut query = db
-                    .prepare(
+                let mut rows = transaction
+                    .query(
                         "SELECT sequence,body FROM agent_events WHERE turn=?1 ORDER BY sequence",
+                        [turn.to_string()],
                     )
+                    .await
                     .unwrap();
-                query
-                    .query_map([turn.to_string()], |row| {
-                        Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
-                    })
-                    .unwrap()
-                    .collect::<Result<Vec<_>, _>>()
-                    .unwrap()
+                let mut values = Vec::new();
+                while let Some(row) = rows.next().await.unwrap() {
+                    values.push((row.get::<i64>(0).unwrap(), row.get::<Vec<u8>>(1).unwrap()));
+                }
+                values
             };
             let mut inserted = false;
             for (sequence, body) in rows {
@@ -124,17 +126,33 @@ async fn restores(direct: bool) {
                         annotations: None,
                     });
                 }
-                db.execute(
-                    "UPDATE agent_events SET body=?2 WHERE sequence=?1",
-                    rusqlite::params![sequence, serde_json::to_vec(&event).unwrap()],
-                )
-                .unwrap();
+                transaction
+                    .execute(
+                        "UPDATE agent_events SET body=?2 WHERE sequence=?1",
+                        turso::params![sequence, serde_json::to_vec(&event).unwrap()],
+                    )
+                    .await
+                    .unwrap();
                 inserted = true;
                 break;
             }
             assert!(inserted, "fixture must contain a canonical response");
         }
-        assert_eq!(count(&db, "attachments"), 0);
+        assert_eq!(
+            transaction
+                .prepare("SELECT count(*) FROM attachments")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get::<i64>(0)
+                .unwrap(),
+            0
+        );
+        transaction.commit().await.unwrap();
+        drop(db);
+        drop(handle);
     }
     fixture.node = Node::start_empty(&profile).await.unwrap();
     let requests = server.requests.lock().unwrap().len();
@@ -258,15 +276,13 @@ async fn restores(direct: bool) {
             .unwrap();
         assert_eq!(received, bytes);
     }
-    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    assert_eq!(count(&db, "attachments"), 0);
+    assert_eq!(count(&fixture.node, "attachments").await, 0);
     assert!(
         !profile
             .join("attachments")
             .join(images[0].attachment.id.to_string())
             .exists()
     );
-    drop(db);
     assert_eq!(server.requests.lock().unwrap().len(), requests);
     if direct {
         for (client, (session, _)) in fixture.clients().iter().zip(&records) {

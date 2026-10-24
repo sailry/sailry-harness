@@ -37,7 +37,7 @@ impl Fixture {
         let identity = Identity::open(directory.path()).unwrap();
         let id = identity.id();
         let store = Store::start_ready(
-            directory.path().join("node.sqlite3"),
+            directory.path().join("node.turso"),
             id,
             Some(profile.path.clone()),
             Services {
@@ -84,6 +84,26 @@ impl Fixture {
             expected_revision: None,
         })
     }
+
+    async fn status(&self, id: RequestId) -> String {
+        self.store
+            .ingress
+            .with_storage(move |database| {
+                Box::pin(async move {
+                    database
+                        .prepare("SELECT status FROM requests WHERE id=?1")
+                        .await
+                        .map_err(super::super::database::storage_error)?
+                        .query_row([id.to_string()])
+                        .await
+                        .map_err(super::super::database::storage_error)?
+                        .get(0)
+                        .map_err(super::super::database::storage_error)
+                })
+            })
+            .await
+            .unwrap()
+    }
 }
 
 struct Gate {
@@ -124,16 +144,8 @@ async fn shutdown_drains() {
     let admission = fixture.client.dispatch(first.clone()).await.unwrap();
     assert!(admission.receipt.durable);
     gate.entered.recv().await.unwrap();
-    let db = rusqlite::Connection::open(fixture.directory.path().join("node.sqlite3")).unwrap();
-    let state: String = db
-        .query_row(
-            "SELECT status FROM requests WHERE id=?1",
-            [first.id.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
+    let state = fixture.status(first.id).await;
     assert_eq!(state, "admitted");
-    drop(db);
     tokio::time::timeout(Duration::from_secs(2), async {
         assert_eq!(
             fixture
@@ -206,7 +218,7 @@ async fn shutdown_drains() {
         "first"
     );
     let store = Store::start_ready(
-        fixture.directory.path().join("node.sqlite3"),
+        fixture.directory.path().join("node.turso"),
         first.target,
         Some(fixture.profile.path.clone()),
         Services {

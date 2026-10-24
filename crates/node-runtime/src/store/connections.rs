@@ -1,28 +1,33 @@
 //! Sharing is evaluated by the execution Node, independently of desktop pickers.
 use super::{commands, database::storage_error};
-use rusqlite::Connection;
 use sailry_protocol::{
     connection::{Resource, Sharing},
     *,
 };
+use turso::Connection;
 
-pub(super) fn bind(
+pub(super) async fn bind(
     db: &Connection,
     profile: Option<&std::path::Path>,
     id: SessionId,
     revision: u64,
     target: Resource,
 ) -> Result<(Output, Option<Event>), Fault> {
-    let mut session = commands::session(db, id)?;
+    let mut session = commands::session(db, id).await?;
     commands::check_revision(session.revision, revision)?;
     super::sessions::writable(&session)?;
-    let used: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM turns WHERE session=?1)",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let used: bool = {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM turns WHERE session=?1)")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if session.config.resource.is_some()
         || session.config.assistant.is_some()
         || used
@@ -33,15 +38,16 @@ pub(super) fn bind(
             "only a new conversation can bind a connection",
         ));
     }
-    session.worktree = workspace(db, profile, target)?;
+    session.worktree = workspace(db, profile, target).await?;
     session.project = None;
     session.config.resource = Some(target);
     db.execute(
         "UPDATE sessions SET project=NULL WHERE id=?1",
         [id.to_string()],
     )
+    .await
     .map_err(storage_error)?;
-    commands::revise_session(db, session)
+    commands::revise_session(db, session).await
 }
 
 pub(super) fn permits(
@@ -58,14 +64,22 @@ pub(super) fn permits(
     }
 }
 
-pub(super) fn validate(db: &Connection, sharing: Option<&Sharing>) -> Result<(), Fault> {
+pub(super) async fn validate(db: &Connection, sharing: Option<&Sharing>) -> Result<(), Fault> {
     if let Some(Sharing::Projects(projects)) = sharing {
         let unique: std::collections::BTreeSet<_> = projects.iter().collect();
         if projects.is_empty() || unique.len() != projects.len() {
             return Err(Fault::invalid("select distinct projects for sharing"));
         }
         for project in projects {
-            let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND id NOT IN (SELECT project FROM removed_projects))", [project.to_string()], |row| row.get(0)).map_err(storage_error)?;
+            let exists: bool = {
+                let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND id NOT IN (SELECT project FROM removed_projects))").await.map_err(storage_error)?;
+                let row = statement
+                    .query_row([project.to_string()])
+                    .await
+                    .map_err(storage_error)?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped.map_err(storage_error)?
+            };
             if !exists {
                 return Err(Fault::new(
                     ErrorCode::NotFound,
@@ -87,19 +101,26 @@ pub(super) use workspace::workspace;
 mod tests {
     use super::*;
 
-    #[test]
-    fn accepts_larger_project_sets() {
-        let db = Connection::open_in_memory().unwrap();
-        db.execute_batch("CREATE TABLE projects(id TEXT PRIMARY KEY); CREATE TABLE removed_projects(project TEXT)").unwrap();
+    #[tokio::test]
+    async fn accepts_larger_project_sets() {
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
+        db.execute_batch("CREATE TABLE projects(id TEXT PRIMARY KEY); CREATE TABLE removed_projects(project TEXT)").await.unwrap();
         let projects: Vec<_> = (0..129).map(|_| ProjectId::new()).collect();
         for project in &projects {
             db.execute("INSERT INTO projects VALUES(?1)", [project.to_string()])
+                .await
                 .unwrap();
         }
-        validate(&db, Some(&Sharing::Projects(projects.clone()))).unwrap();
+        validate(&db, Some(&Sharing::Projects(projects.clone())))
+            .await
+            .unwrap();
         for invalid in [Vec::new(), vec![projects[0], projects[0]]] {
             assert_eq!(
                 validate(&db, Some(&Sharing::Projects(invalid)))
+                    .await
                     .unwrap_err()
                     .code,
                 ErrorCode::InvalidRequest
@@ -109,9 +130,11 @@ mod tests {
             "INSERT INTO removed_projects VALUES(?1)",
             [projects[0].to_string()],
         )
+        .await
         .unwrap();
         assert_eq!(
             validate(&db, Some(&Sharing::Projects(projects)))
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::NotFound

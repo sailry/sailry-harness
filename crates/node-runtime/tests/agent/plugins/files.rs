@@ -266,14 +266,11 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
             assert_eq!(file.worktree, fixture.session.worktree);
             assert!(matches!(file.outcome, RequestOutcome::Completed(_)));
         }
-        let database =
-            rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-                .unwrap();
-        let (id, body): (String, Vec<u8>) = database.query_row(
-            "SELECT r.id,r.body FROM requests r JOIN agent_approvals a ON r.id=a.request WHERE a.id=?1",
-            [page.approvals[0].id.to_string()],|row|Ok((row.get(0)?,row.get(1)?))
-        ).unwrap();
-        drop(database);
+        let approval = page.approvals[0].id;
+        let (id, body): (String, Vec<u8>) = fixture.node.with_storage(move |db| Box::pin(async move {
+            let row = db.prepare("SELECT r.id,r.body FROM requests r JOIN agent_approvals a ON r.id=a.request WHERE a.id=?1").await.map_err(crate::database_fixture::fault)?.query_row([approval.to_string()]).await.map_err(crate::database_fixture::fault)?;
+            Ok((row.get(0).map_err(crate::database_fixture::fault)?, row.get(1).map_err(crate::database_fixture::fault)?))
+        })).await.unwrap();
         let mut original = fixture
             .client
             .prepare(Command::WriteFile {

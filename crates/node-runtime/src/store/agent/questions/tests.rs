@@ -6,17 +6,17 @@ mod completion;
 mod planning;
 
 struct Fixture {
-    _directory: tempfile::TempDir,
     path: std::path::PathBuf,
     database: Database,
     events: broadcast::Sender<EventEnvelope>,
     turn: TurnId,
     session: SessionId,
     request: ToolConfirmationRequest,
+    _directory: tempfile::TempDir,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    async fn new() -> Self {
         Self::with_input(
             WorkMode::Code,
             Input::Text {
@@ -24,15 +24,12 @@ impl Fixture {
                 max_bytes: 1024,
             },
         )
+        .await
     }
-    fn with_input(mode: WorkMode, input: Input) -> Self {
+    async fn with_input(mode: WorkMode, input: Input) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3");
-        let mut database = Database::open(&path, NodeId([32; 32]), None).unwrap();
+        let path = directory.path().canonicalize().unwrap().join("node.turso");
+        let mut database = Database::open(&path, NodeId([32; 32]), None).await.unwrap();
         let (events, _) = broadcast::channel(64);
         let Output::Project(project) = command(
             &mut database,
@@ -41,7 +38,9 @@ impl Fixture {
                 name: "Question fixture".into(),
                 path: directory.path().to_str().unwrap().into(),
             },
-        ) else {
+        )
+        .await
+        else {
             panic!("project expected");
         };
         let Output::Session(session) = command(
@@ -63,7 +62,9 @@ impl Fixture {
                     credential: None,
                 }),
             },
-        ) else {
+        )
+        .await
+        else {
             panic!("session expected");
         };
         let Output::QueuedTurn(turn) = command(
@@ -74,10 +75,12 @@ impl Fixture {
                 expected_revision: 1,
                 message: "fixture".into(),
             },
-        ) else {
+        )
+        .await
+        else {
             panic!("turn expected");
         };
-        runs::claim(&mut database, &events).unwrap().unwrap();
+        runs::claim(&mut database, &events).await.unwrap().unwrap();
         let request = ToolConfirmationRequest {
             acting: None,
             origin: None,
@@ -98,10 +101,10 @@ impl Fixture {
             session: session.id,
             request,
         };
-        fixture.append_call();
+        fixture.append_call().await;
         fixture
     }
-    fn append_call(&mut self) {
+    async fn append_call(&mut self) {
         let mut event = AdkEvent::new("fixture");
         event.author = "assistant".into();
         event.set_content(adk_core::Content {
@@ -120,16 +123,19 @@ impl Fixture {
             event,
             &self.events,
         )
+        .await
         .unwrap();
     }
-    fn begin(&mut self) -> Question {
-        begin(&mut self.database, self.turn, &self.request, &self.events).unwrap()
+    async fn begin(&mut self) -> Question {
+        begin(&mut self.database, self.turn, &self.request, &self.events)
+            .await
+            .unwrap()
     }
 }
 
-#[test]
-fn associates_canonical_calls() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn associates_canonical_calls() {
+    let mut fixture = Fixture::new().await;
     // Other canonical output may be appended before this sequential tool starts.
     let mut event = AdkEvent::new("fixture");
     event.author = "assistant".into();
@@ -141,11 +147,16 @@ fn associates_canonical_calls() {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let mut wrong = fixture.request.clone();
     wrong.args["prompt"] = serde_json::json!("another question");
-    assert!(begin(&mut fixture.database, fixture.turn, &wrong, &fixture.events).is_err());
-    let question = fixture.begin();
+    assert!(
+        begin(&mut fixture.database, fixture.turn, &wrong, &fixture.events)
+            .await
+            .is_err()
+    );
+    let question = fixture.begin().await;
     assert_eq!(question.state, State::Pending);
     assert!(
         begin(
@@ -154,16 +165,21 @@ fn associates_canonical_calls() {
             &fixture.request,
             &fixture.events
         )
+        .await
         .is_err()
     );
-    fixture.append_call();
-    assert!(calls::locate(&fixture.database.connection, fixture.turn, &fixture.request).is_err());
+    fixture.append_call().await;
+    assert!(
+        calls::locate(&fixture.database.connection, fixture.turn, &fixture.request)
+            .await
+            .is_err()
+    );
 }
 
-#[test]
-fn retains_unconsumed_answers() {
-    let mut fixture = Fixture::new();
-    let question = fixture.begin();
+#[tokio::test]
+async fn retains_unconsumed_answers() {
+    let mut fixture = Fixture::new().await;
+    let question = fixture.begin().await;
     let answer = Response::Answer(Answer::Text(" 中文 🙂\nnext ".into()));
     let output = command(
         &mut fixture.database,
@@ -173,7 +189,8 @@ fn retains_unconsumed_answers() {
             question: question.id,
             response: answer.clone(),
         },
-    );
+    )
+    .await;
     let Output::Question(answered) = output else {
         panic!("question expected");
     };
@@ -184,6 +201,7 @@ fn retains_unconsumed_answers() {
             question.id,
             &answer
         )
+        .await
         .unwrap(),
         answered
     );
@@ -194,28 +212,34 @@ fn retains_unconsumed_answers() {
             question.id,
             &Response::Cancel
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::Conflict
     );
-    drop(fixture.database);
-    let database = Database::open(&fixture.path, NodeId([32; 32]), None).unwrap();
+    fixture.database.close().await.unwrap();
+    let database = Database::open(&fixture.path, NodeId([32; 32]), None)
+        .await
+        .unwrap();
     let page = history::pages::read(&database.connection, fixture.session, None, 100)
+        .await
         .unwrap()
         .page;
     assert_eq!(page.entries.len(), 1);
     assert_eq!(page.questions, vec![answered]);
     assert_eq!(page.runs[0].status, Status::Interrupted);
     assert_eq!(
-        resolve(&database.connection, fixture.session, question.id, &answer).unwrap(),
+        resolve(&database.connection, fixture.session, question.id, &answer)
+            .await
+            .unwrap(),
         page.questions[0]
     );
 }
 
-#[test]
-fn validates_responses() {
-    let mut fixture = Fixture::new();
-    let question = fixture.begin();
+#[tokio::test]
+async fn validates_responses() {
+    let mut fixture = Fixture::new().await;
+    let question = fixture.begin().await;
     let answer = Response::Answer(Answer::Text("answer".into()));
     assert_eq!(
         resolve(
@@ -224,6 +248,7 @@ fn validates_responses() {
             question.id,
             &answer
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::WrongTarget
@@ -239,6 +264,7 @@ fn validates_responses() {
             question.id,
             &invalid_answer
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::InvalidRequest
@@ -247,7 +273,8 @@ fn validates_responses() {
         &mut fixture.database,
         &fixture.events,
         Command::StopTurn { turn: fixture.turn },
-    );
+    )
+    .await;
     assert_eq!(
         resolve(
             &fixture.database.connection,
@@ -255,6 +282,7 @@ fn validates_responses() {
             question.id,
             &answer
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::Conflict
@@ -266,22 +294,27 @@ fn validates_responses() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert_eq!(
         get(&fixture.database.connection, question.id)
+            .await
             .unwrap()
             .state,
         State::Cancelled
     );
 }
 
-#[test]
-fn restart_interrupts_waiting() {
-    let mut fixture = Fixture::new();
-    let question = fixture.begin();
-    drop(fixture.database);
-    let database = Database::open(&fixture.path, NodeId([32; 32]), None).unwrap();
+#[tokio::test]
+async fn restart_interrupts_waiting() {
+    let mut fixture = Fixture::new().await;
+    let question = fixture.begin().await;
+    fixture.database.close().await.unwrap();
+    let database = Database::open(&fixture.path, NodeId([32; 32]), None)
+        .await
+        .unwrap();
     let page = history::pages::read(&database.connection, fixture.session, None, 100)
+        .await
         .unwrap()
         .page;
     assert_eq!(page.questions[0].id, question.id);
@@ -294,6 +327,7 @@ fn restart_interrupts_waiting() {
             question.id,
             &Response::Answer(Answer::Text("late".into()))
         )
+        .await
         .is_err()
     );
 }

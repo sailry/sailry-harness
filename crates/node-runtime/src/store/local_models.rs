@@ -8,7 +8,6 @@ use super::{
     database::{Database, encode, storage_error},
 };
 use crate::models::registry::{Registration, Update, catalog};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_link::{Admission, CancellationToken};
 use sailry_protocol::{
     Command, ErrorCode, Event, EventEnvelope, Fault, Output, Request,
@@ -19,6 +18,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::{broadcast, oneshot, watch};
+use turso::{Connection, params};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Catalog {
@@ -26,44 +26,54 @@ pub(crate) struct Catalog {
     pub definitions: BTreeMap<String, Arc<Definition>>,
 }
 
-pub(in crate::store) fn initialize(db: &Connection) -> Result<(), Fault> {
+pub(in crate::store) async fn initialize(db: &Connection) -> Result<(), Fault> {
     db.execute(
         "INSERT INTO local_model_settings(singleton,body) VALUES(1,?1)",
         [encode(&Settings::default())?],
     )
+    .await
     .map_err(storage_error)?;
     Ok(())
 }
 
-pub(in crate::store) fn settings(db: &Connection) -> Result<Settings, Fault> {
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM local_model_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+pub(in crate::store) async fn settings(db: &Connection) -> Result<Settings, Fault> {
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT body FROM local_model_settings WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement.query_row(()).await.map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let mut settings: Settings = serde_json::from_slice(&body).map_err(storage_error)?;
     settings.fill_defaults();
     settings.validate()?;
     Ok(settings)
 }
 
-pub(in crate::store) fn read(db: &Connection) -> Result<Catalog, Fault> {
-    let settings = settings(db)?;
+pub(in crate::store) async fn read(db: &Connection) -> Result<Catalog, Fault> {
+    let settings = settings(db).await?;
     let mut query = db
         .prepare("SELECT id,kind,digest,body FROM local_models ORDER BY id")
+        .await
         .map_err(storage_error)?;
-    let rows = query
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Vec<u8>>(3)?,
-            ))
-        })
-        .map_err(storage_error)?;
+    let rows = {
+        let mut rows = query.query(()).await.map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| {
+                Ok((
+                    row.get::<String>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<Vec<u8>>(3)?,
+                ))
+            })(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    };
     let records = rows
         .map(|row| {
             let (id, kind, digest, body) = row.map_err(storage_error)?;
@@ -94,13 +104,13 @@ pub(in crate::store) fn read(db: &Connection) -> Result<Catalog, Fault> {
     })
 }
 
-pub(in crate::store) fn require(
+pub(in crate::store) async fn require(
     db: &Connection,
     kind: Kind,
     id: Option<&str>,
 ) -> Result<(), Fault> {
     if let Some(id) = id
-        && definition(db, id)?.format.kind() != kind
+        && definition(db, id).await?.format.kind() != kind
     {
         return Err(Fault::new(
             ErrorCode::NotFound,
@@ -110,8 +120,12 @@ pub(in crate::store) fn require(
     Ok(())
 }
 
-pub(in crate::store) fn definition(db: &Connection, id: &str) -> Result<Arc<Definition>, Fault> {
-    read(db)?
+pub(in crate::store) async fn definition(
+    db: &Connection,
+    id: &str,
+) -> Result<Arc<Definition>, Fault> {
+    read(db)
+        .await?
         .definitions
         .remove(id)
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "local model is not registered"))
@@ -126,32 +140,32 @@ pub(in crate::store) fn kind_name(kind: Kind) -> &'static str {
     }
 }
 
-pub(in crate::store) fn execute(
+pub(in crate::store) async fn execute(
     db: &Connection,
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
         Command::ReadLocalModelSettings => {
             controller(request)?;
-            Ok((Output::LocalModelSettings(settings(db)?), None))
+            Ok((Output::LocalModelSettings(settings(db).await?), None))
         }
         Command::SaveLocalModelSettings(settings) => {
             controller(request)?;
-            save(db, settings)
+            save(db, settings).await
         }
-        Command::RegisterLocalModel { definition } => register(db, definition),
+        Command::RegisterLocalModel { definition } => register(db, definition).await,
         _ => Err(Fault::invalid("local model configuration command expected")),
     }
 }
 
-fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>), Fault> {
-    let previous = self::settings(db)?;
+async fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>), Fault> {
+    let previous = self::settings(db).await?;
     super::commands::check_revision(previous.revision, settings.revision)?;
     let mut updated = settings.clone();
     updated.fill_defaults();
     updated.validate()?;
     for (kind, choice) in &updated.choices {
-        require(db, *kind, choice.model.as_deref())?;
+        require(db, *kind, choice.model.as_deref()).await?;
     }
     updated.revision = updated
         .revision
@@ -159,12 +173,13 @@ fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>),
         .filter(|revision| *revision <= i64::MAX as u64)
         .ok_or_else(|| Fault::invalid("local model settings revision is exhausted"))?;
     if previous.selected(Kind::Embedding) != updated.selected(Kind::Embedding) {
-        super::knowledge::selection_changed(db)?;
+        super::knowledge::selection_changed(db).await?;
     }
     db.execute(
         "UPDATE local_model_settings SET body=?1 WHERE singleton=1",
         [encode(&updated)?],
     )
+    .await
     .map_err(storage_error)?;
     Ok((
         Output::LocalModelSettings(updated.clone()),
@@ -174,7 +189,10 @@ fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>),
     ))
 }
 
-fn register(db: &Connection, definition: &Definition) -> Result<(Output, Option<Event>), Fault> {
+async fn register(
+    db: &Connection,
+    definition: &Definition,
+) -> Result<(Output, Option<Event>), Fault> {
     definition.validate()?;
     if definition.format.kind() == Kind::Speech {
         return Err(Fault::invalid("speech belongs to the controller"));
@@ -190,49 +208,66 @@ fn register(db: &Connection, definition: &Definition) -> Result<(Output, Option<
     }
     let digest = catalog::id(&definition);
     // Definitions imported from the old embedding catalog retain their original ID.
-    let previous: Option<String> = db
-        .query_row(
-            "SELECT id FROM local_models WHERE digest=?1",
-            [&digest],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let previous: Option<String> = {
+        let mut statement = db
+            .prepare("SELECT id FROM local_models WHERE digest=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([digest.as_str()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let registered = previous.is_some();
     let id = previous.unwrap_or_else(|| digest.clone());
     if !registered && !catalog::builtins().contains_key(&id) {
         let kind = definition.format.kind();
-        let count: i64 = db
-            .query_row(
-                "SELECT COUNT(*) FROM local_models WHERE kind=?1",
-                [kind_name(kind)],
-                |row| row.get(0),
-            )
-            .map_err(storage_error)?;
+        let count: i64 = {
+            let mut statement = db
+                .prepare("SELECT COUNT(*) FROM local_models WHERE kind=?1")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row([kind_name(kind)])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
         if count >= catalog::LIMIT as i64 {
             return Err(Fault::invalid("local model catalog exceeds its limit"));
         }
         db.execute(
             "INSERT INTO local_models(id,kind,digest,body) VALUES(?1,?2,?3,?4)",
-            params![id, kind_name(kind), digest, encode(&definition)?],
+            params![id.as_str(), kind_name(kind), digest, encode(&definition)?],
         )
+        .await
         .map_err(storage_error)?;
     }
     Ok((Output::LocalModel { id }, None))
 }
 
-pub(in crate::store) fn models(
+pub(in crate::store) async fn models(
     database: &mut Database,
     models: Vec<Model>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
     let envelopes = super::database::record(
         &transaction,
         database.node,
         vec![Event::LocalModelsChanged { models }],
-    )?;
-    transaction.commit().map_err(storage_error)?;
+    )
+    .await?;
+    transaction.commit().await.map_err(storage_error)?;
     for envelope in envelopes {
         let _ = events.send(envelope);
     }

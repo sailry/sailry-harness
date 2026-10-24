@@ -42,7 +42,7 @@ async fn local_and_remote_conversations() {
             let node = Node::start(&profile).await.unwrap();
             let identity = node.id();
             node.shutdown().await.unwrap();
-            let source = provider_fixture::seed(&model, provider, &profile, identity);
+            let source = provider_fixture::seed(&model, provider, &profile, identity).await;
             let node = Node::start(&profile).await.unwrap();
             let controller =
                 Link::controller(directory.path().join("controller"), NetworkScope::default())

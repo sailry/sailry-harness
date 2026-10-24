@@ -30,7 +30,10 @@ async fn recovers_offline_completion() {
                 .unwrap();
             source_watch.next().await.unwrap();
             target_watch.next().await.unwrap();
-            let before = (fixture.source.count(), fixture.destination.count());
+            let before = (
+                fixture.source.count().await,
+                fixture.destination.count().await,
+            );
             let download = prepare(&source, fixture.source.worktree, &entry.name).await;
             let pending = target
                 .stage_move(
@@ -43,7 +46,10 @@ async fn recovers_offline_completion() {
                 .await
                 .unwrap();
             assert_eq!(
-                (fixture.source.count(), fixture.destination.count()),
+                (
+                    fixture.source.count().await,
+                    fixture.destination.count().await
+                ),
                 before
             );
             let written = target
@@ -63,7 +69,10 @@ async fn recovers_offline_completion() {
                 bytes
             );
             assert_eq!(
-                (fixture.source.count(), fixture.destination.count()),
+                (
+                    fixture.source.count().await,
+                    fixture.destination.count().await
+                ),
                 (before.0 + 1, before.1 + 1)
             );
             for watch in [&mut source_watch, &mut target_watch] {
@@ -121,9 +130,22 @@ async fn recovers_offline_completion() {
 #[ignore = "moves uniquely named cross-Node fixtures into native Trash and recovers them"]
 async fn recovery_preserves_replacements() {
     let fixture = Fixture::start().await;
-    let db =
-        rusqlite::Connection::open(fixture.source.profile.join("storage/node.sqlite3")).unwrap();
-    db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        fixture
+            .source
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
     let mut pending_moves = Vec::new();
     for pair in PATHS {
         let entry = Entry::new(
@@ -168,8 +190,22 @@ async fn recovery_preserves_replacements() {
         assert!(!entry.recycled.exists());
         pending_moves.push((pair, pending, entry.name.clone()));
     }
-    db.execute_batch("DROP TRIGGER lose_result").unwrap();
-    drop(db);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        fixture
+            .source
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.destination.node.shutdown().await.unwrap();
     fixture.source.node.shutdown().await.unwrap();
     let node = Node::start_empty(&fixture.source.profile).await.unwrap();

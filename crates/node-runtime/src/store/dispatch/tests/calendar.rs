@@ -6,8 +6,8 @@ fn at(value: &str) -> i64 {
         .timestamp_millis()
 }
 
-fn schedule(fixture: &Fixture) -> Schedule {
-    fixture.setup("weekday");
+async fn schedule(fixture: &Fixture) -> Schedule {
+    fixture.setup("weekday").await;
     schedules::save(
         &fixture.database.connection,
         &fixture.package.name,
@@ -26,10 +26,11 @@ fn schedule(fixture: &Fixture) -> Schedule {
             next_ms: Some(1),
         },
     )
+    .await
     .unwrap()
 }
 
-fn cursor(fixture: &Fixture, schedule: &mut Schedule, timestamp: i64) {
+async fn cursor(fixture: &Fixture, schedule: &mut Schedule, timestamp: i64) {
     schedule.next_ms = Some(timestamp);
     fixture
         .database
@@ -39,17 +40,18 @@ fn cursor(fixture: &Fixture, schedule: &mut Schedule, timestamp: i64) {
             params![
                 timestamp,
                 encode(schedule).unwrap(),
-                fixture.package.name,
+                fixture.package.name.as_str(),
                 schedule.id.to_string()
             ],
         )
+        .await
         .unwrap();
 }
 
-#[test]
-fn metadata_edits_preserve_consumed_cursor() {
-    let fixture = Fixture::new();
-    let mut item = schedule(&fixture);
+#[tokio::test]
+async fn metadata_edits_preserve_consumed_cursor() {
+    let fixture = Fixture::new().await;
+    let mut item = schedule(&fixture).await;
     let original = item.next_ms;
     assert!(original.unwrap() > now());
     assert!(
@@ -58,7 +60,9 @@ fn metadata_edits_preserve_consumed_cursor() {
     for enabled in [false, true] {
         item.enabled = enabled;
         item.payload = json!("renamed");
-        item = schedules::save(&fixture.database.connection, &fixture.package.name, &item).unwrap();
+        item = schedules::save(&fixture.database.connection, &fixture.package.name, &item)
+            .await
+            .unwrap();
         assert_eq!(item.next_ms, original);
     }
     assert!(
@@ -68,25 +72,28 @@ fn metadata_edits_preserve_consumed_cursor() {
             None,
             100
         )
+        .await
         .unwrap()
         .jobs
         .is_empty()
     );
 }
 
-#[test]
-fn downtime_consumes_latest_occurrence_once() {
-    let fixture = Fixture::new();
-    let mut item = schedule(&fixture);
-    cursor(&fixture, &mut item, at("2020-01-06T09:00:00Z"));
+#[tokio::test]
+async fn downtime_consumes_latest_occurrence_once() {
+    let fixture = Fixture::new().await;
+    let mut item = schedule(&fixture).await;
+    cursor(&fixture, &mut item, at("2020-01-06T09:00:00Z")).await;
     let db = &fixture.database.connection;
     let observed = at("2026-10-21T10:00:00Z");
     assert_eq!(
-        schedules::due(db, observed).unwrap(),
+        schedules::due(db, observed).await.unwrap(),
         vec![fixture.package.name.clone()]
     );
-    assert!(schedules::due(db, observed).unwrap().is_empty());
-    let page = jobs::list(db, &fixture.package.name, None, 100).unwrap();
+    assert!(schedules::due(db, observed).await.unwrap().is_empty());
+    let page = jobs::list(db, &fixture.package.name, None, 100)
+        .await
+        .unwrap();
     assert_eq!(page.jobs.len(), 1);
     assert_eq!(
         page.jobs[0].event.scheduled_ms,
@@ -99,17 +106,18 @@ fn downtime_consumes_latest_occurrence_once() {
         "id",
         &item.id.to_string(),
     )
+    .await
     .unwrap();
     assert_eq!(stored.next_ms, Some(at("2026-10-22T09:00:00Z")));
     assert_eq!(stored.revision, item.revision);
 }
 
-#[test]
-fn full_queue_preserves_due_cursor() {
-    let fixture = Fixture::new();
-    let mut item = schedule(&fixture);
+#[tokio::test]
+async fn full_queue_preserves_due_cursor() {
+    let fixture = Fixture::new().await;
+    let mut item = schedule(&fixture).await;
     let first = at("2026-10-19T09:00:00Z");
-    cursor(&fixture, &mut item, first);
+    cursor(&fixture, &mut item, first).await;
     let db = &fixture.database.connection;
     let handler: Handler = required(
         db,
@@ -118,7 +126,9 @@ fn full_queue_preserves_due_cursor() {
         "name",
         "weekday",
     )
+    .await
     .unwrap();
+    db.execute_batch("BEGIN CONCURRENT").await.unwrap();
     let mut first_job = None;
     for _ in 0..MAX_PENDING {
         let job = events::enqueue(
@@ -127,10 +137,12 @@ fn full_queue_preserves_due_cursor() {
             &handler,
             &fixture.event("weekday"),
         )
+        .await
         .unwrap();
         first_job.get_or_insert(job.id);
     }
-    assert!(schedules::due(db, first).unwrap().is_empty());
+    db.execute_batch("COMMIT").await.unwrap();
+    assert!(schedules::due(db, first).await.unwrap().is_empty());
     let stored: Schedule = required(
         db,
         "dispatch_schedules",
@@ -138,15 +150,23 @@ fn full_queue_preserves_due_cursor() {
         "id",
         &item.id.to_string(),
     )
+    .await
     .unwrap();
     assert_eq!(stored, item);
-    let events: i64 = db
-        .query_row("SELECT count(*) FROM dispatch_events", [], |row| row.get(0))
-        .unwrap();
+    let events: i64 = (async {
+        let mut statement = db.prepare("SELECT count(*) FROM dispatch_events").await?;
+        let row = statement.query_row(()).await?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped
+    })
+    .await
+    .unwrap();
     assert_eq!(events, 0);
-    jobs::cancel(db, &fixture.package.name, first_job.unwrap()).unwrap();
+    jobs::cancel(db, &fixture.package.name, first_job.unwrap())
+        .await
+        .unwrap();
     assert_eq!(
-        schedules::due(db, first + 1).unwrap(),
+        schedules::due(db, first + 1).await.unwrap(),
         vec![fixture.package.name.clone()]
     );
     let stored: Schedule = required(
@@ -156,6 +176,7 @@ fn full_queue_preserves_due_cursor() {
         "id",
         &item.id.to_string(),
     )
+    .await
     .unwrap();
     assert_eq!(stored.next_ms, Some(at("2026-10-20T09:00:00Z")));
 }

@@ -1,8 +1,8 @@
 use super::*;
-use rusqlite::{Connection, params};
 use sailry_protocol::{code, search};
 use serde_json::json;
 use std::collections::BTreeMap;
+use turso::{Connection, params};
 
 #[path = "refresh/computer.rs"]
 mod computer;
@@ -77,46 +77,52 @@ async fn previous(
     installed
 }
 
-fn bundled(path: &Path, mut installed: Info) -> Info {
+async fn bundled(path: &Path, mut installed: Info) -> Info {
     installed.origin = Some(plugin::Origin::Bundled);
     installed.summary.settings_revision = 1;
-    let db = Connection::open(path).unwrap();
+    let (database, mut db) = crate::plugins::database_fixture::open(path, false).await;
+    let transaction = db.transaction().await.unwrap();
     let name = &installed.summary.name;
-    db.execute(
-        "UPDATE plugins SET body=?1 WHERE name=?2",
-        params![serde_json::to_vec(&installed).unwrap(), name],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,1,?2)",
-        params![
-            name,
-            serde_json::to_vec(&json!({
-                "schema":null,"values":{"draft":"retained","model":"fixture/model"},
-                "slots":{},"authorizations":{},"mcp":null,"github":null
-            }))
-            .unwrap()
-        ],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO plugin_values(name,key,revision,value) VALUES(?1,'draft',1,?2)",
-        params![name, b"{\"text\":\"retained\"}".as_slice()],
-    )
-    .unwrap();
+    transaction
+        .execute(
+            "UPDATE plugins SET body=?1 WHERE name=?2",
+            params![serde_json::to_vec(&installed).unwrap(), name.as_str()],
+        )
+        .await
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,1,?2)",
+            params![
+                name.as_str(),
+                serde_json::to_vec(&json!({
+                    "schema":null,"values":{"draft":"retained","model":"fixture/model"},
+                    "slots":{},"authorizations":{},"mcp":null,"github":null
+                }))
+                .unwrap()
+            ],
+        )
+        .await
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO plugin_values(name,key,revision,value) VALUES(?1,'draft',1,?2)",
+            params![name.as_str(), b"{\"text\":\"retained\"}".as_slice()],
+        )
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+    crate::plugins::database_fixture::close(database, db).await;
     installed
 }
 
-fn records(path: &Path) -> Vec<(String, String, Vec<u8>)> {
-    let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-    let mut statement = db
-        .prepare("SELECT plugin,'settings',body FROM plugin_settings WHERE plugin IN ('code','web-search','browser') UNION ALL SELECT name,key,value FROM plugin_values WHERE name IN ('code','web-search','browser') ORDER BY 1,2")
-        .unwrap();
-    statement
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect()
+async fn records(db: &Connection) -> turso::Result<Vec<(String, String, Vec<u8>)>> {
+    let mut rows = db.query("SELECT plugin,'settings',body FROM plugin_settings WHERE plugin IN ('code','web-search','browser') UNION ALL SELECT name,key,value FROM plugin_values WHERE name IN ('code','web-search','browser') ORDER BY 1,2", ()).await?;
+    let mut records = Vec::new();
+    while let Some(row) = rows.next().await? {
+        records.push((row.get(0)?, row.get(1)?, row.get(2)?));
+    }
+    Ok(records)
 }
 
 async fn disable(client: &Client, installed: Info) -> Info {
@@ -186,24 +192,33 @@ async fn adds_missing_language_settings_on_each_path() {
         };
         before.retain(|summary| summary.name != "code");
         let profile = directory.path().join("node");
-        let path = profile.join("storage/node.sqlite3");
+        let path = profile.join("storage/node.turso");
         node.shutdown().await.unwrap();
-        let db = Connection::open(&path).unwrap();
+        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
         assert!(
-            db.query_row("SELECT plugin_defaults FROM node", [], |row| row
-                .get::<_, bool>(0))
-                .unwrap()
+            (async {
+                let mut statement = db.prepare("SELECT plugin_defaults FROM node").await?;
+                let row = statement.query_row(()).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<bool>(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap()
         );
-        db.execute("DELETE FROM plugins WHERE name='code'", [])
+        db.execute("DELETE FROM plugins WHERE name='code'", ())
+            .await
             .unwrap();
-        let removed: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM plugins WHERE name='web-search' AND installed=0",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        drop(db);
+        let removed: Vec<u8> = (async {
+            let mut statement = db
+                .prepare("SELECT body FROM plugins WHERE name='web-search' AND installed=0")
+                .await?;
+            let row = statement.query_row(()).await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
+        crate::plugins::database_fixture::close(db_handle, db).await;
         let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
@@ -262,17 +277,28 @@ async fn adds_missing_language_settings_on_each_path() {
         };
         after.retain(|summary| summary.name != "code");
         assert_eq!(after, before);
-        let db =
-            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        let retained: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM plugins WHERE name='web-search' AND installed=0",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
+
+        let retained: Vec<u8> = {
+            let parameters = ();
+            let sql = "SELECT body FROM plugins WHERE name='web-search' AND installed=0";
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    result.map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap()
+        };
         assert_eq!(retained, removed);
-        drop(db);
+
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
@@ -448,10 +474,15 @@ async fn skips_same_and_older_bundled_versions() {
             ));
         }
         let profile = directory.path().join("node");
-        let path = profile.join("storage/node.sqlite3");
+        let path = profile.join("storage/node.turso");
         node.shutdown().await.unwrap();
-        let previous = [bundled(&path, code), bundled(&path, browser)];
-        let retained = records(&path);
+        let previous = [bundled(&path, code).await, bundled(&path, browser).await];
+        let retained = {
+            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+            let value = records(&db).await.unwrap();
+            crate::plugins::database_fixture::close(handle, db).await;
+            value
+        };
         let assets: Vec<_> = previous
             .iter()
             .map(|info| {
@@ -515,7 +546,16 @@ async fn skips_same_and_older_bundled_versions() {
                 asset
             );
         }
-        assert_eq!(records(&path), retained);
+        assert_eq!(
+            node.with_storage(|db| Box::pin(async move {
+                records(db)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)
+            }))
+            .await
+            .unwrap(),
+            retained
+        );
         assert_eq!(
             fs::read_dir(profile.join("plugins/packages"))
                 .unwrap()
@@ -552,17 +592,23 @@ async fn retains_disabled_configuration_on_each_path() {
         let search = disable(&client, search).await;
         let configured = settings(&client).await;
         let profile = directory.path().join("node");
-        let path = profile.join("storage/node.sqlite3");
+        let path = profile.join("storage/node.turso");
         node.shutdown().await.unwrap();
-        let previous = [bundled(&path, code), bundled(&path, search)];
-        let captures: Vec<u8> = Connection::open(&path)
-            .unwrap()
-            .query_row(
-                "SELECT plugins FROM turns WHERE id=?1",
-                [turn.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let previous = [bundled(&path, code).await, bundled(&path, search).await];
+        let captures: Vec<u8> = {
+            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+            let value = db
+                .prepare("SELECT plugins FROM turns WHERE id=?1")
+                .await
+                .unwrap()
+                .query_row([turn.to_string()])
+                .await
+                .unwrap()
+                .get::<Vec<u8>>(0)
+                .unwrap();
+            crate::plugins::database_fixture::close(handle, db).await;
+            value
+        };
         let packages: Vec<plugin::Reference> = serde_json::from_slice(&captures).unwrap();
         for previous in &previous {
             assert!(
@@ -572,7 +618,12 @@ async fn retains_disabled_configuration_on_each_path() {
                         && package.digest == previous.summary.digest)
             );
         }
-        let retained = records(&path);
+        let retained = {
+            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+            let value = records(&db).await.unwrap();
+            crate::plugins::database_fixture::close(handle, db).await;
+            value
+        };
         let assets = previous
             .iter()
             .map(|previous| {
@@ -585,10 +636,20 @@ async fn retains_disabled_configuration_on_each_path() {
                 .unwrap()
             })
             .collect::<Vec<_>>();
-        let secret: Vec<u8> = Connection::open(&path)
-            .unwrap()
-            .query_row("SELECT body FROM search_settings", [], |row| row.get(0))
-            .unwrap();
+        let secret: Vec<u8> = {
+            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+            let row = db
+                .prepare("SELECT body FROM search_settings")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap();
+            let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            let value = value.unwrap();
+            crate::plugins::database_fixture::close(handle, db).await;
+            value
+        };
         let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
@@ -661,7 +722,16 @@ async fn retains_disabled_configuration_on_each_path() {
             );
             refreshed.push(current);
         }
-        assert_eq!(records(&path), retained);
+        assert_eq!(
+            node.with_storage(|db| Box::pin(async move {
+                records(db)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)
+            }))
+            .await
+            .unwrap(),
+            retained
+        );
         let Output::Session(current_session) = execute(
             &client,
             Command::ReadSession {
@@ -675,14 +745,25 @@ async fn retains_disabled_configuration_on_each_path() {
         assert_eq!(current_session.config, session.config);
         assert_eq!(current_session.revision, session.revision);
         assert_eq!(current_session.roles, session.roles);
-        let current_captures: Vec<u8> = Connection::open(&path)
+        let current_captures: Vec<u8> = {
+            let parameters = turso::params![turn.to_string()];
+            let sql = "SELECT plugins FROM turns WHERE id=?1";
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    result.map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap()
-            .query_row(
-                "SELECT plugins FROM turns WHERE id=?1",
-                [turn.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+        };
         assert_eq!(current_captures, captures);
         assert_eq!(
             execute(&client, Command::ReadCodeSettings).await,
@@ -692,10 +773,25 @@ async fn retains_disabled_configuration_on_each_path() {
             execute(&client, Command::ReadSearchSettings).await,
             Output::SearchSettings(configured.1.clone())
         );
-        let after: Vec<u8> = Connection::open(&path)
+        let after: Vec<u8> = {
+            let parameters = ();
+            let sql = "SELECT body FROM search_settings";
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    result.map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap()
-            .query_row("SELECT body FROM search_settings", [], |row| row.get(0))
-            .unwrap();
+        };
         assert_eq!(after, secret);
         let inventory = execute(&client, Command::ListPlugins).await;
         node.shutdown().await.unwrap();
@@ -765,10 +861,15 @@ async fn retains_browser_configuration_on_each_path() {
         let previous = previous(directory.path(), &client, worktree, "browser", "0.1.0").await;
         let previous = disable(&client, previous).await;
         let profile = directory.path().join("node");
-        let path = profile.join("storage/node.sqlite3");
+        let path = profile.join("storage/node.turso");
         node.shutdown().await.unwrap();
-        let previous = bundled(&path, previous);
-        let retained = records(&path);
+        let previous = bundled(&path, previous).await;
+        let retained = {
+            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+            let value = records(&db).await.unwrap();
+            crate::plugins::database_fixture::close(handle, db).await;
+            value
+        };
         let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
@@ -796,7 +897,16 @@ async fn retains_browser_configuration_on_each_path() {
             previous.summary.settings_revision
         );
         assert!(!current.summary.enabled);
-        assert_eq!(records(&path), retained);
+        assert_eq!(
+            node.with_storage(|db| Box::pin(async move {
+                records(db)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)
+            }))
+            .await
+            .unwrap(),
+            retained
+        );
         let inventory = execute(&client, Command::ListPlugins).await;
         node.shutdown().await.unwrap();
         let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
@@ -820,7 +930,16 @@ async fn retains_browser_configuration_on_each_path() {
             ),
             current
         );
-        assert_eq!(records(&path), retained);
+        assert_eq!(
+            node.with_storage(|db| Box::pin(async move {
+                records(db)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)
+            }))
+            .await
+            .unwrap(),
+            retained
+        );
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
@@ -844,31 +963,42 @@ async fn preserves_removed_rows_on_each_path() {
         }
         let inventory = execute(&client, Command::ListPlugins).await;
         let profile = directory.path().join("node");
-        let path = profile.join("storage/node.sqlite3");
+        let path = profile.join("storage/node.turso");
         node.shutdown().await.unwrap();
-        let db = Connection::open(&path).unwrap();
+        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
         for name in ["code", "web-search"] {
-            let body: Vec<u8> = db
-                .query_row("SELECT body FROM plugins WHERE name=?1", [name], |row| {
-                    row.get(0)
-                })
-                .unwrap();
+            let body: Vec<u8> = (async {
+                let mut statement = db.prepare("SELECT body FROM plugins WHERE name=?1").await?;
+                let row = statement.query_row([name]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap();
             let mut info: Info = serde_json::from_slice(&body).unwrap();
             info.origin = Some(plugin::Origin::Bundled);
             db.execute(
                 "UPDATE plugins SET body=?1 WHERE name=?2",
                 params![serde_json::to_vec(&info).unwrap(), name],
             )
+            .await
             .unwrap();
         }
-        let before: Vec<(String, Vec<u8>)> = db
-            .prepare("SELECT name,body FROM plugins WHERE installed=0 ORDER BY name")
-            .unwrap()
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
-        drop(db);
+        let before: Vec<(String, Vec<u8>)> = {
+            let mut rows = db
+                .query(
+                    "SELECT name,body FROM plugins WHERE installed=0 ORDER BY name",
+                    (),
+                )
+                .await
+                .unwrap();
+            let mut values = Vec::new();
+            while let Some(row) = rows.next().await.unwrap() {
+                values.push((row.get(0).unwrap(), row.get(1).unwrap()));
+            }
+            values
+        };
+        crate::plugins::database_fixture::close(db_handle, db).await;
         let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
@@ -888,16 +1018,37 @@ async fn preserves_removed_rows_on_each_path() {
                 ErrorCode::NotFound
             );
         }
-        let db = Connection::open(&path).unwrap();
-        let after: Vec<(String, Vec<u8>)> = db
-            .prepare("SELECT name,body FROM plugins WHERE installed=0 ORDER BY name")
-            .unwrap()
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
+
+        let after: Vec<(String, Vec<u8>)> = node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .query(
+                            "SELECT name,body FROM plugins WHERE installed=0 ORDER BY name",
+                            (),
+                        )
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let mut values = Vec::new();
+                    while let Some(row) = rows
+                        .next()
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                    {
+                        values.push((
+                            row.get::<String>(0)
+                                .map_err(crate::plugins::database_fixture::fault)?,
+                            row.get::<Vec<u8>>(1)
+                                .map_err(crate::plugins::database_fixture::fault)?,
+                        ));
+                    }
+                    Ok(values)
+                })
+            })
+            .await
+            .unwrap();
         assert_eq!(after, before);
-        drop(db);
+
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

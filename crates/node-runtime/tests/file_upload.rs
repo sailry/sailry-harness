@@ -124,13 +124,26 @@ async fn stage(client: &Client, upload: &FileUpload, data: &[u8]) {
 #[tokio::test]
 async fn publishes_verified_staging() {
     let fixture = Fixture::start().await;
-    let database =
-        rusqlite::Connection::open(fixture.profile.join("storage/node.sqlite3")).unwrap();
-    let count = || {
-        database
-            .query_row("SELECT count(*) FROM requests", [], |row| {
-                row.get::<_, i64>(0)
+
+    let count = async || {
+        let sql = ("SELECT count(*) FROM requests").to_owned();
+        let parameters = ();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)?;
+                    let value = row.get::<i64>(0);
+                    value.map_err(crate::file_fixture::database::fault)
+                })
             })
+            .await
             .unwrap()
     };
     let data: Vec<_> = (0..10 * 1024 * 1024)
@@ -141,7 +154,7 @@ async fn publishes_verified_staging() {
         let other = Client::new(fixture.transports[1 - index].clone());
         for (name, data) in [("资料.bin", data.as_slice()), ("empty", &[])] {
             let path = format!("{index}-{name}");
-            let before = count();
+            let before = count().await;
             let upload = prepare(&client, spec(fixture.worktree, &path, data, None)).await;
             assert!(other.open(upload.stream).await.is_err());
             assert_eq!(
@@ -155,7 +168,11 @@ async fn publishes_verified_staging() {
                 ErrorCode::NotFound
             );
             stage(&client, &upload, data).await;
-            assert_eq!(count(), before, "staged bytes are not durable commands");
+            assert_eq!(
+                count().await,
+                before,
+                "staged bytes are not durable commands"
+            );
             assert!(!fixture.root.join(&path).exists());
             assert_eq!(
                 other
@@ -211,7 +228,7 @@ async fn publishes_verified_staging() {
             assert_eq!(std::fs::read(fixture.root.join(&path)).unwrap(), data);
         }
     }
-    drop(database);
+
     fixture.close().await;
 }
 

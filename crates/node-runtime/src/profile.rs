@@ -101,6 +101,20 @@ pub(crate) fn temporary(profile: &Path) -> Result<PathBuf, sailry_protocol::Faul
     Ok(directory)
 }
 
+pub(crate) fn database_files(path: &Path) -> [PathBuf; 4] {
+    let sidecar = |suffix: &str| {
+        let mut name = path.as_os_str().to_owned();
+        name.push(suffix);
+        PathBuf::from(name)
+    };
+    [
+        path.to_owned(),
+        path.with_extension("db-log"),
+        sidecar("-wal"),
+        sidecar("-tshm"),
+    ]
+}
+
 pub(crate) fn private_directory(path: &Path) -> Result<(), Error> {
     #[cfg(windows)]
     return windows::directory(path);

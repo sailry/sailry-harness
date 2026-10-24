@@ -15,13 +15,13 @@ use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, Request, knowledge::*};
 use std::{
     collections::BTreeSet,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex, Weak, mpsc},
 };
 
 pub(crate) struct Service {
     pub(crate) models: Arc<models::Models>,
-    path: PathBuf,
+    index: index::Index,
     ingress: Weak<Ingress>,
     wake: mpsc::SyncSender<()>,
     cancel: Mutex<CancellationToken>,
@@ -39,12 +39,12 @@ impl Service {
         stop: CancellationToken,
     ) -> Result<Arc<Self>, Fault> {
         let models = models::Models::new(registry);
-        let path = profile.join("storage/knowledge.db");
+        let path = profile.join("storage/knowledge.turso");
         let target = path.clone();
-        let index = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let parent = target.parent().expect("knowledge cache has a parent");
             let directory = crate::files::path::root(parent)?;
-            match directory.symlink_metadata("knowledge.db") {
+            match directory.symlink_metadata("knowledge.turso") {
                 Ok(metadata) if metadata.is_symlink() || !metadata.is_file() => {
                     return Err(Fault::invalid("knowledge cache must be a regular file"));
                 }
@@ -52,14 +52,15 @@ impl Service {
                 Err(error) => return Err(crate::files::io_error(error)),
                 Ok(_) => {}
             }
-            index::Index::open(&target)
+            Ok::<_, Fault>(())
         })
         .await
         .map_err(|_| unavailable())??;
+        let index = index::Index::open(&path).await?;
         let (wake, receiver) = mpsc::sync_channel(1);
         let owner = Arc::new(Self {
             models,
-            path,
+            index: index.clone(),
             ingress,
             wake,
             cancel: Mutex::new(stop.child_token()),
@@ -116,14 +117,9 @@ impl Service {
             embeddings,
             indexing,
         } = prepared;
-        let path = self.path.clone();
-        let query = query.clone();
-        let cancel = cancel.clone();
-        tokio::task::spawn_blocking(move || {
-            index::Index::reader(&path)?.search(&query, &bindings, &embeddings, indexing, &cancel)
-        })
-        .await
-        .map_err(|_| unavailable())?
+        self.index
+            .search(query, &bindings, &embeddings, indexing, cancel)
+            .await
     }
 
     async fn prepare(
@@ -204,6 +200,10 @@ impl Service {
             embeddings,
             indexing,
         })
+    }
+
+    pub(crate) fn database(&self) -> Arc<crate::store::database::Handle> {
+        self.index.database()
     }
 
     pub(crate) async fn shutdown(&self) {

@@ -109,19 +109,29 @@ async fn repository(fixture: &Fixture, revision: u64, official: bool) -> plugin:
     info
 }
 
-fn authorizations(fixture: &Fixture, provider: ProviderId) -> serde_json::Value {
-    let db = rusqlite::Connection::open_with_flags(
-        fixture.node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
+async fn authorizations(fixture: &Fixture, provider: ProviderId) -> serde_json::Value {
+    let body: String = {
+        let sql =
+            ("SELECT json_extract(body,'$.authorizations') FROM providers WHERE id=?1").to_owned();
+        let parameters = turso::params![provider.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
     .unwrap();
-    let body: String = db
-        .query_row(
-            "SELECT json_extract(body,'$.authorizations') FROM providers WHERE id=?1",
-            [provider.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
     serde_json::from_str(&body).unwrap()
 }
 
@@ -188,13 +198,13 @@ async fn retains_accounts_across_package_updates() {
             else {
                 panic!("queued turn expected");
             };
-            let captured = super::execution::captured(&fixture, &turn);
+            let captured = super::execution::captured(&fixture, &turn).await;
             let credentials = fixture
                 .client
                 .execute(fixture.client.prepare(Command::ListCredentials))
                 .await
                 .unwrap();
-            let private = authorizations(&fixture, provider.id);
+            let private = authorizations(&fixture, provider.id).await;
             let installed = if let Some(initial) = initial {
                 upload(&fixture, initial.summary.revision, "1.0.1", false).await
             } else {
@@ -240,8 +250,8 @@ async fn retains_accounts_across_package_updates() {
                     .unwrap(),
                 credentials
             );
-            assert_eq!(authorizations(&fixture, provider.id), private);
-            assert_eq!(super::execution::captured(&fixture, &turn), captured);
+            assert_eq!(authorizations(&fixture, provider.id).await, private);
+            assert_eq!(super::execution::captured(&fixture, &turn).await, captured);
             let requests = server
                 .requests
                 .lock()
@@ -310,8 +320,8 @@ async fn retains_accounts_across_package_updates() {
                     .unwrap(),
                 credentials
             );
-            assert_eq!(authorizations(&fixture, provider.id), private);
-            assert_eq!(super::execution::captured(&fixture, &turn), captured);
+            assert_eq!(authorizations(&fixture, provider.id).await, private);
+            assert_eq!(super::execution::captured(&fixture, &turn).await, captured);
             assert_eq!(
                 server
                     .requests

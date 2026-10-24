@@ -80,7 +80,7 @@ async fn isolates_account_endpoint_model_and_protocol() {
         let gemini = Server::start(ModelApi::Gemini, Reply::Text).await;
         let mut current = Fixture::empty(remote, ModelApi::Responses, &first.endpoint).await;
         complete(&current).await;
-        let original = fixture::events(current.node.profile(), current.session.id);
+        let original = fixture::events(&current.node, current.session.id).await;
         complete(&current).await;
         assert_eq!(
             encrypted(&first.requests.lock().unwrap()[1].body),
@@ -193,7 +193,7 @@ async fn isolates_account_endpoint_model_and_protocol() {
                 );
             }
         }
-        let events = fixture::events(current.node.profile(), current.session.id);
+        let events = fixture::events(&current.node, current.session.id).await;
         assert_eq!(&events[..original.len()], &original);
         current.controller.close().await.unwrap();
         current.node.shutdown().await.unwrap();
@@ -208,38 +208,73 @@ async fn omits_originless_history() {
         complete(&current).await;
         // Reproduce a v1 event written before provider ownership existed. Only
         // this isolated fixture is changed; the product never rewrites history.
-        let database =
-            rusqlite::Connection::open(current.node.profile().join("storage/node.sqlite3"))
-                .unwrap();
-        let rows = database
-            .prepare("SELECT rowid,body FROM agent_events WHERE session=?1 ORDER BY rowid")
-            .unwrap()
-            .query_map([current.session.id.to_string()], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
+        let session = current.session.id;
+        let changed = current
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let transaction = db
+                        .transaction()
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut statement = transaction
+                        .prepare(
+                            "SELECT rowid,body FROM agent_events WHERE session=?1 ORDER BY rowid",
+                        )
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut selected = statement
+                        .query([session.to_string()])
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut rows = Vec::new();
+                    while let Some(row) = selected
+                        .next()
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                    {
+                        rows.push((
+                            row.get::<i64>(0).map_err(crate::database_fixture::fault)?,
+                            row.get::<Vec<u8>>(1)
+                                .map_err(crate::database_fixture::fault)?,
+                        ));
+                    }
+                    drop(selected);
+                    drop(statement);
+                    let mut changed = 0;
+                    for (row, bytes) in rows {
+                        let mut event: Value = serde_json::from_slice(&bytes)
+                            .map_err(crate::database_fixture::fault)?;
+                        if let Some(metadata) = event
+                            .pointer_mut("/provider_metadata")
+                            .and_then(Value::as_object_mut)
+                            && metadata.remove("provider_origin").is_some()
+                        {
+                            transaction
+                                .execute(
+                                    "UPDATE agent_events SET body=?1 WHERE rowid=?2",
+                                    turso::params![
+                                        serde_json::to_vec(&event)
+                                            .map_err(crate::database_fixture::fault)?,
+                                        row
+                                    ],
+                                )
+                                .await
+                                .map_err(crate::database_fixture::fault)?;
+                            changed += 1;
+                        }
+                    }
+                    transaction
+                        .commit()
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    Ok(changed)
+                })
             })
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
+            .await
             .unwrap();
-        let mut changed = 0;
-        for (row, bytes) in rows {
-            let mut event: Value = serde_json::from_slice(&bytes).unwrap();
-            if let Some(metadata) = event
-                .pointer_mut("/provider_metadata")
-                .and_then(Value::as_object_mut)
-                && metadata.remove("provider_origin").is_some()
-            {
-                database
-                    .execute(
-                        "UPDATE agent_events SET body=?1 WHERE rowid=?2",
-                        rusqlite::params![serde_json::to_vec(&event).unwrap(), row],
-                    )
-                    .unwrap();
-                changed += 1;
-            }
-        }
         assert!(changed > 0);
-        drop(database);
-        let original = fixture::events(current.node.profile(), current.session.id);
+        let original = fixture::events(&current.node, current.session.id).await;
         complete(&current).await;
         {
             let requests = server.requests.lock().unwrap();
@@ -247,7 +282,7 @@ async fn omits_originless_history() {
             assert!(encrypted(&requests[1].body).is_empty());
             assert!(requests[1].body.to_string().contains("Stateless answer 1"));
         }
-        let events = fixture::events(current.node.profile(), current.session.id);
+        let events = fixture::events(&current.node, current.session.id).await;
         assert_eq!(&events[..original.len()], &original);
         current.controller.close().await.unwrap();
         current.node.shutdown().await.unwrap();

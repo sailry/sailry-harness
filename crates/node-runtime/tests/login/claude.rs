@@ -130,19 +130,28 @@ pub(super) async fn connected(fixture: &Fixture) -> Provider {
     saved(&fixture.client, provider.id).await
 }
 
-fn grant(fixture: &Fixture, provider: &Provider) -> Value {
-    let db = rusqlite::Connection::open_with_flags(
-        fixture.node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
+async fn grant(fixture: &Fixture, provider: &Provider) -> Value {
+    let stored: Vec<u8> = {
+        let sql = ("SELECT body FROM providers WHERE id=?1").to_owned();
+        let parameters = turso::params![provider.id.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
     .unwrap();
-    let stored: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM providers WHERE id=?1",
-            [provider.id.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
     let stored: Value = serde_json::from_slice(&stored).unwrap();
     let reference = provider.credential.as_ref().unwrap();
     serde_json::from_str(
@@ -153,33 +162,55 @@ fn grant(fixture: &Fixture, provider: &Provider) -> Value {
     .unwrap()
 }
 
-fn expire(fixture: &Fixture, provider: &Provider) {
-    let db =
-        rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3")).unwrap();
-    let stored: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM providers WHERE id=?1",
-            [provider.id.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
+async fn expire(fixture: &Fixture, provider: &Provider) {
+    let stored: Vec<u8> = {
+        let sql = ("SELECT body FROM providers WHERE id=?1").to_owned();
+        let parameters = turso::params![provider.id.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
+    .unwrap();
     let mut stored: Value = serde_json::from_slice(&stored).unwrap();
     let reference = provider.credential.as_ref().unwrap();
     let key = &mut stored["authorizations"][reference.id.to_string()]["key"];
     let mut grant: Value = serde_json::from_str(key.as_str().unwrap()).unwrap();
     grant["expires_at_ms"] = json!((super::future_expiry() - 3601) * 1000);
     *key = json!(grant.to_string());
-    db.execute(
-        "UPDATE providers SET body=?1 WHERE id=?2",
-        rusqlite::params![
+    {
+        let sql = ("UPDATE providers SET body=?1 WHERE id=?2").to_owned();
+        let parameters = turso::params![
             serde_json::to_vec(&stored).unwrap(),
             provider.id.to_string()
-        ],
-    )
+        ];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute(sql, parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
     .unwrap();
 }
 
-fn public_rows(fixture: &Fixture, authorization: &str) {
+async fn public_rows(fixture: &Fixture, authorization: &str) {
     let url = url::Url::parse(authorization).unwrap();
     let state = url
         .query_pairs()
@@ -187,16 +218,12 @@ fn public_rows(fixture: &Fixture, authorization: &str) {
         .unwrap()
         .1
         .into_owned();
-    let db = rusqlite::Connection::open_with_flags(
-        fixture.node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let mut query = db.prepare(
-        "SELECT CAST(body AS TEXT) FROM requests UNION ALL SELECT CAST(result AS TEXT) FROM requests UNION ALL SELECT CAST(body AS TEXT) FROM events UNION ALL SELECT CAST(body AS TEXT) FROM agent_events"
-    ).unwrap();
-    for body in query.query_map([], |row| row.get::<_, String>(0)).unwrap() {
-        let body = body.unwrap();
+
+    let bodies = fixture.node.with_storage(|db| Box::pin(async move {
+    let mut rows=db.query("SELECT CAST(body AS TEXT) FROM requests UNION ALL SELECT CAST(result AS TEXT) FROM requests UNION ALL SELECT CAST(body AS TEXT) FROM events UNION ALL SELECT CAST(body AS TEXT) FROM agent_events",()).await.map_err(crate::database_fixture::fault)?;
+    let mut values=Vec::new();while let Some(row)=rows.next().await.map_err(crate::database_fixture::fault)? { values.push(row.get::<String>(0).map_err(crate::database_fixture::fault)?); } Ok(values)
+})).await.unwrap();
+    for body in bodies {
         redacted(&body);
         assert!(
             !body.contains(&state),

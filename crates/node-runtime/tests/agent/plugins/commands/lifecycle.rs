@@ -197,7 +197,7 @@ async fn guards_prepared_escape_before_claiming() {
                 let approval = &page.approvals[0];
                 assert_eq!(approval.access, Some(requested));
                 let allowed = prepared == requested;
-                assert_eq!(rules::claimed(&fixture.node, approval).1, allowed);
+                assert_eq!(rules::claimed(&fixture.node, approval).await.1, allowed);
                 assert_eq!(fixture.root.join("actual.txt").exists(), allowed);
                 if requested == Access::Unrestricted {
                     assert_eq!(approval.source, ApprovalSource::Full);

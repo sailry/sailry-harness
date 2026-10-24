@@ -19,6 +19,12 @@ mod completion;
 #[cfg(feature = "test-support")]
 #[path = "plugins/connectors.rs"]
 mod connectors;
+#[allow(
+    dead_code,
+    reason = "The native database fixture is shared with storage-only suites"
+)]
+#[path = "support/database.rs"]
+mod database_fixture;
 #[path = "plugins/dispatch.rs"]
 mod dispatch;
 #[path = "plugins/distribution.rs"]

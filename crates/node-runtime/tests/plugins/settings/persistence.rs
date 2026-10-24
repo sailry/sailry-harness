@@ -99,27 +99,58 @@ async fn recovers_saved_values() {
         assert!(
             matches!(execute(&client, Command::ListCredentials).await, Output::Credentials(values) if values.is_empty())
         );
-        let db = rusqlite::Connection::open_with_flags(
-            node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
+
+        let (body, result): (Vec<u8>, String) = {
+            let sql = ("SELECT body,result FROM requests WHERE id=?1").to_owned();
+            let parameters = turso::params![request.id.to_string()];
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let value: turso::Result<_> =
+                        (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                    value.map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
+        }
         .unwrap();
-        let (body, result): (Vec<u8>, String) = db
-            .query_row(
-                "SELECT body,result FROM requests WHERE id=?1",
-                [request.id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
         assert!(body.starts_with(b"credential-v1:"));
         assert!(!result.contains(secret));
-        let mut query = db
-            .prepare("SELECT body FROM plugin_settings WHERE plugin=?1 ORDER BY revision")
-            .unwrap();
-        let saved = query
-            .query_map([&package.summary.name], |row| row.get::<_, Vec<u8>>(0))
+        let name = package.summary.name.clone();
+        let saved = node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .query(
+                            "SELECT body FROM plugin_settings WHERE plugin=?1 ORDER BY revision",
+                            [name],
+                        )
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let mut saved = Vec::new();
+                    while let Some(row) = rows
+                        .next()
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                    {
+                        saved.push(
+                            row.get::<Vec<u8>>(0)
+                                .map_err(crate::plugins::database_fixture::fault)?,
+                        );
+                    }
+                    Ok(saved)
+                })
+            })
+            .await
             .unwrap()
-            .map(|row| serde_json::from_slice::<serde_json::Value>(&row.unwrap()).unwrap())
+            .into_iter()
+            .map(|body| serde_json::from_slice::<serde_json::Value>(&body).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(saved.len(), 2);
         for (saved, endpoint) in saved
@@ -130,16 +161,17 @@ async fn recovers_saved_values() {
             assert_eq!(saved["values"]["endpoint"], endpoint);
         }
         assert_eq!(
-            db.query_row(
-                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='plugin_credentials'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
+            { let sql = ("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='plugin_credentials'").to_owned();
+let parameters = ();
+node.with_storage(move |db| Box::pin(async move {
+let row = db.prepare(sql).await.map_err(crate::plugins::database_fixture::fault)?.query_row(parameters).await.map_err(crate::plugins::database_fixture::fault)?;
+let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+value.map_err(crate::plugins::database_fixture::fault)
+})).await }
             .unwrap(),
             0,
         );
-        drop(query);
-        drop(db);
+
         node.shutdown().await.unwrap();
         let node = Node::start_empty_with_plugin_catalog(
             directory.path().join("node"),
@@ -170,31 +202,45 @@ async fn recovers_saved_values() {
         );
         assert!(!cleared.ready);
         assert!(cleared.configured.is_empty());
-        let db = rusqlite::Connection::open_with_flags(
-            node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
+
         assert_eq!(
-            db.query_row(
-                "SELECT count(*) FROM plugin_settings,json_each(plugin_settings.body,'$.slots') WHERE json_each.type='text'",
-                [],
-                |row| row.get::<_, i64>(0)
-            )
+            { let sql = ("SELECT count(*) FROM plugin_settings,json_each(plugin_settings.body,'$.slots') WHERE json_each.type='text'").to_owned();
+let parameters = ();
+node.with_storage(move |db| Box::pin(async move {
+let row = db.prepare(sql).await.map_err(crate::plugins::database_fixture::fault)?.query_row(parameters).await.map_err(crate::plugins::database_fixture::fault)?;
+let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+value.map_err(crate::plugins::database_fixture::fault)
+})).await }
             .unwrap(),
             0
         );
-        let mut query = db
-            .prepare("SELECT body FROM plugin_settings WHERE plugin=?1")
+        let name = package.summary.name.clone();
+        let bodies = node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .query("SELECT body FROM plugin_settings WHERE plugin=?1", [name])
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?;
+                    let mut bodies = Vec::new();
+                    while let Some(row) = rows
+                        .next()
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)?
+                    {
+                        bodies.push(
+                            row.get::<Vec<u8>>(0)
+                                .map_err(crate::plugins::database_fixture::fault)?,
+                        );
+                    }
+                    Ok(bodies)
+                })
+            })
+            .await
             .unwrap();
-        for row in query
-            .query_map([&package.summary.name], |row| row.get::<_, Vec<u8>>(0))
-            .unwrap()
-        {
-            assert!(!String::from_utf8(row.unwrap()).unwrap().contains(secret));
+        for body in bodies {
+            assert!(!String::from_utf8(body).unwrap().contains(secret));
         }
-        drop(query);
-        drop(db);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

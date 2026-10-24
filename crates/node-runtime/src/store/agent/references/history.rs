@@ -77,12 +77,12 @@ impl Ingress {
     }
 }
 
-pub(in crate::store::agent) fn visible(
+pub(in crate::store::agent) async fn visible(
     db: &Connection,
     project: Option<ProjectId>,
     target: SessionId,
 ) -> Result<Session, Fault> {
-    let session = super::super::super::commands::session(db, target)?;
+    let session = super::super::super::commands::session(db, target).await?;
     if session.project != project {
         return Err(Fault::new(
             ErrorCode::WrongTarget,
@@ -92,20 +92,25 @@ pub(in crate::store::agent) fn visible(
     Ok(session)
 }
 
-pub(in crate::store::agent) fn execute(
+pub(in crate::store::agent) async fn execute(
     database: &Database,
     source: Source,
     query: Query,
 ) -> Result<Value, Fault> {
     let db = &database.connection;
-    let run = calls::active(db, source.turn)?;
-    let caller: Vec<u8> = db
-        .query_row(
-            "SELECT caller FROM turns WHERE id=?1",
-            [source.turn.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let run = calls::active(db, source.turn).await?;
+    let caller: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT caller FROM turns WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([source.turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if run.session != source.session || caller.as_slice() != &source.caller.0[..] {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
@@ -113,34 +118,35 @@ pub(in crate::store::agent) fn execute(
         ));
     }
     // Session project membership is durable metadata, independent of checkout availability.
-    let session = super::super::super::commands::session(db, source.session)?;
+    let session = super::super::super::commands::session(db, source.session).await?;
     match query {
-        Query::List(options) => directory::read(db, database.node, &session, options),
+        Query::List(options) => directory::read(db, database.node, &session, options).await,
         Query::Read(options) => {
-            visible(db, session.project, options.session)?;
-            read(db, options)
+            visible(db, session.project, options.session).await?;
+            read(db, options).await
         }
         Query::Search(options) => {
-            visible(db, session.project, options.session)?;
+            visible(db, session.project, options.session).await?;
             revision(
                 db,
                 options.session,
                 options.revision,
                 options.before.is_some(),
-            )?;
+            )
+            .await?;
             let query = sailry_protocol::conversation::search::Query {
                 text: options.text,
                 case_sensitive: options.case_sensitive,
                 before: options.before,
                 limit: options.limit.unwrap_or(20),
             };
-            serde_json::to_value(search::search(db, options.session, &query)?)
+            serde_json::to_value(search::search(db, options.session, &query).await?)
                 .map_err(storage_error)
         }
     }
 }
 
-fn read(db: &Connection, options: Read) -> Result<Value, Fault> {
+async fn read(db: &Connection, options: Read) -> Result<Value, Fault> {
     let limit = options.limit.unwrap_or(5);
     if !(1..=9_007_199_254_740_991).contains(&limit) {
         return Err(Fault::invalid(
@@ -153,32 +159,26 @@ fn read(db: &Connection, options: Read) -> Result<Value, Fault> {
         options.session,
         options.revision,
         options.before.is_some() || options.turn.is_some(),
-    )?;
+    )
+    .await?;
     if let Some(turn) = options.turn {
         if options.before.is_some() {
             return Err(Fault::invalid("turn reads use before_entry"));
         }
-        projection::turn(history::pages::turn(
-            db,
-            options.session,
-            turn,
-            options.before_entry,
-            limit,
-        )?)
+        projection::turn(
+            history::pages::turn(db, options.session, turn, options.before_entry, limit).await?,
+        )
     } else {
         if options.before_entry.is_some() {
             return Err(Fault::invalid("entry cursor requires a turn"));
         }
-        projection::conversation(history::pages::read(
-            db,
-            options.session,
-            options.before,
-            limit,
-        )?)
+        projection::conversation(
+            history::pages::read(db, options.session, options.before, limit).await?,
+        )
     }
 }
 
-fn revision(
+async fn revision(
     db: &Connection,
     session: SessionId,
     expected: Option<u64>,
@@ -189,7 +189,7 @@ fn revision(
     }
     if let Some(expected) = expected {
         super::super::super::commands::check_revision(
-            super::super::super::sessions::history_revision(db, session)?,
+            super::super::super::sessions::history_revision(db, session).await?,
             expected,
         )?;
     }

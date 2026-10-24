@@ -213,7 +213,7 @@ mod unix {
         let profile = directory.path().join("profile");
         let node = Node::start(&profile).await.unwrap();
         node.shutdown().await.unwrap();
-        let database = profile.join("storage/node.sqlite3");
+        let database = profile.join("storage/node.turso");
         std::fs::remove_file(&database).unwrap();
         let preserved = directory.path().join("preserved.db");
         std::fs::write(&preserved, "preserve").unwrap();

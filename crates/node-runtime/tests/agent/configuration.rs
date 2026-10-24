@@ -147,13 +147,29 @@ async fn independent_resume() {
         assert_eq!(credentials(&destination).await.len(), 1);
         assert!(!serde_json::to_string(&current).unwrap().contains(marker));
         for node in [&source, &target] {
-            let db =
-                rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-            let mut query = db
-                .prepare("SELECT body FROM requests UNION ALL SELECT body FROM events")
+            let bodies: Vec<Vec<u8>> = node
+                .with_storage(|db| {
+                    Box::pin(async move {
+                        let mut rows = db
+                            .query(
+                                "SELECT body FROM requests UNION ALL SELECT body FROM events",
+                                (),
+                            )
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        let mut bodies = Vec::new();
+                        while let Some(row) =
+                            rows.next().await.map_err(crate::database_fixture::fault)?
+                        {
+                            bodies.push(row.get(0).map_err(crate::database_fixture::fault)?);
+                        }
+                        Ok(bodies)
+                    })
+                })
+                .await
                 .unwrap();
-            for body in query.query_map([], |row| row.get::<_, Vec<u8>>(0)).unwrap() {
-                assert!(!String::from_utf8_lossy(&body.unwrap()).contains(marker));
+            for body in bodies {
+                assert!(!String::from_utf8_lossy(&body).contains(marker));
             }
         }
         let credential = credentials(&origin).await.pop().unwrap();

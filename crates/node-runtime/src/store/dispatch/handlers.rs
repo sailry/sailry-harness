@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn save(
+pub(super) async fn save(
     db: &Connection,
     reference: &Reference,
     handler: &Handler,
@@ -35,10 +35,10 @@ pub(super) fn save(
             ));
         }
     }
-    let old: Option<Handler> = get(db, "dispatch_handlers", package, "name", &handler.name)?;
+    let old: Option<Handler> = get(db, "dispatch_handlers", package, "name", &handler.name).await?;
     check_revision(old.as_ref().map_or(0, |old| old.revision), handler.revision)?;
     if old.is_none() {
-        capacity(db, "dispatch_handlers", package)?;
+        capacity(db, "dispatch_handlers", package).await?;
     }
     let mut saved = handler.clone();
     saved.revision += 1;
@@ -49,7 +49,8 @@ pub(super) fn save(
         "name",
         &saved.name,
         &saved,
-    )?;
-    db.execute("INSERT INTO dispatch_handlers(package,name,source,topic,body,reference) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(package,name) DO UPDATE SET source=excluded.source,topic=excluded.topic,body=excluded.body,reference=excluded.reference", params![package, saved.name, saved.source.package, saved.source.topic, encode(&saved)?, encode(reference)?]).map_err(storage_error)?;
+    )
+    .await?;
+    db.execute("INSERT INTO dispatch_handlers(package,name,source,topic,body,reference) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(package,name) DO UPDATE SET source=excluded.source,topic=excluded.topic,body=excluded.body,reference=excluded.reference", params![package.as_str(), saved.name.as_str(), saved.source.package.as_str(), saved.source.topic.as_str(), encode(&saved)?, encode(reference)?]).await.map_err(storage_error)?;
     Ok(saved)
 }

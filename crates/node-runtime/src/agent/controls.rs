@@ -18,6 +18,7 @@ struct Active {
     yielded: bool,
     /// Awaiting or streaming a model response; no tool from this response has started.
     modeling: bool,
+    model_gate: Arc<tokio::sync::Mutex<()>>,
     timeline: Arc<super::observation::Timeline>,
     sources: Arc<Mutex<Vec<super::model::observation::Source>>>,
     observations: Vec<Arc<Mutex<super::model::observation::Capture>>>,
@@ -61,6 +62,7 @@ impl Controls {
                 finishing: false,
                 yielded: false,
                 modeling: false,
+                model_gate: Default::default(),
                 observations: Vec::new(),
                 timeline: super::observation::Timeline::new(),
                 sources: Default::default(),
@@ -268,7 +270,17 @@ impl Controls {
 
     /// Ends the model phase before tools run. Returns false once guidance has taken over;
     /// an explicit Stop keeps its ordinary tool-phase settlement.
-    pub(crate) fn model_settled(&self, turn: TurnId) -> bool {
+    pub(crate) async fn model_settled(&self, turn: TurnId) -> bool {
+        let gate = self
+            .active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .map(|active| active.model_gate.clone());
+        let Some(gate) = gate else {
+            return true;
+        };
+        let _handoff = gate.lock().await;
         let mut runs = self.active.lock().unwrap();
         let Some(active) = runs.get_mut(&turn) else {
             return true;
@@ -277,22 +289,43 @@ impl Controls {
         !active.yielded
     }
 
-    /// Yields a run still in its model phase; tool batches always settle first.
-    pub(crate) fn interrupt_model(
+    /// Keep the model-to-tool transition behind its own asynchronous handoff.
+    pub(crate) async fn interrupt_model(
         &self,
         turn: TurnId,
-        handoff: impl FnOnce() -> Result<bool, Fault>,
+        handoff: impl AsyncFnOnce() -> Result<bool, Fault>,
     ) -> Result<bool, Fault> {
+        let gate = self
+            .active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .map(|active| active.model_gate.clone());
+        let Some(gate) = gate else {
+            return Ok(false);
+        };
+        let _handoff = gate.lock().await;
+        {
+            let runs = self.active.lock().unwrap();
+            let Some(active) = runs.get(&turn) else {
+                return Ok(false);
+            };
+            if !active.modeling
+                || active.finishing
+                || active.stop.is_cancelled()
+                || self.stopped.is_cancelled()
+            {
+                return Ok(false);
+            }
+        }
+        if !handoff().await? {
+            return Ok(false);
+        }
         let mut runs = self.active.lock().unwrap();
         let Some(active) = runs.get_mut(&turn) else {
             return Ok(false);
         };
-        if !active.modeling
-            || active.finishing
-            || active.stop.is_cancelled()
-            || self.stopped.is_cancelled()
-            || !handoff()?
-        {
+        if active.finishing || active.stop.is_cancelled() || self.stopped.is_cancelled() {
             return Ok(false);
         }
         active.modeling = false;
@@ -436,26 +469,102 @@ mod tests {
         assert_eq!(controls.operations(turn), 0);
     }
 
-    #[test]
-    fn interrupts_only_model_phase() {
+    #[tokio::test]
+    async fn interrupts_only_model_phase() {
         let controls = Controls::default();
         let turn = TurnId::new();
         let stop = CancellationToken::new();
         controls.register(turn, SessionId::new(), stop.clone());
-        let handoff = || Ok(true);
-        assert!(!controls.interrupt_model(turn, handoff).unwrap());
+        let handoff = async || Ok(true);
+        assert!(!controls.interrupt_model(turn, handoff).await.unwrap());
         controls.model_started(turn);
-        assert!(!controls.interrupt_model(turn, || Ok(false)).unwrap());
-        assert!(controls.model_settled(turn));
-        assert!(!controls.interrupt_model(turn, handoff).unwrap());
+        assert!(
+            !controls
+                .interrupt_model(turn, async || Ok(false))
+                .await
+                .unwrap()
+        );
+        assert!(controls.model_settled(turn).await);
+        assert!(!controls.interrupt_model(turn, handoff).await.unwrap());
         assert!(!stop.is_cancelled());
         controls.model_started(turn);
-        assert!(controls.interrupt_model(turn, handoff).unwrap());
+        assert!(controls.interrupt_model(turn, handoff).await.unwrap());
         assert!(stop.is_cancelled() && controls.yielded(turn));
         // Tools from an interrupted response never start.
-        assert!(!controls.model_settled(turn));
+        assert!(!controls.model_settled(turn).await);
         controls.cancel(turn);
-        assert!(controls.model_settled(turn));
+        assert!(controls.model_settled(turn).await);
+    }
+
+    #[tokio::test]
+    async fn handoff_keeps_other_turns_independent() {
+        let controls = Controls::default();
+        let first = TurnId::new();
+        let second = TurnId::new();
+        for turn in [first, second] {
+            controls.register(turn, SessionId::new(), CancellationToken::new());
+            controls.model_started(turn);
+        }
+        let release = tokio::sync::Notify::new();
+        let mut handoff = Box::pin(controls.interrupt_model(first, async || {
+            release.notified().await;
+            Ok(true)
+        }));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), &mut handoff)
+                .await
+                .is_err()
+        );
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                controls.model_settled(second)
+            )
+            .await
+            .unwrap()
+        );
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(20),
+                controls.model_settled(first)
+            )
+            .await
+            .is_err()
+        );
+        release.notify_one();
+        assert!(handoff.await.unwrap());
+        assert!(!controls.model_settled(first).await);
+    }
+
+    #[tokio::test]
+    async fn stop_wins_during_handoff() {
+        for shutdown in [false, true] {
+            let controls = Controls::default();
+            let turn = TurnId::new();
+            let stop = CancellationToken::new();
+            controls.register(turn, SessionId::new(), stop.clone());
+            controls.model_started(turn);
+            let release = tokio::sync::Notify::new();
+            let mut handoff = Box::pin(controls.interrupt_model(turn, async || {
+                release.notified().await;
+                Ok(true)
+            }));
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_millis(20), &mut handoff)
+                    .await
+                    .is_err()
+            );
+            if shutdown {
+                controls.stop();
+            } else {
+                controls.cancel(turn);
+            }
+            release.notify_one();
+            assert!(!handoff.await.unwrap());
+            assert!(stop.is_cancelled());
+            assert!(!controls.yielded(turn));
+            assert!(controls.model_settled(turn).await);
+        }
     }
 
     #[tokio::test]

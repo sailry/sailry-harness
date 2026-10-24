@@ -1,8 +1,8 @@
 use super::*;
 
-#[test]
-fn preserves_large_images() {
-    let mut fixture = fixture::Fixture::new();
+#[tokio::test]
+async fn preserves_large_images() {
+    let mut fixture = fixture::Fixture::new().await;
     let bytes = vec![255; 600 * 1024];
     let mut event = AdkEvent::new("driver-image-fixture");
     event.author = "assistant".into();
@@ -23,15 +23,16 @@ fn preserves_large_images() {
     });
     event.set_content(content);
     assert!(encode(&event).unwrap().len() > 2 * 1024 * 1024);
-    fixture.append([event]);
+    fixture.append([event]).await;
     let body: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT body FROM agent_events ORDER BY sequence DESC LIMIT 1",
-            [],
-            |row| row.get(0),
-        )
+        .prepare("SELECT body FROM agent_events ORDER BY sequence DESC LIMIT 1")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     let restored: AdkEvent = serde_json::from_slice(&body).unwrap();
     let adk_core::Part::FunctionResponse {
@@ -41,7 +42,7 @@ fn preserves_large_images() {
         panic!("capture result expected")
     };
     assert_eq!(function_response.inline_data[0].data, bytes);
-    let projected = fixture.read(None, 100).page.entries;
+    let projected = fixture.read(None, 100).await.page.entries;
     let Part::ToolResult { images, .. } = &projected[0].parts[0] else {
         panic!("tool result expected")
     };
@@ -50,17 +51,20 @@ fn preserves_large_images() {
     assert_eq!(images[0].attachment.spec.size, bytes.len() as u64);
     assert_eq!(
         super::super::images::resolve(&fixture.database.connection, fixture.session, &images[0])
+            .await
             .unwrap(),
         bytes
     );
     assert!(encode(&projected).unwrap().len() < 4096);
-    history::rebuild(&mut fixture.database.connection).unwrap();
-    assert_eq!(fixture.read(None, 100).page.entries, projected);
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(fixture.read(None, 100).await.page.entries, projected);
 }
 
-#[test]
-fn validates_source_metadata() {
-    let mut fixture = fixture::Fixture::new();
+#[tokio::test]
+async fn validates_source_metadata() {
+    let mut fixture = fixture::Fixture::new().await;
     let mut event = AdkEvent::new("mixed-media");
     let mut content = adk_core::Content::new("tool").with_text("Image results");
     content.parts.push(adk_core::Part::FunctionResponse {
@@ -80,8 +84,8 @@ fn validates_source_metadata() {
         ),
     });
     event.set_content(content);
-    fixture.append([event]);
-    let page = fixture.read(None, 100).page;
+    fixture.append([event]).await;
+    let page = fixture.read(None, 100).await.page;
     let Part::ToolResult { images, .. } = &page.entries[0].parts[1] else {
         panic!("tool result expected")
     };
@@ -107,6 +111,7 @@ fn validates_source_metadata() {
         }
         assert_eq!(
             super::super::images::resolve(&fixture.database.connection, fixture.session, &altered)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::RevisionConflict
@@ -120,6 +125,7 @@ fn validates_source_metadata() {
         };
         assert_eq!(
             super::super::images::resolve(&fixture.database.connection, fixture.session, &altered)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::NotFound
@@ -127,9 +133,9 @@ fn validates_source_metadata() {
     }
 }
 
-#[test]
-fn preserves_assistant_parts() {
-    let mut fixture = fixture::Fixture::new();
+#[tokio::test]
+async fn preserves_assistant_parts() {
+    let mut fixture = fixture::Fixture::new().await;
     let bytes = vec![255; 600 * 1024];
     let mut event = AdkEvent::new("assistant-image");
     event.author = "assistant".into();
@@ -142,8 +148,8 @@ fn preserves_assistant_parts() {
     });
     content = content.with_text("After the image");
     event.set_content(content);
-    fixture.append([event]);
-    let entries = fixture.read(None, 100).page.entries;
+    fixture.append([event]).await;
+    let entries = fixture.read(None, 100).await.page.entries;
     let parts = &entries[0].parts;
     assert_eq!(parts.len(), 3);
     assert_eq!(parts[0], Part::Text("Before the image".into()));
@@ -155,6 +161,7 @@ fn preserves_assistant_parts() {
     assert_eq!(image.attachment.spec.size, bytes.len() as u64);
     assert_eq!(
         super::super::images::resolve(&fixture.database.connection, fixture.session, image)
+            .await
             .unwrap(),
         bytes
     );
@@ -163,18 +170,21 @@ fn preserves_assistant_parts() {
     altered.index = 1;
     assert_eq!(
         super::super::images::resolve(&fixture.database.connection, fixture.session, &altered)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::NotFound
     );
-    history::rebuild(&mut fixture.database.connection).unwrap();
-    assert_eq!(fixture.read(None, 100).page.entries, entries);
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(fixture.read(None, 100).await.page.entries, entries);
 }
 
-#[test]
-fn resolves_visible_history() {
-    let mut fixture = fixture::Fixture::new();
-    let before = fixture.completed(&["Before the image"]);
+#[tokio::test]
+async fn resolves_visible_history() {
+    let mut fixture = fixture::Fixture::new().await;
+    let before = fixture.completed(&["Before the image"]).await;
     let mut event = AdkEvent::new("visible-image");
     event.set_content(adk_core::Content {
         role: "tool".into(),
@@ -193,8 +203,8 @@ fn resolves_visible_history() {
             ),
         }],
     });
-    let head = fixture.append([event]);
-    let page = fixture.read(None, 100).page;
+    let head = fixture.append([event]).await;
+    let page = fixture.read(None, 100).await.page;
     let image = page
         .entries
         .iter()
@@ -215,11 +225,14 @@ fn resolves_visible_history() {
             through: before,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("fork expected")
     };
     assert_eq!(
         super::super::images::resolve(&fixture.database.connection, early.id, &image)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::NotFound
@@ -232,11 +245,15 @@ fn resolves_visible_history() {
             through: head,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("fork expected")
     };
     assert_eq!(
-        super::super::images::resolve(&fixture.database.connection, fork.id, &image).unwrap(),
+        super::super::images::resolve(&fixture.database.connection, fork.id, &image)
+            .await
+            .unwrap(),
         [1, 2, 3]
     );
     let Output::Rewound(rewound) = command(
@@ -248,26 +265,31 @@ fn resolves_visible_history() {
             expected_head: head,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("rewind expected")
     };
     assert_eq!(
         super::super::images::resolve(&fixture.database.connection, fixture.session, &image)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::NotFound
     );
     assert!(rewound.backup.is_none());
     assert_eq!(
-        super::super::images::resolve(&fixture.database.connection, fork.id, &image).unwrap(),
+        super::super::images::resolve(&fixture.database.connection, fork.id, &image)
+            .await
+            .unwrap(),
         [1, 2, 3]
     );
 }
 
-#[test]
-fn rejects_oversized_events() {
-    let mut fixture = fixture::Fixture::new();
-    let turn = fixture.queued();
+#[tokio::test]
+async fn rejects_oversized_events() {
+    let mut fixture = fixture::Fixture::new().await;
+    let turn = fixture.queued().await;
     let mut event = AdkEvent::new("oversized-fixture");
     event.set_content(adk_core::Content::new("model").with_text("x".repeat(MAX_FRAME_BYTES)));
     let error = super::super::history::append(
@@ -277,6 +299,7 @@ fn rejects_oversized_events() {
         event,
         &fixture.events,
     )
+    .await
     .unwrap_err();
     assert!(error.to_string().contains("history frame limit"));
 }

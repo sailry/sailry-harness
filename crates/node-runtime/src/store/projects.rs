@@ -1,8 +1,8 @@
 //! Project creation behavior: Sailry Code d9b56405, create_project_dialog.dart.
 use super::database::{encode, storage_error};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{projects::*, *};
 use std::path::{Path, PathBuf};
+use turso::{Connection, params};
 pub(super) mod removal;
 
 pub(super) fn prepare(draft: &Draft) -> Result<PathBuf, Fault> {
@@ -83,7 +83,7 @@ pub(super) fn execute(draft: &Draft, path: &Path) -> Result<Output, Fault> {
     }))
 }
 
-pub(super) fn register(
+pub(super) async fn register(
     db: &Connection,
     name: &str,
     path: &str,
@@ -96,22 +96,22 @@ pub(super) fn register(
         path: text(&directory(Path::new(path))?)?,
         appearance,
     };
-    restore(db, &mut project)?;
-    insert(db, &project)?;
+    restore(db, &mut project).await?;
+    insert(db, &project).await?;
     Ok((
         Output::Project(project.clone()),
         Some(Event::ProjectRegistered(project)),
     ))
 }
 
-pub(super) fn finish(
+pub(super) async fn finish(
     db: &Connection,
     command: &Command,
     result: &mut sailry_link::Response,
 ) -> Result<Option<Event>, Fault> {
     if let Command::RemoveProject { expected } = command {
         if matches!(result, Ok(Output::ProjectRemoved { id }) if *id == expected.id) {
-            return match remove(db, expected) {
+            return match remove(db, expected).await {
                 Ok((output, event)) => {
                     *result = Ok(output);
                     Ok(event)
@@ -141,8 +141,8 @@ pub(super) fn finish(
     let Ok(Output::Project(project)) = result else {
         return Ok(None);
     };
-    restore(db, project)?;
-    match insert(db, project) {
+    restore(db, project).await?;
+    match insert(db, project).await {
         Ok(()) => Ok(Some(Event::ProjectRegistered(project.clone()))),
         // Duplicate detection precedes every write in insert.
         Err(error) if error.code == ErrorCode::Conflict => {
@@ -153,17 +153,22 @@ pub(super) fn finish(
     }
 }
 
-fn insert(db: &Connection, project: &Project) -> Result<(), Fault> {
-    if get(db, project.id)?.as_ref() == Some(project) {
+async fn insert(db: &Connection, project: &Project) -> Result<(), Fault> {
+    if get(db, project.id).await?.as_ref() == Some(project) {
         return Ok(());
     }
-    let exists: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM projects WHERE path=?1)",
-            [&project.path],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let exists: bool = {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM projects WHERE path=?1)")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([project.path.as_str()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if exists {
         return Err(Fault::new(
             ErrorCode::Conflict,
@@ -174,48 +179,62 @@ fn insert(db: &Connection, project: &Project) -> Result<(), Fault> {
         "INSERT INTO projects(id,name,path,appearance) VALUES(?1,?2,?3,?4)",
         params![
             project.id.to_string(),
-            project.name,
-            project.path,
+            project.name.as_str(),
+            project.path.as_str(),
             encode(&project.appearance)?
         ],
     )
+    .await
     .map_err(storage_error)?;
-    super::worktrees::register_main(db, project)
+    super::worktrees::register_main(db, project).await
 }
 
-pub(super) fn list(db: &Connection) -> Result<Vec<Project>, Fault> {
-    let mut query = db.prepare("SELECT id,name,path,appearance FROM projects WHERE id NOT IN (SELECT project FROM removed_projects) ORDER BY rowid").map_err(storage_error)?;
-    query
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get::<_, Vec<u8>>(3)?,
-            ))
+pub(super) async fn list(db: &Connection) -> Result<Vec<Project>, Fault> {
+    let mut query = db.prepare("SELECT id,name,path,appearance FROM projects WHERE id NOT IN (SELECT project FROM removed_projects) ORDER BY rowid").await.map_err(storage_error)?;
+    {
+        let mut rows = query.query(()).await.map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| {
+                Ok((
+                    row.get::<String>(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get::<Vec<u8>>(3)?,
+                ))
+            })(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|row| {
+        let (id, name, path, appearance) = row.map_err(storage_error)?;
+        Ok(Project {
+            id: id.parse().map_err(storage_error)?,
+            name,
+            path,
+            appearance: serde_json::from_slice(&appearance).map_err(storage_error)?,
         })
-        .map_err(storage_error)?
-        .map(|row| {
-            let (id, name, path, appearance) = row.map_err(storage_error)?;
-            Ok(Project {
-                id: id.parse().map_err(storage_error)?,
-                name,
-                path,
-                appearance: serde_json::from_slice(&appearance).map_err(storage_error)?,
-            })
-        })
-        .collect()
+    })
+    .collect()
 }
 
-fn get(db: &Connection, id: ProjectId) -> Result<Option<Project>, Fault> {
-    let row: Option<(String, String, Vec<u8>)> = db
-        .query_row(
-            "SELECT name,path,appearance FROM projects WHERE id=?1",
-            [id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn get(db: &Connection, id: ProjectId) -> Result<Option<Project>, Fault> {
+    let row: Option<(String, String, Vec<u8>)> = {
+        let mut statement = db
+            .prepare("SELECT name,path,appearance FROM projects WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     row.map(|(name, path, appearance)| {
         Ok(Project {
             id,
@@ -227,56 +246,69 @@ fn get(db: &Connection, id: ProjectId) -> Result<Option<Project>, Fault> {
     .transpose()
 }
 
-fn check(db: &Connection, expected: &Project) -> Result<(), Fault> {
-    if get(db, expected.id)?.as_ref() != Some(expected) {
+async fn check(db: &Connection, expected: &Project) -> Result<(), Fault> {
+    if get(db, expected.id).await?.as_ref() != Some(expected) {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "project changed; reload before saving",
         ));
     }
-    let removed: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM removed_projects WHERE project=?1)",
-            [expected.id.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let removed: bool = {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM removed_projects WHERE project=?1)")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([expected.id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if removed {
         return Err(Fault::new(ErrorCode::NotFound, "project was removed"));
     }
     Ok(())
 }
 
-fn restore(db: &Connection, project: &mut Project) -> Result<(), Fault> {
-    let id: Option<String> = db
-        .query_row(
-            "SELECT p.id FROM projects p JOIN removed_projects r ON r.project=p.id WHERE p.path=?1",
-            [&project.path],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn restore(db: &Connection, project: &mut Project) -> Result<(), Fault> {
+    let id: Option<String> = {
+        let mut statement = db.prepare("SELECT p.id FROM projects p JOIN removed_projects r ON r.project=p.id WHERE p.path=?1").await.map_err(storage_error)?;
+        match statement.query_row([project.path.as_str()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     if let Some(id) = id {
         project.id = id.parse().map_err(storage_error)?;
-        db.execute("DELETE FROM removed_projects WHERE project=?1", [&id])
-            .map_err(storage_error)?;
+        db.execute(
+            "DELETE FROM removed_projects WHERE project=?1",
+            [id.as_str()],
+        )
+        .await
+        .map_err(storage_error)?;
         db.execute(
             "UPDATE projects SET name=?2,appearance=?3 WHERE id=?1",
-            params![id, project.name, encode(&project.appearance)?],
+            params![id, project.name.as_str(), encode(&project.appearance)?],
         )
+        .await
         .map_err(storage_error)?;
     }
     Ok(())
 }
 
-pub(super) fn update(
+pub(super) async fn update(
     db: &Connection,
     expected: &Project,
     name: &str,
     path: &str,
     appearance: &Appearance,
 ) -> Result<(Output, Option<Event>), Fault> {
-    check(db, expected)?;
+    check(db, expected).await?;
     validate(name, path, appearance)?;
     let path = if path == expected.path {
         path.to_owned()
@@ -284,22 +316,33 @@ pub(super) fn update(
         text(&directory(Path::new(path))?)?
     };
     if path != expected.path {
-        let used: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sessions WHERE project=?1) OR EXISTS(SELECT 1 FROM worktrees WHERE project=?1 AND main=0) OR EXISTS(SELECT 1 FROM terminals WHERE worktree IN (SELECT id FROM worktrees WHERE project=?1))",
-            [expected.id.to_string()], |row| row.get(0)).map_err(storage_error)?;
+        let used: bool = {
+            let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM sessions WHERE project=?1) OR EXISTS(SELECT 1 FROM worktrees WHERE project=?1 AND main=0) OR EXISTS(SELECT 1 FROM terminals WHERE worktree IN (SELECT id FROM worktrees WHERE project=?1))").await.map_err(storage_error)?;
+            let row = statement
+                .query_row([expected.id.to_string()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
         if used {
             return Err(Fault::new(
                 ErrorCode::Busy,
                 "project path is bound to existing resources",
             ));
         }
-        let duplicate: bool = db
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM worktrees WHERE path=?1)",
-                [&path],
-                |row| row.get(0),
-            )
-            .map_err(storage_error)?;
+        let duplicate: bool = {
+            let mut statement = db
+                .prepare("SELECT EXISTS(SELECT 1 FROM worktrees WHERE path=?1)")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row([path.as_str()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped.map_err(storage_error)?
+        };
         if duplicate {
             return Err(Fault::new(
                 ErrorCode::Conflict,
@@ -308,8 +351,9 @@ pub(super) fn update(
         }
         db.execute(
             "UPDATE worktrees SET path=?2 WHERE project=?1 AND main=1",
-            params![expected.id.to_string(), path],
+            params![expected.id.to_string(), path.as_str()],
         )
+        .await
         .map_err(storage_error)?;
     }
     let project = Project {
@@ -322,11 +366,12 @@ pub(super) fn update(
         "UPDATE projects SET name=?2,path=?3,appearance=?4 WHERE id=?1",
         params![
             project.id.to_string(),
-            project.name,
-            project.path,
+            project.name.as_str(),
+            project.path.as_str(),
             encode(&project.appearance)?
         ],
     )
+    .await
     .map_err(storage_error)?;
     Ok((
         Output::Project(project.clone()),
@@ -334,11 +379,11 @@ pub(super) fn update(
     ))
 }
 
-pub(super) fn remove(
+pub(super) async fn remove(
     db: &Connection,
     expected: &Project,
 ) -> Result<(Output, Option<Event>), Fault> {
-    if !removal::prepare(db, expected)?.terminals.is_empty() {
+    if !removal::prepare(db, expected).await?.terminals.is_empty() {
         return Err(Fault::new(
             ErrorCode::Busy,
             "project still has open terminals",
@@ -348,6 +393,7 @@ pub(super) fn remove(
         "INSERT INTO removed_projects(project) VALUES(?1)",
         [expected.id.to_string()],
     )
+    .await
     .map_err(storage_error)?;
     Ok((
         Output::ProjectRemoved { id: expected.id },

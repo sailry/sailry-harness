@@ -1,8 +1,9 @@
 use super::*;
 use sailry_protocol::{connection::Sharing, database, tool::Operation};
 
-fn fixture() -> (Fixture, Binding, database::Profile) {
-    let mut fixture = Fixture::with_package(Permission::Ask, WorkMode::Code, Some("databases"));
+async fn fixture() -> (Fixture, Binding, database::Profile) {
+    let mut fixture =
+        Fixture::with_package(Permission::Ask, WorkMode::Code, Some("databases")).await;
     let db = &fixture.database.connection;
     let profile = database::Profile {
         sharing: Some(Sharing::Global),
@@ -24,8 +25,10 @@ fn fixture() -> (Fixture, Binding, database::Profile) {
         "INSERT INTO database_profiles(id,body,password) VALUES(?1,?2,'')",
         params![profile.id.to_string(), encode(&profile).unwrap()],
     )
+    .await
     .unwrap();
     let owner = super::super::super::plugins::read(db, fixture.turn)
+        .await
         .unwrap()
         .into_iter()
         .find(|package| package.name == "databases")
@@ -55,6 +58,7 @@ fn fixture() -> (Fixture, Binding, database::Profile) {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let binding = Binding {
         owner,
@@ -76,9 +80,9 @@ fn command(profile: &database::Profile) -> Command {
     }
 }
 
-#[test]
-fn freezes_connection_before_user_decision() {
-    let (mut fixture, binding, profile) = fixture();
+#[tokio::test]
+async fn freezes_connection_before_user_decision() {
+    let (mut fixture, binding, profile) = fixture().await;
     let approval = begin_for(
         &mut fixture.database,
         fixture.turn,
@@ -90,15 +94,17 @@ fn freezes_connection_before_user_decision() {
         },
         &fixture.events,
     )
+    .await
     .unwrap();
     let saved: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT prepared FROM agent_approvals WHERE id=?1",
-            [approval.id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT prepared FROM agent_approvals WHERE id=?1")
+        .await
+        .unwrap()
+        .query_row([approval.id.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     let captured: Option<Prepared> = serde_json::from_slice(&saved).unwrap();
     assert!(captured.unwrap().matches(&command(&profile)).unwrap());
@@ -120,24 +126,27 @@ fn freezes_connection_before_user_decision() {
             "UPDATE database_profiles SET body=?1",
             [encode(&changed).unwrap()],
         )
+        .await
         .unwrap();
-    fixture.approve(approval.id);
+    fixture.approve(approval.id).await;
     let error = authorize(
         &mut fixture.database.connection,
         fixture.turn,
         &fixture.request,
         Some(&command(&changed)),
     )
+    .await
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::Conflict);
     let claimed: bool = fixture
         .database
         .connection
-        .query_row(
-            "SELECT claimed FROM agent_approvals WHERE id=?1",
-            [approval.id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT claimed FROM agent_approvals WHERE id=?1")
+        .await
+        .unwrap()
+        .query_row([approval.id.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert!(!claimed);
     // The original frozen command can be claimed, but the service rejects its stale revision.
@@ -147,9 +156,11 @@ fn freezes_connection_before_user_decision() {
         &fixture.request,
         Some(&command(&profile)),
     )
+    .await
     .unwrap();
     assert_eq!(
         crate::store::databases::prepare(&fixture.database, &command(&profile))
+            .await
             .err()
             .unwrap()
             .code,
@@ -157,10 +168,10 @@ fn freezes_connection_before_user_decision() {
     );
 }
 
-#[test]
-fn accepts_unchanged_target_and_rejects_unbound_history() {
+#[tokio::test]
+async fn accepts_unchanged_target_and_rejects_unbound_history() {
     for legacy in [false, true] {
-        let (mut fixture, binding, profile) = fixture();
+        let (mut fixture, binding, profile) = fixture().await;
         let approval = begin_for(
             &mut fixture.database,
             fixture.turn,
@@ -172,6 +183,7 @@ fn accepts_unchanged_target_and_rejects_unbound_history() {
             },
             &fixture.events,
         )
+        .await
         .unwrap();
         if legacy {
             fixture
@@ -181,15 +193,17 @@ fn accepts_unchanged_target_and_rejects_unbound_history() {
                     "UPDATE agent_approvals SET prepared=?1",
                     [b"null".as_slice()],
                 )
+                .await
                 .unwrap();
         }
-        fixture.approve(approval.id);
+        fixture.approve(approval.id).await;
         let result = authorize(
             &mut fixture.database.connection,
             fixture.turn,
             &fixture.request,
             Some(&command(&profile)),
-        );
+        )
+        .await;
         if legacy {
             assert_eq!(result.unwrap_err().code, ErrorCode::Conflict);
         } else {
@@ -198,9 +212,9 @@ fn accepts_unchanged_target_and_rejects_unbound_history() {
     }
 }
 
-#[test]
-fn retains_revision_fence_across_workflow_steps() {
-    let (mut fixture, binding, profile) = fixture();
+#[tokio::test]
+async fn retains_revision_fence_across_workflow_steps() {
+    let (mut fixture, binding, profile) = fixture().await;
     let approval = begin(
         &mut fixture.database,
         fixture.turn,
@@ -208,14 +222,16 @@ fn retains_revision_fence_across_workflow_steps() {
         Some(&binding),
         &fixture.events,
     )
+    .await
     .unwrap();
-    fixture.approve(approval.id);
+    fixture.approve(approval.id).await;
     authorize(
         &mut fixture.database.connection,
         fixture.turn,
         &fixture.request,
         Some(&command(&profile)),
     )
+    .await
     .unwrap();
     let mut second = command(&profile);
     if let Command::QueryDatabase { sql, .. } = &mut second {
@@ -227,6 +243,7 @@ fn retains_revision_fence_across_workflow_steps() {
         &fixture.request,
         &second,
     )
+    .await
     .unwrap();
     if let Command::QueryDatabase {
         expected_revision, ..
@@ -241,6 +258,7 @@ fn retains_revision_fence_across_workflow_steps() {
             &fixture.request,
             &second
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::Conflict
@@ -254,6 +272,7 @@ fn retains_revision_fence_across_workflow_steps() {
             &changed,
             &command(&profile)
         )
+        .await
         .is_err()
     );
 }

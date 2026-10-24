@@ -53,23 +53,29 @@ async fn expires_after_repeated_post_rejections() {
         let row = connect(&fixture).await;
         let initial = cli.calls("token");
         let mut rotated = initial;
-        let fence = || -> u64 {
-            let body: Vec<u8> = rusqlite::Connection::open_with_flags(
-                fixture.node.profile().join("storage/node.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap()
-            .query_row(
-                "SELECT body FROM plugin_connections WHERE id=?1",
-                [row.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let fence = async || {
+            let id = row.id;
+            let body = fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row([id.to_string()])
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .get::<Vec<u8>>(0)
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+                .unwrap();
             serde_json::from_slice::<Value>(&body).unwrap()["grant_revision"]
                 .as_u64()
                 .unwrap()
         };
-        let connected = fence();
+        let connected = fence().await;
         for (index, expected) in [State::Connected, State::Expired].into_iter().enumerate() {
             let (_, turn) = submit(&fixture, false).await;
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -88,7 +94,11 @@ async fn expires_after_repeated_post_rejections() {
             assert_eq!(rows[0].state, expected, "{remote}/{index}");
             assert_eq!(rows[0].revision, row.revision);
             // Token reads never write; only the rotation and the expiry advance the fence.
-            assert_eq!(fence(), connected + 1 + index as u64, "{remote}/{index}");
+            assert_eq!(
+                fence().await,
+                connected + 1 + index as u64,
+                "{remote}/{index}"
+            );
             let calls = cli.calls("token");
             if index == 0 {
                 assert_eq!(calls, initial + 2, "initial access and one 401 renewal");

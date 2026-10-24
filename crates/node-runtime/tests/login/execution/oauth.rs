@@ -1,19 +1,28 @@
 use super::*;
 use sailry_protocol::conversation::oauth::Options;
 
-fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
-    let db = rusqlite::Connection::open_with_flags(
-        fixture.directory.path().join("node/storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
+async fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
+    let body: Vec<u8> = {
+        let sql = ("SELECT provider FROM agent_runs WHERE turn=?1").to_owned();
+        let parameters = turso::params![turn.id.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
     .unwrap();
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT provider FROM agent_runs WHERE turn=?1",
-            [turn.id.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
     serde_json::from_slice(&body).unwrap()
 }
 
@@ -47,7 +56,7 @@ async fn captures_effective_defaults_without_changing_provider() {
             let session = session(&fixture, &provider).await;
             let turn = queued(&fixture, &session).await;
             assert_eq!(
-                captured(&fixture, &turn).oauth,
+                captured(&fixture, &turn).await.oauth,
                 Options::defaults(authentication)
             );
             let Output::Providers(providers) = fixture
@@ -106,7 +115,7 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
             let provider = configured(&fixture, authentication, api, Some(options.clone())).await;
             let session = session(&fixture, &provider).await;
             let turn = queued(&fixture, &session).await;
-            assert_eq!(captured(&fixture, &turn).oauth, Some(options));
+            assert_eq!(captured(&fixture, &turn).await.oauth, Some(options));
             let mut changed = provider.clone();
             changed.oauth = Some(super::super::oauth::options(authentication, "current"));
             let Output::Provider(saved) = fixture
@@ -122,7 +131,7 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
             };
             let fixture = renewals::restart(fixture, &server, remote).await;
             assert_eq!(
-                captured(&fixture, &turn).oauth,
+                captured(&fixture, &turn).await.oauth,
                 Some(super::super::oauth::options(authentication, "captured"))
             );
             let Output::Snapshot(snapshot) = fixture

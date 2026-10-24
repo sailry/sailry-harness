@@ -1,8 +1,8 @@
 use super::*;
 use serde_json::json;
 
-#[test]
-fn retained_version_requires_claimed_request() {
+#[tokio::test]
+async fn retained_version_requires_claimed_request() {
     retained(Callback {
         scope: Scope::default(),
         completion: Completion::Command,
@@ -11,11 +11,12 @@ fn retained_version_requires_claimed_request() {
             input: json!(null),
         }),
         bindings: std::collections::BTreeMap::from([("/data/input".into(), "/payload".into())]),
-    });
+    })
+    .await;
 }
 
-#[test]
-fn ordinary_callbacks_retain_exact_authority() {
+#[tokio::test]
+async fn ordinary_callbacks_retain_exact_authority() {
     retained(Callback {
         scope: Scope::default(),
         completion: Completion::Turn,
@@ -32,27 +33,39 @@ fn ordinary_callbacks_retain_exact_authority() {
             "/data/message/text".into(),
             "/payload/key".into(),
         )]),
-    });
+    })
+    .await;
 }
 
-fn retained(callback: Callback) {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("../../schema.sql")).unwrap();
+async fn retained(callback: Callback) {
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
+    db.execute_batch(include_str!("../../schema.sql"))
+        .await
+        .unwrap();
     let directory = tempfile::tempdir().unwrap();
-    let mut old = super::super::tests::install(&db, directory.path(), "example");
+    let mut old = super::super::tests::install(&db, directory.path(), "example").await;
     old.summary.digest = "a".repeat(64);
     let reference = old.summary.reference();
     let mut current = old.clone();
     current.summary.digest = "b".repeat(64);
     db.execute(
         "INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3)",
-        params![reference.digest, reference.name, encode(&old).unwrap()],
+        params![
+            reference.digest.as_str(),
+            reference.name.as_str(),
+            encode(&old).unwrap()
+        ],
     )
+    .await
     .unwrap();
     db.execute(
         "UPDATE plugins SET body=?2 WHERE name=?1",
-        params![reference.name, encode(&current).unwrap()],
+        params![reference.name.as_str(), encode(&current).unwrap()],
     )
+    .await
     .unwrap();
     let handler = Handler {
         name: "receive".into(),
@@ -73,12 +86,16 @@ fn retained(callback: Callback) {
         schedule: None,
         scheduled_ms: None,
     };
-    let job = events::enqueue(&db, Some(&reference), &handler, &event).unwrap();
+    db.execute_batch("BEGIN CONCURRENT").await.unwrap();
+    let job = events::enqueue(&db, Some(&reference), &handler, &event)
+        .await
+        .unwrap();
     let node = protocol::NodeId([91; 32]);
-    let (mut work, _) = claim(&db, node, 2).unwrap();
+    let (mut work, _) = claim(&db, node, 2).await.unwrap();
     let original = work.pop().unwrap().request;
     assert_eq!(
         package(&db, node, node, &original)
+            .await
             .unwrap()
             .unwrap()
             .summary
@@ -87,6 +104,7 @@ fn retained(callback: Callback) {
     );
     assert!(
         package(&db, node, protocol::NodeId([92; 32]), &original)
+            .await
             .unwrap()
             .is_none()
     );
@@ -96,22 +114,24 @@ fn retained(callback: Callback) {
         input: json!({"key":"forged"}),
     };
     assert_eq!(
-        package(&db, node, node, &forged).unwrap_err().code,
+        package(&db, node, node, &forged).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
     forged = original.clone();
     forged.plugin.as_mut().unwrap().worktree = Some(protocol::WorktreeId::new());
     assert_eq!(
-        package(&db, node, node, &forged).unwrap_err().code,
+        package(&db, node, node, &forged).await.unwrap_err().code,
         ErrorCode::PermissionDenied
     );
     current.summary.enabled = false;
     db.execute("UPDATE plugins SET body=?1", [encode(&current).unwrap()])
+        .await
         .unwrap();
     assert_eq!(
-        package(&db, node, node, &original).unwrap_err().code,
+        package(&db, node, node, &original).await.unwrap_err().code,
         ErrorCode::NotConfigured
     );
-    finish(&db, job.id, Ok(())).unwrap();
-    assert!(package(&db, node, node, &original).unwrap().is_none());
+    finish(&db, job.id, Ok(())).await.unwrap();
+    assert!(package(&db, node, node, &original).await.unwrap().is_none());
+    db.execute_batch("COMMIT").await.unwrap();
 }

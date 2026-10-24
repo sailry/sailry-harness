@@ -1,6 +1,5 @@
 //! Host settings and immutable session choices share the existing Node transaction.
 use super::database::{encode, storage_error};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
     conversation::Provider,
     media::{self, Kind},
@@ -8,6 +7,7 @@ use sailry_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use turso::{Connection, params};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Model {
@@ -27,25 +27,34 @@ pub(crate) struct Plan {
 
 pub(crate) type Models = BTreeMap<Kind, Plan>;
 
-pub(super) fn read(db: &Connection) -> Result<media::Settings, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM media_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn read(db: &Connection) -> Result<media::Settings, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM media_settings WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(()).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
         .map(Option::unwrap_or_default)
 }
 
-pub(super) fn catalog(db: &Connection) -> Result<Vec<media::Candidate>, Fault> {
-    let mut providers = super::agent::providers::list(db)?;
+pub(super) async fn catalog(db: &Connection) -> Result<Vec<media::Candidate>, Fault> {
+    let mut providers = super::agent::providers::list(db).await?;
     for provider in &mut providers {
-        super::providers::completion::fill(db, provider)?;
-        if super::providers::presets::capture_read(db, provider).is_err() {
+        super::providers::completion::fill(db, provider).await?;
+        if super::providers::presets::capture_read(db, provider)
+            .await
+            .is_err()
+        {
             provider.enabled = false;
         }
     }
@@ -72,41 +81,37 @@ pub(super) fn catalog(db: &Connection) -> Result<Vec<media::Candidate>, Fault> {
         .collect())
 }
 
-fn resolve(db: &Connection, settings: &media::Settings) -> Result<Snapshot, Fault> {
-    settings
-        .bindings
-        .iter()
-        .map(|(&kind, binding)| {
-            let Some(binding) = binding else {
-                return Ok((kind, None));
-            };
-            let mut provider =
-                super::agent::providers::get(db, binding.provider)?.ok_or_else(|| {
-                    Fault::new(ErrorCode::NotConfigured, "media provider is unavailable")
-                })?;
-            super::providers::completion::fill(db, &mut provider)?;
-            super::providers::presets::capture_read(db, &mut provider)?;
-            let model = provider
-                .models
-                .iter()
-                .find(|model| model.id == binding.model)
-                .ok_or_else(|| {
-                    Fault::new(ErrorCode::NotConfigured, "media model is unavailable")
-                })?;
-            if !crate::providers::media::supports(kind, &provider, model) {
-                return Err(Fault::invalid("model does not support this media role"));
-            }
-            crate::providers::login::capture(&mut provider)?;
-            Ok((
-                kind,
-                Some(Model {
-                    provider,
-                    model: binding.model.clone(),
-                    effort: None,
-                }),
-            ))
-        })
-        .collect()
+async fn resolve(db: &Connection, settings: &media::Settings) -> Result<Snapshot, Fault> {
+    let mut snapshot = BTreeMap::new();
+    for (&kind, binding) in &settings.bindings {
+        let Some(binding) = binding else {
+            snapshot.insert(kind, None);
+            continue;
+        };
+        let mut provider = super::agent::providers::get(db, binding.provider)
+            .await?
+            .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "media provider is unavailable"))?;
+        super::providers::completion::fill(db, &mut provider).await?;
+        super::providers::presets::capture_read(db, &mut provider).await?;
+        let model = provider
+            .models
+            .iter()
+            .find(|model| model.id == binding.model)
+            .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "media model is unavailable"))?;
+        if !crate::providers::media::supports(kind, &provider, model) {
+            return Err(Fault::invalid("model does not support this media role"));
+        }
+        crate::providers::login::capture(&mut provider)?;
+        snapshot.insert(
+            kind,
+            Some(Model {
+                provider,
+                model: binding.model.clone(),
+                effort: None,
+            }),
+        );
+    }
+    Ok(snapshot)
 }
 
 /// Automatic routes use the admitted model; explicit fallbacks retain the
@@ -146,55 +151,61 @@ pub(crate) fn for_turn(
         .collect()
 }
 
-pub(super) fn save(
+pub(super) async fn save(
     db: &Connection,
     settings: &media::Settings,
 ) -> Result<(Output, Option<Event>), Fault> {
-    if read(db)?.revision != settings.revision {
+    if read(db).await?.revision != settings.revision {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "media settings changed",
         ));
     }
-    resolve(db, settings)?;
+    resolve(db, settings).await?;
     let mut saved = settings.clone();
     saved.revision = saved
         .revision
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
         .ok_or_else(|| Fault::invalid("media settings revision exhausted"))?;
-    db.execute("INSERT INTO media_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&saved)?]).map_err(storage_error)?;
+    db.execute("INSERT INTO media_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&saved)?]).await.map_err(storage_error)?;
     Ok((
         Output::MediaSettings(saved.clone()),
         Some(Event::MediaSettingsChanged(saved)),
     ))
 }
 
-pub(super) fn freeze(
+pub(super) async fn freeze(
     db: &Connection,
     session: SessionId,
     source: Option<SessionId>,
 ) -> Result<(), Fault> {
     let snapshot = match source {
-        Some(source) => session_models(db, source)?,
-        None => resolve(db, &read(db)?)?,
+        Some(source) => session_models(db, source).await?,
+        None => resolve(db, &read(db).await?).await?,
     };
     db.execute(
         "INSERT INTO session_media(session,body) VALUES(?1,?2)",
         params![session.to_string(), encode(&snapshot)?],
     )
+    .await
     .map_err(storage_error)?;
     Ok(())
 }
 
-pub(super) fn session_models(db: &Connection, session: SessionId) -> Result<Snapshot, Fault> {
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM session_media WHERE session=?1",
-            [session.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+pub(super) async fn session_models(db: &Connection, session: SessionId) -> Result<Snapshot, Fault> {
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT body FROM session_media WHERE session=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row([session.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     serde_json::from_slice(&body).map_err(storage_error)
 }
 

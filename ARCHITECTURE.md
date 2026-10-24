@@ -88,6 +88,15 @@ configuration database, never public events, logs or UI caches. Projects remain
 at registered paths; profiles contain Node storage, plugin packages/data and
 uploaded attachments.
 
+The Node uses the native Turso Rust driver for `storage/node.turso` and
+`storage/knowledge.turso`. Each database has one shared native handle; an operation
+leases its own connection and keeps related SQL in one transaction. Every
+connection explicitly uses full synchronous durability, and both databases use
+MVCC. Durable sequence counters advance in the same transaction as their records,
+so deleting records does not reuse their identifiers. Existing SQLite files are
+left untouched; startup does not import them or fall back to another engine.
+External database tools retain their separate SQLx drivers.
+
 Channel presets share one Node-owned directory: bundled declarations, the last
 validated partner catalog and enabled package declarations. Listing the directory
 does not require a public-network read; refreshing partner recommendations is an
@@ -147,17 +156,21 @@ Removing a clean linked worktree without active or queued turns keeps the histor
 of sessions that used it; they cannot admit turns there unless a checkout is
 registered again at that path or the conversation moves to another worktree.
 
-Data management backups use the execution Node's consistent SQLite snapshot,
-referenced plugin packages, attachments and session HTML documents, and registered managed workspaces.
-Database copying and reference enumeration share one pinned read transaction on an
-independent connection, outside the Store actor; concurrent commands can continue.
+Data management backups include both native databases, referenced plugin packages,
+attachments and session HTML documents, and registered managed workspaces.
+Storage maintenance pauses new transactions and drains active connections. It reads
+the backup configuration and resource references in one transaction, checkpoints
+and closes both database handles, copies their complete native file families, and
+reopens them before copying resources. The native MVCC log replaces the database
+extension with `.db-log`; WAL and optional coordination files append `-wal` and
+`-tshm`. Restoring verifies the complete file families before publishing a profile.
 Referenced session documents remain on disk until copying finishes; session
 metadata can still be removed while their physical cleanup waits.
 External project paths remain references. Local folders, WebDAV and S3 publish verified
 password-encrypted age segments before their manifest; uncertain operations keep
 their original request identity. Explicit restore validates the archive into a new empty profile,
 relocates only current profile-owned paths and preserves immutable history.
-Temporary files, model caches and derived indexes are excluded, and restored
+Temporary files and model caches are excluded, and restored
 profiles do not start automatically. Export requires a user passphrase; keys and
 Node identity remain inside the authenticated encrypted archive. The passphrase
 stays in the execution Node's configuration and never appears in public snapshots.
@@ -176,7 +189,7 @@ cannot borrow it. Scheduling requires an online Node and reuses the existing lat
 due occurrence recovery; no controller window or additional background service is required.
 
 Knowledge collections, settings and explicit plugin grants remain in the primary
-Node database. `storage/knowledge.db` contains only derived chunks, full-text
+Node database. `storage/knowledge.turso` contains only derived chunks, native full-text
 indexes and quantized vectors; removing that cache never removes registered
 sources or configuration. Plugins query their captured private storage or granted
 collections through the same Client boundary. Source revisions, tags, paths and
@@ -198,9 +211,9 @@ One Node-owned local model registry manages OCR, embedding and decision definiti
 selection, downloads, verified receipts and installation state through the same
 commands and events. Assets require explicit installation and immutable revision,
 size and SHA-256 verification. Existing model IDs, directories and collection
-references survive the centralized, backed-up storage update; derived vector keys
-and source scopes remain unchanged. The settings singleton records completed
-import even after all registered models are removed. Committed model configuration
+references survive centralized, backed-up current-format updates; derived vector keys
+and source scopes remain unchanged. The settings singleton retains its choices
+even after all registered models are removed. Committed model configuration
 is applied to that registry before command completion. Installation subscriptions
 carry progress; catalog events carry definition and installation-state changes.
 Knowledge retrieval reads model configuration from the registry. Embedding changes

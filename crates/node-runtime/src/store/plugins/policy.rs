@@ -29,10 +29,10 @@ fn field(info: &Info) -> Result<Option<(&str, &Field)>, Fault> {
     Ok(Some((name, field)))
 }
 
-fn owner(db: &Connection) -> Result<Option<Info>, Fault> {
+async fn owner(db: &Connection) -> Result<Option<Info>, Fault> {
     let mut owner = None;
-    for summary in list(db)? {
-        let info = required(db, &summary.name)?;
+    for summary in list(db).await? {
+        let info = required(db, &summary.name).await?;
         if field(&info)?.is_some() {
             if owner.is_some() {
                 return Err(Fault::invalid(
@@ -45,9 +45,11 @@ fn owner(db: &Connection) -> Result<Option<Info>, Fault> {
     Ok(owner)
 }
 
-pub(super) fn check(db: &Connection, info: &Info) -> Result<(), Fault> {
+pub(super) async fn check(db: &Connection, info: &Info) -> Result<(), Fault> {
     if field(info)?.is_some()
-        && owner(db)?.is_some_and(|owner| owner.summary.name != info.summary.name)
+        && owner(db)
+            .await?
+            .is_some_and(|owner| owner.summary.name != info.summary.name)
     {
         return Err(Fault::invalid(
             "child execution policy already has an installed owner",
@@ -56,12 +58,12 @@ pub(super) fn check(db: &Connection, info: &Info) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(in crate::store) fn child_limit(db: &Connection) -> Result<Option<u64>, Fault> {
-    let Some(info) = owner(db)? else {
+pub(in crate::store) async fn child_limit(db: &Connection) -> Result<Option<u64>, Fault> {
+    let Some(info) = owner(db).await? else {
         return Ok(None);
     };
     let (name, _) = field(&info)?.expect("policy owner has a declared field");
-    let state = settings::read_admitted(db, &info)?;
+    let state = settings::read_admitted(db, &info).await?;
     state
         .values
         .get(name)
@@ -75,15 +77,15 @@ pub(in crate::store) fn child_limit(db: &Connection) -> Result<Option<u64>, Faul
         .map(Some)
 }
 
-pub(super) fn migrate(db: &Connection, info: &mut Info) -> Result<(), Fault> {
+pub(super) async fn migrate(db: &Connection, info: &mut Info) -> Result<(), Fault> {
     let Some((name, _)) = field(info)? else {
         return Ok(());
     };
     let name = name.to_owned();
-    let Some(retained) = super::super::background_settings::retained(db)? else {
+    let Some(retained) = super::super::background_settings::retained(db).await? else {
         return Ok(());
     };
-    let mut saved = settings::stored(db, info)?;
+    let mut saved = settings::stored(db, info).await?;
     if info.summary.settings_revision != 0 && saved.values.contains_key(&name) {
         return Ok(());
     }
@@ -104,5 +106,5 @@ pub(super) fn migrate(db: &Connection, info: &mut Info) -> Result<(), Fault> {
     } else {
         saved.schema = info.settings.clone();
     }
-    settings::persist(db, info, &saved)
+    settings::persist(db, info, &saved).await
 }

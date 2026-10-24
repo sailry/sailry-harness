@@ -2,20 +2,24 @@ use super::*;
 use crate::store::agent::tests::fixture::Fixture;
 use serde_json::json;
 
-fn fixture() -> (Fixture, TurnId, WorktreeId) {
-    let mut fixture = Fixture::new();
+async fn fixture() -> (Fixture, TurnId, WorktreeId) {
+    let mut fixture = Fixture::new().await;
     let mut session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+        crate::store::commands::session(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
     let worktree = session.worktree;
     session.config.mode = WorkMode::Plan;
-    crate::store::commands::revise_session(&fixture.database.connection, session).unwrap();
-    let turn = fixture.queued();
+    crate::store::commands::revise_session(&fixture.database.connection, session)
+        .await
+        .unwrap();
+    let turn = fixture.queued().await;
     (fixture, turn, worktree)
 }
 
-#[test]
-fn rejects_actual_mutations_despite_read_labels() {
-    let (fixture, turn, worktree) = fixture();
+#[tokio::test]
+async fn rejects_actual_mutations_despite_read_labels() {
+    let (fixture, turn, worktree) = fixture().await;
     let db = &fixture.database.connection;
     let query = |read_only| Command::QueryDatabase {
         read_only,
@@ -26,9 +30,12 @@ fn rejects_actual_mutations_despite_read_labels() {
         row_limit: 1,
         timeout_ms: 1000,
     };
-    check_action(db, turn, &query(true), Some(&Action::ReadDatabases)).unwrap();
+    check_action(db, turn, &query(true), Some(&Action::ReadDatabases))
+        .await
+        .unwrap();
     assert_eq!(
         check_action(db, turn, &query(false), Some(&Action::ReadDatabases))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -62,20 +69,26 @@ fn rejects_actual_mutations_despite_read_labels() {
             action,
         };
         assert_eq!(
-            check_action(db, turn, &command, Some(&Action::ReadBrowser)).is_ok(),
+            check_action(db, turn, &command, Some(&Action::ReadBrowser))
+                .await
+                .is_ok(),
             read_only
         );
     }
 }
 
-#[test]
-fn permits_reads_and_rejects_resource_writes() {
-    let (mut fixture, turn, worktree) = fixture();
+#[tokio::test]
+async fn permits_reads_and_rejects_resource_writes() {
+    let (mut fixture, turn, worktree) = fixture().await;
     let mut session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+        crate::store::commands::session(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
     session.config.mode = WorkMode::Code;
-    crate::store::commands::revise_session(&fixture.database.connection, session).unwrap();
-    let coding = fixture.queued();
+    crate::store::commands::revise_session(&fixture.database.connection, session)
+        .await
+        .unwrap();
+    let coding = fixture.queued().await;
     let db = &fixture.database.connection;
     for (command, action) in [
         (
@@ -93,7 +106,9 @@ fn permits_reads_and_rejects_resource_writes() {
             Action::ReadFiles,
         ),
     ] {
-        check_action(db, turn, &command, Some(&action)).unwrap();
+        check_action(db, turn, &command, Some(&action))
+            .await
+            .unwrap();
     }
     for (command, action) in [
         (
@@ -130,17 +145,20 @@ fn permits_reads_and_rejects_resource_writes() {
     ] {
         assert_eq!(
             check_action(db, turn, &command, Some(&action))
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
         );
-        check_action(db, coding, &command, Some(&action)).unwrap();
+        check_action(db, coding, &command, Some(&action))
+            .await
+            .unwrap();
     }
 }
 
-#[test]
-fn permits_only_the_captured_artifact_effect() {
-    let (fixture, turn, _) = fixture();
+#[tokio::test]
+async fn permits_only_the_captured_artifact_effect() {
+    let (fixture, turn, _) = fixture().await;
     let command = Command::WriteArtifact(sailry_protocol::artifact::Write {
         kind: sailry_protocol::artifact::Kind::Document,
         id: None,
@@ -150,10 +168,13 @@ fn permits_only_the_captured_artifact_effect() {
         html: "<h1>Options</h1>".into(),
     });
     let db = &fixture.database.connection;
-    check_action(db, turn, &command, Some(&Action::WriteArtifacts)).unwrap();
+    check_action(db, turn, &command, Some(&Action::WriteArtifacts))
+        .await
+        .unwrap();
     for action in [None, Some(Action::WriteStorage), Some(Action::WriteFiles)] {
         assert_eq!(
             check_action(db, turn, &command, action.as_ref())
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -161,25 +182,32 @@ fn permits_only_the_captured_artifact_effect() {
     }
 }
 
-#[test]
-fn permits_observation_without_model_mutation() {
-    let (mut fixture, turn, _) = fixture();
+#[tokio::test]
+async fn permits_observation_without_model_mutation() {
+    let (mut fixture, turn, _) = fixture().await;
     let mut session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+        crate::store::commands::session(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
     session.config.mode = WorkMode::Code;
-    crate::store::commands::revise_session(&fixture.database.connection, session).unwrap();
-    let coding = fixture.queued();
+    crate::store::commands::revise_session(&fixture.database.connection, session)
+        .await
+        .unwrap();
+    let coding = fixture.queued().await;
     let db = &fixture.database.connection;
     let install = Command::InstallLocalModel {
         id: "fixture".into(),
     };
     assert_eq!(
         check_action(db, turn, &install, Some(&Action::InstallModels))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
     );
-    check_action(db, coding, &install, Some(&Action::InstallModels)).unwrap();
+    check_action(db, coding, &install, Some(&Action::InstallModels))
+        .await
+        .unwrap();
     for command in [
         Command::ReadInstallations {
             requests: vec![sailry_protocol::RequestId::new()],
@@ -188,6 +216,8 @@ fn permits_observation_without_model_mutation() {
             request: sailry_protocol::RequestId::new(),
         },
     ] {
-        check_action(db, turn, &command, Some(&Action::InstallModels)).unwrap();
+        check_action(db, turn, &command, Some(&Action::InstallModels))
+            .await
+            .unwrap();
     }
 }

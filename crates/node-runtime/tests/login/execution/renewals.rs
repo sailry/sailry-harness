@@ -42,14 +42,29 @@ async fn refreshes_expired_access_after_restart() {
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let reference = provider.credential.as_ref().unwrap();
-        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-            .unwrap();
+
         let mut body: serde_json::Value = serde_json::from_str(
-            &db.query_row::<String, _, _>(
-                "SELECT CAST(body AS TEXT) FROM providers WHERE id=?1",
-                [provider.id.to_string()],
-                |row| row.get(0),
-            )
+            &{
+                let sql = ("SELECT CAST(body AS TEXT) FROM providers WHERE id=?1").to_owned();
+                let parameters = turso::params![provider.id.to_string()];
+                fixture
+                    .node
+                    .with_storage(move |db| {
+                        Box::pin(async move {
+                            let row = db
+                                .prepare(sql)
+                                .await
+                                .map_err(crate::database_fixture::fault)?
+                                .query_row(parameters)
+                                .await
+                                .map_err(crate::database_fixture::fault)?;
+                            let value: turso::Result<_> =
+                                (|row: &turso::Row| row.get::<String>(0))(&row);
+                            value.map_err(crate::database_fixture::fault)
+                        })
+                    })
+                    .await
+            }
             .unwrap(),
         )
         .unwrap();
@@ -59,12 +74,23 @@ async fn refreshes_expired_access_after_restart() {
             serde_json::from_str(saved["key"].as_str().unwrap()).unwrap();
         grant["expires_at_ms"] = json!((future_expiry() - 3601) * 1000);
         saved["key"] = json!(grant.to_string());
-        db.execute(
-            "UPDATE providers SET body=?1 WHERE id=?2",
-            rusqlite::params![serde_json::to_vec(&body).unwrap(), provider.id.to_string()],
-        )
+        {
+            let sql = ("UPDATE providers SET body=?1 WHERE id=?2").to_owned();
+            let parameters =
+                turso::params![serde_json::to_vec(&body).unwrap(), provider.id.to_string()];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.execute(sql, parameters)
+                            .await
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
         .unwrap();
-        drop(db);
+
         let fixture = restart(fixture, &server, remote).await;
         let mut subscription = fixture.client.subscribe().await.unwrap();
         let mut projection = Projection::new(fixture.client.target(), 0);
@@ -263,11 +289,8 @@ async fn preserves_uncertain_rotation() {
             let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
             let session = session(&fixture, &provider).await;
             if mode == "save" {
-                let db = rusqlite::Connection::open(
-                    fixture.directory.path().join("node/storage/node.sqlite3"),
-                )
-                .unwrap();
-                db.execute_batch("CREATE TRIGGER reject_refresh BEFORE UPDATE ON providers WHEN EXISTS(SELECT 1 FROM json_each(NEW.body,'$.authorizations') WHERE json_extract(value,'$.revision')=3) BEGIN SELECT RAISE(ABORT, 'isolated authentication write failure'); END;").unwrap();
+                { let sql = ("CREATE TRIGGER reject_refresh BEFORE UPDATE ON providers WHEN EXISTS(SELECT 1 FROM json_each(NEW.body,'$.authorizations') WHERE json_extract(value,'$.revision')=3) BEGIN SELECT RAISE(ABORT, 'isolated authentication write failure'); END;").to_owned();
+fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).await.map_err(crate::database_fixture::fault) })).await }.unwrap();
             }
             let (_, turn) = submit(&fixture.client, &session).await;
             server.wait_requests(5).await;
@@ -275,11 +298,20 @@ async fn preserves_uncertain_rotation() {
                 finished(&fixture.client, &turn, Status::Failed).await;
             }
             if mode == "save" {
-                let db = rusqlite::Connection::open(
-                    fixture.directory.path().join("node/storage/node.sqlite3"),
-                )
+                {
+                    let sql = ("DROP TRIGGER reject_refresh;").to_owned();
+                    fixture
+                        .node
+                        .with_storage(move |db| {
+                            Box::pin(async move {
+                                db.execute_batch(sql)
+                                    .await
+                                    .map_err(crate::database_fixture::fault)
+                            })
+                        })
+                        .await
+                }
                 .unwrap();
-                db.execute_batch("DROP TRIGGER reject_refresh;").unwrap();
             }
             let fixture = restart(fixture, &server, remote).await;
             if mode == "shutdown" {
@@ -376,15 +408,27 @@ async fn admits_before_rotation() {
         let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
-        let db =
-            rusqlite::Connection::open(fixture.directory.path().join("node/storage/node.sqlite3"))
-                .unwrap();
-        db.execute_batch("CREATE TRIGGER reject_admission BEFORE UPDATE ON providers WHEN EXISTS(SELECT 1 FROM json_each(NEW.body,'$.authorizations') WHERE json_extract(value,'$.revision')=2) BEGIN SELECT RAISE(ABORT, 'isolated admission failure'); END;").unwrap();
+
+        { let sql = ("CREATE TRIGGER reject_admission BEFORE UPDATE ON providers WHEN EXISTS(SELECT 1 FROM json_each(NEW.body,'$.authorizations') WHERE json_extract(value,'$.revision')=2) BEGIN SELECT RAISE(ABORT, 'isolated admission failure'); END;").to_owned();
+fixture.node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).await.map_err(crate::database_fixture::fault) })).await }.unwrap();
         let (_, turn) = submit(&fixture.client, &session).await;
         finished(&fixture.client, &turn, Status::Failed).await;
         assert_eq!(server.requests.lock().unwrap().len(), 4);
-        db.execute_batch("DROP TRIGGER reject_admission;").unwrap();
-        drop(db);
+        {
+            let sql = ("DROP TRIGGER reject_admission;").to_owned();
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.execute_batch(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
+        .unwrap();
+
         let (_, turn) = submit(&fixture.client, &session).await;
         finished(&fixture.client, &turn, Status::Completed).await;
         assert_eq!(server.requests.lock().unwrap().len(), 6);

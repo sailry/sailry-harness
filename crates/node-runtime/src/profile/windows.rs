@@ -76,7 +76,7 @@ pub(crate) fn validate_existing_file(path: &Path) -> Result<(), Error> {
     }
 }
 
-/// SQLite creates sidecars with inherited security, so its parent must grant
+/// The engine creates sidecars with inherited security, so its parent must grant
 /// access only to this user and SYSTEM before the connection can write anything.
 pub(crate) fn prepare_database(path: &Path) -> Result<(), Error> {
     let parent = path
@@ -98,12 +98,12 @@ pub(crate) fn prepare_database(path: &Path) -> Result<(), Error> {
 }
 
 pub(crate) fn validate_database(path: &Path) -> Result<(), Error> {
-    validate_existing_file(path)?;
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let mut name = path.as_os_str().to_owned();
-        name.push(suffix);
-        validate_existing_file(Path::new(&name))?;
+    for file in super::database_files(path) {
+        validate_existing_file(&file)?;
     }
+    let mut journal = path.as_os_str().to_owned();
+    journal.push("-journal");
+    validate_existing_file(Path::new(&journal))?;
     Ok(())
 }
 

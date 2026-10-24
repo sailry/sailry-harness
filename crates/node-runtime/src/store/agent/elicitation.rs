@@ -47,9 +47,9 @@ fn input(event: &AdkEvent) -> Result<Option<Input>, Fault> {
         .transpose()
 }
 
-pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Result<(), Fault> {
+pub(super) async fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Result<(), Fault> {
     if let Some(input) = input(event)? {
-        calls::active(db, turn)?;
+        calls::active(db, turn).await?;
         if event.content().is_some()
             || !matches!(
                 input.spec.input,
@@ -61,7 +61,7 @@ pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Resul
             ));
         }
         input.spec.validate()?;
-        calls::locate(db, turn, &input.parent)?;
+        calls::locate(db, turn, &input.parent).await?;
     }
     Ok(())
 }
@@ -89,25 +89,30 @@ pub(super) fn project(event: &AdkEvent) -> Result<Vec<Part>, Fault> {
     Ok(Vec::new())
 }
 
-fn read(db: &Connection, turn: TurnId, call: &str) -> Result<Input, Fault> {
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![turn.to_string(), call],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+async fn read(db: &Connection, turn: TurnId, call: &str) -> Result<Input, Fault> {
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![turn.to_string(), call])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     input(&serde_json::from_slice(&body).map_err(storage_error)?)?
         .ok_or_else(|| sailry_protocol::Fault::invalid("MCP input has no canonical request"))
 }
 
-pub(super) fn locate(
+pub(super) async fn locate(
     db: &Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
 ) -> Result<(String, usize), Fault> {
     let call = calls::id(request)?;
-    let input = read(db, turn, call)?;
+    let input = read(db, turn, call).await?;
     if request.tool_name != TOOL
         || serde_json::to_value(&input.spec).map_err(storage_error)? != request.args
     {
@@ -115,7 +120,7 @@ pub(super) fn locate(
             "MCP input arguments differ",
         ));
     }
-    calls::locate(db, turn, &input.parent)?;
+    calls::locate(db, turn, &input.parent).await?;
     Ok((call.into(), 0))
 }
 
@@ -123,7 +128,7 @@ pub(super) fn spec(event: &AdkEvent) -> Result<Option<question::Spec>, Fault> {
     Ok(input(event)?.map(|input| input.spec))
 }
 
-pub(super) fn validate_answer(
+pub(super) async fn validate_answer(
     db: &Connection,
     question: &question::Question,
     answer: &question::Answer,
@@ -131,7 +136,7 @@ pub(super) fn validate_answer(
     let question::Answer::Form(values) = answer else {
         return Ok(());
     };
-    let input = read(db, question.turn, &question.entry)?;
+    let input = read(db, question.turn, &question.entry).await?;
     let validator = jsonschema::draft202012::options()
         .should_validate_formats(true)
         .build(&input.schema)
@@ -153,21 +158,31 @@ impl Ingress {
     }
 }
 
-pub(super) fn cancel(
+pub(super) async fn cancel(
     database: &mut Database,
     turn: TurnId,
     call: &str,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let body: Option<Vec<u8>> = transaction
-        .query_row(
-            "SELECT body FROM agent_questions WHERE turn=?1 AND call=?2",
-            params![turn.to_string(), call],
-            |row| row.get(0),
-        )
-        .optional()
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
         .map_err(storage_error)?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = transaction
+            .prepare("SELECT body FROM agent_questions WHERE turn=?1 AND call=?2")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(params![turn.to_string(), call]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let Some(body) = body else { return Ok(()) };
     let mut question: question::Question = serde_json::from_slice(&body).map_err(storage_error)?;
     if question.state != question::State::Pending {
@@ -179,10 +194,11 @@ pub(super) fn cancel(
             "UPDATE agent_questions SET body=?2 WHERE id=?1",
             params![question.id.to_string(), encode(&question)?],
         )
+        .await
         .map_err(storage_error)?;
-    let envelope = changed(&transaction, database.node, question.session)?;
-    transaction.commit().map_err(storage_error)?;
+    let envelope = changed(&transaction, database.node, question.session).await?;
+    transaction.commit().await.map_err(storage_error)?;
     let _ = events.send(envelope);
-    feed::command(database, &Output::Question(question));
+    feed::command(database, &Output::Question(question)).await;
     Ok(())
 }

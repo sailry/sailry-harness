@@ -3,7 +3,7 @@ use super::*;
 use std::path::Path;
 
 /// Reserve an execution identity without creating files for a chat-only session.
-pub(in crate::store) fn reserve_session(
+pub(in crate::store) async fn reserve_session(
     db: &Connection,
     profile: Option<&Path>,
     session: SessionId,
@@ -27,13 +27,14 @@ pub(in crate::store) fn reserve_session(
             path: path.into(),
             main: false,
         },
-    )?;
+    )
+    .await?;
     Ok(id)
 }
 
 /// Only Node-reserved session directories are created on first resource access.
 /// Missing user project directories must continue to report an error.
-pub(in crate::store) fn materialize_session(
+pub(in crate::store) async fn materialize_session(
     db: &Connection,
     profile: Option<&Path>,
     worktree: WorktreeId,
@@ -51,32 +52,40 @@ pub(in crate::store) fn materialize_session(
     if root != crate::workspaces::session(profile, session) {
         return Ok(());
     }
-    let owned: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND worktree=?2 AND project IS NULL)",
-            params![session.to_string(), worktree.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let owned: bool = {
+        let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND worktree=?2 AND project IS NULL)").await.map_err(storage_error)?;
+        let row = statement
+            .query_row(params![session.to_string(), worktree.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if owned {
         std::fs::create_dir_all(root).map_err(storage_error)?;
     }
     Ok(())
 }
 
-pub(in crate::store) fn scratch(db: &Connection, root: &Path) -> Result<WorktreeId, Fault> {
+pub(in crate::store) async fn scratch(db: &Connection, root: &Path) -> Result<WorktreeId, Fault> {
     std::fs::create_dir_all(root).map_err(storage_error)?;
     let path = root
         .to_str()
         .ok_or_else(|| storage_error("assistant workspace path is not UTF-8"))?;
-    let existing: Option<String> = db
-        .query_row(
-            "SELECT id FROM worktrees WHERE project IS NULL AND path=?1",
-            [path],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let existing: Option<String> = {
+        let mut statement = db
+            .prepare("SELECT id FROM worktrees WHERE project IS NULL AND path=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([path]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     if let Some(id) = existing {
         return id.parse().map_err(storage_error);
     }
@@ -89,6 +98,7 @@ pub(in crate::store) fn scratch(db: &Connection, root: &Path) -> Result<Worktree
             path: path.into(),
             main: false,
         },
-    )?;
+    )
+    .await?;
     Ok(id)
 }

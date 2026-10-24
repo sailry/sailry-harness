@@ -115,7 +115,10 @@ async fn rejects_changed_inputs() {
                 cancel.cancel();
             }
             let stop = cancel.clone();
-            let counts = (fixture.source.count(), fixture.destination.count());
+            let counts = (
+                fixture.source.count().await,
+                fixture.destination.count().await,
+            );
             let result = target
                 .stage_copy(&source, &download, destination, cancel, |bytes| {
                     if mode == "progress" && bytes > 0 {
@@ -135,8 +138,8 @@ async fn rejects_changed_inputs() {
                 "{mode} {pair:?}"
             );
             assert!(!fixture.destination.root.join("copy").exists());
-            assert_eq!(fixture.source.count(), counts.0);
-            assert_eq!(fixture.destination.count(), counts.1);
+            assert_eq!(fixture.source.count().await, counts.0);
+            assert_eq!(fixture.destination.count().await, counts.1);
             assert!(source.open(download.stream).await.is_err());
             observed.assert_released().await;
         }

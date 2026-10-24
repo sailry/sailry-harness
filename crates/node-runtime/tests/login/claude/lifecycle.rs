@@ -60,7 +60,7 @@ async fn connects_and_restores_both_callback_flows() {
                 (connected.models[1].context, connected.models[1].output),
                 (16384, 1024)
             );
-            let private = grant(&fixture, &connected);
+            let private = grant(&fixture, &connected).await;
             assert!(private["access"] == ACCESS && private["refresh"] == REFRESH);
             assert_eq!(private["kind"], "claude_oauth");
             assert_eq!(private["renewal_pending"], false);
@@ -106,7 +106,7 @@ async fn connects_and_restores_both_callback_flows() {
                     .await
                     .unwrap(),
             );
-            public_rows(&fixture, &url);
+            public_rows(&fixture, &url).await;
             assert_eq!(server.requests.lock().unwrap().len(), 3);
             {
                 let authorization = url::Url::parse(&url).unwrap();
@@ -133,7 +133,7 @@ async fn connects_and_restores_both_callback_flows() {
             let fixture =
                 super::super::execution::renewals::restart(fixture, &server, remote).await;
             assert_eq!(saved(&fixture.client, connected.id).await, connected);
-            assert!(grant(&fixture, &connected)["access"] == ACCESS);
+            assert!(grant(&fixture, &connected).await["access"] == ACCESS);
             assert_eq!(
                 fixture.client.execute(request).await.unwrap(),
                 Output::ProviderLogin(attempt.clone())
@@ -149,7 +149,7 @@ async fn connects_and_restores_both_callback_flows() {
                 ErrorCode::NotFound
             );
             assert_eq!(server.requests.lock().unwrap().len(), 3);
-            public_rows(&fixture, &url);
+            public_rows(&fixture, &url).await;
             fixture.close().await;
         }
     }
@@ -198,7 +198,7 @@ async fn rejects_callbacks_before_token_dispatch() {
                 Output::Credentials(vec![])
             );
             assert!(server.requests.lock().unwrap().is_empty());
-            public_rows(&fixture, &url);
+            public_rows(&fixture, &url).await;
             fixture.close().await;
         }
     }
@@ -278,7 +278,7 @@ async fn cancels_and_rejects_late_provider_changes() {
                     .unwrap(),
                 Output::Credentials(vec![])
             );
-            public_rows(&fixture, &url);
+            public_rows(&fixture, &url).await;
             fixture.close().await;
         }
     }
@@ -312,7 +312,7 @@ async fn rejects_denials_and_expired_grants() {
                 Output::Credentials(vec![])
             );
             assert_eq!(server.requests.lock().unwrap().len(), 1);
-            public_rows(&fixture, &url);
+            public_rows(&fixture, &url).await;
             fixture.close().await;
         }
     }

@@ -12,19 +12,19 @@ pub(super) struct Versions {
     pub partial: bool,
 }
 
-pub(super) fn versions(
+pub(super) async fn versions(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
 ) -> Result<Versions, Fault> {
-    runs::visible(db, session, turn)?;
+    runs::visible(db, session, turn).await?;
     if matches!(
-        runs::get(db, turn)?.status,
+        runs::get(db, turn).await?.status,
         Status::Queued | Status::Running | Status::Stopping
     ) {
         return Err(Fault::new(ErrorCode::Busy, "turn diff is not final"));
     }
-    let page = super::list(db, session, turn, None, 100)?;
+    let page = super::list(db, session, turn, None, 100).await?;
     let mut partial = page.next.is_some();
     let mut versions: BTreeMap<String, FileVersions> = BTreeMap::new();
     // Checkpoints are newest first. Only join adjacent versions when no external
@@ -55,7 +55,7 @@ pub(super) fn versions(
             partial = true;
             continue;
         }
-        let content = super::reads::content(db, session, file.id)?;
+        let content = super::reads::content(db, session, file.id).await?;
         let entry = versions.entry(file.path).or_insert_with(|| FileVersions {
             worktree: file.worktree,
             segments: Vec::new(),
@@ -81,7 +81,7 @@ pub(super) fn versions(
     })
 }
 
-pub(in crate::store) fn read(
+pub(in crate::store) async fn read(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
@@ -89,7 +89,7 @@ pub(in crate::store) fn read(
     let Versions {
         files: versions,
         mut partial,
-    } = versions(db, session, turn)?;
+    } = versions(db, session, turn).await?;
     let mut remaining = MAX_DIFF_BYTES;
     let mut files = Vec::new();
     for (path, versions) in versions {

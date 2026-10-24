@@ -90,7 +90,8 @@ hayro.workspace = true
 sailry-model-assets.workspace = true
 sha1.workspace = true
 sailry-link.workspace = true
-rusqlite = { workspace = true, features = ["hooks", "backup"] }
+turso.workspace = true
+unicode-normalization.workspace = true
 serde.workspace = true
 schemars.workspace = true
 serde_json.workspace = true
@@ -180,6 +181,7 @@ windows-registry.workspace = true
 objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }
 
 [dev-dependencies]
+rusqlite = { workspace = true, features = ["hooks", "backup"] }
 tokio-tungstenite.workspace = true
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }
 tokio-rustls.workspace = true

@@ -17,7 +17,7 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
-    Database(#[from] rusqlite::Error),
+    Database(#[from] turso::Error),
     #[error(transparent)]
     Link(#[from] sailry_protocol::Fault),
 }

@@ -1,11 +1,20 @@
 use super::*;
 
-fn receipts(path: &Path) -> i64 {
-    let db =
-        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap();
-    db.query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
-        .unwrap()
+async fn receipts(node: &Node) -> i64 {
+    node.with_storage(move |db| {
+        Box::pin(async move {
+            db.prepare("SELECT count(*) FROM requests")
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::plugins::database_fixture::fault)
+        })
+    })
+    .await
+    .unwrap()
 }
 
 const SOURCE: &str = r#"
@@ -36,10 +45,9 @@ async fn skip_receipts_and_preserve_write_replay() {
             true,
         )
         .await;
-        let ledger = directory.path().join("node/storage/node.sqlite3");
         let mut reads = Vec::new();
         for expected in [0, 1] {
-            let before = receipts(&ledger);
+            let before = receipts(&node).await;
             for _ in 0..3 {
                 let request = client
                     .prepare(Command::ReadPluginCallback {
@@ -59,7 +67,7 @@ async fn skip_receipts_and_preserve_write_replay() {
                     if expected == 0 { json!(null) } else { json!(1) }
                 );
             }
-            assert_eq!(receipts(&ledger), before);
+            assert_eq!(receipts(&node).await, before);
             if expected == 0 {
                 let write = call(&client, &context, json!({"write":true}));
                 let first = client.dispatch(write.clone()).await.unwrap();
@@ -69,7 +77,7 @@ async fn skip_receipts_and_preserve_write_replay() {
                 assert_eq!(read(&client, &context, "counter").await.value, json!(1));
             }
         }
-        let before = receipts(&ledger);
+        let before = receipts(&node).await;
         let denied = client
             .prepare(Command::ReadPluginCallback {
                 handler: "run".into(),
@@ -82,24 +90,28 @@ async fn skip_receipts_and_preserve_write_replay() {
             ErrorCode::PermissionDenied
         );
         assert_eq!(read(&client, &context, "counter").await.value, json!(1));
-        assert_eq!(receipts(&ledger), before);
+        assert_eq!(receipts(&node).await, before);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-        let db = rusqlite::Connection::open_with_flags(
-            directory.path().join("node/storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        let (db_handle, db) = crate::plugins::database_fixture::open(
+            &(directory.path().join("node/storage/node.turso")),
+            true,
         )
-        .unwrap();
+        .await;
         for request in reads {
-            let count: i64 = db
-                .query_row(
-                    "SELECT count(*) FROM requests WHERE id=?1",
-                    [request.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            let count: i64 = (async {
+                let mut statement = db
+                    .prepare("SELECT count(*) FROM requests WHERE id=?1")
+                    .await?;
+                let row = statement.query_row([request.to_string()]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap();
             assert_eq!(count, 0);
         }
+        crate::plugins::database_fixture::close(db_handle, db).await;
     }
 }
 

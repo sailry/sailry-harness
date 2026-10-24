@@ -10,7 +10,7 @@ fn source() -> AdkEvent {
     event
 }
 
-fn append(fixture: &mut Fixture, event: AdkEvent) -> adk_core::Result<()> {
+async fn append(fixture: &mut Fixture, event: AdkEvent) -> adk_core::Result<()> {
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -18,19 +18,20 @@ fn append(fixture: &mut Fixture, event: AdkEvent) -> adk_core::Result<()> {
         event,
         &fixture.events,
     )
+    .await
 }
 
-#[test]
-fn preserves_canonical_identity() {
-    let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan);
+#[tokio::test]
+async fn preserves_canonical_identity() {
+    let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan).await;
     let source = source();
     let source_id = source.id.clone();
-    append(&mut fixture, source).unwrap();
+    append(&mut fixture, source).await.unwrap();
     let event = review::event(fixture.turn, source_id);
     assert!(event.content().is_none());
     assert_eq!(event.author, review::TOOL);
     let call = event.id.clone();
-    append(&mut fixture, event).unwrap();
+    append(&mut fixture, event).await.unwrap();
     fixture.request = ToolConfirmationRequest {
         acting: None,
         origin: None,
@@ -40,12 +41,16 @@ fn preserves_canonical_identity() {
     };
     let mut wrong = fixture.request.clone();
     wrong.args["prompt"] = serde_json::json!("not the admitted review");
-    assert!(begin(&mut fixture.database, fixture.turn, &wrong, &fixture.events).is_err());
-    let question = fixture.begin();
+    assert!(
+        begin(&mut fixture.database, fixture.turn, &wrong, &fixture.events)
+            .await
+            .is_err()
+    );
+    let question = fixture.begin().await;
     assert_eq!(question.entry, call);
     assert_eq!(question.index, 0);
     assert_eq!(
-        spec(&fixture.database.connection, &question).unwrap(),
+        spec(&fixture.database.connection, &question).await.unwrap(),
         Spec {
             prompt: String::new(),
             input: Input::Plan,
@@ -58,6 +63,7 @@ fn preserves_canonical_identity() {
             &fixture.request,
             &fixture.events
         )
+        .await
         .is_err()
     );
     let answer = Response::Answer(Answer::Text(String::new()));
@@ -67,10 +73,12 @@ fn preserves_canonical_identity() {
         question.id,
         &answer,
     )
+    .await
     .unwrap();
     let event = review::result(fixture.turn, call, answer);
-    append(&mut fixture, event).unwrap();
+    append(&mut fixture, event).await.unwrap();
     let page = history::pages::read(&fixture.database.connection, fixture.session, None, 100)
+        .await
         .unwrap()
         .page;
     assert_eq!(
@@ -90,8 +98,8 @@ fn preserves_canonical_identity() {
     }));
 }
 
-#[test]
-fn requires_completed_planning_source() {
+#[tokio::test]
+async fn requires_completed_planning_source() {
     for case in ["code", "user", "call", "content"] {
         let mut fixture = Fixture::with_input(
             if case == "code" {
@@ -100,7 +108,8 @@ fn requires_completed_planning_source() {
                 WorkMode::Plan
             },
             Input::Plan,
-        );
+        )
+        .await;
         let mut source = source();
         if case == "user" {
             source.set_content(adk_core::Content::new("user").with_text("A user message"));
@@ -117,21 +126,21 @@ fn requires_completed_planning_source() {
             });
         }
         let source_id = source.id.clone();
-        append(&mut fixture, source).unwrap();
+        append(&mut fixture, source).await.unwrap();
         let mut event = review::event(fixture.turn, source_id);
         if case == "content" {
             event.set_content(adk_core::Content::new("model").with_text("Fabricated completion"));
         }
         assert!(
-            append(&mut fixture, event).is_err(),
+            append(&mut fixture, event).await.is_err(),
             "invalid review accepted: {case}"
         );
     }
 }
 
-#[test]
-fn retains_nonempty_model_prompts() {
-    let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan);
+#[tokio::test]
+async fn retains_nonempty_model_prompts() {
+    let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan).await;
     fixture.request.args["prompt"] = serde_json::json!("");
     let fault = begin(
         &mut fixture.database,
@@ -139,6 +148,7 @@ fn retains_nonempty_model_prompts() {
         &fixture.request,
         &fixture.events,
     )
+    .await
     .unwrap_err();
     assert_eq!(fault.code, ErrorCode::InvalidRequest);
     assert_eq!(fault.message, "question prompt is empty");

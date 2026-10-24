@@ -2,22 +2,25 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(in crate::store) fn ordered(db: &Connection) -> Result<Vec<SessionId>, Fault> {
-    let mut query = db
-        .prepare("SELECT id FROM sessions WHERE state!='removed' ORDER BY rowid DESC")
-        .map_err(storage_error)?;
-    let mut sessions = query
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(storage_error)?
-        .map(|row| row.map_err(storage_error)?.parse().map_err(storage_error))
-        .collect::<Result<Vec<SessionId>, Fault>>()?;
-    let saved: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM events WHERE json_extract(body,'$.kind')='sessions_reordered' ORDER BY cursor DESC LIMIT 1",
-            [],
-            |row| row.get(0),
+pub(in crate::store) async fn ordered(db: &Connection) -> Result<Vec<SessionId>, Fault> {
+    let mut rows = db
+        .query(
+            "SELECT id FROM sessions WHERE state!='removed' ORDER BY rowid DESC",
+            (),
         )
-        .optional()
+        .await
+        .map_err(storage_error)?;
+    let mut sessions = Vec::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        sessions.push(
+            row.get::<String>(0)
+                .map_err(storage_error)?
+                .parse::<SessionId>()
+                .map_err(storage_error)?,
+        );
+    }
+    drop(rows);
+    let saved: Option<Vec<u8>> = match db.prepare("SELECT body FROM events WHERE json_extract(body,'$.kind')='sessions_reordered' ORDER BY cursor DESC LIMIT 1").await.map_err(storage_error)?.query_row(()).await.and_then(|row| row.get(0)) { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error), }
         .map_err(storage_error)?;
     if let Some(saved) = saved {
         let Event::SessionsReordered(order) =
@@ -38,21 +41,30 @@ pub(in crate::store) fn ordered(db: &Connection) -> Result<Vec<SessionId>, Fault
     Ok(sessions)
 }
 
-pub(in crate::store) fn reorder(
+pub(in crate::store) async fn reorder(
     db: &Connection,
     project: ProjectId,
     expected: &[SessionId],
     requested: &[SessionId],
 ) -> Result<(Output, Option<Event>), Fault> {
-    let mut order = ordered(db)?;
-    let mut query = db
-        .prepare("SELECT id FROM sessions WHERE project=?1 AND state!='removed'")
+    let mut order = ordered(db).await?;
+    let mut rows = db
+        .query(
+            "SELECT id FROM sessions WHERE project=?1 AND state!='removed'",
+            [project.to_string()],
+        )
+        .await
         .map_err(storage_error)?;
-    let members = query
-        .query_map([project.to_string()], |row| row.get::<_, String>(0))
-        .map_err(storage_error)?
-        .map(|row| row.map_err(storage_error)?.parse().map_err(storage_error))
-        .collect::<Result<BTreeSet<SessionId>, Fault>>()?;
+    let mut members = BTreeSet::<SessionId>::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        members.insert(
+            row.get::<String>(0)
+                .map_err(storage_error)?
+                .parse()
+                .map_err(storage_error)?,
+        );
+    }
+    drop(rows);
     if members.is_empty() {
         return Err(Fault::new(ErrorCode::NotFound, "project has no sessions"));
     }

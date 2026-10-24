@@ -1,4 +1,4 @@
-use super::*;
+use super::{database_fixture::fault, *};
 use std::{
     collections::{BTreeMap, BTreeSet},
     time::Instant,
@@ -14,54 +14,74 @@ struct Indexed {
     chunks: Vec<Chunk>,
 }
 
-fn records(profile: &Path, id: KnowledgeId) -> BTreeMap<String, Indexed> {
-    let db = rusqlite::Connection::open(profile.join("storage/knowledge.db")).unwrap();
-    let mut sources = db.prepare("SELECT id,locator,revision,modified_ms,embedded FROM sources WHERE collection=?1 ORDER BY locator").unwrap();
-    let mut chunks = db
-        .prepare(
-            "SELECT key,title,text,position,vector FROM chunks WHERE source=?1 ORDER BY ordinal",
-        )
-        .unwrap();
-    sources
-        .query_map([id.to_string()], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, bool>(4)?,
-            ))
+async fn records(node: &Node, id: KnowledgeId) -> BTreeMap<String, Indexed> {
+    node.with_knowledge(move |db| {
+        Box::pin(async move {
+            let transaction = db
+                .transaction_with_behavior(turso::transaction::TransactionBehavior::Deferred)
+                .await
+                .map_err(fault)?;
+            let sources = {
+                let mut rows = transaction
+                    .query(
+                        "SELECT id,locator,revision,modified_ms,embedded FROM sources WHERE collection=?1 ORDER BY locator",
+                        [id.to_string()],
+                    )
+                    .await
+                    .map_err(fault)?;
+                let mut sources = Vec::new();
+                while let Some(row) = rows.next().await.map_err(fault)? {
+                    sources.push((
+                        row.get::<i64>(0).map_err(fault)?,
+                        row.get::<String>(1).map_err(fault)?,
+                        row.get::<String>(2).map_err(fault)?,
+                        row.get::<i64>(3).map_err(fault)?,
+                        row.get::<bool>(4).map_err(fault)?,
+                    ));
+                }
+                sources
+            };
+            let mut records = BTreeMap::new();
+            for (source, path, revision, modified, embedded) in sources {
+                let chunks = {
+                    let mut rows = transaction
+                        .query(
+                            "SELECT key,title,text,position,vector FROM chunks WHERE source=?1 ORDER BY ordinal",
+                            [source],
+                        )
+                        .await
+                        .map_err(fault)?;
+                    let mut chunks = Vec::new();
+                    while let Some(row) = rows.next().await.map_err(fault)? {
+                        chunks.push((
+                            row.get(0).map_err(fault)?,
+                            row.get(1).map_err(fault)?,
+                            row.get(2).map_err(fault)?,
+                            row.get(3).map_err(fault)?,
+                            row.get(4).map_err(fault)?,
+                        ));
+                    }
+                    chunks
+                };
+                records.insert(
+                    path,
+                    Indexed {
+                        revision,
+                        modified: u64::try_from(modified).map_err(fault)?,
+                        embedded,
+                        chunks,
+                    },
+                );
+            }
+            transaction.commit().await.map_err(fault)?;
+            Ok(records)
         })
-        .unwrap()
-        .map(|row| {
-            let (id, path, revision, modified, embedded) = row.unwrap();
-            let chunks = chunks
-                .query_map([id], |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                    ))
-                })
-                .unwrap()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap();
-            (
-                path,
-                Indexed {
-                    revision,
-                    modified: u64::try_from(modified).unwrap(),
-                    embedded,
-                    chunks,
-                },
-            )
-        })
-        .collect()
+    })
+    .await
+    .unwrap()
 }
 
-async fn ready(client: &Client, id: KnowledgeId, generation: u64, profile: &Path) -> Collection {
+async fn ready(client: &Client, id: KnowledgeId, generation: u64, node: &Node) -> Collection {
     tokio::time::timeout(Duration::from_secs(180), async {
         loop {
             let state = list(client)
@@ -71,7 +91,7 @@ async fn ready(client: &Client, id: KnowledgeId, generation: u64, profile: &Path
                 .unwrap();
             if state.progress.generation == generation
                 && state.progress.status == Status::Ready
-                && records(profile, id).len() == 500
+                && records(node, id).await.len() == 500
             {
                 assert_eq!(state.progress.sources, 500);
                 assert_eq!(state.progress.completed, 500);
@@ -239,11 +259,11 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
             &client,
             collection.id,
             collection.progress.generation,
-            &profile,
+            &fixture.node,
         )
         .await;
         let first_ms = started.elapsed().as_millis();
-        let before = records(&profile, collection.id);
+        let before = records(&fixture.node, collection.id).await;
         assert_eq!(before.len(), 500);
         assert!(before.values().all(|source| source.embedded));
         assert!(
@@ -346,10 +366,10 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
             &client,
             collection.id,
             resumed.progress.generation,
-            &profile,
+            &fixture.node,
         )
         .await;
-        let after = records(&profile, collection.id);
+        let after = records(&fixture.node, collection.id).await;
         assert_eq!(after.len(), 500);
         assert_eq!(before["mixed/source-000.txt"].chunks.len(), 1);
         assert_ne!(
@@ -380,10 +400,10 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
             &client,
             collection.id,
             rebuild.progress.generation,
-            &profile,
+            &fixture.node,
         )
         .await;
-        let rebuilt = records(&profile, collection.id);
+        let rebuilt = records(&fixture.node, collection.id).await;
         assert_eq!(rebuilt, after);
         assert!(fixture.node.indexed_knowledge_inputs() > encoded + 1);
         let Fixture {
@@ -395,7 +415,7 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
         } = fixture;
         drop(client);
         node.shutdown().await.unwrap();
-        fs::remove_file(profile.join("storage/knowledge.db")).unwrap();
+        remove_index(&profile);
         let node = Node::start_empty_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
@@ -404,14 +424,8 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
         } else {
             node.local()
         });
-        ready(
-            &client,
-            collection.id,
-            rebuild.progress.generation,
-            &profile,
-        )
-        .await;
-        let restored = records(&profile, collection.id);
+        ready(&client, collection.id, rebuild.progress.generation, &node).await;
+        let restored = records(&node, collection.id).await;
         assert_eq!(restored, after);
         let restored_query = retrieval(
             &client,

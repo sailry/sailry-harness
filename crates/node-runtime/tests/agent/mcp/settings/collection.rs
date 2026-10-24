@@ -1,12 +1,26 @@
 use super::*;
 
-fn counts(profile: &Path) -> (i64, i64, i64) {
-    let db = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+async fn values(db: &turso::Connection) -> (i64, i64, i64) {
+    let row = db.prepare("SELECT (SELECT count(*) FROM plugin_packages),(SELECT count(*) FROM plugin_settings),(SELECT count(*) FROM plugin_settings,json_each(plugin_settings.body,'$.slots') WHERE json_each.type='text')").await.unwrap().query_row(()).await.unwrap();
+    (
+        row.get(0).unwrap(),
+        row.get(1).unwrap(),
+        row.get(2).unwrap(),
     )
-    .unwrap();
-    db.query_row("SELECT (SELECT count(*) FROM plugin_packages),(SELECT count(*) FROM plugin_settings),(SELECT count(*) FROM plugin_settings,json_each(plugin_settings.body,'$.slots') WHERE json_each.type='text')", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap()
+}
+
+async fn counts(node: &Node) -> (i64, i64, i64) {
+    node.with_storage(|db| Box::pin(async move { Ok(values(db).await) }))
+        .await
+        .unwrap()
+}
+
+async fn closed(profile: &Path) -> (i64, i64, i64) {
+    let (handle, db) =
+        crate::database_fixture::open(&profile.join("storage/node.turso"), true).await;
+    let result = values(&db).await;
+    crate::database_fixture::close(handle, db).await;
+    result
 }
 
 #[tokio::test]
@@ -16,7 +30,7 @@ async fn keeps_frozen_resources() {
         let mut fixture = process::Fixture::packages(remote, &model, &[]).await;
         isolate(&fixture.client).await;
         let profile = fixture.node.profile().to_owned();
-        let baseline = counts(&profile);
+        let baseline = counts(&fixture.node).await;
         let Output::Plugins(initial) = execute(&fixture.client, Command::ListPlugins).await else {
             panic!("plugin inventory expected")
         };
@@ -61,12 +75,12 @@ async fn keeps_frozen_resources() {
         .await;
         let packages = profile.join("plugins/packages");
         assert_eq!(
-            counts(&profile),
+            counts(&fixture.node).await,
             (baseline.0 + 2, baseline.1 + 2, baseline.2 + 2)
         );
         fixture.node.shutdown().await.unwrap();
         assert_eq!(
-            counts(&profile),
+            closed(&profile).await,
             (baseline.0 + 1, baseline.1 + 1, baseline.2 + 1)
         );
         assert!(packages.join(&first.package.digest).is_dir());
@@ -124,7 +138,7 @@ async fn keeps_frozen_resources() {
         fixture.node.shutdown().await.unwrap();
         reaped(&profile.join("plugins/data/example"));
         assert_eq!(
-            counts(&profile),
+            closed(&profile).await,
             (baseline.0 + 1, baseline.1 + 1, baseline.2 + 1)
         );
         fixture.controller.close().await.unwrap();

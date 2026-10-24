@@ -3,12 +3,12 @@ use super::*;
 use crate::store::database::Database;
 use sailry_protocol::{conversation::consent::Scope, plugin};
 
-pub(in crate::store) fn prepare(
+pub(in crate::store) async fn prepare(
     db: &Database,
     caller: NodeId,
     request: &Request,
 ) -> Result<crate::plugins::http::Input, Fault> {
-    db.check_plugin(caller, request)?;
+    db.check_plugin(caller, request).await?;
     let context = request.plugin.as_ref().ok_or_else(denied)?;
     let (provider, expected_revision, name, input, mutation) = match &request.command {
         Command::RequestProviderHttp {
@@ -25,14 +25,15 @@ pub(in crate::store) fn prepare(
         } => (provider, expected_revision, request, input, true),
         _ => return Err(Fault::invalid("provider resource command expected")),
     };
-    let mut provider = super::current(&db.connection, *provider, *expected_revision)?;
-    super::presets::capture_read(&db.connection, &mut provider)?;
+    let mut provider = super::current(&db.connection, *provider, *expected_revision).await?;
+    super::presets::capture_read(&db.connection, &mut provider).await?;
     crate::providers::login::capture(&mut provider)?;
     if provider.authentication != Authentication::Plugin {
         if mutation || !provider.enabled {
             return Err(denied());
         }
-        let info = crate::store::plugins::get(&db.connection, &context.package.name)?
+        let info = crate::store::plugins::get(&db.connection, &context.package.name)
+            .await?
             .filter(|info| info.summary.enabled && info.summary.reference() == context.package)
             .ok_or_else(denied)?;
         let resource = info
@@ -64,7 +65,8 @@ pub(in crate::store) fn prepare(
     }
     super::consent::check(&provider, Scope::Credentials)?;
     // Live provider resources resolve the current package before durable admission.
-    let info = crate::store::plugins::get(&db.connection, &package.name)?
+    let info = crate::store::plugins::get(&db.connection, &package.name)
+        .await?
         .filter(|info| info.summary.enabled)
         .ok_or_else(denied)?;
     if info.summary.reference() != *package {

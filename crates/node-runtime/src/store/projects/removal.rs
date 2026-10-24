@@ -8,10 +8,17 @@ pub(in crate::store) struct Plan {
     pub terminals: Vec<terminal::Info>,
 }
 
-pub(in crate::store) fn prepare(db: &Connection, expected: &Project) -> Result<Plan, Fault> {
-    check(db, expected)?;
-    let active: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN sessions s ON s.id=t.session WHERE s.project=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))",
-        [expected.id.to_string()], |row| row.get(0)).map_err(storage_error)?;
+pub(in crate::store) async fn prepare(db: &Connection, expected: &Project) -> Result<Plan, Fault> {
+    check(db, expected).await?;
+    let active: bool = {
+        let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN sessions s ON s.id=t.session WHERE s.project=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([expected.id.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if active {
         let mut error = Fault::new(ErrorCode::Busy, "project has pending tasks");
         error.details = Some(FaultDetails::ProjectRemoval {
@@ -20,11 +27,13 @@ pub(in crate::store) fn prepare(db: &Connection, expected: &Project) -> Result<P
         });
         return Err(error);
     }
-    let worktrees: Vec<_> = super::super::worktrees::list(db)?
+    let worktrees: Vec<_> = super::super::worktrees::list(db)
+        .await?
         .into_iter()
         .filter(|tree| tree.project == Some(expected.id))
         .collect();
-    let terminals = super::super::terminals::list(db)?
+    let terminals = super::super::terminals::list(db)
+        .await?
         .into_iter()
         .filter(|info| {
             info.status != terminal::Status::Closed

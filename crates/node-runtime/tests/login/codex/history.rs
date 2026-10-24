@@ -58,7 +58,7 @@ async fn preserves_only_encrypted_history() {
         let mut original = Vec::new();
         for index in 0..4 {
             if index == 2 {
-                super::transport::expire(&fixture, &provider);
+                super::transport::expire(&fixture, &provider).await;
             }
             let (_, turn) = super::super::execution::submit(&fixture.client, &session).await;
             let page =
@@ -68,7 +68,7 @@ async fn preserves_only_encrypted_history() {
             assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part| {
                 matches!(part, Part::Thinking(value) if value.contains("Legacy summary without encrypted content"))
             }));
-            let events = fixture::events(fixture.node.profile(), session.id);
+            let events = fixture::events(&fixture.node, session.id).await;
             if index == 0 {
                 assert!(
                     events
@@ -144,7 +144,7 @@ async fn isolates_verified_accounts_and_endpoints() {
             }
         };
         complete(&session).await;
-        let original = fixture::events(fixture.node.profile(), session.id);
+        let original = fixture::events(&fixture.node, session.id).await;
         complete(&session).await;
         let opaque = |body: &serde_json::Value| {
             body["input"]
@@ -208,7 +208,7 @@ async fn isolates_verified_accounts_and_endpoints() {
             );
             assert!(!requests[0].body.to_string().contains("provider_origin"));
         }
-        let events = fixture::events(fixture.node.profile(), session.id);
+        let events = fixture::events(&fixture.node, session.id).await;
         assert_eq!(&events[..original.len()], &original);
         fixture.close().await;
     }

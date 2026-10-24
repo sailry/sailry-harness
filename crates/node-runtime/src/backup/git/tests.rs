@@ -107,9 +107,11 @@ impl Fixture {
         let identity = sailry_link::Identity::open(&self.profile).unwrap();
         let mut snapshot =
             super::super::archive::Snapshot::new(&self.profile, identity.id()).unwrap();
+        let database = snapshot.database_path().unwrap();
+        fs::write(&database, b"archive database fixture").unwrap();
         fs::write(
-            snapshot.database_path().unwrap(),
-            b"archive database fixture",
+            &crate::profile::database_files(&database)[1],
+            b"archive logical log fixture",
         )
         .unwrap();
         snapshot.database(&CancellationToken::new()).unwrap();

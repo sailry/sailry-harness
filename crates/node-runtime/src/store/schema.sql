@@ -3,6 +3,10 @@ CREATE TABLE IF NOT EXISTS node (
     identity BLOB NOT NULL CHECK(length(identity)=32),
     plugin_defaults INTEGER NOT NULL DEFAULT 0 CHECK(plugin_defaults IN (0,1))
 );
+CREATE TABLE counters (
+    namespace TEXT PRIMARY KEY,
+    value INTEGER NOT NULL CHECK(typeof(value)='integer' AND value>0)
+);
 CREATE TABLE IF NOT EXISTS oauth_hosts (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     host_id TEXT NOT NULL
@@ -114,7 +118,7 @@ CREATE TABLE IF NOT EXISTS turns (
 );
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session);
 CREATE TABLE IF NOT EXISTS events (
-    cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+    cursor INTEGER PRIMARY KEY,
     body BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agent_delegations (
@@ -165,7 +169,7 @@ CREATE TABLE plugin_values (
 );
 -- Opaque private checkpoints share immutable records across conversation branches.
 CREATE TABLE plugin_conversation_records (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    sequence INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     key TEXT NOT NULL,
     value BLOB
@@ -232,7 +236,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     hooks BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agent_events (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    sequence INTEGER PRIMARY KEY,
     session TEXT NOT NULL REFERENCES sessions(id),
     id TEXT NOT NULL,
     turn TEXT NOT NULL REFERENCES turns(id),
@@ -383,12 +387,12 @@ CREATE TABLE dispatch_schedules (
 );
 CREATE INDEX dispatch_schedules_due ON dispatch_schedules(next_ms);
 CREATE TABLE dispatch_events (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );
 CREATE TABLE dispatch_jobs (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     package TEXT NOT NULL,
     queue TEXT NOT NULL,
@@ -399,7 +403,7 @@ CREATE TABLE dispatch_jobs (
 );
 CREATE INDEX dispatch_jobs_queue ON dispatch_jobs(package,queue,status,sequence);
 CREATE TABLE notifications (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );

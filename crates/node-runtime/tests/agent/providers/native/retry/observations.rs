@@ -3,26 +3,24 @@ use sailry_protocol::{
     conversation::observation::{Outcome, Request},
 };
 
-pub(super) fn records(profile: &std::path::Path, turn: TurnId, outcomes: &[Outcome]) -> String {
-    let database = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
+pub(super) async fn records(
+    profile: &std::path::Path,
+    turn: TurnId,
+    outcomes: &[Outcome],
+) -> String {
+    let (_database, database) =
+        crate::database_fixture::open(&profile.join("storage/node.turso"), true).await;
     let mut query = database.prepare(
         "SELECT id,json_extract(body,'$.event_metadata.sailry_model_observation') FROM agent_events
          WHERE turn=?1 AND json_type(body,'$.event_metadata.sailry_model_observation')='text' ORDER BY sequence",
-    ).unwrap();
-    let records = query
-        .query_map([turn.to_string()], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .unwrap()
-        .map(|row| {
-            let (id, value) = row.unwrap();
-            (id, serde_json::from_str::<Request>(&value).unwrap())
-        })
-        .collect::<Vec<_>>();
+    ).await.unwrap();
+    let mut rows = query.query([turn.to_string()]).await.unwrap();
+    let mut records = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        let id: String = row.get(0).unwrap();
+        let value: String = row.get(1).unwrap();
+        records.push((id, serde_json::from_str::<Request>(&value).unwrap()));
+    }
     assert_eq!(records.len(), outcomes.len() + 1);
     let first = &records[0].1;
     assert!(first.attempts.is_empty());

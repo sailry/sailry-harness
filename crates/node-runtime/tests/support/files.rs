@@ -1,3 +1,10 @@
+#[allow(
+    dead_code,
+    reason = "The native database fixture is shared with storage-only suites"
+)]
+#[path = "database.rs"]
+pub mod database;
+
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;

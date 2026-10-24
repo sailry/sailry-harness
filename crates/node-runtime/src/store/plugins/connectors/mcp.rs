@@ -4,7 +4,7 @@ use crate::plugins::authorization::Target;
 
 /// An explicit custom-server enable may restore only its existing valid account.
 /// Reads and ordinary package servers never change connection state here.
-pub(in crate::store::plugins) fn enable(
+pub(in crate::store::plugins) async fn enable(
     db: &Connection,
     profile: Option<&std::path::Path>,
     info: &Info,
@@ -26,7 +26,7 @@ pub(in crate::store::plugins) fn enable(
         if !linked {
             continue;
         }
-        for mut record in records(db)?.into_iter().filter(|record| {
+        for mut record in records(db).await?.into_iter().filter(|record| {
             record.plugin == info.summary.name && record.connector == declaration.id
         }) {
             if record.enabled
@@ -35,33 +35,34 @@ pub(in crate::store::plugins) fn enable(
             {
                 continue;
             }
-            let current = bound(db, profile, info, &declaration, record.method)?;
+            let current = bound(db, profile, info, &declaration, record.method).await?;
             if !consent::same(&record.plugin, record.bound.as_ref(), current.as_ref()) {
                 continue;
             }
             super::enabled(&mut record, true)?;
             next(&mut record)?;
-            super::save(db, &record)?;
+            super::save(db, &record).await?;
             changed = true;
         }
     }
     Ok(changed)
 }
 
-pub(in crate::store) fn resolve(
+pub(in crate::store) async fn resolve(
     db: &Connection,
     profile: Option<&std::path::Path>,
     context: &plugin::Context,
     server: &str,
 ) -> Result<Vec<(crate::plugins::connectors::Target, Injection)>, Fault> {
     let info = if context.turn.is_some() || context.invocation.is_some() {
-        crate::store::agent::plugins::packages(db, std::slice::from_ref(&context.package))?
+        crate::store::agent::plugins::packages(db, std::slice::from_ref(&context.package))
+            .await?
             .pop()
             .ok_or_else(unavailable)?
     } else {
-        settings::current(db, &context.package)?
+        settings::current(db, &context.package).await?
     };
-    settings::resolve(db, &info)?;
+    settings::resolve(db, &info).await?;
     let mut targets = Vec::new();
     let mut names = std::collections::BTreeSet::new();
     for declaration in registry::declarations(&info) {
@@ -74,11 +75,13 @@ pub(in crate::store) fn resolve(
         if injections.is_empty() {
             continue;
         }
-        let exists = records(db)?
+        let exists = records(db)
+            .await?
             .iter()
             .any(|record| record.plugin == info.summary.name && record.connector == declaration.id);
         if !exists && (info.mcp_source.is_some() || declaration.auth.iter().all(|auth|matches!(auth,Auth::Secret{fields} if fields.iter().all(|name|declaration.fields.iter().any(|field|field.name==*name&&field.optional))))) {continue;}
-        let (record, declaration) = super::resolve(db, profile, context, &declaration.id, None)?;
+        let (record, declaration) =
+            super::resolve(db, profile, context, &declaration.id, None).await?;
         let mut target = super::target(&record, declaration, info.summary.reference());
         target.manual = info.mcp_source.is_some();
         for injection in injections {
@@ -103,12 +106,12 @@ fn unavailable() -> Fault {
     )
 }
 
-fn record(
+async fn record(
     db: &Connection,
     profile: Option<&std::path::Path>,
     target: &Target,
 ) -> Result<Record, Fault> {
-    let live = current_target(db, profile, target.id, target.revision, target.checking)?;
+    let live = current_target(db, profile, target.id, target.revision, target.checking).await?;
     if live.package.name != target.plugin
         || live.method != Kind::McpOauth
         || !live
@@ -119,7 +122,7 @@ fn record(
     {
         return Err(unavailable());
     }
-    let record = read(db, target.id)?;
+    let record = read(db, target.id).await?;
     let endpoint = record
         .bound
         .as_ref()
@@ -135,24 +138,24 @@ fn record(
     }
     Ok(record)
 }
-pub(in crate::store) fn load(
+pub(in crate::store) async fn load(
     db: &Connection,
     profile: Option<&std::path::Path>,
     target: &Target,
 ) -> Result<Option<(u64, Secret)>, Fault> {
-    let record = record(db, profile, target)?;
+    let record = record(db, profile, target).await?;
     Ok(record
         .grant
         .map(|grant| (record.grant_revision, grant.access)))
 }
-pub(in crate::store) fn save(
+pub(in crate::store) async fn save(
     db: &Connection,
     profile: Option<&std::path::Path>,
     target: &Target,
     revision: u64,
     credentials: Option<Secret>,
 ) -> Result<Summary, Fault> {
-    let record = record(db, profile, target)?;
+    let record = record(db, profile, target).await?;
     let issued = credentials.map(|access| crate::providers::login::plugin::Issued {
         access,
         refresh: None,
@@ -160,8 +163,8 @@ pub(in crate::store) fn save(
         account_label: None,
         extra: BTreeMap::new(),
     });
-    let record = super::renew(db, record.id, record.auth_revision, revision, issued)?;
-    Ok(required(db, &record.plugin)?.summary)
+    let record = super::renew(db, record.id, record.auth_revision, revision, issued).await?;
+    Ok(required(db, &record.plugin).await?.summary)
 }
 
 #[cfg(test)]

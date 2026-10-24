@@ -155,8 +155,7 @@ async fn rejects_invalid_specs() {
 #[tokio::test]
 async fn cancels_unpublished_streams() {
     let fixture = Fixture::empty().await;
-    let database =
-        rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3")).unwrap();
+
     for client in fixture.clients() {
         let upload = prepare(&client, spec(fixture.worktree, "unfinished", &[0; 1024])).await;
         let mut stream = client.open(upload.stream).await.unwrap();
@@ -180,6 +179,6 @@ async fn cancels_unpublished_streams() {
         );
         assert!(client.open(upload.stream).await.is_err());
     }
-    assert_eq!(count(&database, "attachments"), 0);
+    assert_eq!(count(&fixture.node, "attachments").await, 0);
     fixture.close().await;
 }

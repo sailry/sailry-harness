@@ -16,18 +16,21 @@ fn declare(root: &Path, value: u32) {
     fs::write(path, manifest.to_string()).unwrap();
 }
 
-fn captured(profile: &Path, turn: TurnId) -> Provider {
-    let db = rusqlite::Connection::open_with_flags(
-        profile.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT provider FROM agent_runs WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+async fn captured(node: &Node, turn: TurnId) -> Provider {
+    let body: Vec<u8> = node
+        .with_storage(move |db| {
+            Box::pin(async move {
+                db.prepare("SELECT provider FROM agent_runs WHERE turn=?1")
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?
+                    .query_row([turn.to_string()])
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?
+                    .get(0)
+                    .map_err(crate::plugins::database_fixture::fault)
+            })
+        })
+        .await
         .unwrap();
     serde_json::from_slice(&body).unwrap()
 }
@@ -117,7 +120,7 @@ async fn freezes_updates_at_turn_admission() {
             panic!("turn expected")
         };
         finish(&client, session.id, first_turn.id).await;
-        let original = captured(node.profile(), first_turn.id);
+        let original = captured(&node, first_turn.id).await;
         assert_eq!(
             original.binding.as_ref().unwrap().package,
             Some(first.summary.reference())
@@ -128,7 +131,7 @@ async fn freezes_updates_at_turn_admission() {
             panic!("turn expected")
         };
         finish(&client, session.id, second_turn.id).await;
-        let current = captured(node.profile(), second_turn.id);
+        let current = captured(&node, second_turn.id).await;
         assert_eq!(
             current.binding.as_ref().unwrap().package,
             Some(second.summary.reference())
@@ -144,7 +147,7 @@ async fn freezes_updates_at_turn_admission() {
                 .body["example"],
             2
         );
-        assert_eq!(captured(node.profile(), first_turn.id), original);
+        assert_eq!(captured(&node, first_turn.id).await, original);
         assert_eq!(server.requests.lock().unwrap()[0]["example"], 1);
         assert_eq!(server.requests.lock().unwrap()[1]["example"], 2);
         execute(
@@ -164,7 +167,7 @@ async fn freezes_updates_at_turn_admission() {
                 .code,
             ErrorCode::NotConfigured
         );
-        assert_eq!(captured(node.profile(), first_turn.id), original);
+        assert_eq!(captured(&node, first_turn.id).await, original);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }

@@ -61,14 +61,22 @@ async fn detaching_preserves_committed_work() {
     });
     let admission = client.dispatch(request.clone()).await.unwrap();
     assert!(admission.receipt.durable);
-    let connection =
-        rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-    let rows: i64 = connection
-        .query_row(
-            "SELECT count(*) FROM requests WHERE id=?1",
-            [request.id.to_string()],
-            |row| row.get(0),
-        )
+    let id = request.id;
+    let rows: i64 = node
+        .with_storage(move |connection| {
+            Box::pin(async move {
+                connection
+                    .prepare("SELECT count(*) FROM requests WHERE id=?1")
+                    .await
+                    .map_err(super::database::storage_error)?
+                    .query_row([id.to_string()])
+                    .await
+                    .map_err(super::database::storage_error)?
+                    .get(0)
+                    .map_err(super::database::storage_error)
+            })
+        })
+        .await
         .unwrap();
     assert_eq!(rows, 1, "a durable receipt requires committed admission");
     drop(admission);
@@ -77,7 +85,6 @@ async fn detaching_preserves_committed_work() {
         Output::Project(_)
     ));
     assert_eq!(snapshot(&client).await.projects.len(), 1);
-    drop(connection);
     node.shutdown().await.unwrap();
 }
 
@@ -248,18 +255,25 @@ async fn preserves_interrupted_admission() {
     let path = node.profile().to_owned();
     let caller = node.id();
     node.shutdown().await.unwrap();
-    let connection = rusqlite::Connection::open(path.join("storage/node.sqlite3")).unwrap();
-    connection
+    let database = super::database::engine(&path.join("storage/node.turso"))
+        .await
+        .unwrap();
+    let mut connection = super::database::connect(&database).await.unwrap();
+    let transaction = connection.transaction().await.unwrap();
+    transaction
         .execute(
             "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
-            rusqlite::params![
+            turso::params![
                 &caller.0[..],
                 request.id.to_string(),
                 serde_json::to_vec(&request).unwrap()
             ],
         )
+        .await
         .unwrap();
+    transaction.commit().await.unwrap();
     drop(connection);
+    drop(database);
     let node = Node::start_empty(path).await.unwrap();
     let client = Client::new(node.local());
     assert_eq!(
@@ -291,18 +305,25 @@ async fn interrupted_command_preserves_uncertainty() {
     let path = node.profile().to_owned();
     let caller = node.id();
     node.shutdown().await.unwrap();
-    let connection = rusqlite::Connection::open(path.join("storage/node.sqlite3")).unwrap();
+    let database = super::database::engine(&path.join("storage/node.turso"))
+        .await
+        .unwrap();
+    let mut connection = super::database::connect(&database).await.unwrap();
+    let transaction = connection.transaction().await.unwrap();
     let body = format!(
         "command-v1:{}",
         blake3::hash(&serde_json::to_vec(&request).unwrap()).to_hex()
     );
-    connection
+    transaction
         .execute(
             "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
-            rusqlite::params![&caller.0[..], request.id.to_string(), body.as_bytes()],
+            turso::params![&caller.0[..], request.id.to_string(), body.as_bytes()],
         )
+        .await
         .unwrap();
+    transaction.commit().await.unwrap();
     drop(connection);
+    drop(database);
     let node = Node::start_empty(path).await.unwrap();
     let client = Client::new(node.local());
     for _ in 0..2 {

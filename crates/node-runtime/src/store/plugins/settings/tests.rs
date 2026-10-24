@@ -5,8 +5,8 @@ use serde_json::json;
 #[path = "tests/targets.rs"]
 mod targets;
 
-#[test]
-fn unsupported_bindings_never_reuse_credentials() {
+#[tokio::test]
+async fn unsupported_bindings_never_reuse_credentials() {
     for required in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
@@ -21,9 +21,14 @@ fn unsupported_bindings_never_reuse_credentials() {
         .unwrap();
         info.settings = Some(schema.clone());
         info.summary.settings_revision = 1;
-        let db = Connection::open_in_memory().unwrap();
-        db.execute_batch(include_str!("../../schema.sql")).unwrap();
-        super::super::save(&db, &info, true).unwrap();
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
+        db.execute_batch(include_str!("../../schema.sql"))
+            .await
+            .unwrap();
+        super::super::save(&db, &info, true).await.unwrap();
         let stored = Stored {
             schema: Some(schema),
             values: BTreeMap::new(),
@@ -38,18 +43,19 @@ fn unsupported_bindings_never_reuse_credentials() {
         let body = encode(&stored).unwrap();
         db.execute(
             "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,1,?2)",
-            params![info.summary.name, &body],
+            params![info.summary.name.as_str(), body.as_slice()],
         )
+        .await
         .unwrap();
 
         let package = info.summary.reference();
-        let state = read(&db, &package).unwrap();
+        let state = read(&db, &package).await.unwrap();
         assert!(!state.ready);
         assert!(state.configured.is_empty());
         assert!(state.keepable.is_empty());
-        assert!(read_secret(&db, &package, "token").is_err());
+        assert!(read_secret(&db, &package, "token").await.is_err());
         assert_eq!(
-            resolve(&db, &info).err().unwrap().code,
+            resolve(&db, &info).await.err().unwrap().code,
             ErrorCode::NotConfigured
         );
         for update in [
@@ -63,12 +69,18 @@ fn unsupported_bindings_never_reuse_credentials() {
                 &BTreeMap::new(),
                 &BTreeMap::from([("token".into(), update)]),
             )
+            .await
             .unwrap_err();
             assert_eq!(error.code, ErrorCode::Unavailable);
         }
-        let unchanged: Vec<u8> = db
-            .query_row("SELECT body FROM plugin_settings", [], |row| row.get(0))
-            .unwrap();
+        let unchanged: Vec<u8> = (async {
+            let mut statement = db.prepare("SELECT body FROM plugin_settings").await?;
+            let row = statement.query_row(()).await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         assert_eq!(unchanged, body);
         let saved: Stored = serde_json::from_slice(&unchanged).unwrap();
         assert_eq!(
@@ -76,7 +88,9 @@ fn unsupported_bindings_never_reuse_credentials() {
             "fixture-secret"
         );
         assert_eq!(
-            super::super::required(&db, &info.summary.name).unwrap(),
+            super::super::required(&db, &info.summary.name)
+                .await
+                .unwrap(),
             info
         );
     }

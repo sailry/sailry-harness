@@ -385,7 +385,7 @@ async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
         );
         assert!(!approval.can_remember);
         assert_eq!(approval.prefix, None);
-        assert!(approvals::rules::claimed(&fixture.node, approval).1);
+        assert!(approvals::rules::claimed(&fixture.node, approval).await.1);
         if permission == Permission::Full {
             assert_eq!(approval.source, ApprovalSource::Full);
             assert_eq!(approval.choice, None);

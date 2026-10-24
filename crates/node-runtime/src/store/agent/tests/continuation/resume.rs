@@ -11,9 +11,9 @@ fn value(state: &str) -> serde_json::Value {
     })
 }
 
-fn setup() -> (Fixture, plugin::Context) {
-    let mut fixture = Fixture::new();
-    let context = prepare(&mut fixture);
+async fn setup() -> (Fixture, plugin::Context) {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&mut fixture).await;
     execute(
         &mut fixture,
         &context,
@@ -23,17 +23,19 @@ fn setup() -> (Fixture, plugin::Context) {
             expected_revision: 0,
         },
     )
+    .await
     .unwrap();
     (fixture, context)
 }
 
-fn goal(fixture: &Fixture) -> ConversationEntry {
+async fn goal(fixture: &Fixture) -> ConversationEntry {
     crate::store::plugins::storage::conversation::read(
         &fixture.database.connection,
         "goals",
         fixture.session,
         "goal",
     )
+    .await
     .unwrap()
 }
 
@@ -60,11 +62,19 @@ fn operations(session: SessionId, queue_revision: u64, goal_revision: u64) -> Ve
     ]
 }
 
-fn admit(fixture: &mut Fixture, context: &plugin::Context) -> TurnId {
-    let queue = queue::read(&fixture.database.connection, fixture.session).unwrap();
-    let operations = operations(fixture.session, queue.revision, goal(fixture).revision);
+async fn admit(fixture: &mut Fixture, context: &plugin::Context) -> TurnId {
+    let queue = queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    let operations = operations(
+        fixture.session,
+        queue.revision,
+        goal(fixture).await.revision,
+    );
     let Output::PluginTransaction(outputs) =
-        execute(fixture, context, Command::PluginTransaction { operations }).unwrap()
+        execute(fixture, context, Command::PluginTransaction { operations })
+            .await
+            .unwrap()
     else {
         panic!("transaction expected")
     };
@@ -74,46 +84,60 @@ fn admit(fixture: &mut Fixture, context: &plugin::Context) -> TurnId {
     turn.id
 }
 
-fn rejects(
+async fn rejects(
     fixture: &mut Fixture,
     context: &plugin::Context,
     operations: Vec<Operation>,
     code: ErrorCode,
 ) {
-    let queue = queue::read(&fixture.database.connection, fixture.session).unwrap();
-    let state = goal(fixture);
-    let runs = runs::list(&fixture.database.connection, fixture.session, &[]).unwrap();
+    let queue = queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    let state = goal(fixture).await;
+    let runs = runs::list(&fixture.database.connection, fixture.session, &[])
+        .await
+        .unwrap();
     assert_eq!(
         execute(fixture, context, Command::PluginTransaction { operations })
+            .await
             .unwrap_err()
             .code,
         code
     );
     assert_eq!(
-        queue::read(&fixture.database.connection, fixture.session).unwrap(),
+        queue::read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         queue
     );
-    assert_eq!(goal(fixture), state);
+    assert_eq!(goal(fixture).await, state);
     assert_eq!(
-        runs::list(&fixture.database.connection, fixture.session, &[]).unwrap(),
+        runs::list(&fixture.database.connection, fixture.session, &[])
+            .await
+            .unwrap(),
         runs
     );
 }
 
-#[test]
-fn stopped_queue_preserves_fence_and_marker() {
-    let (mut fixture, context) = setup();
-    let original = fixture.queued();
-    runs::start(&fixture.database.connection, original).unwrap();
+#[tokio::test]
+async fn stopped_queue_preserves_fence_and_marker() {
+    let (mut fixture, context) = setup().await;
+    let original = fixture.queued().await;
+    runs::start(&fixture.database.connection, original)
+        .await
+        .unwrap();
     assert_eq!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .unwrap()
             .turn
             .id,
         original
     );
-    runs::stop(&fixture.database.connection, original).unwrap();
+    runs::stop(&fixture.database.connection, original)
+        .await
+        .unwrap();
     runs::finish(
         &mut fixture.database,
         original,
@@ -121,26 +145,32 @@ fn stopped_queue_preserves_fence_and_marker() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
-    let paused = queue::read(&fixture.database.connection, fixture.session).unwrap();
+    let paused = queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert!(paused.paused);
     assert!(paused.items.is_empty());
     assert_eq!(
         continue_turn(&mut fixture, &context, None)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Busy
     );
 
-    let turn = admit(&mut fixture, &context);
-    let queue = queue::read(&fixture.database.connection, fixture.session).unwrap();
+    let turn = admit(&mut fixture, &context).await;
+    let queue = queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert!(!queue.paused);
     assert_eq!(queue.items.len(), 1);
     assert_eq!(queue.items[0].turn, turn);
     assert!(queue.items[0].ready);
-    assert_eq!(goal(&fixture).value["state"], "active");
-    assert_eq!(goal(&fixture).revision, 2);
-    let run = runs::get(&fixture.database.connection, turn).unwrap();
+    assert_eq!(goal(&fixture).await.value["state"], "active");
+    assert_eq!(goal(&fixture).await.revision, 2);
+    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
     let continuation = run.continuation.as_ref().unwrap();
     assert_eq!(continuation.package, context.package);
     assert_eq!(
@@ -152,6 +182,7 @@ fn stopped_queue_preserves_fence_and_marker() {
         "继续执行目标"
     );
     let invocation = runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(invocation.turn.id, turn);
@@ -159,70 +190,100 @@ fn stopped_queue_preserves_fence_and_marker() {
     assert_eq!(invocation.message.text, "Continue the requested work");
     assert_eq!(
         runs::get(&fixture.database.connection, turn)
+            .await
             .unwrap()
             .continuation,
         run.continuation
     );
 }
 
-#[test]
-fn held_input_rolls_back_state_and_queue() {
-    let (mut fixture, context) = setup();
-    let held = fixture.queued();
-    queue::pause(&fixture.database.connection, fixture.session, true).unwrap();
-    let queue = queue::read(&fixture.database.connection, fixture.session).unwrap();
+#[tokio::test]
+async fn held_input_rolls_back_state_and_queue() {
+    let (mut fixture, context) = setup().await;
+    let held = fixture.queued().await;
+    queue::pause(&fixture.database.connection, fixture.session, true)
+        .await
+        .unwrap();
+    let queue = queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert_eq!(queue.items[0].turn, held);
     assert!(!queue.items[0].ready);
-    let operations = operations(fixture.session, queue.revision, goal(&fixture).revision);
-    rejects(&mut fixture, &context, operations, ErrorCode::Busy);
+    let operations = operations(
+        fixture.session,
+        queue.revision,
+        goal(&fixture).await.revision,
+    );
+    rejects(&mut fixture, &context, operations, ErrorCode::Busy).await;
 }
 
-#[test]
-fn active_work_rolls_back_state_and_queue() {
+#[tokio::test]
+async fn active_work_rolls_back_state_and_queue() {
     for stopping in [false, true] {
-        let (mut fixture, context) = setup();
-        let active = fixture.queued();
-        runs::start(&fixture.database.connection, active).unwrap();
+        let (mut fixture, context) = setup().await;
+        let active = fixture.queued().await;
+        runs::start(&fixture.database.connection, active)
+            .await
+            .unwrap();
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .unwrap();
         if stopping {
-            runs::stop(&fixture.database.connection, active).unwrap();
+            runs::stop(&fixture.database.connection, active)
+                .await
+                .unwrap();
         } else {
-            queue::pause(&fixture.database.connection, fixture.session, true).unwrap();
+            queue::pause(&fixture.database.connection, fixture.session, true)
+                .await
+                .unwrap();
         }
-        let queue = queue::read(&fixture.database.connection, fixture.session).unwrap();
-        let operations = operations(fixture.session, queue.revision, goal(&fixture).revision);
-        rejects(&mut fixture, &context, operations, ErrorCode::Busy);
+        let queue = queue::read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        let operations = operations(
+            fixture.session,
+            queue.revision,
+            goal(&fixture).await.revision,
+        );
+        rejects(&mut fixture, &context, operations, ErrorCode::Busy).await;
     }
 }
 
-#[test]
-fn stale_revisions_roll_back_state_and_queue() {
+#[tokio::test]
+async fn stale_revisions_roll_back_state_and_queue() {
     for stale_queue in [false, true] {
-        let (mut fixture, context) = setup();
-        queue::pause(&fixture.database.connection, fixture.session, true).unwrap();
-        let queue = queue::read(&fixture.database.connection, fixture.session).unwrap();
+        let (mut fixture, context) = setup().await;
+        queue::pause(&fixture.database.connection, fixture.session, true)
+            .await
+            .unwrap();
+        let queue = queue::read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
         let operations = operations(
             fixture.session,
             queue.revision - u64::from(stale_queue),
-            goal(&fixture).revision - u64::from(!stale_queue),
+            goal(&fixture).await.revision - u64::from(!stale_queue),
         );
         rejects(
             &mut fixture,
             &context,
             operations,
             ErrorCode::RevisionConflict,
-        );
+        )
+        .await;
     }
 }
 
-#[test]
-fn preserves_session_scope_and_capability_checks() {
-    let (mut fixture, context) = setup();
-    queue::pause(&fixture.database.connection, fixture.session, true).unwrap();
-    let current =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+#[tokio::test]
+async fn preserves_session_scope_and_capability_checks() {
+    let (mut fixture, context) = setup().await;
+    queue::pause(&fixture.database.connection, fixture.session, true)
+        .await
+        .unwrap();
+    let current = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     let Output::Session(other) = command(
         &mut fixture.database,
         &fixture.events,
@@ -231,11 +292,17 @@ fn preserves_session_scope_and_capability_checks() {
             worktree: Some(current.worktree),
             config: Some(current.config),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("session expected")
     };
-    queue::pause(&fixture.database.connection, other.id, true).unwrap();
-    let other_queue = queue::read(&fixture.database.connection, other.id).unwrap();
+    queue::pause(&fixture.database.connection, other.id, true)
+        .await
+        .unwrap();
+    let other_queue = queue::read(&fixture.database.connection, other.id)
+        .await
+        .unwrap();
     rejects(
         &mut fixture,
         &context,
@@ -245,9 +312,12 @@ fn preserves_session_scope_and_capability_checks() {
             paused: false,
         }],
         ErrorCode::PermissionDenied,
-    );
+    )
+    .await;
     assert_eq!(
-        queue::read(&fixture.database.connection, other.id).unwrap(),
+        queue::read(&fixture.database.connection, other.id)
+            .await
+            .unwrap(),
         other_queue
     );
 
@@ -255,14 +325,18 @@ fn preserves_session_scope_and_capability_checks() {
         &fixture.database,
         &fixture._root.path().join("profile"),
         "reminders",
-    );
+    )
+    .await;
     let mut unauthorized = context.clone();
     unauthorized.package = crate::store::plugins::get(&fixture.database.connection, "reminders")
+        .await
         .unwrap()
         .unwrap()
         .summary
         .reference();
-    let queue = queue::read(&fixture.database.connection, fixture.session).unwrap();
+    let queue = queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     let session = fixture.session;
     rejects(
         &mut fixture,
@@ -273,34 +347,42 @@ fn preserves_session_scope_and_capability_checks() {
             paused: false,
         }],
         ErrorCode::PermissionDenied,
-    );
+    )
+    .await;
 }
 
-#[test]
-fn subsequent_user_input_withdraws_resumed_work() {
-    let (mut fixture, context) = setup();
-    queue::pause(&fixture.database.connection, fixture.session, true).unwrap();
-    let turn = admit(&mut fixture, &context);
-    let held = fixture.queued();
+#[tokio::test]
+async fn subsequent_user_input_withdraws_resumed_work() {
+    let (mut fixture, context) = setup().await;
+    queue::pause(&fixture.database.connection, fixture.session, true)
+        .await
+        .unwrap();
+    let turn = admit(&mut fixture, &context).await;
+    let held = fixture.queued().await;
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );
-    let run = runs::get(&fixture.database.connection, turn).unwrap();
+    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
     assert_eq!(run.status, Status::Cancelled);
     assert_eq!(run.error.unwrap().code, ErrorCode::Conflict);
-    let queue = queue::read(&fixture.database.connection, fixture.session).unwrap();
+    let queue = queue::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     assert_eq!(queue.items.len(), 1);
     assert_eq!(queue.items[0].turn, held);
     assert!(!queue.items[0].ready);
 }
 
-#[test]
-fn revised_goal_withdraws_resumed_work() {
-    let (mut fixture, context) = setup();
-    queue::pause(&fixture.database.connection, fixture.session, true).unwrap();
-    let turn = admit(&mut fixture, &context);
+#[tokio::test]
+async fn revised_goal_withdraws_resumed_work() {
+    let (mut fixture, context) = setup().await;
+    queue::pause(&fixture.database.connection, fixture.session, true)
+        .await
+        .unwrap();
+    let turn = admit(&mut fixture, &context).await;
     execute(
         &mut fixture,
         &context,
@@ -310,13 +392,15 @@ fn revised_goal_withdraws_resumed_work() {
             expected_revision: 2,
         },
     )
+    .await
     .unwrap();
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );
-    let run = runs::get(&fixture.database.connection, turn).unwrap();
+    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
     assert_eq!(run.status, Status::Cancelled);
     assert_eq!(run.error.unwrap().code, ErrorCode::RevisionConflict);
 }

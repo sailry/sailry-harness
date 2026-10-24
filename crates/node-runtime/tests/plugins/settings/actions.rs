@@ -49,21 +49,30 @@ async fn reads_public_values() {
                 .contains("private-fixture-token")
         );
         assert!(!saved.values.contains_key("token"));
-        let db = rusqlite::Connection::open_with_flags(
-            node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
+
         assert_eq!(
-            db.query_row(
-                "SELECT count(*) FROM requests WHERE id=?1",
-                [request.id.to_string()],
-                |row| row.get::<_, i64>(0)
-            )
+            {
+                let sql = ("SELECT count(*) FROM requests WHERE id=?1").to_owned();
+                let parameters = turso::params![request.id.to_string()];
+                node.with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::plugins::database_fixture::fault)?;
+                        let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        value.map_err(crate::plugins::database_fixture::fault)
+                    })
+                })
+                .await
+            }
             .unwrap(),
             0
         );
-        drop(db);
+
         let mut other = context.package.clone();
         other.name = "another-plugin".into();
         for command in [

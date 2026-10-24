@@ -167,11 +167,27 @@ async fn shares_read_only_search() {
         std::fs::read_to_string(root.join("src/资料/中文.rs")).unwrap(),
         "first\r\nNeedle 中文\r\nneedle\n[needle]\n"
     );
-    let db = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
+
     assert_eq!(
-        db.query_row("SELECT count(*) FROM requests", [], |row| row
-            .get::<_, i64>(0))
-            .unwrap(),
+        {
+            let sql = ("SELECT count(*) FROM requests").to_owned();
+            let parameters = ();
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                    value.map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+        }
+        .unwrap(),
         1
     );
     controller.close().await.unwrap();

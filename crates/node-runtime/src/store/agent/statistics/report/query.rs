@@ -76,7 +76,7 @@ pub(super) fn validate(query: &Query) -> Result<(DateTime<Utc>, DateTime<Utc>), 
 }
 
 pub(super) fn id<T: serde::de::DeserializeOwned>(
-    row: &rusqlite::Row<'_>,
+    row: &turso::Row,
     index: usize,
 ) -> Result<T, Fault> {
     let value: String = row.get(index).map_err(storage_error)?;

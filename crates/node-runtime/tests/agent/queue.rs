@@ -252,15 +252,33 @@ async fn edits_survive_restart() {
         projected(stream.as_mut(), &mut projection, 1, queue.revision).await;
         assert_eq!(projection.snapshot().unwrap().page.queue, queue);
         assert!(fixture.server.requests.lock().unwrap().is_empty());
-        let database =
-            rusqlite::Connection::open(fixture.directory.path().join("node/storage/node.sqlite3"))
-                .unwrap();
-        let original: Vec<u8> = database
-            .query_row(
-                "SELECT body FROM requests WHERE id=?1",
-                [middle.request.to_string()],
-                |row| row.get(0),
-            )
+        let request_id = middle.request;
+        let (original, events): (Vec<u8>, i64) = fixture
+            .node
+            .with_storage(move |database| {
+                Box::pin(async move {
+                    let original = database
+                        .prepare("SELECT body FROM requests WHERE id=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([request_id.to_string()])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::database_fixture::fault)?;
+                    let events = database
+                        .prepare("SELECT count(*) FROM agent_events")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(())
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::database_fixture::fault)?;
+                    Ok((original, events))
+                })
+            })
+            .await
             .unwrap();
         assert_eq!(
             serde_json::from_slice::<Request>(&original)
@@ -272,14 +290,7 @@ async fn edits_survive_restart() {
                 message: "middle".into(),
             }
         );
-        assert_eq!(
-            database
-                .query_row("SELECT count(*) FROM agent_events", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
-        drop(database);
+        assert_eq!(events, 0);
         drop(stream);
         let fixture = fixture.restart().await;
         assert_eq!(fixture.queue().await, queue);

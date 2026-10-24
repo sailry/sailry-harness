@@ -354,21 +354,33 @@ async fn protects_accounts_across_transports() {
                     .is_err()
             );
             assert_eq!(server.requests.lock().unwrap().len(), count);
-            let db = rusqlite::Connection::open_with_flags(
-                fixture.node.profile().join("storage/node.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
+
             assert_eq!(
-                db.query_row(
-                    "SELECT count(*) FROM requests WHERE id=?1",
-                    [id.to_string()],
-                    |row| row.get::<_, i64>(0)
-                )
+                {
+                    let sql = ("SELECT count(*) FROM requests WHERE id=?1").to_owned();
+                    let parameters = turso::params![id.to_string()];
+                    fixture
+                        .node
+                        .with_storage(move |db| {
+                            Box::pin(async move {
+                                let row = db
+                                    .prepare(sql)
+                                    .await
+                                    .map_err(crate::database_fixture::fault)?
+                                    .query_row(parameters)
+                                    .await
+                                    .map_err(crate::database_fixture::fault)?;
+                                let value: turso::Result<_> =
+                                    (|row: &turso::Row| row.get::<i64>(0))(&row);
+                                value.map_err(crate::database_fixture::fault)
+                            })
+                        })
+                        .await
+                }
                 .unwrap(),
                 0
             );
-            drop(db);
+
             fixture.close().await;
         }
     }

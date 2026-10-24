@@ -1,17 +1,20 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
-fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
-    rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap()
-    .query_row(
-        "SELECT body FROM plugin_connections WHERE id=?1",
-        [id.to_string()],
-        |row| row.get(0),
-    )
+async fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
+    node.with_storage(move |db| {
+        Box::pin(async move {
+            db.prepare("SELECT body FROM plugin_connections WHERE id=?1")
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .query_row([id.to_string()])
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::plugins::database_fixture::fault)
+        })
+    })
+    .await
     .unwrap()
 }
 
@@ -69,13 +72,13 @@ async fn sends_every_scoped_header() {
         .await;
         assert_eq!(row.state, State::Connected);
         assert_eq!(row.identity.as_ref().unwrap().id, "fixture-account");
-        let before: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        let before: Value = serde_json::from_slice(&stored(&node, row.id).await).unwrap();
         let output = execute(&client, Command::ProbeConnection { connection: row.id }).await;
         let Output::Connection(checked) = &output else {
             panic!("connection expected")
         };
         assert_eq!(checked.state, State::Connected);
-        let after: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        let after: Value = serde_json::from_slice(&stored(&node, row.id).await).unwrap();
         for field in ["auth_revision", "grant_revision", "secrets"] {
             assert_eq!(before[field], after[field], "{remote}/{field}");
         }
@@ -170,19 +173,19 @@ async fn expires_rejected_credentials_and_allows_rechecking() {
             .summary
             .reference();
         let row = connected(&client, package, None, None, secret()).await;
-        let before: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        let before: Value = serde_json::from_slice(&stored(&node, row.id).await).unwrap();
         server.status.store(401, Ordering::SeqCst);
         let request = client.prepare(Command::ProbeConnection { connection: row.id });
         assert_eq!(
             client.execute(request).await.unwrap_err().code,
             ErrorCode::Expired
         );
-        let after: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        let after: Value = serde_json::from_slice(&stored(&node, row.id).await).unwrap();
         assert_eq!(after["state"], "expired");
         for field in ["fields", "secrets", "auth_revision", "revision"] {
             assert_eq!(after[field], before[field], "{remote}/{field}");
         }
-        let bytes = stored(&node, row.id);
+        let bytes = stored(&node, row.id).await;
         server.status.store(503, Ordering::SeqCst);
         assert_eq!(
             client
@@ -192,7 +195,7 @@ async fn expires_rejected_credentials_and_allows_rechecking() {
                 .code,
             ErrorCode::Unavailable
         );
-        assert_eq!(stored(&node, row.id), bytes);
+        assert_eq!(stored(&node, row.id).await, bytes);
         server.status.store(0, Ordering::SeqCst);
         let Output::Connection(row) =
             execute(&client, Command::ProbeConnection { connection: row.id }).await
@@ -219,7 +222,7 @@ async fn recovers_failed_and_expired_health_checks() {
             .summary
             .reference();
         let row = connected(&client, package.clone(), None, None, secret()).await;
-        let before = stored(&node, row.id);
+        let before = stored(&node, row.id).await;
         node.set_connector_fixture(ORIGIN, &held.origin);
         let error = client
             .execute(client.prepare(Command::ProbeConnection { connection: row.id }))
@@ -227,7 +230,7 @@ async fn recovers_failed_and_expired_health_checks() {
             .unwrap_err();
         assert_eq!(error.code, ErrorCode::Unavailable);
         assert!(held.held.is_cancelled());
-        assert_eq!(stored(&node, row.id), before);
+        assert_eq!(stored(&node, row.id).await, before);
         assert!(
             client
                 .execute(
@@ -243,16 +246,19 @@ async fn recovers_failed_and_expired_health_checks() {
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let (database_handle, database) =
+            crate::plugins::database_fixture::open(&(profile.join("storage/node.turso")), false)
+                .await;
         let mut failed: Value = serde_json::from_slice(&before).unwrap();
         failed["state"] = json!("failed");
         database
             .execute(
                 "UPDATE plugin_connections SET body=?1 WHERE id=?2",
-                rusqlite::params![serde_json::to_vec(&failed).unwrap(), row.id.to_string()],
+                turso::params![serde_json::to_vec(&failed).unwrap(), row.id.to_string()],
             )
+            .await
             .unwrap();
-        database.close().unwrap();
+        crate::plugins::database_fixture::close(database_handle, database).await;
         let node = Node::start_empty(&profile).await.unwrap();
         node.set_connector_fixture(ORIGIN, &server.origin);
         let controller =

@@ -1,5 +1,5 @@
 use super::*;
-use rusqlite::Connection;
+use turso::Connection;
 
 #[tokio::test]
 async fn retains_unicode_phrases_and_scope() {
@@ -130,31 +130,46 @@ async fn preserves_weights_filters_and_memory_tokens() {
     }
 }
 
-fn records(db: &Connection, name: &str) -> Vec<(String, i64, Vec<u8>, Vec<u8>)> {
-    db.prepare("SELECT key,revision,value,index_data FROM plugin_values WHERE name=?1 ORDER BY key")
-        .unwrap()
-        .query_map([name], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap()
+async fn records(db: &Connection, name: &str) -> Vec<(String, i64, Vec<u8>, Vec<u8>)> {
+    let mut rows = db
+        .query(
+            "SELECT key,revision,value,index_data FROM plugin_values WHERE name=?1 ORDER BY key",
+            [name],
+        )
+        .await
+        .unwrap();
+    let mut records = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        records.push((
+            row.get(0).unwrap(),
+            row.get(1).unwrap(),
+            row.get(2).unwrap(),
+            row.get(3).unwrap(),
+        ));
+    }
+    records
 }
 
-fn previous(db: &Connection, name: &str) -> String {
-    let table = format!("plugin_search_{}", blake3::hash(name.as_bytes()).to_hex());
-    let definition = db
-        .query_row(
-            "SELECT sql FROM sqlite_master WHERE name=?1",
-            [&table],
-            |row| row.get::<_, String>(0),
-        )
+async fn previous(db: &Connection, name: &str) -> String {
+    let corpus = format!("plugin_search_{}", blake3::hash(name.as_bytes()).to_hex());
+    let index = format!("{corpus}_fts");
+    let current: String = db
+        .prepare("SELECT sql FROM sqlite_schema WHERE name=?1")
+        .await
         .unwrap()
-        .replace(",cjk0,cjk1", "")
-        .replace("unicode61 remove_diacritics 2", "ascii");
-    db.execute_batch(&format!("DROP TABLE {table}; {definition}"))
+        .query_row([index.as_str()])
+        .await
+        .unwrap()
+        .get(0)
         .unwrap();
-    db.execute(&format!("INSERT INTO {table}(rowid,field0,field1,key,tags,ordinal) SELECT rowid,json_extract(index_data,'$.fields[0]'),json_extract(index_data,'$.fields[1]'),key,json_extract(index_data,'$.tags'),json_extract(index_data,'$.order') FROM plugin_values WHERE name=?1 AND index_data IS NOT NULL"), [name]).unwrap();
+    // An older native derived index lacks the CJK fields; source records stay exact.
+    let definition = format!(
+        "CREATE INDEX {index} ON {corpus} USING fts (field0, field1) WITH (tokenizer = 'whitespace')"
+    );
+    assert_ne!(definition, current);
+    db.execute_batch(format!("DROP INDEX {index}; {definition}"))
+        .await
+        .unwrap();
     definition
 }
 
@@ -187,13 +202,13 @@ async fn rebuilds_at_restart_without_source_changes() {
         )
         .await;
         let profile = node.profile().to_path_buf();
-        let path = profile.join("storage/node.sqlite3");
+        let path = profile.join("storage/node.turso");
         drop(client);
         node.shutdown().await.unwrap();
-        let db = Connection::open(&path).unwrap();
-        let original = records(&db, &context.package.name);
-        let definition = previous(&db, &context.package.name);
-        db.close().unwrap();
+        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
+        let original = records(&db, &context.package.name).await;
+        let definition = previous(&db, &context.package.name).await;
+        crate::plugins::database_fixture::close(db_handle, db).await;
         let node = Node::start_empty_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
@@ -221,35 +236,37 @@ async fn rebuilds_at_restart_without_source_changes() {
         );
         drop(client);
         node.shutdown().await.unwrap();
-        let db =
-            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        assert_eq!(records(&db, &context.package.name), original);
+        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), true).await;
+        assert_eq!(records(&db, &context.package.name).await, original);
         let backups = profile.join("storage/backups");
         let files = fs::read_dir(&backups)
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert_eq!(files.len(), 1);
-        let saved = Connection::open_with_flags(
-            files[0].path(),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        assert_eq!(records(&saved, &context.package.name), original);
+        let (saved_handle, saved) =
+            crate::plugins::database_fixture::open(&(files[0].path().join("node.turso")), true)
+                .await;
+        assert_eq!(records(&saved, &context.package.name).await, original);
         let table = format!(
-            "plugin_search_{}",
+            "plugin_search_{}_fts",
             blake3::hash(context.package.name.as_bytes()).to_hex()
         );
         assert_eq!(
-            saved
-                .query_row(
-                    "SELECT sql FROM sqlite_master WHERE name=?1",
-                    [&table],
-                    |row| row.get::<_, String>(0)
-                )
-                .unwrap(),
+            (async {
+                let mut statement = saved
+                    .prepare("SELECT sql FROM sqlite_master WHERE name=?1")
+                    .await?;
+                let row = statement.query_row([table.as_str()]).await?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                mapped
+            })
+            .await
+            .unwrap(),
             definition
         );
+        crate::plugins::database_fixture::close(db_handle, db).await;
+        crate::plugins::database_fixture::close(saved_handle, saved).await;
         controller.close().await.unwrap();
     }
 }

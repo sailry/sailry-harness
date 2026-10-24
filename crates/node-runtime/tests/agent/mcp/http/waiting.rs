@@ -1,16 +1,20 @@
 use super::*;
 
-fn rules(node: &Node) -> i64 {
-    let database = rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    database
-        .query_row("SELECT count(*) FROM agent_approval_rules", [], |row| {
-            row.get(0)
+async fn rules(node: &Node) -> i64 {
+    node.with_storage(|db| {
+        Box::pin(async move {
+            db.prepare("SELECT count(*) FROM agent_approval_rules")
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .get::<i64>(0)
+                .map_err(crate::database_fixture::fault)
         })
-        .unwrap()
+    })
+    .await
+    .unwrap()
 }
 
 async fn continued(model: &Server) {
@@ -92,7 +96,7 @@ async fn rejects_decisions_after_timeout() {
                 "remote={remote}: {error:?}"
             );
         }
-        assert_eq!(rules(&fixture.node), 0);
+        assert_eq!(rules(&fixture.node).await, 0);
         assert_eq!(http.count("tools/call"), 0);
         assert_eq!(http.effects.load(Ordering::SeqCst), 0);
         release.notify_one();
@@ -101,7 +105,7 @@ async fn rejects_decisions_after_timeout() {
         assert_eq!(run.status, Status::Completed);
         assert!(run.error.is_none());
         assert_eq!(http.count("tools/call"), 0);
-        assert_eq!(rules(&fixture.node), 0);
+        assert_eq!(rules(&fixture.node).await, 0);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -159,7 +163,7 @@ async fn closes_cancelled_waits() {
                 .code,
             ErrorCode::Conflict
         );
-        assert_eq!(rules(&fixture.node), 0);
+        assert_eq!(rules(&fixture.node).await, 0);
         assert_eq!(http.count("tools/call"), 0);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
@@ -213,7 +217,7 @@ async fn resumes_live_approvals() {
                 .state,
             ApprovalState::Approved
         );
-        assert_eq!(rules(&fixture.node), 1);
+        assert_eq!(rules(&fixture.node).await, 1);
         assert_eq!(http.count("tools/call"), 1);
         assert_eq!(http.effects.load(Ordering::SeqCst), 1);
         fixture.node.shutdown().await.unwrap();
@@ -312,7 +316,7 @@ async fn orders_expiry_and_commit() {
                     .all(|entry| entry.state != ApprovalState::Pending)
             );
             let count = usize::from(committed);
-            assert_eq!(rules(&fixture.node), count as i64);
+            assert_eq!(rules(&fixture.node).await, count as i64);
             assert_eq!(http.count("tools/call"), count);
             assert_eq!(http.effects.load(Ordering::SeqCst), count);
             release_model.notify_one();
@@ -320,7 +324,7 @@ async fn orders_expiry_and_commit() {
             let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
             assert_eq!(run.status, Status::Completed);
             assert!(run.error.is_none());
-            assert_eq!(rules(&fixture.node), count as i64);
+            assert_eq!(rules(&fixture.node).await, count as i64);
             assert_eq!(http.count("tools/call"), count);
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();

@@ -5,7 +5,7 @@ use plugin::{
     mcp::Availability,
 };
 
-pub(in crate::store::plugins) fn project(
+pub(in crate::store::plugins) async fn project(
     db: &Connection,
     profile: Option<&std::path::Path>,
     mut info: Info,
@@ -13,13 +13,13 @@ pub(in crate::store::plugins) fn project(
     if info.mcp.is_empty() {
         return Ok(info);
     }
-    let saved = settings::stored(db, &info)?;
+    let saved = settings::stored(db, &info).await?;
     // Retained package versions can outlive their current installation.
-    let installed = get(db, &info.summary.name)?.is_some();
-    let configured = installed && settings::resolve(db, &info).is_ok();
+    let installed = get(db, &info.summary.name).await?.is_some();
+    let configured = installed && settings::resolve(db, &info).await.is_ok();
     let declarations = connectors::declarations(&info);
     let records = if installed {
-        connectors::records(db)?
+        connectors::records(db).await?
     } else {
         Vec::new()
     };
@@ -55,7 +55,7 @@ pub(in crate::store::plugins) fn project(
                     availability = Availability::ConnectionRequired;
                     break;
                 };
-                availability = match connectors::project(db, profile, record)?.state {
+                availability = match connectors::project(db, profile, record).await?.state {
                     ConnectionState::Connected if !record.enabled => {
                         Availability::ConnectionDisabled
                     }
@@ -83,12 +83,17 @@ mod tests {
     use crate::store::plugins;
     use plugin::connector::{Input, Kind, State};
 
-    #[test]
-    fn reads_removed_versions() {
+    #[tokio::test]
+    async fn reads_removed_versions() {
         let directory = tempfile::tempdir().unwrap();
         let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
-        let db = Connection::open_in_memory().unwrap();
-        db.execute_batch(include_str!("../../schema.sql")).unwrap();
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
+        db.execute_batch(include_str!("../../schema.sql"))
+            .await
+            .unwrap();
         let mut result = Ok(Output::Plugin(host.install_bundled("github").unwrap()));
         plugins::finish(
             &db,
@@ -99,11 +104,12 @@ mod tests {
             },
             &mut result,
         )
+        .await
         .unwrap();
         let Output::Plugin(mut info) = result.unwrap() else {
             panic!("plugin expected")
         };
-        let mut saved = settings::stored(&db, &info).unwrap();
+        let mut saved = settings::stored(&db, &info).await.unwrap();
         let declared = host
             .mcp_configuration(
                 &info.summary.reference(),
@@ -111,7 +117,7 @@ mod tests {
             )
             .unwrap();
         saved.mcp = Some(declared.clone());
-        settings::persist(&db, &mut info, &saved).unwrap();
+        settings::persist(&db, &mut info, &saved).await.unwrap();
         let reference = info.summary.reference();
         assert!(reference.settings_revision > 0);
         let (mut account, _) = connectors::create(
@@ -126,12 +132,17 @@ mod tests {
                 input: Input::default(),
             },
         )
+        .await
         .unwrap();
         account.state = State::Connected;
-        connectors::save(&db, &account).unwrap();
+        connectors::save(&db, &account).await.unwrap();
         assert!(account.enabled);
         assert_eq!(
-            project(&db, host.profile(), info.clone()).unwrap().mcp[0].availability,
+            project(&db, host.profile(), info.clone())
+                .await
+                .unwrap()
+                .mcp[0]
+                .availability,
             Availability::Available
         );
         plugins::execute(
@@ -142,10 +153,16 @@ mod tests {
                 expected_revision: info.summary.revision,
             },
         )
+        .await
         .unwrap();
-        assert!(plugins::get(&db, &info.summary.name).unwrap().is_none());
+        assert!(
+            plugins::get(&db, &info.summary.name)
+                .await
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
-            encode(&connectors::read(&db, account.id).unwrap()).unwrap(),
+            encode(&connectors::read(&db, account.id).await.unwrap()).unwrap(),
             encode(&account).unwrap()
         );
         let (Output::Plugin(retained), _) = plugins::execute(
@@ -155,6 +172,7 @@ mod tests {
                 package: reference.clone(),
             },
         )
+        .await
         .unwrap() else {
             panic!("retained plugin expected")
         };
@@ -163,7 +181,7 @@ mod tests {
         assert!(retained.mcp[0].allowed);
         assert_eq!(retained.mcp[0].availability, Availability::Unavailable);
         assert_eq!(
-            settings::stored(&db, &retained).unwrap().mcp,
+            settings::stored(&db, &retained).await.unwrap().mcp,
             Some(declared.clone())
         );
         assert_eq!(
@@ -173,6 +191,7 @@ mod tests {
         );
         assert_eq!(
             super::super::prepare(&db, &reference, "github")
+                .await
                 .err()
                 .expect("removed package must not prepare")
                 .code,
@@ -180,17 +199,28 @@ mod tests {
         );
     }
 
-    #[test]
-    fn separates_configuration_and_authorization() {
+    #[tokio::test]
+    async fn separates_configuration_and_authorization() {
         let directory = tempfile::tempdir().unwrap();
         let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
         let mut info = host.install_bundled("github").unwrap();
         info.settings = None;
-        let db = Connection::open_in_memory().unwrap();
-        db.execute_batch(include_str!("../../schema.sql")).unwrap();
-        super::super::super::save(&db, &info, true).unwrap();
-        let projected = || project(&db, host.profile(), info.clone()).unwrap().mcp[0].availability;
-        assert_eq!(projected(), Availability::ConnectionRequired);
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
+        db.execute_batch(include_str!("../../schema.sql"))
+            .await
+            .unwrap();
+        super::super::super::save(&db, &info, true).await.unwrap();
+        let projected = async || {
+            project(&db, host.profile(), info.clone())
+                .await
+                .unwrap()
+                .mcp[0]
+                .availability
+        };
+        assert_eq!(projected().await, Availability::ConnectionRequired);
         let (mut account, _) = connectors::create(
             &db,
             host.profile(),
@@ -203,6 +233,7 @@ mod tests {
                 input: Input::default(),
             },
         )
+        .await
         .unwrap();
         for (state, expected) in [
             (State::NotConnected, Availability::ConnectionRequired),
@@ -212,15 +243,15 @@ mod tests {
             (State::Failed, Availability::Unavailable),
         ] {
             account.state = state;
-            connectors::save(&db, &account).unwrap();
-            assert_eq!(projected(), expected);
+            connectors::save(&db, &account).await.unwrap();
+            assert_eq!(projected().await, expected);
         }
         account.enabled = false;
-        connectors::save(&db, &account).unwrap();
-        assert_eq!(projected(), Availability::Unavailable);
+        connectors::save(&db, &account).await.unwrap();
+        assert_eq!(projected().await, Availability::Unavailable);
         account.state = State::Connected;
-        connectors::save(&db, &account).unwrap();
-        assert_eq!(projected(), Availability::ConnectionDisabled);
+        connectors::save(&db, &account).await.unwrap();
+        assert_eq!(projected().await, Availability::ConnectionDisabled);
         let disabled = set_allowed(
             &db,
             host.profile(),
@@ -228,15 +259,20 @@ mod tests {
             "github",
             false,
         )
+        .await
         .unwrap();
         assert_eq!(
-            project(&db, host.profile(), disabled.clone()).unwrap().mcp[0].availability,
+            project(&db, host.profile(), disabled.clone())
+                .await
+                .unwrap()
+                .mcp[0]
+                .availability,
             Availability::ServerDisabled
         );
         let mut disabled = disabled;
         disabled.summary.enabled = false;
         assert_eq!(
-            project(&db, host.profile(), disabled).unwrap().mcp[0].availability,
+            project(&db, host.profile(), disabled).await.unwrap().mcp[0].availability,
             Availability::PackageDisabled
         );
     }

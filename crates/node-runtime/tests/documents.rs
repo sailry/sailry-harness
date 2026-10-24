@@ -60,10 +60,21 @@ impl Fixture {
         }
     }
 
-    fn count(&self) -> i64 {
-        rusqlite::Connection::open(self.profile.join("storage/node.sqlite3"))
-            .unwrap()
-            .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
+    async fn count(&self) -> i64 {
+        self.node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.prepare("SELECT count(*) FROM requests")
+                        .await
+                        .map_err(crate::file_fixture::database::fault)?
+                        .query_row(())
+                        .await
+                        .map_err(crate::file_fixture::database::fault)?
+                        .get::<i64>(0)
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
             .unwrap()
     }
 
@@ -97,12 +108,12 @@ async fn shares_revision_checked_publication() {
                 "a".repeat(size)
             };
             std::fs::write(fixture.root.join(&path), &text).unwrap();
-            let before = fixture.count();
+            let before = fixture.count().await;
             let content = client
                 .read_document(fixture.worktree, &path, CancellationToken::new())
                 .await
                 .unwrap();
-            assert_eq!(fixture.count(), before);
+            assert_eq!(fixture.count().await, before);
             if text.len() > MAX_DOCUMENT_BYTES {
                 assert!(content.truncated);
                 assert!(content.revision.is_none());
@@ -125,7 +136,7 @@ async fn shares_revision_checked_publication() {
                 .await
                 .unwrap();
             assert!(staged.matches(fixture.worktree, &path, &next, &expected));
-            assert_eq!(fixture.count(), before);
+            assert_eq!(fixture.count().await, before);
             assert_eq!(
                 std::fs::read_to_string(fixture.root.join(&path)).unwrap(),
                 text
@@ -186,7 +197,7 @@ async fn rejects_incomplete_staging() {
         std::fs::write(fixture.root.join(path), "original").unwrap();
         let expected = blake3::hash(b"original").to_hex().to_string();
         let next = "text\n".repeat(40_000);
-        let before = fixture.count();
+        let before = fixture.count().await;
         let stop = CancellationToken::new();
         stop.cancel();
         assert_eq!(
@@ -221,7 +232,7 @@ async fn rejects_incomplete_staging() {
                 ErrorCode::InvalidRequest
             );
         }
-        assert_eq!(fixture.count(), before);
+        assert_eq!(fixture.count().await, before);
         let staged = client
             .stage_document(
                 fixture.worktree,

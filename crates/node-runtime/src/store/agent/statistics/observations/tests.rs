@@ -33,23 +33,32 @@ fn response() -> AdkEvent {
     event
 }
 
-fn complete(fixture: &mut Fixture, turn: TurnId, events: impl IntoIterator<Item = AdkEvent>) {
-    runs::start(&fixture.database.connection, turn).unwrap();
+async fn complete(fixture: &mut Fixture, turn: TurnId, events: impl IntoIterator<Item = AdkEvent>) {
+    runs::start(&fixture.database.connection, turn)
+        .await
+        .unwrap();
     assert_eq!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .unwrap()
             .turn
             .id,
         turn
     );
-    let transaction = fixture.database.connection.transaction().unwrap();
+    let transaction = fixture
+        .database
+        .connection
+        .transaction_with_behavior(turso::transaction::TransactionBehavior::Concurrent)
+        .await
+        .unwrap();
     for event in events {
         history::insert(&transaction, fixture.session, turn, event)
+            .await
             .unwrap()
             .unwrap();
     }
-    transaction.commit().unwrap();
+    transaction.commit().await.unwrap();
     runs::finish(
         &mut fixture.database,
         turn,
@@ -57,30 +66,52 @@ fn complete(fixture: &mut Fixture, turn: TurnId, events: impl IntoIterator<Item 
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
 }
 
-fn assert_reads(fixture: &Fixture, events: usize, expected: usize) {
-    let mut query = fixture.database.connection.prepare(PHASES).unwrap();
-    let mut rows = query.query([fixture.session.to_string()]).unwrap();
+async fn assert_reads(fixture: &Fixture, events: usize, expected: usize) {
+    let mut query = fixture.database.connection.prepare(PHASES).await.unwrap();
+    let mut rows = query.query([fixture.session.to_string()]).await.unwrap();
     let mut count = 0;
-    while rows.next().unwrap().is_some() {
+    while rows.next().await.unwrap().is_some() {
         count += 1;
     }
     drop(rows);
+    drop(query);
     assert_eq!(count, expected);
-    let steps = query.get_status(rusqlite::StatementStatus::VmStep);
-    // Allow a full history scan per turn, including turns without phase records.
+    let mut rows = fixture
+        .database
+        .connection
+        .query(
+            format!("EXPLAIN QUERY PLAN {PHASES}"),
+            [fixture.session.to_string()],
+        )
+        .await
+        .unwrap();
+    let mut details = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        details.push(row.get::<String>(3).unwrap());
+    }
+    // The native SDK exposes plans, not executed VM steps. Require one indexed
+    // history lookup per turn, including turns without phase records.
     assert!(
-        steps < (events * 64) as i32,
-        "{steps} steps for {events} events"
+        details.iter().any(|line| line.starts_with("SEARCH latest ")
+            && line.contains("agent_events_turn")
+            && line.contains("turn=?")),
+        "{details:?} for {events} events"
+    );
+    assert!(
+        !details.iter().any(|line| line.starts_with("SCAN ")
+            && (line.contains("latest") || line.contains("agent_events"))),
+        "{details:?} for {events} events"
     );
 }
 
-#[test]
-fn keeps_latest_phases_across_long_history() {
+#[tokio::test]
+async fn keeps_latest_phases_across_long_history() {
     const DEPTH: usize = 1024;
-    let mut fixture = Fixture::new();
+    let mut fixture = Fixture::new().await;
     let first_phase = Phases {
         active_us: Some(10),
         waiting_us: Some(20),
@@ -90,7 +121,7 @@ fn keeps_latest_phases_across_long_history() {
     };
     let first_response = response();
     let first_time = first_response.timestamp.timestamp_millis();
-    let first = fixture.queued();
+    let first = fixture.queued().await;
     complete(
         &mut fixture,
         first,
@@ -101,10 +132,11 @@ fn keeps_latest_phases_across_long_history() {
         ]
         .into_iter()
         .chain(std::iter::repeat_with(filler).take(DEPTH)),
-    );
+    )
+    .await;
     let last_response = response();
     let last_time = last_response.timestamp.timestamp_millis();
-    let last = fixture.queued();
+    let last = fixture.queued().await;
     complete(
         &mut fixture,
         last,
@@ -121,7 +153,8 @@ fn keeps_latest_phases_across_long_history() {
         ]
         .into_iter()
         .chain(std::iter::repeat_with(filler).take(DEPTH)),
-    );
+    )
+    .await;
     let expected = Statistics {
         turns: 2,
         responses: 2,
@@ -150,12 +183,14 @@ fn keeps_latest_phases_across_long_history() {
         ..Default::default()
     };
     assert_eq!(
-        super::super::read(&fixture.database.connection, fixture.session).unwrap(),
+        super::super::read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         expected
     );
-    assert_reads(&fixture, (DEPTH + 3) * 2, 2);
+    assert_reads(&fixture, (DEPTH + 3) * 2, 2).await;
     let source = fixture.session;
-    let fork = fixture.fork(source, first);
+    let fork = fixture.fork(source, first).await;
     let inherited = Statistics {
         turns: 1,
         responses: 1,
@@ -178,22 +213,28 @@ fn keeps_latest_phases_across_long_history() {
         ..Default::default()
     };
     assert_eq!(
-        super::super::read(&fixture.database.connection, fork.id).unwrap(),
+        super::super::read(&fixture.database.connection, fork.id)
+            .await
+            .unwrap(),
         inherited
     );
-    history::rebuild(&mut fixture.database.connection).unwrap();
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
     for (session, expected) in [(source, expected), (fork.id, inherited)] {
         assert_eq!(
-            super::super::read(&fixture.database.connection, session).unwrap(),
+            super::super::read(&fixture.database.connection, session)
+                .await
+                .unwrap(),
             expected
         );
     }
 }
 
-#[test]
-fn bounds_unrecorded_history() {
+#[tokio::test]
+async fn bounds_unrecorded_history() {
     const DEPTH: usize = 2048;
-    let mut fixture = Fixture::new();
+    let mut fixture = Fixture::new().await;
     let known = Phases {
         active_us: Some(10),
         waiting_us: Some(2),
@@ -201,10 +242,12 @@ fn bounds_unrecorded_history() {
         tools_us: Some(4),
         other_us: Some(1),
     };
-    fixture.append([phase(known.clone())]);
-    let missing = fixture.queued();
+    fixture.append([phase(known.clone())]).await;
+    let missing = fixture.queued().await;
     assert_eq!(
-        read(&fixture.database.connection, fixture.session).unwrap(),
+        read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         Summary {
             phases: known,
             ..Default::default()
@@ -214,10 +257,13 @@ fn bounds_unrecorded_history() {
         &mut fixture,
         missing,
         std::iter::repeat_with(filler).take(DEPTH),
-    );
+    )
+    .await;
     assert_eq!(
-        read(&fixture.database.connection, fixture.session).unwrap(),
+        read(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap(),
         Summary::default()
     );
-    assert_reads(&fixture, DEPTH + 1, 1);
+    assert_reads(&fixture, DEPTH + 1, 1).await;
 }

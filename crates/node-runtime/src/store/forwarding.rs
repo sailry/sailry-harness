@@ -18,7 +18,30 @@ pub(super) struct Transfer {
     pub reply: oneshot::Sender<Response>,
 }
 
-pub(super) fn prepare(db: &Database, caller: NodeId, request: &Request) -> Result<Request, Fault> {
+#[cfg(any(test, feature = "test-support"))]
+pub(super) struct Wait {
+    entered: oneshot::Sender<()>,
+    release: CancellationToken,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl super::Ingress {
+    pub(crate) fn hold_forwarding_fixture(&self) -> (oneshot::Receiver<()>, CancellationToken) {
+        let (entered, observed) = oneshot::channel();
+        let release = CancellationToken::new();
+        *self.forwarding_wait.lock().unwrap() = Some(Wait {
+            entered,
+            release: release.clone(),
+        });
+        (observed, release)
+    }
+}
+
+pub(super) async fn prepare(
+    db: &Database,
+    caller: NodeId,
+    request: &Request,
+) -> Result<Request, Fault> {
     let Command::CreateSessionAt {
         target,
         project,
@@ -35,7 +58,8 @@ pub(super) fn prepare(db: &Database, caller: NodeId, request: &Request) -> Resul
             "only the local controller can forward configuration to another Node",
         ));
     }
-    let mut provider = super::agent::providers::get(&db.connection, config.provider)?
+    let mut provider = super::agent::providers::get(&db.connection, config.provider)
+        .await?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "source provider does not exist"))?;
     if provider.revision != *provider_revision {
         return Err(Fault::new(
@@ -43,13 +67,16 @@ pub(super) fn prepare(db: &Database, caller: NodeId, request: &Request) -> Resul
             "source provider revision changed",
         ));
     }
-    super::commands::validate_config(&db.connection, db.node, config)?;
+    super::commands::validate_config(&db.connection, db.node, config).await?;
     // The explicit selection is authoritative, including an absent credential.
     provider.credential = config.credential.clone();
     let (secret, expires_at_ms) = if let Some(reference) = &config.credential {
         crate::providers::login::transferable(provider.authentication)?;
-        let secret = db.resolve_credential(reference, config.provider, provider.authentication)?;
-        let metadata = super::providers::authentication::get(&db.connection, reference.id)?
+        let secret = db
+            .resolve_credential(reference, config.provider, provider.authentication)
+            .await?;
+        let metadata = super::providers::authentication::get(&db.connection, reference.id)
+            .await?
             .ok_or_else(|| Fault::new(ErrorCode::NotFound, "source credential does not exist"))?;
         (Some(secret), metadata.expires_at_ms)
     } else {
@@ -58,9 +85,10 @@ pub(super) fn prepare(db: &Database, caller: NodeId, request: &Request) -> Resul
     let roles = super::sessions::roles::capture(
         &db.connection,
         db.node,
-        super::roles::list(&db.connection)?,
-    )?;
-    let role_credentials = super::sessions::roles::export(db, &roles)?;
+        super::roles::list(&db.connection).await?,
+    )
+    .await?;
+    let role_credentials = super::sessions::roles::export(db, &roles).await?;
     Ok(Request {
         version: request.version,
         id: request.id,
@@ -86,16 +114,27 @@ pub(super) struct Forwarder {
     runtime: Handle,
     completed: mpsc::Sender<Job>,
     closed: CancellationToken,
+    #[cfg(any(test, feature = "test-support"))]
+    wait: std::sync::Arc<std::sync::Mutex<Option<Wait>>>,
 }
 
 impl Forwarder {
-    pub fn new(runtime: Handle, completed: mpsc::Sender<Job>, closed: CancellationToken) -> Self {
+    pub fn new(
+        runtime: Handle,
+        completed: mpsc::Sender<Job>,
+        closed: CancellationToken,
+        #[cfg(any(test, feature = "test-support"))] wait: std::sync::Arc<
+            std::sync::Mutex<Option<Wait>>,
+        >,
+    ) -> Self {
         Self {
             link: None,
             pending: 0,
             runtime,
             completed,
             closed,
+            #[cfg(any(test, feature = "test-support"))]
+            wait,
         }
     }
 
@@ -106,24 +145,38 @@ impl Forwarder {
         let link = self.link.clone().expect("forwarding link was checked");
         let closed = self.closed.clone();
         let completed = self.completed.clone();
+        #[cfg(any(test, feature = "test-support"))]
+        let wait = self.wait.lock().unwrap().take();
         self.pending += 1;
         self.runtime.spawn(async move {
             let operation = async {
                 tokio::select! {
                     biased;
                     _ = closed.cancelled() => Err(unknown()),
-                    result = tokio::time::timeout(Duration::from_secs(30), send(link, *transfer.forwarded)) => {
+                    result = tokio::time::timeout(Duration::from_secs(30), async {
+                        #[cfg(any(test, feature = "test-support"))]
+                        if let Some(wait) = wait {
+                            let _ = wait.entered.send(());
+                            wait.release.cancelled().await;
+                        }
+                        send(link, *transfer.forwarded).await
+                    }) => {
                         result.unwrap_or_else(|_| Err(unknown()))
                     }
                 }
             };
-            let result = AssertUnwindSafe(operation).catch_unwind().await.unwrap_or_else(|_| Err(unknown()));
-            let _ = completed.send(Job::Transferred(Box::new(Completed {
-                caller: transfer.caller,
-                request: transfer.request,
-                result,
-                reply: transfer.reply,
-            }))).await;
+            let result = AssertUnwindSafe(operation)
+                .catch_unwind()
+                .await
+                .unwrap_or_else(|_| Err(unknown()));
+            let _ = completed
+                .send(Job::Transferred(Box::new(Completed {
+                    caller: transfer.caller,
+                    request: transfer.request,
+                    result,
+                    reply: transfer.reply,
+                })))
+                .await;
         });
         Ok(())
     }

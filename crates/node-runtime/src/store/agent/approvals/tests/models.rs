@@ -1,9 +1,10 @@
 use super::*;
 use sailry_protocol::tool::Operation;
 
-fn fixture(mode: WorkMode) -> (Fixture, Binding, Command) {
-    let mut fixture = Fixture::with_mode(Permission::Ask, mode);
+async fn fixture(mode: WorkMode) -> (Fixture, Binding, Command) {
+    let mut fixture = Fixture::with_mode(Permission::Ask, mode).await;
     let owner = super::super::super::plugins::read(&fixture.database.connection, fixture.turn)
+        .await
         .unwrap()
         .into_iter()
         .find(|package| package.name == "files")
@@ -33,6 +34,7 @@ fn fixture(mode: WorkMode) -> (Fixture, Binding, Command) {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let binding = Binding {
         owner,
@@ -46,11 +48,12 @@ fn fixture(mode: WorkMode) -> (Fixture, Binding, Command) {
     )
 }
 
-#[test]
-fn removal_consumes_exact_claimed_command() {
-    let (mut fixture, binding, command) = fixture(WorkMode::Code);
-    let run =
-        super::super::super::calls::active(&fixture.database.connection, fixture.turn).unwrap();
+#[tokio::test]
+async fn removal_consumes_exact_claimed_command() {
+    let (mut fixture, binding, command) = fixture(WorkMode::Code).await;
+    let run = super::super::super::calls::active(&fixture.database.connection, fixture.turn)
+        .await
+        .unwrap();
     let mut request =
         Request::new(fixture.database.node, command.clone()).with_plugin(plugin::Context {
             invocation: None,
@@ -62,6 +65,7 @@ fn removal_consumes_exact_claimed_command() {
         });
     assert_eq!(
         crate::store::local_models::approvals::check(&fixture.database.connection, &request)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -73,24 +77,32 @@ fn removal_consumes_exact_claimed_command() {
         Some(&binding),
         &fixture.events,
     )
+    .await
     .unwrap();
-    fixture.approve(approval.id);
+    fixture.approve(approval.id).await;
     request.id = authorize(
         &mut fixture.database.connection,
         fixture.turn,
         &fixture.request,
         Some(&command),
     )
+    .await
     .unwrap();
     assert!(
         crate::store::local_models::approvals::check(&fixture.database.connection, &request)
+            .await
             .is_ok()
     );
-    assert!(crate::store::resources::prepare(&fixture.database, &request).is_ok());
+    assert!(
+        crate::store::resources::prepare(&fixture.database, &request)
+            .await
+            .is_ok()
+    );
     let mut changed = request.clone();
     changed.command = Command::DeleteLocalModel { id: "b".repeat(64) };
     assert_eq!(
         crate::store::local_models::approvals::check(&fixture.database.connection, &changed)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -99,6 +111,7 @@ fn removal_consumes_exact_claimed_command() {
     changed.id = RequestId::new();
     assert_eq!(
         crate::store::local_models::approvals::check(&fixture.database.connection, &changed)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -115,6 +128,7 @@ fn removal_consumes_exact_claimed_command() {
         }
         assert_eq!(
             crate::store::local_models::approvals::check(&fixture.database.connection, &changed)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -129,9 +143,9 @@ fn removal_consumes_exact_claimed_command() {
     );
 }
 
-#[test]
-fn planning_cannot_claim_removal() {
-    let (mut fixture, binding, _) = fixture(WorkMode::Plan);
+#[tokio::test]
+async fn planning_cannot_claim_removal() {
+    let (mut fixture, binding, _) = fixture(WorkMode::Plan).await;
     assert_eq!(
         begin(
             &mut fixture.database,
@@ -140,15 +154,16 @@ fn planning_cannot_claim_removal() {
             Some(&binding),
             &fixture.events
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
     );
 }
 
-#[test]
-fn preserves_installation_policy() {
-    let (fixture, binding, _) = fixture(WorkMode::Code);
+#[tokio::test]
+async fn preserves_installation_policy() {
+    let (fixture, binding, _) = fixture(WorkMode::Code).await;
     let request = Request::new(
         fixture.database.node,
         Command::InstallLocalModel { id: "a".repeat(64) },
@@ -163,6 +178,7 @@ fn preserves_installation_policy() {
     });
     assert!(
         crate::store::local_models::approvals::check(&fixture.database.connection, &request)
+            .await
             .is_ok()
     );
     let prepared = Prepared::new(&request.command).unwrap().unwrap();

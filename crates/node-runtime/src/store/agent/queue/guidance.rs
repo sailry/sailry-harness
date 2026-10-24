@@ -4,12 +4,12 @@ use super::*;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::store) fn recipient(
+pub(in crate::store) async fn recipient(
     db: &Connection,
     turn: TurnId,
     expected_revision: Option<u64>,
 ) -> Result<Run, Fault> {
-    let run = runs::get(db, turn)?;
+    let run = runs::get(db, turn).await?;
     if run.kind != RunKind::Task || run.status != Status::Running {
         return Err(Fault::new(
             ErrorCode::Conflict,
@@ -22,46 +22,49 @@ pub(in crate::store) fn recipient(
     Ok(run)
 }
 
-pub(in crate::store) fn pending(
+pub(in crate::store) async fn pending(
     db: &Connection,
     recipient: TurnId,
 ) -> Result<Option<TurnId>, Fault> {
-    db.query_row(
-        "SELECT p.turn FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.recipient=?1 AND json_extract(a.body,'$.status')='queued' ORDER BY p.position LIMIT 1",
-        [recipient.to_string()],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()
-    .map_err(storage_error)?
+    { let mut statement = db.prepare("SELECT p.turn FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.recipient=?1 AND json_extract(a.body,'$.status')='queued' ORDER BY p.position LIMIT 1").await.map_err(storage_error)?;
+match statement.query_row([recipient.to_string()]).await {
+Ok(row) => { let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row); Some(mapped.map_err(storage_error)?) },
+Err(turso::Error::QueryReturnedNoRows) => None,
+Err(error) => return Err(storage_error(error).into()),
+} }
     .map(|turn| turn.parse().map_err(storage_error))
     .transpose()
 }
 
-fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<bool, Fault> {
-    let provider = |turn: TurnId| -> Result<Option<Vec<u8>>, Fault> {
-        db.query_row(
-            "SELECT provider FROM agent_runs WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<bool, Fault> {
+    let provider = async |turn: TurnId| -> Result<Option<Vec<u8>>, Fault> {
+        (async {
+            let mut statement = db
+                .prepare("SELECT provider FROM agent_runs WHERE turn=?1")
+                .await?;
+            let row = statement.query_row([turn.to_string()]).await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
         .map_err(storage_error)
     };
     Ok(source.kind == RunKind::Task
         && source.session == target.session
         && source.worktree == target.worktree
-        && super::super::permissions::config(db, source.turn)?
-            == super::super::permissions::config(db, target.turn)?
-        && super::super::super::sessions::roles::for_turn(db, source.turn)?
-            == super::super::super::sessions::roles::for_turn(db, target.turn)?
-        && super::super::plugins::read(db, source.turn)?
-            == super::super::plugins::read(db, target.turn)?
-        && super::super::super::hooks::frozen(db, source.turn)?
-            == super::super::super::hooks::frozen(db, target.turn)?
-        && provider(source.turn)? == provider(target.turn)?)
+        && super::super::permissions::config(db, source.turn).await?
+            == super::super::permissions::config(db, target.turn).await?
+        && super::super::super::sessions::roles::for_turn(db, source.turn).await?
+            == super::super::super::sessions::roles::for_turn(db, target.turn).await?
+        && super::super::plugins::read(db, source.turn).await?
+            == super::super::plugins::read(db, target.turn).await?
+        && super::super::super::hooks::frozen(db, source.turn).await?
+            == super::super::super::hooks::frozen(db, target.turn).await?
+        && provider(source.turn).await? == provider(target.turn).await?)
 }
 
-fn compatible(db: &Connection, source: &Run, target: &Run) -> Result<(), Fault> {
-    if !same_capture(db, source, target)? {
+async fn compatible(db: &Connection, source: &Run, target: &Run) -> Result<(), Fault> {
+    if !same_capture(db, source, target).await? {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "guidance must retain the recipient's frozen configuration and capabilities",
@@ -70,31 +73,37 @@ fn compatible(db: &Connection, source: &Run, target: &Run) -> Result<(), Fault> 
     Ok(())
 }
 
-pub(in crate::store) fn tag(db: &Connection, source: TurnId, target: TurnId) -> Result<(), Fault> {
-    let source = runs::get(db, source)?;
+pub(in crate::store) async fn tag(
+    db: &Connection,
+    source: TurnId,
+    target: TurnId,
+) -> Result<(), Fault> {
+    let source = runs::get(db, source).await?;
     if source.status != Status::Queued {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "guidance input is not queued",
         ));
     }
-    let target = recipient(db, target, None)?;
-    compatible(db, &source, &target)?;
+    let target = recipient(db, target, None).await?;
+    compatible(db, &source, &target).await?;
     db.execute(
         "UPDATE agent_pending SET recipient=?2,revision=revision+1 WHERE turn=?1",
         params![source.turn.to_string(), target.turn.to_string()],
     )
+    .await
     .map_err(storage_error)?;
-    runs::start(db, source.turn)?;
-    let first = read(db, source.session)?
+    runs::start(db, source.turn).await?;
+    let first = read(db, source.session)
+        .await?
         .items
         .first()
         .map(|item| item.turn);
-    reorder(db, source.session, source.turn, first)?;
-    pause(db, source.session, false)
+    reorder(db, source.session, source.turn, first).await?;
+    pause(db, source.session, false).await
 }
 
-pub(super) fn select(
+pub(super) async fn select(
     db: &Connection,
     caller: NodeId,
     request: &Request,
@@ -102,10 +111,10 @@ pub(super) fn select(
     target: TurnId,
     expected_revision: u64,
 ) -> Result<(SessionId, Vec<Run>), Fault> {
-    let source = check_item(db, source, expected_revision)?;
-    let session = super::super::super::commands::session(db, source.session)?;
+    let source = check_item(db, source, expected_revision).await?;
+    let session = super::super::super::commands::session(db, source.session).await?;
     super::super::super::sessions::writable(&session)?;
-    let target = recipient(db, target, None)?;
+    let target = recipient(db, target, None).await?;
     if source.kind != RunKind::Task
         || source.session != target.session
         || source.worktree != target.worktree
@@ -116,38 +125,45 @@ pub(super) fn select(
         ));
     }
     // Retargeting never discards the previous pending input.
-    clear(db, source.session, None)?;
+    clear(db, source.session, None).await?;
     let mut changed = Vec::new();
-    let selected = if same_capture(db, &source, &target)? {
+    let selected = if same_capture(db, &source, &target).await? {
         source.turn
     } else {
         // This explicit guidance command admits a new turn with the recipient's
         // capture. The original sent turn and its configuration remain immutable.
-        let queued = message(db, source.turn)?;
-        let input: (String, Vec<u8>) = db
-            .query_row(
-                "SELECT request,caller FROM agent_pending WHERE turn=?1",
-                [source.turn.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(storage_error)?;
-        let turn = inherit(db, caller, request, &target, &queued.message)?;
-        changed.push(runs::stop(db, source.turn)?);
+        let queued = message(db, source.turn).await?;
+        let input: (String, Vec<u8>) = {
+            let mut statement = db
+                .prepare("SELECT request,caller FROM agent_pending WHERE turn=?1")
+                .await
+                .map_err(storage_error)?;
+            let row = statement
+                .query_row([source.turn.to_string()])
+                .await
+                .map_err(storage_error)?;
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+            mapped.map_err(storage_error)?
+        };
+        let turn = inherit(db, caller, request, &target, &queued.message).await?;
+        changed.push(runs::stop(db, source.turn).await?);
         // Keep the exact current message ledger reference, including prior edits.
         db.execute(
             "UPDATE agent_pending SET request=?2,caller=?3 WHERE turn=?1",
             params![turn.id.to_string(), input.0, input.1],
         )
+        .await
         .map_err(storage_error)?;
-        changed.push(runs::get(db, turn.id)?);
+        changed.push(runs::get(db, turn.id).await?);
         turn.id
     };
-    tag(db, selected, target.turn)?;
+    tag(db, selected, target.turn).await?;
     Ok((source.session, changed))
 }
 
 /// Admits input with the recipient's frozen configuration and capabilities.
-pub(in crate::store) fn inherit(
+pub(in crate::store) async fn inherit(
     db: &Connection,
     caller: NodeId,
     request: &Request,
@@ -155,11 +171,11 @@ pub(in crate::store) fn inherit(
     message: &Input,
 ) -> Result<QueuedTurn, Fault> {
     super::validate(message)?;
-    let mut session = super::super::super::commands::session(db, target.session)?;
-    session.config = super::super::permissions::config(db, target.turn)?;
-    session.roles = super::super::super::sessions::roles::for_turn(db, target.turn)?;
-    let plugins = super::super::plugins::read(db, target.turn)?;
-    super::super::references::validate(db, &session, message, Some(&plugins))?;
+    let mut session = super::super::super::commands::session(db, target.session).await?;
+    session.config = super::super::permissions::config(db, target.turn).await?;
+    session.roles = super::super::super::sessions::roles::for_turn(db, target.turn).await?;
+    let plugins = super::super::plugins::read(db, target.turn).await?;
+    super::super::references::validate(db, &session, message, Some(&plugins)).await?;
     let turn = QueuedTurn {
         id: TurnId::new(),
         kind: RunKind::Task,
@@ -171,19 +187,19 @@ pub(in crate::store) fn inherit(
         plugins,
     };
     db.execute(
-        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles,instructions) VALUES(?1,'task',?2,?3,?4,?5,?6,?7,?8)",
+        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles,instructions,rowid) VALUES(?1,'task',?2,?3,?4,?5,?6,?7,?8,?9)",
         params![turn.id.to_string(), turn.session.to_string(), turn.revision as i64,
-            request.id.to_string(), &caller.0[..], encode(&turn.plugins)?, encode(&turn.roles)?, encode(&super::super::super::captures::instructions(db, target.turn)?)?],
-    ).map_err(storage_error)?;
-    super::super::super::plugins::connectors::capture(db, turn.id, &turn.plugins)?;
-    super::super::super::attachments::turns::bind(db, turn.id, &message.attachments)?;
-    runs::inherit(db, &turn, target.turn, Status::Queued, true)?;
-    admit(db, &turn, true)?;
+            request.id.to_string(), &caller.0[..], encode(&turn.plugins)?, encode(&turn.roles)?, encode(&super::super::super::captures::instructions(db, target.turn).await?)?, crate::store::database::counters::next(db, crate::store::database::counters::Namespace::Turns).await? as i64],
+    ).await.map_err(storage_error)?;
+    super::super::super::plugins::connectors::capture(db, turn.id, &turn.plugins).await?;
+    super::super::super::attachments::turns::bind(db, turn.id, &message.attachments).await?;
+    runs::inherit(db, &turn, target.turn, Status::Queued, true).await?;
+    admit(db, &turn, true).await?;
     Ok(turn)
 }
 
 /// Main-session guidance admits and selects input in one controller command.
-pub(in crate::store) fn guide(
+pub(in crate::store) async fn guide(
     db: &Connection,
     caller: NodeId,
     request: &Request,
@@ -198,15 +214,15 @@ pub(in crate::store) fn guide(
             "guidance requires a delegated child",
         ));
     }
-    super::super::super::sessions::writable(&super::super::super::commands::session(
-        db,
-        target.session,
-    )?)?;
-    let earlier = pending(db, target.turn)?;
-    let turn = inherit(db, caller, request, &target, message)?;
+    super::super::super::sessions::writable(
+        &super::super::super::commands::session(db, target.session).await?,
+    )?;
+    let earlier = pending(db, target.turn).await?;
+    let turn = inherit(db, caller, request, &target, message).await?;
     if let Some(earlier) = earlier {
         // Later guidance waits directly behind the input already selected for this boundary.
-        let next = read(db, target.session)?
+        let next = read(db, target.session)
+            .await?
             .items
             .iter()
             .skip_while(|item| item.turn != earlier)
@@ -214,18 +230,18 @@ pub(in crate::store) fn guide(
             .map(|item| item.turn)
             .filter(|next| *next != turn.id);
         if next.is_some() {
-            reorder(db, target.session, turn.id, next)?;
+            reorder(db, target.session, turn.id, next).await?;
         }
     } else {
-        tag(db, turn.id, target.turn)?;
+        tag(db, turn.id, target.turn).await?;
     }
     Ok((
         Output::QueuedTurn(turn.clone()),
-        Some(super::super::activity::queued(db, turn)?),
+        Some(super::super::activity::queued(db, turn).await?),
     ))
 }
 
-pub(in crate::store) fn clear(
+pub(in crate::store) async fn clear(
     db: &Connection,
     session: SessionId,
     recipient: Option<TurnId>,
@@ -234,61 +250,78 @@ pub(in crate::store) fn clear(
         .execute(
             "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient IS NOT NULL AND (?2 IS NULL OR recipient=?2) AND turn IN (SELECT id FROM turns WHERE session=?1)",
             params![session.to_string(), recipient.map(|turn| turn.to_string())],
-        )
+        ).await
         .map_err(storage_error)?
         > 0
     {
-        bump(db, session)?;
+        bump(db, session).await?;
     }
     Ok(())
 }
 
-pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {
+pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
     let mut query = db
-        .prepare("SELECT DISTINCT t.session FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient IS NOT NULL")
+        .prepare("SELECT DISTINCT t.session FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient IS NOT NULL").await
         .map_err(storage_error)?;
-    let sessions = query
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(storage_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(storage_error)?;
+    let sessions = (async {
+        let mut rows = query.query(()).await?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            values.push(mapped);
+        }
+        Ok::<_, turso::Error>(values.into_iter())
+    })
+    .await
+    .map_err(storage_error)?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(storage_error)?;
     drop(query);
     for session in sessions {
         let session = session.parse().map_err(storage_error)?;
-        pause(db, session, true)?;
-        clear(db, session, None)?;
+        pause(db, session, true).await?;
+        clear(db, session, None).await?;
     }
     Ok(())
 }
 
-pub(in crate::store) fn yield_run(
+pub(in crate::store) async fn yield_run(
     database: &mut Database,
     target: TurnId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<bool, Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let target = runs::get(&transaction, target)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
+    let target = runs::get(&transaction, target).await?;
     if target.kind != RunKind::Task || target.status != Status::Running {
         return Ok(false);
     }
     // A later explicit Stop wins over admission; never revive a paused intent.
-    if read(&transaction, target.session)?.paused {
+    if read(&transaction, target.session).await?.paused {
         return Ok(false);
     }
-    let Some(source) = pending(&transaction, target.turn)? else {
+    let Some(source) = pending(&transaction, target.turn).await? else {
         return Ok(false);
     };
-    compatible(&transaction, &runs::get(&transaction, source)?, &target)?;
-    let run = runs::handoff(&transaction, target.turn)?;
-    let queue = read(&transaction, target.session)?;
-    let envelope = super::super::changed(&transaction, database.node, target.session)?;
-    let child = super::super::children::get(&transaction, &run)?;
-    transaction.commit().map_err(storage_error)?;
+    compatible(
+        &transaction,
+        &runs::get(&transaction, source).await?,
+        &target,
+    )
+    .await?;
+    let run = runs::handoff(&transaction, target.turn).await?;
+    let queue = read(&transaction, target.session).await?;
+    let envelope = super::super::changed(&transaction, database.node, target.session).await?;
+    let child = super::super::children::get(&transaction, &run).await?;
+    transaction.commit().await.map_err(storage_error)?;
     let _ = events.send(envelope);
     database
         .feeds
         .publish(database.node, target.session, Change::Queue(queue));
-    super::super::feed::run(database, run);
+    super::super::feed::run(database, run).await;
     if let Some(child) = child {
         database
             .feeds
@@ -297,27 +330,35 @@ pub(in crate::store) fn yield_run(
     Ok(true)
 }
 
-pub(in crate::store) fn retain(
+pub(in crate::store) async fn retain(
     database: &mut Database,
     target: TurnId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let run = runs::get(&transaction, target)?;
-    let child: bool = transaction.query_row(
-        "SELECT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session=?1)",
-        [run.session.to_string()],
-        |row| row.get(0),
-    ).map_err(storage_error)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
+    let run = runs::get(&transaction, target).await?;
+    let child: bool = {
+        let mut statement = transaction.prepare("SELECT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session=?1)").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([run.session.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if child {
-        super::super::delegation::retain_guidance(&transaction, Some(target))?;
+        super::super::delegation::retain_guidance(&transaction, Some(target)).await?;
     } else {
-        pause(&transaction, run.session, true)?;
-        clear(&transaction, run.session, Some(target))?;
+        pause(&transaction, run.session, true).await?;
+        clear(&transaction, run.session, Some(target)).await?;
     }
-    let queue = read(&transaction, run.session)?;
-    let envelope = super::super::changed(&transaction, database.node, run.session)?;
-    transaction.commit().map_err(storage_error)?;
+    let queue = read(&transaction, run.session).await?;
+    let envelope = super::super::changed(&transaction, database.node, run.session).await?;
+    transaction.commit().await.map_err(storage_error)?;
     let _ = events.send(envelope);
     database
         .feeds

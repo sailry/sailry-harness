@@ -1,3 +1,5 @@
+#[path = "../support/database.rs"]
+mod database_fixture;
 #[expect(
     dead_code,
     reason = "Connection fixtures exercise separate Node and controller shutdown paths"

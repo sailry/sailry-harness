@@ -123,18 +123,12 @@ async fn applies_execution_settings() {
         );
         last = updated;
     }
-    let events = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    assert_eq!(
-        events
-            .query_row(
-                "SELECT count(*) FROM events WHERE CAST(body AS TEXT) LIKE '%execution-value-%'",
-                [],
-                |row| row.get::<_, u32>(0)
-            )
-            .unwrap(),
-        0
-    );
-    drop(events);
+    let events = node.with_storage(|events| Box::pin(async move {
+        events.prepare("SELECT count(*) FROM events WHERE CAST(body AS TEXT) LIKE '%execution-value-%'").await.map_err(crate::database_fixture::fault)?
+            .query_row(()).await.map_err(crate::database_fixture::fault)?
+            .get::<u32>(0).map_err(crate::database_fixture::fault)
+    })).await.unwrap();
+    assert_eq!(events, 0);
     node.shutdown().await.unwrap();
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());

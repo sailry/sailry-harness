@@ -194,20 +194,25 @@ async fn manages_only_standalone_inventory() {
                 .collect::<Vec<_>>(),
             [&field]
         );
-        let database = rusqlite::Connection::open_with_flags(
-            fixture.node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let body: Vec<u8> = database
-            .query_row(
-                "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2",
-                rusqlite::params![
-                    current.summary.name,
-                    i64::try_from(current.summary.settings_revision).unwrap()
-                ],
-                |row| row.get(0),
-            )
+        let package = current.summary.reference();
+        let body: Vec<u8> = fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(turso::params![
+                            package.name,
+                            i64::try_from(package.settings_revision).unwrap()
+                        ])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get::<Vec<u8>>(0)
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
         let saved: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(saved["slots"][&field], private);

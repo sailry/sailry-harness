@@ -11,10 +11,10 @@ pub(super) struct Catalog {
 }
 
 impl Catalog {
-    pub(super) fn estimate(
+    pub(super) async fn estimate(
         &mut self,
         db: &Connection,
-        row: &rusqlite::Row<'_>,
+        row: &turso::Row,
     ) -> Result<Option<Cost>, Fault> {
         let usage: String = row.get(12).map_err(storage_error)?;
         let usage: UsageMetadata = serde_json::from_str(&usage).map_err(storage_error)?;
@@ -30,14 +30,20 @@ impl Catalog {
         let model: String = row.get(6).map_err(storage_error)?;
         let key = (supplier.to_owned(), model);
         if !self.models.contains_key(&key) {
-            let body: Option<Vec<u8>> = db
-                .query_row(
-                    "SELECT body FROM model_catalog WHERE provider=?1 AND id=?2",
-                    params![key.0, key.1],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(storage_error)?;
+            let body: Option<Vec<u8>> = {
+                let mut statement = db
+                    .prepare("SELECT body FROM model_catalog WHERE provider=?1 AND id=?2")
+                    .await
+                    .map_err(storage_error)?;
+                match statement
+                    .query_row(params![key.0.as_str(), key.1.as_str()])
+                    .await
+                {
+                    Ok(row) => Some(row.get(0).map_err(storage_error)?),
+                    Err(turso::Error::QueryReturnedNoRows) => None,
+                    Err(error) => return Err(storage_error(error)),
+                }
+            };
             let cost = body
                 .and_then(|body| serde_json::from_slice::<Value>(&body).ok())
                 .and_then(|model| model.get("cost").cloned());

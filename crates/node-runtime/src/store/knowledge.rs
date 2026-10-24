@@ -9,13 +9,13 @@ pub(crate) mod storage;
 mod tests;
 
 use super::database::{encode, storage_error};
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{
     Command, ErrorCode, Event, Fault, KnowledgeId, Output, Request, SessionId, WorktreeId,
     knowledge::{self, Collection, Definition, Owner, Source},
     plugin::{self, storage::Scope},
 };
 use serde::{Deserialize, Serialize};
+use turso::{Connection, params};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,19 +39,19 @@ pub(crate) struct Catalog {
     pub(crate) collections: Vec<Stored>,
 }
 
-pub(super) fn catalog(db: &Connection) -> Result<Catalog, Fault> {
+pub(super) async fn catalog(db: &Connection) -> Result<Catalog, Fault> {
     Ok(Catalog {
-        collections: collections::load(db)?,
+        collections: collections::load(db).await?,
     })
 }
 
-pub(super) fn list(db: &Connection, request: &Request) -> Result<Vec<Collection>, Fault> {
-    let entries = collections::load(db)?;
-    let package = request
-        .plugin
-        .as_ref()
-        .map(|context| sources::package(db, context))
-        .transpose()?;
+pub(super) async fn list(db: &Connection, request: &Request) -> Result<Vec<Collection>, Fault> {
+    let entries = collections::load(db).await?;
+    let package = (match request.plugin.as_ref() {
+        Some(value) => Some((async |context| sources::package(db, context).await)(value).await),
+        None => None,
+    })
+    .transpose()?;
     Ok(entries
         .into_iter()
         .filter(|stored| visible(stored, request) && readable(stored, request, package.as_ref()))
@@ -60,13 +60,14 @@ pub(super) fn list(db: &Connection, request: &Request) -> Result<Vec<Collection>
 }
 
 /// Query plans must intersect these durable grants before reading a derived index.
-pub(super) fn allowed(db: &Connection, request: &Request) -> Result<Vec<Stored>, Fault> {
-    let package = request
-        .plugin
-        .as_ref()
-        .map(|context| sources::package(db, context))
-        .transpose()?;
-    Ok(collections::load(db)?
+pub(super) async fn allowed(db: &Connection, request: &Request) -> Result<Vec<Stored>, Fault> {
+    let package = (match request.plugin.as_ref() {
+        Some(value) => Some((async |context| sources::package(db, context).await)(value).await),
+        None => None,
+    })
+    .transpose()?;
+    Ok(collections::load(db)
+        .await?
         .into_iter()
         .filter(|stored| visible(stored, request) && readable(stored, request, package.as_ref()))
         .collect())
@@ -108,32 +109,32 @@ fn visible(stored: &Stored, request: &Request) -> bool {
     }
 }
 
-pub(super) fn execute(
+pub(super) async fn execute(
     db: &Connection,
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
         Command::CreateKnowledgeCollection { definition, plugin } => {
-            collections::create(db, request, definition, plugin.as_deref())
+            collections::create(db, request, definition, plugin.as_deref()).await
         }
         Command::UpdateKnowledgeCollection {
             id,
             expected_revision,
             definition,
-        } => collections::update(db, request, *id, *expected_revision, definition),
+        } => collections::update(db, request, *id, *expected_revision, definition).await,
         Command::DeleteKnowledgeCollection {
             id,
             expected_revision,
-        } => collections::remove(db, request, *id, *expected_revision),
+        } => collections::remove(db, request, *id, *expected_revision).await,
         Command::RebuildKnowledgeCollection {
             id,
             expected_revision,
-        } => collections::rebuild(db, request, *id, *expected_revision),
+        } => collections::rebuild(db, request, *id, *expected_revision).await,
         Command::PauseKnowledgeCollection {
             id,
             expected_revision,
             paused,
-        } => collections::pause(db, request, *id, *expected_revision, *paused),
+        } => collections::pause(db, request, *id, *expected_revision, *paused).await,
         _ => Err(Fault::invalid("knowledge mutation expected")),
     }
 }
@@ -149,18 +150,19 @@ fn next(value: u64) -> Result<u64, Fault> {
         .ok_or_else(|| Fault::invalid("knowledge revision is exhausted"))
 }
 
-pub(super) fn validate_stored(db: &Connection) -> Result<(), Fault> {
-    collections::load(db)?;
+pub(super) async fn validate_stored(db: &Connection) -> Result<(), Fault> {
+    collections::load(db).await?;
     Ok(())
 }
 
-pub(super) fn progress(
+pub(super) async fn progress(
     db: &Connection,
     id: KnowledgeId,
     generation: u64,
     progress: &knowledge::Progress,
 ) -> Result<Option<Event>, Fault> {
-    let mut stored = collections::load(db)?
+    let mut stored = collections::load(db)
+        .await?
         .into_iter()
         .find(|stored| stored.collection.id == id)
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "knowledge collection no longer exists"))?;
@@ -170,7 +172,7 @@ pub(super) fn progress(
             "knowledge collection generation changed",
         ));
     }
-    let settings = super::local_models::settings(db)?;
+    let settings = super::local_models::settings(db).await?;
     let model = stored.collection.definition.model.clone().or_else(|| {
         settings
             .selected(sailry_protocol::models::Kind::Embedding)
@@ -186,12 +188,12 @@ pub(super) fn progress(
         return Ok(None);
     }
     stored.collection.progress = progress.clone();
-    collections::persist(db, &stored)?;
+    collections::persist(db, &stored).await?;
     Ok(Some(Event::KnowledgeCollectionsChanged))
 }
 
-pub(in crate::store) fn selection_changed(db: &Connection) -> Result<(), Fault> {
-    let mut entries = collections::load(db)?;
+pub(in crate::store) async fn selection_changed(db: &Connection) -> Result<(), Fault> {
+    let mut entries = collections::load(db).await?;
     for stored in &mut entries {
         if stored.collection.definition.model.is_none() {
             collections::advance(stored)?;
@@ -199,7 +201,7 @@ pub(in crate::store) fn selection_changed(db: &Connection) -> Result<(), Fault> 
     }
     for stored in &entries {
         if stored.collection.definition.model.is_none() {
-            collections::persist(db, stored)?;
+            collections::persist(db, stored).await?;
         }
     }
     Ok(())

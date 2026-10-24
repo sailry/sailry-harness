@@ -78,7 +78,10 @@ impl Store {
                 .open(path.join("node.lock"))
                 .map_err(storage)?;
             lock.try_lock().map_err(storage)?;
-            if path.join("storage/node.sqlite3").exists() {
+            if ["storage/node.turso", "storage/node.sqlite3"]
+                .into_iter()
+                .any(|name| path.join(name).exists())
+            {
                 return Err(storage("a Node profile cannot be opened as a controller"));
             }
             let identity = Identity::open(&path).map_err(storage)?;

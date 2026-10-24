@@ -82,15 +82,27 @@ async fn delivers_overdue_calendar_after_restart() {
 
         // Model downtime in this isolated profile while retaining the exact
         // weekly rule. The real restarted worker must claim and deliver it.
-        let database =
-            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
-        let (cursor, body): (Option<i64>, Vec<u8>) = database
-            .query_row(
-                "SELECT next_ms,body FROM dispatch_schedules WHERE package=?1 AND id=?2",
-                rusqlite::params![context.package.name, id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
+        let (database_handle, database) = crate::plugins::database_fixture::open(
+            &(directory.path().join("node/storage/node.turso")),
+            false,
+        )
+        .await;
+        let (cursor, body): (Option<i64>, Vec<u8>) = (async {
+            let mut statement = database
+                .prepare("SELECT next_ms,body FROM dispatch_schedules WHERE package=?1 AND id=?2")
+                .await?;
+            let row = statement
+                .query_row(turso::params![
+                    context.package.name.as_str(),
+                    id.to_string()
+                ])
+                .await?;
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         assert_eq!(cursor, saved.next_ms);
         let mut persisted: jobs::Schedule = serde_json::from_slice(&body).unwrap();
         assert_eq!(persisted, saved);
@@ -99,17 +111,18 @@ async fn delivers_overdue_calendar_after_restart() {
             database
                 .execute(
                     "UPDATE dispatch_schedules SET next_ms=?1,body=?2 WHERE package=?3 AND id=?4",
-                    rusqlite::params![
+                    turso::params![
                         scheduled,
                         serde_json::to_vec(&persisted).unwrap(),
-                        context.package.name,
+                        context.package.name.as_str(),
                         id.to_string()
                     ],
                 )
+                .await
                 .unwrap(),
             1
         );
-        database.close().unwrap();
+        crate::plugins::database_fixture::close(database_handle, database).await;
 
         let node = Node::start_empty_with_plugin_catalog(
             directory.path().join("node"),
@@ -201,8 +214,11 @@ async fn invalid_schedule_does_not_block_other_deliveries() {
         }
         drop(client);
         node.shutdown().await.unwrap();
-        let database =
-            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
+        let (database_handle, database) = crate::plugins::database_fixture::open(
+            &(directory.path().join("node/storage/node.turso")),
+            false,
+        )
+        .await;
         let mut originals = Vec::new();
         for (index, schedule) in records.iter_mut().enumerate() {
             schedule.enabled = true;
@@ -216,12 +232,17 @@ async fn invalid_schedule_does_not_block_other_deliveries() {
             database
                 .execute(
                     "UPDATE dispatch_schedules SET next_ms=1000,body=?1 WHERE package=?2 AND id=?3",
-                    rusqlite::params![body, context.package.name, schedule.id.to_string()],
+                    turso::params![
+                        body.as_slice(),
+                        context.package.name.as_str(),
+                        schedule.id.to_string()
+                    ],
                 )
+                .await
                 .unwrap();
             originals.push(body);
         }
-        database.close().unwrap();
+        crate::plugins::database_fixture::close(database_handle, database).await;
         let node = Node::start_empty_with_plugin_catalog(
             directory.path().join("node"),
             "http://127.0.0.1:9/",
@@ -281,17 +302,28 @@ async fn invalid_schedule_does_not_block_other_deliveries() {
         };
         assert_eq!(page.jobs.len(), 1);
         node.shutdown().await.unwrap();
-        let database =
-            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
-        let body: Vec<u8> = database
-            .query_row(
-                "SELECT body FROM dispatch_schedules WHERE package=?1 AND id=?2",
-                rusqlite::params![context.package.name, records[0].id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let (database_handle, database) = crate::plugins::database_fixture::open(
+            &(directory.path().join("node/storage/node.turso")),
+            false,
+        )
+        .await;
+        let body: Vec<u8> = (async {
+            let mut statement = database
+                .prepare("SELECT body FROM dispatch_schedules WHERE package=?1 AND id=?2")
+                .await?;
+            let row = statement
+                .query_row(turso::params![
+                    context.package.name.as_str(),
+                    records[0].id.to_string()
+                ])
+                .await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         assert_eq!(body, originals[0]);
-        database.close().unwrap();
+        crate::plugins::database_fixture::close(database_handle, database).await;
         controller.close().await.unwrap();
     }
 }

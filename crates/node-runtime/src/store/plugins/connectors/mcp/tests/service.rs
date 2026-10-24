@@ -51,11 +51,15 @@ async fn restores_only_its_account() {
         node.shutdown().await.unwrap();
         // Seed a stored account while the isolated fixture profile is closed.
         // No OAuth server or user profile is involved in the legacy combination.
-        let db = Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let handle = crate::store::database::engine(&profile.join("storage/node.turso"))
+            .await
+            .unwrap();
+        let mut db = crate::store::database::connect(&handle).await.unwrap();
+        let transaction = db.transaction().await.unwrap();
         let host = crate::plugins::Host::new(Some(profile.canonicalize().unwrap()));
         for info in [&current, &other].into_iter().chain(&unavailable) {
             let (mut record, _) = super::super::super::create(
-                &db,
+                &transaction,
                 host.profile(),
                 &Command::StartConnectorLogin {
                     package: info.summary.reference(),
@@ -66,6 +70,7 @@ async fn restores_only_its_account() {
                     input: Input::default(),
                 },
             )
+            .await
             .unwrap();
             record.enabled = false;
             record.state = if info.summary.name == "mcp-pending" {
@@ -87,22 +92,33 @@ async fn restores_only_its_account() {
                     .origins
                     .push("https://changed.example.com".into());
             }
-            super::super::super::save(&db, &record).unwrap();
+            super::super::super::save(&transaction, &record)
+                .await
+                .unwrap();
         }
+        transaction.commit().await.unwrap();
         drop(db);
+        drop(handle);
         let node = crate::Node::start_empty(&profile).await.unwrap();
         // Recovery cancels the interrupted login. Supply an active pending state
         // as isolated fixture input before observing its public projection.
-        let db = Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-        let mut pending = records(&db)
-            .unwrap()
-            .into_iter()
-            .find(|record| record.plugin == "mcp-pending")
-            .unwrap();
-        assert_eq!(pending.state, State::NotConnected);
-        pending.state = State::Connecting;
-        super::super::super::save(&db, &pending).unwrap();
-        drop(db);
+        node.with_storage(|db| {
+            Box::pin(async move {
+                let transaction = db.transaction().await.map_err(storage_error)?;
+                let mut pending = records(&transaction)
+                    .await?
+                    .into_iter()
+                    .find(|record| record.plugin == "mcp-pending")
+                    .unwrap();
+                assert_eq!(pending.state, State::NotConnected);
+                pending.state = State::Connecting;
+                super::super::super::save(&transaction, &pending).await?;
+                transaction.commit().await.map_err(storage_error)?;
+                Ok(())
+            })
+        })
+        .await
+        .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

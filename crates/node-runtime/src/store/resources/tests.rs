@@ -8,11 +8,7 @@ async fn admits_unrelated_resources_until_shutdown() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let directory = tempfile::tempdir().unwrap();
     let store = Store::start(
-        directory
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.sqlite3"),
+        directory.path().canonicalize().unwrap().join("node.turso"),
         NodeId([3; 32]),
         None,
         Default::default(),

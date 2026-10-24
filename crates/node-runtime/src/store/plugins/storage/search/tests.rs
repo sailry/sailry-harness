@@ -3,9 +3,12 @@ use serde_json::json;
 mod keywords;
 mod ranked;
 
-fn database() -> Connection {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch("CREATE TABLE plugin_values(name TEXT, key TEXT, revision INTEGER, value BLOB, index_data BLOB, PRIMARY KEY(name,key));").unwrap();
+async fn database() -> Connection {
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
+    db.execute_batch("CREATE TABLE plugin_values(name TEXT, key TEXT, revision INTEGER, value BLOB, index_data BLOB, PRIMARY KEY(name,key));").await.unwrap();
     db
 }
 
@@ -30,40 +33,52 @@ fn query() -> Search {
     }
 }
 
-fn insert(db: &Connection, key: &str, value: &Value, index: &Index) {
+async fn insert(db: &Connection, key: &str, value: &Value, index: &Index) {
     validate_index(index).unwrap();
     let body = serde_json::to_vec(value).unwrap();
-    super::super::write(db, "arbitrary-package", key, value, &body, 0, Some(index)).unwrap();
+    super::super::write(db, "arbitrary-package", key, value, &body, 0, Some(index))
+        .await
+        .unwrap();
 }
 
-#[test]
-fn reads_preserve_index_errors() {
-    let db = database();
+#[tokio::test]
+async fn reads_preserve_index_errors() {
+    let db = database().await;
     assert!(
         read(&db, "arbitrary-package", &query())
+            .await
             .unwrap()
             .entries
             .is_empty()
     );
     let table = table("arbitrary-package");
-    assert!(!exists(&db, &table).unwrap());
-    insert(&db, "one", &json!(true), &metadata());
-    db.execute(&format!("UPDATE {table} SET key='wrong'"), [])
+    assert!(!exists(&db, &table).await.unwrap());
+    insert(&db, "one", &json!(true), &metadata()).await;
+    db.execute(&format!("UPDATE {table} SET key='wrong'"), ())
+        .await
         .unwrap();
     assert_eq!(
-        read(&db, "arbitrary-package", &query()).unwrap_err().code,
+        read(&db, "arbitrary-package", &query())
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::Internal
     );
-    db.execute_batch(&format!("DROP TABLE {table}")).unwrap();
+    db.execute_batch(&format!("DROP TABLE {table}"))
+        .await
+        .unwrap();
     assert_eq!(
-        read(&db, "arbitrary-package", &query()).unwrap_err().code,
+        read(&db, "arbitrary-package", &query())
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::Internal
     );
-    assert!(!exists(&db, &table).unwrap());
+    assert!(!exists(&db, &table).await.unwrap());
 }
 
-#[test]
-fn bounds_index_metadata_and_query_inputs() {
+#[tokio::test]
+async fn bounds_index_metadata_and_query_inputs() {
     let mut index = metadata();
     index.fields[0] = "x".repeat(storage::MAX_INDEX_BYTES);
     assert!(validate_index(&index).is_err());
@@ -124,7 +139,8 @@ fn bounds_index_metadata_and_query_inputs() {
         },
     ] {
         assert_eq!(
-            read(&database(), "arbitrary-package", &invalid)
+            read(&database().await, "arbitrary-package", &invalid)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidRequest
@@ -132,14 +148,23 @@ fn bounds_index_metadata_and_query_inputs() {
     }
 }
 
-#[test]
-fn pages_bound_count_and_encoded_size() {
-    let db = database();
+#[tokio::test]
+async fn pages_bound_count_and_encoded_size() {
+    let db = database().await;
     let value = json!("x".repeat(240 * 1024));
     for key in ["one", "two", "three"] {
-        insert(&db, key, &value, &metadata());
+        insert(&db, key, &value, &metadata()).await;
     }
-    let first = read(&db, "arbitrary-package", &query()).unwrap();
+    db.execute("CREATE TABLE markers(id INTEGER PRIMARY KEY)", ())
+        .await
+        .unwrap();
+    db.execute("BEGIN CONCURRENT", ()).await.unwrap();
+    let first = read(&db, "arbitrary-package", &query()).await.unwrap();
+    assert!(!db.is_autocommit().unwrap());
+    db.execute("INSERT INTO markers VALUES(1)", ())
+        .await
+        .unwrap();
+    db.execute("COMMIT", ()).await.unwrap();
     assert_eq!(first.entries.len(), 2);
     assert_eq!(first.next, Some(2));
     let encoded = serde_json::to_vec(&sailry_protocol::plugin::transaction::sdk::output(
@@ -155,9 +180,11 @@ fn pages_bound_count_and_encoded_size() {
             ..query()
         },
     )
+    .await
     .unwrap();
     assert_eq!(last.entries.len(), 1);
     assert_eq!(last.next, None);
+    db.execute("BEGIN CONCURRENT", ()).await.unwrap();
     let page = read(
         &db,
         "arbitrary-package",
@@ -166,19 +193,36 @@ fn pages_bound_count_and_encoded_size() {
             ..query()
         },
     )
+    .await
     .unwrap();
+    assert!(!db.is_autocommit().unwrap());
+    db.execute("INSERT INTO markers VALUES(2)", ())
+        .await
+        .unwrap();
+    db.execute("COMMIT", ()).await.unwrap();
+    let markers = db
+        .prepare("SELECT count(*) FROM markers")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get::<i64>(0)
+        .unwrap();
+    assert_eq!(markers, 2);
     assert_eq!(page.entries.len(), 1);
     assert_eq!(page.next, Some(1));
 }
 
-#[test]
-fn namespace_quota_includes_retained_index_fields() {
-    let db = database();
+#[tokio::test]
+async fn namespace_quota_includes_retained_index_fields() {
+    let db = database().await;
     // Leave room for a plain value but not its separately retained searchable fields.
     db.execute(
         "INSERT INTO plugin_values VALUES('arbitrary-package','fill',1,zeroblob(?1),NULL)",
         [storage::MAX_NAMESPACE_BYTES as i64 - 100],
     )
+    .await
     .unwrap();
     let value = json!(null);
     let body = serde_json::to_vec(&value).unwrap();
@@ -194,28 +238,33 @@ fn namespace_quota_includes_retained_index_fields() {
             0,
             Some(&index)
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::Busy
     );
     assert!(
         !super::super::read(&db, "arbitrary-package", "indexed")
+            .await
             .unwrap()
             .present
     );
-    super::super::write(&db, "arbitrary-package", "ordinary", &value, &body, 0, None).unwrap();
+    super::super::write(&db, "arbitrary-package", "ordinary", &value, &body, 0, None)
+        .await
+        .unwrap();
 }
 
-#[test]
-fn bounds_output_without_rejecting_requested_pages() {
-    let db = database();
+#[tokio::test]
+async fn bounds_output_without_rejecting_requested_pages() {
+    let db = database().await;
     for number in 0..101 {
         insert(
             &db,
             &format!("item-{number:03}"),
             &json!(number),
             &metadata(),
-        );
+        )
+        .await;
     }
     let first = read(
         &db,
@@ -225,6 +274,7 @@ fn bounds_output_without_rejecting_requested_pages() {
             ..query()
         },
     )
+    .await
     .unwrap();
     assert_eq!(first.entries.len(), 100);
     assert_eq!(first.next, Some(100));
@@ -237,6 +287,7 @@ fn bounds_output_without_rejecting_requested_pages() {
             ..query()
         },
     )
+    .await
     .unwrap();
     assert_eq!(last.entries.len(), 1);
     assert_eq!(last.next, None);

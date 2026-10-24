@@ -22,7 +22,7 @@ fn summary(end: &AdkEvent) -> AdkEvent {
     summary
 }
 
-fn load(fixture: &Fixture, turn: TurnId) -> Vec<AdkEvent> {
+async fn load(fixture: &Fixture, turn: TurnId) -> Vec<AdkEvent> {
     sessions::get(
         &fixture.database.connection,
         turn,
@@ -34,18 +34,19 @@ fn load(fixture: &Fixture, turn: TurnId) -> Vec<AdkEvent> {
             after: None,
         },
     )
+    .await
     .unwrap()
     .events()
     .all()
 }
 
-#[test]
-fn retains_summary_only_update_time() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn retains_summary_only_update_time() {
+    let mut fixture = Fixture::new().await;
     let original = event("Original evidence");
-    fixture.append([original.clone()]);
+    fixture.append([original.clone()]).await;
     let compacted = summary(&original);
-    let turn = fixture.append([compacted.clone()]);
+    let turn = fixture.append([compacted.clone()]).await;
     let session = sessions::get(
         &fixture.database.connection,
         turn,
@@ -57,23 +58,24 @@ fn retains_summary_only_update_time() {
             after: None,
         },
     )
+    .await
     .unwrap();
     assert_eq!(session.events().len(), 1);
     assert_eq!(session.last_update_time(), compacted.timestamp);
 }
 
-#[test]
-fn ignores_clock_rewinds() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn ignores_clock_rewinds() {
+    let mut fixture = Fixture::new().await;
     let original = event("Original evidence");
-    fixture.append([original.clone()]);
+    fixture.append([original.clone()]).await;
     let mut recent = event("Recent must survive");
     recent.timestamp = original.timestamp - chrono::Duration::seconds(60);
-    fixture.append([recent.clone()]);
+    fixture.append([recent.clone()]).await;
     let compacted = summary(&original);
-    let turn = fixture.append([event("Current"), compacted.clone()]);
-    let full = fixture.read(None, 100).page;
-    let context = load(&fixture, turn);
+    let turn = fixture.append([event("Current"), compacted.clone()]).await;
+    let full = fixture.read(None, 100).await.page;
+    let context = load(&fixture, turn).await;
     assert_eq!(context.len(), 3);
     assert_eq!(context[0].id, compacted.id);
     assert!(context[0].actions.compaction.is_none());
@@ -84,10 +86,13 @@ fn ignores_clock_rewinds() {
         full.entries.last().unwrap().parts,
         vec![Part::Compaction("Summary 中文 🙂".into())]
     );
-    history::rebuild(&mut fixture.database.connection).unwrap();
-    assert_eq!(fixture.read(None, 100).page, full);
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(fixture.read(None, 100).await.page, full);
     assert_eq!(
         load(&fixture, turn)
+            .await
             .iter()
             .map(|event| &event.id)
             .collect::<Vec<_>>(),
@@ -95,13 +100,13 @@ fn ignores_clock_rewinds() {
     );
 }
 
-#[test]
-fn rejects_invalid_boundaries() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn rejects_invalid_boundaries() {
+    let mut fixture = Fixture::new().await;
     let first = event("First");
     let last = event("Last");
-    fixture.append([first.clone(), last.clone()]);
-    let turn = fixture.queued();
+    fixture.append([first.clone(), last.clone()]).await;
+    let turn = fixture.queued().await;
     for boundary in [first, event("Not a member")] {
         assert!(
             history::append(
@@ -111,6 +116,7 @@ fn rejects_invalid_boundaries() {
                 summary(&boundary),
                 &fixture.events
             )
+            .await
             .is_err()
         );
     }
@@ -122,6 +128,7 @@ fn rejects_invalid_boundaries() {
         current.clone(),
         &fixture.events,
     )
+    .await
     .unwrap();
     assert!(
         history::append(
@@ -131,9 +138,10 @@ fn rejects_invalid_boundaries() {
             summary(&current),
             &fixture.events
         )
+        .await
         .is_err()
     );
-    assert_eq!(fixture.read(None, 100).page.entries.len(), 3);
+    assert_eq!(fixture.read(None, 100).await.page.entries.len(), 3);
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -141,16 +149,17 @@ fn rejects_invalid_boundaries() {
         summary(&last),
         &fixture.events,
     )
+    .await
     .unwrap();
 }
 
-#[test]
-fn restores_branched_context() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn restores_branched_context() {
+    let mut fixture = Fixture::new().await;
     let original = event("Original");
-    let first = fixture.append([original.clone()]);
+    let first = fixture.append([original.clone()]).await;
     let compacted = summary(&original);
-    let head = fixture.append([event("Recent"), compacted.clone()]);
+    let head = fixture.append([event("Recent"), compacted.clone()]).await;
     let Output::Session(branch) = command(
         &mut fixture.database,
         &fixture.events,
@@ -159,15 +168,17 @@ fn restores_branched_context() {
             through: head,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("fork expected")
     };
     let source = fixture.session;
     fixture.session = branch.id;
-    let branch_turn = fixture.queued();
-    assert_eq!(load(&fixture, branch_turn)[0].id, compacted.id);
+    let branch_turn = fixture.queued().await;
+    assert_eq!(load(&fixture, branch_turn).await[0].id, compacted.id);
     fixture.session = source;
-    let retained = fixture.fork(source, head);
+    let retained = fixture.fork(source, head).await;
     let Output::Rewound(rewound) = command(
         &mut fixture.database,
         &fixture.events,
@@ -177,33 +188,38 @@ fn restores_branched_context() {
             expected_head: head,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("rewind expected")
     };
-    let context = load(&fixture, first);
+    let context = load(&fixture, first).await;
     assert!(rewound.backup.is_none());
     assert_eq!(context.len(), 1);
     assert_eq!(context[0].id, original.id);
     fixture.session = retained.id;
-    let backup_turn = fixture.queued();
-    assert_eq!(load(&fixture, backup_turn)[0].id, compacted.id);
-    assert_eq!(fixture.read(None, 100).page.entries.len(), 3);
+    let backup_turn = fixture.queued().await;
+    assert_eq!(load(&fixture, backup_turn).await[0].id, compacted.id);
+    assert_eq!(fixture.read(None, 100).await.page.entries.len(), 3);
 }
 
-#[test]
-fn loads_complete_history() {
-    let mut fixture = Fixture::new();
-    let turn = fixture.completed(&["Preserved"; 300]);
-    assert_eq!(load(&fixture, turn).len(), 300);
+#[tokio::test]
+async fn loads_complete_history() {
+    let mut fixture = Fixture::new().await;
+    let turn = fixture.completed(&["Preserved"; 300]).await;
+    assert_eq!(load(&fixture, turn).await.len(), 300);
 }
 
-#[test]
-fn accepts_complete_batches() {
+#[tokio::test]
+async fn accepts_complete_batches() {
     use adk_core::{Content, FunctionResponseData, Part as AdkPart};
-    let mut fixture = Fixture::new();
-    let turn = fixture.queued();
-    runs::start(&fixture.database.connection, turn).unwrap();
+    let mut fixture = Fixture::new().await;
+    let turn = fixture.queued().await;
+    runs::start(&fixture.database.connection, turn)
+        .await
+        .unwrap();
     runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     let mut call = event("");
@@ -241,6 +257,7 @@ fn accepts_complete_batches() {
             boundary.clone(),
             &fixture.events,
         )
+        .await
         .unwrap();
         assert!(
             history::append(
@@ -250,6 +267,7 @@ fn accepts_complete_batches() {
                 summary(boundary),
                 &fixture.events
             )
+            .await
             .is_err()
         );
     }
@@ -260,6 +278,7 @@ fn accepts_complete_batches() {
         results[1].clone(),
         &fixture.events,
     )
+    .await
     .unwrap();
     let mut telemetry = AdkEvent::new("timing-fixture");
     telemetry.author = "system".into();
@@ -275,6 +294,7 @@ fn accepts_complete_batches() {
         telemetry.clone(),
         &fixture.events,
     )
+    .await
     .unwrap();
     assert!(
         context::validate(
@@ -283,10 +303,12 @@ fn accepts_complete_batches() {
             turn,
             &summary(&telemetry),
         )
+        .await
         .is_err()
     );
     assert_eq!(
         context::history(&fixture.database.connection, fixture.session, turn)
+            .await
             .unwrap()
             .frontier,
         Some(format!("exchange:{}", results[1].id))
@@ -299,6 +321,7 @@ fn accepts_complete_batches() {
         compacted.clone(),
         &fixture.events,
     )
+    .await
     .unwrap();
     let recent = event("Recent evidence");
     history::append(
@@ -308,8 +331,9 @@ fn accepts_complete_batches() {
         recent.clone(),
         &fixture.events,
     )
+    .await
     .unwrap();
-    let current = load(&fixture, turn);
+    let current = load(&fixture, turn).await;
     assert_eq!(
         current.iter().map(|event| &event.id).collect::<Vec<_>>(),
         [&compacted.id, &recent.id]
@@ -321,6 +345,7 @@ fn accepts_complete_batches() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert!(
         context::validate(
@@ -329,6 +354,7 @@ fn accepts_complete_batches() {
             turn,
             &summary(&telemetry),
         )
+        .await
         .is_err()
     );
     history::append(
@@ -338,15 +364,18 @@ fn accepts_complete_batches() {
         compacted,
         &fixture.events,
     )
+    .await
     .unwrap();
-    let full = fixture.read(None, 100).page;
+    let full = fixture.read(None, 100).await.page;
     assert_eq!(full.entries.len(), 5);
-    history::rebuild(&mut fixture.database.connection).unwrap();
-    assert_eq!(fixture.read(None, 100).page, full);
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(fixture.read(None, 100).await.page, full);
 }
 
-#[test]
-fn rejects_orphans_and_mismatches() {
+#[tokio::test]
+async fn rejects_orphans_and_mismatches() {
     use adk_core::{Content, FunctionResponseData, Part as AdkPart};
     let mut call = event("");
     call.set_content(Content {
@@ -380,9 +409,9 @@ fn rejects_orphans_and_mismatches() {
     }
 }
 
-#[test]
-fn uses_real_turn_boundaries() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn uses_real_turn_boundaries() {
+    let mut fixture = Fixture::new().await;
     let original = event("First canonical content");
     let mut retry = AdkEvent::new("different-synthetic-invocation");
     retry.author = "system".into();
@@ -398,9 +427,13 @@ fn uses_real_turn_boundaries() {
         serde_json::to_string(&sailry_protocol::conversation::observation::Phases::default())
             .unwrap(),
     );
-    let prior = fixture.append([original.clone(), retry, final_event.clone(), telemetry]);
-    let current = fixture.queued();
-    let history = context::history(&fixture.database.connection, fixture.session, current).unwrap();
+    let prior = fixture
+        .append([original.clone(), retry, final_event.clone(), telemetry])
+        .await;
+    let current = fixture.queued().await;
+    let history = context::history(&fixture.database.connection, fixture.session, current)
+        .await
+        .unwrap();
     assert_eq!(history.completed, vec![3]);
     assert_eq!(history.events.len(), 3);
     assert_eq!(history.current, 3);
@@ -415,6 +448,7 @@ fn uses_real_turn_boundaries() {
             current,
             &summary(&original)
         )
+        .await
         .is_err()
     );
     assert!(
@@ -424,19 +458,24 @@ fn uses_real_turn_boundaries() {
             current,
             &summary(&final_event)
         )
+        .await
         .is_ok()
     );
 }
 
-#[test]
-fn retains_recent_plain_turns() {
-    let mut fixture = Fixture::new();
-    fixture.append([event("First turn")]);
+#[tokio::test]
+async fn retains_recent_plain_turns() {
+    let mut fixture = Fixture::new().await;
+    fixture.append([event("First turn")]).await;
     let second = event("Second turn");
-    fixture.append([second.clone(), event("Second response")]);
-    fixture.append([event("Third turn")]);
-    let current = fixture.queued();
-    let history = context::history(&fixture.database.connection, fixture.session, current).unwrap();
+    fixture
+        .append([second.clone(), event("Second response")])
+        .await;
+    fixture.append([event("Third turn")]).await;
+    let current = fixture.queued().await;
+    let history = context::history(&fixture.database.connection, fixture.session, current)
+        .await
+        .unwrap();
     assert_eq!(history.recent, Some(1));
     assert_eq!(history.events[history.recent.unwrap()].id, second.id);
     assert_eq!(history.completed, vec![1, 3, 4]);

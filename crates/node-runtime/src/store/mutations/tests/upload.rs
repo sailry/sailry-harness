@@ -75,17 +75,7 @@ async fn cancels_durable_publication() {
                     .unwrap()
                     .unwrap();
             assert!(admission.receipt.durable);
-            let db =
-                rusqlite::Connection::open(fixture.directory.path().join("node.sqlite3")).unwrap();
-            assert_eq!(
-                db.query_row(
-                    "SELECT status FROM requests WHERE id=?1",
-                    [request.id.to_string()],
-                    |row| row.get::<_, String>(0)
-                )
-                .unwrap(),
-                "admitted"
-            );
+            assert_eq!(fixture.status(request.id).await, "admitted");
             assert_eq!(
                 client.execute(request.clone()).await.unwrap_err().code,
                 ErrorCode::OutcomeUnknown

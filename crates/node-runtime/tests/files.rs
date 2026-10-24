@@ -115,12 +115,28 @@ async fn shares_read_only_worktree_access() {
     let admission = transport.dispatch(request).await.unwrap();
     assert!(!admission.receipt.durable);
     admission.completion.await.unwrap().unwrap();
-    let db = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-    let count: i64 = db
-        .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
-        .unwrap();
+
+    let count: i64 = {
+        let sql = ("SELECT count(*) FROM requests").to_owned();
+        let parameters = ();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)?;
+                let value = row.get(0);
+                value.map_err(crate::file_fixture::database::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
     assert_eq!(count, 1, "only project registration is durable");
-    drop(db);
+
     node.link()
         .set_trust(NodeId(*controller.handle().address().id.as_bytes()), false)
         .await

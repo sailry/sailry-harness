@@ -6,12 +6,14 @@ use sailry_protocol::*;
 use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{runtime::Handle, sync::oneshot};
 
-pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
+pub(super) async fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
     if let Command::CheckPluginMcp { package, server } = &request.command {
-        return super::plugins::mcp::prepare(&database.connection, package, server).map(|_| ());
+        return super::plugins::mcp::prepare(&database.connection, package, server)
+            .await
+            .map(|_| ());
     }
     if let Command::CloseTerminal { worktree, .. } = &request.command {
-        database.worktree_root(*worktree)?;
+        database.worktree_root(*worktree).await?;
         return Ok(());
     }
     if matches!(
@@ -20,13 +22,13 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
             | Command::RestoreBackup { .. }
             | Command::RestoreBackupFile { .. }
     ) {
-        return super::backup::prepare(database, request);
+        return super::backup::prepare(database, request).await;
     }
     if matches!(
         request.command,
         Command::InstallLocalModel { .. } | Command::DeleteLocalModel { .. }
     ) {
-        return super::local_models::approvals::check(&database.connection, request);
+        return super::local_models::approvals::check(&database.connection, request).await;
     }
     if matches!(
         request.command,
@@ -36,7 +38,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
             | Command::UninstallCodeServer { .. }
             | Command::UpdateCodeRules
     ) {
-        return super::code::prepare(database, request);
+        return super::code::prepare(database, request).await;
     }
     let (session, worktree) = match &request.command {
         Command::UseBrowser {
@@ -63,7 +65,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
             action,
         } => {
             crate::agent::media::validate(action)?;
-            let run = super::agent::visible_run(&database.connection, *session, *turn)?;
+            let run = super::agent::visible_run(&database.connection, *session, *turn).await?;
             if run.origin.is_some() {
                 return Err(Fault::new(
                     ErrorCode::PermissionDenied,
@@ -74,14 +76,14 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
         }
         _ => unreachable!("scoped resource command expected"),
     };
-    let session = super::commands::session(&database.connection, session)?;
+    let session = super::commands::session(&database.connection, session).await?;
     if session.worktree != worktree {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "resource session belongs to another worktree",
         ));
     }
-    database.worktree_root(worktree)?;
+    database.worktree_root(worktree).await?;
     Ok(())
 }
 

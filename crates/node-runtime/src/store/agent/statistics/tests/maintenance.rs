@@ -1,8 +1,9 @@
 use super::*;
 use sailry_protocol::conversation::compaction::{Failure, Outcome, Reason, Source, Stage};
 
-fn provider(fixture: &mut Fixture) -> Provider {
+async fn provider(fixture: &mut Fixture) -> Provider {
     let config = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
         .unwrap()
         .config;
     let provider: Provider = serde_json::from_value(serde_json::json!({
@@ -17,17 +18,19 @@ fn provider(fixture: &mut Fixture) -> Provider {
             provider,
             expected_revision: 0,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("provider expected");
     };
     provider
 }
 
-#[test]
-fn uses_captured_policy_until_queued_work_ends() {
-    let mut fixture = Fixture::new();
-    let mut provider = provider(&mut fixture);
-    let queued = fixture.queued();
+#[tokio::test]
+async fn uses_captured_policy_until_queued_work_ends() {
+    let mut fixture = Fixture::new().await;
+    let mut provider = provider(&mut fixture).await;
+    let queued = fixture.queued().await;
     provider.models[0].context = 200_000;
     provider.models[0].output = 64_000;
     let expected_revision = provider.revision;
@@ -38,8 +41,10 @@ fn uses_captured_policy_until_queued_work_ends() {
             provider,
             expected_revision,
         },
-    );
+    )
+    .await;
     let captured = read(&fixture.database.connection, fixture.session)
+        .await
         .unwrap()
         .budget
         .unwrap();
@@ -54,8 +59,10 @@ fn uses_captured_policy_until_queued_work_ends() {
             turn: queued,
             expected_revision: 1,
         },
-    );
+    )
+    .await;
     let current = read(&fixture.database.connection, fixture.session)
+        .await
         .unwrap()
         .budget
         .unwrap();
@@ -65,11 +72,11 @@ fn uses_captured_policy_until_queued_work_ends() {
     assert_eq!(current.summary_output, 8192);
 }
 
-#[test]
-fn locates_maintenance_beyond_loaded_history() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn locates_maintenance_beyond_loaded_history() {
+    let mut fixture = Fixture::new().await;
     let anchor = event(100, 10);
-    fixture.append([anchor.clone()]);
+    fixture.append([anchor.clone()]).await;
     let mut summary = AdkEvent::new("summary-fixture");
     summary.author = "system".into();
     summary
@@ -82,13 +89,14 @@ fn locates_maintenance_beyond_loaded_history() {
     });
     let summary_id = summary.id.clone();
     let summary_time = summary.timestamp.timestamp_millis();
-    let turn = fixture.append([summary]);
+    let turn = fixture.append([summary]).await;
     for _ in 0..20 {
-        fixture.append([event(40, 5)]);
+        fixture.append([event(40, 5)]).await;
     }
-    let page = fixture.read(None, 1);
+    let page = fixture.read(None, 1).await;
     assert!(!page.page.entries.iter().any(|entry| entry.id == summary_id));
     let record = read(&fixture.database.connection, fixture.session)
+        .await
         .unwrap()
         .last_compaction
         .unwrap();
@@ -97,6 +105,7 @@ fn locates_maintenance_beyond_loaded_history() {
     assert_eq!(
         record.turn_sequence,
         super::super::super::runs::get(&fixture.database.connection, turn)
+            .await
             .unwrap()
             .sequence
     );
@@ -119,8 +128,9 @@ fn locates_maintenance_beyond_loaded_history() {
         serde_json::to_string(&failure).unwrap(),
     );
     let id = event.id.clone();
-    fixture.append([event]);
+    fixture.append([event]).await;
     let latest = read(&fixture.database.connection, fixture.session)
+        .await
         .unwrap()
         .last_compaction
         .unwrap();

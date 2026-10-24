@@ -92,17 +92,30 @@ async fn changed(
     .expect("quota observation deadline")
 }
 
-fn expire(fixture: &Fixture, provider: &Provider) {
-    let database =
-        rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3")).unwrap();
+async fn expire(fixture: &Fixture, provider: &Provider) {
     let mut body: serde_json::Value = serde_json::from_str(
-        &database
-            .query_row::<String, _, _>(
-                "SELECT CAST(body AS TEXT) FROM providers WHERE id=?1",
-                [provider.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap(),
+        &{
+            let sql = ("SELECT CAST(body AS TEXT) FROM providers WHERE id=?1").to_owned();
+            let parameters = turso::params![provider.id.to_string()];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        let value: turso::Result<_> =
+                            (|row: &turso::Row| row.get::<String>(0))(&row);
+                        value.map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
+        .unwrap(),
     )
     .unwrap();
     let id = provider.credential.as_ref().unwrap().id.to_string();
@@ -111,12 +124,22 @@ fn expire(fixture: &Fixture, provider: &Provider) {
         serde_json::from_str(saved["key"].as_str().unwrap()).unwrap();
     grant["expires_at_ms"] = json!((future_expiry() - 3601) * 1000);
     saved["key"] = json!(grant.to_string());
-    database
-        .execute(
-            "UPDATE providers SET body=?1 WHERE id=?2",
-            rusqlite::params![serde_json::to_vec(&body).unwrap(), provider.id.to_string()],
-        )
-        .unwrap();
+    {
+        let sql = ("UPDATE providers SET body=?1 WHERE id=?2").to_owned();
+        let parameters =
+            turso::params![serde_json::to_vec(&body).unwrap(), provider.id.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute(sql, parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
+    .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -191,7 +214,7 @@ async fn refreshes_bound_observations() {
             vec![original.clone()]
         );
         drop(subscription);
-        expire(&fixture, &provider);
+        expire(&fixture, &provider).await;
         let fixture = renewals::restart(fixture, &server, remote).await;
         assert_eq!(
             read(&fixture.client).await.provider_quotas,

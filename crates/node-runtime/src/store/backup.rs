@@ -1,11 +1,10 @@
 //! Backup configuration and snapshots share the authoritative Store owner.
 use super::{
     Ingress, Job,
-    database::{Database, encode, storage_error},
+    database::{Database, Exclusive, Handle, Storage, encode, storage_error},
     unavailable,
 };
 use crate::backup::{self, Auth, Plan, archive::Snapshot};
-use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use sailry_link::{Admission, CancellationToken};
 use sailry_protocol::{
     Command, ErrorCode, Event, Fault, Output, Request, RequestId, Secret,
@@ -14,16 +13,17 @@ use sailry_protocol::{
 };
 use std::{
     path::{Path, PathBuf},
-    time::Duration,
+    sync::Arc,
 };
 use tokio::sync::oneshot;
+use turso::{Connection, params, transaction::TransactionBehavior};
 
 type Capture = (Plan, Snapshot, Vec<String>);
 
 pub(super) struct Source {
-    profile: PathBuf,
-    node: sailry_protocol::NodeId,
-    revision: u64,
+    plan: Plan,
+    snapshot: Snapshot,
+    roots: Vec<String>,
 }
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -33,15 +33,18 @@ pub(in crate::store) struct Stored {
     pub auth: Auth,
 }
 
-pub(super) fn read(db: &Connection) -> Result<Stored, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM backup_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn read(db: &turso::Connection) -> Result<Stored, Fault> {
+    let body = match db
+        .prepare("SELECT body FROM backup_settings WHERE singleton=1")
+        .await
+        .map_err(storage_error)?
+        .query_row(())
+        .await
+    {
+        Ok(row) => Some(row.get::<Vec<u8>>(0).map_err(storage_error)?),
+        Err(turso::Error::QueryReturnedNoRows) => None,
+        Err(error) => return Err(storage_error(error)),
+    };
     let stored: Stored = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?
@@ -128,12 +131,12 @@ fn configured(auth: &Auth) -> bool {
     auth.identity.is_some() || auth.secret.is_some() || auth.session_token.is_some()
 }
 
-pub(super) fn execute(
-    db: &Connection,
+pub(super) async fn execute(
+    db: &turso::Connection,
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     controller(request)?;
-    let mut stored = read(db)?;
+    let mut stored = read(db).await?;
     match &request.command {
         Command::ReadBackupSettings => Ok((Output::BackupSettings(stored.settings), None)),
         Command::SaveBackupSettings(Update {
@@ -175,8 +178,8 @@ pub(super) fn execute(
             stored.settings.credentials_configured = configured(&stored.auth);
             stored.settings.passphrase_configured = stored.auth.passphrase.is_some();
             validate(&stored)?;
-            super::dispatch::native::configure(db, &stored.settings)?;
-            db.execute("INSERT INTO backup_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&stored)?]).map_err(storage_error)?;
+            super::dispatch::native::configure(db, &stored.settings).await?;
+            db.execute("INSERT INTO backup_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&stored)?]).await.map_err(storage_error)?;
             Ok((
                 Output::BackupSettings(stored.settings.clone()),
                 Some(Event::BackupSettingsChanged {
@@ -196,8 +199,8 @@ fn update(current: &mut Option<Secret>, value: &SecretUpdate) {
     }
 }
 
-pub(super) fn plan(db: &Connection, expected: Option<u64>) -> Result<Plan, Fault> {
-    let stored = read(db)?;
+pub(super) async fn plan(db: &turso::Connection, expected: Option<u64>) -> Result<Plan, Fault> {
+    let stored = read(db).await?;
     if let Some(expected) = expected {
         super::commands::check_revision(stored.settings.revision, expected)?;
     }
@@ -209,87 +212,153 @@ pub(super) fn plan(db: &Connection, expected: Option<u64>) -> Result<Plan, Fault
     })
 }
 
-pub(super) fn source(
-    database: &Database,
+pub(super) async fn source(
+    storage: &Storage,
+    knowledge: Option<&Arc<Handle>>,
     revision: u64,
     cancel: &CancellationToken,
 ) -> Result<Source, Fault> {
     backup::cancelled(cancel)?;
-    let plan = plan(&database.connection, Some(revision))?;
-    backup::encryption::passphrase(plan.auth.passphrase.as_ref())?;
-    Ok(Source {
-        profile: database.profile.clone().ok_or_else(|| {
-            Fault::new(ErrorCode::NotConfigured, "backup requires a Node profile")
-        })?,
-        node: database.node,
-        revision,
-    })
-}
-
-fn capture(source: Source, cancel: &CancellationToken) -> Result<Capture, Fault> {
-    capture_with(source, cancel, |_| Ok(()))
-}
-
-fn capture_with(
-    source: Source,
-    cancel: &CancellationToken,
-    ready: impl FnOnce(&Connection) -> Result<(), Fault>,
-) -> Result<Capture, Fault> {
-    backup::cancelled(cancel)?;
-    let db = Connection::open_with_flags(
-        source.profile.join("storage/node.sqlite3"),
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
-    )
-    .map_err(storage_error)?;
-    db.busy_timeout(Duration::from_secs(1))
-        .map_err(storage_error)?;
-    db.execute_batch("BEGIN").map_err(storage_error)?;
-    let identity: Vec<u8> = db
-        .query_row("SELECT identity FROM node WHERE singleton=1", [], |row| {
-            row.get(0)
-        })
-        .map_err(storage_error)?;
-    if identity.as_slice() != source.node.0.as_slice() {
-        return Err(Fault::invalid("backup source identity changed"));
-    }
-    let plan = plan(&db, Some(source.revision))?;
-    backup::encryption::passphrase(plan.auth.passphrase.as_ref())?;
-    ready(&db)?;
-    let profile = &source.profile;
-    let mut snapshot = Snapshot::new(profile, source.node)?;
-    let path = snapshot.database_path()?;
-    let mut destination = Connection::open(&path).map_err(storage_error)?;
+    let profile = storage
+        .profile
+        .as_deref()
+        .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "backup requires a Node profile"))?;
+    if storage.handle.path() != profile.join("storage/node.turso")
+        || knowledge.is_some_and(|handle| handle.path() != profile.join("storage/knowledge.turso"))
     {
-        let transfer =
-            rusqlite::backup::Backup::new(&db, &mut destination).map_err(storage_error)?;
-        loop {
-            backup::cancelled(cancel)?;
-            match transfer.step(256).map_err(storage_error)? {
-                rusqlite::backup::StepResult::Done => break,
-                rusqlite::backup::StepResult::More => {}
-                rusqlite::backup::StepResult::Busy | rusqlite::backup::StepResult::Locked => {
-                    std::thread::sleep(Duration::from_millis(5))
-                }
-                _ => return Err(storage_error("unexpected SQLite backup state")),
-            }
-        }
+        return Err(Fault::invalid(
+            "backup source path differs from its profile",
+        ));
     }
-    drop(destination);
+    let main = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return Err(cancelled()),
+        main = storage.handle.exclusive() => main.map_err(storage_error)?,
+    };
+    let knowledge = if let Some(handle) = knowledge {
+        Some(tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(cancelled()),
+            knowledge = handle.exclusive() => knowledge.map_err(storage_error)?,
+        })
+    } else {
+        None
+    };
+    let transaction = turso::transaction::Transaction::new_unchecked(
+        main.connection(),
+        TransactionBehavior::Deferred,
+    )
+    .await
+    .map_err(storage_error)?;
+    let prepared: Result<(Plan, Vec<String>), Fault> = async {
+        let identity = transaction
+            .prepare("SELECT identity FROM node WHERE singleton=1")
+            .await
+            .map_err(storage_error)?
+            .query_row(())
+            .await
+            .map_err(storage_error)?
+            .get::<Vec<u8>>(0)
+            .map_err(storage_error)?;
+        if identity.as_slice() != storage.node.0.as_slice() {
+            return Err(Fault::invalid("backup source identity changed"));
+        }
+        let plan = plan(&transaction, Some(revision)).await?;
+        backup::encryption::passphrase(plan.auth.passphrase.as_ref())?;
+        let roots = roots(&transaction, profile, cancel).await?;
+        Ok((plan, roots))
+    }
+    .await;
+    let (plan, roots) = match prepared {
+        Ok(prepared) => {
+            transaction.commit().await.map_err(storage_error)?;
+            prepared
+        }
+        Err(error) => {
+            transaction.rollback().await.map_err(storage_error)?;
+            return Err(error);
+        }
+    };
+    backup::cancelled(cancel)?;
+    let snapshot = Snapshot::new(profile, storage.node)?;
+    freeze(main, knowledge, plan, roots, snapshot, cancel).await
+}
+
+async fn freeze(
+    main: Exclusive,
+    knowledge: Option<Exclusive>,
+    plan: Plan,
+    roots: Vec<String>,
+    snapshot: Snapshot,
+    cancel: &CancellationToken,
+) -> Result<Source, Fault> {
+    let main = main.close().await.map_err(storage_error)?;
+    let mut closed_knowledge = None;
+    // Once a handle is closed, cancellation is a result, not a dropped future:
+    // every exit below must attempt to reopen both databases.
+    let frozen: Result<Source, Fault> = async {
+        backup::cancelled(cancel)?;
+        if let Some(knowledge) = knowledge {
+            closed_knowledge = Some(knowledge.close().await.map_err(storage_error)?);
+        }
+        backup::cancelled(cancel)?;
+        let main_path = main.path().to_owned();
+        let knowledge_path = closed_knowledge
+            .as_ref()
+            .map(|closed| closed.path().to_owned());
+        let stop = cancel.clone();
+        let snapshot = tokio::task::spawn_blocking(move || {
+            let mut snapshot = snapshot;
+            snapshot.freeze(&main_path, &stop)?;
+            if let Some(path) = knowledge_path {
+                snapshot.freeze(&path, &stop)?;
+            }
+            Ok::<_, Fault>(snapshot)
+        })
+        .await
+        .map_err(io_fault)??;
+        Ok(Source {
+            plan,
+            snapshot,
+            roots,
+        })
+    }
+    .await;
+    let knowledge_reopened = if let Some(knowledge) = closed_knowledge {
+        knowledge.reopen().await.map_err(storage_error)
+    } else {
+        Ok(())
+    };
+    let main_reopened = main.reopen().await.map_err(storage_error);
+    knowledge_reopened?;
+    main_reopened?;
+    backup::cancelled(cancel)?;
+    frozen
+}
+
+fn cancelled() -> Fault {
+    Fault::new(ErrorCode::Cancelled, "profile backup cancelled")
+}
+
+async fn roots(
+    db: &Connection,
+    profile: &Path,
+    cancel: &CancellationToken,
+) -> Result<Vec<String>, Fault> {
     let mut roots = vec!["link.key".into()];
     let mut artifacts = db
-        .prepare("SELECT session,id FROM artifacts ORDER BY session,id")
+        .query("SELECT session,id FROM artifacts ORDER BY session,id", ())
+        .await
         .map_err(storage_error)?;
-    for row in artifacts
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(storage_error)?
-    {
-        let (session, id) = row.map_err(storage_error)?;
+    while let Some(row) = artifacts.next().await.map_err(storage_error)? {
+        backup::cancelled(cancel)?;
+        let session = row.get::<String>(0).map_err(storage_error)?;
+        let id = row.get::<String>(1).map_err(storage_error)?;
         crate::files::path::components(&session, false)?;
         crate::files::path::components(&id, false)?;
         roots.push(format!("artifacts/{session}/{id}"));
     }
+    drop(artifacts);
     for (query, prefix) in [
         (
             "SELECT digest FROM plugin_packages ORDER BY digest",
@@ -297,24 +366,21 @@ fn capture_with(
         ),
         ("SELECT id FROM attachments ORDER BY id", "attachments"),
     ] {
-        let mut statement = db.prepare(query).map_err(storage_error)?;
-        for value in statement
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(storage_error)?
-        {
-            let value = value.map_err(storage_error)?;
+        let mut rows = db.query(query, ()).await.map_err(storage_error)?;
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            backup::cancelled(cancel)?;
+            let value = row.get::<String>(0).map_err(storage_error)?;
             crate::files::path::components(&value, false)?;
             roots.push(format!("{prefix}/{value}"));
         }
     }
-    let mut statement = db
-        .prepare("SELECT path FROM worktrees WHERE id NOT IN (SELECT worktree FROM removed_worktrees) ORDER BY path")
+    let mut rows = db
+        .query("SELECT path FROM worktrees WHERE id NOT IN (SELECT worktree FROM removed_worktrees) ORDER BY path", ())
+        .await
         .map_err(storage_error)?;
-    for value in statement
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(storage_error)?
-    {
-        let value = PathBuf::from(value.map_err(storage_error)?);
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        backup::cancelled(cancel)?;
+        let value = PathBuf::from(row.get::<String>(0).map_err(storage_error)?);
         if let Ok(relative) = value.strip_prefix(profile) {
             if !crate::workspaces::managed(&value, profile) {
                 return Err(Fault::invalid(
@@ -332,9 +398,12 @@ fn capture_with(
     }
     roots.sort();
     roots.dedup();
-    db.execute_batch("COMMIT").map_err(storage_error)?;
-    snapshot.database(cancel)?;
-    Ok((plan, snapshot, roots))
+    Ok(roots)
+}
+
+fn capture(source: Source, cancel: &CancellationToken) -> Result<Capture, Fault> {
+    backup::cancelled(cancel)?;
+    Ok((source.plan, source.snapshot, source.roots))
 }
 
 pub(super) fn controller(request: &Request) -> Result<(), Fault> {
@@ -348,7 +417,7 @@ pub(super) fn controller(request: &Request) -> Result<(), Fault> {
     }
 }
 
-pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
+pub(super) async fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
     controller(request)?;
     let revision = match &request.command {
         Command::ExportBackup { expected_revision }
@@ -360,7 +429,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
         } => *expected_revision,
         _ => return Err(Fault::invalid("backup operation expected")),
     };
-    let plan = plan(&database.connection, Some(revision))?;
+    let plan = plan(&database.connection, Some(revision)).await?;
     match &request.command {
         Command::ExportBackup { .. } => {
             if !(plan.online_enabled && plan.destination.is_some()
@@ -530,12 +599,12 @@ impl Ingress {
                 let restored = record.clone();
                 let passphrase =
                     backup::encryption::passphrase(plan.auth.passphrase.as_ref())?.clone();
-                let path = tokio::task::spawn_blocking(move || {
-                    let archive = backup::encryption::open(&archive, &passphrase, &stop)?;
-                    publish(archive, &target, RecordSource::Known(restored), &stop)
+                let archive = tokio::task::spawn_blocking(move || {
+                    backup::encryption::open(&archive, &passphrase, &stop)
                 })
                 .await
                 .map_err(io_fault)??;
+                let path = publish(archive, &target, RecordSource::Known(restored), cancel).await?;
                 Ok(Output::BackupRestored {
                     record,
                     target: path.1.to_string_lossy().into_owned(),
@@ -560,28 +629,27 @@ impl Ingress {
                 let uploaded = self.transfers.claim_backup(caller, *stream)?;
                 let stop = cancel.clone();
                 let id = request.id.to_string();
-                let (record, path) = tokio::task::spawn_blocking(move || {
+                let mut input = uploaded.file.try_clone().map_err(backup::io)?;
+                let size = uploaded.size;
+                let (archive, sha256) = tokio::task::spawn_blocking(move || {
                     use std::io::Seek;
-                    let mut input = uploaded.file.try_clone().map_err(backup::io)?;
-                    let sha256 = backup::archive::hash(&mut input, uploaded.size, &stop)?;
+                    let sha256 = backup::archive::hash(&mut input, size, &stop)?;
                     input.rewind().map_err(backup::io)?;
                     let archive =
                         backup::encryption::open_file(input, &temporary, &passphrase, &stop)?;
-                    let result = publish(
-                        archive,
-                        &target,
-                        RecordSource::Imported {
-                            id,
-                            size: uploaded.size,
-                            sha256,
-                        },
-                        &stop,
-                    );
-                    drop(uploaded);
-                    result
+                    Ok::<_, Fault>((archive, sha256))
                 })
                 .await
                 .map_err(io_fault)??;
+                let restored = publish(
+                    archive,
+                    &target,
+                    RecordSource::Imported { id, size, sha256 },
+                    cancel,
+                )
+                .await;
+                drop(uploaded);
+                let (record, path) = restored?;
                 Ok(Output::BackupRestored {
                     record,
                     target: path.to_string_lossy().into_owned(),
@@ -669,27 +737,58 @@ enum RecordSource {
     },
 }
 
-fn publish(
+async fn publish(
     archive: tempfile::NamedTempFile,
     target: &Path,
     source: RecordSource,
     cancel: &CancellationToken,
 ) -> Result<(sailry_protocol::backup::Record, PathBuf), Fault> {
-    use cap_fs_ext::DirExt;
     target_path(
         target
             .to_str()
             .ok_or_else(|| Fault::invalid("restore path must be UTF-8"))?,
         None,
     )?;
-    // SQLite validation and relocation stay in the Node's private transfer directory.
-    let staging = tempfile::Builder::new()
+    let target = target.to_owned();
+    let stop = cancel.clone();
+    let staged = tokio::task::spawn_blocking(move || stage(archive, source, &stop))
+        .await
+        .map_err(io_fault)??;
+    backup::cancelled(cancel)?;
+    validate_profile(staged.directory.path(), staged.record.node).await?;
+    backup::cancelled(cancel)?;
+    relocate(
+        staged.directory.path(),
+        &staged.manifest.original_profile,
+        &target,
+    )
+    .await?;
+    validate_profile(staged.directory.path(), staged.record.node).await?;
+    let stop = cancel.clone();
+    tokio::task::spawn_blocking(move || finish(staged, &target, &stop))
+        .await
+        .map_err(io_fault)?
+}
+
+struct Staged {
+    directory: tempfile::TempDir,
+    manifest: backup::archive::Manifest,
+    record: sailry_protocol::backup::Record,
+}
+
+fn stage(
+    archive: tempfile::NamedTempFile,
+    source: RecordSource,
+    cancel: &CancellationToken,
+) -> Result<Staged, Fault> {
+    // Native validation and relocation stay in the Node's private transfer directory.
+    let directory = tempfile::Builder::new()
         .prefix("restore-")
         .tempdir_in(archive.path().parent().unwrap())
         .map_err(backup::io)?;
-    let mut manifest = backup::archive::unpack(
+    let manifest = backup::archive::unpack(
         archive.reopen().map_err(backup::io)?,
-        staging.path(),
+        directory.path(),
         cancel,
     )?;
     let record = match source {
@@ -708,23 +807,28 @@ fn publish(
             "restored profile differs from remote metadata",
         ));
     }
-    validate_profile(staging.path(), record.node)?;
-    relocate(staging.path(), &manifest.original_profile, target)?;
-    validate_profile(staging.path(), record.node)?;
-    let database = staging.path().join("storage/node.sqlite3");
-    let size = std::fs::metadata(&database).map_err(backup::io)?.len();
-    let digest = backup::archive::hash(
-        &mut std::fs::File::open(database).map_err(backup::io)?,
-        size,
-        cancel,
+    Ok(Staged {
+        directory,
+        manifest,
+        record,
+    })
+}
+
+fn finish(
+    mut staged: Staged,
+    target: &Path,
+    cancel: &CancellationToken,
+) -> Result<(sailry_protocol::backup::Record, PathBuf), Fault> {
+    use cap_fs_ext::DirExt;
+    target_path(
+        target
+            .to_str()
+            .ok_or_else(|| Fault::invalid("restore path must be UTF-8"))?,
+        None,
     )?;
-    let file = manifest
-        .files
-        .iter_mut()
-        .find(|file| file.path == "storage/node.sqlite3")
-        .unwrap();
-    file.size = size;
-    file.sha256 = digest;
+    staged
+        .manifest
+        .refresh_databases(staged.directory.path(), cancel)?;
     let parent = target.parent().unwrap();
     let parent_cap = crate::files::path::root(parent)?;
     let identity = crate::files::path::identity::directory(&parent_cap)?;
@@ -739,9 +843,9 @@ fn publish(
         directory: Some(parent_cap.open_dir_nofollow(&name).map_err(backup::io)?),
     };
     backup::archive::transfer(
-        staging.path(),
+        staged.directory.path(),
         destination.directory.as_ref().unwrap(),
-        &manifest,
+        &staged.manifest,
         cancel,
     )?;
     backup::cancelled(cancel)?;
@@ -762,7 +866,7 @@ fn publish(
         .rename(&name, &parent_cap, target_name)
         .map_err(backup::io)?;
     drop(destination.directory.take());
-    Ok((record, target.to_owned()))
+    Ok((staged.record, target.to_owned()))
 }
 
 struct Target {
@@ -776,59 +880,127 @@ impl Drop for Target {
     }
 }
 
-fn validate_profile(path: &Path, node: sailry_protocol::NodeId) -> Result<(), Fault> {
+async fn validate_profile(path: &Path, node: sailry_protocol::NodeId) -> Result<(), Fault> {
     let identity = sailry_link::Identity::open(path).map_err(backup::io)?;
     if identity.id() != node {
         return Err(Fault::invalid(
             "restored identity differs from its database",
         ));
     }
-    let db = Connection::open_with_flags(
-        path.join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .map_err(storage_error)?;
-    super::database::validate_backup(&db, node)
+    validate_database(&path.join("storage/node.turso"), Some(node)).await?;
+    let knowledge = path.join("storage/knowledge.turso");
+    match knowledge.symlink_metadata() {
+        Ok(_) => validate_database(&knowledge, None).await,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(backup::io(error)),
+    }
 }
 
-fn relocate(staging: &Path, original: &Path, target: &Path) -> Result<(), Fault> {
-    let mut db = Connection::open(staging.join("storage/node.sqlite3")).map_err(storage_error)?;
-    let transaction = db.transaction().map_err(storage_error)?;
+async fn validate_database(
+    path: &Path,
+    node: Option<sailry_protocol::NodeId>,
+) -> Result<(), Fault> {
+    let handle = Handle::new(
+        path.to_owned(),
+        super::database::engine(path).await.map_err(storage_error)?,
+    );
+    let validation: Result<(), Fault> = async {
+        let connection = handle.lease(true).await.map_err(storage_error)?;
+        if let Some(node) = node {
+            super::database::validate_backup(&connection, node).await
+        } else {
+            let integrity = connection
+                .prepare("PRAGMA integrity_check")
+                .await
+                .map_err(storage_error)?
+                .query_row(())
+                .await
+                .map_err(storage_error)?
+                .get::<String>(0)
+                .map_err(storage_error)?;
+            if integrity == "ok" {
+                Ok(())
+            } else {
+                Err(Fault::invalid("restored knowledge database is corrupt"))
+            }
+        }
+    }
+    .await;
+    let closed = handle.pause().await.map_err(storage_error)?;
+    drop(closed);
+    validation
+}
+
+async fn relocate(staging: &Path, original: &Path, target: &Path) -> Result<(), Fault> {
+    let path = staging.join("storage/node.turso");
+    let handle = Handle::new(
+        path.clone(),
+        super::database::engine(&path)
+            .await
+            .map_err(storage_error)?,
+    );
+    let relocated: Result<(), Fault> = async {
+        let connection = handle.lease(false).await.map_err(storage_error)?;
+        let transaction = turso::transaction::Transaction::new_unchecked(
+            &connection,
+            TransactionBehavior::Concurrent,
+        )
+        .await
+        .map_err(storage_error)?;
+        match relocate_rows(&transaction, original, target).await {
+            Ok(()) => transaction.commit().await.map_err(storage_error),
+            Err(error) => {
+                transaction.rollback().await.map_err(storage_error)?;
+                Err(error)
+            }
+        }
+    }
+    .await;
+    let closed = handle.pause().await.map_err(storage_error)?;
+    drop(closed);
+    relocated
+}
+
+async fn relocate_rows(db: &Connection, original: &Path, target: &Path) -> Result<(), Fault> {
     for table in ["projects", "worktrees"] {
         let rows = {
-            let mut query = transaction
-                .prepare(&format!("SELECT id,path FROM {table}"))
+            let mut rows = db
+                .query(format!("SELECT id,path FROM {table}"), ())
+                .await
                 .map_err(storage_error)?;
-            query
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })
-                .map_err(storage_error)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(storage_error)?
+            let mut values = Vec::new();
+            while let Some(row) = rows.next().await.map_err(storage_error)? {
+                values.push((
+                    row.get::<String>(0).map_err(storage_error)?,
+                    row.get::<String>(1).map_err(storage_error)?,
+                ));
+            }
+            values
         };
         for (id, value) in rows {
             if let Some(value) = relocated(&value, original, target)? {
-                transaction
-                    .execute(
-                        &format!("UPDATE {table} SET path=?1 WHERE id=?2"),
-                        rusqlite::params![value, id],
-                    )
-                    .map_err(storage_error)?;
+                db.execute(
+                    format!("UPDATE {table} SET path=?1 WHERE id=?2"),
+                    params![value, id],
+                )
+                .await
+                .map_err(storage_error)?;
             }
         }
     }
     let rows = {
-        let mut query = transaction
-            .prepare("SELECT id,body FROM knowledge_collections")
+        let mut rows = db
+            .query("SELECT id,body FROM knowledge_collections", ())
+            .await
             .map_err(storage_error)?;
-        query
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
-            })
-            .map_err(storage_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(storage_error)?
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            values.push((
+                row.get::<String>(0).map_err(storage_error)?,
+                row.get::<Vec<u8>>(1).map_err(storage_error)?,
+            ));
+        }
+        values
     };
     for (id, body) in rows {
         let mut stored: super::knowledge::Stored =
@@ -838,18 +1010,18 @@ fn relocate(staging: &Path, original: &Path, target: &Path) -> Result<(), Fault>
             | sailry_protocol::knowledge::Source::Directory { path } => {
                 if let Some(value) = relocated(path, original, target)? {
                     *path = value;
-                    transaction
-                        .execute(
-                            "UPDATE knowledge_collections SET body=?1 WHERE id=?2",
-                            rusqlite::params![encode(&stored)?, id],
-                        )
-                        .map_err(storage_error)?;
+                    db.execute(
+                        "UPDATE knowledge_collections SET body=?1 WHERE id=?2",
+                        params![encode(&stored)?, id],
+                    )
+                    .await
+                    .map_err(storage_error)?;
                 }
             }
             _ => {}
         }
     }
-    transaction.commit().map_err(storage_error)
+    Ok(())
 }
 
 fn relocated(value: &str, original: &Path, target: &Path) -> Result<Option<String>, Fault> {

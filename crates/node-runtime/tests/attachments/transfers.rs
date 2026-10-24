@@ -3,24 +3,23 @@ use super::*;
 #[tokio::test]
 async fn preserves_bytes() {
     let fixture = Fixture::empty().await;
-    let database =
-        rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3")).unwrap();
+
     let clients = fixture.clients();
     let large: Vec<_> = (0..10 * 1024 * 1024)
         .map(|index| (index % 251) as u8)
         .collect();
     for client in &clients {
         for (name, bytes) in [("资料 🙂.bin", large.as_slice()), ("empty", &[])] {
-            let before = count(&database, "requests");
-            let records = count(&database, "attachments");
+            let before = count(&fixture.node, "requests").await;
+            let records = count(&fixture.node, "attachments").await;
             let upload = prepare(client, spec(fixture.worktree, name, bytes)).await;
             stage(client, &upload, bytes).await;
-            assert_eq!(count(&database, "requests"), before);
-            assert_eq!(count(&database, "attachments"), records);
+            assert_eq!(count(&fixture.node, "requests").await, before);
+            assert_eq!(count(&fixture.node, "attachments").await, records);
             assert!(!fixture.root.join(name).exists());
             let attachment = publish(client, &upload).await;
-            assert_eq!(count(&database, "requests"), before + 1);
-            assert_eq!(count(&database, "attachments"), records + 1);
+            assert_eq!(count(&fixture.node, "requests").await, before + 1);
+            assert_eq!(count(&fixture.node, "attachments").await, records + 1);
             for reader in &clients {
                 assert_eq!(
                     reader
@@ -31,7 +30,7 @@ async fn preserves_bytes() {
                 );
                 assert_eq!(download(reader, &attachment).await, bytes);
             }
-            assert_eq!(count(&database, "requests"), before + 1);
+            assert_eq!(count(&fixture.node, "requests").await, before + 1);
             assert_eq!(
                 std::fs::read(
                     fixture

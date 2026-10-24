@@ -6,7 +6,7 @@ use super::{
 };
 use crate::process::{self, Environment, Launch};
 use futures::FutureExt;
-use rusqlite::OptionalExtension;
+
 use sailry_link::{CancellationToken, Response};
 use sailry_protocol::*;
 use std::{panic::AssertUnwindSafe, sync::Arc};
@@ -31,7 +31,7 @@ pub(super) struct Prepared {
     background: bool,
 }
 
-pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared, Fault> {
+pub(super) async fn prepare(database: &Database, request: &Request) -> Result<Prepared, Fault> {
     let Command::RunCommand {
         turn,
         command,
@@ -55,10 +55,20 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
     {
         return Err(Fault::invalid("invalid command description"));
     }
-    let row: Option<(String, String, String, String)> = database.connection.query_row(
-        "SELECT r.worktree,json_extract(a.body,'$.status'),t.kind,t.session FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE a.turn=?1",
-        [turn.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    ).optional().map_err(storage_error)?;
+    let row: Option<(String, String, String, String)> = {
+        let mut statement = database.connection.prepare("SELECT r.worktree,json_extract(a.body,'$.status'),t.kind,t.session FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE a.turn=?1").await.map_err(storage_error)?;
+        match statement.query_row([turn.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))(
+                        &row,
+                    );
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let (worktree, state, kind, session) =
         row.ok_or_else(|| Fault::new(ErrorCode::NotFound, "turn does not exist"))?;
     if kind != "task" {
@@ -80,17 +90,26 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
     } else {
         Some(crate::files::attachments::Inputs {
             profile: database.profile.clone().ok_or_else(super::unavailable)?,
-            files: attachments
-                .iter()
-                .map(|id| super::attachments::turns::resolve(&database.connection, *turn, *id))
-                .collect::<Result<_, _>>()?,
+            files: {
+                let mut selected = Vec::new();
+                for value in attachments.iter() {
+                    selected.push(
+                        (async |id: &sailry_protocol::AttachmentId| {
+                            super::attachments::turns::resolve(&database.connection, *turn, *id)
+                                .await
+                        })(value)
+                        .await?,
+                    );
+                }
+                Ok::<_, Fault>(selected)
+            }?,
         })
     };
     let worktree = worktree.parse().map_err(storage_error)?;
     let profile = database.profile.clone().ok_or_else(super::unavailable)?;
     let launch = Launch {
         pty: *pty,
-        root: database.worktree_root(worktree)?,
+        root: database.worktree_root(worktree).await?,
         profile: Some(profile.clone()),
         command: command.clone(),
         access: *access,

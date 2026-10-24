@@ -25,13 +25,20 @@ async fn listing(
     page
 }
 
-fn retained(node: &Node) -> i64 {
-    rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap()
-    .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
+async fn retained(node: &Node) -> i64 {
+    node.with_storage(move |db| {
+        Box::pin(async move {
+            db.prepare("SELECT count(*) FROM requests")
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::plugins::database_fixture::fault)?
+                .get(0)
+                .map_err(crate::plugins::database_fixture::fault)
+        })
+    })
+    .await
     .unwrap()
 }
 
@@ -42,7 +49,7 @@ async fn browses_sources_and_installs_selected_skills() {
         let registry = registry::Registry::start().await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
         node.set_skill_registry_fixture(&registry.endpoint).unwrap();
-        let before = retained(&node);
+        let before = retained(&node).await;
         let first = listing(&client, Source::SkillsSh, "", 1, false).await;
         assert_eq!(first.query_scope, QueryScope::Catalog);
         assert_eq!(first.next, Some(2));
@@ -131,7 +138,7 @@ async fn browses_sources_and_installs_selected_skills() {
         let requests = registry.state.lock().unwrap().requests.len();
         assert_eq!(listing(&client, Source::Skillhub, "", 1, false).await, hub);
         assert_eq!(registry.state.lock().unwrap().requests.len(), requests);
-        assert_eq!(retained(&node), before);
+        assert_eq!(retained(&node).await, before);
         let Some(InstallSource::Git(source)) = first.entries[0].source.clone() else {
             panic!("Git source expected")
         };
@@ -201,7 +208,7 @@ async fn inspects_foreign_packages_without_running_hooks() {
     for remote in [false, true] {
         let catalog = Catalog::start().await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
-        let before = retained(&node);
+        let before = retained(&node).await;
         let inventory = execute(&client, Command::ListPlugins).await;
         let pending = client
             .dispatch(client.prepare(Command::ReadCatalogPluginInfo {
@@ -235,7 +242,7 @@ async fn inspects_foreign_packages_without_running_hooks() {
                 .code,
             ErrorCode::InvalidRequest
         );
-        assert_eq!(retained(&node), before);
+        assert_eq!(retained(&node).await, before);
         let candidate = &details.skills[0];
         let installed = info(
             execute(
@@ -279,7 +286,7 @@ async fn reads_immutable_documents_without_installation() {
         let registry = registry::Registry::start().await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
         node.set_skill_registry_fixture(&registry.endpoint).unwrap();
-        let before = retained(&node);
+        let before = retained(&node).await;
         let inventory = execute(&client, Command::ListPlugins).await;
         let Output::SkillDiscovery(discovery) = execute(
             &client,
@@ -379,7 +386,7 @@ async fn reads_immutable_documents_without_installation() {
         assert!(!read.content.starts_with("---"));
         assert!(!read.content.trim().is_empty());
         assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
-        assert_eq!(retained(&node), before);
+        assert_eq!(retained(&node).await, before);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

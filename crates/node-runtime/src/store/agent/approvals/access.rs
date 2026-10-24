@@ -6,18 +6,24 @@ use sailry_protocol::{
     tool::Operation,
 };
 
-pub(super) fn requested(
-    db: &rusqlite::Connection,
+pub(super) async fn requested(
+    db: &turso::Connection,
     turn: sailry_protocol::TurnId,
     request: &ToolConfirmationRequest,
     binding: Option<&Binding>,
 ) -> Result<Option<Access>, Fault> {
     let command = binding.is_some_and(|binding| binding.operation == Some(Operation::RunCommand));
     if command {
-        return super::super::super::sandbox::effective(db, &request.args).map(Some);
+        return super::super::super::sandbox::effective(db, &request.args)
+            .await
+            .map(Some);
     }
-    if binding.is_some() && super::super::plugins::command_flow(db, turn, &request.tool_name)? {
-        return super::super::super::sandbox::effective(db, &serde_json::json!({})).map(Some);
+    if binding.is_some()
+        && super::super::plugins::command_flow(db, turn, &request.tool_name).await?
+    {
+        return super::super::super::sandbox::effective(db, &serde_json::json!({}))
+            .await
+            .map(Some);
     }
     match request.args.get("access") {
         Some(value) if value == "unrestricted" => serde_json::from_value(value.clone())

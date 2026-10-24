@@ -51,14 +51,27 @@ async fn local_and_remote_resolution() {
         .await
         .unwrap();
     let remote = Client::new(controller.handle().remote(address));
-    let db = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-    let count = || {
-        db.query_row("SELECT count(*) FROM requests", [], |row| {
-            row.get::<_, i64>(0)
+
+    let count = async || {
+        let sql = ("SELECT count(*) FROM requests").to_owned();
+        let parameters = ();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::database_fixture::fault)?;
+                let value = row.get::<i64>(0);
+                value.map_err(crate::database_fixture::fault)
+            })
         })
+        .await
         .unwrap()
     };
-    let before = count();
+    let before = count().await;
     std::fs::write(root.join("file"), "preserved draft").unwrap();
     let index = std::fs::read(repository.path().join("index")).unwrap();
     for client in [&local, &remote] {
@@ -131,7 +144,7 @@ async fn local_and_remote_resolution() {
             ErrorCode::NotFound
         );
     }
-    assert_eq!(count(), before);
+    assert_eq!(count().await, before);
     assert_eq!(repository.head().unwrap().target(), Some(tip));
     assert_eq!(
         std::fs::read(root.join("file")).unwrap(),

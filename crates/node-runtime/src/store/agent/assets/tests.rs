@@ -8,15 +8,17 @@ fn query() -> Query {
         limit: 20,
     }
 }
-fn page(fixture: &Fixture, query: Query) -> assets::Page {
-    read(&fixture.database.connection, fixture.session, &query).unwrap()
+async fn page(fixture: &Fixture, query: Query) -> assets::Page {
+    read(&fixture.database.connection, fixture.session, &query)
+        .await
+        .unwrap()
 }
 
-#[test]
-fn extracts_explicit_files_and_deduplicates() {
-    let mut fixture = Fixture::new();
-    fixture.completed(&["[Report](report.md)\n\n![Image](image.png)\n\n[Again](./report.md)\n\nSource: [Code](src/main.rs#L3) `![Code](code.png)` [Outside](../secret) [Web](https://example.test/a.png) plain.txt"]);
-    let result = page(&fixture, query());
+#[tokio::test]
+async fn extracts_explicit_files_and_deduplicates() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["[Report](report.md)\n\n![Image](image.png)\n\n[Again](./report.md)\n\nSource: [Code](src/main.rs#L3) `![Code](code.png)` [Outside](../secret) [Web](https://example.test/a.png) plain.txt"]).await;
+    let result = page(&fixture, query()).await;
     assert_eq!(result.groups.len(), 1);
     assert_eq!(
         result.groups[0].items,
@@ -38,14 +40,15 @@ fn extracts_explicit_files_and_deduplicates() {
                 ..query()
             }
         )
+        .await
         .groups
         .is_empty()
     );
 }
 
-#[test]
-fn includes_inputs_and_inline_images() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn includes_inputs_and_inline_images() {
+    let mut fixture = Fixture::new().await;
     let mut user = AdkEvent::new("asset-input");
     user.author = "user".into();
     user.set_content(
@@ -66,8 +69,8 @@ fn includes_inputs_and_inline_images() {
         annotations: None,
     });
     assistant.set_content(content);
-    fixture.append([user, assistant]);
-    let result = page(&fixture, query());
+    fixture.append([user, assistant]).await;
+    let result = page(&fixture, query()).await;
     assert_eq!(result.groups.len(), 2);
     assert_eq!(result.groups[0].kind, Kind::Artifact);
     assert!(matches!(result.groups[0].items[0], Target::Image(_)));
@@ -91,16 +94,17 @@ fn includes_inputs_and_inline_images() {
                 ..query()
             }
         )
+        .await
         .groups
         .len(),
         1
     );
 }
 
-#[test]
-fn pages_sparse_history_and_preserves_fork_scope() {
-    let mut fixture = Fixture::new();
-    let first = fixture.completed(&["[Old](old.md)"]);
+#[tokio::test]
+async fn pages_sparse_history_and_preserves_fork_scope() {
+    let mut fixture = Fixture::new().await;
+    let first = fixture.completed(&["[Old](old.md)"]).await;
     let Output::Session(fork) = command(
         &mut fixture.database,
         &fixture.events,
@@ -109,12 +113,14 @@ fn pages_sparse_history_and_preserves_fork_scope() {
             through: first,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("fork expected")
     };
-    fixture.completed(&vec!["No resources here"; 300]);
-    fixture.completed(&["[New](new.md)"]);
-    let result = page(&fixture, query());
+    fixture.completed(&vec!["No resources here"; 300]).await;
+    fixture.completed(&["[New](new.md)"]).await;
+    let result = page(&fixture, query()).await;
     assert_eq!(result.groups.len(), 1);
     let next = page(
         &fixture,
@@ -122,10 +128,13 @@ fn pages_sparse_history_and_preserves_fork_scope() {
             before: result.next_before,
             ..query()
         },
-    );
+    )
+    .await;
     assert_eq!(next.groups[0].turn, first);
     assert!(next.next_before.is_none());
-    let inherited = read(&fixture.database.connection, fork.id, &query()).unwrap();
+    let inherited = read(&fixture.database.connection, fork.id, &query())
+        .await
+        .unwrap();
     assert_eq!(inherited.groups.len(), 1);
     assert_eq!(inherited.groups[0].turn, first);
     assert_eq!(
@@ -137,16 +146,17 @@ fn pages_sparse_history_and_preserves_fork_scope() {
                 ..query()
             }
         )
+        .await
         .unwrap_err()
         .code,
         ErrorCode::WrongTarget
     );
 }
 
-#[test]
-fn validates_bounds_and_uses_read_only_dispatch() {
-    let mut fixture = Fixture::new();
-    fixture.completed(&["[File](file.txt)"]);
+#[tokio::test]
+async fn validates_bounds_and_uses_read_only_dispatch() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["[File](file.txt)"]).await;
     for invalid_query in [
         Query {
             limit: 0,
@@ -167,6 +177,7 @@ fn validates_bounds_and_uses_read_only_dispatch() {
                 fixture.session,
                 &invalid_query
             )
+            .await
             .unwrap_err()
             .code,
             ErrorCode::InvalidRequest
@@ -178,16 +189,16 @@ fn validates_bounds_and_uses_read_only_dispatch() {
     };
     assert!(!command_value.durable());
     assert!(matches!(
-        command(&mut fixture.database, &fixture.events, command_value),
+        command(&mut fixture.database, &fixture.events, command_value).await,
         Output::ConversationAssets(_)
     ));
 }
 
-#[test]
-fn preserves_literal_references_without_indexing_writes() {
-    let mut fixture = Fixture::new();
-    fixture.completed(&["fixture"]);
-    let mut entry = fixture.read(None, 1).page.entries[0].clone();
+#[tokio::test]
+async fn preserves_literal_references_without_indexing_writes() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["fixture"]).await;
+    let mut entry = fixture.read(None, 1).await.page.entries[0].clone();
     let path = "notes # 100%.md";
     entry.parts = vec![
         Part::Reference(reference::Reference {
@@ -218,11 +229,11 @@ fn preserves_literal_references_without_indexing_writes() {
     );
 }
 
-#[test]
-fn project_writes_are_not_outputs() {
-    let mut fixture = Fixture::new();
-    fixture.completed(&["fixture"]);
-    let mut entry = fixture.read(None, 1).page.entries[0].clone();
+#[tokio::test]
+async fn project_writes_are_not_outputs() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["fixture"]).await;
+    let mut entry = fixture.read(None, 1).await.page.entries[0].clone();
     entry.parts = (0..3_000)
         .map(|index| Part::ToolResult {
             id: None,
@@ -254,11 +265,11 @@ fn project_writes_are_not_outputs() {
     );
 }
 
-#[test]
-fn distinguishes_deliveries_from_navigation() {
-    let mut fixture = Fixture::new();
-    fixture.completed(&["[Line](src/main.rs:42)\n\n[Section](guide.md#intro)\n\n[One](a.json) [Two](b.json)\n\nSee [Report](report.pdf)\n\n> [Source](src/quoted.rs)\n\n> > [Nested](src/nested.rs)\n\n`[Code](code.py)`\n\n[Web](https://example.test) [Mixed](mixed.json)\n\n- [Report](report.pdf)\n- [Data](data.json)"]);
-    let result = page(&fixture, query());
+#[tokio::test]
+async fn distinguishes_deliveries_from_navigation() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["[Line](src/main.rs:42)\n\n[Section](guide.md#intro)\n\n[One](a.json) [Two](b.json)\n\nSee [Report](report.pdf)\n\n> [Source](src/quoted.rs)\n\n> > [Nested](src/nested.rs)\n\n`[Code](code.py)`\n\n[Web](https://example.test) [Mixed](mixed.json)\n\n- [Report](report.pdf)\n- [Data](data.json)"]).await;
+    let result = page(&fixture, query()).await;
     assert_eq!(
         result.groups[0].items,
         [
@@ -272,11 +283,11 @@ fn distinguishes_deliveries_from_navigation() {
     );
 }
 
-#[test]
-fn ignores_document_write_receipts() {
-    let mut fixture = Fixture::new();
-    fixture.completed(&["fixture"]);
-    let mut entry = fixture.read(None, 1).page.entries[0].clone();
+#[tokio::test]
+async fn ignores_document_write_receipts() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["fixture"]).await;
+    let mut entry = fixture.read(None, 1).await.page.entries[0].clone();
     let file = FileWritten {
         path: "report.docx".into(),
         revision: "written".into(),
@@ -297,11 +308,11 @@ fn ignores_document_write_receipts() {
     }
 }
 
-#[test]
-fn indexes_valid_plugin_files() {
-    let mut fixture = Fixture::new();
-    fixture.completed(&["fixture"]);
-    let mut entry = fixture.read(None, 1).page.entries[0].clone();
+#[tokio::test]
+async fn indexes_valid_plugin_files() {
+    let mut fixture = Fixture::new().await;
+    fixture.completed(&["fixture"]).await;
+    let mut entry = fixture.read(None, 1).await.page.entries[0].clone();
     let content = serde_json::json!({
         "sailry_content": {"version": 1, "blocks": [
             {"kind": "file", "path": "output/report.pdf", "mime": "application/pdf"}
@@ -327,10 +338,10 @@ fn indexes_valid_plugin_files() {
     assert!(extract::items(&entry, Some("/project")).is_empty());
 }
 
-#[test]
-fn pages_document_receipts_with_fork_scope() {
-    let mut fixture = Fixture::new();
-    let turn = fixture.queued();
+#[tokio::test]
+async fn pages_document_receipts_with_fork_scope() {
+    let mut fixture = Fixture::new().await;
+    let turn = fixture.queued().await;
     let document = sailry_protocol::artifact::Summary {
         kind: sailry_protocol::artifact::Kind::Document,
         id: ArtifactId::new(),
@@ -348,8 +359,11 @@ fn pages_document_receipts_with_fork_scope() {
         created_at: 0,
         updated_at: 1,
     };
-    runs::start(&fixture.database.connection, turn).unwrap();
+    runs::start(&fixture.database.connection, turn)
+        .await
+        .unwrap();
     runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     let receipt = sailry_protocol::tool::Content {
@@ -382,6 +396,7 @@ fn pages_document_receipts_with_fork_scope() {
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     runs::finish(
         &mut fixture.database,
@@ -390,6 +405,7 @@ fn pages_document_receipts_with_fork_scope() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     let Output::Session(branch) = command(
         &mut fixture.database,
@@ -399,14 +415,19 @@ fn pages_document_receipts_with_fork_scope() {
             through: turn,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("fork expected")
     };
-    fixture.completed(&vec!["Later conversation without outputs"; 300]);
-    fixture.completed(&["[New file](new.txt)"]);
+    fixture
+        .completed(&vec!["Later conversation without outputs"; 300])
+        .await;
+    fixture.completed(&["[New file](new.txt)"]).await;
     assert!(
         !fixture
             .read(None, 1)
+            .await
             .page
             .runs
             .iter()
@@ -418,7 +439,7 @@ fn pages_document_receipts_with_fork_scope() {
     };
     let mut found = Vec::new();
     loop {
-        let result = page(&fixture, scan.clone());
+        let result = page(&fixture, scan.clone()).await;
         found.extend(result.groups);
         let Some(before) = result.next_before else {
             break;
@@ -428,8 +449,14 @@ fn pages_document_receipts_with_fork_scope() {
     let receipt = found.iter().find(|group| group.turn == turn).unwrap();
     assert_eq!(receipt.kind, Kind::Artifact);
     assert_eq!(receipt.items, [Target::Document(document.clone())]);
-    let inherited = read(&fixture.database.connection, branch.id, &query()).unwrap();
+    let inherited = read(&fixture.database.connection, branch.id, &query())
+        .await
+        .unwrap();
     assert_eq!(inherited.groups.len(), 1);
     assert_eq!(inherited.groups[0].items, [Target::Document(document)]);
-    assert!(read(&fixture.database.connection, SessionId::new(), &query()).is_err());
+    assert!(
+        read(&fixture.database.connection, SessionId::new(), &query())
+            .await
+            .is_err()
+    );
 }

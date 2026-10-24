@@ -61,10 +61,21 @@ impl Endpoint {
         }
     }
 
-    fn count(&self) -> i64 {
-        rusqlite::Connection::open(self.profile.join("storage/node.sqlite3"))
-            .unwrap()
-            .query_row("SELECT count(*) FROM requests", [], |row| row.get(0))
+    async fn count(&self) -> i64 {
+        self.node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.prepare("SELECT count(*) FROM requests")
+                        .await
+                        .map_err(crate::file_fixture::database::fault)?
+                        .query_row(())
+                        .await
+                        .map_err(crate::file_fixture::database::fault)?
+                        .get::<i64>(0)
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
             .unwrap()
     }
 }
@@ -143,7 +154,10 @@ async fn waits_for_publication() {
         for pair in PATHS {
             let (source, target) = fixture.clients(pair);
             assert_ne!(source.target(), target.target());
-            let counts = (fixture.source.count(), fixture.destination.count());
+            let counts = (
+                fixture.source.count().await,
+                fixture.destination.count().await,
+            );
             let download = prepare(&source, fixture.source.worktree, path).await;
             let destination = format!("{}-{}-{path}", pair.0, pair.1);
             let mut progress = Vec::new();
@@ -163,8 +177,8 @@ async fn waits_for_publication() {
                 progress.windows(2).all(|pair| pair[0] < pair[1]
                     && pair[1] - pair[0] <= FILE_TRANSFER_CHUNK_BYTES as u64)
             );
-            assert_eq!(fixture.source.count(), counts.0);
-            assert_eq!(fixture.destination.count(), counts.1);
+            assert_eq!(fixture.source.count().await, counts.0);
+            assert_eq!(fixture.destination.count().await, counts.1);
             assert!(!fixture.destination.root.join(&destination).exists());
             assert_eq!(
                 std::fs::read(fixture.source.root.join(path)).unwrap(),
@@ -191,8 +205,8 @@ async fn waits_for_publication() {
                     revision: download.revision,
                 })
             );
-            assert_eq!(fixture.source.count(), counts.0);
-            assert_eq!(fixture.destination.count(), counts.1 + 1);
+            assert_eq!(fixture.source.count().await, counts.0);
+            assert_eq!(fixture.destination.count().await, counts.1 + 1);
             assert_eq!(
                 std::fs::read(fixture.destination.root.join(&destination)).unwrap(),
                 bytes

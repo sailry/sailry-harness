@@ -56,10 +56,10 @@ mod credentials {
         assert!(!prepared.matches(&changed).unwrap());
     }
 
-    #[test]
-    fn projects_only_trusted_ssh_calls() {
-        let mut fixture = fixture::Fixture::new();
-        fixture::package(&fixture.database, fixture._root.path(), "ssh");
+    #[tokio::test]
+    async fn projects_only_trusted_ssh_calls() {
+        let mut fixture = fixture::Fixture::new().await;
+        fixture::package(&fixture.database, fixture._root.path(), "ssh").await;
         let name = crate::plugins::tools::alias("ssh", "ssh_save_connection");
         let args = serde_json::json!({"name":"Host fixture","credential":{"kind":"password","password":"private-marker"},"key_path":"/private-key-marker"});
         let mut event = AdkEvent::new("credential-fixture");
@@ -84,8 +84,8 @@ mod credentials {
                 },
             ],
         });
-        let turn = fixture.append([event.clone()]);
-        let history = fixture.read(None, 100);
+        let turn = fixture.append([event.clone()]).await;
+        let history = fixture.read(None, 100).await;
         let entry = history
             .page
             .entries
@@ -103,52 +103,60 @@ mod credentials {
         let body: Vec<u8> = fixture
             .database
             .connection
-            .query_row(
-                "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-                params![turn.to_string(), event.id],
-                |row| row.get(0),
-            )
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .unwrap()
+            .query_row(params![turn.to_string(), event.id.as_str()])
+            .await
+            .and_then(|row| row.get(0))
             .unwrap();
         let canonical: AdkEvent = serde_json::from_slice(&body).unwrap();
         assert!(
             matches!(&canonical.content().unwrap().parts[0], adk_core::Part::FunctionCall { args: original, .. } if original == &args)
         );
-        assert!(history::project(&fixture.database.connection, 0, TurnId::new(), &event).is_err());
+        assert!(
+            history::project(&fixture.database.connection, 0, TurnId::new(), &event)
+                .await
+                .is_err()
+        );
     }
 }
 
-pub(super) fn command(
-    database: &mut Database,
-    events: &broadcast::Sender<EventEnvelope>,
+pub(super) fn command<'a>(
+    database: &'a mut Database,
+    events: &'a broadcast::Sender<EventEnvelope>,
     command: Command,
-) -> Output {
-    let (reply, response) = oneshot::channel();
-    assert!(
-        database
-            .dispatch(
-                database.node,
-                Request::new(database.node, command),
-                reply,
-                events
-            )
-            .is_none()
-    );
-    response
-        .blocking_recv()
-        .unwrap()
-        .unwrap()
-        .completion
-        .blocking_recv()
-        .unwrap()
-        .unwrap()
+) -> sailry_link::Pending<'a, Output> {
+    Box::pin(async move {
+        let (reply, response) = oneshot::channel();
+        assert!(
+            database
+                .dispatch(
+                    database.node,
+                    Request::new(database.node, command),
+                    reply,
+                    events
+                )
+                .await
+                .is_none()
+        );
+        response
+            .await
+            .unwrap()
+            .unwrap()
+            .completion
+            .await
+            .unwrap()
+            .unwrap()
+    })
 }
 
-#[test]
-fn rebuilds_from_durable_events() {
+#[tokio::test]
+async fn rebuilds_from_durable_events() {
     let fixture = tempfile::tempdir().unwrap();
-    let path = fixture.path().canonicalize().unwrap().join("node.sqlite3");
+    let path = fixture.path().canonicalize().unwrap().join("node.turso");
     let node = NodeId([31; 32]);
-    let mut database = Database::open(&path, node, None).unwrap();
+    let mut database = Database::open(&path, node, None).await.unwrap();
     let (events, _) = broadcast::channel(64);
     let Output::Project(project) = command(
         &mut database,
@@ -157,7 +165,9 @@ fn rebuilds_from_durable_events() {
             name: "History fixture".into(),
             path: fixture.path().to_str().unwrap().into(),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("project expected")
     };
     let config = SessionConfig {
@@ -180,7 +190,9 @@ fn rebuilds_from_durable_events() {
             worktree: None,
             config: Some(config),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("session expected")
     };
     let Output::QueuedTurn(turn) = command(
@@ -191,12 +203,15 @@ fn rebuilds_from_durable_events() {
             expected_revision: 1,
             message: "fixture prompt".into(),
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("turn expected")
     };
-    runs::start(&database.connection, turn.id).unwrap();
+    runs::start(&database.connection, turn.id).await.unwrap();
     assert_eq!(
         runs::claim(&mut database, &events)
+            .await
             .unwrap()
             .unwrap()
             .turn
@@ -222,34 +237,61 @@ fn rebuilds_from_durable_events() {
         ("user:shared".into(), serde_json::json!(3)),
         ("temp:ephemeral".into(), serde_json::json!(4)),
     ]);
-    history::append(&mut database, session.id, turn.id, event.clone(), &events).unwrap();
+    history::append(&mut database, session.id, turn.id, event.clone(), &events)
+        .await
+        .unwrap();
     updates.try_recv().unwrap();
-    history::append(&mut database, session.id, turn.id, event.clone(), &events).unwrap();
+    history::append(&mut database, session.id, turn.id, event.clone(), &events)
+        .await
+        .unwrap();
     assert!(updates.try_recv().is_err());
-    let state = history::state(&database.connection, session.id).unwrap();
+    let state = history::state(&database.connection, session.id)
+        .await
+        .unwrap();
     assert_eq!(state.len(), 3);
     assert_eq!(state["value"], 1);
     database
         .connection
-        .execute("DELETE FROM agent_state", [])
+        .execute("DELETE FROM agent_state", ())
+        .await
         .unwrap();
-    history::rebuild(&mut database.connection).unwrap();
+    history::rebuild(&mut database.connection).await.unwrap();
     assert_eq!(
-        history::state(&database.connection, session.id).unwrap(),
+        history::state(&database.connection, session.id)
+            .await
+            .unwrap(),
         state
     );
-    runs::finish(&mut database, turn.id, Status::Completed, None, &events).unwrap();
-    let original = history::pages::read(&database.connection, session.id, None, 100).unwrap();
+    runs::finish(&mut database, turn.id, Status::Completed, None, &events)
+        .await
+        .unwrap();
+    let original = history::pages::read(&database.connection, session.id, None, 100)
+        .await
+        .unwrap();
     assert_eq!(original.page.entries.len(), 1);
     event.set_content(adk_core::Content::new("model").with_text("different answer"));
-    assert!(history::append(&mut database, session.id, turn.id, event.clone(), &events).is_err());
+    assert!(
+        history::append(&mut database, session.id, turn.id, event.clone(), &events)
+            .await
+            .is_err()
+    );
     event.id = "partial-fixture".into();
     event.llm_response.partial = true;
-    assert!(history::append(&mut database, session.id, turn.id, event.clone(), &events).is_err());
+    assert!(
+        history::append(&mut database, session.id, turn.id, event.clone(), &events)
+            .await
+            .is_err()
+    );
     event.llm_response.partial = false;
-    assert!(history::append(&mut database, SessionId::new(), turn.id, event, &events).is_err());
+    assert!(
+        history::append(&mut database, SessionId::new(), turn.id, event, &events)
+            .await
+            .is_err()
+    );
     assert_eq!(
-        history::pages::read(&database.connection, session.id, None, 100).unwrap(),
+        history::pages::read(&database.connection, session.id, None, 100)
+            .await
+            .unwrap(),
         original
     );
     let request = GetRequest {
@@ -259,7 +301,9 @@ fn rebuilds_from_durable_events() {
         num_recent_events: Some(1),
         after: None,
     };
-    let recent = sessions::get(&database.connection, turn.id, request.clone()).unwrap();
+    let recent = sessions::get(&database.connection, turn.id, request.clone())
+        .await
+        .unwrap();
     assert_eq!(recent.events().len(), 1);
     assert!(recent.events().at(0).unwrap().llm_request.is_none());
     assert_eq!(
@@ -297,10 +341,15 @@ fn rebuilds_from_durable_events() {
             ..request.clone()
         },
     )
+    .await
     .unwrap();
     assert_eq!(empty.events().len(), 0);
     assert_eq!(empty.last_update_time(), recent.last_update_time());
-    assert!(sessions::get(&database.connection, TurnId::new(), request.clone()).is_err());
+    assert!(
+        sessions::get(&database.connection, TurnId::new(), request.clone())
+            .await
+            .is_err()
+    );
     assert!(
         sessions::get(
             &database.connection,
@@ -310,17 +359,22 @@ fn rebuilds_from_durable_events() {
                 ..request
             }
         )
+        .await
         .is_err()
     );
-    database.close().unwrap();
-    let database = Database::open(&path, node, None).unwrap();
+    database.close().await.unwrap();
+    let database = Database::open(&path, node, None).await.unwrap();
     assert_eq!(
-        history::pages::read(&database.connection, session.id, None, 100).unwrap(),
+        history::pages::read(&database.connection, session.id, None, 100)
+            .await
+            .unwrap(),
         original
     );
     assert_eq!(
-        history::state(&database.connection, session.id).unwrap(),
+        history::state(&database.connection, session.id)
+            .await
+            .unwrap(),
         state
     );
-    database.close().unwrap();
+    database.close().await.unwrap();
 }

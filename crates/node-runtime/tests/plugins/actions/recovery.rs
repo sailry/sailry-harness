@@ -13,8 +13,9 @@ async fn preserves_unknown_outcome() {
             &[Action::WriteFiles],
         )
         .await;
-        let db = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-        db.execute_batch("CREATE TRIGGER lose_action_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+        { let sql = ("CREATE TRIGGER lose_action_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+node.with_storage(move |db| Box::pin(async move { db.execute_batch(sql).await.map_err(crate::plugins::database_fixture::fault) })).await }.unwrap();
         let request = write(&client, &context, "uncertain.txt");
         assert_eq!(
             client.execute(request.clone()).await.unwrap_err().code,
@@ -29,8 +30,19 @@ async fn preserves_unknown_outcome() {
             "完整结果 🙂"
         );
         fs::write(root.join("uncertain.txt"), "External replacement").unwrap();
-        db.execute_batch("DROP TRIGGER lose_action_result").unwrap();
-        drop(db);
+        {
+            let sql = ("DROP TRIGGER lose_action_result").to_owned();
+            node.with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::plugins::database_fixture::fault)
+                })
+            })
+            .await
+        }
+        .unwrap();
+
         execute(
             &client,
             Command::SetPluginEnabled {

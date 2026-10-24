@@ -159,10 +159,10 @@ async fn adds_missing_policy_without_resetting_data() {
         .await
         .unwrap();
     node.shutdown().await.unwrap();
-    let path = profile.join("storage/node.sqlite3");
-    let database = rusqlite::Connection::open(&path).unwrap();
-    database.execute("DROP TABLE power_settings", []).unwrap();
-    drop(database);
+    let path = profile.join("storage/node.turso");
+    let (database, db) = crate::database_fixture::open(&path, false).await;
+    db.execute("DROP TABLE power_settings", ()).await.unwrap();
+    crate::database_fixture::close(database, db).await;
     let node = Node::start_empty(&profile).await.unwrap();
     assert_eq!(node.id(), identity);
     let client = Client::new(node.local());
@@ -177,23 +177,26 @@ async fn adds_missing_policy_without_resetting_data() {
     assert_eq!(snapshot.projects.len(), 1);
     assert_eq!(snapshot.projects[0].name, "Preserved project");
     node.shutdown().await.unwrap();
-    let database = rusqlite::Connection::open(&path).unwrap();
+    let (database, db) = crate::database_fixture::open(&path, false).await;
     let invalid = br#"{"revision":1,"prevent_sleep":"invalid"}"#;
-    database
-        .execute(
-            "INSERT INTO power_settings(singleton,body) VALUES(1,?1)",
-            [invalid.as_slice()],
-        )
-        .unwrap();
-    drop(database);
+    db.execute(
+        "INSERT INTO power_settings(singleton,body) VALUES(1,?1)",
+        [invalid.as_slice()],
+    )
+    .await
+    .unwrap();
+    crate::database_fixture::close(database, db).await;
     assert!(Node::start_empty(&profile).await.is_err());
-    let database = rusqlite::Connection::open(path).unwrap();
-    let preserved: Vec<u8> = database
-        .query_row(
-            "SELECT body FROM power_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
+    let (database, db) = crate::database_fixture::open(&path, true).await;
+    let preserved: Vec<u8> = db
+        .prepare("SELECT body FROM power_settings WHERE singleton=1")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get(0)
         .unwrap();
     assert_eq!(preserved, invalid);
+    crate::database_fixture::close(database, db).await;
 }

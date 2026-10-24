@@ -99,10 +99,20 @@ fn read(attachment: &Attachment) -> Command {
     }
 }
 
-fn count(database: &rusqlite::Connection, table: &str) -> i64 {
-    database
-        .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-            row.get(0)
+async fn count(node: &Node, table: &str) -> i64 {
+    let table = table.to_owned();
+    node.with_storage(move |db| {
+        Box::pin(async move {
+            db.prepare(format!("SELECT count(*) FROM {table}"))
+                .await
+                .map_err(files::database::fault)?
+                .query_row(())
+                .await
+                .map_err(files::database::fault)?
+                .get::<i64>(0)
+                .map_err(files::database::fault)
         })
-        .unwrap()
+    })
+    .await
+    .unwrap()
 }

@@ -56,31 +56,37 @@ impl Ingress {
     }
 }
 
-pub(in crate::store) fn owned(
+pub(in crate::store) async fn owned(
     db: &Connection,
     parent: TurnId,
     child: SessionId,
 ) -> Result<Run, Fault> {
-    let parent = calls::active(db, parent)?;
-    let founding = read(db, child)?.ok_or_else(|| {
+    let parent = calls::active(db, parent).await?;
+    let founding = read(db, child).await?.ok_or_else(|| {
         Fault::new(
             ErrorCode::PermissionDenied,
             "recipient is not a delegated child",
         )
     })?;
-    if read(db, parent.session)?.is_some() || founding.session != parent.session {
+    if read(db, parent.session).await?.is_some() || founding.session != parent.session {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "child belongs to another parent session",
         ));
     }
-    let body: Vec<u8> = db.query_row(
-        "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 ORDER BY CASE json_extract(a.body,'$.status') WHEN 'running' THEN 0 WHEN 'stopping' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,t.rowid DESC LIMIT 1",
-        [child.to_string()], |row| row.get(0),
-    ).map_err(storage_error)?;
+    let body: Vec<u8> = {
+        let mut statement = db.prepare("SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 ORDER BY CASE json_extract(a.body,'$.status') WHEN 'running' THEN 0 WHEN 'stopping' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
+        let row = statement
+            .query_row([child.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let run: Run = serde_json::from_slice(&body).map_err(storage_error)?;
-    let association =
-        origin(db, run.turn)?.ok_or_else(|| storage_error("child run has no delegation"))?;
+    let association = origin(db, run.turn)
+        .await?
+        .ok_or_else(|| storage_error("child run has no delegation"))?;
     if association.session != founding.session || association.role != founding.role {
         return Err(storage_error(
             "child ownership differs from its founding delegation",
@@ -90,25 +96,25 @@ pub(in crate::store) fn owned(
 }
 
 #[cfg(test)]
-pub(in crate::store) fn state(
+pub(in crate::store) async fn state(
     db: &Connection,
     parent: TurnId,
     child: SessionId,
 ) -> Result<State, Fault> {
-    state_at(db, parent, child, None)
+    state_at(db, parent, child, None).await
 }
 
-pub(in crate::store) fn state_at(
+pub(in crate::store) async fn state_at(
     db: &Connection,
     parent: TurnId,
     child: SessionId,
     exact: Option<TurnId>,
 ) -> Result<State, Fault> {
-    let latest = owned(db, parent, child)?;
+    let latest = owned(db, parent, child).await?;
     let run = if let Some(turn) = exact {
-        let run = runs::get(db, turn)?;
-        let parent = calls::active(db, parent)?;
-        let origin = origin(db, turn)?.ok_or_else(|| {
+        let run = runs::get(db, turn).await?;
+        let parent = calls::active(db, parent).await?;
+        let origin = origin(db, turn).await?.ok_or_else(|| {
             Fault::new(
                 ErrorCode::PermissionDenied,
                 "turn is not a delegated execution",
@@ -125,11 +131,11 @@ pub(in crate::store) fn state_at(
         latest
     };
     let response = if run.status == Status::Completed {
-        response(db, run.turn)?
+        response(db, run.turn).await?
     } else {
         None
     };
-    let paused = queue::read(db, child)?.paused;
+    let paused = queue::read(db, child).await?.paused;
     Ok(State {
         run,
         response,
@@ -137,34 +143,37 @@ pub(in crate::store) fn state_at(
     })
 }
 
-pub(in crate::store) fn response(db: &Connection, turn: TurnId) -> Result<Option<String>, Fault> {
+pub(in crate::store) async fn response(
+    db: &Connection,
+    turn: TurnId,
+) -> Result<Option<String>, Fault> {
     let mut query = db
         .prepare("SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence DESC")
+        .await
         .map_err(storage_error)?;
     let mut response = None;
-    {
-        for body in query
-            .query_map([turn.to_string()], |row| row.get::<_, Vec<u8>>(0))
-            .map_err(storage_error)?
+    let mut rows = query
+        .query([turn.to_string()])
+        .await
+        .map_err(storage_error)?;
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let body = row.get::<Vec<u8>>(0).map_err(storage_error)?;
+        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+        if !event.llm_response.partial
+            && event.is_final_response()
+            && let Some(content) = event.content().filter(|content| content.role == "model")
         {
-            let event: AdkEvent =
-                serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error)?;
-            if !event.llm_response.partial
-                && event.is_final_response()
-                && let Some(content) = event.content().filter(|content| content.role == "model")
-            {
-                let text: String = content
-                    .parts
-                    .iter()
-                    .filter_map(|part| match part {
-                        adk_core::Part::Text { text } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect();
-                if !text.is_empty() {
-                    response = Some(text);
-                    break;
-                }
+            let text: String = content
+                .parts
+                .iter()
+                .filter_map(|part| match part {
+                    adk_core::Part::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect();
+            if !text.is_empty() {
+                response = Some(text);
+                break;
             }
         }
     }

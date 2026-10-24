@@ -31,42 +31,84 @@ pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((
 ),0)";
 mod web_search;
 
-pub(super) fn append(
+pub(super) async fn append(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
     event: AdkEvent,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> adk_core::Result<()> {
-    let write = || -> Result<(), Fault> {
-        let transaction = database.connection.transaction().map_err(storage_error)?;
-        let Some(entry) = insert(&transaction, session, turn, event)? else {
+    let write = async || -> Result<(), Fault> {
+        let transaction = database
+            .connection
+            .unchecked_transaction()
+            .await
+            .map_err(storage_error)?;
+        let prepared: Result<_, Fault> = async {
+            let Some(entry) = insert(&transaction, session, turn, event).await? else {
+                return Ok(None);
+            };
+            let visible: bool = {
+                let mut statement = transaction
+                    .prepare(&format!(
+                        "SELECT {VISIBLE_EVENT} FROM agent_events e WHERE e.sequence=?1"
+                    ))
+                    .await
+                    .map_err(storage_error)?;
+                let row = statement
+                    .query_row([i64::try_from(entry.sequence).map_err(storage_error)?])
+                    .await
+                    .map_err(storage_error)?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                mapped.map_err(storage_error)?
+            };
+            let notice =
+                super::super::notifications::system::compaction(&transaction, session, &entry)
+                    .await?;
+            let background = super::background::list(&transaction, session).await?;
+            let statistics = super::statistics::read(&transaction, session).await?;
+            let parents = {
+                let mut selected = Vec::new();
+                for value in super::statistics::parents(&transaction, turn)
+                    .await?
+                    .into_iter()
+                {
+                    selected.push(
+                        (async |parent| {
+                            super::statistics::read(&transaction, parent)
+                                .await
+                                .map(|statistics| (parent, statistics))
+                        })(value)
+                        .await?,
+                    );
+                }
+                Ok::<_, Fault>(selected)
+            }?;
+            let envelope = changed(&transaction, database.node, session).await?;
+            let notices = super::super::database::record(
+                &transaction,
+                database.node,
+                notice.into_iter().collect(),
+            )
+            .await?;
+            Ok(Some((
+                entry, visible, background, statistics, parents, envelope, notices,
+            )))
+        }
+        .await;
+        let Some((entry, visible, background, statistics, parents, envelope, notices)) =
+            (match prepared {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    transaction.rollback().await.map_err(storage_error)?;
+                    return Err(error);
+                }
+            })
+        else {
+            transaction.rollback().await.map_err(storage_error)?;
             return Ok(());
         };
-        let visible: bool = transaction
-            .query_row(
-                &format!("SELECT {VISIBLE_EVENT} FROM agent_events e WHERE e.sequence=?1"),
-                [i64::try_from(entry.sequence).map_err(storage_error)?],
-                |row| row.get(0),
-            )
-            .map_err(storage_error)?;
-        let notice =
-            super::super::notifications::system::compaction(&transaction, session, &entry)?;
-        let background = super::background::list(&transaction, session)?;
-        let statistics = super::statistics::read(&transaction, session)?;
-        let parents = super::statistics::parents(&transaction, turn)?
-            .into_iter()
-            .map(|parent| {
-                super::statistics::read(&transaction, parent).map(|statistics| (parent, statistics))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let envelope = changed(&transaction, database.node, session)?;
-        let notices = super::super::database::record(
-            &transaction,
-            database.node,
-            notice.into_iter().collect(),
-        )?;
-        transaction.commit().map_err(storage_error)?;
+        transaction.commit().await.map_err(storage_error)?;
         let _ = events.send(envelope);
         for notice in notices {
             let _ = events.send(notice);
@@ -79,7 +121,7 @@ pub(super) fn append(
         database
             .feeds
             .publish(database.node, session, Change::Statistics(statistics));
-        super::background::publish(database, background);
+        super::background::publish(database, background).await;
         for (parent, statistics) in parents {
             database
                 .feeds
@@ -87,11 +129,11 @@ pub(super) fn append(
         }
         Ok(())
     };
-    write().map_err(adk_error)
+    write().await.map_err(adk_error)
 }
 
 /// Insert into the caller's existing transaction; this is the same history owner.
-pub(super) fn insert(
+pub(super) async fn insert(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
@@ -119,11 +161,22 @@ pub(super) fn insert(
         event.llm_response.error_code = Some("provider_error".into());
         event.llm_response.error_message = Some("model response reported an error".into());
     }
-    super::approvals::results::append(db, turn, &mut event)?;
-    let previous: Option<(String, Vec<u8>)> = db.query_row(
-        "SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2",
-        params![session.to_string(),event.id],|row| Ok((row.get(0)?,row.get(1)?)),
-    ).optional().map_err(storage_error)?;
+    super::approvals::results::append(db, turn, &mut event).await?;
+    let previous: Option<(String, Vec<u8>)> = {
+        let mut statement = db.prepare("SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2").await.map_err(storage_error)?;
+        match statement
+            .query_row(params![session.to_string(), event.id.as_str()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     super::presentation::preserve_failures(
         &mut event,
         previous.as_ref().map(|(_, body)| body.as_slice()),
@@ -133,27 +186,44 @@ pub(super) fn insert(
         session,
         &mut event,
         previous.as_ref().map(|(_, body)| body.as_slice()),
-    )?;
+    )
+    .await?;
     if let Some(value) = event.provider_metadata.get("sailry_model_observation") {
         let mut request: sailry_protocol::conversation::observation::Request =
             serde_json::from_str(value).map_err(storage_error)?;
-        let first: Option<String> = db.query_row(
-            "SELECT json_extract(e.body,'$.event_metadata.sailry_model_observation') FROM conversation_events h
+        let first: Option<String> = {
+            let mut statement = db.prepare("SELECT json_extract(e.body,'$.event_metadata.sailry_model_observation') FROM conversation_events h
              JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1
-             AND json_extract(json_extract(e.body,'$.event_metadata.sailry_model_observation'),'$.id')=?2 ORDER BY h.sequence LIMIT 1",
-            params![session.to_string(), request.id], |row| row.get(0),
-        ).optional().map_err(storage_error)?;
+             AND json_extract(json_extract(e.body,'$.event_metadata.sailry_model_observation'),'$.id')=?2 ORDER BY h.sequence LIMIT 1").await.map_err(storage_error)?;
+            match statement
+                .query_row(params![session.to_string(), request.id.as_str()])
+                .await
+            {
+                Ok(row) => {
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
+            }
+        };
         request.boundary = if let Some(first) = first {
             serde_json::from_str::<sailry_protocol::conversation::observation::Request>(&first)
                 .map_err(storage_error)?
                 .boundary
         } else {
-            db.query_row(
-                "SELECT max(sequence) FROM conversation_events WHERE session=?1",
-                [session.to_string()],
-                |row| row.get::<_, Option<i64>>(0),
-            )
-            .map_err(storage_error)?
+            {
+                let mut statement = db
+                    .prepare("SELECT max(sequence) FROM conversation_events WHERE session=?1")
+                    .await
+                    .map_err(storage_error)?;
+                let row = statement
+                    .query_row([session.to_string()])
+                    .await
+                    .map_err(storage_error)?;
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Option<i64>>(0))(&row);
+                mapped.map_err(storage_error)?
+            }
             .map(u64::try_from)
             .transpose()
             .map_err(storage_error)?
@@ -167,13 +237,18 @@ pub(super) fn insert(
     if body.len() > MAX_FRAME_BYTES {
         return Err(Fault::invalid("event exceeds the history frame limit"));
     }
-    let owns: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM turns WHERE id=?1 AND session=?2)",
-            params![turn.to_string(), session.to_string()],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let owns: bool = {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM turns WHERE id=?1 AND session=?2)")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![turn.to_string(), session.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     if !owns {
         return Err(Fault::invalid("event turn belongs to another session"));
     }
@@ -190,26 +265,38 @@ pub(super) fn insert(
         }
         return Ok(None);
     }
-    super::compaction::validate(db, session, turn, &event)?;
-    super::elicitation::validate(db, turn, &event)?;
-    super::review::validate(db, turn, &event)?;
-    db.execute(
-        "INSERT INTO agent_events(session,id,turn,body) VALUES(?1,?2,?3,?4)",
-        params![session.to_string(), event.id, turn.to_string(), body],
+    super::compaction::validate(db, session, turn, &event).await?;
+    super::elicitation::validate(db, turn, &event).await?;
+    super::review::validate(db, turn, &event).await?;
+    let sequence = super::super::database::counters::next(
+        db,
+        super::super::database::counters::Namespace::AgentEvents,
     )
+    .await?;
+    db.execute(
+        "INSERT INTO agent_events(sequence,session,id,turn,body) VALUES(?1,?2,?3,?4,?5)",
+        params![
+            sequence as i64,
+            session.to_string(),
+            event.id.as_str(),
+            turn.to_string(),
+            body
+        ],
+    )
+    .await
     .map_err(storage_error)?;
-    let sequence = db.last_insert_rowid() as u64;
     db.execute(
         "INSERT INTO conversation_events(session,sequence) VALUES(?1,?2)",
         params![session.to_string(), sequence as i64],
     )
+    .await
     .map_err(storage_error)?;
-    super::background::confirm(db, session, turn, &event)?;
-    apply_state(db, session, &event)?;
-    Ok(Some(project(db, sequence, turn, &event)?))
+    super::background::confirm(db, session, turn, &event).await?;
+    apply_state(db, session, &event).await?;
+    Ok(Some(project(db, sequence, turn, &event).await?))
 }
 
-fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> Result<(), Fault> {
+async fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> Result<(), Fault> {
     for (key, value) in &event.actions.state_delta {
         if key.starts_with(adk_session::KEY_PREFIX_TEMP) {
             continue;
@@ -221,76 +308,107 @@ fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> Result<
         } else {
             session.to_string()
         };
-        db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body", params![owner, key, encode(value)?]).map_err(storage_error)?;
+        db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body", params![owner, key.as_str(), encode(value)?]).await.map_err(storage_error)?;
     }
     Ok(())
 }
 
-pub(super) fn state(db: &Connection, session: SessionId) -> Result<HashMap<String, Value>, Fault> {
+pub(super) async fn state(
+    db: &Connection,
+    session: SessionId,
+) -> Result<HashMap<String, Value>, Fault> {
     let mut query = db
         .prepare("SELECT key,body FROM agent_state WHERE owner='' OR owner=?1")
+        .await
         .map_err(storage_error)?;
-    query
-        .query_map([session.to_string()], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
-        })
-        .map_err(storage_error)?
-        .map(|row| {
-            let (key, body) = row.map_err(storage_error)?;
-            Ok((key, serde_json::from_slice(&body).map_err(storage_error)?))
-        })
-        .collect()
+    {
+        let mut rows = query
+            .query([session.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get::<String>(0)?, row.get::<Vec<u8>>(1)?)))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    }
+    .map(|row| {
+        let (key, body) = row.map_err(storage_error)?;
+        Ok((key, serde_json::from_slice(&body).map_err(storage_error)?))
+    })
+    .collect()
 }
 
-pub(in crate::store) fn rebuild_session(db: &Connection, session: SessionId) -> Result<(), Fault> {
+pub(in crate::store) async fn rebuild_session(
+    db: &Connection,
+    session: SessionId,
+) -> Result<(), Fault> {
     // The current title is session metadata. Rewinding execution history must not
     // undo a rename, whether it came from the user or the agent naming tool.
-    let named: bool = db
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM agent_state WHERE owner=?1 AND key=?2)",
-            params![session.to_string(), SESSION_TITLE],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let named: bool = {
+        let mut statement = db
+            .prepare("SELECT EXISTS(SELECT 1 FROM agent_state WHERE owner=?1 AND key=?2)")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![session.to_string(), SESSION_TITLE])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     db.execute(
         "DELETE FROM agent_state WHERE owner=?1 AND key!=?2",
         params![session.to_string(), SESSION_TITLE],
     )
+    .await
     .map_err(storage_error)?;
     let mut query = db
         .prepare(
             "SELECT json_extract(e.body,'$.actions.state_delta') FROM conversation_events h
          JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence",
         )
+        .await
         .map_err(storage_error)?;
-    for row in query
-        .query_map([session.to_string()], |row| row.get::<_, String>(0))
-        .map_err(storage_error)?
     {
-        let delta: HashMap<String, Value> =
-            serde_json::from_str(&row.map_err(storage_error)?).map_err(storage_error)?;
-        for (key, value) in delta {
-            // Shared app/user state belongs to the Node, not a historical session branch.
-            if (named && key == SESSION_TITLE)
-                || key.starts_with(adk_session::KEY_PREFIX_TEMP)
-                || key.starts_with(adk_session::KEY_PREFIX_APP)
-                || key.starts_with(adk_session::KEY_PREFIX_USER)
-            {
-                continue;
+        let mut rows = query
+            .query([session.to_string()])
+            .await
+            .map_err(storage_error)?;
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let row: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+
+            let delta: HashMap<String, Value> =
+                serde_json::from_str(&row.map_err(storage_error)?).map_err(storage_error)?;
+            for (key, value) in delta {
+                // Shared app/user state belongs to the Node, not a historical session branch.
+                if (named && key == SESSION_TITLE)
+                    || key.starts_with(adk_session::KEY_PREFIX_TEMP)
+                    || key.starts_with(adk_session::KEY_PREFIX_APP)
+                    || key.starts_with(adk_session::KEY_PREFIX_USER)
+                {
+                    continue;
+                }
+                db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body",
+                params![session.to_string(), key.as_str(), encode(&value)?]).await.map_err(storage_error)?;
             }
-            db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body",
-                params![session.to_string(), key, encode(&value)?]).map_err(storage_error)?;
         }
     }
     Ok(())
 }
 
-pub(in crate::store) fn rebuild_index(db: &Connection, session: SessionId) -> Result<(), Fault> {
+pub(in crate::store) async fn rebuild_index(
+    db: &Connection,
+    session: SessionId,
+) -> Result<(), Fault> {
     // Only references are indexed. The membership relation and canonical events rebuild this table.
     db.execute(
         "DELETE FROM conversation_events WHERE session=?1",
         [session.to_string()],
     )
+    .await
     .map_err(storage_error)?;
     db.execute(
         "INSERT INTO conversation_events(session,sequence)
@@ -298,25 +416,33 @@ pub(in crate::store) fn rebuild_index(db: &Connection, session: SessionId) -> Re
          JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1",
         [session.to_string()],
     )
+    .await
     .map_err(storage_error)?;
     Ok(())
 }
 
 #[cfg(test)]
-pub(super) fn rebuild(db: &mut Connection) -> Result<(), Fault> {
-    let transaction = db.transaction().map_err(storage_error)?;
+pub(super) async fn rebuild(db: &mut Connection) -> Result<(), Fault> {
+    let transaction = db.transaction().await.map_err(storage_error)?;
     transaction
         .execute("DELETE FROM agent_state WHERE key!=?1", [SESSION_TITLE])
+        .await
         .map_err(storage_error)?;
     {
         let mut query = transaction
             .prepare("SELECT session,body FROM agent_events ORDER BY sequence")
+            .await
             .map_err(storage_error)?;
-        let rows = query
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
-            })
-            .map_err(storage_error)?;
+        let rows = {
+            let mut rows = query.query(()).await.map_err(storage_error)?;
+            let mut values = Vec::new();
+            while let Some(row) = rows.next().await.map_err(storage_error)? {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get::<String>(0)?, row.get::<Vec<u8>>(1)?)))(&row);
+                values.push(mapped);
+            }
+            values.into_iter()
+        };
         for row in rows {
             let (session, body) = row.map_err(storage_error)?;
             let mut event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -325,26 +451,30 @@ pub(super) fn rebuild(db: &mut Connection) -> Result<(), Fault> {
                 &transaction,
                 session.parse().map_err(storage_error)?,
                 &event,
-            )?;
+            )
+            .await?;
         }
     }
     {
         let mut query = transaction
             .prepare("SELECT id FROM sessions WHERE state!='removed'")
+            .await
             .map_err(storage_error)?;
-        for row in query
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(storage_error)?
         {
-            let session = row.map_err(storage_error)?.parse().map_err(storage_error)?;
-            rebuild_index(&transaction, session)?;
-            rebuild_session(&transaction, session)?;
+            let mut rows = query.query(()).await.map_err(storage_error)?;
+            while let Some(row) = rows.next().await.map_err(storage_error)? {
+                let row: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+
+                let session = row.map_err(storage_error)?.parse().map_err(storage_error)?;
+                rebuild_index(&transaction, session).await?;
+                rebuild_session(&transaction, session).await?;
+            }
         }
     }
-    transaction.commit().map_err(storage_error)
+    transaction.commit().await.map_err(storage_error)
 }
 
-pub(crate) fn project(
+pub(crate) async fn project(
     db: &Connection,
     sequence: u64,
     turn: TurnId,
@@ -370,13 +500,12 @@ pub(crate) fn project(
             .and_then(|metadata| metadata["searchEntryPoint"]["renderedContent"].as_str())
             .filter(|html| !html.is_empty())
             .map(str::to_owned),
-        parts: event
+        parts: { let mut projected = Vec::new(); for value in event
             .content()
             .into_iter()
             .flat_map(|content| &content.parts)
             .enumerate()
-            .skip(usize::from(!references.is_empty()) + usize::from(event.provider_metadata.contains_key(super::background::INPUT_IDS)))
-            .map(|(index, part)| {
+            .skip(usize::from(!references.is_empty()) + usize::from(event.provider_metadata.contains_key(super::background::INPUT_IDS))) { projected.push((async |(index, part): (usize, &adk_core::Part)| {
                 Ok(match part {
                     adk_core::Part::FileData {
                         file_uri,
@@ -384,7 +513,7 @@ pub(crate) fn project(
                         ..
                     } if crate::agent::attachments::is_reference(file_uri) => {
                         let id = crate::agent::attachments::id(file_uri)?;
-                        let attachment = super::super::attachments::turns::get(db, turn, id)?;
+                        let attachment = super::super::attachments::turns::get(db, turn, id).await?;
                         if attachment.spec.media_type != *mime_type {
                             return Err(sailry_protocol::Fault::invalid("attachment media type mismatch"));
                         }
@@ -394,7 +523,7 @@ pub(crate) fn project(
                     adk_core::Part::InlineData { mime_type, data, .. }
                         if mime_type.starts_with("image/") =>
                     {
-                        Part::Image(super::images::inline(db, turn, event, index, mime_type, data)?)
+                        Part::Image(super::images::inline(db, turn, event, index, mime_type, data).await?)
                     }
                     adk_core::Part::Thinking { thinking, .. } => Part::Thinking(thinking.clone()),
                     // Approval and question indices address canonical content parts.
@@ -414,7 +543,7 @@ pub(crate) fn project(
                     adk_core::Part::FunctionCall { id, name, args, .. } => Part::ToolCall {
                         id: id.clone(),
                         name: name.clone(),
-                        arguments: credentials::project(db, turn, name, args)?,
+                        arguments: credentials::project(db, turn, name, args).await?,
                         presentation: presentations.get(name).copied().unwrap_or_default(),
                         grouping: groupings.get(name).copied().unwrap_or_default(),
                         display: displays.get(name).cloned().map(Box::new),
@@ -434,13 +563,13 @@ pub(crate) fn project(
                         id: id.clone(),
                         name: function_response.name.clone(),
                         result: function_response.response.clone(),
-                        images: super::images::project(db, turn, event, index, function_response)?,
+                        images: super::images::project(db, turn, event, index, function_response).await?,
                     },
                     part => Part::Resource(
                         serde_json::to_value(part).expect("ADK content is serializable"),
                     ),
                 })
-            })
+            })(value).await?); } projected.into_iter().map(Ok::<_,Fault>) }
             .chain(
                 event
                     .content()

@@ -2,17 +2,19 @@
 use super::*;
 use std::path::Path;
 
-pub(in crate::store) fn workspace(
+pub(in crate::store) async fn workspace(
     db: &Connection,
     profile: Option<&Path>,
     resource: Resource,
 ) -> Result<WorktreeId, Fault> {
     match resource {
         Resource::Database(id) => {
-            super::super::databases::read(db, id)?.ok_or_else(missing)?;
+            super::super::databases::read(db, id)
+                .await?
+                .ok_or_else(missing)?;
         }
         Resource::Ssh(id) => {
-            super::super::ssh::read(db, id)?.ok_or_else(missing)?;
+            super::super::ssh::read(db, id).await?.ok_or_else(missing)?;
         }
     };
     let profile = profile.ok_or_else(|| {
@@ -22,5 +24,5 @@ pub(in crate::store) fn workspace(
         )
     })?;
     let root = crate::workspaces::connection(profile, resource);
-    super::super::worktrees::scratch(db, &root)
+    super::super::worktrees::scratch(db, &root).await
 }

@@ -80,14 +80,18 @@ async fn restores_slack_clients_and_mcp_credentials() {
         let id = fixture.node.id();
         fixture.node.shutdown().await.unwrap();
         fixture.controller.handle().disconnect(id).await;
-        let path = profile.join("storage/node.sqlite3");
-        let db = rusqlite::Connection::open(&path).unwrap();
+        let path = profile.join("storage/node.turso");
+        let (handle, mut database) = crate::database_fixture::open(&path, false).await;
+        let transaction = database.transaction().await.unwrap();
+        let db = &transaction;
         let bytes: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM plugin_connections WHERE id=?1",
-                [connected.id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare("SELECT body FROM plugin_connections WHERE id=?1")
+            .await
+            .unwrap()
+            .query_row([connected.id.to_string()])
+            .await
+            .unwrap()
+            .get(0)
             .unwrap();
         let stored: Value = serde_json::from_slice(&bytes).unwrap();
         let saved = json!({"schema":null,"values":{"client_id":"fixture-client"},"slots":{"client_secret":"client-private-marker"},
@@ -99,17 +103,21 @@ async fn restores_slack_clients_and_mcp_credentials() {
         info.extension.as_mut().unwrap().connectors.clear();
         db.execute(
             "INSERT INTO plugin_settings(plugin,revision,body) VALUES('slack',1,?1)",
-            [&original],
+            [original.as_slice()],
         )
+        .await
         .unwrap();
         db.execute(
             "UPDATE plugins SET settings_revision=1,body=?1 WHERE name='slack'",
             [serde_json::to_vec(&info).unwrap()],
         )
+        .await
         .unwrap();
-        db.execute("DELETE FROM plugin_connections WHERE plugin='slack'", [])
+        db.execute("DELETE FROM plugin_connections WHERE plugin='slack'", ())
+            .await
             .unwrap();
-        db.close().unwrap();
+        transaction.commit().await.unwrap();
+        crate::database_fixture::close(handle, database).await;
         fixture.node = Node::start_empty(&profile).await.unwrap();
         fixture
             .node
@@ -146,20 +154,25 @@ async fn restores_slack_clients_and_mcp_credentials() {
         assert_eq!(issuer.registrations.load(Ordering::SeqCst), 0);
         assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
         assert_eq!(issuer.refreshes.load(Ordering::SeqCst), 1);
-        let db = rusqlite::Connection::open_with_flags(
-            &path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let retained: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM plugin_settings WHERE plugin='slack' AND revision=1",
-                [],
-                |row| row.get(0),
-            )
+        let retained: Vec<u8> = fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.prepare(
+                        "SELECT body FROM plugin_settings WHERE plugin='slack' AND revision=1",
+                    )
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(())
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get(0)
+                    .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
         assert_eq!(retained, original);
-        db.close().unwrap();
         let public = serde_json::to_string(&(rows, page)).unwrap();
         for secret in ["client-private-marker", "access-initial", "refresh-initial"] {
             assert!(!public.contains(secret));

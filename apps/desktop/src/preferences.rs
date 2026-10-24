@@ -200,10 +200,9 @@ impl Preferences {
         // Logging creates the profile directory before the Node starts. Existing
         // preferences or Node storage, rather than the directory, identify an old profile.
         let existing = path.try_exists().unwrap_or(true)
-            || profile
-                .join("storage/node.sqlite3")
-                .try_exists()
-                .unwrap_or(true);
+            || ["storage/node.turso", "storage/node.sqlite3"]
+                .into_iter()
+                .any(|path| profile.join(path).try_exists().unwrap_or(true));
         let mut preferences = Self::open(path);
         if preferences.readable && preferences.data.welcome_seen.is_none() {
             preferences.data.welcome_seen = Some(existing);

@@ -4,14 +4,14 @@ use crate::store::{
     agent::{ApprovalBinding, approvals::Prepared},
     database::storage_error,
 };
-use rusqlite::{OptionalExtension, params};
 use sailry_protocol::{
     Request,
     conversation::{Approval, ApprovalState},
     tool::Operation,
 };
+use turso::params;
 
-pub(super) fn authorize(db: &Connection, request: &Request) -> Result<bool, Fault> {
+pub(super) async fn authorize(db: &Connection, request: &Request) -> Result<bool, Fault> {
     let context = request.plugin.as_ref().expect("plugin connection context");
     let Some(turn) = context.turn else {
         return Ok(false);
@@ -22,14 +22,24 @@ pub(super) fn authorize(db: &Connection, request: &Request) -> Result<bool, Faul
     let operation = match request.command {
         Command::SaveDatabase { .. } => Operation::SaveDatabaseConnection,
         Command::SaveSsh { .. } => Operation::SaveSshConnection,
-        Command::TrustSsh { .. } => return trust(db, request),
+        Command::TrustSsh { .. } => return trust(db, request).await,
         _ => return Err(denied("connection management requires a controller view")),
     };
-    let record: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = db.query_row(
-        "SELECT body,binding,prepared FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1",
-        params![turn.to_string(), request.id.to_string()],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    ).optional().map_err(storage_error)?;
+    let record: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = {
+        let mut statement = db.prepare("SELECT body,binding,prepared FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1").await.map_err(storage_error)?;
+        match statement
+            .query_row(params![turn.to_string(), request.id.to_string()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let (body, binding, prepared) =
         record.ok_or_else(|| denied("connection save has no claimed approval"))?;
     let approval: Approval = serde_json::from_slice(&body).map_err(storage_error)?;
@@ -60,7 +70,7 @@ pub(super) fn authorize(db: &Connection, request: &Request) -> Result<bool, Faul
     ))
 }
 
-fn trust(db: &Connection, request: &Request) -> Result<bool, Fault> {
+async fn trust(db: &Connection, request: &Request) -> Result<bool, Fault> {
     let context = request.plugin.as_ref().unwrap();
     let turn = context.turn.unwrap();
     let Command::TrustSsh {
@@ -71,12 +81,19 @@ fn trust(db: &Connection, request: &Request) -> Result<bool, Fault> {
     else {
         unreachable!()
     };
-    let mut query = db.prepare("SELECT body,binding FROM agent_approvals WHERE turn=?1 AND claimed=1 AND json_extract(body,'$.state')='approved' AND json_type(body,'$.ssh')='object'").map_err(storage_error)?;
-    let records = query
-        .query_map([turn.to_string()], |row| {
-            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
-        })
-        .map_err(storage_error)?;
+    let mut query = db.prepare("SELECT body,binding FROM agent_approvals WHERE turn=?1 AND claimed=1 AND json_extract(body,'$.state')='approved' AND json_type(body,'$.ssh')='object'").await.map_err(storage_error)?;
+    let records = (async {
+        let mut rows = query.query([turn.to_string()]).await?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let mapped: turso::Result<_> =
+                (|row: &turso::Row| Ok((row.get::<Vec<u8>>(0)?, row.get::<Vec<u8>>(1)?)))(&row);
+            values.push(mapped);
+        }
+        Ok::<_, turso::Error>(values.into_iter())
+    })
+    .await
+    .map_err(storage_error)?;
     for record in records {
         let (body, binding) = record.map_err(storage_error)?;
         let approval: Approval = serde_json::from_slice(&body).map_err(storage_error)?;

@@ -62,14 +62,27 @@ async fn local_and_remote_discovery() {
     let remote = Client::new(controller.handle().remote(address));
     let before = snapshot(&local).await;
     let main = &before.worktrees[0];
-    let db = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-    let count = || {
-        db.query_row("SELECT count(*) FROM requests", [], |row| {
-            row.get::<_, i64>(0)
+
+    let count = async || {
+        let sql = ("SELECT count(*) FROM requests").to_owned();
+        let parameters = ();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::database_fixture::fault)?;
+                let value = row.get::<i64>(0);
+                value.map_err(crate::database_fixture::fault)
+            })
         })
+        .await
         .unwrap()
     };
-    let initial_count = count();
+    let initial_count = count().await;
     let expected = GitWorktrees {
         kind: RepositoryKind::Ready,
         entries: vec![
@@ -97,7 +110,7 @@ async fn local_and_remote_discovery() {
         assert_eq!(list(client, main.id).await, expected);
         assert_eq!(snapshot(client).await, before);
     }
-    assert_eq!(count(), initial_count);
+    assert_eq!(count().await, initial_count);
     let mut subscription = remote.subscribe().await.unwrap();
     let mut projection = Projection::new(node.id(), 1);
     projection
@@ -172,7 +185,7 @@ async fn local_and_remote_discovery() {
     std::fs::rename(&parked, &linked).unwrap();
     assert_eq!(adopt(&remote, project.id, &linked).await, first);
     assert_eq!(list(&local, main.id).await, expected);
-    drop(db);
+
     let profile = node.profile().to_owned();
     node.shutdown().await.unwrap();
     let node = Node::start_empty(profile).await.unwrap();

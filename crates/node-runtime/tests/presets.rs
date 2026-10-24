@@ -150,20 +150,30 @@ async fn reads_cached_catalog_without_side_effects() {
         assert!(!resumed.partners_unavailable);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-        let db = rusqlite::Connection::open_with_flags(
-            profile.join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
+        let (database, db) =
+            crate::database_fixture::open(&profile.join("storage/node.turso"), true).await;
         assert_eq!(
-            db.query_row::<i64, _, _>("SELECT count(*) FROM requests", [], |row| row.get(0))
+            db.prepare("SELECT count(*) FROM requests")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get::<i64>(0)
                 .unwrap(),
             0
         );
         assert_eq!(
-            db.query_row::<i64, _, _>("SELECT count(*) FROM providers", [], |row| row.get(0))
+            db.prepare("SELECT count(*) FROM providers")
+                .await
+                .unwrap()
+                .query_row(())
+                .await
+                .unwrap()
+                .get::<i64>(0)
                 .unwrap(),
             0
         );
+        crate::database_fixture::close(database, db).await;
     }
 }

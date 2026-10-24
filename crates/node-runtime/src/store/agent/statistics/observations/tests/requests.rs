@@ -39,10 +39,10 @@ fn observed(request: &Request) -> AdkEvent {
     event
 }
 
-#[test]
-fn merges_recovered_attempts_across_rebuilds() {
-    let mut fixture = Fixture::new();
-    let turn = fixture.queued();
+#[tokio::test]
+async fn merges_recovered_attempts_across_rebuilds() {
+    let mut fixture = Fixture::new().await;
+    let turn = fixture.queued().await;
     let request = Request {
         id: RequestId::new().to_string(),
         turn,
@@ -89,15 +89,17 @@ fn merges_recovered_attempts_across_rebuilds() {
             response(),
             phase(phases.clone()),
         ],
-    );
+    )
+    .await;
     let before: i64 = fixture
         .database
         .connection
-        .query_row(
-            "SELECT count(*) FROM agent_events WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT count(*) FROM agent_events WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     history::append(
         &mut fixture.database,
@@ -106,30 +108,34 @@ fn merges_recovered_attempts_across_rebuilds() {
         failed_event,
         &fixture.events,
     )
+    .await
     .unwrap();
     let after: i64 = fixture
         .database
         .connection
-        .query_row(
-            "SELECT count(*) FROM agent_events WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT count(*) FROM agent_events WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(
         before, after,
         "an acknowledged terminal event is not appended twice"
     );
-    let expected =
-        super::super::super::read(&fixture.database.connection, fixture.session).unwrap();
+    let expected = super::super::super::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     let capture: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT input FROM agent_runs WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT input FROM agent_runs WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(expected.responses, 1);
     assert_eq!(
@@ -162,7 +168,7 @@ fn merges_recovered_attempts_across_rebuilds() {
             attempt(3, Outcome::Succeeded)
         ]
     );
-    let page = fixture.read(None, 20).page;
+    let page = fixture.read(None, 20).await.page;
     assert!(page.entries.iter().any(|entry| {
         entry
             .parts
@@ -171,32 +177,39 @@ fn merges_recovered_attempts_across_rebuilds() {
     }));
     assert!(page.entries.iter().all(|entry| !entry.parts.is_empty()));
     let source = fixture.session;
-    let fork = fixture.fork(source, turn);
-    let inherited = super::super::super::read(&fixture.database.connection, fork.id).unwrap();
+    let fork = fixture.fork(source, turn).await;
+    let inherited = super::super::super::read(&fixture.database.connection, fork.id)
+        .await
+        .unwrap();
     assert_eq!(inherited, expected);
-    history::rebuild(&mut fixture.database.connection).unwrap();
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
     let rebuilt: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT input FROM agent_runs WHERE turn=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT input FROM agent_runs WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(rebuilt, capture);
     for session in [source, fork.id] {
         assert_eq!(
-            super::super::super::read(&fixture.database.connection, session).unwrap(),
+            super::super::super::read(&fixture.database.connection, session)
+                .await
+                .unwrap(),
             expected
         );
     }
-    assert_eq!(fixture.read(None, 20).page, page);
+    assert_eq!(fixture.read(None, 20).await.page, page);
 }
 
-#[test]
-fn indexes_visible_rounds_before_limiting_requests() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn indexes_visible_rounds_before_limiting_requests() {
+    let mut fixture = Fixture::new().await;
     let record = |turn| Request {
         id: RequestId::new().to_string(),
         turn,
@@ -208,23 +221,26 @@ fn indexes_visible_rounds_before_limiting_requests() {
         boundary: None,
         attempts: vec![attempt(1, Outcome::Succeeded)],
     };
-    let first = fixture.queued();
-    complete(&mut fixture, first, [observed(&record(first)), response()]);
+    let first = fixture.queued().await;
+    complete(&mut fixture, first, [observed(&record(first)), response()]).await;
     let source = fixture.session;
-    let other = fixture.fork(source, first);
+    let other = fixture.fork(source, first).await;
     fixture.session = other.id;
-    let unrelated = fixture.queued();
-    complete(&mut fixture, unrelated, [response()]);
+    let unrelated = fixture.queued().await;
+    complete(&mut fixture, unrelated, [response()]).await;
     fixture.session = source;
-    let second = fixture.queued();
+    let second = fixture.queued().await;
     let mut recovered = record(second);
     recovered.attempts = vec![attempt(1, Outcome::Failed), attempt(2, Outcome::Succeeded)];
     complete(
         &mut fixture,
         second,
         [observed(&record(second)), observed(&recovered), response()],
-    );
-    let expected = super::super::super::read(&fixture.database.connection, source).unwrap();
+    )
+    .await;
+    let expected = super::super::super::read(&fixture.database.connection, source)
+        .await
+        .unwrap();
     assert_eq!(expected.turns, 2);
     assert_eq!(expected.observations.calls, 3);
     assert_eq!(
@@ -236,20 +252,24 @@ fn indexes_visible_rounds_before_limiting_requests() {
             .collect::<Vec<_>>(),
         [Some(1), Some(2), Some(2)]
     );
-    let fork = fixture.fork(source, second);
-    history::rebuild(&mut fixture.database.connection).unwrap();
+    let fork = fixture.fork(source, second).await;
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
     for session in [source, fork.id] {
         assert_eq!(
-            super::super::super::read(&fixture.database.connection, session).unwrap(),
+            super::super::super::read(&fixture.database.connection, session)
+                .await
+                .unwrap(),
             expected
         );
     }
-    let third = fixture.queued();
+    let third = fixture.queued().await;
     let events = (0..RECENT_LIMIT + 2)
         .map(|_| observed(&record(third)))
         .chain([response()]);
-    complete(&mut fixture, third, events);
-    let maintenance = fixture.queued();
+    complete(&mut fixture, third, events).await;
+    let maintenance = fixture.queued().await;
     fixture
         .database
         .connection
@@ -257,15 +277,19 @@ fn indexes_visible_rounds_before_limiting_requests() {
             "UPDATE turns SET kind='compaction' WHERE id=?1",
             [maintenance.to_string()],
         )
+        .await
         .unwrap();
     complete(
         &mut fixture,
         maintenance,
         [observed(&record(maintenance)), response()],
-    );
+    )
+    .await;
     // An admitted task without history is not a recorded conversation round.
-    let _pending = fixture.queued();
-    let bounded = super::super::super::read(&fixture.database.connection, source).unwrap();
+    let _pending = fixture.queued().await;
+    let bounded = super::super::super::read(&fixture.database.connection, source)
+        .await
+        .unwrap();
     assert_eq!(bounded.turns, 3);
     assert_eq!(bounded.observations.recent.len(), RECENT_LIMIT);
     assert_eq!(bounded.observations.recent.last().unwrap().turn_index, None);

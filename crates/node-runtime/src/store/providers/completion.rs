@@ -1,14 +1,14 @@
 //! Resolve automatic capabilities without replacing configured limits or choices.
-use super::super::database::storage_error;
-use rusqlite::{Connection, params};
+use super::super::database::record;
 use sailry_protocol::{
     Effort, Event, EventEnvelope, Fault, NodeId,
     conversation::{Model, Provider, catalog, discovery},
 };
+use turso::Connection;
 
-pub(in crate::store) fn fill(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
+pub(in crate::store) async fn fill(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
     crate::providers::search::enable(provider);
-    let cached = super::catalog::status(db)?.revision != 0;
+    let cached = super::catalog::status(db).await?.revision != 0;
     for models in provider.models.chunks_mut(100) {
         let ids = models
             .iter()
@@ -31,7 +31,7 @@ pub(in crate::store) fn fill(db: &Connection, provider: &mut Provider) -> Result
         let mut references = Vec::new();
         if cached {
             loop {
-                let page = super::catalog::page(db, &query)?;
+                let page = super::catalog::page(db, &query).await?;
                 references.extend(page.models);
                 query.revision = Some(page.revision);
                 query.after = page.next;
@@ -95,26 +95,17 @@ fn resolve(
 #[cfg(test)]
 mod tests;
 
-pub(super) fn refresh(db: &Connection, node: NodeId) -> Result<Vec<EventEnvelope>, Fault> {
-    let mut events = Vec::new();
-    for original in super::super::agent::providers::list(db)? {
+pub(super) async fn refresh(db: &Connection, node: NodeId) -> Result<Vec<EventEnvelope>, Fault> {
+    let mut changes = Vec::new();
+    for original in super::super::agent::providers::list(db).await? {
         let mut provider = original.clone();
-        fill(db, &mut provider)?;
+        fill(db, &mut provider).await?;
         if provider == original {
             continue;
         }
-        let provider = super::super::agent::providers::put(db, node, &provider, original.revision)?;
-        let event = Event::ProviderChanged(provider);
-        db.execute(
-            "INSERT INTO events(body) VALUES(?1)",
-            params![super::super::database::encode(&event)?],
-        )
-        .map_err(storage_error)?;
-        events.push(EventEnvelope {
-            node,
-            cursor: db.last_insert_rowid() as u64,
-            event,
-        });
+        let provider =
+            super::super::agent::providers::put(db, node, &provider, original.revision).await?;
+        changes.push(Event::ProviderChanged(provider));
     }
-    Ok(events)
+    record(db, node, changes).await
 }

@@ -32,20 +32,24 @@ impl Ingress {
     }
 }
 
-pub(in crate::store) fn tick(
+pub(in crate::store) async fn tick(
     database: &mut Database,
     events: &broadcast::Sender<protocol::EventEnvelope>,
     recover: bool,
 ) -> Result<Batch, Fault> {
     let timestamp = now();
-    let transaction = database.connection.transaction().map_err(storage_error)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
     let observers = if recover {
-        jobs::observers(&transaction, database.node)?
+        jobs::observers(&transaction, database.node).await?
     } else {
         vec![]
     };
-    let mut changed = schedules::due(&transaction, timestamp)?;
-    let (mut work, owners) = jobs::claim(&transaction, database.node, timestamp)?;
+    let mut changed = schedules::due(&transaction, timestamp).await?;
+    let (mut work, owners) = jobs::claim(&transaction, database.node, timestamp).await?;
     work.extend(observers);
     changed.extend(owners);
     changed.sort();
@@ -53,17 +57,19 @@ pub(in crate::store) fn tick(
     let envelope = if changed.is_empty() {
         None
     } else {
-        Some(changed_event(&transaction, database.node, changed)?)
+        Some(changed_event(&transaction, database.node, changed).await?)
     };
-    let next_ms = schedules::next(&transaction, timestamp)?;
-    let pending = transaction
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status='queued')",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
-    transaction.commit().map_err(storage_error)?;
+    let next_ms = schedules::next(&transaction, timestamp).await?;
+    let pending = {
+        let mut statement = transaction
+            .prepare("SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status='queued')")
+            .await
+            .map_err(storage_error)?;
+        let row = statement.query_row(()).await.map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
+    transaction.commit().await.map_err(storage_error)?;
     if let Some(event) = envelope {
         let _ = events.send(event);
     }
@@ -74,31 +80,32 @@ pub(in crate::store) fn tick(
     })
 }
 
-pub(in crate::store) fn finish(
+pub(in crate::store) async fn finish(
     database: &mut Database,
     id: protocol::JobId,
     result: Result<(), Fault>,
     events: &broadcast::Sender<protocol::EventEnvelope>,
 ) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let package = jobs::finish(&transaction, id, result)?;
-    let event = changed_event(&transaction, database.node, vec![package])?;
-    transaction.commit().map_err(storage_error)?;
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
+        .map_err(storage_error)?;
+    let package = jobs::finish(&transaction, id, result).await?;
+    let event = changed_event(&transaction, database.node, vec![package]).await?;
+    transaction.commit().await.map_err(storage_error)?;
     let _ = events.send(event);
     Ok(())
 }
 
-fn changed_event(
+async fn changed_event(
     db: &Connection,
     node: protocol::NodeId,
     packages: Vec<String>,
 ) -> Result<protocol::EventEnvelope, Fault> {
     let event = protocol::Event::DispatchChanged { packages };
-    db.execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
-        .map_err(storage_error)?;
-    Ok(protocol::EventEnvelope {
-        node,
-        cursor: db.last_insert_rowid() as u64,
-        event,
-    })
+    super::super::database::record(db, node, vec![event])
+        .await?
+        .pop()
+        .ok_or_else(|| storage_error("event was not recorded"))
 }

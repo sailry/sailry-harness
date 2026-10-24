@@ -51,16 +51,28 @@ async fn shares_cas_receipts_and_canonical_events() {
         })
         .await
         .unwrap();
-        let database =
-            rusqlite::Connection::open(fixture.temp.path().join("node/storage/node.sqlite3"))
-                .unwrap();
-        let persisted: i64 = database
-            .query_row(
-                "SELECT count(*) FROM events WHERE cursor=?1",
-                [event.cursor as i64],
-                |row| row.get(0),
-            )
-            .unwrap();
+
+        let persisted: i64 = {
+            let sql = ("SELECT count(*) FROM events WHERE cursor=?1").to_owned();
+            let parameters = turso::params![event.cursor as i64];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::knowledge::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::knowledge::database_fixture::fault)?;
+                        let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        value.map_err(crate::knowledge::database_fixture::fault)
+                    })
+                })
+                .await
+        }
+        .unwrap();
         assert_eq!(persisted, 1);
         let definition = definition(Source::Worktree {
             worktree: fixture.worktree,
@@ -221,20 +233,39 @@ async fn confines_model_lifecycle_to_controller() {
             client.outcome(&request).await.unwrap_err().code,
             ErrorCode::InvalidRequest,
         );
-        let database =
-            rusqlite::Connection::open(fixture.temp.path().join("node/storage/node.sqlite3"))
+
+        let catalog_events = async || {
+            let bodies = fixture
+                .node
+                .with_storage(|db| {
+                    Box::pin(async move {
+                        let mut rows = db
+                            .query("SELECT body FROM events ORDER BY cursor", ())
+                            .await
+                            .map_err(crate::knowledge::database_fixture::fault)?;
+                        let mut bodies = Vec::new();
+                        while let Some(row) = rows
+                            .next()
+                            .await
+                            .map_err(crate::knowledge::database_fixture::fault)?
+                        {
+                            bodies.push(
+                                row.get::<Vec<u8>>(0)
+                                    .map_err(crate::knowledge::database_fixture::fault)?,
+                            );
+                        }
+                        Ok(bodies)
+                    })
+                })
+                .await
                 .unwrap();
-        let catalog_events = || {
-            database
-                .prepare("SELECT body FROM events ORDER BY cursor")
-                .unwrap()
-                .query_map([], |row| row.get::<_, Vec<u8>>(0))
-                .unwrap()
-                .map(|row| serde_json::from_slice::<Event>(&row.unwrap()).unwrap())
+            bodies
+                .into_iter()
+                .map(|body| serde_json::from_slice::<Event>(&body).unwrap())
                 .filter(|event| matches!(event, Event::LocalModelsChanged { .. }))
                 .count()
         };
-        let before = catalog_events();
+        let before = catalog_events().await;
         let request = client.prepare(Command::DeleteLocalModel {
             id: "potion-multi".to_owned(),
         });
@@ -259,7 +290,7 @@ async fn confines_model_lifecycle_to_controller() {
             panic!("models expected")
         };
         assert_eq!(after.models, models);
-        assert_eq!(catalog_events(), before);
+        assert_eq!(catalog_events().await, before);
         execute(
             &client,
             Command::RemovePlugin {

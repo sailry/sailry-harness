@@ -20,7 +20,8 @@ async fn expires_unrefreshable_and_invalid_client_grants() {
                 lifecycle::call(&fixture).await;
                 assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
                 let before: Value =
-                    serde_json::from_slice(&lifecycle::stored(&fixture.node, row.id)).unwrap();
+                    serde_json::from_slice(&lifecycle::stored(&fixture.node, row.id).await)
+                        .unwrap();
                 let credentials: Value =
                     serde_json::from_str(before["grant"]["access"].as_str().unwrap()).unwrap();
                 assert!(credentials["token_response"].is_object());
@@ -48,7 +49,8 @@ async fn expires_unrefreshable_and_invalid_client_grants() {
                 };
                 assert_eq!(rows[0].state, State::Expired, "{remote}/{sse}/{missing}");
                 let after: Value =
-                    serde_json::from_slice(&lifecycle::stored(&fixture.node, row.id)).unwrap();
+                    serde_json::from_slice(&lifecycle::stored(&fixture.node, row.id).await)
+                        .unwrap();
                 assert!(after["grant"].is_null());
                 for field in ["fields", "secrets", "revision", "auth_revision"] {
                     assert_eq!(

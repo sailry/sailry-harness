@@ -1,12 +1,32 @@
 use super::*;
 
-fn events(database: &rusqlite::Connection) -> u64 {
-    database
-        .prepare("SELECT body FROM events ORDER BY cursor")
-        .unwrap()
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))
-        .unwrap()
-        .map(|row| serde_json::from_slice::<Event>(&row.unwrap()).unwrap())
+async fn events(node: &Node) -> u64 {
+    let bodies = node
+        .with_storage(|db| {
+            Box::pin(async move {
+                let mut rows = db
+                    .query("SELECT body FROM events ORDER BY cursor", ())
+                    .await
+                    .map_err(crate::knowledge::database_fixture::fault)?;
+                let mut bodies = Vec::new();
+                while let Some(row) = rows
+                    .next()
+                    .await
+                    .map_err(crate::knowledge::database_fixture::fault)?
+                {
+                    bodies.push(
+                        row.get::<Vec<u8>>(0)
+                            .map_err(crate::knowledge::database_fixture::fault)?,
+                    );
+                }
+                Ok(bodies)
+            })
+        })
+        .await
+        .unwrap();
+    bodies
+        .into_iter()
+        .map(|body| serde_json::from_slice::<Event>(&body).unwrap())
         .filter(|event| matches!(event, Event::KnowledgeCollectionsChanged))
         .count() as u64
 }
@@ -63,10 +83,8 @@ async fn monitors_changes_without_idle_or_build_churn() {
         let first = found(&client, None, "Original", collection.id).await;
         let original = ready(&client, collection.id, 1).await;
         assert_eq!(original.progress.skipped, 0);
-        let database =
-            rusqlite::Connection::open(fixture.temp.path().join("node/storage/node.sqlite3"))
-                .unwrap();
-        let before = events(&database);
+
+        let before = events(&fixture.node).await;
         // A relevant ignore-file event causes an unchanged pass, while build and Git
         // writes must not reset progress or replace any indexed source.
         fs::write(directory.join(".gitignore"), ignores).unwrap();
@@ -90,7 +108,7 @@ async fn monitors_changes_without_idle_or_build_churn() {
             .find(|entry| entry.id == collection.id)
             .unwrap();
         assert_eq!(unchanged.progress, original.progress);
-        assert_eq!(events(&database), before);
+        assert_eq!(events(&fixture.node).await, before);
         let cached = search(&client, None, query("Original", collection.id)).await;
         assert!(!cached.indexing);
         assert_eq!(cached.hits[0].citation, first.hits[0].citation);

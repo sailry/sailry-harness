@@ -3,20 +3,29 @@ use sailry_client::Client;
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
 
-fn counts(db: &rusqlite::Connection) -> (i64, i64) {
-    db.query_row(
-        "SELECT (SELECT count(*) FROM requests), (SELECT count(*) FROM events)",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )
+async fn counts(node: &Node) -> (i64, i64) {
+    node.with_storage(|db| {
+        Box::pin(async move {
+            let row = db
+                .prepare("SELECT (SELECT count(*) FROM requests), (SELECT count(*) FROM events)")
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::database_fixture::fault)?;
+            Ok((
+                row.get(0).map_err(crate::database_fixture::fault)?,
+                row.get(1).map_err(crate::database_fixture::fault)?,
+            ))
+        })
+    })
+    .await
     .unwrap()
 }
 
 #[tokio::test]
 async fn observes_existing_requests() {
     let fixture = Fixture::empty().await;
-    let db =
-        rusqlite::Connection::open(fixture._temp.path().join("node/storage/node.sqlite3")).unwrap();
     let clients = fixture.clients();
     for (index, client) in clients.iter().enumerate() {
         let path = format!("directory-{index}");
@@ -24,17 +33,17 @@ async fn observes_existing_requests() {
             worktree: fixture.worktree,
             path: path.clone(),
         });
-        let before = counts(&db);
+        let before = counts(&fixture.node).await;
         assert_eq!(
             client.outcome(&request).await.unwrap(),
             RequestOutcome::NotAdmitted
         );
         assert!(!fixture.root.join(&path).exists());
-        assert_eq!(counts(&db), before);
+        assert_eq!(counts(&fixture.node).await, before);
         let result = client.execute(request.clone()).await;
         assert!(result.is_ok());
         std::fs::remove_dir(fixture.root.join(&path)).unwrap();
-        let before = counts(&db);
+        let before = counts(&fixture.node).await;
         assert_eq!(
             client.outcome(&request).await.unwrap(),
             RequestOutcome::Completed(Box::new(result)),
@@ -85,7 +94,7 @@ async fn observes_existing_requests() {
                 .code,
             ErrorCode::InvalidRequest,
         );
-        assert_eq!(counts(&db), before);
+        assert_eq!(counts(&fixture.node).await, before);
 
         let failed = client.prepare(Command::CreateDirectory {
             worktree: WorktreeId::new(),
@@ -98,15 +107,12 @@ async fn observes_existing_requests() {
             RequestOutcome::Completed(Box::new(result)),
         );
     }
-    drop(db);
     fixture.close().await;
 }
 
 #[tokio::test]
 async fn matches_private_content() {
     let fixture = Fixture::empty().await;
-    let db =
-        rusqlite::Connection::open(fixture._temp.path().join("node/storage/node.sqlite3")).unwrap();
     let marker = "isolated-outcome-test-private-content";
     for (index, client) in fixture.clients().iter().enumerate() {
         let commands = [
@@ -128,16 +134,26 @@ async fn matches_private_content() {
             let mut request = client.prepare(command);
             let result = client.execute(request.clone()).await;
             assert!(result.is_ok());
-            let before = counts(&db);
+            let before = counts(&fixture.node).await;
             let outcome = client.outcome(&request).await.unwrap();
             assert_eq!(outcome, RequestOutcome::Completed(Box::new(result)));
             assert!(!serde_json::to_string(&outcome).unwrap().contains(marker));
-            let body: Vec<u8> = db
-                .query_row(
-                    "SELECT body FROM requests WHERE id=?1",
-                    [request.id.to_string()],
-                    |row| row.get(0),
-                )
+            let id = request.id;
+            let body: Vec<u8> = fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.prepare("SELECT body FROM requests WHERE id=?1")
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row([id.to_string()])
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .get(0)
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
                 .unwrap();
             let body = String::from_utf8(body).unwrap();
             assert!(body.starts_with("file-v1:") || body.starts_with("credential-v1:"));
@@ -151,18 +167,15 @@ async fn matches_private_content() {
                 client.outcome(&request).await.unwrap_err().code,
                 ErrorCode::Conflict
             );
-            assert_eq!(counts(&db), before);
+            assert_eq!(counts(&fixture.node).await, before);
         }
     }
-    drop(db);
     fixture.close().await;
 }
 
 #[tokio::test]
 async fn survives_result_loss_and_restart() {
     let fixture = Fixture::empty().await;
-    let db =
-        rusqlite::Connection::open(fixture._temp.path().join("node/storage/node.sqlite3")).unwrap();
     let mut pending = Vec::new();
     for (index, client) in fixture.clients().iter().enumerate() {
         let completed = client.prepare(Command::CreateDirectory {
@@ -170,7 +183,9 @@ async fn survives_result_loss_and_restart() {
             path: format!("completed-{index}"),
         });
         let result = client.execute(completed.clone()).await.unwrap();
-        db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+        fixture.node.with_storage(|db| Box::pin(async move {
+            db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").await.map_err(crate::database_fixture::fault)
+        })).await.unwrap();
         let path = format!("uncertain-{index}");
         let request = client.prepare(Command::WriteFile {
             worktree: fixture.worktree,
@@ -192,7 +207,17 @@ async fn survives_result_loss_and_restart() {
             RequestOutcome::Admitted
         );
         std::fs::write(fixture.root.join(&path), "external replacement").unwrap();
-        db.execute_batch("DROP TRIGGER lose_result").unwrap();
+        fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    db.execute_batch("DROP TRIGGER lose_result")
+                        .await
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+            .unwrap();
         pending.push((completed, result, request, path));
     }
     fixture.node.shutdown().await.unwrap();
@@ -203,7 +228,7 @@ async fn survives_result_loss_and_restart() {
         Client::new(node.local()),
         Client::new(fixture.controller.handle().remote(node.link().address())),
     ];
-    let before = counts(&db);
+    let before = counts(&node).await;
     for (client, (completed, result, request, path)) in clients.iter().zip(pending) {
         assert_eq!(
             client.outcome(&request).await.unwrap(),
@@ -218,8 +243,7 @@ async fn survives_result_loss_and_restart() {
             b"external replacement"
         );
     }
-    assert_eq!(counts(&db), before);
-    drop(db);
+    assert_eq!(counts(&node).await, before);
     fixture.controller.close().await.unwrap();
     node.shutdown().await.unwrap();
 }

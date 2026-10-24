@@ -118,7 +118,7 @@ impl Ingress {
     }
 }
 
-pub(super) fn capture(
+pub(super) async fn capture(
     database: &mut Database,
     turn: TurnId,
     request: &Request,
@@ -187,16 +187,18 @@ pub(super) fn capture(
         }
         _ => return Err(Fault::invalid("file checkpoint requires a write or edit")),
     };
-    let run = calls::active(&database.connection, turn)?;
-    let session = super::super::commands::session(&database.connection, run.session)?;
+    let run = calls::active(&database.connection, turn).await?;
+    let session = super::super::commands::session(&database.connection, run.session).await?;
     if session.worktree != worktree {
         return Err(Fault::new(
             ErrorCode::WrongTarget,
             "file checkpoint belongs to another worktree",
         ));
     }
-    let root = database.worktree_root(worktree)?;
-    database.validate_relocation(&[(root, path.to_owned())])?;
+    let root = database.worktree_root(worktree).await?;
+    database
+        .validate_relocation(&[(root, path.to_owned())])
+        .await?;
     if text.len() > limit
         || text.contains('\0')
         || before.is_some_and(|text| text.len() > limit || text.contains('\0'))
@@ -212,15 +214,28 @@ pub(super) fn capture(
             "file checkpoint revision does not match",
         ));
     }
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let body: Option<Vec<u8>> = transaction
-        .query_row(
-            "SELECT body FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1",
-            params![turn.to_string(), request.id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
+    let transaction = database
+        .connection
+        .unchecked_transaction()
+        .await
         .map_err(storage_error)?;
+    let body: Option<Vec<u8>> = {
+        let mut statement = transaction
+            .prepare("SELECT body FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1")
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![turn.to_string(), request.id.to_string()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let approval: Approval = serde_json::from_slice(&body.ok_or_else(|| {
         Fault::new(
             ErrorCode::PermissionDenied,
@@ -228,14 +243,14 @@ pub(super) fn capture(
         )
     })?)
     .map_err(storage_error)?;
-    let event = event(&transaction, &approval)?;
+    let event = event(&transaction, &approval).await?;
     let valid = match event
         .content()
         .and_then(|content| content.parts.get(approval.index))
     {
         Some(adk_core::Part::FunctionCall { name, .. }) => {
             if let Some(context) = &request.plugin {
-                let package = super::plugins::package(&transaction, context)?;
+                let package = super::plugins::package(&transaction, context).await?;
                 // The trusted handler may prepare arguments from the exact claimed call.
                 // Retain the resulting request digest, with the same frozen package and scope.
                 context.turn == Some(turn)
@@ -262,14 +277,21 @@ pub(super) fn capture(
         digest: blake3::hash(&encode(request)?).to_hex().to_string(),
     };
     let encoded = encode(&record)?;
-    let previous: Option<(Vec<u8>, Option<String>, String)> = transaction
-        .query_row(
-            "SELECT body,before_text,after_text FROM file_checkpoints WHERE approval=?1",
-            [approval.id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let previous: Option<(Vec<u8>, Option<String>, String)> = {
+        let mut statement = transaction
+            .prepare("SELECT body,before_text,after_text FROM file_checkpoints WHERE approval=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([approval.id.to_string()]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     if let Some((stored, content, after)) = previous {
         if stored != encoded || content.as_deref() != before || after != text.as_ref() {
             return Err(Fault::new(
@@ -279,11 +301,11 @@ pub(super) fn capture(
         }
     } else {
         transaction.execute(
-            "INSERT INTO file_checkpoints(id,turn,approval,body,before_text,after_text) VALUES(?1,?2,?3,?4,?5,?6)",
-            params![CheckpointId::new().to_string(), turn.to_string(), approval.id.to_string(), encoded, before, text.as_ref()],
-        ).map_err(storage_error)?;
+            "INSERT INTO file_checkpoints(id,turn,approval,body,before_text,after_text,rowid) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![CheckpointId::new().to_string(), turn.to_string(), approval.id.to_string(), encoded, before, text.as_ref(), crate::store::database::counters::next(&transaction, crate::store::database::counters::Namespace::Checkpoints).await? as i64],
+        ).await.map_err(storage_error)?;
     }
-    transaction.commit().map_err(storage_error)
+    transaction.commit().await.map_err(storage_error)
 }
 
 fn version(text: &str) -> checkpoint::Version {
@@ -293,13 +315,18 @@ fn version(text: &str) -> checkpoint::Version {
     }
 }
 
-fn event(db: &Connection, approval: &Approval) -> Result<AdkEvent, Fault> {
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![approval.turn.to_string(), approval.entry],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+async fn event(db: &Connection, approval: &Approval) -> Result<AdkEvent, Fault> {
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![approval.turn.to_string(), approval.entry.as_str()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     serde_json::from_slice(&body).map_err(storage_error)
 }

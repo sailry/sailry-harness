@@ -1,19 +1,28 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub(super) fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
-    let db = rusqlite::Connection::open_with_flags(
-        fixture.node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
+pub(super) async fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
+    let body: Vec<u8> = {
+        let sql = ("SELECT provider FROM agent_runs WHERE turn=?1").to_owned();
+        let parameters = turso::params![turn.id.to_string()];
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let row = db
+                        .prepare(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(parameters)
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    value.map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
+    }
     .unwrap();
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT provider FROM agent_runs WHERE turn=?1",
-            [turn.id.to_string()],
-            |row| row.get(0),
-        )
-        .unwrap();
     serde_json::from_slice(&body).unwrap()
 }
 
@@ -67,7 +76,7 @@ async fn retains_capture_through_refresh() {
         else {
             panic!("queued turn expected")
         };
-        assert_eq!(captured(&fixture, &turn).oauth, Some(initial.clone()));
+        assert_eq!(captured(&fixture, &turn).await.oauth, Some(initial.clone()));
         let mut changed = provider.clone();
         changed.oauth = Some(current.clone());
         let Output::Provider(changed) = fixture
@@ -82,7 +91,7 @@ async fn retains_capture_through_refresh() {
             panic!("provider expected")
         };
         let fixture = super::super::execution::renewals::restart(fixture, &server, remote).await;
-        assert_eq!(captured(&fixture, &turn).oauth, Some(initial));
+        assert_eq!(captured(&fixture, &turn).await.oauth, Some(initial));
         assert_eq!(saved(&fixture.client, provider.id).await, changed);
         fixture
             .client
@@ -121,18 +130,28 @@ async fn retains_capture_through_refresh() {
         assert_eq!(exchanges.load(Ordering::SeqCst), 2);
         phase.store(1, Ordering::SeqCst);
         let fixture = super::super::execution::renewals::restart(fixture, &server, remote).await;
-        let db = rusqlite::Connection::open_with_flags(
-            fixture.node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
+
+        let stored: Vec<u8> = {
+            let sql = ("SELECT body FROM providers WHERE id=?1").to_owned();
+            let parameters = turso::params![provider.id.to_string()];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        let value: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                        value.map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
         .unwrap();
-        let stored: Vec<u8> = db
-            .query_row(
-                "SELECT body FROM providers WHERE id=?1",
-                [provider.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
         let stored: serde_json::Value = serde_json::from_slice(&stored).unwrap();
         let reference = provider.credential.as_ref().unwrap();
         let grant: serde_json::Value = serde_json::from_str(
@@ -143,11 +162,11 @@ async fn retains_capture_through_refresh() {
         .unwrap();
         assert_eq!(grant["refresh"], ROTATED);
         assert_eq!(grant["access"], REFRESHED);
-        drop(db);
+
         let (_, next) = super::super::execution::submit(&fixture.client, &session).await;
         let page =
             super::super::execution::finished(&fixture.client, &next, Status::Completed).await;
-        assert_eq!(captured(&fixture, &next).oauth, Some(current));
+        assert_eq!(captured(&fixture, &next).await.oauth, Some(current));
         assert_eq!(answer(&page, next.id), "Authorized Codex response");
         assert_eq!(exchanges.load(Ordering::SeqCst), 2);
         {
@@ -235,7 +254,7 @@ async fn switches_accounts_without_rewriting_captures() {
             else {
                 panic!("queued turn expected")
             };
-            let frozen = captured(&fixture, &queued);
+            let frozen = captured(&fixture, &queued).await;
             let Output::Credentials(original) = fixture
                 .client
                 .execute(fixture.client.prepare(Command::ListCredentials))
@@ -308,7 +327,7 @@ async fn switches_accounts_without_rewriting_captures() {
                     "fixture"
                 }
             );
-            assert_eq!(captured(&fixture, &queued), frozen);
+            assert_eq!(captured(&fixture, &queued).await, frozen);
             let Output::QueuedTurn(retained) = fixture
                 .client
                 .execute(fixture.client.prepare(Command::ReadTurnCapture {
@@ -390,12 +409,15 @@ async fn switches_accounts_without_rewriting_captures() {
                 super::super::execution::finished(&fixture.client, &next, Status::Completed).await;
             assert_eq!(answer(&page, next.id), "Account B response");
             assert_eq!(answer(&page, queued.id), "Account A response");
-            assert_eq!(captured(&fixture, &next).credential, replaced.credential);
-            assert_eq!(captured(&fixture, &queued), frozen);
+            assert_eq!(
+                captured(&fixture, &next).await.credential,
+                replaced.credential
+            );
+            assert_eq!(captured(&fixture, &queued).await, frozen);
             let fixture =
                 super::super::execution::renewals::restart(fixture, &server, remote).await;
             assert_eq!(saved(&fixture.client, provider.id).await, replaced);
-            assert_eq!(captured(&fixture, &queued), frozen);
+            assert_eq!(captured(&fixture, &queued).await, frozen);
             assert_eq!(
                 server
                     .requests
@@ -433,34 +455,51 @@ async fn preserves_unsettled_authorizations_on_relogin() {
             panic!("queued turn expected")
         };
         let reference = provider.credential.as_ref().unwrap();
-        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-            .unwrap();
-        let read = |db: &rusqlite::Connection| -> serde_json::Value {
-            let body: Vec<u8> = db
-                .query_row(
-                    "SELECT body FROM providers WHERE id=?1",
-                    [provider.id.to_string()],
-                    |row| row.get(0),
-                )
+
+        async fn read(node: &Node, id: ProviderId) -> serde_json::Value {
+            let body: Vec<u8> = node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.prepare("SELECT body FROM providers WHERE id=?1")
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row([id.to_string()])
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .get(0)
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
                 .unwrap();
             serde_json::from_slice(&body).unwrap()
-        };
-        let mut stored = read(&db);
+        }
+        let mut stored = read(&fixture.node, provider.id).await;
         let authorization = &mut stored["authorizations"][reference.id.to_string()];
         let mut grant: serde_json::Value =
             serde_json::from_str(authorization["key"].as_str().unwrap()).unwrap();
         grant["renewal_pending"] = json!(true);
         authorization["key"] = json!(grant.to_string());
         let original = authorization.clone();
-        db.execute(
-            "UPDATE providers SET body=?1 WHERE id=?2",
-            rusqlite::params![
+        {
+            let sql = ("UPDATE providers SET body=?1 WHERE id=?2").to_owned();
+            let parameters = turso::params![
                 serde_json::to_vec(&stored).unwrap(),
                 provider.id.to_string()
-            ],
-        )
+            ];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        db.execute(sql, parameters)
+                            .await
+                            .map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
         .unwrap();
-        drop(db);
+
         let fixture = super::super::execution::renewals::restart(fixture, &server, remote).await;
         let (_, attempt) = start(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -469,12 +508,8 @@ async fn preserves_unsettled_authorizations_on_relogin() {
         assert_eq!(update.model_error, None);
         let current = saved(&fixture.client, provider.id).await;
         assert_ne!(current.credential, provider.credential);
-        let db = rusqlite::Connection::open_with_flags(
-            fixture.node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let stored = read(&db);
+
+        let stored = read(&fixture.node, provider.id).await;
         assert_eq!(stored["authorizations"][reference.id.to_string()], original);
         let current_grant: serde_json::Value = serde_json::from_str(
             stored["authorizations"][current.credential.as_ref().unwrap().id.to_string()]["key"]
@@ -483,7 +518,10 @@ async fn preserves_unsettled_authorizations_on_relogin() {
         )
         .unwrap();
         assert_eq!(current_grant["renewal_pending"], false);
-        assert_eq!(captured(&fixture, &queued).credential, provider.credential);
+        assert_eq!(
+            captured(&fixture, &queued).await.credential,
+            provider.credential
+        );
         let Output::QueuedTurn(retained) = fixture
             .client
             .execute(fixture.client.prepare(Command::ReadTurnCapture {
@@ -496,7 +534,7 @@ async fn preserves_unsettled_authorizations_on_relogin() {
             panic!("capture expected")
         };
         assert_eq!(retained, queued);
-        drop(db);
+
         fixture.close().await;
     }
 }

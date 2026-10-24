@@ -12,7 +12,9 @@ async fn queues_edits_without_cancelling_current_pass() {
     let stop = CancellationToken::new();
     let owner = Arc::new(Service {
         models,
-        path: directory.path().join("knowledge.db"),
+        index: Index::open(&directory.path().join("knowledge.turso"))
+            .await
+            .unwrap(),
         ingress: Weak::new(),
         wake: sender,
         cancel: Mutex::new(stop.child_token()),

@@ -2,13 +2,16 @@ use super::*;
 use crate::store::agent::tests::fixture::Fixture;
 use serde_json::json;
 
-fn request(
+async fn request(
     fixture: &mut Fixture,
     worktree: Option<WorktreeId>,
 ) -> (TurnId, ToolConfirmationRequest) {
-    let turn = fixture.queued();
-    runs::start(&fixture.database.connection, turn).unwrap();
+    let turn = fixture.queued().await;
+    runs::start(&fixture.database.connection, turn)
+        .await
+        .unwrap();
     runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     let request = ToolConfirmationRequest {
@@ -36,11 +39,12 @@ fn request(
         event,
         &fixture.events,
     )
+    .await
     .unwrap();
     (turn, request)
 }
 
-fn tree(fixture: &Fixture, project: Option<ProjectId>, path: &std::path::Path) -> WorktreeId {
+async fn tree(fixture: &Fixture, project: Option<ProjectId>, path: &std::path::Path) -> WorktreeId {
     let id = WorktreeId::new();
     crate::store::worktrees::register(
         &fixture.database.connection,
@@ -51,26 +55,28 @@ fn tree(fixture: &Fixture, project: Option<ProjectId>, path: &std::path::Path) -
             main: false,
         },
     )
+    .await
     .unwrap();
     id
 }
 
-#[test]
-fn rejects_foreign_or_missing_targets() {
+#[tokio::test]
+async fn rejects_foreign_or_missing_targets() {
     for foreign in [false, true] {
-        let mut fixture = Fixture::new();
+        let mut fixture = Fixture::new().await;
         crate::store::agent::tests::fixture::package(
             &fixture.database,
             fixture._root.path(),
             "delegation",
-        );
+        )
+        .await;
         let dir = tempfile::tempdir().unwrap();
         let target = if foreign {
-            tree(&fixture, None, dir.path())
+            tree(&fixture, None, dir.path()).await
         } else {
             WorktreeId::new()
         };
-        let (turn, request) = request(&mut fixture, Some(target));
+        let (turn, request) = request(&mut fixture, Some(target)).await;
         assert!(
             admit(
                 &mut fixture.database,
@@ -80,35 +86,46 @@ fn rejects_foreign_or_missing_targets() {
                 None,
                 &fixture.events
             )
+            .await
             .is_err()
         );
-        let count: i64 = fixture
-            .database
-            .connection
-            .query_row("SELECT COUNT(*) FROM agent_delegations", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
+        let count: i64 = (async {
+            let mut statement = fixture
+                .database
+                .connection
+                .prepare("SELECT COUNT(*) FROM agent_delegations")
+                .await?;
+            let row = statement.query_row(()).await?;
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+            mapped
+        })
+        .await
+        .unwrap();
         assert_eq!(count, 0);
     }
 }
 
-#[test]
-fn inherits_frozen_location() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn inherits_frozen_location() {
+    let mut fixture = Fixture::new().await;
     crate::store::agent::tests::fixture::package(
         &fixture.database,
         fixture._root.path(),
         "delegation",
-    );
+    )
+    .await;
     let mut session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+        crate::store::commands::session(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
     let original = session.worktree;
     let dir = tempfile::tempdir().unwrap();
-    let target = tree(&fixture, session.project, dir.path());
-    let (turn, request) = request(&mut fixture, None);
+    let target = tree(&fixture, session.project, dir.path()).await;
+    let (turn, request) = request(&mut fixture, None).await;
     session.worktree = target;
-    crate::store::commands::revise_session(&fixture.database.connection, session).unwrap();
+    crate::store::commands::revise_session(&fixture.database.connection, session)
+        .await
+        .unwrap();
     let child = admit(
         &mut fixture.database,
         turn,
@@ -117,23 +134,26 @@ fn inherits_frozen_location() {
         None,
         &fixture.events,
     )
+    .await
     .unwrap();
     assert_eq!(child.worktree, original);
 }
 
-#[test]
-fn rejects_rebased_input_and_removal() {
-    let mut fixture = Fixture::new();
+#[tokio::test]
+async fn rejects_rebased_input_and_removal() {
+    let mut fixture = Fixture::new().await;
     crate::store::agent::tests::fixture::package(
         &fixture.database,
         fixture._root.path(),
         "delegation",
-    );
-    let session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    )
+    .await;
+    let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let target = tree(&fixture, session.project, dir.path());
-    let (turn, request) = request(&mut fixture, Some(target));
+    let target = tree(&fixture, session.project, dir.path()).await;
+    let (turn, request) = request(&mut fixture, Some(target)).await;
     assert!(
         admit(
             &mut fixture.database,
@@ -143,6 +163,7 @@ fn rejects_rebased_input_and_removal() {
             Some("Selected input".into()),
             &fixture.events
         )
+        .await
         .is_err()
     );
     let removing = Request::new(
@@ -158,6 +179,7 @@ fn rejects_rebased_input_and_removal() {
         fixture
             .database
             .dispatch(fixture.database.node, removing, reply, &fixture.events)
+            .await
             .is_some()
     );
     assert_eq!(
@@ -169,6 +191,7 @@ fn rejects_rebased_input_and_removal() {
             None,
             &fixture.events
         )
+        .await
         .err()
         .unwrap()
         .code,

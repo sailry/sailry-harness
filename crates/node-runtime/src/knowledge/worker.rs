@@ -9,7 +9,7 @@ mod watches;
 pub(super) fn run(
     owner: Weak<Service>,
     receiver: mpsc::Receiver<()>,
-    mut index: Index,
+    index: Index,
     runtime: tokio::runtime::Handle,
 ) {
     sailry_embedding::background();
@@ -26,7 +26,7 @@ pub(super) fn run(
             .lock()
             .expect("knowledge cancellation lock is healthy")
             .clone();
-        let result = pass(&service, &mut index, &runtime, &mut watches, &cancel);
+        let result = pass(&service, &index, &runtime, &mut watches, &cancel);
         if result.is_err() {
             watches.finish(false);
         }
@@ -69,7 +69,7 @@ fn wake(receiver: &mpsc::Receiver<()>, poll: bool) -> bool {
 
 fn pass(
     service: &Arc<Service>,
-    index: &mut Index,
+    index: &Index,
     runtime: &tokio::runtime::Handle,
     watches: &mut watches::Watches,
     cancel: &CancellationToken,
@@ -98,7 +98,7 @@ fn pass(
         .iter()
         .map(|stored| stored.collection.id)
         .collect::<Vec<_>>();
-    index.retain(&current)?;
+    runtime.block_on(index.retain(&current))?;
     let mut complete = true;
     let batch = Batch {
         service,
@@ -117,8 +117,8 @@ fn pass(
                 "knowledge indexing paused for {}: {}",
                 stored.collection.id, error.message
             );
-            let (sources, chunks) = index
-                .counts(&service.models.binding(stored, &choice))
+            let (sources, chunks) = runtime
+                .block_on(index.counts(&service.models.binding(stored, &choice)))
                 .unwrap_or_default();
             let progress = Progress {
                 status: Status::Paused,
@@ -152,7 +152,7 @@ struct Batch<'a> {
 
 fn collection(
     batch: &Batch<'_>,
-    index: &mut Index,
+    index: &Index,
     stored: &Stored,
     watches: &mut watches::Watches,
 ) -> Result<(), Fault> {
@@ -165,9 +165,9 @@ fn collection(
         runtime,
     } = *batch;
     let binding = service.models.binding(stored, choice);
-    index.bind(&binding)?;
+    runtime.block_on(index.bind(&binding))?;
     if stored.collection.paused {
-        let (sources, chunks) = index.counts(&binding)?;
+        let (sources, chunks) = runtime.block_on(index.counts(&binding))?;
         let progress = Progress {
             status: Status::Paused,
             sources,
@@ -243,7 +243,7 @@ fn collection(
                     };
                     progress.sources += 1;
                     locators.push(document.locator.clone());
-                    if !index.unchanged(&binding, &document)? {
+                    if !runtime.block_on(index.unchanged(&binding, &document))? {
                         starting(batch, &binding, &progress, &mut active)?;
                         let parts = encoding.parts(
                             &record.title,
@@ -262,7 +262,7 @@ fn collection(
                                 "knowledge storage source changed",
                             ));
                         }
-                        index.replace(&binding, &document, &parts)?;
+                        runtime.block_on(index.replace(&binding, &document, &parts))?;
                     }
                     progress.completed += 1;
                 }
@@ -301,13 +301,13 @@ fn collection(
                         if !matches(path) {
                             return Ok(true);
                         }
-                        let cached = index.cached(
+                        let cached = runtime.block_on(index.cached(
                             &binding,
                             path,
                             stat,
                             &stored.collection.definition.tags,
                             available.is_some(),
-                        )?;
+                        ))?;
                         if !cached {
                             starting(batch, &binding, &progress, &mut active)?;
                         }
@@ -349,7 +349,7 @@ fn collection(
                             embedded: available.is_some(),
                             tags: stored.collection.definition.tags.clone(),
                         };
-                        if !index.unchanged(&binding, &indexed)? {
+                        if !runtime.block_on(index.unchanged(&binding, &indexed))? {
                             starting(batch, &binding, &progress, &mut active)?;
                             let mut parts = Vec::new();
                             for part in &document.parts {
@@ -380,14 +380,18 @@ fn collection(
                                     "knowledge worktree moved",
                                 ));
                             }
-                            index.replace(&binding, &indexed, &parts)?;
+                            runtime.block_on(index.replace(&binding, &indexed, &parts))?;
                         }
-                        index.remember(&binding, &document.path, document.stat)?;
+                        runtime.block_on(index.remember(
+                            &binding,
+                            &document.path,
+                            document.stat,
+                        ))?;
                         progress.completed += 1;
                     }
                 }
                 if active && last_progress.elapsed() >= Duration::from_millis(500) {
-                    progress.chunks = index.counts(&binding)?.1;
+                    progress.chunks = runtime.block_on(index.counts(&binding))?.1;
                     runtime.block_on(ingress.knowledge_progress(
                         binding.id,
                         binding.generation,
@@ -405,8 +409,8 @@ fn collection(
         }
     }
     cancelled(cancel)?;
-    index.prune(&binding, &locators)?;
-    (progress.sources, progress.chunks) = index.counts(&binding)?;
+    runtime.block_on(index.prune(&binding, &locators))?;
+    (progress.sources, progress.chunks) = runtime.block_on(index.counts(&binding))?;
     progress.completed = progress.sources;
     progress.status = Status::Ready;
     runtime.block_on(ingress.knowledge_progress(binding.id, binding.generation, &progress))?;

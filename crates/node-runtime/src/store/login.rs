@@ -105,7 +105,7 @@ impl Worker {
         }
     }
 
-    pub fn execute(
+    pub async fn execute(
         &mut self,
         database: &mut Database,
         operation: Operation,
@@ -117,11 +117,13 @@ impl Worker {
             reply,
         } = operation;
         if matches!(request.command, Command::ProbeConnection { .. }) {
-            self.probe_connector(database, caller, request, reply, events);
+            self.probe_connector(database, caller, request, reply, events)
+                .await;
             return;
         }
         if matches!(request.command, Command::InspectConnectorCli { .. }) {
-            self.inspect_connector(database, caller, request, reply, events);
+            self.inspect_connector(database, caller, request, reply, events)
+                .await;
             return;
         }
         let result = match request.command {
@@ -129,21 +131,28 @@ impl Worker {
             | Command::SubmitConnectorInput { .. }
             | Command::CancelConnectorLogin { .. } => {
                 self.connector_command(database, caller, &request, events)
+                    .await
             }
-            Command::BeginProviderLogin { .. } => self.begin(database, caller, &request, events),
+            Command::BeginProviderLogin { .. } => {
+                self.begin(database, caller, &request, events).await
+            }
             Command::CompleteProviderLogin {
                 attempt,
                 ref callback,
-            } => self.complete(database, caller, &request, attempt, callback, events),
+            } => {
+                self.complete(database, caller, &request, attempt, callback, events)
+                    .await
+            }
             Command::CancelProviderLogin { attempt } => {
                 self.cancel(database, caller, &request, attempt, events)
+                    .await
             }
             _ => unreachable!(),
         };
         let _ = reply.send(result);
     }
 
-    fn begin(
+    async fn begin(
         &mut self,
         database: &mut Database,
         caller: NodeId,
@@ -158,12 +167,13 @@ impl Worker {
         else {
             unreachable!()
         };
-        let prepared = (|| {
+        let prepared = (async || {
             if self.closed.is_cancelled() {
                 return Err(super::unavailable());
             }
             let provider =
-                super::providers::current(&database.connection, provider, expected_revision)?;
+                super::providers::current(&database.connection, provider, expected_revision)
+                    .await?;
             crate::providers::login::validate(&provider)?;
             if provider.authentication == Authentication::ApiKey {
                 return Err(Fault::invalid(
@@ -186,64 +196,85 @@ impl Worker {
                     "provider authorization is already active or capacity is exhausted",
                 ));
             }
-            let credential = provider
-                .credential
-                .as_ref()
-                .map(|reference| {
-                    super::providers::authentication::get(&database.connection, reference.id)
-                })
-                .transpose()?
-                .flatten();
-            let plugin = model_auth::managed(provider.authentication)
-                .then(|| {
+            let credential = (match provider.credential.as_ref() {
+                Some(value) => Some(
+                    (async |reference: &CredentialRef| {
+                        super::providers::authentication::get(&database.connection, reference.id)
+                            .await
+                    })(value)
+                    .await,
+                ),
+                None => None,
+            })
+            .transpose()?
+            .flatten();
+            let plugin = if model_auth::managed(provider.authentication) {
+                Some(
                     model_auth::prepare(
                         &database.connection,
                         &provider,
                         request.id,
                         redirect.as_deref(),
                     )
-                })
-                .transpose()?;
+                    .await?,
+                )
+            } else {
+                None
+            };
             let options = match &plugin {
                 Some(plugin) => plugin.configuration.options.clone(),
                 None => crate::providers::login::effective(&provider)?,
             };
-            let context = plugin
-                .as_ref()
-                .map(|plugin| {
-                    registration::prepare(
-                        database,
-                        &provider,
-                        credential.as_ref(),
-                        &plugin.configuration.target,
-                    )
-                })
-                .transpose()?;
+            let context = (match plugin.as_ref() {
+                Some(value) => Some(
+                    (async |plugin: &model_auth::Prepared| {
+                        registration::prepare(
+                            database,
+                            &provider,
+                            credential.as_ref(),
+                            &plugin.configuration.target,
+                        )
+                        .await
+                    })(value)
+                    .await,
+                ),
+                None => None,
+            })
+            .transpose()?;
             let adapter = if provider.api == sailry_protocol::conversation::ModelApi::Plugin {
                 let mut captured = provider.clone();
-                super::providers::presets::capture_read(&database.connection, &mut captured)?;
+                super::providers::presets::capture_read(&database.connection, &mut captured)
+                    .await?;
                 let declaration =
-                    super::providers::adapters::read(&database.connection, &captured, false)?;
+                    super::providers::adapters::read(&database.connection, &captured, false)
+                        .await?;
                 Some((captured, declaration))
             } else {
                 None
             };
             Ok((provider, credential, options, context, plugin, adapter))
-        })();
+        })()
+        .await;
         let (provider, credential, options, context, mut plugin, adapter) = match prepared {
             Ok(value) => value,
-            Err(error) => return database.finish_external(caller, request, Err(error), events),
+            Err(error) => {
+                return database
+                    .finish_external(caller, request, Err(error), events)
+                    .await;
+            }
         };
         let attempt = login::Attempt {
             id: request.id,
             provider: provider.id,
         };
-        let output = database.finish_external(
-            caller,
-            request,
-            Ok(Output::ProviderLogin(attempt.clone())),
-            events,
-        )?;
+        let output = database
+            .finish_external(
+                caller,
+                request,
+                Ok(Output::ProviderLogin(attempt.clone())),
+                events,
+            )
+            .await?;
         // Persist the attempt identifier before starting HTTP. Receipt recovery never creates a second login.
         while self.entries.len() >= 32 {
             let Some(key) = self
@@ -389,7 +420,7 @@ impl Worker {
         Ok(output)
     }
 
-    fn complete(
+    async fn complete(
         &mut self,
         database: &mut Database,
         caller: NodeId,
@@ -420,7 +451,9 @@ impl Worker {
                     entry.updates.borrow().attempt.clone(),
                 ))
             });
-        let output = database.finish_external(caller, request, result, events)?;
+        let output = database
+            .finish_external(caller, request, result, events)
+            .await?;
         if let Some(entry) = self.entries.get_mut(&(caller, id))
             && let Some(sender) = entry.callback.take()
         {
@@ -430,7 +463,7 @@ impl Worker {
         Ok(output)
     }
 
-    fn cancel(
+    async fn cancel(
         &mut self,
         database: &mut Database,
         caller: NodeId,
@@ -454,7 +487,9 @@ impl Worker {
                     ))
                 }
             });
-        let output = database.finish_external(caller, request, output, events)?;
+        let output = database
+            .finish_external(caller, request, output, events)
+            .await?;
         if let Some(entry) = self.entries.get_mut(&(caller, id)) {
             entry.stop.cancel();
             entry.callback.take();
@@ -463,36 +498,39 @@ impl Worker {
         Ok(output)
     }
 
-    pub fn progress(
+    pub async fn progress(
         &mut self,
         database: &mut Database,
         progress: Progress,
         events: &broadcast::Sender<EventEnvelope>,
     ) {
         match progress {
-            Progress::Connector(progress) => self.connector_progress(database, *progress, events),
+            Progress::Connector(progress) => {
+                self.connector_progress(database, *progress, events).await
+            }
             Progress::Registered {
                 caller,
                 id,
                 client_id,
                 reply,
             } => {
-                let result = self.entries.get(&(caller, id)).ok_or_else(missing).and_then(|entry| {
+                let result = async {
+                    let entry = self.entries.get(&(caller, id)).ok_or_else(missing)?;
                     if entry.stop.is_cancelled() {
                         return Err(Fault::new(ErrorCode::Cancelled, "provider authorization was cancelled"));
                     }
                     if let Some(capture) = &entry.plugin {
-                        model_auth::complete(&database.connection, &entry.provider, capture)?;
+                        model_auth::complete(&database.connection, &entry.provider, capture).await?;
                     }
                     database.connection.execute(
                         "INSERT INTO oauth_registrations(provider,client_id) VALUES(?1,?2) ON CONFLICT(provider) DO UPDATE SET client_id=excluded.client_id",
-                        rusqlite::params![entry.provider.id.to_string(), client_id],
-                    ).map(|_| ()).map_err(super::database::storage_error)
-                });
+                        turso::params![entry.provider.id.to_string(), client_id],
+                    ).await.map(|_| ()).map_err(super::database::storage_error)
+                }.await;
                 let _ = reply.send(result);
             }
             Progress::Renewed { id, result } => {
-                if self.renewals.finish(database, id, result, events) {
+                if self.renewals.finish(database, id, result, events).await {
                     self.pending -= 1;
                 }
             }
@@ -522,20 +560,32 @@ impl Worker {
                     return;
                 }
                 let mut stage = "authorization";
-                let result = result.and_then(|authorized| {
-                    if let Some(capture) = &entry.plugin {
-                        stage = "capture";
-                        model_auth::complete(&database.connection, &entry.provider, capture)?;
+                let result = match result {
+                    Ok(authorized) => {
+                        async {
+                            if let Some(capture) = &entry.plugin {
+                                stage = "capture";
+                                model_auth::complete(
+                                    &database.connection,
+                                    &entry.provider,
+                                    capture,
+                                )
+                                .await?;
+                            }
+                            stage = "persistence";
+                            persistence::save(
+                                database,
+                                &entry.provider,
+                                entry.credential.as_ref(),
+                                authorized,
+                                events,
+                            )
+                            .await
+                        }
+                        .await
                     }
-                    stage = "persistence";
-                    persistence::save(
-                        database,
-                        &entry.provider,
-                        entry.credential.as_ref(),
-                        authorized,
-                        events,
-                    )
-                });
+                    Err(error) => Err(error),
+                };
                 match result {
                     Ok(model_error) => entry.updates.send_modify(|update| {
                         update.revision += 1;

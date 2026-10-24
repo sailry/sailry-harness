@@ -61,7 +61,7 @@ async fn preserves_only_encrypted_history() {
             assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part| {
                 matches!(part, Part::Thinking(value) if value.contains("Legacy summary without encrypted content"))
             }));
-            let events = fixture::events(current.node.profile(), current.session.id);
+            let events = fixture::events(&current.node, current.session.id).await;
             if index == 0 {
                 assert!(
                     events

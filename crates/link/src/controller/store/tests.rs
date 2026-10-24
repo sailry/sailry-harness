@@ -1,5 +1,23 @@
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn rejects_node_storage() {
+    for filename in ["node.turso", "node.sqlite3"] {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = directory.path().join("node");
+        let (_, store) = Store::open(&profile).unwrap();
+        drop(store);
+        let identity = std::fs::read(profile.join("link.key")).unwrap();
+        std::fs::create_dir(profile.join("storage")).unwrap();
+        let database = profile.join("storage").join(filename);
+        std::fs::write(&database, b"existing Node storage").unwrap();
+        assert!(Store::open(&profile).is_err());
+        assert_eq!(std::fs::read(profile.join("link.key")).unwrap(), identity);
+        assert_eq!(std::fs::read(database).unwrap(), b"existing Node storage");
+    }
+}
+
 #[tokio::test]
 async fn failed_writes_preserve_disk() {
     let directory = tempfile::tempdir().unwrap();

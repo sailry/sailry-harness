@@ -3,15 +3,17 @@ use fixture::Fixture;
 
 mod resume;
 
-fn prepare(fixture: &mut Fixture) -> plugin::Context {
+async fn prepare(fixture: &mut Fixture) -> plugin::Context {
     let profile = fixture._root.path().join("profile");
     std::fs::create_dir(&profile).unwrap();
-    fixture::package(&fixture.database, &profile, "goals");
+    fixture::package(&fixture.database, &profile, "goals").await;
     let package = crate::store::plugins::get(&fixture.database.connection, "goals")
+        .await
         .unwrap()
         .unwrap();
-    let session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
     let context = plugin::Context {
         package: package.summary.reference(),
         surface: Default::default(),
@@ -29,11 +31,12 @@ fn prepare(fixture: &mut Fixture) -> plugin::Context {
             expected_revision: 0,
         },
     )
+    .await
     .unwrap();
     context
 }
 
-fn execute(
+async fn execute(
     fixture: &mut Fixture,
     context: &plugin::Context,
     command: Command,
@@ -48,17 +51,13 @@ fn execute(
                 reply,
                 &fixture.events
             )
+            .await
             .is_none()
     );
-    response
-        .blocking_recv()
-        .unwrap()?
-        .completion
-        .blocking_recv()
-        .unwrap()
+    response.await.unwrap()?.completion.await.unwrap()
 }
 
-fn continue_turn(
+async fn continue_turn(
     fixture: &mut Fixture,
     context: &plugin::Context,
     after: Option<TurnId>,
@@ -74,20 +73,23 @@ fn continue_turn(
             scope: plugin::storage::Scope::Node,
             message: "Continue the requested work".into(),
         },
-    )?;
+    )
+    .await?;
     let Output::QueuedTurn(turn) = output else {
         panic!("turn expected")
     };
     Ok(turn.id)
 }
 
-#[test]
-fn claims_ordinary_input_with_an_opaque_fence() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&mut fixture);
-    let after = fixture.completed(&["Verified work"]);
-    let turn = continue_turn(&mut fixture, &context, Some(after)).unwrap();
-    let run = runs::get(&fixture.database.connection, turn).unwrap();
+#[tokio::test]
+async fn claims_ordinary_input_with_an_opaque_fence() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&mut fixture).await;
+    let after = fixture.completed(&["Verified work"]).await;
+    let turn = continue_turn(&mut fixture, &context, Some(after))
+        .await
+        .unwrap();
+    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
     assert!(run.origin.is_none());
     let provenance = run.continuation.as_ref().unwrap();
     assert_eq!(provenance.package, context.package);
@@ -95,12 +97,14 @@ fn claims_ordinary_input_with_an_opaque_fence() {
     assert_eq!(marker.label("en"), "Continue goal");
     assert_eq!(marker.label("zh-CN"), "继续执行目标");
     let invocation = runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(invocation.turn.id, turn);
     assert!(invocation.automatic);
     assert_eq!(
         runs::get(&fixture.database.connection, turn)
+            .await
             .unwrap()
             .continuation,
         run.continuation
@@ -108,17 +112,18 @@ fn claims_ordinary_input_with_an_opaque_fence() {
     assert_eq!(invocation.message.text, "Continue the requested work");
     assert_eq!(
         continue_turn(&mut fixture, &context, Some(after))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Busy
     );
 }
 
-#[test]
-fn restored_values_reject_automatic_input() {
-    let mut fixture = Fixture::new();
-    let mut context = prepare(&mut fixture);
-    let after = fixture.completed(&["Recorded result"]);
+#[tokio::test]
+async fn restored_values_reject_automatic_input() {
+    let mut fixture = Fixture::new().await;
+    let mut context = prepare(&mut fixture).await;
+    let after = fixture.completed(&["Recorded result"]).await;
     let Output::PluginConversationValue(entry) = execute(
         &mut fixture,
         &context,
@@ -128,6 +133,7 @@ fn restored_values_reject_automatic_input() {
             expected_revision: 0,
         },
     )
+    .await
     .unwrap() else {
         panic!("entry expected")
     };
@@ -140,7 +146,9 @@ fn restored_values_reject_automatic_input() {
             through: after,
             expected_revision: 1,
         },
-    ) else {
+    )
+    .await
+    else {
         panic!("branch expected")
     };
     context.session = Some(branch.id);
@@ -154,6 +162,7 @@ fn restored_values_reject_automatic_input() {
     };
     assert_eq!(
         execute(&mut fixture, &context, continuation(1))
+            .await
             .unwrap_err()
             .code,
         ErrorCode::RevisionConflict
@@ -167,40 +176,49 @@ fn restored_values_reject_automatic_input() {
             expected_revision: 1,
         },
     )
+    .await
     .unwrap() else {
         panic!("entry expected")
     };
     assert!(!resumed.restored);
-    assert!(execute(&mut fixture, &context, continuation(resumed.revision)).is_ok());
+    assert!(
+        execute(&mut fixture, &context, continuation(resumed.revision))
+            .await
+            .is_ok()
+    );
 }
 
-#[test]
-fn held_user_input_supersedes_automatic_input() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&mut fixture);
-    let turn = continue_turn(&mut fixture, &context, None).unwrap();
-    let held = fixture.queued();
+#[tokio::test]
+async fn held_user_input_supersedes_automatic_input() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&mut fixture).await;
+    let turn = continue_turn(&mut fixture, &context, None).await.unwrap();
+    let held = fixture.queued().await;
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );
-    let run = runs::get(&fixture.database.connection, turn).unwrap();
+    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
     assert_eq!(run.status, Status::Cancelled);
     assert_eq!(run.error.unwrap().code, ErrorCode::Conflict);
-    runs::start(&fixture.database.connection, held).unwrap();
+    runs::start(&fixture.database.connection, held)
+        .await
+        .unwrap();
     let invocation = runs::claim(&mut fixture.database, &fixture.events)
+        .await
         .unwrap()
         .unwrap();
     assert_eq!(invocation.turn.id, held);
     assert!(!invocation.automatic);
 }
 
-#[test]
-fn changed_private_revision_withdraws_automatic_input() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&mut fixture);
-    let turn = continue_turn(&mut fixture, &context, None).unwrap();
+#[tokio::test]
+async fn changed_private_revision_withdraws_automatic_input() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&mut fixture).await;
+    let turn = continue_turn(&mut fixture, &context, None).await.unwrap();
     execute(
         &mut fixture,
         &context,
@@ -210,39 +228,51 @@ fn changed_private_revision_withdraws_automatic_input() {
             expected_revision: 1,
         },
     )
+    .await
     .unwrap();
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );
-    let run = runs::get(&fixture.database.connection, turn).unwrap();
+    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
     assert_eq!(run.status, Status::Cancelled);
     assert_eq!(run.error.unwrap().code, ErrorCode::RevisionConflict);
 }
 
-#[test]
-fn refuses_pending_paused_and_plan_sessions() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&mut fixture);
-    let held = fixture.queued();
+#[tokio::test]
+async fn refuses_pending_paused_and_plan_sessions() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&mut fixture).await;
+    let held = fixture.queued().await;
     assert_eq!(
         continue_turn(&mut fixture, &context, None)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Busy
     );
-    runs::stop(&fixture.database.connection, held).unwrap();
-    queue::pause(&fixture.database.connection, fixture.session, true).unwrap();
+    runs::stop(&fixture.database.connection, held)
+        .await
+        .unwrap();
+    queue::pause(&fixture.database.connection, fixture.session, true)
+        .await
+        .unwrap();
     assert_eq!(
         continue_turn(&mut fixture, &context, None)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Busy
     );
-    queue::pause(&fixture.database.connection, fixture.session, false).unwrap();
+    queue::pause(&fixture.database.connection, fixture.session, false)
+        .await
+        .unwrap();
     let mut session =
-        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+        crate::store::commands::session(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
     session.config.mode = WorkMode::Plan;
     command(
         &mut fixture.database,
@@ -252,39 +282,45 @@ fn refuses_pending_paused_and_plan_sessions() {
             expected_revision: session.revision,
             config: session.config,
         },
-    );
+    )
+    .await;
     assert_eq!(
         continue_turn(&mut fixture, &context, None)
+            .await
             .unwrap_err()
             .code,
         ErrorCode::Conflict
     );
 }
 
-#[test]
-fn restart_does_not_replay_queued_automatic_input() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&mut fixture);
-    let turn = continue_turn(&mut fixture, &context, None).unwrap();
-    continuation::recover(&fixture.database.connection).unwrap();
+#[tokio::test]
+async fn restart_does_not_replay_queued_automatic_input() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&mut fixture).await;
+    let turn = continue_turn(&mut fixture, &context, None).await.unwrap();
+    continuation::recover(&fixture.database.connection)
+        .await
+        .unwrap();
     assert_eq!(
         runs::get(&fixture.database.connection, turn)
+            .await
             .unwrap()
             .status,
         Status::Cancelled
     );
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );
 }
 
-#[test]
-fn disabling_the_owner_withdraws_automatic_input() {
-    let mut fixture = Fixture::new();
-    let context = prepare(&mut fixture);
-    let turn = continue_turn(&mut fixture, &context, None).unwrap();
+#[tokio::test]
+async fn disabling_the_owner_withdraws_automatic_input() {
+    let mut fixture = Fixture::new().await;
+    let context = prepare(&mut fixture).await;
+    let turn = continue_turn(&mut fixture, &context, None).await.unwrap();
     command(
         &mut fixture.database,
         &fixture.events,
@@ -293,15 +329,18 @@ fn disabling_the_owner_withdraws_automatic_input() {
             expected_revision: 1,
             enabled: false,
         },
-    );
+    )
+    .await;
     assert_eq!(
         runs::get(&fixture.database.connection, turn)
+            .await
             .unwrap()
             .status,
         Status::Cancelled
     );
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
+            .await
             .unwrap()
             .is_none()
     );

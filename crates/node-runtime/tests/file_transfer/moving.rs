@@ -6,7 +6,10 @@ async fn staging_requires_source_identity() {
     std::fs::write(fixture.source.root.join("file"), "source").unwrap();
     for pair in PATHS {
         let (source, target) = fixture.clients(pair);
-        let before = (fixture.source.count(), fixture.destination.count());
+        let before = (
+            fixture.source.count().await,
+            fixture.destination.count().await,
+        );
         let mut download = prepare(&source, fixture.source.worktree, "file").await;
         download.stamp.clear();
         assert_eq!(
@@ -108,7 +111,10 @@ async fn staging_requires_source_identity() {
             ErrorCode::WrongTarget
         );
         assert_eq!(
-            (fixture.source.count(), fixture.destination.count()),
+            (
+                fixture.source.count().await,
+                fixture.destination.count().await
+            ),
             before
         );
         assert_eq!(
@@ -202,9 +208,22 @@ async fn preserves_changed_copies() {
 #[tokio::test]
 async fn preserves_uncertain_source() {
     let fixture = Fixture::start().await;
-    let db = rusqlite::Connection::open(fixture.destination.profile.join("storage/node.sqlite3"))
-        .unwrap();
-    db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        fixture
+            .destination
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
     for pair in PATHS {
         let (source, target) = fixture.clients(pair);
         let path = format!("{}-{}", pair.0, pair.1);
@@ -254,8 +273,22 @@ async fn preserves_uncertain_source() {
             b"external"
         );
     }
-    db.execute_batch("DROP TRIGGER lose_result").unwrap();
-    drop(db);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        fixture
+            .destination
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::file_fixture::database::fault)
+                })
+            })
+            .await
+            .unwrap()
+    };
+
     fixture.close().await;
 }
 

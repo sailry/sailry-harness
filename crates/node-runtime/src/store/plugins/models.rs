@@ -4,8 +4,8 @@ use sailry_protocol::{
     Effort, Permission, SessionConfig, WorkMode, conversation::Provider, plugin::models::*,
 };
 
-pub(super) fn catalog(db: &Connection) -> Result<Catalog, Fault> {
-    let providers = super::super::agent::providers::list(db)?;
+pub(super) async fn catalog(db: &Connection) -> Result<Catalog, Fault> {
+    let providers = super::super::agent::providers::list(db).await?;
     let models: Vec<_> = providers
         .iter()
         .filter(|provider| provider.enabled)
@@ -29,7 +29,10 @@ pub(super) fn catalog(db: &Connection) -> Result<Catalog, Fault> {
     Ok(Catalog { models })
 }
 
-pub(super) fn resolve(db: &Connection, selected: &str) -> Result<(Provider, SessionConfig), Fault> {
+pub(super) async fn resolve(
+    db: &Connection,
+    selected: &str,
+) -> Result<(Provider, SessionConfig), Fault> {
     if selected.is_empty() {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
@@ -42,7 +45,8 @@ pub(super) fn resolve(db: &Connection, selected: &str) -> Result<(Provider, Sess
     let provider = provider
         .parse()
         .map_err(|_| Fault::invalid("invalid plugin model provider"))?;
-    let provider = super::super::agent::providers::get(db, provider)?
+    let provider = super::super::agent::providers::get(db, provider)
+        .await?
         .filter(|provider| provider.enabled)
         .ok_or_else(|| {
             Fault::new(
@@ -70,7 +74,7 @@ pub(super) fn resolve(db: &Connection, selected: &str) -> Result<(Provider, Sess
     Ok((provider, config))
 }
 
-pub(super) fn session(
+pub(super) async fn session(
     db: &Connection,
     selected: &str,
     effort: Option<Effort>,
@@ -81,7 +85,7 @@ pub(super) fn session(
             "model selection requires a project or unassigned scope",
         ));
     }
-    let (provider, resolved) = resolve(db, selected)?;
+    let (provider, resolved) = resolve(db, selected).await?;
     let mut config = base.cloned().unwrap_or_else(|| resolved.clone());
     let unchanged = config.provider == resolved.provider && config.model == resolved.model;
     if !unchanged {

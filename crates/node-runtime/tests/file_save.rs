@@ -127,16 +127,28 @@ async fn local_and_remote() {
         std::fs::read_to_string(project.join("file.txt")).unwrap(),
         "detached"
     );
-    let db = rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
-    let stored: String = db
-        .query_row(
-            "SELECT group_concat(CAST(body AS TEXT)) FROM requests",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
+
+    let stored: String = {
+        let sql = ("SELECT group_concat(CAST(body AS TEXT)) FROM requests").to_owned();
+        let parameters = ();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)?;
+                let value = row.get(0);
+                value.map_err(crate::file_fixture::database::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
     assert!(!stored.contains("private content"));
-    drop(db);
+
     controller.close().await.unwrap();
     let admission = transport
         .dispatch(local.prepare(save(worktree, "shutdown", Some(&revision("detached")))))
@@ -160,8 +172,19 @@ async fn lost_result_is_not_replayed() {
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let worktree = setup(&client, &project).await;
-    let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
-    db.execute_batch("CREATE TRIGGER lose_file_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
+
+    {
+        let sql = ("CREATE TRIGGER lose_file_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
     let request = client.prepare(save(worktree, "published", None));
     assert_eq!(
         client.execute(request.clone()).await.unwrap_err().code,
@@ -171,8 +194,19 @@ async fn lost_result_is_not_replayed() {
         std::fs::read_to_string(project.join("file.txt")).unwrap(),
         "published"
     );
-    db.execute_batch("DROP TRIGGER lose_file_result").unwrap();
-    drop(db);
+    {
+        let sql = ("DROP TRIGGER lose_file_result").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::file_fixture::database::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
+
     node.shutdown().await.unwrap();
     std::fs::write(project.join("file.txt"), "external after crash").unwrap();
     let node = Node::start_empty(&profile).await.unwrap();

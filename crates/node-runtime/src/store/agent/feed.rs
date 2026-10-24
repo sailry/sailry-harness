@@ -308,17 +308,17 @@ impl Subscription for Updates {
     }
 }
 
-pub(in crate::store) fn package(database: &mut Database, name: &str) {
-    if let Ok(sessions) = super::continuation::sessions(&database.connection, name) {
+pub(in crate::store) async fn package(database: &mut Database, name: &str) {
+    if let Ok(sessions) = super::continuation::sessions(&database.connection, name).await {
         for session in sessions {
             database.feeds.reset(session);
         }
     }
 }
 
-pub(in crate::store) fn command(database: &mut Database, output: &Output) {
+pub(in crate::store) async fn command(database: &mut Database, output: &Output) {
     if let Output::Session(session) = output {
-        statistics(database, session.id);
+        statistics(database, session.id).await;
     }
     if matches!(output, Output::Provider(_)) {
         let sessions = database
@@ -330,7 +330,7 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
             .copied()
             .collect::<Vec<_>>();
         for session in sessions {
-            statistics(database, session);
+            statistics(database, session).await;
         }
     }
 
@@ -344,18 +344,26 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
     }
     if let Output::PluginTransaction(outputs) = output {
         for output in outputs {
-            command(database, output);
+            Box::pin(command(database, output)).await;
         }
         return;
     }
     if let Output::TurnReplaced { turn, history } = output {
         database.feeds.reset(history.session);
-        command(database, &Output::QueuedTurn(turn.clone()));
+        Box::pin(command(database, &Output::QueuedTurn(turn.clone()))).await;
         return;
     }
     if let Output::PlanAccepted(accepted) = output {
-        command(database, &Output::QueuedTurn(accepted.turn.clone()));
-        command(database, &Output::Question(accepted.question.clone()));
+        Box::pin(command(
+            database,
+            &Output::QueuedTurn(accepted.turn.clone()),
+        ))
+        .await;
+        Box::pin(command(
+            database,
+            &Output::Question(accepted.question.clone()),
+        ))
+        .await;
         return;
     }
     if let Output::Rewound(rewind) = output {
@@ -368,7 +376,7 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
             question.session,
             Change::Question(question.clone()),
         );
-        if let Some((_, reply)) = database.questions.remove(&question.id) {
+        if let Some((_, reply)) = database.questions.lock().unwrap().remove(&question.id) {
             let response = match &question.state {
                 question::State::Answered(answer) => question::Response::Answer(answer.clone()),
                 question::State::Cancelled => question::Response::Cancel,
@@ -380,31 +388,33 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
         return;
     }
     if let Output::Approval(approval) = output {
-        resolved(database, approval);
+        resolved(database, approval).await;
         if approval.choice == Some(ApprovalChoice::Session) {
-            let approved: Vec<_> = database
-                .approvals
-                .keys()
-                .filter_map(|id| approvals::get(&database.connection, *id).ok())
-                .filter(|pending| {
-                    pending.session == approval.session
+            let mut approved = Vec::new();
+            let ids: Vec<_> = database.approvals.lock().unwrap().keys().copied().collect();
+            for id in ids {
+                if let Ok(pending) = approvals::get(&database.connection, id).await {
+                    if pending.session == approval.session
                         && pending.state == ApprovalState::Approved
                         && pending.source == ApprovalSource::SessionRule
                         && pending.choice == Some(ApprovalChoice::Session)
-                })
-                .collect();
+                    {
+                        approved.push(pending);
+                    }
+                }
+            }
             for approval in approved {
-                resolved(database, &approval);
+                resolved(database, &approval).await;
             }
         }
         return;
     }
     if let Output::Queue(update) = output {
         for current in &update.runs {
-            run(database, current.clone());
+            run(database, current.clone()).await;
         }
-        if let Ok(tasks) = super::background::list(&database.connection, update.session) {
-            super::background::publish(database, tasks);
+        if let Ok(tasks) = super::background::list(&database.connection, update.session).await {
+            super::background::publish(database, tasks).await;
         }
         database.feeds.publish(
             database.node,
@@ -414,43 +424,43 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
         return;
     }
     let run = match output {
-        Output::QueuedTurn(turn) => runs::get(&database.connection, turn.id).ok(),
+        Output::QueuedTurn(turn) => runs::get(&database.connection, turn.id).await.ok(),
         Output::Run(run) => Some(run.clone()),
         _ => None,
     };
     if let Some(run) = run {
-        if let Ok(Some(child)) = super::children::get(&database.connection, &run) {
+        if let Ok(Some(child)) = super::children::get(&database.connection, &run).await {
             database
                 .feeds
                 .publish(database.node, child.origin.session, Change::Child(child));
         }
-        if let Ok(queue) = super::queue::read(&database.connection, run.session) {
+        if let Ok(queue) = super::queue::read(&database.connection, run.session).await {
             database
                 .feeds
                 .publish(database.node, run.session, Change::Queue(queue));
         }
         let session = run.session;
-        self::run(database, run);
-        if let Ok(tasks) = super::background::list(&database.connection, session) {
-            super::background::publish(database, tasks);
+        self::run(database, run).await;
+        if let Ok(tasks) = super::background::list(&database.connection, session).await {
+            super::background::publish(database, tasks).await;
         }
     }
 }
 
 /// Conversation-only capture hydration must not change a committed business result.
-pub(in crate::store) fn run(database: &Database, current: Run) {
+pub(in crate::store) async fn run(database: &Database, current: Run) {
     let session = current.session;
-    match runs::hydrate(&database.connection, current) {
+    match runs::hydrate(&database.connection, current).await {
         Ok(current) => database
             .feeds
             .publish(database.node, session, Change::Run(current)),
         Err(_) => database.feeds.reset(session),
     }
-    statistics(database, session);
+    statistics(database, session).await;
 }
 
-fn statistics(database: &Database, session: SessionId) {
-    match super::statistics::read(&database.connection, session) {
+async fn statistics(database: &Database, session: SessionId) {
+    match super::statistics::read(&database.connection, session).await {
         Ok(statistics) => {
             database
                 .feeds
@@ -460,13 +470,13 @@ fn statistics(database: &Database, session: SessionId) {
     }
 }
 
-fn resolved(database: &mut Database, approval: &Approval) {
+async fn resolved(database: &mut Database, approval: &Approval) {
     database.feeds.publish(
         database.node,
         approval.session,
         Change::Approval(approval.clone()),
     );
-    if let Some((_, _, _, Some(reply))) = database.approvals.remove(&approval.id) {
+    if let Some((_, _, _, Some(reply))) = database.approvals.lock().unwrap().remove(&approval.id) {
         let decision = match approval.state {
             ApprovalState::Approved => Decision::Approve,
             ApprovalState::Denied => approval

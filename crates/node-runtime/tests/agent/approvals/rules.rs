@@ -127,18 +127,25 @@ pub(crate) async fn restart(mut fixture: Fixture, remote: bool) -> Fixture {
     fixture
 }
 
-pub(crate) fn claimed(node: &Node, approval: &Approval) -> (RequestId, bool) {
-    let database = rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let (request, claimed): (String, bool) = database
-        .query_row(
-            "SELECT request,claimed FROM agent_approvals WHERE id=?1",
-            [approval.id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+pub(crate) async fn claimed(node: &Node, approval: &Approval) -> (RequestId, bool) {
+    let id = approval.id;
+    let (request, claimed): (String, bool) = node
+        .with_storage(move |database| {
+            Box::pin(async move {
+                let row = database
+                    .prepare("SELECT request,claimed FROM agent_approvals WHERE id=?1")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row([id.to_string()])
+                    .await
+                    .map_err(crate::database_fixture::fault)?;
+                Ok((
+                    row.get(0).map_err(crate::database_fixture::fault)?,
+                    row.get(1).map_err(crate::database_fixture::fault)?,
+                ))
+            })
+        })
+        .await
         .unwrap();
     (request.parse().unwrap(), claimed)
 }
@@ -287,7 +294,7 @@ async fn releases_matching_pending_calls() {
                 }
             );
             assert_eq!(approval.choice, Some(ApprovalChoice::Session));
-            let (request, consumed) = claimed(&fixture.node, approval);
+            let (request, consumed) = claimed(&fixture.node, approval).await;
             assert!(consumed);
             assert!(request_ids.contains(&request));
         }
@@ -298,7 +305,7 @@ async fn releases_matching_pending_calls() {
                 .unwrap(),
             &unrelated
         );
-        assert!(!claimed(&fixture.node, &unrelated).1);
+        assert!(!claimed(&fixture.node, &unrelated).await.1);
         assert!(!fixture.root.join("waiting").exists());
         for name in ["first", "second", "third"] {
             assert_eq!(
@@ -371,7 +378,7 @@ async fn remembers_across_turns_and_restart() {
             assert_eq!(approval.state, ApprovalState::Approved);
             assert_eq!(approval.source, source);
             assert_eq!(approval.choice, Some(ApprovalChoice::Session));
-            let (request, consumed) = claimed(&fixture.node, approval);
+            let (request, consumed) = claimed(&fixture.node, approval).await;
             assert!(consumed);
             assert!(requests.insert(request));
             assert!(approvals.insert(approval.id));
@@ -428,8 +435,8 @@ async fn keeps_plain_approval_once() {
         process::decide(&fixture.client, &second, Decision::Deny).await;
         let page = completed(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.approvals[0].choice, Some(ApprovalChoice::Once));
-        assert!(claimed(&fixture.node, &first).1);
-        assert!(!claimed(&fixture.node, &second).1);
+        assert!(claimed(&fixture.node, &first).await.1);
+        assert!(!claimed(&fixture.node, &second).await.1);
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("count.txt")).unwrap(),
             "x"
@@ -630,7 +637,7 @@ async fn binds_package_settings_and_tool() {
             .find(|approval| approval.turn == queued.id)
             .unwrap();
         assert_eq!(retained.source, ApprovalSource::SessionRule);
-        assert!(claimed(&fixture.node, retained).1);
+        assert!(claimed(&fixture.node, retained).await.1);
 
         let changed = submit(&fixture.client, &fixture.session).await;
         assert!(changed.plugins.contains(&settings.package));

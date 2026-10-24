@@ -4,6 +4,12 @@
 )]
 #[path = "../agent_support/mod.rs"]
 mod agent_support;
+#[allow(
+    dead_code,
+    reason = "The native database fixture is shared with storage-only suites"
+)]
+#[path = "../support/database.rs"]
+mod database_fixture;
 #[path = "../discovery_support/mod.rs"]
 mod discovery_support;
 #[cfg(unix)]

@@ -84,10 +84,21 @@ async fn reads_bound_worktree() {
             }))
             .await
             .unwrap();
-        let database =
-            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
-        let admissions: i64 = database
-            .query_row("SELECT COUNT(*) FROM requests", [], |row| row.get(0))
+        let admissions: i64 = node
+            .with_storage(|database| {
+                Box::pin(async move {
+                    database
+                        .prepare("SELECT COUNT(*) FROM requests")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row(())
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::database_fixture::fault)
+                })
+            })
+            .await
             .unwrap();
         let request = client.prepare(Command::QueueTurn {
             session: session.id,
@@ -412,20 +423,29 @@ async fn reads_bound_worktree() {
         // Terminal status is published before the goals package's after-turn callback.
         let settled = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                let rows = database
-                    .prepare(
-                        "SELECT id,status,body FROM requests ORDER BY rowid LIMIT -1 OFFSET ?1",
-                    )
-                    .unwrap()
-                    .query_map([admissions], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Vec<u8>>(2)?,
-                        ))
+                let rows: Vec<(String, String, Vec<u8>)> = node
+                    .with_storage(move |database| {
+                        Box::pin(async move {
+                            let mut query = database
+                                .prepare("SELECT id,status,body FROM requests ORDER BY rowid LIMIT -1 OFFSET ?1")
+                                .await
+                                .map_err(crate::database_fixture::fault)?;
+                            let mut rows = query
+                                .query([admissions])
+                                .await
+                                .map_err(crate::database_fixture::fault)?;
+                            let mut values = Vec::new();
+                            while let Some(row) = rows.next().await.map_err(crate::database_fixture::fault)? {
+                                values.push((
+                                    row.get(0).map_err(crate::database_fixture::fault)?,
+                                    row.get(1).map_err(crate::database_fixture::fault)?,
+                                    row.get(2).map_err(crate::database_fixture::fault)?,
+                                ));
+                            }
+                            Ok(values)
+                        })
                     })
-                    .unwrap()
-                    .collect::<Result<Vec<_>, _>>()
+                    .await
                     .unwrap();
                 assert!(rows.len() <= 4, "unexpected durable admissions");
                 if rows.len() == 4 && rows.iter().all(|(_, status, _)| status == "completed") {
@@ -464,13 +484,30 @@ async fn reads_bound_worktree() {
         );
         assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 1);
         assert_eq!(
-            database
-                .prepare("SELECT id FROM requests ORDER BY rowid LIMIT -1 OFFSET ?1")
-                .unwrap()
-                .query_map([admissions], |row| row.get::<_, String>(0))
-                .unwrap()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap(),
+            node.with_storage(move |database| {
+                Box::pin(async move {
+                    let mut query = database
+                        .prepare("SELECT id FROM requests ORDER BY rowid LIMIT -1 OFFSET ?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut rows = query
+                        .query([admissions])
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut values = Vec::new();
+                    while let Some(row) =
+                        rows.next().await.map_err(crate::database_fixture::fault)?
+                    {
+                        values.push(
+                            row.get::<String>(0)
+                                .map_err(crate::database_fixture::fault)?,
+                        );
+                    }
+                    Ok(values)
+                })
+            })
+            .await
+            .unwrap(),
             settled.into_iter().map(|(id, _, _)| id).collect::<Vec<_>>()
         );
         let Output::QueuedTurn(next) = client
@@ -496,7 +533,6 @@ async fn reads_bound_worktree() {
                 .get("tools")
                 .is_none()
         );
-        drop(database);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
         let node = Node::start(directory.path().join("node")).await.unwrap();

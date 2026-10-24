@@ -59,38 +59,51 @@ fn reacts_to_embedding_and_ocr_changes() {
     assert_eq!(reaction(&idle, &selected), Some(Reaction::Invalidate));
 }
 
-#[test]
-fn retains_registration_limits_and_identity() {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("../schema.sql")).unwrap();
-    initialize(&db).unwrap();
+#[tokio::test]
+async fn retains_registration_limits_and_identity() {
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
+    db.execute_batch(include_str!("../schema.sql"))
+        .await
+        .unwrap();
+    initialize(&db).await.unwrap();
     let (record, _) = crate::models::test_support::record(2, &[100., 0., 1., 0., 0., 1.]);
     let mut definition = record.definition;
     let mut last = None;
     for index in 0..catalog::LIMIT {
         definition.name = format!("Registration {index}");
-        let (output, event) = register(&db, &definition).unwrap();
+        let (output, event) = register(&db, &definition).await.unwrap();
         assert!(event.is_none());
         last = Some(output);
     }
-    assert_eq!(register(&db, &definition).unwrap().0, last.unwrap());
+    assert_eq!(register(&db, &definition).await.unwrap().0, last.unwrap());
     definition.name = "Beyond the limit".into();
     assert_eq!(
-        register(&db, &definition).unwrap_err().code,
+        register(&db, &definition).await.unwrap_err().code,
         ErrorCode::InvalidRequest
     );
     let builtin = &catalog::ocr()[0];
     assert_eq!(
-        register(&db, builtin).unwrap().0,
+        register(&db, builtin).await.unwrap().0,
         Output::LocalModel {
             id: catalog::id(builtin),
         }
     );
-    let count: i64 = db
-        .query_row("SELECT COUNT(*) FROM local_models", [], |row| row.get(0))
-        .unwrap();
+    let count: i64 = (async {
+        let mut statement = db.prepare("SELECT COUNT(*) FROM local_models").await?;
+        let row = statement.query_row(()).await?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped
+    })
+    .await
+    .unwrap();
     assert_eq!(count, catalog::LIMIT as i64);
-    assert_eq!(read(&db).unwrap().definitions.len(), catalog::LIMIT + 6);
+    assert_eq!(
+        read(&db).await.unwrap().definitions.len(),
+        catalog::LIMIT + 6
+    );
 }
 
 #[tokio::test]

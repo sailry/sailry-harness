@@ -140,9 +140,9 @@ fn corpus_has_original_sources_and_ground_truth() {
     }
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "requires verified pinned Granite assets; measures this 30-case corpus only"]
-fn hybrid_improves_bilingual_recall_at_five() {
+async fn hybrid_improves_bilingual_recall_at_five() {
     let corpus = corpus();
     let mut engine = engine();
     let dimension = engine.dimension();
@@ -158,7 +158,7 @@ fn hybrid_improves_bilingual_recall_at_five() {
         texts.len(),
         started.elapsed().as_secs_f64() * 1000.
     );
-    let (_directory, mut index) = open();
+    let (_directory, index) = open().await;
     let binding = Binding {
         id: KnowledgeId::new(),
         generation: 1,
@@ -167,7 +167,7 @@ fn hybrid_improves_bilingual_recall_at_five() {
         paused: false,
         model: Some(("granite-multi".to_owned(), dimension)),
     };
-    index.bind(&binding).unwrap();
+    index.bind(&binding).await.unwrap();
     for ((source, text), vector) in corpus.documents.iter().zip(&texts).zip(&vectors) {
         index
             .replace(
@@ -186,9 +186,10 @@ fn hybrid_improves_bilingual_recall_at_five() {
                     vector: Some(Vector::quantize(vector).unwrap()),
                 }],
             )
+            .await
             .unwrap();
     }
-    assert_eq!(index.counts(&binding).unwrap(), (30, 30));
+    assert_eq!(index.counts(&binding).await.unwrap(), (30, 30));
     let questions = corpus
         .queries
         .iter()
@@ -221,6 +222,7 @@ fn hybrid_improves_bilingual_recall_at_five() {
                 false,
                 &CancellationToken::new(),
             )
+            .await
             .unwrap();
         query.mode = Mode::Semantic;
         let encoded = index
@@ -231,6 +233,7 @@ fn hybrid_improves_bilingual_recall_at_five() {
                 false,
                 &CancellationToken::new(),
             )
+            .await
             .unwrap();
         assert_eq!(encoded.mode, Mode::Semantic);
         assert_eq!(encoded.model, Some("granite-multi".to_owned()));
@@ -243,6 +246,7 @@ fn hybrid_improves_bilingual_recall_at_five() {
                 false,
                 &CancellationToken::new(),
             )
+            .await
             .unwrap();
         assert_eq!(combined.mode, Mode::Hybrid);
         assert_eq!(combined.model, Some("granite-multi".to_owned()));

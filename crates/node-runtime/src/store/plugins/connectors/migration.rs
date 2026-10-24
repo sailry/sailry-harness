@@ -2,15 +2,15 @@
 use super::*;
 
 /// Only the current settings revision is moved; historical captures remain untouched.
-pub(in crate::store) fn needed(db: &Connection, candidate: &Info) -> Result<bool, Fault> {
-    let Some(info) = get(db, &candidate.summary.name)? else {
+pub(in crate::store) async fn needed(db: &Connection, candidate: &Info) -> Result<bool, Fault> {
+    let Some(info) = get(db, &candidate.summary.name).await? else {
         return Ok(false);
     };
     if info.summary.settings_revision == 0 {
         return Ok(false);
     }
-    let saved = settings::stored(db, &info)?;
-    let records = records(db)?;
+    let saved = settings::stored(db, &info).await?;
+    let records = records(db).await?;
     Ok(registry::declarations(candidate).iter().any(|declaration| {
         !records
             .iter()
@@ -19,7 +19,7 @@ pub(in crate::store) fn needed(db: &Connection, candidate: &Info) -> Result<bool
     }))
 }
 
-pub(in crate::store::plugins) fn migrate(
+pub(in crate::store::plugins) async fn migrate(
     db: &Connection,
     profile: Option<&std::path::Path>,
     info: &mut Info,
@@ -28,13 +28,14 @@ pub(in crate::store::plugins) fn migrate(
     if declarations.is_empty() || info.summary.settings_revision == 0 {
         return Ok(false);
     }
-    let mut stored = settings::stored(db, info)?;
+    let mut stored = settings::stored(db, info).await?;
     let mut changed = false;
     for declaration in declarations {
         if !configured(&stored, &declaration) {
             continue;
         }
-        if records(db)?
+        if records(db)
+            .await?
             .iter()
             .any(|record| record.plugin == info.summary.name && record.connector == declaration.id)
         {
@@ -58,7 +59,7 @@ pub(in crate::store::plugins) fn migrate(
             grant: None,
             grant_revision: 1,
             identity: None,
-            bound: bound(db, profile, info, &declaration, method)?,
+            bound: bound(db, profile, info, &declaration, method).await?,
             state: State::NotConnected,
             checked_at_ms: None,
             login: None,
@@ -165,7 +166,7 @@ pub(in crate::store::plugins) fn migrate(
         {
             continue;
         }
-        save(db, &record)?;
+        save(db, &record).await?;
         for field in &declaration.fields {
             stored.values.remove(&field.name);
             stored.slots.remove(&field.name);
@@ -190,7 +191,7 @@ pub(in crate::store::plugins) fn migrate(
     }
     if changed {
         stored.schema = info.settings.clone();
-        settings::persist(db, info, &stored)?;
+        settings::persist(db, info, &stored).await?;
     }
     Ok(changed)
 }

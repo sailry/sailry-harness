@@ -23,7 +23,7 @@ pub(in crate::store) fn selection(
     Ok(())
 }
 
-pub(in crate::store) fn put(
+pub(in crate::store) async fn put(
     db: &Connection,
     node: NodeId,
     provider: &Provider,
@@ -34,8 +34,8 @@ pub(in crate::store) fn put(
             "captured channel bindings cannot be saved as configuration",
         ));
     }
-    validate(db, node, provider)?;
-    let previous = get(db, provider.id)?;
+    validate(db, node, provider).await?;
+    let previous = get(db, provider.id).await?;
     let revision = previous.as_ref().map_or(0, |provider| provider.revision);
     if revision != expected {
         return Err(Fault::new(
@@ -44,9 +44,9 @@ pub(in crate::store) fn put(
         ));
     }
     let mut provider = provider.clone();
-    super::super::providers::presets::save_policy(db, &mut provider, previous.as_ref())?;
-    super::super::providers::completion::fill(db, &mut provider)?;
-    validate(db, node, &provider)?;
+    super::super::providers::presets::save_policy(db, &mut provider, previous.as_ref()).await?;
+    super::super::providers::completion::fill(db, &mut provider).await?;
+    validate(db, node, &provider).await?;
     provider.revision = revision
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
@@ -55,11 +55,11 @@ pub(in crate::store) fn put(
         .as_str()
         .trim_end_matches('/')
         .to_owned();
-    crate::store::providers::configuration::publish(db, &provider)?;
+    crate::store::providers::configuration::publish(db, &provider).await?;
     Ok(provider)
 }
 
-pub(in crate::store) fn validate(
+pub(in crate::store) async fn validate(
     db: &Connection,
     node: NodeId,
     provider: &Provider,
@@ -76,7 +76,8 @@ pub(in crate::store) fn validate(
             reference.id,
             provider.id,
             provider.authentication,
-        )?;
+        )
+        .await?;
     }
     if encode(provider)?.len() > 64 * 1024 {
         return Err(sailry_protocol::Fault::invalid(
@@ -115,27 +116,28 @@ pub(in crate::store) fn validate(
     }
     crate::providers::endpoint_url(&provider.endpoint)?;
     if provider.binding.is_some() {
-        crate::store::providers::presets::verify(db, provider)?;
+        crate::store::providers::presets::verify(db, provider).await?;
     } else {
-        crate::store::providers::presets::validate(db, provider)?;
+        crate::store::providers::presets::validate(db, provider).await?;
     }
     crate::providers::cloud::validate(provider)?;
     crate::providers::login::validate(provider)?;
     Ok(())
 }
 
-pub(in crate::store) fn remove(
+pub(in crate::store) async fn remove(
     db: &Connection,
     id: ProviderId,
     expected: u64,
 ) -> Result<(), Fault> {
-    let provider =
-        get(db, id)?.ok_or_else(|| Fault::new(ErrorCode::NotFound, "provider does not exist"))?;
+    let provider = get(db, id)
+        .await?
+        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "provider does not exist"))?;
     if provider.revision != expected {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "provider revision changed",
         ));
     }
-    crate::store::providers::configuration::unlist(db, id)
+    crate::store::providers::configuration::unlist(db, id).await
 }

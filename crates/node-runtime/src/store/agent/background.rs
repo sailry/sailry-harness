@@ -50,29 +50,37 @@ fn tail(text: &str, bytes: usize) -> String {
     text[start..].to_owned()
 }
 
-fn get(db: &Connection, id: &str) -> Result<Option<Record>, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM agent_background WHERE id=?1",
-            [id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+async fn get(db: &Connection, id: &str) -> Result<Option<Record>, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_background WHERE id=?1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row([id]).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
 }
 
-fn select(db: &Connection, sql: &str, value: &str) -> Result<Vec<Record>, Fault> {
-    let mut query = db.prepare(sql).map_err(storage_error)?;
-    query
-        .query_map([value], |row| row.get::<_, Vec<u8>>(0))
-        .map_err(storage_error)?
-        .map(|body| serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error))
-        .collect()
+async fn select(db: &Connection, sql: &str, value: &str) -> Result<Vec<Record>, Fault> {
+    let mut query = db.prepare(sql).await.map_err(storage_error)?;
+    let mut rows = query.query([value]).await.map_err(storage_error)?;
+    let mut records = Vec::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let body = row.get::<Vec<u8>>(0).map_err(storage_error)?;
+        records.push(serde_json::from_slice(&body).map_err(storage_error)?);
+    }
+    Ok(records)
 }
 
-fn save(db: &Connection, record: &mut Record) -> Result<(), Fault> {
+async fn save(db: &Connection, record: &mut Record) -> Result<(), Fault> {
     record.task.revision = record
         .task
         .revision
@@ -90,11 +98,11 @@ fn save(db: &Connection, record: &mut Record) -> Result<(), Fault> {
         State::Dismissed => "dismissed",
     };
     db.execute("INSERT INTO agent_background(id,session,turn,kind,source,state,delivery,sequence,body) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(id) DO UPDATE SET state=excluded.state,delivery=excluded.delivery,sequence=excluded.sequence,body=excluded.body",
-        params![record.task.id,record.task.session.to_string(),record.task.turn.to_string(),kind,source,state,record.task.delivery.map(|turn|turn.to_string()),record.sequence as i64,encode(record)?]).map_err(storage_error)?;
+        params![record.task.id.as_str(),record.task.session.to_string(),record.task.turn.to_string(),kind,source,state,record.task.delivery.map(|turn|turn.to_string()),record.sequence as i64,encode(record)?]).await.map_err(storage_error)?;
     Ok(())
 }
 
-pub(in crate::store) fn publish(database: &Database, tasks: impl IntoIterator<Item = Task>) {
+pub(in crate::store) async fn publish(database: &Database, tasks: impl IntoIterator<Item = Task>) {
     for task in tasks {
         database
             .feeds
@@ -102,14 +110,12 @@ pub(in crate::store) fn publish(database: &Database, tasks: impl IntoIterator<It
     }
 }
 
-fn next_sequence(db: &Connection) -> Result<u64, Fault> {
-    db.query_row(
-        "SELECT coalesce(max(sequence),0)+1 FROM agent_background",
-        [],
-        |row| row.get::<_, i64>(0),
+async fn next_sequence(db: &Connection) -> Result<u64, Fault> {
+    super::super::database::counters::next(
+        db,
+        super::super::database::counters::Namespace::Background,
     )
-    .map(|value| value as u64)
-    .map_err(storage_error)
+    .await
 }
 
 impl Ingress {

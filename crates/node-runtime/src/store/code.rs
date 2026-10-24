@@ -3,12 +3,16 @@ use super::{
     Ingress,
     database::{Database, encode, storage_error},
 };
-use rusqlite::{Connection, OptionalExtension, params};
 use sailry_link::{Admission, CancellationToken};
 use sailry_protocol::{Command, ErrorCode, Fault, Output, Request, WorktreeId, code::Startup};
+use turso::{Connection, params};
 
-pub(super) fn approved(db: &Connection, startup: &Startup) -> Result<bool, Fault> {
-    db.query_row("SELECT EXISTS(SELECT 1 FROM code_startups WHERE worktree=?1 AND root=?2 AND server=?3 AND body=?4)",params![startup.worktree.to_string(),startup.root,startup.server,encode(startup)?],|row|row.get(0)).map_err(storage_error)
+pub(super) async fn approved(db: &Connection, startup: &Startup) -> Result<bool, Fault> {
+    let body = encode(startup)?;
+    db.prepare("SELECT EXISTS(SELECT 1 FROM code_startups WHERE worktree=?1 AND root=?2 AND server=?3 AND body=?4)")
+        .await.map_err(storage_error)?
+        .query_row(params![startup.worktree.to_string(),startup.root.as_str(),startup.server.as_str(),body])
+        .await.map_err(storage_error)?.get(0).map_err(storage_error)
 }
 
 pub(super) fn configures(command: &Command) -> bool {
@@ -28,12 +32,12 @@ pub(super) fn configures(command: &Command) -> bool {
     )
 }
 
-pub(super) fn grant(db: &Connection, startup: &Startup) -> Result<(), Fault> {
-    db.execute("INSERT INTO code_startups(worktree,root,server,body) VALUES(?1,?2,?3,?4) ON CONFLICT(worktree,root,server) DO UPDATE SET body=excluded.body",params![startup.worktree.to_string(),startup.root,startup.server,encode(startup)?]).map_err(storage_error)?;
+pub(super) async fn grant(db: &Connection, startup: &Startup) -> Result<(), Fault> {
+    db.execute("INSERT INTO code_startups(worktree,root,server,body) VALUES(?1,?2,?3,?4) ON CONFLICT(worktree,root,server) DO UPDATE SET body=excluded.body",params![startup.worktree.to_string(),startup.root.as_str(),startup.server.as_str(),encode(startup)?]).await.map_err(storage_error)?;
     Ok(())
 }
 
-pub(in crate::store) fn startup_action(
+pub(in crate::store) async fn startup_action(
     database: &Database,
     request: &Request,
 ) -> Result<sailry_protocol::plugin::Action, Fault> {
@@ -43,15 +47,26 @@ pub(in crate::store) fn startup_action(
     let Some(turn) = context.turn else {
         return Ok(sailry_protocol::plugin::Action::ManageCode);
     };
-    let binding: Option<Vec<u8>> = database
-        .connection
-        .query_row(
-            "SELECT binding FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1",
-            params![turn.to_string(), request.id.to_string()],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+    let binding: Option<Vec<u8>> = {
+        let mut statement = database
+            .connection
+            .prepare(
+                "SELECT binding FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1",
+            )
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![turn.to_string(), request.id.to_string()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     let binding: Option<super::agent::ApprovalBinding> = binding
         .map(|binding| serde_json::from_slice(&binding).map_err(storage_error))
         .transpose()?
@@ -67,7 +82,7 @@ pub(in crate::store) fn startup_action(
     )
 }
 
-pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
+pub(super) async fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
     if !matches!(request.command, Command::StartCodeServer { .. }) {
         if matches!(
             request.command,
@@ -75,7 +90,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
                 | Command::UninstallCodeServer { .. }
                 | Command::StopCodeServer { .. }
         ) {
-            management::authorize(database, request)?;
+            management::authorize(database, request).await?;
         } else {
             controller(request)?;
         }
@@ -92,7 +107,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
             Command::UninstallCodeServer { package, version } => {
                 crate::code::validate_package(package, version)
             }
-            Command::StopCodeServer { startup } => descriptor(database, startup),
+            Command::StopCodeServer { startup } => descriptor(database, startup).await,
             Command::UpdateCodeRules => Ok(()),
             _ => unreachable!("language lifecycle expected"),
         };
@@ -100,10 +115,10 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     let Command::StartCodeServer { startup } = &request.command else {
         unreachable!("language startup expected")
     };
-    if !settings(&database.connection)?.enabled {
+    if !settings(&database.connection).await?.enabled {
         return Err(crate::code::disabled());
     }
-    descriptor(database, startup)?;
+    descriptor(database, startup).await?;
     if let Some(context) = &request.plugin {
         let turn = context.turn.ok_or_else(|| {
             Fault::new(
@@ -117,7 +132,21 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
                 "language startup is outside the captured worktree",
             ));
         }
-        let record:Option<(Vec<u8>,Vec<u8>)>=database.connection.query_row("SELECT body,binding FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1",params![turn.to_string(),request.id.to_string()],|row|Ok((row.get(0)?,row.get(1)?))).optional().map_err(storage_error)?;
+        let record: Option<(Vec<u8>, Vec<u8>)> = {
+            let mut statement = database.connection.prepare("SELECT body,binding FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1").await.map_err(storage_error)?;
+            match statement
+                .query_row(params![turn.to_string(), request.id.to_string()])
+                .await
+            {
+                Ok(row) => {
+                    let mapped: turso::Result<_> =
+                        (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                    Some(mapped.map_err(storage_error)?)
+                }
+                Err(turso::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(storage_error(error).into()),
+            }
+        };
         let (body, binding) = record.ok_or_else(|| {
             Fault::new(
                 ErrorCode::PermissionDenied,
@@ -145,7 +174,7 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
             ));
         }
         if manual {
-            management::authorize(database, request)?;
+            management::authorize(database, request).await?;
         } else if approval.state != sailry_protocol::conversation::ApprovalState::Approved
             || approval.startup.as_ref() != Some(startup)
         {
@@ -157,11 +186,11 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     }
     // A direct authenticated controller sends this explicit consent command.
     // Agents and callbacks retain a plugin context and must claim their original approval.
-    grant(&database.connection, startup)
+    grant(&database.connection, startup).await
 }
 
-fn descriptor(database: &Database, startup: &Startup) -> Result<(), Fault> {
-    database.worktree_root(startup.worktree)?;
+async fn descriptor(database: &Database, startup: &Startup) -> Result<(), Fault> {
+    database.worktree_root(startup.worktree).await?;
     crate::files::path::components(&startup.root, true)?;
     if startup.server.is_empty()
         || startup.server.len() > 256
@@ -325,37 +354,46 @@ impl Ingress {
     }
 }
 
-pub(super) fn settings(db: &Connection) -> Result<sailry_protocol::code::Settings, Fault> {
-    let body: Option<Vec<u8>> = db
-        .query_row(
-            "SELECT body FROM code_settings WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
+pub(super) async fn settings(db: &Connection) -> Result<sailry_protocol::code::Settings, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM code_settings WHERE singleton=1")
+            .await
+            .map_err(storage_error)?;
+        match statement.query_row(()).await {
+            Ok(row) => {
+                let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error).into()),
+        }
+    };
     body.map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()
         .map(|settings| settings.unwrap_or_default())
 }
 
-pub(super) fn initialize(db: &mut Connection) -> Result<sailry_protocol::code::Settings, Fault> {
-    let transaction = db.transaction().map_err(storage_error)?;
+pub(super) async fn initialize(
+    db: &mut Connection,
+) -> Result<sailry_protocol::code::Settings, Fault> {
+    let transaction = db.transaction().await.map_err(storage_error)?;
     if let Some(enabled) =
-        super::plugins::services::enabled(&transaction, sailry_protocol::plugin::Service::Language)?
+        super::plugins::services::enabled(&transaction, sailry_protocol::plugin::Service::Language)
+            .await?
     {
-        enable(&transaction, enabled)?;
+        enable(&transaction, enabled).await?;
     }
-    let settings = settings(&transaction)?;
-    transaction.commit().map_err(storage_error)?;
+    let settings = settings(&transaction).await?;
+    transaction.commit().await.map_err(storage_error)?;
     Ok(settings)
 }
-pub(super) fn save(
+pub(super) async fn save(
     db: &Connection,
     value: &sailry_protocol::code::Settings,
     expected: u64,
 ) -> Result<sailry_protocol::code::Settings, Fault> {
-    let current = settings(db)?;
+    let current = settings(db).await?;
     if value.revision != expected || current.revision != expected {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -405,16 +443,16 @@ pub(super) fn save(
     saved.revision = expected
         .checked_add(1)
         .ok_or_else(|| Fault::invalid("code settings revision is exhausted"))?;
-    db.execute("INSERT INTO code_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",[encode(&saved)?]).map_err(storage_error)?;
+    db.execute("INSERT INTO code_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",[encode(&saved)?]).await.map_err(storage_error)?;
     Ok(saved)
 }
 
-pub(super) fn enable(db: &Connection, enabled: bool) -> Result<(), Fault> {
-    let mut settings = settings(db)?;
+pub(super) async fn enable(db: &Connection, enabled: bool) -> Result<(), Fault> {
+    let mut settings = settings(db).await?;
     if settings.enabled != enabled {
         let expected = settings.revision;
         settings.enabled = enabled;
-        save(db, &settings, expected)?;
+        save(db, &settings, expected).await?;
     }
     Ok(())
 }
@@ -494,12 +532,12 @@ mod management;
 #[cfg(test)]
 mod tests;
 
-pub(super) fn refresh(
+pub(super) async fn refresh(
     db: &Connection,
     pool: &std::sync::Arc<crate::code::Pool>,
     runtime: &tokio::runtime::Handle,
 ) {
-    match settings(db) {
+    match settings(db).await {
         Ok(settings) => {
             runtime.spawn(pool.configure(settings));
         }

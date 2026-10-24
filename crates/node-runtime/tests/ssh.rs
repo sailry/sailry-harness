@@ -204,13 +204,16 @@ async fn preserves_authenticated_ownership() {
         );
         drop(stream);
         node.shutdown().await.unwrap();
-        let db = rusqlite::Connection::open(node_path.join("storage/node.sqlite3")).unwrap();
+        let (database, db) =
+            crate::database_fixture::open(&node_path.join("storage/node.turso"), true).await;
         let stored: String = db
-            .query_row(
-                "SELECT credential FROM ssh_profiles WHERE id=?1",
-                [profile.id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare("SELECT credential FROM ssh_profiles WHERE id=?1")
+            .await
+            .unwrap()
+            .query_row([profile.id.to_string()])
+            .await
+            .unwrap()
+            .get(0)
             .unwrap();
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&stored).unwrap()["password"],
@@ -218,15 +221,16 @@ async fn preserves_authenticated_ownership() {
         );
         let mut records = db
             .prepare("SELECT body FROM requests UNION ALL SELECT body FROM events")
+            .await
             .unwrap();
-        for body in records
-            .query_map([], |row| row.get::<_, Vec<u8>>(0))
-            .unwrap()
-        {
-            assert!(!String::from_utf8_lossy(&body.unwrap()).contains("isolated-ssh-password"));
+        let mut rows = records.query(()).await.unwrap();
+        while let Some(row) = rows.next().await.unwrap() {
+            let body = row.get::<Vec<u8>>(0).unwrap();
+            assert!(!String::from_utf8_lossy(&body).contains("isolated-ssh-password"));
         }
+        drop(rows);
         drop(records);
-        drop(db);
+        crate::database_fixture::close(database, db).await;
         let node = Node::start_empty(&node_path).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())

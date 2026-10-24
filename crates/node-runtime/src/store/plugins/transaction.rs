@@ -1,12 +1,12 @@
 //! A single existing command transaction owns rollback, receipts and publication.
 use super::super::{commands, database::Database};
-use rusqlite::Connection;
 use sailry_protocol::{
     Command, ErrorCode, Event, Fault, NodeId, Output, Request, plugin::transaction,
 };
 use std::path::Path;
+use turso::Connection;
 
-pub(in crate::store) fn check(
+pub(in crate::store) async fn check(
     db: &Database,
     caller: NodeId,
     request: &Request,
@@ -19,12 +19,12 @@ pub(in crate::store) fn check(
     for operation in operations {
         let mut child = request.clone();
         child.command = operation.command(package);
-        db.check_plugin(caller, &child)?;
+        Box::pin(db.check_plugin(caller, &child)).await?;
     }
     Ok(())
 }
 
-pub(in crate::store) fn execute(
+pub(in crate::store) async fn execute(
     db: &Connection,
     node: NodeId,
     caller: NodeId,
@@ -38,12 +38,13 @@ pub(in crate::store) fn execute(
     let package = &request.plugin.as_ref().ok_or_else(denied)?.package;
     let mut outputs = Vec::with_capacity(operations.len());
     let mut events = Vec::new();
-    let checkpoint = super::storage::conversation::sequence(db)?;
+    let checkpoint = super::storage::conversation::sequence(db).await?;
     let mut admitted = None;
     for operation in operations {
         let mut child = request.clone();
         child.command = operation.command(package);
-        let (output, event) = commands::execute(db, node, caller, profile, &child)?;
+        let (output, event) =
+            Box::pin(commands::execute(db, node, caller, profile, &child)).await?;
         if let Output::QueuedTurn(turn) = &output {
             admitted = Some((turn.session, turn.id));
         }
@@ -51,7 +52,7 @@ pub(in crate::store) fn execute(
         events.extend(event);
     }
     if let Some((session, turn)) = admitted {
-        super::storage::conversation::reanchor(db, session, checkpoint, turn)?;
+        super::storage::conversation::reanchor(db, session, checkpoint, turn).await?;
     }
     Ok((Output::PluginTransaction(outputs), events))
 }

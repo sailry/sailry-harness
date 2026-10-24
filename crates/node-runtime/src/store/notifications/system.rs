@@ -6,7 +6,7 @@ use sailry_protocol::{
     notification::{Cause, Details, Diagnostic, Draft, Kind, Task, Terminal},
 };
 
-pub(in crate::store) fn power(db: &Connection, code: i64) -> Result<Event, Fault> {
+pub(in crate::store) async fn power(db: &Connection, code: i64) -> Result<Event, Fault> {
     let notice = insert(
         db,
         String::new(),
@@ -19,11 +19,12 @@ pub(in crate::store) fn power(db: &Connection, code: i64) -> Result<Event, Fault
             details: Some(Details::Power { code }),
         },
         chrono::Utc::now().timestamp_millis(),
-    )?;
+    )
+    .await?;
     Ok(Event::NotificationChanged(notice))
 }
 
-pub(in crate::store) fn compaction(
+pub(in crate::store) async fn compaction(
     db: &Connection,
     session: SessionId,
     entry: &Entry,
@@ -57,24 +58,27 @@ pub(in crate::store) fn compaction(
             })),
         },
         entry.timestamp_ms,
-    )?;
+    )
+    .await?;
     Ok(Some(Event::NotificationChanged(notice)))
 }
 
-pub(in crate::store) fn run(db: &Connection, run: &Run) -> Result<Option<Event>, Fault> {
+pub(in crate::store) async fn run(db: &Connection, run: &Run) -> Result<Option<Event>, Fault> {
     if !matches!(
         run.status,
         Status::Completed | Status::Failed | Status::Interrupted
     ) {
         return Ok(None);
     }
-    let session = super::super::commands::session(db, run.session)?;
+    let session = super::super::commands::session(db, run.session).await?;
     if session.delegation.is_some() {
         return Ok(None);
     }
     // A specific diagnostic already explains this failure. A later success or
     // a different failure in the same turn remains a distinct outcome.
-    if run.status != Status::Completed && (stopped(db, run.turn)? || reported(db, run)?) {
+    if run.status != Status::Completed
+        && (stopped(db, run.turn).await? || reported(db, run).await?)
+    {
         return Ok(None);
     }
     let notice = insert(
@@ -100,29 +104,39 @@ pub(in crate::store) fn run(db: &Connection, run: &Run) -> Result<Option<Event>,
         },
         run.finished_ms
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
-    )?;
+    )
+    .await?;
     Ok(Some(Event::NotificationChanged(notice)))
 }
 
-fn reported(db: &Connection, run: &Run) -> Result<bool, Fault> {
+async fn reported(db: &Connection, run: &Run) -> Result<bool, Fault> {
     let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) =
         run.error.as_ref().and_then(|fault| fault.details.as_ref())
     else {
         return Ok(false);
     };
-    Ok(list(db)?.iter().any(|notice| {
+    Ok(list(db).await?.iter().any(|notice| {
         matches!(&notice.content.details, Some(Details::System(existing))
             if existing.incident == report.incident && existing.turn == Some(run.turn))
     }))
 }
 
-fn stopped(db: &Connection, turn: sailry_protocol::TurnId) -> Result<bool, Fault> {
+async fn stopped(db: &Connection, turn: sailry_protocol::TurnId) -> Result<bool, Fault> {
     let mut query = db.prepare(
         "SELECT json_extract(body,'$.event_metadata.sailry_compaction_failure') FROM agent_events WHERE turn=?1 AND json_extract(body,'$.author')='system'",
-    ).map_err(storage_error)?;
-    let rows = query
-        .query_map([turn.to_string()], |row| row.get::<_, Option<String>>(0))
-        .map_err(storage_error)?;
+    ).await.map_err(storage_error)?;
+    let rows = {
+        let mut rows = query
+            .query([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Option<String>>(0))(&row);
+            values.push(mapped);
+        }
+        values.into_iter()
+    };
     for row in rows {
         if row
             .map_err(storage_error)?
@@ -135,7 +149,7 @@ fn stopped(db: &Connection, turn: sailry_protocol::TurnId) -> Result<bool, Fault
     Ok(false)
 }
 
-pub(in crate::store) fn terminal(
+pub(in crate::store) async fn terminal(
     db: &Connection,
     previous: &sailry_protocol::terminal::Info,
     current: &sailry_protocol::terminal::Info,
@@ -165,7 +179,8 @@ pub(in crate::store) fn terminal(
             })),
         },
         chrono::Utc::now().timestamp_millis(),
-    )?;
+    )
+    .await?;
     Ok(Some(Event::NotificationChanged(notice)))
 }
 
@@ -177,10 +192,14 @@ mod tests {
         conversation::compaction::{Reason, Source, Stage},
     };
 
-    #[test]
-    fn continued_failures_preserve_later_outcomes() {
-        let db = Connection::open_in_memory().unwrap();
+    #[tokio::test]
+    async fn continued_failures_preserve_later_outcomes() {
+        let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        let db = crate::store::database::connect(&engine).await.unwrap();
         db.execute_batch("CREATE TABLE agent_events(turn TEXT, body BLOB)")
+            .await
             .unwrap();
         let turn = TurnId::new();
         let mut failure = Failure {
@@ -213,9 +232,10 @@ mod tests {
                 "INSERT INTO agent_events(turn,body) VALUES(?1,?2)",
                 params![turn.to_string(), encode(&event).unwrap()],
             )
+            .await
             .unwrap();
-            assert_eq!(stopped(&db, turn).unwrap(), expected);
+            assert_eq!(stopped(&db, turn).await.unwrap(), expected);
         }
-        assert!(!stopped(&db, TurnId::new()).unwrap());
+        assert!(!stopped(&db, TurnId::new()).await.unwrap());
     }
 }

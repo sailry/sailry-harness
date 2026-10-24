@@ -42,35 +42,40 @@ pub(super) fn spec(event: &AdkEvent) -> Option<Spec> {
     })
 }
 
-pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Result<(), Fault> {
+pub(super) async fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Result<(), Fault> {
     let Some(source) = event.provider_metadata.get(SOURCE) else {
         return Ok(());
     };
-    let run = runs::get(db, turn)?;
+    let run = runs::get(db, turn).await?;
     if event.content().is_some()
         || event.author != TOOL
         || run.kind != RunKind::Task
         || !matches!(run.status, Status::Running | Status::Completed)
-        || permissions::config(db, turn)?.mode != WorkMode::Plan
+        || permissions::config(db, turn).await?.mode != WorkMode::Plan
     {
         return Err(sailry_protocol::Fault::invalid(
             "plan review requires a planning completion",
         ));
     }
-    let session = crate::store::commands::session(db, run.session)?;
+    let session = crate::store::commands::session(db, run.session).await?;
     crate::store::sessions::writable(&session)?;
     if session.delegation.is_some() {
         return Err(sailry_protocol::Fault::invalid(
             "child plans do not require review",
         ));
     }
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![turn.to_string(), source],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![turn.to_string(), source.as_str()])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let source: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
     if source.llm_response.partial
         || source.llm_response.error_code.is_some()
@@ -87,19 +92,24 @@ pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Resul
     Ok(())
 }
 
-pub(super) fn locate(
+pub(super) async fn locate(
     db: &Connection,
     turn: TurnId,
     request: &ToolConfirmationRequest,
 ) -> Result<(String, usize), Fault> {
     let call = calls::id(request)?;
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![turn.to_string(), call],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
+    let body: Vec<u8> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .map_err(storage_error)?;
+        let row = statement
+            .query_row(params![turn.to_string(), call])
+            .await
+            .map_err(storage_error)?;
+        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        mapped.map_err(storage_error)?
+    };
     let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
     if request.tool_name != TOOL
         || spec(&event).is_none_or(|spec| {

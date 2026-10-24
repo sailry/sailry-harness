@@ -1,7 +1,7 @@
 use super::super::database::Database;
 use super::*;
 
-pub(super) fn prepare(
+pub(super) async fn prepare(
     db: &Database,
     request: &sailry_protocol::Request,
     http: &plugin::http::Request,
@@ -11,15 +11,15 @@ pub(super) fn prepare(
         .as_ref()
         .ok_or_else(|| Fault::new(ErrorCode::PermissionDenied, "plugin provenance is required"))?;
     let info = if context.turn.is_some() {
-        super::super::agent::plugin_package(&db.connection, context)?
+        super::super::agent::plugin_package(&db.connection, context).await?
     } else {
-        settings::current(&db.connection, &context.package)?
+        settings::current(&db.connection, &context.package).await?
     };
-    let resolved = http
-        .credential
-        .as_ref()
-        .map(|_| settings::resolve(&db.connection, &info))
-        .transpose()?;
+    let resolved = if http.credential.is_some() {
+        Some(settings::resolve(&db.connection, &info).await?)
+    } else {
+        None
+    };
     let mut input = crate::plugins::http::prepare(http, info.settings.as_ref(), resolved.as_ref())?;
     if let Some(connector) = &http.connector {
         if http.credential.is_some() {
@@ -33,7 +33,8 @@ pub(super) fn prepare(
             context,
             connector,
             http.connection,
-        )?;
+        )
+        .await?;
         let origin = url::Url::parse(&http.url)
             .map_err(|_| Fault::invalid("invalid plugin HTTP URL"))?
             .origin()

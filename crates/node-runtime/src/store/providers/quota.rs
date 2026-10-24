@@ -6,7 +6,6 @@ use crate::store::{
 };
 use adk_model::openai::ResponseObserver;
 use reqwest::header::HeaderMap;
-use rusqlite::Connection;
 use sailry_protocol::{
     Authentication, Command, CredentialRef, Event, EventEnvelope, Fault, NodeId, ProviderId,
     conversation::{
@@ -19,6 +18,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{broadcast, mpsc};
+use turso::{Connection, transaction::TransactionBehavior};
 
 pub(in crate::store) struct Observation {
     provider: ProviderId,
@@ -132,7 +132,7 @@ pub(in crate::store) fn validate(provider: ProviderId, quota: &Snapshot) -> Resu
     Ok(())
 }
 
-fn matches(
+async fn matches(
     db: &Connection,
     node: NodeId,
     stored: &Stored,
@@ -151,17 +151,17 @@ fn matches(
     {
         return Ok(false);
     }
-    Ok(
-        authentication::get(db, quota.credential.id)?.is_some_and(|credential| {
+    Ok(authentication::get(db, quota.credential.id)
+        .await?
+        .is_some_and(|credential| {
             credential.provider == provider.id
                 && credential.authentication == Authentication::ChatGpt
                 && !credential.revoked
                 && credential.revision == quota.revision
-        }),
-    )
+        }))
 }
 
-pub(in crate::store) fn observe(
+pub(in crate::store) async fn observe(
     database: &mut Database,
     observation: Observation,
     events: &broadcast::Sender<EventEnvelope>,
@@ -170,8 +170,12 @@ pub(in crate::store) fn observe(
         return Ok(());
     }
     let node = database.node;
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let Some(mut stored) = configuration::load(&transaction, observation.provider)? else {
+    let transaction = database
+        .connection
+        .transaction_with_behavior(TransactionBehavior::Concurrent)
+        .await
+        .map_err(storage_error)?;
+    let Some(mut stored) = configuration::load(&transaction, observation.provider).await? else {
         return Ok(());
     };
     let mut snapshot = Snapshot {
@@ -182,7 +186,7 @@ pub(in crate::store) fn observe(
         five_hour: observation.five_hour,
         seven_day: observation.seven_day,
     };
-    if !matches(&transaction, node, &stored, &snapshot)? {
+    if !matches(&transaction, node, &stored, &snapshot).await? {
         return Ok(());
     }
     if let Some(previous) = &stored.quota
@@ -210,7 +214,7 @@ pub(in crate::store) fn observe(
     let quota = present(&snapshot).then_some(snapshot.clone());
     // Keep the latest unknown observation too, so an older response cannot restore it.
     stored.quota = Some(snapshot);
-    configuration::save(&transaction, &stored)?;
+    configuration::save(&transaction, &stored).await?;
     let changes = if previous == quota {
         Vec::new()
     } else {
@@ -219,20 +223,20 @@ pub(in crate::store) fn observe(
             quota,
         }]
     };
-    let envelopes = record(&transaction, node, changes)?;
-    transaction.commit().map_err(storage_error)?;
+    let envelopes = record(&transaction, node, changes).await?;
+    transaction.commit().await.map_err(storage_error)?;
     for envelope in envelopes {
         let _ = events.send(envelope);
     }
     Ok(())
 }
 
-pub(in crate::store) fn list(db: &Connection, node: NodeId) -> Result<Vec<Snapshot>, Fault> {
+pub(in crate::store) async fn list(db: &Connection, node: NodeId) -> Result<Vec<Snapshot>, Fault> {
     let mut quotas = Vec::new();
-    for stored in configuration::all(db)? {
+    for stored in configuration::all(db).await? {
         if let Some(quota) = &stored.quota
             && present(quota)
-            && matches(db, node, &stored, quota)?
+            && matches(db, node, &stored, quota).await?
         {
             quotas.push(quota.clone());
         }
@@ -251,15 +255,18 @@ pub(in crate::store) fn affected(command: &Command) -> bool {
     )
 }
 
-pub(in crate::store) fn reconcile(db: &Connection, node: NodeId) -> Result<Vec<Event>, Fault> {
+pub(in crate::store) async fn reconcile(
+    db: &Connection,
+    node: NodeId,
+) -> Result<Vec<Event>, Fault> {
     let mut events = Vec::new();
-    for mut stored in configuration::all(db)? {
+    for mut stored in configuration::all(db).await? {
         if let Some(quota) = &stored.quota
-            && !matches(db, node, &stored, quota)?
+            && !matches(db, node, &stored, quota).await?
         {
             let visible = present(quota);
             stored.quota = None;
-            configuration::save(db, &stored)?;
+            configuration::save(db, &stored).await?;
             if visible {
                 events.push(Event::ProviderQuotaChanged {
                     provider: stored.id,

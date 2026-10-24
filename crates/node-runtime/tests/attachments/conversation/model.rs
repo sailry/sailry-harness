@@ -160,10 +160,28 @@ async fn materializes_inputs() {
                     .code,
                 ErrorCode::Conflict
             );
-            let db =
-                rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-                    .unwrap();
-            let body: Vec<u8> = db.query_row("SELECT body FROM agent_events WHERE turn=?1 AND json_extract(body,'$.author')='user'", [turn.id.to_string()], |row| row.get(0)).unwrap();
+
+            let body: Vec<u8> = {
+                let sql = ("SELECT body FROM agent_events WHERE turn=?1 AND json_extract(body,'$.author')='user'").to_owned();
+                let parameters = turso::params![turn.id.to_string()];
+                fixture
+                    .node
+                    .with_storage(move |db| {
+                        Box::pin(async move {
+                            let row = db
+                                .prepare(sql)
+                                .await
+                                .map_err(crate::file_fixture::database::fault)?
+                                .query_row(parameters)
+                                .await
+                                .map_err(crate::file_fixture::database::fault)?;
+                            let value = row.get(0);
+                            value.map_err(crate::file_fixture::database::fault)
+                        })
+                    })
+                    .await
+                    .unwrap()
+            };
             assert!(body.len() < 2048);
             assert!(
                 String::from_utf8(body)

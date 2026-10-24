@@ -120,6 +120,42 @@ struct Bootstrap {
 pub use power::Status as PowerStatus;
 
 impl Node {
+    /// Hold the next admitted session transfer before its remote dispatch.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_forwarding_fixture(
+        &self,
+    ) -> (oneshot::Receiver<()>, sailry_link::CancellationToken) {
+        self.ingress.hold_forwarding_fixture()
+    }
+
+    /// Run a short database-only fixture against the running Node's storage owner.
+    /// The callback must not wait for Client commands, tools, models or authorization.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn with_storage<T: Send + 'static>(
+        &self,
+        work: impl for<'a> FnOnce(
+            &'a mut turso::Connection,
+        )
+            -> sailry_link::Pending<'a, Result<T, sailry_protocol::Fault>>
+        + Send
+        + 'static,
+    ) -> Result<T, sailry_protocol::Fault> {
+        self.ingress.with_storage(work).await
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn with_knowledge<T: Send + 'static>(
+        &self,
+        work: impl for<'a> FnOnce(
+            &'a mut turso::Connection,
+        )
+            -> sailry_link::Pending<'a, Result<T, sailry_protocol::Fault>>
+        + Send
+        + 'static,
+    ) -> Result<T, sailry_protocol::Fault> {
+        self.ingress.with_knowledge(work).await
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn power_status(&self) -> PowerStatus {
         self.ingress.power.status()

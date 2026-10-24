@@ -306,7 +306,7 @@ async fn reads_declared_resources_without_exposing_grants() {
             4
         );
         assert_eq!(credentials(&fixture.client).await.len(), 1);
-        let database = fixture.directory.path().join("node/storage/node.sqlite3");
+        let database = fixture.directory.path().join("node/storage/node.turso");
         let Fixture {
             directory,
             node,
@@ -315,24 +315,24 @@ async fn reads_declared_resources_without_exposing_grants() {
         } = fixture;
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        let connection = rusqlite::Connection::open_with_flags(
-            database,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
+        let (connection_handle, connection) =
+            crate::database_fixture::open(&(database), true).await;
         for id in ids {
             assert_eq!(
-                connection
-                    .query_row(
-                        "SELECT count(*) FROM requests WHERE id=?1",
-                        [id.to_string()],
-                        |row| row.get::<_, i64>(0)
-                    )
-                    .unwrap(),
+                (async {
+                    let mut statement = connection
+                        .prepare("SELECT count(*) FROM requests WHERE id=?1")
+                        .await?;
+                    let row = statement.query_row([id.to_string()]).await?;
+                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                    mapped
+                })
+                .await
+                .unwrap(),
                 0
             );
         }
-        drop(connection);
+        crate::database_fixture::close(connection_handle, connection).await;
         drop(directory);
     }
 }
@@ -543,21 +543,32 @@ async fn executes_declared_mutations_once() {
             error
         );
         assert_eq!(effects.load(Ordering::SeqCst), 3);
-        let db = rusqlite::Connection::open_with_flags(
-            fixture.node.profile().join("storage/node.sqlite3"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
+
+        let stored: (Vec<u8>, String) = {
+            let sql = ("SELECT body,result FROM requests WHERE id=?1").to_owned();
+            let parameters = turso::params![request.id.to_string()];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::database_fixture::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::database_fixture::fault)?;
+                        let value: turso::Result<_> =
+                            (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                        value.map_err(crate::database_fixture::fault)
+                    })
+                })
+                .await
+        }
         .unwrap();
-        let stored: (Vec<u8>, String) = db
-            .query_row(
-                "SELECT body,result FROM requests WHERE id=?1",
-                [request.id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
         private(&String::from_utf8(stored.0).unwrap());
         private(&stored.1);
-        drop(db);
+
         fixture.close().await;
     }
 }

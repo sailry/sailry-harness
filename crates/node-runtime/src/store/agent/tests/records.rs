@@ -20,26 +20,29 @@ fn recorded(event: &AdkEvent) -> (AdkEvent, Vec<u8>) {
     (recorded, body)
 }
 
-fn captures(fixture: &fixture::Fixture) -> String {
+async fn captures(fixture: &fixture::Fixture) -> String {
     fixture
         .database
         .connection
-        .query_row(
+        .prepare(
             "SELECT json_group_array(json_object('id',t.id,'plugins',hex(t.plugins),
          'roles',hex(t.roles),'instructions',hex(t.instructions),'revision',t.revision,
          'config',hex(r.config),'captured_roles',hex(r.roles)))
          FROM (SELECT * FROM turns ORDER BY id) t JOIN session_revisions r
          ON r.session=t.session AND r.revision=t.revision",
-            [],
-            |row| row.get(0),
         )
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .and_then(|row| row.get(0))
         .unwrap()
 }
 
-#[test]
-fn reads_existing_event_bytes_without_rewriting() {
-    let mut fixture = fixture::Fixture::new();
-    fixture::files(&fixture.database, fixture._root.path());
+#[tokio::test]
+async fn reads_existing_event_bytes_without_rewriting() {
+    let mut fixture = fixture::Fixture::new().await;
+    fixture::files(&fixture.database, fixture._root.path()).await;
     let mut event = AdkEvent::new("recorded-invocation");
     event.author = "assistant".into();
     event.set_content(adk_core::Content::new("model").with_text("Recorded answer"));
@@ -50,16 +53,17 @@ fn reads_existing_event_bytes_without_rewriting() {
         ..Default::default()
     });
     let (decoded, body) = recorded(&event);
-    let turn = fixture.append([decoded]);
+    let turn = fixture.append([decoded]).await;
     fixture
         .database
         .connection
         .execute(
             "UPDATE agent_events SET body=?1 WHERE turn=?2 AND id=?3",
-            params![&body, turn.to_string(), &event.id],
+            params![body.as_slice(), turn.to_string(), event.id.as_str()],
         )
+        .await
         .unwrap();
-    let page = fixture.read(None, 100).page;
+    let page = fixture.read(None, 100).await.page;
     let entry = page
         .entries
         .iter()
@@ -69,11 +73,12 @@ fn reads_existing_event_bytes_without_rewriting() {
     let stored: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-            params![turn.to_string(), &event.id],
-            |row| row.get(0),
-        )
+        .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+        .await
+        .unwrap()
+        .query_row(params![turn.to_string(), event.id.as_str()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert_eq!(stored, body);
 
@@ -107,7 +112,7 @@ fn reads_existing_event_bytes_without_rewriting() {
         .insert("recorded".into(), serde_json::json!(7));
     let (call, call_body) = recorded(&call);
     let (result, result_body) = recorded(&result);
-    let exchange = fixture.append([call.clone(), result.clone()]);
+    let exchange = fixture.append([call.clone(), result.clone()]).await;
     let mut summary = AdkEvent::new("recorded-summary");
     summary.author = "system".into();
     summary.provider_metadata.insert(
@@ -120,7 +125,7 @@ fn reads_existing_event_bytes_without_rewriting() {
         compacted_content: adk_core::Content::new("model").with_text("Recorded summary"),
     });
     let (summary, summary_body) = recorded(&summary);
-    let compacted = fixture.append([summary.clone()]);
+    let compacted = fixture.append([summary.clone()]).await;
     let originals = [
         (turn, &event.id, &body),
         (exchange, &call.id, &call_body),
@@ -133,19 +138,21 @@ fn reads_existing_event_bytes_without_rewriting() {
             .connection
             .execute(
                 "UPDATE agent_events SET body=?1 WHERE turn=?2 AND id=?3",
-                params![body, turn.to_string(), id],
+                params![body.as_slice(), turn.to_string(), id.as_str()],
             )
+            .await
             .unwrap();
     }
-    let captured = captures(&fixture);
+    let captured = captures(&fixture).await;
     let packages: Vec<u8> = fixture
         .database
         .connection
-        .query_row(
-            "SELECT plugins FROM turns WHERE id=?1",
-            [turn.to_string()],
-            |row| row.get(0),
-        )
+        .prepare("SELECT plugins FROM turns WHERE id=?1")
+        .await
+        .unwrap()
+        .query_row([turn.to_string()])
+        .await
+        .and_then(|row| row.get(0))
         .unwrap();
     assert!(
         serde_json::from_slice::<serde_json::Value>(&packages)
@@ -153,7 +160,7 @@ fn reads_existing_event_bytes_without_rewriting() {
             .to_string()
             .contains("files")
     );
-    let original_page = fixture.read(None, 100).page;
+    let original_page = fixture.read(None, 100).await.page;
     let context = sessions::get(
         &fixture.database.connection,
         compacted,
@@ -165,6 +172,7 @@ fn reads_existing_event_bytes_without_rewriting() {
             after: None,
         },
     )
+    .await
     .unwrap()
     .events()
     .all();
@@ -178,11 +186,15 @@ fn reads_existing_event_bytes_without_rewriting() {
         .unwrap()
     );
     assert_eq!(
-        history::state(&fixture.database.connection, fixture.session).unwrap()["recorded"],
+        history::state(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()["recorded"],
         7
     );
-    history::rebuild(&mut fixture.database.connection).unwrap();
-    assert_eq!(fixture.read(None, 100).page, original_page);
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(fixture.read(None, 100).await.page, original_page);
     let reloaded = sessions::get(
         &fixture.database.connection,
         compacted,
@@ -194,6 +206,7 @@ fn reads_existing_event_bytes_without_rewriting() {
             after: None,
         },
     )
+    .await
     .unwrap()
     .events()
     .all();
@@ -201,16 +214,17 @@ fn reads_existing_event_bytes_without_rewriting() {
         serde_json::to_value(&reloaded).unwrap(),
         serde_json::to_value(&context).unwrap()
     );
-    assert_eq!(captures(&fixture), captured);
+    assert_eq!(captures(&fixture).await, captured);
     for (turn, id, body) in originals {
         let stored: Vec<u8> = fixture
             .database
             .connection
-            .query_row(
-                "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
-                params![turn.to_string(), id],
-                |row| row.get(0),
-            )
+            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+            .await
+            .unwrap()
+            .query_row(params![turn.to_string(), id.as_str()])
+            .await
+            .and_then(|row| row.get(0))
             .unwrap();
         assert_eq!(&stored, body);
     }

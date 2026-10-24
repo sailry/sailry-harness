@@ -16,12 +16,13 @@ use sailry_protocol::{
 };
 use tokio::sync::oneshot;
 
-pub(super) fn current(
-    db: &rusqlite::Connection,
+pub(super) async fn current(
+    db: &turso::Connection,
     id: ProviderId,
     revision: u64,
 ) -> Result<Provider, Fault> {
-    let provider = agent::providers::get(db, id)?
+    let provider = agent::providers::get(db, id)
+        .await?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "provider does not exist"))?;
     if provider.revision != revision {
         return Err(Fault::new(
@@ -32,19 +33,20 @@ pub(super) fn current(
     Ok(provider)
 }
 
-pub(super) fn inspect(
-    db: &rusqlite::Connection,
+pub(super) async fn inspect(
+    db: &turso::Connection,
     id: ProviderId,
     revision: u64,
 ) -> Result<Provider, Fault> {
-    let provider = current(db, id, revision)?;
+    let provider = current(db, id, revision).await?;
     if let Some(reference) = &provider.credential {
         authentication::validate_authentication(
             db,
             reference.id,
             provider.id,
             provider.authentication,
-        )?;
+        )
+        .await?;
     }
     Ok(provider)
 }

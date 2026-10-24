@@ -9,17 +9,20 @@ async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()
 }
 
-fn stored(node: &Node) -> Vec<u8> {
-    rusqlite::Connection::open_with_flags(
-        node.profile().join("storage/node.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap()
-    .query_row(
-        "SELECT body FROM plugin_connections WHERE plugin='http-fixture'",
-        [],
-        |row| row.get(0),
-    )
+async fn stored(node: &Node) -> Vec<u8> {
+    node.with_storage(|db| {
+        Box::pin(async move {
+            db.prepare("SELECT body FROM plugin_connections WHERE plugin='http-fixture'")
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .query_row(())
+                .await
+                .map_err(crate::database_fixture::fault)?
+                .get::<Vec<u8>>(0)
+                .map_err(crate::database_fixture::fault)
+        })
+    })
+    .await
     .unwrap()
 }
 
@@ -148,7 +151,7 @@ async fn preserves_credentials_after_turn_cancellation() {
             assert!(info.issues.is_empty(), "{:?}", info.issues);
             connect(&fixture, &info, method).await;
             tokio::time::sleep(Duration::from_millis(1100)).await;
-            let before = stored(&fixture.node);
+            let before = stored(&fixture.node).await;
             if method == Kind::Oauth2 {
                 issuer.status.store(0, Ordering::SeqCst);
             } else {
@@ -179,7 +182,7 @@ async fn preserves_credentials_after_turn_cancellation() {
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
             assert!(!serde_json::to_string(&page).unwrap().contains(cli::TOKEN));
-            assert_eq!(stored(&fixture.node), before);
+            assert_eq!(stored(&fixture.node).await, before);
             if method == Kind::Oauth2 {
                 issuer.status.store(200, Ordering::SeqCst);
             } else {

@@ -159,17 +159,30 @@ async fn reads_copies_and_restores_receipts() {
                 .contains(fixture.node.profile().to_str().unwrap())
         );
 
-        let database =
-            rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
-                .unwrap();
-        let id: String = database
-            .query_row(
-                "SELECT request FROM agent_approvals WHERE turn=?1 AND call='call-fixture-0'",
-                [turn.id.to_string()],
-                |row| row.get(0),
-            )
-            .unwrap();
-        drop(database);
+        let id: String = {
+            let sql =
+                ("SELECT request FROM agent_approvals WHERE turn=?1 AND call='call-fixture-0'")
+                    .to_owned();
+            let parameters = turso::params![turn.id.to_string()];
+            fixture
+                .node
+                .with_storage(move |db| {
+                    Box::pin(async move {
+                        let row = db
+                            .prepare(sql)
+                            .await
+                            .map_err(crate::file_fixture::database::fault)?
+                            .query_row(parameters)
+                            .await
+                            .map_err(crate::file_fixture::database::fault)?;
+                        let value = row.get(0);
+                        value.map_err(crate::file_fixture::database::fault)
+                    })
+                })
+                .await
+                .unwrap()
+        };
+
         let Output::Plugin(package) = client
             .execute(client.prepare(Command::ReadPlugin {
                 name: "commands".into(),
