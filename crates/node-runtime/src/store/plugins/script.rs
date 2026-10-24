@@ -59,7 +59,7 @@ impl Ingress {
             if fault.code == ErrorCode::Cancelled {
                 report.reason = DiagnosticReason::Cancelled;
             }
-            fault.details = Some(FaultDetails::SystemDiagnostic(report));
+            fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(report)));
         }
         result
     }
@@ -86,7 +86,7 @@ fn interrupted(durable: bool, id: RequestId, timeout: bool) -> Fault {
         DiagnosticReason::Cancelled
     };
     diagnostic.request = Some(id);
-    fault.details = Some(FaultDetails::SystemDiagnostic(diagnostic));
+    fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(diagnostic)));
     fault
 }
 
@@ -113,8 +113,10 @@ impl Ingress {
                 || (report.reason != DiagnosticReason::Cancelled
                     && fault.code != ErrorCode::Cancelled)
             {
-                let mut request =
-                    Request::new(self.node, Command::ReportDiagnostic(report.clone()));
+                let mut request = Request::new(
+                    self.node,
+                    Command::ReportDiagnostic(report.as_ref().clone()),
+                );
                 request.id = report.incident;
                 let result = match self.dispatch(caller, request).await {
                     Ok(admission) => admission.completion.await.unwrap_or_else(|_| {

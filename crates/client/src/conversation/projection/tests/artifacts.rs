@@ -25,7 +25,7 @@ fn artifact(snapshot: &Snapshot, run: &Run) -> artifact::Summary {
 fn separates_commits_from_text_deltas() {
     let (mut projection, snapshot, run, draft) = fixture();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let first = projection.artifact_cursor();
     projection
@@ -61,7 +61,7 @@ fn preserves_honest_head_and_outside_updates() {
     let boundary = snapshot.artifacts.items.last().unwrap().id;
     snapshot.artifacts.next_after = Some(boundary);
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut outside = artifact(&snapshot, &run);
     outside.revision = 4;
@@ -81,7 +81,7 @@ fn preserves_honest_head_and_outside_updates() {
     projection.reconnect(2).unwrap();
     snapshot.sequence = 0;
     projection
-        .apply(2, Update::ConversationSnapshot(snapshot))
+        .apply(2, Update::ConversationSnapshot(Box::new(snapshot)))
         .unwrap();
     assert_eq!(projection.artifact_cursor(), 4);
 }
@@ -92,7 +92,7 @@ fn rejects_cross_session_and_stale_revisions() {
     let mut value = artifact(&snapshot, &run);
     snapshot.artifacts.items.push(value.clone());
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     assert!(
         projection
@@ -108,7 +108,7 @@ fn rejects_cross_session_and_stale_revisions() {
     snapshot.artifacts.items.push(value);
     assert!(
         projection
-            .apply(1, Update::ConversationSnapshot(snapshot))
+            .apply(1, Update::ConversationSnapshot(Box::new(snapshot)))
             .is_err()
     );
     assert_eq!(projection.artifact_cursor(), 1);

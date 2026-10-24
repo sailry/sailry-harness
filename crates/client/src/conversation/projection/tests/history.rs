@@ -23,7 +23,7 @@ fn entry(run: &Run, sequence: u64) -> Entry {
 fn recovers_structural_changes() {
     let (mut projection, snapshot, _, _) = fixture();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut history = History {
         sequence: snapshot.sequence,
@@ -48,7 +48,7 @@ fn recovers_structural_changes() {
     let mut fresh = snapshot.clone();
     fresh.page = Arc::new(history.page);
     projection
-        .apply(2, Update::ConversationSnapshot(fresh.clone()))
+        .apply(2, Update::ConversationSnapshot(Box::new(fresh.clone())))
         .unwrap();
     let stale = History {
         sequence: snapshot.sequence,
@@ -72,7 +72,7 @@ fn merges_turns_after_watermark() {
     page.next_before = Some(run.turn);
     snapshot.drafts.push(draft);
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     assert_eq!(projection.live_start(), None);
     let older = Run {
@@ -106,7 +106,7 @@ fn merges_turns_after_watermark() {
     assert_eq!(projection.snapshot().unwrap(), &snapshot);
     let mut paged = Projection::new(snapshot.node, run.session, 1);
     paged
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut older_page = history.clone();
     older_page.sequence = snapshot.sequence;
@@ -230,7 +230,7 @@ fn rejects_invalid_boundaries() {
     page.entries = vec![entry(&run, 2)];
     page.next_before = Some(run.turn);
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let history = History {
         sequence: 10,
@@ -266,7 +266,7 @@ fn recovers_compaction_failures_without_duplicates() {
     for source in [Source::Automatic, Source::Manual] {
         let (mut projection, snapshot, run, _) = fixture();
         projection
-            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
             .unwrap();
         let mut failure = entry(&run, 41);
         failure.author = "system".into();
@@ -288,7 +288,7 @@ fn recovers_compaction_failures_without_duplicates() {
         projection.reconnect(2).unwrap();
         assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
         projection
-            .apply(2, Update::ConversationSnapshot(saved))
+            .apply(2, Update::ConversationSnapshot(Box::new(saved)))
             .unwrap();
         assert_eq!(projection.snapshot().unwrap().page.entries, vec![failure]);
     }
@@ -301,7 +301,7 @@ fn preserves_recovery_diagnostics_across_reconnect() {
         let (mut projection, mut snapshot, run, draft) = fixture();
         snapshot.drafts.push(draft.clone());
         projection
-            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
             .unwrap();
         let mut retry = entry(&run, 41);
         retry.author = "system".into();
@@ -325,7 +325,7 @@ fn preserves_recovery_diagnostics_across_reconnect() {
         projection.reconnect(2).unwrap();
         assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
         projection
-            .apply(2, Update::ConversationSnapshot(saved))
+            .apply(2, Update::ConversationSnapshot(Box::new(saved)))
             .unwrap();
         let current = projection.snapshot().unwrap();
         assert_eq!(current.page.entries, vec![retry]);

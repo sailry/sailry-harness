@@ -21,7 +21,7 @@ fn recovers_decisions() {
         reason: None,
     };
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let update = frame(&snapshot, 11, Change::Approval(approval.clone()));
     assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
@@ -46,7 +46,7 @@ fn recovers_decisions() {
         .push(approved.clone());
     recovered.sequence = 1;
     projection
-        .apply(2, Update::ConversationSnapshot(recovered.clone()))
+        .apply(2, Update::ConversationSnapshot(Box::new(recovered.clone())))
         .unwrap();
     assert_eq!(
         projection.snapshot().unwrap().page.approvals,
@@ -99,7 +99,7 @@ fn preserves_rule_identity() {
             .approvals
             .push(approval.clone());
         projection
-            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
             .unwrap();
         let mut changed = approval;
         match change {
@@ -173,7 +173,7 @@ fn preserves_complete_decision() {
                 .approvals
                 .push(approval.clone());
             projection
-                .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+                .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
                 .unwrap();
             projection
                 .apply(1, frame(&snapshot, 11, Change::Approval(approval.clone())))

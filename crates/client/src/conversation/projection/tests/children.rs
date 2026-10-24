@@ -48,7 +48,7 @@ fn setup() -> (Projection, Snapshot, Child) {
 fn orders_updates_and_recovers_gaps() {
     let (mut projection, snapshot, mut child) = setup();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let started = frame(&snapshot, 11, Change::Child(child.clone()));
     assert_eq!(
@@ -86,7 +86,7 @@ fn orders_updates_and_recovers_gaps() {
     recovered.sequence = 0;
     Arc::make_mut(&mut recovered.page).children = vec![child.clone()];
     projection
-        .apply(2, Update::ConversationSnapshot(recovered.clone()))
+        .apply(2, Update::ConversationSnapshot(Box::new(recovered.clone())))
         .unwrap();
     child.run.status = Status::Completed;
     assert!(
@@ -104,7 +104,7 @@ fn rejects_forged_identity() {
         .children
         .push(child.clone());
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut variants = vec![];
     let mut forged = child.clone();
@@ -143,7 +143,7 @@ fn rejects_forged_identity() {
     Arc::make_mut(&mut repeated.page).children.push(child);
     assert!(
         projection
-            .apply(1, Update::ConversationSnapshot(repeated))
+            .apply(1, Update::ConversationSnapshot(Box::new(repeated)))
             .is_err()
     );
     assert_eq!(projection.snapshot().unwrap(), &snapshot);
@@ -156,7 +156,7 @@ fn preserves_live_state_on_merge() {
         .children
         .push(child.clone());
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     child.run.status = Status::Completed;
     projection
@@ -189,7 +189,7 @@ fn preserves_live_state_on_merge() {
     inherited.children[0].run.status = Status::Completed;
     let mut projection = Projection::new(snapshot.node, branch, 1);
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     assert_ne!(snapshot.page.children[0].origin.session, branch);
     assert_eq!(projection.snapshot().unwrap(), &snapshot);
@@ -220,7 +220,7 @@ fn validates_worktree_selection() {
     arguments["worktree"] = serde_json::json!(target);
     child.run.worktree = target;
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     projection
         .apply(1, frame(&snapshot, 11, Change::Child(child.clone())))
@@ -239,7 +239,7 @@ fn validates_worktree_selection() {
 fn rejects_parent_relocation() {
     let (mut projection, snapshot, _) = setup();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut run = snapshot.page.runs[0].clone();
     run.worktree = WorktreeId::new();
@@ -277,7 +277,7 @@ fn preserves_reused_and_guided_runs() {
     page.entries.push(call.clone());
     page.children.push(first.clone());
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut reused = first.clone();
     reused.run.turn = TurnId::new();
@@ -316,7 +316,7 @@ fn preserves_reused_and_guided_runs() {
     recovered.sequence = 0;
     projection.reconnect(2).unwrap();
     projection
-        .apply(2, Update::ConversationSnapshot(recovered))
+        .apply(2, Update::ConversationSnapshot(Box::new(recovered)))
         .unwrap();
     assert_eq!(projection.snapshot().unwrap().page.children, expected);
     assert_ne!(first.origin.turn, reused.origin.turn);
@@ -352,7 +352,7 @@ fn rejects_changed_reuse_ownership() {
         .children
         .push(child.clone());
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut next = child.clone();
     next.run.turn = TurnId::new();
@@ -392,7 +392,7 @@ fn rejects_changed_reuse_ownership() {
         arguments["session"] = value;
         assert!(
             projection
-                .apply(1, Update::ConversationSnapshot(forged))
+                .apply(1, Update::ConversationSnapshot(Box::new(forged)))
                 .is_err()
         );
         assert_eq!(projection.snapshot().unwrap(), &snapshot);

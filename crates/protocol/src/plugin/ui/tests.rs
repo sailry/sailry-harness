@@ -177,7 +177,7 @@ fn metrics_use_passive_footer_slots() {
 fn statistics_allow_one_plugin_detail_surface() {
     let entry = contribution(Slot::Statistics, Kind::Metric);
     assert!(entry.valid());
-    assert!(super::valid(&[entry.clone()]));
+    assert!(super::valid(std::slice::from_ref(&entry)));
     let mut duplicate = entry.clone();
     duplicate.id = "other".into();
     assert!(!super::valid(&[entry, duplicate]));

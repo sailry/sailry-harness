@@ -33,11 +33,28 @@ fn system_reports_reject_payload_fields() {
     let mut invalid = report.clone();
     invalid.operation = Some("fetch_web secret=PRIVATE".into());
     assert!(!invalid.valid());
-    let details = crate::FaultDetails::SystemDiagnostic(report);
+    let mut expected = serde_json::to_value(&report).unwrap();
+    expected["kind"] = serde_json::json!("system_diagnostic");
+    let details = crate::FaultDetails::SystemDiagnostic(Box::new(report));
     let encoded = serde_json::to_value(&details).unwrap();
-    assert_eq!(encoded["kind"], "system_diagnostic");
+    assert_eq!(encoded, expected);
     assert_eq!(
         serde_json::from_value::<crate::FaultDetails>(encoded).unwrap(),
         details
     );
+    let fault = crate::Fault {
+        code: crate::ErrorCode::Expired,
+        message: "Callback deadline elapsed".into(),
+        details: Some(details),
+    };
+    let wire = serde_json::to_value(&fault).unwrap();
+    assert_eq!(
+        wire,
+        serde_json::json!({
+            "code": "expired",
+            "message": "Callback deadline elapsed",
+            "details": expected,
+        })
+    );
+    assert_eq!(serde_json::from_value::<crate::Fault>(wire).unwrap(), fault);
 }

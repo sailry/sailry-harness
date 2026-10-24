@@ -26,7 +26,7 @@ fn follows_revisions_through_recovery() {
     let (mut projection, snapshot, run, _) = fixture();
     let mut task = task(&snapshot, &run);
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     projection
         .apply(1, frame(&snapshot, 11, Change::Background(task.clone())))
@@ -59,7 +59,7 @@ fn follows_revisions_through_recovery() {
     let restored = projection.snapshot().unwrap().clone();
     projection.reconnect(2).unwrap();
     projection
-        .apply(2, Update::ConversationSnapshot(restored.clone()))
+        .apply(2, Update::ConversationSnapshot(Box::new(restored.clone())))
         .unwrap();
     assert_eq!(projection.snapshot().unwrap(), &restored);
 }
@@ -70,7 +70,7 @@ fn rejects_changed_ownership_and_unversioned_content() {
     let original = task(&snapshot, &run);
     Arc::make_mut(&mut snapshot.page).background = vec![original.clone()];
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut foreign = original.clone();
     foreign.session = SessionId::new();
@@ -106,7 +106,7 @@ fn keeps_child_identity_across_guidance_results() {
         .background
         .push(source.clone());
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     source.revision += 1;
     source.kind = Kind::Agent {

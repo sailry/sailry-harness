@@ -180,7 +180,7 @@ fn evaluate(
                 ErrorCode::Expired => DiagnosticReason::Timeout,
                 _ => DiagnosticReason::Failure,
             };
-            fault.details = Some(FaultDetails::SystemDiagnostic(report));
+            fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(report)));
         }
         if let Some(FaultDetails::SystemDiagnostic(report)) = &mut fault.details {
             report.session = scope.session;
@@ -353,6 +353,8 @@ fn engine(error: rquickjs::Error) -> Fault {
     Fault::invalid(format!("plugin JavaScript execution failed: {error}"))
 }
 
+type ExceptionFields = (Option<String>, Option<String>, Option<String>, String);
+
 fn exception<'js>(
     ctx: &Ctx<'js>,
     inspect: &Function<'js>,
@@ -369,8 +371,7 @@ fn exception<'js>(
             sailry_protocol::notification::ScriptException::ThrownValue,
         );
     }
-    let fields: Result<List<(Option<String>, Option<String>, Option<String>, String)>, _> =
-        inspect.call((thrown,));
+    let fields: Result<List<ExceptionFields>, _> = inspect.call((thrown,));
     let Ok(List((message, code, identity, category))) = fields else {
         return engine(error);
     };
@@ -406,6 +407,6 @@ fn classified(mut fault: Fault, category: sailry_protocol::notification::ScriptE
     let mut report =
         SystemDiagnostic::new(RequestId::new(), SystemSource::PluginCallback, fault.code);
     report.exception = Some(category);
-    fault.details = Some(FaultDetails::SystemDiagnostic(report));
+    fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(report)));
     fault
 }

@@ -25,7 +25,7 @@ fn pending() -> Queue {
 fn orders_and_recovers() {
     let (mut projection, snapshot, _, draft) = fixture();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut queue = pending();
     let update = frame(&snapshot, 11, Change::Queue(queue.clone()));
@@ -50,7 +50,7 @@ fn orders_and_recovers() {
     resumed.sequence = 0;
     Arc::make_mut(&mut resumed.page).queue = queue.clone();
     projection
-        .apply(2, Update::ConversationSnapshot(resumed))
+        .apply(2, Update::ConversationSnapshot(Box::new(resumed)))
         .unwrap();
     assert_eq!(projection.snapshot().unwrap().page.queue, queue);
     assert_eq!(
@@ -66,7 +66,7 @@ fn rejects_inconsistent_revisions() {
     let (mut projection, mut snapshot, _, _) = fixture();
     Arc::make_mut(&mut snapshot.page).queue = pending();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let original = snapshot.page.queue.clone();
     let mut stale = original.clone();

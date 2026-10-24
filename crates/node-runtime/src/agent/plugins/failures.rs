@@ -59,7 +59,7 @@ mod tests {
         let mut report =
             SystemDiagnostic::new(RequestId::new(), SystemSource::PluginCallback, fault.code);
         report.reason = DiagnosticReason::Timeout;
-        fault.details = Some(FaultDetails::SystemDiagnostic(report.clone()));
+        fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(report.clone())));
         let error = adk_core::AdkError::tool(fault.message.clone()).with_source(fault.clone());
         let projected = project(&error).unwrap();
         assert_eq!(projected["isError"], true);

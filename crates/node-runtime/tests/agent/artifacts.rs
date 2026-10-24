@@ -159,7 +159,7 @@ async fn projected(
             .iter()
             .any(|value| value.id == id && value.revision == revision)
     );
-    snapshot
+    *snapshot
 }
 
 #[tokio::test]

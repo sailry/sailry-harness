@@ -547,7 +547,7 @@ pub enum Change {
     Artifact(crate::artifact::Summary),
     /// Published only after the canonical event transaction commits.
     Entry(Entry),
-    Statistics(Statistics),
+    Statistics(Box<Statistics>),
     Run(Run),
     Queue(Queue),
     Approval(Approval),

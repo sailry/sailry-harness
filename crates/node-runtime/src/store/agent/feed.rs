@@ -268,7 +268,7 @@ impl Reserved {
             }
         }
         Ok(Box::new(Updates {
-            initial: Some(Update::ConversationSnapshot(
+            initial: Some(Update::ConversationSnapshot(Box::new(
                 sailry_protocol::conversation::Snapshot {
                     node,
                     sequence: self.sequence,
@@ -278,7 +278,7 @@ impl Reserved {
                     statistics,
                     artifacts,
                 },
-            )),
+            ))),
             updates: self.updates,
             closed,
         }))
@@ -422,14 +422,13 @@ pub(in crate::store) async fn command(database: &mut Database, output: &Output) 
             let mut approved = Vec::new();
             let ids: Vec<_> = database.approvals.lock().unwrap().keys().copied().collect();
             for id in ids {
-                if let Ok(pending) = approvals::get(&database.connection, id).await {
-                    if pending.session == approval.session
-                        && pending.state == ApprovalState::Approved
-                        && pending.source == ApprovalSource::SessionRule
-                        && pending.choice == Some(ApprovalChoice::Session)
-                    {
-                        approved.push(pending);
-                    }
+                if let Ok(pending) = approvals::get(&database.connection, id).await
+                    && pending.session == approval.session
+                    && pending.state == ApprovalState::Approved
+                    && pending.source == ApprovalSource::SessionRule
+                    && pending.choice == Some(ApprovalChoice::Session)
+                {
+                    approved.push(pending);
                 }
             }
             for approval in approved {
@@ -490,11 +489,11 @@ pub(in crate::store) async fn run(database: &Database, current: Run) {
 
 async fn statistics(database: &Database, session: SessionId) {
     match super::statistics::read(&database.connection, session).await {
-        Ok(statistics) => {
-            database
-                .feeds
-                .publish(database.node, session, Change::Statistics(statistics))
-        }
+        Ok(statistics) => database.feeds.publish(
+            database.node,
+            session,
+            Change::Statistics(Box::new(statistics)),
+        ),
         Err(_) => database.feeds.reset(session),
     }
 }

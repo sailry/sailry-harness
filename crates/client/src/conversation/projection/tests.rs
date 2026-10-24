@@ -75,7 +75,7 @@ fn frame(snapshot: &Snapshot, sequence: u64, change: Change) -> Update {
 fn rejects_changed_run_kind() {
     let (mut projection, snapshot, mut run, _) = fixture();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     run.kind = sailry_protocol::conversation::RunKind::Compaction;
     assert!(
@@ -90,7 +90,7 @@ fn rejects_changed_run_kind() {
 fn commits_canonical_output() {
     let (mut projection, snapshot, mut run, mut draft) = fixture();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let update = frame(&snapshot, 11, Change::Delta(draft.clone()));
     assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
@@ -135,7 +135,7 @@ fn commits_canonical_output() {
 fn recovers_restarted_sequences() {
     let (mut projection, mut snapshot, _, draft) = fixture();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     assert_eq!(
         projection
@@ -155,7 +155,7 @@ fn recovers_restarted_sequences() {
     snapshot.drafts.push(draft);
     assert_eq!(
         projection
-            .apply(2, Update::ConversationSnapshot(snapshot.clone()))
+            .apply(2, Update::ConversationSnapshot(Box::new(snapshot.clone())))
             .unwrap(),
         Apply::Applied
     );
@@ -166,13 +166,13 @@ fn recovers_restarted_sequences() {
 fn validates_frames_and_cancellation() {
     let (mut projection, snapshot, mut run, draft) = fixture();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut other = snapshot.clone();
     other.node = NodeId([62; 32]);
     assert_eq!(
         projection
-            .apply(1, Update::ConversationSnapshot(other))
+            .apply(1, Update::ConversationSnapshot(Box::new(other)))
             .unwrap_err()
             .code,
         ErrorCode::WrongTarget

@@ -61,7 +61,7 @@ pub(super) async fn append(
                         .query_row([i64::try_from(entry.sequence).map_err(storage_error)?])
                         .await
                         .map_err(storage_error)?;
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     mapped.map_err(storage_error)?
                 };
                 let notice =
@@ -76,11 +76,12 @@ pub(super) async fn append(
                         .into_iter()
                     {
                         selected.push(
-                            (async |parent| {
+                            async {
+                                let parent = value;
                                 super::statistics::read(&transaction, parent)
                                     .await
                                     .map(|statistics| (parent, statistics))
-                            })(value)
+                            }
                             .await?,
                         );
                     }
@@ -114,14 +115,18 @@ pub(super) async fn append(
                     .feeds
                     .publish(database.node, session, Change::Entry(entry));
             }
-            database
-                .feeds
-                .publish(database.node, session, Change::Statistics(statistics));
+            database.feeds.publish(
+                database.node,
+                session,
+                Change::Statistics(Box::new(statistics)),
+            );
             super::background::publish(database, background).await;
             for (parent, statistics) in parents {
-                database
-                    .feeds
-                    .publish(database.node, parent, Change::Statistics(statistics));
+                database.feeds.publish(
+                    database.node,
+                    parent,
+                    Change::Statistics(Box::new(statistics)),
+                );
             }
             Ok(())
         };
@@ -179,7 +184,7 @@ pub(super) async fn insert(
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error).into()),
+            Err(error) => return Err(storage_error(error)),
         }
     };
     #[cfg(test)]
@@ -207,11 +212,11 @@ pub(super) async fn insert(
                 .await
             {
                 Ok(row) => {
-                    let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let mapped: turso::Result<_> = row.get(0);
                     Some(mapped.map_err(storage_error)?)
                 }
                 Err(turso::Error::QueryReturnedNoRows) => None,
-                Err(error) => return Err(storage_error(error).into()),
+                Err(error) => return Err(storage_error(error)),
             }
         };
         request.boundary = if let Some(first) = first {
@@ -228,7 +233,7 @@ pub(super) async fn insert(
                     .query_row([session.to_string()])
                     .await
                     .map_err(storage_error)?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<Option<i64>>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<Option<i64>>(0);
                 mapped.map_err(storage_error)?
             }
             .map(u64::try_from)
@@ -253,7 +258,7 @@ pub(super) async fn insert(
             .query_row(params![turn.to_string(), session.to_string()])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     if !owns {
@@ -363,7 +368,7 @@ pub(in crate::store) async fn rebuild_session(
             .query_row(params![session.to_string(), SESSION_TITLE])
             .await
             .map_err(storage_error)?;
-        let mapped: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+        let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
     db.execute(
@@ -385,7 +390,7 @@ pub(in crate::store) async fn rebuild_session(
             .await
             .map_err(storage_error)?;
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let row: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+            let row: turso::Result<_> = row.get::<String>(0);
 
             let delta: HashMap<String, Value> =
                 serde_json::from_str(&row.map_err(storage_error)?).map_err(storage_error)?;
@@ -470,7 +475,7 @@ pub(super) async fn rebuild(db: &mut Connection) -> Result<(), Fault> {
         {
             let mut rows = query.query(()).await.map_err(storage_error)?;
             while let Some(row) = rows.next().await.map_err(storage_error)? {
-                let row: turso::Result<_> = (|row: &turso::Row| row.get::<String>(0))(&row);
+                let row: turso::Result<_> = row.get::<String>(0);
 
                 let session = row.map_err(storage_error)?.parse().map_err(storage_error)?;
                 rebuild_index(&transaction, session).await?;

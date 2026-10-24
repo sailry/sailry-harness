@@ -7,7 +7,7 @@ fn preserves_the_original_turn_owner() {
     run.origin = Some(SessionId::new());
     Arc::make_mut(&mut snapshot.page).runs = vec![run.clone()];
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut changed = run.clone();
     changed.origin = Some(SessionId::new());
@@ -40,7 +40,7 @@ fn preserves_the_original_turn_owner() {
         Arc::make_mut(&mut invalid.page).runs[0].status = status;
         assert!(
             projection
-                .apply(1, Update::ConversationSnapshot(invalid))
+                .apply(1, Update::ConversationSnapshot(Box::new(invalid)))
                 .is_err()
         );
     }

@@ -167,7 +167,7 @@ impl Projection {
                     .checked_add(1)
                     .ok_or_else(|| Fault::invalid("artifact cursor exhausted"))?;
                 self.live_start = None;
-                self.snapshot = Some(snapshot);
+                self.snapshot = Some(*snapshot);
                 self.recovery = false;
                 Ok(Apply::Applied)
             }
@@ -218,7 +218,7 @@ impl Projection {
                             .checked_add(1)
                             .ok_or_else(|| Fault::invalid("artifact cursor exhausted"))?;
                     }
-                    Change::Statistics(statistics) => snapshot.statistics = statistics,
+                    Change::Statistics(statistics) => snapshot.statistics = *statistics,
                     Change::Entry(entry) => {
                         let turn = entry.turn;
                         let user = entry.author == "user";

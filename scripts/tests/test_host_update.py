@@ -9,7 +9,7 @@ import subprocess
 import sys
 import unittest
 
-from scripts.tests.test_host_install import Fixture, ROOT, VERSION
+from test_host_install import Fixture, ROOT, VERSION
 
 
 class HostUpdate(Fixture, unittest.TestCase):

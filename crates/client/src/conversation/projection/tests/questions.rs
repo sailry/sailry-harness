@@ -17,7 +17,7 @@ fn recovers_answers() {
     let (mut projection, snapshot, run, _) = fixture();
     let question = question(&run);
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let update = frame(&snapshot, 11, Change::Question(question.clone()));
     assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
@@ -41,7 +41,7 @@ fn recovers_answers() {
         .push(answered.clone());
     recovered.sequence = 1;
     projection
-        .apply(2, Update::ConversationSnapshot(recovered))
+        .apply(2, Update::ConversationSnapshot(Box::new(recovered)))
         .unwrap();
     for changed in [
         question,
@@ -83,7 +83,7 @@ fn rejects_inconsistent_questions() {
         parts: vec![Part::ToolCall { display: None, presentation: Default::default(), grouping: Default::default(), id: Some("call".into()), name: "ask_user".into(), arguments: serde_json::json!({"prompt": "Pick", "input": {"kind": "choice", "multiple": false, "allow_other": false, "options": ["one", "two"]}}) }],
     });
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     for changed in [
         Question {
@@ -125,7 +125,7 @@ fn rejects_inconsistent_questions() {
     projection.reconnect(2).unwrap();
     assert!(
         projection
-            .apply(2, Update::ConversationSnapshot(snapshot))
+            .apply(2, Update::ConversationSnapshot(Box::new(snapshot)))
             .is_err()
     );
 }
@@ -160,7 +160,7 @@ fn validates_plan_answers() {
             }],
         });
         projection
-            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
             .unwrap();
         question.state = State::Answered(Answer::Plan { turn: run.turn });
         assert!(
@@ -178,7 +178,7 @@ fn validates_plan_answers() {
             snapshot.sequence = 11;
             projection.reconnect(2).unwrap();
             projection
-                .apply(2, Update::ConversationSnapshot(snapshot))
+                .apply(2, Update::ConversationSnapshot(Box::new(snapshot)))
                 .unwrap();
         } else {
             assert!(result.is_err());
@@ -230,7 +230,7 @@ fn projects_automatic_reviews() {
             },
         ));
         projection
-            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
             .unwrap();
         assert_eq!(
             projection
@@ -247,7 +247,7 @@ fn projects_automatic_reviews() {
         projection.reconnect(2).unwrap();
         assert_eq!(
             projection
-                .apply(2, Update::ConversationSnapshot(snapshot.clone()))
+                .apply(2, Update::ConversationSnapshot(Box::new(snapshot.clone())))
                 .unwrap(),
             Apply::Applied
         );
@@ -268,7 +268,7 @@ fn recovers_completed_pending_review() {
     );
     entry.author = "plan_review".into();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     run.status = Status::Completed;
     run.finished_ms = Some(2000);
@@ -287,7 +287,7 @@ fn recovers_completed_pending_review() {
     assert_eq!(recovered.page.runs[0].status, Status::Completed);
     projection.reconnect(2).unwrap();
     projection
-        .apply(2, Update::ConversationSnapshot(recovered.clone()))
+        .apply(2, Update::ConversationSnapshot(Box::new(recovered.clone())))
         .unwrap();
     assert_eq!(projection.snapshot().unwrap(), &recovered);
     question.state = State::Cancelled;
@@ -334,7 +334,7 @@ fn rejects_invalid_review_sources() {
             .entries
             .push(review_entry(&question, spec));
         projection
-            .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+            .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
             .unwrap();
         assert!(
             projection
@@ -346,7 +346,7 @@ fn rejects_invalid_review_sources() {
         projection.reconnect(2).unwrap();
         assert!(
             projection
-                .apply(2, Update::ConversationSnapshot(snapshot))
+                .apply(2, Update::ConversationSnapshot(Box::new(snapshot)))
                 .is_err()
         );
     }
@@ -369,7 +369,7 @@ fn retains_nonempty_model_prompts() {
     *name = "ask_user".into();
     Arc::make_mut(&mut snapshot.page).entries.push(entry);
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     assert!(
         projection
@@ -381,7 +381,7 @@ fn retains_nonempty_model_prompts() {
     projection.reconnect(2).unwrap();
     assert!(
         projection
-            .apply(2, Update::ConversationSnapshot(snapshot))
+            .apply(2, Update::ConversationSnapshot(Box::new(snapshot)))
             .is_err()
     );
 }

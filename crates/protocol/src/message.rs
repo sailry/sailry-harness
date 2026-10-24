@@ -47,7 +47,7 @@ pub enum FaultDetails {
     ModelRecovery {
         reason: crate::conversation::recovery::Stop,
     },
-    SystemDiagnostic(crate::notification::SystemDiagnostic),
+    SystemDiagnostic(Box<crate::notification::SystemDiagnostic>),
     VersionMismatch {
         controller: Option<String>,
         host: Option<String>,
@@ -2212,7 +2212,7 @@ pub enum Update {
     ConnectorLogin(crate::plugin::connector::LoginUpdate),
     ConnectionsChanged(crate::plugin::connector::Changes),
     ProviderLogin(crate::conversation::login::Update),
-    ConversationSnapshot(crate::conversation::Snapshot),
+    ConversationSnapshot(Box<crate::conversation::Snapshot>),
     ConversationFrame(crate::conversation::Frame),
     TerminalSnapshot(crate::terminal::Snapshot),
     TerminalFrame(crate::terminal::Frame),

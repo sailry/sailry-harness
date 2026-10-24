@@ -40,7 +40,7 @@ fn recovers_totals_across_generations() {
         outcome: conversation::compaction::Outcome::Succeeded,
     });
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut updated = snapshot.statistics.clone();
     updated.responses += 1;
@@ -52,7 +52,7 @@ fn recovers_totals_across_generations() {
     updated.context_model = Some("selected-model".into());
     updated.context_timestamp_ms = Some(2_000);
     updated.usage.as_mut().unwrap().input += 10;
-    let event = frame(&snapshot, 11, Change::Statistics(updated.clone()));
+    let event = frame(&snapshot, 11, Change::Statistics(Box::new(updated.clone())));
     projection.apply(1, event.clone()).unwrap();
     assert_eq!(projection.apply(1, event.clone()).unwrap(), Apply::Ignored);
     assert!(Arc::ptr_eq(
@@ -79,7 +79,7 @@ fn recovers_totals_across_generations() {
     });
     snapshot.statistics = Statistics::default();
     projection
-        .apply(2, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(2, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     assert_eq!(projection.apply(1, event).unwrap(), Apply::Ignored);
     assert_eq!(
@@ -122,14 +122,18 @@ fn replaces_estimates_only_with_node_observation() {
     snapshot.statistics.context_limit = Some(1024);
     snapshot.statistics.context_model = Some("summarized-model".into());
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let mut measured = snapshot.statistics.clone();
     measured.context_estimate = None;
     measured.context_tokens = Some(450);
     measured.context_limit = Some(4096);
     measured.context_model = Some("next-model".into());
-    let event = frame(&snapshot, 11, Change::Statistics(measured.clone()));
+    let event = frame(
+        &snapshot,
+        11,
+        Change::Statistics(Box::new(measured.clone())),
+    );
     projection.apply(1, event.clone()).unwrap();
     assert_eq!(projection.snapshot().unwrap().statistics, measured);
     assert_eq!(projection.apply(1, event).unwrap(), Apply::Ignored);

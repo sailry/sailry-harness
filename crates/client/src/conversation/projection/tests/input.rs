@@ -29,7 +29,7 @@ fn canonical_user_replaces_capture() {
     });
     Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let input =
         super::super::super::turns::input(&projection.snapshot().unwrap().page, run.turn).unwrap();
@@ -82,7 +82,7 @@ fn rejects_changed_capture_and_private_runs() {
     });
     Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let original = projection.snapshot().unwrap().clone();
     run.input.as_mut().unwrap().message.text = "Changed input".into();
@@ -97,7 +97,7 @@ fn rejects_changed_capture_and_private_runs() {
     let mut fresh = Projection::new(snapshot.node, snapshot.page.session, 1);
     assert!(
         fresh
-            .apply(1, Update::ConversationSnapshot(invalid))
+            .apply(1, Update::ConversationSnapshot(Box::new(invalid)))
             .is_err()
     );
     let mut invalid = snapshot.clone();
@@ -106,7 +106,7 @@ fn rejects_changed_capture_and_private_runs() {
     let mut fresh = Projection::new(snapshot.node, snapshot.page.session, 1);
     assert!(
         fresh
-            .apply(1, Update::ConversationSnapshot(invalid))
+            .apply(1, Update::ConversationSnapshot(Box::new(invalid)))
             .is_err()
     );
 }
@@ -120,7 +120,7 @@ fn invalid_user_event_preserves_capture() {
     });
     Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let entry = Entry {
         sequence: 0,
@@ -152,12 +152,12 @@ fn reconnect_restores_capture_with_same_turn() {
     });
     Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     projection.reconnect(2).unwrap();
     snapshot.sequence = 1;
     projection
-        .apply(2, Update::ConversationSnapshot(snapshot))
+        .apply(2, Update::ConversationSnapshot(Box::new(snapshot)))
         .unwrap();
     let current = projection.snapshot().unwrap();
     assert!(current.page.entries.is_empty());
@@ -178,7 +178,7 @@ fn preserves_queued_child_input_through_claim() {
     });
     Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
     projection
-        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
         .unwrap();
     let original =
         super::super::super::turns::input(&projection.snapshot().unwrap().page, run.turn).unwrap();

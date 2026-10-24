@@ -512,7 +512,7 @@ mod tests {
         diagnostic.phase = DiagnosticPhase::Sdk;
         diagnostic.operation = Some("write_plugin_value".into());
         diagnostic.request = Some(RequestId::new());
-        fault.details = Some(FaultDetails::SystemDiagnostic(diagnostic));
+        fault.details = Some(FaultDetails::SystemDiagnostic(Box::new(diagnostic)));
         let projected = crate::agent::model::error(error(fault.clone()));
         assert_eq!(projected, fault);
     }
