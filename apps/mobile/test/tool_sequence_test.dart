@@ -44,7 +44,7 @@ class Transcript {
       'state': state,
       'details': true,
       'output': {'preview': 'Output $id'},
-      'resolved': {
+      'resolved': <String, dynamic>{
         'output': {'preview': 'Output $id'},
       },
       if (standalone || todo) 'grouping': 'standalone',

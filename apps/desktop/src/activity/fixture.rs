@@ -41,10 +41,6 @@ impl Fixture {
                     .block_on(client.execute(client.prepare(command)))
                     .unwrap()
             };
-            execute(Command::InstallBundledPlugin {
-                name: "progress".into(),
-                expected_revision: 0,
-            });
             // Keep model fixtures independent of shipped external services.
             for name in ["context7", "github"] {
                 execute(Command::SetPluginEnabled {

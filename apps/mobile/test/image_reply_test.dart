@@ -335,6 +335,7 @@ void main() {
                     'turn': 'turn',
                     'name': 'generate_image',
                     'state': 'returned',
+                    'failure': {'code': 'unavailable', 'message': diagnostic},
                     'source': {'entry': 'call', 'index': 0},
                     'response': {'entry': 'result', 'index': 0},
                   },
