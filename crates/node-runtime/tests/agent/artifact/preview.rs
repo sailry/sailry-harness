@@ -161,40 +161,44 @@ async fn retains_code_and_defaults_metadata() {
         let stored: artifact::Summary =
             serde_json::from_slice(&body(&db, "artifacts", "id", document.id).await).unwrap();
         assert_eq!(stored, document);
-        let mut invalid: Value =
-            serde_json::from_slice(&body(&db, "artifacts", "id", document.id).await).unwrap();
-        invalid["kind"] = "unknown".into();
-        db.execute(
-            "UPDATE artifacts SET body=?1 WHERE id=?2",
-            params![
-                serde_json::to_vec(&invalid).unwrap(),
-                document.id.to_string()
-            ],
-        )
-        .await
-        .unwrap();
         crate::database_fixture::close(database, db).await;
-        let bytes = fs::read(&path).unwrap();
-        let family = files(path.parent().unwrap());
-        let error = Node::start_empty(&profile)
-            .await
-            .err()
-            .expect("invalid artifact kind must fail startup");
-        assert!(error.to_string().contains("existing data was not changed"));
-        assert_eq!(fs::read(&path).unwrap(), bytes);
-        assert_eq!(files(path.parent().unwrap()), family);
-        assert_eq!(backups(&profile), saved);
-        assert_eq!(
-            fs::read_to_string(
-                profile
-                    .join("artifacts")
-                    .join(session.to_string())
-                    .join(preview.id.to_string())
-                    .join("1.html")
+        for kind in [json!("unknown"), Value::Null] {
+            let (database, db) = crate::database_fixture::open(&path, false).await;
+            let mut invalid: Value =
+                serde_json::from_slice(&body(&db, "artifacts", "id", document.id).await).unwrap();
+            invalid["kind"] = kind;
+            db.execute(
+                "UPDATE artifacts SET body=?1 WHERE id=?2",
+                params![
+                    serde_json::to_vec(&invalid).unwrap(),
+                    document.id.to_string()
+                ],
             )
-            .unwrap(),
-            SOURCE
-        );
+            .await
+            .unwrap();
+            crate::database_fixture::close(database, db).await;
+            let bytes = fs::read(&path).unwrap();
+            let family = files(path.parent().unwrap());
+            let error = Node::start_empty(&profile)
+                .await
+                .err()
+                .expect("invalid artifact kind must fail startup");
+            assert!(error.to_string().contains("existing data was not changed"));
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+            assert_eq!(files(path.parent().unwrap()), family);
+            assert_eq!(backups(&profile), saved);
+            assert_eq!(
+                fs::read_to_string(
+                    profile
+                        .join("artifacts")
+                        .join(session.to_string())
+                        .join(preview.id.to_string())
+                        .join("1.html")
+                )
+                .unwrap(),
+                SOURCE
+            );
+        }
         fixture.controller.close().await.unwrap();
     }
 }

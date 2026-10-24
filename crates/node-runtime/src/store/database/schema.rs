@@ -40,7 +40,10 @@ impl Schema {
     pub(super) async fn initialize(&self, connection: &Connection) -> Result<(), Error> {
         match &self.state {
             State::Fresh => connection.execute_batch(DDL).await?,
-            State::Update(plan) => plan.apply(connection).await?,
+            State::Update(plan) => {
+                plan.apply(connection).await?;
+                upgrades::apply(connection).await?;
+            }
             State::Current => {}
         }
         if matches!(&self.state, State::Update(plan) if plan.adds("database_profiles", "password_target"))
@@ -122,7 +125,10 @@ pub(super) async fn prepare(
         let plan = plan::Plan::prepare(connection, path, &expected, &definitions).await?;
         if plan.is_empty() {
             verify_objects(connection, path, &expected).await?;
-            super::validation::startup(connection).await?;
+            let defaults_changed = upgrades::needed(connection).await?;
+            if !defaults_changed {
+                super::validation::startup(connection).await?;
+            }
             let connections_changed = if let Some(host) = plugins {
                 crate::store::providers::authentication::needs_binding(connection).await?
                     || crate::store::plugins::distribution::needs_connections(connection, host)
@@ -130,7 +136,8 @@ pub(super) async fn prepare(
             } else {
                 false
             };
-            if !connections_changed
+            if !defaults_changed
+                && !connections_changed
                 && crate::store::plugins::storage::search::validate(connection)
                     .await
                     .is_ok()

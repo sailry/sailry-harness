@@ -1,6 +1,8 @@
 //! Current-format defaults for added native storage fields.
-use sailry_protocol::hooks::Settings;
+use crate::Error;
+use sailry_protocol::{artifact::Kind, hooks::Settings};
 use std::sync::LazyLock;
+use turso::Connection;
 
 static HOOKS: LazyLock<Vec<u8>> = LazyLock::new(|| {
     serde_json::to_vec(&Settings::default()).expect("default hook settings encode")
@@ -25,4 +27,36 @@ pub(super) fn matches(table: &str, name: &str, value: &[u8]) -> bool {
         }
         _ => false,
     }
+}
+
+const ARTIFACTS: [&str; 2] = ["artifacts", "artifact_revisions"];
+const MISSING_KIND: &str = "CASE WHEN json_valid(body) THEN json_type(body)='object' AND json_type(body,'$.kind') IS NULL ELSE 0 END";
+
+pub(super) async fn needed(connection: &Connection) -> Result<bool, Error> {
+    for table in ARTIFACTS {
+        if connection
+            .prepare(format!(
+                "SELECT EXISTS(SELECT 1 FROM {table} WHERE {MISSING_KIND})"
+            ))
+            .await?
+            .query_row(())
+            .await?
+            .get::<bool>(0)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
+    let kind = serde_json::to_value(Kind::default()).expect("default artifact kind encodes");
+    let kind = kind.as_str().expect("artifact kind is a string");
+    for table in ARTIFACTS {
+        connection.execute(
+            format!("UPDATE {table} SET body=CAST(json_set(body,'$.kind',?1) AS BLOB) WHERE {MISSING_KIND}"),
+            [kind],
+        ).await?;
+    }
+    Ok(())
 }
