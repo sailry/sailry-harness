@@ -65,13 +65,7 @@ fn preserves_completed_provider_tool_boundary() {
         .insert("provider_tool_completed".into(), true.into());
     let error = interrupted(error);
     assert_eq!(super::super::error(&error).code, ErrorCode::OutcomeUnknown);
-    assert_eq!(
-        super::super::error(&error)
-            .message
-            .matches("connection closed")
-            .count(),
-        1
-    );
+    assert_eq!(super::super::error(&error).message, "connection closed");
     assert!(matches!(
         classification::Failure::new(&error).class,
         classification::Class::Terminal(Stop::LocalFailure)

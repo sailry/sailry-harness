@@ -137,9 +137,8 @@ async fn captures_private_grant_fields_for_redaction() {
                 assert!(!projected.contains(private));
                 assert!(!fault.message.contains(private));
             }
-            let (_, message) = fault.message.split_once("\n\n").unwrap();
-            assert!(message.starts_with("Provider error: "));
-            assert_eq!(message.matches("[redacted]").count(), actual.len());
+            assert!(fault.message.starts_with("Provider error: "));
+            assert_eq!(fault.message.matches("[redacted]").count(), actual.len());
         }
     }
 }

@@ -7,6 +7,8 @@ fn failure(class: Class, retry_at: Option<Instant>) -> Failure {
         transport: None,
         status: None,
         code: None,
+        refused: false,
+        switch: false,
     }
 }
 

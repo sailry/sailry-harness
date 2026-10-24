@@ -503,11 +503,7 @@ async fn confines_generation_credentials() {
                 }
                 if !redirect && api == ModelApi::Responses {
                     let error = page.runs.last().unwrap().error.as_ref().unwrap();
-                    let (summary, details) = error.message.split_once("\n\n").unwrap();
-                    assert!(summary.contains("model.openai_responses.rate_limited"));
-                    assert!(summary.contains("429"));
-                    assert!(summary.contains("rate_limited"));
-                    assert_eq!(details, "[redacted]");
+                    assert_eq!(error.message, "[redacted]");
                 }
                 let retries: Vec<_> = page
                     .entries

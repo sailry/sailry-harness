@@ -26,6 +26,20 @@ pub(super) fn finish(span: &mut crate::logging::Span, error: &AdkError, cancelle
 
 pub(in crate::agent) fn cause(entry: &mut crate::logging::Entry, error: &AdkError) {
     failure(entry, error.into());
+    if error
+        .details
+        .metadata
+        .get("transport")
+        .and_then(Value::as_str)
+        == Some("websocket")
+    {
+        entry.websocket_close_code = error
+            .details
+            .metadata
+            .get("websocket_close_code")
+            .and_then(Value::as_u64)
+            .filter(|code| (1000..=4999).contains(code));
+    }
     if error.code != RESPONSES_PARSE
         || error.component != ErrorComponent::Model
         || error.category != ErrorCategory::Internal
@@ -241,6 +255,36 @@ fn category(value: ErrorCategory) -> &'static str {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn copies_only_numeric_socket_close_codes() {
+        for (value, expected) in [
+            (json!(1008), Some(1008)),
+            (json!("PRIVATE_TEXT"), None),
+            (json!(5000), None),
+        ] {
+            let mut error = AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::Unavailable,
+                "model.openai_responses.unfinished_stream",
+                "PRIVATE_MESSAGE",
+            );
+            error
+                .details
+                .metadata
+                .insert("transport".into(), json!("websocket"));
+            error
+                .details
+                .metadata
+                .insert("websocket_close_code".into(), value);
+            let mut entry = crate::logging::Entry::new(
+                crate::logging::Area::Model,
+                crate::logging::Phase::Failed,
+            );
+            cause(&mut entry, &error);
+            assert_eq!(entry.websocket_close_code, expected);
+        }
+    }
 
     fn error(value: Value) -> AdkError {
         let mut error = AdkError::new(

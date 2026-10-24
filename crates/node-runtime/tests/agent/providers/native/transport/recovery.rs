@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn rebuilds_after_unfinished_responses() {
+async fn preserves_accepted_unfinished_responses() {
     for remote in [false, true] {
         for partial in [false, true] {
             let server = Server::transport(
@@ -19,15 +19,18 @@ async fn rebuilds_after_unfinished_responses() {
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(
                 page.runs.last().unwrap().status,
-                Status::Completed,
+                Status::Failed,
                 "{:?}",
                 page.runs
             );
-            assert_eq!(completion::response(&page), server::ANSWER);
+            assert_eq!(
+                completion::response(&page),
+                if partial { "FAILED_DRAFT" } else { "" }
+            );
             assert_eq!(page.runs.iter().filter(|run| run.turn == turn).count(), 1);
-            assert_eq!(super::super::retry::attempts(&page), [1, 2]);
+            assert!(super::super::retry::attempts(&page).is_empty());
             let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 3);
+            assert_eq!(requests.len(), 1);
             for request in &requests {
                 assert_eq!(request.body["type"], "response.create");
                 assert!(request.body.get("previous_response_id").is_none());
@@ -43,7 +46,7 @@ async fn rebuilds_after_unfinished_responses() {
 }
 
 #[tokio::test]
-async fn preserves_completed_tools_during_recovery() {
+async fn preserves_completed_tools_without_replay() {
     for remote in [false, true] {
         let server = Server::transport(
             ModelApi::Responses,
@@ -62,11 +65,12 @@ async fn preserves_completed_tools_during_recovery() {
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(
             page.runs.last().unwrap().status,
-            Status::Completed,
+            Status::Failed,
             "{:?}",
             page.runs
         );
-        assert_eq!(completion::response(&page), server::ANSWER);
+        assert_eq!(completion::response(&page), "FAILED_DRAFT");
+        assert!(super::super::retry::attempts(&page).is_empty());
         let results = page
             .entries
             .iter()
@@ -75,14 +79,14 @@ async fn preserves_completed_tools_during_recovery() {
             .count();
         assert_eq!(results, 1);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 4);
-        for request in &requests[2..] {
-            assert!(request.body.get("previous_response_id").is_none());
+        assert_eq!(requests.len(), 2);
+        for request in &requests[1..] {
+            assert_eq!(request.body["previous_response_id"], "native-response");
             let body = request.body.to_string();
-            assert!(body.contains("工具内容 🙂"));
+            assert_eq!(body.matches("工具内容 🙂").count(), 1);
             assert!(!body.contains("FAILED_DRAFT"));
             assert!(!body.contains("failed_"));
-            assert_eq!(body.matches("Read native.txt once").count(), 1);
+            assert_eq!(body.matches("Read native.txt once").count(), 0);
         }
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();

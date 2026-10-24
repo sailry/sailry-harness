@@ -151,33 +151,38 @@ impl Llm for Model {
                 let error = interrupted(error);
                 let failure = classification::Failure::new(&error);
                 let (attempt, finite, at, delay, fallback) =
-                    match budget.next(&failure, limit, persistent) {
-                        budget::Decision::Stop(reason) => {
-                            recovery.entry.recovery_decision = Some(decision(reason));
-                            break Err(terminal(error, reason));
-                        }
-                        budget::Decision::Exhausted => {
-                            if failure.transport != Some(Transport::WebSocket)
-                                || !ingress.model_clients.fallback(session)
-                            {
-                                recovery.entry.recovery_decision = Some("attempts_exhausted");
-                                break Err(terminal(error, Stop::AttemptsExhausted));
+                    if failure.switch && ingress.model_clients.fallback(session) {
+                        budget.fallback();
+                        (0, Some(limit), tokio::time::Instant::now(), None, true)
+                    } else {
+                        match budget.next(&failure, limit, persistent) {
+                            budget::Decision::Stop(reason) => {
+                                recovery.entry.recovery_decision = Some(decision(reason));
+                                break Err(terminal(error, reason));
                             }
-                            budget.fallback();
-                            (
-                                0,
-                                Some(limit),
-                                failure.retry_at.unwrap_or_else(tokio::time::Instant::now),
-                                None,
-                                true,
-                            )
+                            budget::Decision::Exhausted => {
+                                if failure.transport != Some(Transport::WebSocket)
+                                    || !ingress.model_clients.fallback(session)
+                                {
+                                    recovery.entry.recovery_decision = Some("attempts_exhausted");
+                                    break Err(terminal(error, Stop::AttemptsExhausted));
+                                }
+                                budget.fallback();
+                                (
+                                    0,
+                                    Some(limit),
+                                    failure.retry_at.unwrap_or_else(tokio::time::Instant::now),
+                                    None,
+                                    true,
+                                )
+                            }
+                            budget::Decision::Retry {
+                                attempt,
+                                limit,
+                                at,
+                                delay,
+                            } => (attempt, limit, at, delay, false),
                         }
-                        budget::Decision::Retry {
-                            attempt,
-                            limit,
-                            at,
-                            delay,
-                        } => (attempt, limit, at, delay, false),
                     };
                 let notice = Retry {
                     attempt,
@@ -193,10 +198,14 @@ impl Llm for Model {
                         )
                         .unwrap_or(u64::MAX),
                     ),
-                    transport: failure.transport,
-                    status: failure.status,
-                    code: failure.code,
-                    error: Some(super::error(&error).message),
+                    transport: if fallback {
+                        Some(Transport::Http)
+                    } else {
+                        failure.transport
+                    },
+                    status: if fallback { None } else { failure.status },
+                    code: if fallback { None } else { failure.code },
+                    error: (!fallback).then(|| super::error(&error).message),
                 };
                 diagnostic(&recovery.entry, &error, &notice).emit();
                 if let Some(turn) = turn {
@@ -359,9 +368,6 @@ fn interrupted(error: AdkError) -> AdkError {
     }
     let mut fault = super::error(&error);
     fault.code = ErrorCode::OutcomeUnknown;
-    fault.message.push_str(
-        "\n\nA provider tool completed before the response ended; the request was not replayed",
-    );
     error.with_source(fault)
 }
 
@@ -430,7 +436,14 @@ fn diagnostic(
     entry.limit = notice.limit;
     entry.wait_ms = notice.delay_ms;
     entry.recovery_decision = Some(if notice.fallback { "fallback" } else { "retry" });
-    entry.fallback_reason = notice.fallback.then_some("attempts_exhausted");
+    let failure = classification::Failure::new(error);
+    entry.fallback_reason = notice.fallback.then_some(if failure.refused {
+        "refused"
+    } else if failure.switch {
+        "pre_event"
+    } else {
+        "attempts_exhausted"
+    });
     classify(&mut entry, error);
     entry
 }

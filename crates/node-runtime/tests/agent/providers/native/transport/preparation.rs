@@ -227,7 +227,7 @@ async fn owns_preconnections_during_preparation() {
                 assert_eq!(
                     super::super::retry::attempts(&page),
                     if outcome == "refused" {
-                        vec![1, 2, 3, 4, 5, 0]
+                        vec![0]
                     } else {
                         vec![]
                     }
@@ -239,13 +239,7 @@ async fn owns_preconnections_during_preparation() {
             }
             assert_eq!(
                 server.upgrades.lock().unwrap().len(),
-                if outcome == "unused" {
-                    2
-                } else if outcome == "refused" {
-                    6
-                } else {
-                    1
-                }
+                if outcome == "unused" { 2 } else { 1 }
             );
             release.cancel();
             fixture.controller.close().await.unwrap();

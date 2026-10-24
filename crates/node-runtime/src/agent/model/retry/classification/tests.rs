@@ -66,6 +66,8 @@ fn distinguishes_http_and_stream_mappings() {
         );
     }
     for (code, expected) in [
+        ("rate_limit_exceeded", Class::Advice(Stop::RateLimited)),
+        ("slow_down", Class::Advice(Stop::RateLimited)),
         ("insufficient_quota", Class::Terminal(Stop::QuotaExceeded)),
         ("organization_usage_limit_exceeded", Class::Backoff),
         ("subscription_sharing_usage_limit_exceeded", Class::Backoff),
@@ -79,6 +81,160 @@ fn distinguishes_http_and_stream_mappings() {
             Failure::new(&failure(None, Some("response.failed"), Some(code), None)).class,
             expected
         );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn separates_rate_limits_from_socket_backoff() {
+    for code in ["rate_limit_exceeded", "slow_down"] {
+        let mut error = failure(None, Some("response.failed"), Some(code), None);
+        let classified = Failure::new(&error);
+        assert!(matches!(
+            super::super::budget::Budget::default().next(&classified, 5, false),
+            super::super::budget::Decision::Stop(Stop::RateLimited)
+        ));
+        error.message = "Please try again in 60 seconds".into();
+        let classified = Failure::new(&error);
+        let now = Instant::now();
+        let super::super::budget::Decision::Retry { at, delay, .. } =
+            super::super::budget::Budget::default().next(&classified, 5, false)
+        else {
+            panic!("rate advice expected")
+        };
+        assert_eq!(at, now + std::time::Duration::from_secs(60));
+        assert!(delay.is_none());
+    }
+    let error = failure(None, None, None, None);
+    let classified = Failure::new(&error);
+    let now = Instant::now();
+    let super::super::budget::Decision::Retry { at, .. } =
+        super::super::budget::Budget::default().next(&classified, 5, false)
+    else {
+        panic!("socket backoff expected")
+    };
+    assert!(at.duration_since(now) >= std::time::Duration::from_millis(180));
+    assert!(at.duration_since(now) < std::time::Duration::from_millis(220));
+}
+
+#[test]
+fn falls_back_only_before_definitive_refusal() {
+    for (phase, refusal, expected) in [
+        ("request", "definitive", true),
+        ("request", "transient", false),
+        ("stream", "definitive", false),
+    ] {
+        let mut error = AdkError::new(
+            ErrorComponent::Model,
+            ErrorCategory::Unavailable,
+            "model.openai_responses.unfinished_stream",
+            "socket closed",
+        );
+        for (key, value) in [
+            ("transport", "websocket"),
+            ("transport_phase", phase),
+            ("websocket_refusal", refusal),
+        ] {
+            error.details.metadata.insert(key.into(), value.into());
+        }
+        assert_eq!(Failure::new(&error).refused, expected);
+        if expected {
+            let captured =
+                error.with_source(Fault::new(ErrorCode::OutcomeUnknown, "captured effect"));
+            assert!(!Failure::new(&captured).refused);
+            continue;
+        }
+        error.code = "model.openai_responses.ws_serialize";
+        assert!(!Failure::new(&error).refused);
+    }
+}
+
+#[test]
+fn preserves_accepted_socket_delivery_boundary() {
+    let mut error = AdkError::new(
+        ErrorComponent::Model,
+        ErrorCategory::Unavailable,
+        "model.openai_responses.unfinished_stream",
+        "socket closed",
+    );
+    error
+        .details
+        .metadata
+        .insert("transport".into(), "websocket".into());
+    error
+        .details
+        .metadata
+        .insert("transport_phase".into(), "stream".into());
+    error.retry.should_retry = false;
+    let classified = Failure::new(&error);
+    assert_eq!(classified.class, Class::Terminal(Stop::ResponseIncomplete));
+    assert!(!classified.refused);
+    error
+        .details
+        .metadata
+        .insert("transport_phase".into(), "request".into());
+    error.retry.should_retry = true;
+    assert_eq!(Failure::new(&error).class, Class::Backoff);
+}
+
+#[tokio::test(start_paused = true)]
+async fn switches_only_safe_pre_event_failures() {
+    for case in [
+        "eligible",
+        "advice",
+        "rate",
+        "authentication",
+        "accepted",
+        "build",
+        "completed",
+        "tool",
+    ] {
+        let mut error = AdkError::new(
+            ErrorComponent::Model,
+            ErrorCategory::Unavailable,
+            "model.openai_responses.unfinished_stream",
+            "socket closed",
+        );
+        error
+            .details
+            .metadata
+            .insert("transport".into(), "websocket".into());
+        error
+            .details
+            .metadata
+            .insert("transport_phase".into(), "request".into());
+        match case {
+            "advice" => {
+                error = error.with_retry_deadline(
+                    (Instant::now() + std::time::Duration::from_secs(60)).into_std(),
+                )
+            }
+            "rate" => error.details.upstream_status_code = Some(429),
+            "authentication" => error.details.upstream_status_code = Some(401),
+            "accepted" => {
+                error
+                    .details
+                    .metadata
+                    .insert("transport_phase".into(), "stream".into());
+                error.retry.should_retry = false;
+            }
+            "build" => {
+                error
+                    .details
+                    .metadata
+                    .insert("transport_error_kind".into(), "build".into());
+            }
+            "completed" => {
+                error
+                    .details
+                    .metadata
+                    .insert("response_completed".into(), true.into());
+            }
+            "tool" => {
+                error = error.with_source(Fault::new(ErrorCode::OutcomeUnknown, "captured effect"))
+            }
+            _ => {}
+        }
+        assert_eq!(Failure::new(&error).switch, case == "eligible", "{case}");
     }
 }
 

@@ -461,32 +461,7 @@ pub(super) fn error(error: impl std::borrow::Borrow<adk_core::AdkError>) -> Faul
     {
         return fault.clone();
     }
-    let summary = summary(error);
-    if error.component == adk_core::ErrorComponent::Model && error.code == "model.empty_response" {
-        return Fault::new(ErrorCode::Unavailable, summary);
-    }
-    let message = error.message.trim();
-    Fault::new(
-        ErrorCode::Unavailable,
-        if message.is_empty() {
-            summary
-        } else {
-            format!("{summary}\n\n{message}")
-        },
-    )
-}
-
-fn summary(error: &adk_core::AdkError) -> String {
-    if error.component == adk_core::ErrorComponent::Model && error.code == "model.empty_response" {
-        return "Model returned no answer".into();
-    }
-    // Keep machine-readable classification separate from the native message.
-    let mut message = format!("Agent execution failed ({})", error.code);
-    if let Some(status) = error.details.upstream_status_code {
-        // Keep classification separate from the optional redacted diagnostic body.
-        message.push_str(&format!("; HTTP {status}; {}", error.category));
-    }
-    message
+    Fault::new(ErrorCode::Unavailable, error.message.clone())
 }
 
 #[cfg(test)]
@@ -514,14 +489,16 @@ mod error_tests {
                 .details
                 .metadata
                 .insert("body".into(), serde_json::json!("private metadata"));
-            let fault = error(failure);
-            assert_eq!(
-                fault.message,
-                format!(
-                    "Agent execution failed (model.openai_compat.api_error); HTTP {status}; {category}\n\nProvider rejected the current input"
-                )
-            );
+            let fault = error(&failure);
+            assert_eq!(fault.message, "Provider rejected the current input");
             assert!(!fault.message.contains("private"));
+            let mut entry = crate::logging::Entry::new(
+                crate::logging::Area::Model,
+                crate::logging::Phase::Failed,
+            );
+            diagnostics::cause(&mut entry, &failure);
+            assert_eq!(entry.upstream_status, Some(u64::from(status)));
+            assert_eq!(entry.cause_code, Some("model.openai_compat.api_error"));
         }
     }
 
@@ -539,8 +516,25 @@ mod error_tests {
             );
             assert_eq!(
                 error(failure).message,
-                format!("Agent execution failed ({code})\n\nProvider rejected the current input")
+                "Provider rejected the current input"
             );
+        }
+    }
+
+    #[test]
+    fn preserves_native_text() {
+        for message in [
+            "",
+            "  upstream failure\nsecond line  ",
+            "{\"error\":\"rejected\"}",
+        ] {
+            let failure = AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::Unavailable,
+                "model.fixture.failed",
+                message,
+            );
+            assert_eq!(error(failure).message, message);
         }
     }
 }

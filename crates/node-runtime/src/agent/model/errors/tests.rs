@@ -48,12 +48,7 @@ fn redacts_captured_values_in_all_fields() {
     assert_eq!(entry.parse_line, None);
     assert_eq!(entry.parse_column, None);
     let fault = super::super::error(error);
-    let (summary, detail) = fault.message.split_once("\n\n").unwrap();
-    assert_eq!(
-        summary,
-        "Agent execution failed (model.openai_responses.invalid_request); HTTP 400; invalid_input"
-    );
-    assert_eq!(detail, "Unsupported input 中文; Bearer [redacted]");
+    assert_eq!(fault.message, "Unsupported input 中文; Bearer [redacted]");
 }
 
 #[test]

@@ -11,6 +11,54 @@ mod preparation;
 mod recovery;
 
 #[tokio::test]
+async fn preserves_protocol_error_causes() {
+    for remote in [false, true] {
+        for (status, advised) in [(400, false), (429, false), (429, true)] {
+            let server = Server::transport(
+                ModelApi::Responses,
+                Reply::Text,
+                Mode::Protocol { status, advised },
+            )
+            .await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            let turn = fixture.submit("Observe the protocol error").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let run = page.runs.last().unwrap();
+            if advised {
+                assert_eq!(run.status, Status::Completed);
+                assert_eq!(completion::response(&page), server::ANSWER);
+                assert_eq!(super::retry::attempts(&page), [1]);
+            } else {
+                assert_eq!(run.status, Status::Failed);
+                let fault = run.error.as_ref().unwrap();
+                assert_eq!(fault.message, "Protocol failure; authorization [redacted]");
+                assert!(matches!(
+                    fault.details,
+                    Some(sailry_protocol::FaultDetails::ModelRecovery { reason })
+                        if reason == if status == 429 {
+                            sailry_protocol::conversation::recovery::Stop::RateLimited
+                        } else {
+                            sailry_protocol::conversation::recovery::Stop::InvalidPrompt
+                        }
+                ));
+                assert!(super::retry::attempts(&page).is_empty());
+            }
+            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), if advised { 2 } else { 1 });
+            assert!(
+                requests
+                    .iter()
+                    .all(|request| request.body["type"] == "response.create")
+            );
+            assert_eq!(server.upgrades.lock().unwrap().len(), 1);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn reuses_after_provider_error() {
     for remote in [false, true] {
         let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::ErrorOnce).await;
@@ -41,7 +89,7 @@ async fn reuses_after_provider_error() {
 }
 
 #[tokio::test]
-async fn falls_back_after_stream_budget() {
+async fn switches_after_pre_event_protocol_errors() {
     for remote in [false, true] {
         let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::InvalidFrame).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
@@ -54,13 +102,14 @@ async fn falls_back_after_stream_budget() {
             page.runs
         );
         assert_eq!(completion::response(&page), server::ANSWER);
+        assert_eq!(super::retry::attempts(&page), [0]);
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(
             requests
                 .iter()
                 .filter(|request| request.body["type"] == "response.create")
                 .count(),
-            6
+            1
         );
         assert_eq!(
             requests
@@ -210,14 +259,7 @@ async fn stream(remote: bool, mode: Mode) -> Vec<(Status, Vec<Part>)> {
         let requests = server.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         let upgrades = server.upgrades.lock().unwrap();
-        assert_eq!(
-            upgrades.len(),
-            if matches!(mode, Mode::Refuse(_)) {
-                6
-            } else {
-                1
-            }
-        );
+        assert_eq!(upgrades.len(), 1);
         assert!(upgrades[0].received <= requests[0].received);
         assert_eq!(
             upgrades[0].headers["authorization"],
@@ -286,14 +328,7 @@ async fn continues_the_canonical_tool_loop() {
             );
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), 2);
-            assert_eq!(
-                server.upgrades.lock().unwrap().len(),
-                if matches!(mode, Mode::Refuse(_)) {
-                    6
-                } else {
-                    1
-                }
-            );
+            assert_eq!(server.upgrades.lock().unwrap().len(), 1);
             assert!(requests[1].body.to_string().contains("工具内容 🙂"));
             match mode {
                 Mode::Accept => {
@@ -331,42 +366,45 @@ async fn continues_the_canonical_tool_loop() {
 }
 
 #[tokio::test]
-async fn remembers_confirmed_refusals() {
-    for mode in [
-        Mode::Refuse(404),
-        Mode::Refuse(426),
-        Mode::Refuse(401),
-        Mode::Close(1008),
-        Mode::Close(1013),
-        Mode::Limit,
-    ] {
-        let server = Server::transport(ModelApi::Responses, Reply::Text, mode).await;
-        let fixture = Fixture::empty(false, ModelApi::Responses, &server.endpoint).await;
-        for _ in 0..2 {
-            let turn = fixture.submit("Answer the request").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
+async fn switches_before_repeating_requests() {
+    for remote in [false, true] {
+        for mode in [
+            Mode::Refuse(404),
+            Mode::Refuse(426),
+            Mode::Refuse(401),
+            Mode::Close(1003),
+            Mode::Close(1008),
+            Mode::Close(1013),
+            Mode::Limit,
+        ] {
+            let server = Server::transport(ModelApi::Responses, Reply::Text, mode).await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            for _ in 0..2 {
+                let turn = fixture.submit("Answer the request").await;
+                let page = finished(&fixture.client, fixture.session.id, turn).await;
+                assert_eq!(
+                    page.runs.last().unwrap().status,
+                    Status::Completed,
+                    "{:?}",
+                    page.runs
+                );
+                assert!(text(&page).contains(server::ANSWER));
+                assert_eq!(super::retry::attempts(&page), [0]);
+            }
+            assert_eq!(server.upgrades.lock().unwrap().len(), 1);
             assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{:?}",
-                page.runs
+                server
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|request| request.body["type"] != "response.create")
+                    .count(),
+                2
             );
-            assert!(text(&page).contains(server::ANSWER));
-            assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5, 0]);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
         }
-        assert_eq!(server.upgrades.lock().unwrap().len(), 6);
-        assert_eq!(
-            server
-                .requests
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|request| request.body["type"] != "response.create")
-                .count(),
-            2
-        );
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
     }
 }
 
@@ -394,7 +432,7 @@ async fn keeps_authentication_failures_retryable() {
     let turn = fixture.submit("Use the current authorization").await;
     let page = finished(&fixture.client, fixture.session.id, turn).await;
     assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-    assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5, 0, 1]);
+    assert_eq!(super::retry::attempts(&page), [0, 1]);
     let reference = fixture.session.config.credential.as_ref().unwrap();
     let Output::Credentials(credentials) = execute(&fixture.client, Command::ListCredentials).await
     else {
@@ -442,7 +480,7 @@ async fn keeps_authentication_failures_retryable() {
         page.runs
     );
     let upgrades = server.upgrades.lock().unwrap().clone();
-    assert_eq!(upgrades.len(), 6);
+    assert_eq!(upgrades.len(), 1);
     assert_eq!(
         upgrades[0].headers["authorization"],
         format!("Bearer {}", server::KEY)
@@ -464,17 +502,17 @@ async fn keeps_authentication_failures_retryable() {
 }
 
 #[tokio::test]
-async fn recovers_after_partial_delivery() {
+async fn preserves_partial_delivery_without_replay() {
     for remote in [false, true] {
         let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::Partial).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Recover the unfinished generation").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(completion::response(&page), server::ANSWER);
-        assert_eq!(super::retry::attempts(&page), [1]);
+        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+        assert_eq!(completion::response(&page), "原");
+        assert!(super::retry::attempts(&page).is_empty());
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].body["type"], "response.create");
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         fixture.controller.close().await.unwrap();
@@ -577,17 +615,12 @@ async fn classifies_acknowledged_timeouts() {
             .submit("Wait after the provider accepts the request")
             .await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5, 0]);
-        assert_eq!(completion::response(&page), server::ANSWER);
+        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+        assert!(super::retry::attempts(&page).is_empty());
+        assert_eq!(completion::response(&page), "");
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 7);
-        assert!(
-            requests[..6]
-                .iter()
-                .all(|request| request.body["type"] == "response.create")
-        );
-        assert!(requests[6].body.get("type").is_none());
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].body["type"], "response.create");
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }
@@ -687,17 +720,13 @@ async fn remembers_repeated_refusals() {
                 ..Default::default()
             });
         let mut completed = Vec::new();
-        for (index, expected) in [1, 7, 7, 7].into_iter().enumerate() {
+        for (index, expected) in [1, 2, 2, 2].into_iter().enumerate() {
             let turn = fixture.submit("Use the session capability").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
             assert_eq!(
                 super::retry::attempts(&page),
-                if index == 0 {
-                    vec![]
-                } else {
-                    vec![1, 2, 3, 4, 5, 0]
-                }
+                if index == 0 { vec![] } else { vec![0] }
             );
             completed.push((
                 server.upgrades.lock().unwrap().len(),
@@ -718,12 +747,12 @@ async fn remembers_repeated_refusals() {
                 tokio::time::sleep(lifetime + Duration::from_millis(50)).await;
             }
         }
-        // Exhausting this session's WebSocket recovery disables future probing.
+        // A definitive refusal switches this session without repeated probing.
         let upgrades = server.upgrades.lock().unwrap().clone();
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(
             upgrades.len(),
-            7,
+            2,
             "remote={remote}, handshakes={:?}, wire={:?}, completed=(handshakes,ws_creates) {completed:?}",
             upgrades
                 .iter()
@@ -768,22 +797,22 @@ async fn falls_back_before_provider_acceptance() {
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(completion::response(&page), server::ANSWER);
-        assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5, 0]);
+        assert_eq!(super::retry::attempts(&page), [0]);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 7);
+        assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].body["type"], "response.create");
-        assert!(requests[6].body.get("type").is_none());
-        let mut full = requests[6].body.clone();
+        assert!(requests[1].body.get("type").is_none());
+        let mut full = requests[1].body.clone();
         let fields = full.as_object_mut().unwrap();
         fields.remove("stream");
         fields.remove("background");
         fields.insert("type".into(), serde_json::json!("response.create"));
         assert_eq!(requests[0].body, full);
         let upgrades = server.upgrades.lock().unwrap().clone();
-        assert_eq!(upgrades.len(), 6);
+        assert_eq!(upgrades.len(), 1);
         assert_eq!(
             upgrades[0].headers["authorization"],
-            requests[6].headers["authorization"]
+            requests[1].headers["authorization"]
         );
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         fixture.controller.close().await.unwrap();

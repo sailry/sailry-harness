@@ -62,6 +62,7 @@ const FIELDS: &[&str] = &[
     "cause_component",
     "cause_category",
     "upstream_status",
+    "websocket_close_code",
     "attempt",
     "limit",
     "request_mode",

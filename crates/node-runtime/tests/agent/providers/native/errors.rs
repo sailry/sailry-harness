@@ -7,48 +7,60 @@ const MESSAGE: &str = "The model rejected the current input";
 #[tokio::test]
 async fn retains_status_for_nonstandard_error_bodies() {
     for remote in [false, true] {
-        for (status, category, attempts) in [
-            (401, "unauthorized", 1),
-            (403, "forbidden", 1),
-            (429, "rate_limited", 6),
-        ] {
+        for status in [401, 403, 429] {
             let raw = format!(
                 "HTTP/1.1 {status} Fixture error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{{\"message\":\"{ECHO}; authorization {}\"}}",
                 server::KEY
             );
             let server =
                 Server::start(ModelApi::Responses, Reply::Raw(Arc::new(raw.into_bytes()))).await;
-            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            let mut fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            super::retry::http(&fixture);
+            let mut provider = fixture.provider.clone();
+            provider.request_max_retries = Some(0);
+            provider.stream_max_retries = Some(0);
+            let Output::Provider(provider) = execute(
+                &fixture.client,
+                Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                },
+            )
+            .await
+            else {
+                panic!("provider expected")
+            };
+            fixture.provider = provider;
             let turn = fixture.submit("Answer the task").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             let run = page.runs.last().unwrap();
             assert_eq!(run.status, Status::Failed);
             let error = run.error.as_ref().unwrap();
-            assert!(
-                error
-                    .message
-                    .contains(&format!("model.openai_responses.{category}")),
-                "{error:?}"
-            );
+            assert_eq!(error.code, ErrorCode::Unavailable);
+            assert!(!error.message.contains("Agent execution failed"));
             assert!(
                 error.message.contains(&format!("HTTP {status}")),
                 "{error:?}"
             );
+            assert!(matches!(
+                error.details,
+                Some(sailry_protocol::FaultDetails::ModelRecovery { reason })
+                    if reason == if status == 429 {
+                        sailry_protocol::conversation::recovery::Stop::RateLimited
+                    } else {
+                        sailry_protocol::conversation::recovery::Stop::AttemptsExhausted
+                    }
+            ));
             let serialized = serde_json::to_string(&page).unwrap();
             assert!(serialized.contains(ECHO));
             assert!(serialized.contains("[redacted]"));
             assert!(!serialized.contains(server::KEY));
-            // Node retries a rate-limited opening five times before any output.
-            // The Responses transport and client have no additional retry layer.
+            assert!(super::retry::attempts(&page).is_empty());
             {
                 let requests = server.requests.lock().unwrap();
-                assert_eq!(requests.len(), attempts, "status={status}, remote={remote}");
-                assert!(
-                    requests
-                        .iter()
-                        .all(|request| request.body == requests[0].body)
-                );
+                assert_eq!(requests.len(), 1, "status={status}, remote={remote}");
             }
+            assert!(server.upgrades.lock().unwrap().is_empty());
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }
@@ -71,7 +83,7 @@ fn failure(code: &str, kind: &str) -> Value {
 }
 
 #[tokio::test]
-async fn retains_shared_usage_causes_without_replay() {
+async fn bounds_shared_usage_failures() {
     for remote in [false, true] {
         for code in [
             "subscription_sharing_usage_limit_exceeded",
@@ -85,32 +97,45 @@ async fn retains_shared_usage_causes_without_replay() {
                     completion::server(vec![created, failure(code, kind), failure(code, "failed")])
                         .await;
                 let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+                super::retry::http(&fixture);
                 let turn = fixture.submit("Answer this task").await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;
                 let run = page.runs.last().unwrap();
                 assert_eq!(run.status, Status::Failed);
-                assert_eq!(
-                    run.error.as_ref().unwrap().message.lines().next().unwrap(),
-                    format!("Agent execution failed (model.openai_responses.{code})")
-                );
                 let serialized = serde_json::to_string(&page).unwrap();
-                let native = if kind == "flat" {
-                    "OpenAI Responses generation failed"
-                } else {
-                    "OpenAI Responses generation failed: invalid_request_error"
-                };
                 assert_eq!(
-                    run.error
-                        .as_ref()
-                        .unwrap()
-                        .message
-                        .split_once("\n\n")
-                        .unwrap()
-                        .1,
-                    native
+                    run.error.as_ref().unwrap().message,
+                    format!("{MESSAGE}; authorization [redacted]")
                 );
+                assert!(matches!(
+                    run.error.as_ref().unwrap().details,
+                    Some(sailry_protocol::FaultDetails::ModelRecovery {
+                        reason: sailry_protocol::conversation::recovery::Stop::AttemptsExhausted
+                    })
+                ));
                 assert!(!serialized.contains(server::KEY));
-                assert_eq!(server.requests.lock().unwrap().len(), 1);
+                assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5]);
+                for part in page.entries.iter().flat_map(|entry| &entry.parts) {
+                    if let Part::Resource(value) = part
+                        && let Some(retry) =
+                            sailry_protocol::conversation::recovery::Retry::from_resource(value)
+                    {
+                        assert_eq!(retry.code.as_deref(), Some(code));
+                        assert_eq!(
+                            retry.error.as_deref(),
+                            Some(format!("{MESSAGE}; authorization [redacted]").as_str())
+                        );
+                    }
+                }
+                assert_eq!(server.requests.lock().unwrap().len(), 6);
+                assert!(
+                    page.entries
+                        .iter()
+                        .flat_map(|entry| &entry.parts)
+                        .all(|part| {
+                            !matches!(part, Part::ToolCall { .. } | Part::ToolResult { .. })
+                        })
+                );
                 fixture.controller.close().await.unwrap();
                 fixture.node.shutdown().await.unwrap();
             }
@@ -122,24 +147,27 @@ async fn retains_shared_usage_causes_without_replay() {
 async fn retains_native_stream_errors() {
     for remote in [false, true] {
         for kind in ["nested", "flat", "failed"] {
-            let server = completion::server(vec![failure("invalid_prompt", kind)]).await;
+            let mut events = vec![failure("invalid_prompt", kind)];
+            if kind != "failed" {
+                events.push(failure("invalid_prompt", "failed"));
+            }
+            let server = completion::server(events).await;
             let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            super::retry::http(&fixture);
             let turn = fixture.submit("Answer this task").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             let run = page.runs.last().unwrap();
             assert_eq!(run.status, Status::Failed);
-            let (summary, body) = run
-                .error
-                .as_ref()
-                .unwrap()
-                .message
-                .split_once("\n\n")
-                .unwrap();
             assert_eq!(
-                summary,
-                "Agent execution failed (model.openai_responses.response_failed)"
+                run.error.as_ref().unwrap().message,
+                format!("{MESSAGE}; authorization [redacted]")
             );
-            assert_eq!(body, "OpenAI Responses generation failed: invalid_prompt");
+            assert!(matches!(
+                run.error.as_ref().unwrap().details,
+                Some(sailry_protocol::FaultDetails::ModelRecovery {
+                    reason: sailry_protocol::conversation::recovery::Stop::InvalidPrompt
+                })
+            ));
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
             assert_eq!(server.requests.lock().unwrap().len(), 1);
             fixture.controller.close().await.unwrap();
@@ -159,28 +187,15 @@ async fn retains_native_http_errors() {
         let server =
             Server::start(ModelApi::Responses, Reply::Raw(Arc::new(raw.into_bytes()))).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        super::retry::http(&fixture);
         let turn = fixture.submit("Answer this task").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();
         assert_eq!(run.status, Status::Failed);
-        let (summary, body) = run
-            .error
-            .as_ref()
-            .unwrap()
-            .message
-            .split_once("\n\n")
-            .unwrap();
         assert_eq!(
-            summary,
-            "Agent execution failed (model.openai_responses.invalid_request); HTTP 400; invalid_input"
+            run.error.as_ref().unwrap().message,
+            format!("{MESSAGE}; [redacted]")
         );
-        assert!(
-            body.starts_with("OpenAI Responses API error: 400 Bad Request invalid_request_error: "),
-            "{body}"
-        );
-        assert!(body.contains(&format!("{MESSAGE}; [redacted]")), "{body}");
-        assert!(body.contains("(param: input)"), "{body}");
-        assert!(body.contains("(code: fixture_limit)"), "{body}");
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.controller.close().await.unwrap();

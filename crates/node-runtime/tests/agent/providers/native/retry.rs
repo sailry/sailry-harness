@@ -11,7 +11,7 @@ const FAILURE: &str = "Upstream temporarily unavailable";
 #[path = "retry/observations.rs"]
 mod observations;
 
-fn http(fixture: &Fixture) {
+pub(super) fn http(fixture: &Fixture) {
     fixture
         .node
         .set_model_transport_fixture(adk_model::openai::WsOptions {
@@ -94,9 +94,16 @@ pub(super) fn attempts(page: &Page) -> Vec<u64> {
         .filter_map(|part| match part {
             Part::Resource(value) if value["type"] == "model_retry" => {
                 assert_eq!(value["limit"], 5);
-                let error = value["error"].as_str().expect("retry error text expected");
-                assert!(!error.is_empty());
-                assert!(!error.contains(server::KEY));
+                if value["fallback"] == true {
+                    assert_eq!(value["transport"], "http");
+                    assert!(value["error"].is_null());
+                    assert!(value["status"].is_null());
+                    assert!(value["code"].is_null());
+                } else {
+                    let error = value["error"].as_str().expect("retry error text expected");
+                    assert!(!error.is_empty());
+                    assert!(!error.contains(server::KEY));
+                }
                 value["attempt"].as_u64()
             }
             _ => None,
@@ -352,7 +359,9 @@ async fn recover(chunked: bool, empty: bool) {
             if empty {
                 assert_eq!(
                     run.error.as_ref().unwrap().message,
-                    "Model returned no answer"
+                    "the model ended its turn without an answer: no text, data or tool call, only \
+                     thinking or whitespace (finish reason: Stop); retry the run, or check the \
+                     model's output limit and safety settings"
                 );
             }
             assert_eq!(
@@ -824,17 +833,10 @@ async fn bounds_classified_response_failures() {
             assert_eq!(page.runs.last().unwrap().status, Status::Failed);
             assert_eq!(attempts(&page), (1..=retries).collect::<Vec<_>>());
             let failure = page.runs.last().unwrap().error.as_ref().unwrap();
-            assert!(
-                failure
-                    .message
-                    .contains("model.openai_responses.response_failed")
+            assert_eq!(
+                failure.message,
+                "Our servers are currently overloaded. Please try again later. authorization [redacted]"
             );
-            assert!(
-                failure
-                    .message
-                    .contains("Our servers are currently overloaded")
-            );
-            assert!(failure.message.contains("[redacted]"));
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
             {
                 let requests = server.requests.lock().unwrap();

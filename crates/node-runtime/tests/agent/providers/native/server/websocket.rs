@@ -16,6 +16,10 @@ pub enum Mode {
     AckTimeout,
     FirstTimeout,
     ErrorOnce,
+    Protocol {
+        status: u16,
+        advised: bool,
+    },
     InvalidFrame,
     NativeComplete,
     Interrupt {
@@ -180,18 +184,30 @@ pub(super) async fn respond(
                     .await;
                 continue;
             }
-            Mode::InvalidFrame => {
-                let mut response = response_events(false, false).pop().unwrap()["response"].clone();
-                response["status"] = json!("in_progress");
-                response["output"] = json!([]);
+            Mode::Protocol { status, advised } if index == 0 => {
+                let code = if status == 429 {
+                    "rate_limit_exceeded"
+                } else {
+                    "invalid_prompt"
+                };
+                let mut detail = json!({
+                    "code": code,
+                    "message": format!("Protocol failure; authorization {KEY}")
+                });
+                if advised {
+                    detail["headers"] = json!({"retry-after":"0"});
+                }
                 let _ = socket
                     .send(Message::Text(
-                        json!({"type":"response.created",
-                    "sequence_number":0,"response":response})
-                        .to_string()
-                        .into(),
+                        json!({"type":"error","status":status,"error":detail})
+                            .to_string()
+                            .into(),
                     ))
                     .await;
+                continue;
+            }
+            Mode::InvalidFrame => {
+                // No provider event has accepted this request before the invalid frame.
                 let _ = socket.get_mut().write_all(&[0x83, 0x00]).await;
                 return;
             }

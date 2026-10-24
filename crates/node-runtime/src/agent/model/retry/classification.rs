@@ -18,6 +18,8 @@ pub(super) struct Failure {
     pub transport: Option<Transport>,
     pub status: Option<u16>,
     pub code: Option<String>,
+    pub refused: bool,
+    pub switch: bool,
 }
 
 impl Failure {
@@ -50,15 +52,22 @@ impl Failure {
             .get("response_completed")
             .and_then(serde_json::Value::as_bool)
             == Some(true);
-        let class = if error.component != adk_core::ErrorComponent::Model
+        let local = error.component != adk_core::ErrorComponent::Model
             || error.category == adk_core::ErrorCategory::Cancelled
             || std::error::Error::source(error)
                 .and_then(|source| source.downcast_ref::<Fault>())
                 .is_some_and(|fault| {
                     matches!(fault.code, ErrorCode::Cancelled | ErrorCode::OutcomeUnknown)
-                }) {
+                });
+        let class = if local {
             Class::Terminal(Stop::LocalFailure)
         } else if completed {
+            Class::Terminal(Stop::ResponseIncomplete)
+        } else if transport == Some(Transport::WebSocket)
+            && field("transport_phase") == Some("stream")
+            && !error.retry.should_retry
+            && event.is_none()
+        {
             Class::Terminal(Stop::ResponseIncomplete)
         } else if let Some(status) = status.filter(|status| *status >= 400) {
             if status == 429 && code.is_none() && error.code == "model.plugin.quota" {
@@ -104,12 +113,30 @@ impl Failure {
         } else {
             Class::Terminal(Stop::LocalFailure)
         };
+        let before = !local
+            && !completed
+            && transport == Some(Transport::WebSocket)
+            && field("transport_phase") == Some("request");
+        let refused = before
+            && field("websocket_refusal") == Some("definitive")
+            && matches!(
+                error.code,
+                "model.openai_responses.ws_handshake" | "model.openai_responses.unfinished_stream"
+            );
+        let switch = refused
+            || (before
+                && status.is_none()
+                && retry_at.is_none()
+                && field("transport_error_kind") != Some("build")
+                && matches!(class, Class::Backoff | Class::Connection));
         Self {
             class,
             retry_at,
             transport,
             status,
             code: code.map(str::to_owned),
+            refused,
+            switch,
         }
     }
 }
@@ -165,6 +192,7 @@ fn http(status: u16, code: Option<&str>, kind: Option<&str>) -> Class {
 
 fn stream(code: Option<&str>) -> Class {
     match code {
+        Some("rate_limit_exceeded" | "slow_down") => Class::Advice(Stop::RateLimited),
         Some("context_length_exceeded") => Class::Terminal(Stop::ContextWindowExceeded),
         Some(
             "insufficient_quota"
