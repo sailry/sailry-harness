@@ -211,7 +211,7 @@ async fn rejects_unexpected_profile_without_changes() {
     let node = Node::start(&profile).await.unwrap();
     node.shutdown().await.unwrap();
     let path = profile.join("storage/node.turso");
-    let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
+    let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
     db.execute_batch("ALTER TABLE node ADD COLUMN unexpected TEXT DEFAULT 'retained';")
         .await
         .unwrap();
@@ -268,7 +268,7 @@ async fn restores_defaults_without_resetting_plugins() {
         node.shutdown().await.unwrap();
         let profile = directory.path().join("node");
         let path = profile.join("storage/node.turso");
-        let (db_handle, db) = crate::plugins::database_fixture::open(&(&path), false).await;
+        let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
         db.execute_batch(
             "ALTER TABLE node DROP COLUMN plugin_defaults;
              ALTER TABLE agent_approvals DROP COLUMN prepared;",
@@ -307,7 +307,7 @@ async fn restores_defaults_without_resetting_plugins() {
                             .query_row(parameters)
                             .await
                             .map_err(crate::plugins::database_fixture::fault)?;
-                        let result: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        let result: turso::Result<_> = row.get::<i64>(0);
                         result.map_err(crate::plugins::database_fixture::fault)
                     })
                 })
@@ -355,7 +355,7 @@ async fn restores_defaults_without_resetting_plugins() {
                         .query_row(parameters)
                         .await
                         .map_err(crate::plugins::database_fixture::fault)?;
-                    let result: turso::Result<_> = (|row: &turso::Row| row.get(0))(&row);
+                    let result: turso::Result<_> = row.get(0);
                     result.map_err(crate::plugins::database_fixture::fault)
                 })
             })
@@ -376,7 +376,7 @@ async fn restores_defaults_without_resetting_plugins() {
                             .query_row(parameters)
                             .await
                             .map_err(crate::plugins::database_fixture::fault)?;
-                        let result: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                        let result: turso::Result<_> = row.get::<i64>(0);
                         result.map_err(crate::plugins::database_fixture::fault)
                     })
                 })
@@ -408,7 +408,7 @@ async fn restores_defaults_without_resetting_plugins() {
             (async {
                 let mut statement = previous.prepare("SELECT count(*) FROM plugins").await?;
                 let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = (|row: &turso::Row| row.get::<i64>(0))(&row);
+                let mapped: turso::Result<_> = row.get::<i64>(0);
                 mapped
             })
             .await
@@ -679,25 +679,48 @@ async fn activity_board_is_optional() {
         let Output::Plugins(entries) = execute(&client, Command::ListPlugins).await else {
             panic!("inventory expected")
         };
-        assert!(!entries.iter().any(|entry| entry.name == "progress"));
+        assert!(!entries.iter().any(|entry| entry.name == "activity-board"));
+        let plan = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "progress".into(),
+                },
+            )
+            .await,
+        );
+        assert!(plan.summary.enabled);
+        let extension = plan.extension.as_ref().unwrap();
+        assert!(extension.desktop.is_none());
+        assert!(extension.actions.is_empty());
+        assert_eq!(extension.tools.len(), 1);
+        assert_eq!(extension.tools[0].name, "update_plan");
+        execute(
+            &client,
+            Command::RemovePlugin {
+                name: "progress".into(),
+                expected_revision: plan.summary.revision,
+            },
+        )
+        .await;
         let available = catalog_info(
             execute(
                 &client,
                 Command::ReadCatalogPluginInfo {
                     source: plugin::catalog::Source::Official,
-                    id: "progress".into(),
+                    id: "activity-board".into(),
                     bundled: true,
                 },
             )
             .await,
         );
-        assert_eq!(available.summary.name, "progress");
+        assert_eq!(available.summary.name, "activity-board");
         assert_eq!(available.summary.revision, 0);
         let installed = info(
             execute(
                 &client,
                 Command::InstallBundledPlugin {
-                    name: "progress".into(),
+                    name: "activity-board".into(),
                     expected_revision: 0,
                 },
             )
@@ -705,11 +728,71 @@ async fn activity_board_is_optional() {
         );
         assert_eq!(installed.origin, Some(plugin::Origin::Bundled));
         assert_eq!(installed.summary.digest, available.summary.digest);
+        assert!(installed.issues.is_empty());
+        let extension = installed.extension.as_ref().unwrap();
+        assert_eq!(extension.scope, plugin::Scope::Desktop);
+        assert_eq!(extension.actions, [plugin::Action::ReadActivity]);
+        assert!(extension.host.is_none());
+        assert!(extension.tools.is_empty());
+        assert!(extension.storage.is_none());
+        let context = plugin::Context {
+            invocation: None,
+            turn: None,
+            surface: Default::default(),
+            package: installed.summary.reference(),
+            worktree: None,
+            session: None,
+        };
+        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+            panic!("snapshot expected")
+        };
+        let Output::ActivityCatalog(catalog) = client
+            .execute(
+                client
+                    .prepare(Command::ReadActivityCatalog)
+                    .with_plugin(context.clone()),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("activity catalog expected")
+        };
+        assert_eq!(catalog.node, snapshot.node);
+        assert_eq!(catalog.cursor, snapshot.cursor);
+        assert_eq!(catalog.projects, snapshot.projects);
+        assert_eq!(catalog.worktrees, snapshot.worktrees);
+        assert_eq!(catalog.sessions, snapshot.sessions);
+        assert_eq!(catalog.terminals, snapshot.terminals);
+        assert_eq!(
+            client
+                .execute(
+                    client
+                        .prepare(Command::ReadActivity { sessions: vec![] })
+                        .with_plugin(context),
+                )
+                .await
+                .unwrap(),
+            Output::Activity(vec![])
+        );
+        assert_eq!(
+            execute(&client, Command::Snapshot).await,
+            Output::Snapshot(snapshot)
+        );
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ReadPlugin {
+                    name: "progress".into(),
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
         let disabled = info(
             execute(
                 &client,
                 Command::SetPluginEnabled {
-                    name: "progress".into(),
+                    name: "activity-board".into(),
                     expected_revision: installed.summary.revision,
                     enabled: false,
                 },
@@ -730,13 +813,39 @@ async fn activity_board_is_optional() {
                 execute(
                     &client,
                     Command::ReadPlugin {
-                        name: "progress".into(),
+                        name: "activity-board".into(),
                     },
                 )
                 .await,
             ),
             disabled
         );
+        execute(
+            &client,
+            Command::RemovePlugin {
+                name: "activity-board".into(),
+                expected_revision: disabled.summary.revision,
+            },
+        )
+        .await;
+        drop(client);
+        node.shutdown().await.unwrap();
+        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        for name in ["progress", "activity-board"] {
+            assert_eq!(
+                client
+                    .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::NotFound
+            );
+        }
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

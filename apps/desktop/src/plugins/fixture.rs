@@ -359,7 +359,7 @@ impl Fixture {
                 .unwrap()
         };
         execute(Command::InstallBundledPlugin {
-            name: "progress".into(),
+            name: "activity-board".into(),
             expected_revision: 0,
         });
         let root = directory.path().join("project");

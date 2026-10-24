@@ -256,6 +256,19 @@ async fn stream(remote: bool, mode: Mode) -> Vec<(Status, Vec<Part>)> {
             .filter(|part| matches!(part, Part::Text(_)))
             .cloned()
             .collect();
+        let statistics = crate::observations::statistics(&fixture.client, fixture.session.id).await;
+        let observation = statistics.observations.recent.last().unwrap();
+        assert_eq!(observation.turn, turn);
+        let attempt = observation.attempts.last().unwrap();
+        let first = attempt.first_text_us.expect("streamed text delivery");
+        let response = attempt.response_us.expect("API response receipt");
+        assert!(response <= first);
+        assert!(first < attempt.elapsed_us.unwrap());
+        assert_eq!(statistics.observations.latency.first_text_us, Some(first));
+        assert_eq!(
+            statistics.observations.latency.waiting_us,
+            Some(first - response)
+        );
         let requests = server.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         let upgrades = server.upgrades.lock().unwrap();

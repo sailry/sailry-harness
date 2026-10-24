@@ -1,7 +1,71 @@
 //! Read lightweight observations through the canonical conversation membership.
 use super::*;
-use sailry_protocol::conversation::observation::{Category, RECENT_LIMIT, Request, Summary};
+use sailry_protocol::conversation::observation::{
+    Attempt, Category, Latency, RECENT_LIMIT, Request, Summary,
+};
 use std::collections::BTreeMap;
+
+#[derive(Default)]
+struct Mean {
+    total: u128,
+    count: u64,
+}
+
+impl Mean {
+    fn observe(&mut self, value: Option<u64>) {
+        if let Some(value) = value {
+            self.total += u128::from(value);
+            self.count += 1;
+        }
+    }
+
+    fn finish(self) -> Option<u64> {
+        (self.count > 0).then(|| {
+            u64::try_from(self.total / u128::from(self.count)).expect("mean fits its sample range")
+        })
+    }
+}
+
+#[derive(Default)]
+struct Latencies {
+    response: Mean,
+    first: Mean,
+    waiting: Mean,
+    elapsed: Mean,
+}
+
+impl Latencies {
+    fn observe(&mut self, attempt: &Attempt) {
+        let within = |value: Option<u64>| {
+            value.filter(|value| attempt.elapsed_us.is_none_or(|elapsed| *value <= elapsed))
+        };
+        let response = within(attempt.response_us.or(if attempt.transport == "http" {
+            attempt.headers_us
+        } else {
+            None
+        }));
+        // SDK receipt and end share a clock. Node may receive the first text
+        // after that semantic terminal, so delivery is not bounded by SDK end.
+        let first = attempt.first_text_us;
+        self.response.observe(response);
+        self.first.observe(first);
+        self.waiting.observe(
+            first
+                .zip(response)
+                .and_then(|(first, response)| first.checked_sub(response)),
+        );
+        self.elapsed.observe(attempt.elapsed_us);
+    }
+
+    fn finish(self) -> Latency {
+        Latency {
+            response_us: self.response.finish(),
+            first_text_us: self.first.finish(),
+            waiting_us: self.waiting.finish(),
+            elapsed_us: self.elapsed.finish(),
+        }
+    }
+}
 
 // Resolve the latest observation once per turn, not once per event in its history.
 const PHASES: &str = "SELECT json_extract(e.body,'$.event_metadata.sailry_execution_phases')
@@ -176,8 +240,10 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
     result.children = u64::try_from(children).map_err(storage_error)?;
     let mut calls = calls.into_values().collect::<Vec<_>>();
     calls.sort_by_key(|(sequence, _)| *sequence);
+    let mut latency = Latencies::default();
     for (_, call) in &calls {
         for attempt in &call.attempts {
+            latency.observe(attempt);
             result.model_us = result
                 .model_us
                 .saturating_add(attempt.elapsed_us.unwrap_or_default());
@@ -210,6 +276,7 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Summary,
             }
         }
     }
+    result.latency = latency.finish();
     result.composition = composition.into_values().collect();
     result.recent = calls
         .into_iter()

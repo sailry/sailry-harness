@@ -10,6 +10,9 @@ pub const RECENT_LIMIT: usize = 64;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
     pub recent: Vec<Request>,
+    /// Per-field means over all recorded attempts, independently of recent history limits.
+    #[serde(default)]
+    pub latency: Latency,
     #[serde(default)]
     pub phases: Phases,
     pub calls: u64,
@@ -27,6 +30,19 @@ pub struct Summary {
     pub output_samples: u64,
     /// Cumulative estimates count each actual request once, separately from usage.
     pub composition: Vec<Category>,
+}
+
+/// Mean observed microseconds; unmeasured fields remain unknown and zero is a sample.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Latency {
+    #[serde(default)]
+    pub response_us: Option<u64>,
+    #[serde(default)]
+    pub first_text_us: Option<u64>,
+    #[serde(default)]
+    pub waiting_us: Option<u64>,
+    #[serde(default)]
+    pub elapsed_us: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,6 +125,28 @@ pub struct Phases {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn defaults_unrecorded_latency() {
+        let mut wire = serde_json::to_value(Summary::default()).unwrap();
+        wire.as_object_mut().unwrap().remove("latency");
+        let summary: Summary = serde_json::from_value(wire).unwrap();
+        assert_eq!(summary.latency, Latency::default());
+        let latency = Latency {
+            response_us: Some(0),
+            first_text_us: Some(20),
+            waiting_us: None,
+            elapsed_us: Some(u64::MAX),
+        };
+        assert_eq!(
+            serde_json::from_value::<Latency>(serde_json::to_value(&latency).unwrap()).unwrap(),
+            latency
+        );
+        assert_eq!(
+            serde_json::from_value::<Latency>(serde_json::json!({})).unwrap(),
+            Latency::default()
+        );
+    }
 
     #[test]
     fn defaults_unprojected_turn_index() {

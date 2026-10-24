@@ -1,4 +1,5 @@
 use super::*;
+use sailry_protocol::conversation::observation::Latency;
 
 #[tokio::test]
 async fn records_response_starts_on_both_transports() {
@@ -11,6 +12,7 @@ async fn records_response_starts_on_both_transports() {
                 Server::start(api, Reply::Text).await
             };
             let fixture = Fixture::empty(remote, api, &server.endpoint).await;
+            let mut totals = [0u128; 4];
             for index in 0..2 {
                 let turn = fixture.submit("Measure this response").await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;
@@ -34,6 +36,25 @@ async fn records_response_starts_on_both_transports() {
                     assert_eq!(attempt.transport, "http");
                     assert_eq!(attempt.headers_us, Some(received));
                 }
+                for (total, value) in totals.iter_mut().zip([
+                    received,
+                    attempt.first_text_us.unwrap(),
+                    attempt.first_text_us.unwrap() - received,
+                    attempt.elapsed_us.unwrap(),
+                ]) {
+                    *total += u128::from(value);
+                }
+                let means =
+                    totals.map(|total| Some(u64::try_from(total / u128::from(index + 1)).unwrap()));
+                assert_eq!(
+                    statistics.observations.latency,
+                    Latency {
+                        response_us: means[0],
+                        first_text_us: means[1],
+                        waiting_us: means[2],
+                        elapsed_us: means[3],
+                    }
+                );
                 assert_eq!(
                     crate::observations::statistics(&fixture.client, fixture.session.id).await,
                     statistics
@@ -69,6 +90,35 @@ async fn retains_receipts_without_changing_outcomes() {
         assert!(observation.attempts[0].response_us.is_some());
         assert_eq!(observation.attempts[1].outcome, Outcome::Succeeded);
         assert!(observation.attempts[1].response_us.is_some());
+        let first = &observation.attempts[0];
+        let second = &observation.attempts[1];
+        assert_eq!(first.first_text_us, None);
+        assert_eq!(
+            statistics.observations.latency,
+            Latency {
+                response_us: Some(
+                    u64::try_from(
+                        (u128::from(first.response_us.unwrap())
+                            + u128::from(second.response_us.unwrap()))
+                            / 2,
+                    )
+                    .unwrap(),
+                ),
+                first_text_us: second.first_text_us,
+                waiting_us: second
+                    .first_text_us
+                    .unwrap()
+                    .checked_sub(second.response_us.unwrap()),
+                elapsed_us: Some(
+                    u64::try_from(
+                        (u128::from(first.elapsed_us.unwrap())
+                            + u128::from(second.elapsed_us.unwrap()))
+                            / 2,
+                    )
+                    .unwrap(),
+                ),
+            }
+        );
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
