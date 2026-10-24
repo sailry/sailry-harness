@@ -5,6 +5,9 @@ use sailry_link::CancellationToken;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
 
+#[path = "progress/defaults.rs"]
+mod defaults;
+
 pub(super) async fn observe(client: &Client, session: SessionId) -> View {
     let (sender, mut receiver) = watch::channel(View::default());
     let (_history, requests) = mpsc::channel(1);
@@ -50,8 +53,7 @@ async fn restores_without_replay() {
             (plugin_tool("progress", "update_plan"), plan("completed")),
         ])
         .await;
-        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
-        install(&fixture.client).await;
+        let mut fixture = Fixture::new(remote, &server).await;
         std::fs::write(fixture.root.join("source.txt"), "Evidence 中文 🙂").unwrap();
         planning::configure(&mut fixture, WorkMode::Plan).await;
         let request = fixture.client.prepare(Command::SubmitTurn {

@@ -7,6 +7,7 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("reminders", true),
     ("scheduled-tasks", true),
     ("web-search", true),
+    ("progress", true),
     ("goals", true),
     ("commands", true),
     ("external-browser", false),
