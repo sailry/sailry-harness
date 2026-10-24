@@ -31,6 +31,11 @@ pub(crate) struct OpenManagement {
 #[action(namespace = sailry, no_json)]
 pub(crate) struct OpenTheme(pub String);
 
+enum Destination {
+    Management(Option<String>),
+    Configuration(sailry_protocol::plugin::Reference),
+}
+
 impl Shell {
     pub(crate) fn open_theme(
         &mut self,
@@ -112,22 +117,51 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.read_plugin(
+            action.node,
+            action.name.clone(),
+            Destination::Management(action.skill.clone()),
+            window,
+            cx,
+        );
+    }
+
+    pub(crate) fn open_settings_panel(
+        &mut self,
+        action: &super::extensions::modal::OpenPanel,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.read_plugin(
+            action.node,
+            action.package.name.clone(),
+            Destination::Configuration(action.package.clone()),
+            window,
+            cx,
+        );
+    }
+
+    fn read_plugin(
+        &mut self,
+        node: NodeId,
+        name: String,
+        destination: Destination,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(live) = &self.live else { return };
-        let Some(transport) = live.transport_for(action.node) else {
+        let Some(transport) = live.transport_for(node) else {
             return;
         };
         let binding = super::providers::Binding {
             client: std::sync::Arc::new(sailry_client::Client::new(transport)),
             runtime: cx.global::<crate::backend::Services>().runtime.clone(),
-            label: live.name(action.node),
+            label: live.name(node),
         };
-        let request = binding.client.prepare(Command::ReadPlugin {
-            name: action.name.clone(),
-        });
+        let request = binding
+            .client
+            .prepare(Command::ReadPlugin { name: name.clone() });
         let id = request.id;
-        let node = action.node;
-        let name = action.name.clone();
-        let skill = action.skill.clone();
         let origin = self.page;
         let selected = live.selected;
         let target = self.settings_target;
@@ -167,6 +201,44 @@ impl Shell {
                 if info.summary.name != name {
                     return;
                 }
+                if let Destination::Configuration(package) = destination {
+                    if info.summary.reference() != package {
+                        crate::feedback::toast(
+                            window,
+                            crate::tr("plugins_read_failed"),
+                            gpui_kit::component::notification::Notification::error(crate::tr(
+                                "plugins_read_failed",
+                            )),
+                            cx,
+                        );
+                        return;
+                    }
+                    shell.clear_extension_details(cx);
+                    if super::extensions::modal::has_panel(&info) {
+                        shell.navigate(Page::Settings, window, cx);
+                        shell.settings_target = Some(node);
+                        shell.settings.update(cx, |settings, cx| {
+                            settings.bind_client(binding, cx);
+                            settings.open_plugin_settings(&name, cx);
+                        });
+                    } else {
+                        shell.settings_target = Some(node);
+                        shell.settings.update(cx, |settings, cx| {
+                            settings.bind_client(binding.clone(), cx);
+                        });
+                        super::extensions::modal::open(
+                            shell.settings.clone(),
+                            binding,
+                            info,
+                            window,
+                            cx,
+                        );
+                    }
+                    return;
+                }
+                let Destination::Management(skill) = destination else {
+                    return;
+                };
                 let section = Kind::of(&info).section();
                 shell.clear_extension_details(cx);
                 shell.navigate(Page::Settings, window, cx);

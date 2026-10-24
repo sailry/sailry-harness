@@ -1,17 +1,13 @@
 //! Manifest-contributed settings share navigation and captured Node ownership.
 pub(crate) mod modal;
+pub(crate) mod navigation;
 use super::{
     Section, Workspace,
     group::{Group, Row},
 };
 use crate::{plugins::Panel, tr};
-use gpui_kit::{
-    component::{
-        button::{Button, ButtonVariants},
-        *,
-    },
-    *,
-};
+use gpui_kit::component::{ActiveTheme as _, v_flex};
+use gpui_kit::*;
 use sailry_protocol::plugin::{Info, Reference};
 use std::collections::BTreeMap;
 
@@ -76,6 +72,31 @@ impl State {
 }
 
 impl Workspace {
+    pub(crate) fn settings_pages(&self, cx: &App) -> Vec<navigation::Entry> {
+        let Some(live) = self.provider_link.as_ref().filter(|live| live.connected) else {
+            return vec![];
+        };
+        let Some(snapshot) = &live.snapshot else {
+            return vec![];
+        };
+        let Some(metadata) = &self.plugin_catalog.metadata else {
+            return vec![];
+        };
+        let metadata = metadata.read(cx);
+        snapshot
+            .plugins
+            .iter()
+            .filter_map(|summary| {
+                navigation::Entry::new(
+                    live.binding.client.target(),
+                    metadata.entries.get(&summary.name)?,
+                    summary,
+                )
+            })
+            .filter(|entry| entry.available(snapshot.node, &snapshot.plugins))
+            .collect()
+    }
+
     pub(crate) fn preload_settings(&mut self, name: &str, cx: &App) {
         let _ = self.prepare_settings(name, cx);
     }
@@ -163,32 +184,8 @@ impl Workspace {
             .as_ref()
             .and_then(|panel| panel.read(cx).header())
             .filter(|header| !header.read(cx).is_empty());
-        let name = self.selected_plugin_settings()?.to_owned();
-        let node = self.provider_link.as_ref()?.binding.client.target();
-        Some(
-            h_flex()
-                .gap_3()
-                .items_center()
-                .child(
-                    Button::new("plugin-settings-back")
-                        .ghost()
-                        .small()
-                        .icon(IconName::ChevronLeft)
-                        .label(tr("reference_back"))
-                        .on_click(move |_, window, cx| {
-                            window.dispatch_action(
-                                Box::new(super::OpenManagement {
-                                    node,
-                                    name: name.clone(),
-                                    skill: None,
-                                }),
-                                cx,
-                            )
-                        }),
-                )
-                .children(header)
-                .into_any_element(),
-        )
+        self.selected_plugin_settings()?;
+        header.map(IntoElement::into_any_element)
     }
 
     pub(crate) fn selected_plugin_settings(&self) -> Option<&str> {

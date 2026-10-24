@@ -43,6 +43,7 @@ pub(super) mod upload;
 
 use gpui_kit::component::{scroll::ScrollableElement, *};
 use gpui_kit::*;
+use sailry_protocol::plugin::desktop::SettingsGroup;
 
 use crate::tr;
 
@@ -71,10 +72,9 @@ pub(crate) fn open_plugin_settings(
     cx: &mut App,
 ) {
     window.dispatch_action(
-        Box::new(OpenManagement {
+        Box::new(extensions::modal::OpenPanel {
             node: binding.client.target(),
-            name: info.summary.name,
-            skill: None,
+            package: info.summary.reference(),
         }),
         cx,
     );
@@ -107,8 +107,9 @@ pub enum Section {
 }
 
 impl Section {
-    pub const GROUPS: [(&'static str, &'static [Self]); 4] = [
+    pub const GROUPS: [(SettingsGroup, &'static str, &'static [Self]); 4] = [
         (
+            SettingsGroup::App,
             "settings_group_app",
             &[
                 Self::General,
@@ -119,6 +120,7 @@ impl Section {
             ],
         ),
         (
+            SettingsGroup::Ai,
             "settings_group_ai",
             &[
                 Self::Providers,
@@ -130,6 +132,7 @@ impl Section {
             ],
         ),
         (
+            SettingsGroup::Tools,
             "settings_group_tools",
             &[
                 Self::Terminal,
@@ -140,6 +143,7 @@ impl Section {
             ],
         ),
         (
+            SettingsGroup::System,
             "settings_group_system",
             &[Self::Permissions, Self::Backup, Self::About],
         ),

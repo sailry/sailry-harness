@@ -282,7 +282,7 @@ fn features(shell: &Shell, cx: &App) -> Vec<Choice> {
 fn settings() -> Vec<Group> {
     Section::GROUPS
         .into_iter()
-        .map(|(label, sections)| {
+        .map(|(_, label, sections)| {
             let mut sections = sections.to_vec();
             sections.sort_by_key(|section| section.navigation_order());
             Group {

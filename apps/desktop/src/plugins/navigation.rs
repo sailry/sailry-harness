@@ -187,11 +187,10 @@ impl Shell {
                 {
                     return;
                 }
-                shell.open_management(
-                    &crate::settings::OpenManagement {
+                shell.open_settings_panel(
+                    &crate::settings::extensions::modal::OpenPanel {
                         node: event.node,
-                        name: event.package.name.clone(),
-                        skill: None,
+                        package: event.package.clone(),
                     },
                     window,
                     cx,
@@ -349,11 +348,10 @@ impl Shell {
         {
             return;
         }
-        self.open_management(
-            &crate::settings::OpenManagement {
+        self.open_settings_panel(
+            &crate::settings::extensions::modal::OpenPanel {
                 node: entry.node,
-                name: entry.package.name,
-                skill: None,
+                package: entry.package,
             },
             window,
             cx,
@@ -533,19 +531,6 @@ impl Shell {
             })
     }
 
-    pub(crate) fn open_settings_panel(
-        &mut self,
-        event: &crate::settings::extensions::modal::OpenPanel,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.navigate(Page::Settings, window, cx);
-        self.settings_target = Some(event.node);
-        self.settings.update(cx, |settings, cx| {
-            settings.open_plugin_settings(&event.name, cx)
-        });
-    }
-
     pub(crate) fn extension_entries(&self, cx: &App) -> Vec<Entry> {
         let Some(state) = &self.extensions else {
             return vec![];
@@ -665,11 +650,10 @@ impl Shell {
         };
         let host = live.name(entry.node);
         if entry.navigation.surface == sailry_protocol::plugin::desktop::Surface::Settings {
-            self.open_management(
-                &crate::settings::OpenManagement {
+            self.open_settings_panel(
+                &crate::settings::extensions::modal::OpenPanel {
                     node: entry.node,
-                    name: entry.package.name,
-                    skill: None,
+                    package: entry.package,
                 },
                 window,
                 cx,

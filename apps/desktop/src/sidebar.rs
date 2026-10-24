@@ -43,6 +43,7 @@ pub(crate) enum Row {
     LiveSession(sailry_protocol::SessionId),
     Group(crate::panes::Target),
     Setting(Section),
+    PluginSetting(sailry_protocol::plugin::desktop::SettingsGroup, usize),
     Host(usize),
     Project(usize),
     Session(usize, usize),

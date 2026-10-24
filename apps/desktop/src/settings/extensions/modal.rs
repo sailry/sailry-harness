@@ -1,12 +1,13 @@
 //! Plugin configuration uses declared settings panels or the shared schema dialog.
 use super::*;
 use crate::settings::{plugins::configuration, providers::Binding};
+use gpui_kit::component::notification;
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = sailry, no_json)]
 pub(crate) struct OpenPanel {
     pub node: sailry_protocol::NodeId,
-    pub name: String,
+    pub package: Reference,
 }
 impl EventEmitter<OpenPanel> for Workspace {}
 
@@ -18,14 +19,11 @@ pub(crate) fn has_panel(info: &Info) -> bool {
 }
 
 pub(crate) fn configurable(info: &Info) -> bool {
-    info.settings
-        .as_ref()
-        .is_some_and(|schema| !schema.properties.is_empty())
+    has_panel(info)
         || info
-            .extension
+            .settings
             .as_ref()
-            .and_then(|extension| extension.settings_page.as_ref())
-            .is_some_and(|page| page.entry.is_some())
+            .is_some_and(|schema| !schema.properties.is_empty())
 }
 
 pub(in crate::settings) fn open(
@@ -39,7 +37,7 @@ pub(in crate::settings) fn open(
         window.dispatch_action(
             Box::new(OpenPanel {
                 node: binding.client.target(),
-                name: info.summary.name,
+                package: info.summary.reference(),
             }),
             cx,
         );
