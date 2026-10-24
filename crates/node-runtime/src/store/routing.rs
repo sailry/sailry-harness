@@ -82,6 +82,8 @@ pub(super) fn lifecycle(command: &Command) -> bool {
     matches!(
         command,
         Command::SaveNetworkSettings { .. }
+            | Command::SetPluginEnabled { enabled: false, .. }
+            | Command::RemovePlugin { .. }
             | Command::StartSession(_)
             | Command::SubmitTurn { .. }
             | Command::SubmitTask { .. }

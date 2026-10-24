@@ -880,21 +880,25 @@ impl Store {
                         .await;
                     continue;
                 }
+                let package_request = matches!(
+                    &job,
+                    Job::Request { request, .. }
+                        if matches!(
+                            &request.command,
+                            sailry_protocol::Command::SetPluginEnabled { enabled: false, .. }
+                                | sailry_protocol::Command::RemovePlugin { .. }
+                        )
+                );
                 let job = match job {
                     Job::Request {
                         access,
                         caller,
                         request,
                         reply,
-                    } => {
-                        match database_ingress
-                            .persist_request(access, caller, request, reply, None)
-                            .await
-                        {
-                            Some(work) => Job::Execute(Box::new(work)),
-                            None => continue,
-                        }
-                    }
+                    } => database_ingress
+                        .persist_request(access, caller, request, reply, None)
+                        .await
+                        .map(|work| Job::Execute(Box::new(work))),
                     Job::BackupSnapshot {
                         revision,
                         cancel,
@@ -917,19 +921,21 @@ impl Store {
                         .expect("storage barrier was not released");
                         continue;
                     }
-                    other => other,
+                    other => Some(other),
                 };
                 let mut job = job;
                 let completed = match &mut job {
-                    Job::Completed(completed)
-                    | Job::Transferred(completed)
-                    | Job::Executed(completed)
-                    | Job::Resources(completed)
-                    | Job::PluginExecution(completed)
-                    | Job::Ssh(completed)
-                    | Job::Database(completed)
-                    | Job::Network(completed)
-                    | Job::Installed { completed, .. } => Some(completed),
+                    Some(
+                        Job::Completed(completed)
+                        | Job::Transferred(completed)
+                        | Job::Executed(completed)
+                        | Job::Resources(completed)
+                        | Job::PluginExecution(completed)
+                        | Job::Ssh(completed)
+                        | Job::Database(completed)
+                        | Job::Network(completed)
+                        | Job::Installed { completed, .. },
+                    ) => Some(completed),
                     _ => None,
                 };
                 if let Some(completed) = completed
@@ -941,10 +947,11 @@ impl Store {
                     completed.result = Err(database::storage_error(error));
                 }
                 let mut database = storage.context(false).await?;
-                let package_change = matches!(&job, Job::Completed(_) | Job::Installed { .. });
+                let package_change = package_request
+                    || matches!(&job, Some(Job::Completed(_) | Job::Installed { .. }));
                 // Poll one operation at a time without accumulating every handler's
                 // async temporaries on the storage task's stack.
-                let handling: Pending<'_, ()> = {
+                let handling: Pending<'_, ()> = if let Some(job) = job {
                     let database = &mut database;
                     let network_work = &mut network_work;
                     let forwarder = &mut forwarder;
@@ -1317,6 +1324,8 @@ mapped }).await
                             Box::pin(async move { unreachable!("SQL jobs execute independently") })
                         }
                     }
+                } else {
+                    Box::pin(std::future::ready(()))
                 };
                 handling.await;
                 if let Err(error) = database::conflict::rollback(&database.connection).await {
@@ -1328,13 +1337,20 @@ mapped }).await
                 {
                     eprintln!("Python package references could not be refreshed: {error}");
                 }
-                if package_change
-                    && let Ok(turns) = agent::continuation::stopping(&database.connection).await
-                {
-                    for turn in turns {
-                        agents.cancel(turn);
+                if package_change {
+                    match agent::continuation::stopping(&database.connection).await {
+                        Ok(turns) => {
+                            for turn in turns {
+                                agents.cancel(turn);
+                            }
+                            agents.wake.notify_waiters();
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "automatic input cancellation could not be reconciled: {error}"
+                            );
+                        }
                     }
-                    agents.wake.notify_waiters();
                 }
                 if closing.load(Ordering::Acquire)
                     && mutations.pending
