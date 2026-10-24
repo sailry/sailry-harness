@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 
 List<dynamic> references(Map<String, dynamic> snapshot) =>
     (snapshot['page']['entries'] as List)
@@ -55,7 +55,7 @@ Future<void> main() async {
     ),
   );
   check(
-    jsonEncode(references(done['snapshot'])) == jsonEncode(selected),
+    canonicalJson(references(done['snapshot'])) == canonicalJson(selected),
     'parent references persist',
   );
   final children = done['snapshot']['page']['children'] as List;
@@ -70,7 +70,8 @@ Future<void> main() async {
     ),
   );
   check(
-    jsonEncode(references(child['snapshot'])) == jsonEncode([selected.first]),
+    canonicalJson(references(child['snapshot'])) ==
+        canonicalJson([selected.first]),
     'child receives context without recursive role selection',
   );
   await childUpdates.close();
@@ -86,12 +87,12 @@ Future<void> main() async {
   updates = await connection.watchConversation(session: session);
   final restored = await until(updates, (_) => true);
   check(
-    jsonEncode(references(restored['snapshot'])) == jsonEncode(selected),
+    canonicalJson(references(restored['snapshot'])) == canonicalJson(selected),
     'controller reopening restores tags',
   );
   check(
-    jsonEncode(restored['snapshot']['page']) ==
-        jsonEncode(done['snapshot']['page']),
+    canonicalJson(restored['snapshot']['page']) ==
+        canonicalJson(done['snapshot']['page']),
     'reopening does not dispatch again',
   );
   await updates.close();

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 import 'paging.dart' show complete;
 
 Future<void> main() async {
@@ -111,7 +111,7 @@ Future<void> main() async {
     'fork provenance is explicit',
   );
   check(
-    jsonEncode(branch['config']) == jsonEncode(current['config']),
+    canonicalJson(branch['config']) == canonicalJson(current['config']),
     'branch uses the current source configuration',
   );
   final altered = jsonDecode(request);
@@ -139,7 +139,7 @@ Future<void> main() async {
   complete(all);
   final page = all['snapshot']['page'];
   check(
-    jsonEncode(page['entries']) == jsonEncode(baseline['entries']),
+    canonicalJson(page['entries']) == canonicalJson(baseline['entries']),
     'inherited native entries retain identity and content',
   );
   check(
@@ -208,7 +208,7 @@ Future<void> main() async {
   );
   complete(restored);
   check(
-    jsonEncode(restored['snapshot']['page']) == jsonEncode(page),
+    canonicalJson(restored['snapshot']['page']) == canonicalJson(page),
     'shared history recovers after controller reopen',
   );
   final sent = (await execute(connection, 'submit_turn', {
@@ -247,8 +247,8 @@ Future<void> main() async {
     'nested forks retain the canonical owner',
   );
   check(
-    jsonEncode(nestedView['snapshot']['page']['entries']) ==
-            jsonEncode(
+    canonicalJson(nestedView['snapshot']['page']['entries']) ==
+            canonicalJson(
               (baseline['entries'] as List)
                   .where((entry) => entry['turn'] == first['turn'])
                   .toList(),
@@ -261,12 +261,12 @@ Future<void> main() async {
       .map((run) => run['turn'])
       .toSet();
   check(
-    jsonEncode(
+    canonicalJson(
           (unchanged['entries'] as List)
               .where((entry) => inheritedTurns.contains(entry['turn']))
               .toList(),
         ) ==
-        jsonEncode(baseline['entries']),
+        canonicalJson(baseline['entries']),
     'branch continuation does not change source history',
   );
   check(

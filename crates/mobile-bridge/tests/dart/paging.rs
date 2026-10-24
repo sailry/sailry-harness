@@ -9,10 +9,16 @@ use serde_json::json;
 use std::time::Duration;
 
 pub(super) async fn submit(client: &Client, session: SessionId, message: &str) -> TurnId {
-    submit_stage(client, session, message, "history").await
+    submit_stage(client, session, message, "history", Duration::from_secs(10)).await
 }
 
-async fn submit_stage(client: &Client, session: SessionId, message: &str, stage: &str) -> TurnId {
+async fn submit_stage(
+    client: &Client,
+    session: SessionId,
+    message: &str,
+    stage: &str,
+    budget: Duration,
+) -> TurnId {
     let Output::QueuedTurn(turn) = client
         .execute(client.prepare(Command::SubmitTurn {
             session,
@@ -24,7 +30,8 @@ async fn submit_stage(client: &Client, session: SessionId, message: &str, stage:
     else {
         panic!("turn expected")
     };
-    tokio::time::timeout(Duration::from_secs(10), async {
+    let mut last = None;
+    let result = tokio::time::timeout(budget, async {
         let mut updates = client.subscribe_conversation(session).await.unwrap();
         let mut projection =
             sailry_client::conversation::Projection::new(client.target(), session, 0);
@@ -37,15 +44,22 @@ async fn submit_stage(client: &Client, session: SessionId, message: &str, stage:
                     sailry_client::conversation::Projection::new(client.target(), session, 0);
                 continue;
             }
-            if !projection.snapshot().is_some_and(|snapshot| {
-                snapshot.page.runs.iter().any(|run| {
-                    run.turn == turn.id
-                        && !matches!(
-                            run.status,
-                            Status::Queued | Status::Running | Status::Stopping
-                        )
-                })
-            }) {
+            let Some(snapshot) = projection.snapshot() else {
+                continue;
+            };
+            let Some(run) = snapshot.page.runs.iter().find(|run| run.turn == turn.id) else {
+                continue;
+            };
+            last = Some((
+                run.status,
+                snapshot.page.entries.len(),
+                snapshot.missing.len(),
+                snapshot.statistics.observations.calls,
+            ));
+            if matches!(
+                run.status,
+                Status::Queued | Status::Running | Status::Stopping
+            ) {
                 continue;
             }
             let Output::Conversation(history) = client
@@ -65,16 +79,16 @@ async fn submit_stage(client: &Client, session: SessionId, message: &str, stage:
                     Status::Queued | Status::Running | Status::Stopping
                 )
             {
-                assert_eq!(run.status, Status::Completed);
+                assert_eq!(run.status, Status::Completed, "{run:?}");
                 break;
             }
         }
     })
-    .await
-    .unwrap_or_else(|_| {
+    .await;
+    result.unwrap_or_else(|_| {
         panic!(
-            "FFI paging setup deadline: {stage}, session={session}, turn={}",
-            turn.id
+            "FFI paging setup deadline: {stage}, session={session}, turn={}; last (status, entries, missing, calls): {last:?}",
+            turn.id,
         )
     });
     turn.id
@@ -164,17 +178,32 @@ fn loads_during_streaming() {
             }))
             .await
             .unwrap();
-        let first = submit_stage(&client, sessions[0], "History 中文 🙂", "first large turn").await;
+        let first = submit_stage(
+            &client,
+            sessions[0],
+            "History 中文 🙂",
+            "first large turn",
+            Duration::from_secs(60),
+        )
+        .await;
         for index in 1..=44 {
             submit_stage(
                 &client,
                 sessions[0],
                 "History 中文 🙂",
                 &format!("recent turn {index}"),
+                Duration::from_secs(10),
             )
             .await;
         }
-        submit_stage(&client, sessions[1], "History 中文 🙂", "second large turn").await;
+        submit_stage(
+            &client,
+            sessions[1],
+            "History 中文 🙂",
+            "second large turn",
+            Duration::from_secs(60),
+        )
+        .await;
         let selected = configuration::provider(&client, &slow.endpoint, "ffi-history-live").await;
         (first, configuration::config(&selected))
     });

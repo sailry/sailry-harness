@@ -153,8 +153,13 @@ Future<void> main() async {
   final completed = (inbox['notices'] as List).where(
     (notice) => notice['kind'] == 'Completed',
   );
+  final completedIds = completed
+      .map((notice) => jsonEncode(notice['id']))
+      .toSet();
   check(
-    completed.length == 3 && inbox['notices'].length == 7,
+    completed.length == 3 &&
+        completedIds.length == 3 &&
+        inbox['notices'].length == 7,
     'fast consecutive completion and input notices survive coalescing',
   );
   await controller.markNotificationsRead();
@@ -193,9 +198,23 @@ Future<void> main() async {
     await connection.close();
     connection.dispose();
   }
+  final restored = jsonDecode(await controller.notifications());
+  final restoredNotices = restored['notices'] as List;
   check(
-    jsonDecode(await controller.notifications())['notices'].isEmpty,
-    'reopening reads historical state without republishing completion',
+    restored['unread'] == 0 &&
+        restoredNotices.length == completedIds.length &&
+        restoredNotices
+                .map((notice) => jsonEncode(notice['id']))
+                .toSet()
+                .length ==
+            completedIds.length &&
+        restoredNotices.every(
+          (notice) =>
+              notice['kind'] == 'Completed' &&
+              notice['read'] == true &&
+              completedIds.contains(jsonEncode(notice['id'])),
+        ),
+    'reopening restores read completions without republishing',
   );
   await controller.close();
   controller.dispose();

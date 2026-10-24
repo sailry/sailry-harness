@@ -8,6 +8,19 @@ void check(bool condition, String message) {
   if (!condition) throw StateError(message);
 }
 
+String canonicalJson(Object? value) {
+  Object? ordered(Object? value) {
+    if (value is Map) {
+      final keys = value.keys.cast<String>().toList()..sort();
+      return {for (final key in keys) key: ordered(value[key])};
+    }
+    if (value is List) return value.map(ordered).toList();
+    return value;
+  }
+
+  return jsonEncode(ordered(value));
+}
+
 Future<Map<String, dynamic>> execute(
   Connection connection,
   String kind,

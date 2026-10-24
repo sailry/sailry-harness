@@ -55,10 +55,21 @@ pub(super) async fn calls_in(
     session: &Session,
     calls: Vec<(String, Value)>,
 ) -> (Vec<Value>, Server) {
+    calls_within(fixture, session, calls, Duration::from_secs(10)).await
+}
+
+pub(super) async fn calls_within(
+    fixture: &Fixture,
+    session: &Session,
+    calls: Vec<(String, Value)>,
+    budget: Duration,
+) -> (Vec<Value>, Server) {
     let server = Server::turn_tools(calls.clone()).await;
     route(&fixture.client, session, &server.endpoint).await;
     let turn = submit(&fixture.client, session).await;
-    let page = completed(&fixture.client, session.id, turn.id).await;
+    let page =
+        crate::approvals::rules::completed_within(&fixture.client, session.id, turn.id, budget)
+            .await;
     let results = crate::approvals::rules::results(&page, turn.id);
     assert_eq!(results.len(), calls.len(), "{page:?}");
     for ((_, name, _), (expected, _)) in results.iter().zip(&calls) {

@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 import 'approvals.dart' show hasPending, pending, part;
 
 Future<List<dynamic>> children(Updates updates, String parent) async {
@@ -106,6 +106,13 @@ Future<void> main() async {
     parentUpdates,
     (snapshot) =>
         (snapshot['page']['children'] as List).length == 2 &&
+        (snapshot['page']['children'] as List).every(
+          (summary) =>
+              summary['run']['status'] == 'running' &&
+              descendants.any(
+                (child) => summary['run']['session'] == child['id'],
+              ),
+        ) &&
         (snapshot['page']['entries'] as List).any(
           (entry) =>
               (entry['parts'] as List)
@@ -120,7 +127,7 @@ Future<void> main() async {
     final summary = (parentView['snapshot']['page']['children'] as List)
         .singleWhere((summary) => summary['run']['session'] == child['id']);
     check(
-      jsonEncode(summary['origin']) == jsonEncode(origin) &&
+      canonicalJson(summary['origin']) == canonicalJson(origin) &&
           summary['name'] == 'Review 中文' &&
           summary['run']['status'] == 'running',
       'parent projection includes the frozen role and running child',
@@ -152,8 +159,8 @@ Future<void> main() async {
       result['kind'] == 'file_lines' &&
           result['data']['offset'] == 0 &&
           result['data']['next_offset'] == null &&
-          jsonEncode(result['data']['lines']) ==
-              jsonEncode([
+          canonicalJson(result['data']['lines']) ==
+              canonicalJson([
                 {'number': 1, 'text': 'Read 子任务 🙂'},
               ]),
       'child uses its bound worktree with canonical numbered output',
@@ -195,7 +202,7 @@ Future<void> main() async {
     Map<String, dynamic> frozen(Map<String, dynamic> child) =>
         {...child}..remove('activity');
     check(
-      jsonEncode(frozen(restored)) == jsonEncode(frozen(original)),
+      canonicalJson(frozen(restored)) == canonicalJson(frozen(original)),
       'frozen child metadata survives controller reopen',
     );
     check(
@@ -382,8 +389,8 @@ Future<void> main() async {
     }
 
     check(
-      jsonEncode(page(restored)) == jsonEncode(page(saved)) &&
-          jsonEncode(restored['calls']) == jsonEncode(saved['calls']),
+      canonicalJson(page(restored)) == canonicalJson(page(saved)) &&
+          canonicalJson(restored['calls']) == canonicalJson(saved['calls']),
       'reopened child history and call projection remain unchanged',
     );
     await updates.close();

@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' show part;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 
 void complete(Map<String, dynamic> view) {
   check(view['older_error'] == null, 'older history read succeeds');
@@ -224,7 +224,7 @@ Future<void> main() async {
     (stopped['snapshot']['drafts'] as List).isEmpty,
     'stop clears transient text without replay',
   );
-  final canonical = jsonEncode(stopped['snapshot']['page']);
+  final canonical = canonicalJson(stopped['snapshot']['page']);
   await updates.loadOlder();
   final waiting = updates.next().then((_) => true, onError: (_) => true);
   await updates.close();
@@ -247,7 +247,7 @@ Future<void> main() async {
   await load(40);
   final restored = await load(46);
   check(
-    jsonEncode(restored['snapshot']['page']) == canonical,
+    canonicalJson(restored['snapshot']['page']) == canonical,
     'reopened FFI restores identical history without resubmitting turns',
   );
   await controller.close();

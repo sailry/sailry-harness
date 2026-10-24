@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, observe, until;
+import 'conversation.dart' show canonicalJson, check, execute, observe, until;
 import 'paging.dart' show complete;
 
 Future<void> main() async {
@@ -149,7 +149,7 @@ Future<void> main() async {
     final value = await content(source, file['id']);
     check(
       value['session'] == source &&
-          jsonEncode(value['file']) == jsonEncode(file),
+          canonicalJson(value['file']) == canonicalJson(file),
       'content retains exact checkpoint metadata',
     );
     final calls = (original['entries'] as List)
@@ -249,11 +249,12 @@ Future<void> main() async {
     'original text is restored',
   );
   check(
-    jsonEncode(await history(source)) == jsonEncode(original),
+    canonicalJson(await history(source)) == canonicalJson(original),
     'file restore leaves conversation history unchanged',
   );
   check(
-    jsonEncode((await page(source, null, 100))['files']) == jsonEncode(files),
+    canonicalJson((await page(source, null, 100))['files']) ==
+        canonicalJson(files),
     'restore does not mutate original write receipts',
   );
 
@@ -298,8 +299,8 @@ Future<void> main() async {
     'checkpoint': newer['id'],
   }, 'wrong_target');
   check(
-    jsonEncode((await page(branch['id'], null, 100))['files']) ==
-        jsonEncode(files),
+    canonicalJson((await page(branch['id'], null, 100))['files']) ==
+        canonicalJson(files),
     'branch references the original checkpoints',
   );
   final large = files.singleWhere((file) => file['path'] == 'large.txt');
@@ -366,8 +367,8 @@ Future<void> main() async {
   final resumed = await until(updates, (_) => true);
   complete(resumed);
   check(
-    jsonEncode(resumed['snapshot']['page']['entries']) ==
-        jsonEncode(original['entries']),
+    canonicalJson(resumed['snapshot']['page']['entries']) ==
+        canonicalJson(original['entries']),
     'reopened branch retains every canonical tool event',
   );
   check(

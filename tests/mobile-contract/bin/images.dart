@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'attachments/support.dart' show downloadAttachment, revision;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -202,7 +202,7 @@ Future<void> main() async {
     'limit': 100,
   }))['data']['page'];
   check(
-    jsonEncode(restored['entries']) == jsonEncode(page['entries']),
+    canonicalJson(restored['entries']) == canonicalJson(page['entries']),
     'image history survives reconnect',
   );
   final recovered = (await execute(connection, 'download_image', {

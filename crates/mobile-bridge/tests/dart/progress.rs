@@ -35,12 +35,9 @@ fn restores_task_progress() {
     ));
     let client = Client::new(node.local());
     let Output::Plugin(progress) = runtime
-        .block_on(
-            client.execute(client.prepare(Command::InstallBundledPlugin {
-                name: "progress".into(),
-                expected_revision: 0,
-            })),
-        )
+        .block_on(client.execute(client.prepare(Command::ReadPlugin {
+            name: "progress".into(),
+        })))
         .unwrap()
     else {
         panic!("progress plugin expected")

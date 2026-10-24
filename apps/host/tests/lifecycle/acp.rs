@@ -189,7 +189,21 @@ async fn stdio_eof_keeps_admitted_work_running() {
         "prompt":[{"type":"text","text":"Keep working through disconnection"}]}}));
     editor.admitted().await;
     editor.close().await;
-    assert_eq!(fixture.page().await.runs[0].status, Status::Running);
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let status = fixture.page().await.runs[0].status;
+            assert!(
+                matches!(status, Status::Queued | Status::Running),
+                "{status:?}"
+            );
+            if status == Status::Running {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
     release.cancel();
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {

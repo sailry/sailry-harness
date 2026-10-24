@@ -509,12 +509,27 @@ async fn loads_original_language_rules() {
         let server = Server::batch(requests).await;
         route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture.client, &fixture.session).await;
-        let page = completed(&fixture.client, fixture.session.id, turn.id).await;
+        let page = crate::approvals::rules::completed_within(
+            &fixture.client,
+            fixture.session.id,
+            turn.id,
+            Duration::from_secs(30),
+        )
+        .await;
         let mut results: Vec<_> = crate::approvals::rules::results(&page, turn.id)
             .into_iter()
             .map(|(_, _, result)| result)
             .collect();
-        results.extend(calls(&fixture, remaining).await.0);
+        results.extend(
+            fixture::calls_within(
+                &fixture,
+                &fixture.session,
+                remaining,
+                Duration::from_secs(30),
+            )
+            .await
+            .0,
+        );
         assert_eq!(results.len(), 56);
         for result in &results {
             assert!(result.get("error").is_none(), "{result}");

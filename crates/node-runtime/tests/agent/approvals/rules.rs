@@ -10,7 +10,17 @@ pub(crate) async fn observe(
     session: SessionId,
     predicate: impl Fn(&Page) -> bool,
 ) -> Page {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    observe_within(client, session, predicate, Duration::from_secs(10)).await
+}
+
+async fn observe_within(
+    client: &Client,
+    session: SessionId,
+    predicate: impl Fn(&Page) -> bool,
+    budget: Duration,
+) -> Page {
+    let mut last = None;
+    let result = tokio::time::timeout(budget, async {
         let mut stream = client.subscribe_conversation(session).await.unwrap();
         let mut projection =
             sailry_client::conversation::Projection::new(client.target(), session, 0);
@@ -23,6 +33,17 @@ pub(crate) async fn observe(
             let Some(snapshot) = projection.snapshot() else {
                 continue;
             };
+            last = Some((
+                snapshot
+                    .page
+                    .runs
+                    .iter()
+                    .map(|run| (run.turn, run.status))
+                    .collect::<Vec<_>>(),
+                snapshot.page.entries.len(),
+                snapshot.page.approvals.len(),
+                snapshot.page.questions.len(),
+            ));
             assert!(
                 snapshot
                     .page
@@ -37,8 +58,12 @@ pub(crate) async fn observe(
             }
         }
     })
-    .await
-    .expect("conversation update deadline")
+    .await;
+    result.unwrap_or_else(|error| {
+        panic!(
+            "conversation update deadline: {error:?}; last (runs, entries, approvals, questions): {last:?}"
+        )
+    })
 }
 
 pub(crate) async fn pending(client: &Client, session: SessionId) -> Approval {
@@ -55,11 +80,25 @@ pub(crate) async fn pending(client: &Client, session: SessionId) -> Approval {
 }
 
 pub(crate) async fn completed(client: &Client, session: SessionId, turn: TurnId) -> Page {
-    observe(client, session, |page| {
-        page.runs
-            .iter()
-            .any(|run| run.turn == turn && run.status == Status::Completed)
-    })
+    completed_within(client, session, turn, Duration::from_secs(10)).await
+}
+
+pub(crate) async fn completed_within(
+    client: &Client,
+    session: SessionId,
+    turn: TurnId,
+    budget: Duration,
+) -> Page {
+    observe_within(
+        client,
+        session,
+        |page| {
+            page.runs
+                .iter()
+                .any(|run| run.turn == turn && run.status == Status::Completed)
+        },
+        budget,
+    )
     .await;
     let page = history(client, session).await;
     assert!(

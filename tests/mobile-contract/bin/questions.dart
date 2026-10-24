@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' show part;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 
 bool hasPending(Map<String, dynamic> snapshot) =>
     (snapshot['page']['questions'] as List).any(
@@ -218,9 +218,9 @@ Future<void> main() async {
   );
   final restored = await reopen();
   check(
-    jsonEncode(restored['snapshot']['page']) ==
-            jsonEncode(finished['snapshot']['page']) &&
-        jsonEncode(restored['calls']) == jsonEncode(calls),
+    canonicalJson(restored['snapshot']['page']) ==
+            canonicalJson(finished['snapshot']['page']) &&
+        canonicalJson(restored['calls']) == canonicalJson(calls),
     'reopening restores history without replay',
   );
   check(
@@ -239,11 +239,30 @@ Future<void> main() async {
   });
   final stopped = pending(await next(1));
   await execute(connection, 'stop_turn', {'turn': stopped['turn']});
-  final cancelled = await until(
-    updates,
-    (snapshot) =>
-        (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
-  );
+  final cancelled = await Future(() async {
+    while (true) {
+      final view = await until(
+        updates,
+        (snapshot) =>
+            (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
+      );
+      // Terminal status and the question/result can arrive in separate frames.
+      final calls = view['calls'] as List;
+      if (calls.length != 1) continue;
+      final call = calls.single;
+      if (call['state'] != 'returned' ||
+          call['question']?['state']['kind'] != 'cancelled' ||
+          call['response'] == null) {
+        continue;
+      }
+      final result = part(view, call['response'])['result'];
+      if (result['status'] == 'outcome_unknown' &&
+          result['detail'] is String &&
+          (result['detail'] as String).isNotEmpty) {
+        return view;
+      }
+    }
+  }).timeout(const Duration(seconds: 10));
   final closed = (cancelled['calls'] as List).single;
   final interrupted = part(cancelled, closed['response'])['result'];
   check(

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show canonicalJson, check, execute, until;
 import 'paging.dart' show complete, rejects;
 
 Future<void> main() async {
@@ -156,7 +156,7 @@ Future<void> main() async {
     'backup retains the complete previous head',
   );
   check(
-    jsonEncode(backup['config']) == jsonEncode(current['config']),
+    canonicalJson(backup['config']) == canonicalJson(current['config']),
     'backup uses the effective source configuration',
   );
   var rewound =
@@ -167,6 +167,7 @@ Future<void> main() async {
     rewound = await until(
       updates,
       (snapshot) => snapshot['page']['revision'] == 2,
+      recovering: true,
     );
   }
   complete(rewound);
@@ -176,8 +177,8 @@ Future<void> main() async {
     'reset removes the old loaded suffix',
   );
   check(
-    jsonEncode(page['entries']) ==
-        jsonEncode(
+    canonicalJson(page['entries']) ==
+        canonicalJson(
           (baseline['entries'] as List)
               .where((entry) => entry['turn'] == first['turn'])
               .toList(),
@@ -242,8 +243,8 @@ Future<void> main() async {
   );
   complete(saved);
   check(
-    jsonEncode(saved['snapshot']['page']['entries']) ==
-        jsonEncode(before['entries']),
+    canonicalJson(saved['snapshot']['page']['entries']) ==
+        canonicalJson(before['entries']),
     'backup keeps every canonical entry',
   );
   check(
@@ -275,7 +276,7 @@ Future<void> main() async {
   final restored = await until(updates, (_) => true);
   complete(restored);
   check(
-    jsonEncode(restored['snapshot']['page']) == jsonEncode(page),
+    canonicalJson(restored['snapshot']['page']) == canonicalJson(page),
     'reopen retains the rewound history',
   );
   final resumedConfig =
@@ -283,8 +284,8 @@ Future<void> main() async {
               as List)
           .singleWhere((session) => session['id'] == source);
   check(
-    jsonEncode(<String, dynamic>{...resumedConfig}..remove('activity')) ==
-        jsonEncode(<String, dynamic>{...current}..remove('activity')),
+    canonicalJson(<String, dynamic>{...resumedConfig}..remove('activity')) ==
+        canonicalJson(<String, dynamic>{...current}..remove('activity')),
     'rewind does not alter effective configuration',
   );
   check(
@@ -310,8 +311,8 @@ Future<void> main() async {
     'continuation appends only to the retained prefix',
   );
   check(
-    jsonEncode(await history(backup['id'])) ==
-        jsonEncode(saved['snapshot']['page']),
+    canonicalJson(await history(backup['id'])) ==
+        canonicalJson(saved['snapshot']['page']),
     'source continuation leaves backup unchanged',
   );
   await updates.close();

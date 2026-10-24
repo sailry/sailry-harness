@@ -33,6 +33,7 @@ fn resumes_without_source() {
             selected.api = api;
             selected.models[0].tools = true;
             selected.models[0].vision = true;
+            selected.models[0].context = 65_536;
             selected.models[0].output = 4096;
             selected.models[0].reasoning = true;
             selected.models[0].efforts = vec![Effort::Default, Effort::Budget(1024)];
@@ -83,7 +84,7 @@ fn resumes_without_source() {
             .unwrap();
         let status = super::wait(child);
         runtime.block_on(target.shutdown()).unwrap();
-        if !status.success() {
+        if !status.success() || server.requests.lock().unwrap().len() != 3 {
             let requests = server.requests.lock().unwrap();
             eprintln!(
                 "native fixture: api={name}, received_requests={}",
@@ -100,7 +101,8 @@ fn resumes_without_source() {
                     .filter_map(|block| block["type"].as_str())
                     .collect::<Vec<_>>();
                 eprintln!(
-                    "native fixture request {index}: max_tokens={:?}, thinking_budget={:?}, messages={}, tools={}, blocks={blocks:?}",
+                    "native fixture request {index}: summary={}, max_tokens={:?}, thinking_budget={:?}, messages={}, tools={}, blocks={blocks:?}",
+                    body.to_string().contains("Summarize this conversation"),
                     body["max_tokens"].as_u64(),
                     body["thinking"]["budget_tokens"].as_u64(),
                     messages.map_or(0, Vec::len),

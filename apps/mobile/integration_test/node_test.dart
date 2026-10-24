@@ -202,9 +202,10 @@ void main({bool host = false}) {
       });
       final label = find.text('读取文件 source.txt');
       expect(label, findsOneWidget);
-      await tester.tap(label);
-      await tester.pumpAndSettle();
-      expect(find.textContaining(_content), findsOneWidget);
+      expect(heading.call['presentation'], 'summary');
+      expect(heading.call['details'], isFalse);
+      // The Rust harness verifies full file contents from canonical history.
+      expect(find.textContaining(_content), findsNothing);
       expect(tester.takeException(), isNull);
 
       // Reopen the same trusted controller and canonical conversation, with no

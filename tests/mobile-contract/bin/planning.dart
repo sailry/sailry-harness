@@ -104,7 +104,15 @@ Future<void> main() async {
     await until(updates, (_) => true);
     await execute(connection, 'start_queued_turn', {'turn': turn['id']});
     if (mode == 'plan') {
-      final waiting = await until(updates, hasPending);
+      final waiting = await until(
+        updates,
+        (snapshot) =>
+            hasPending(snapshot) &&
+            (snapshot['page']['runs'] as List).any(
+              (run) =>
+                  run['turn'] == turn['id'] && run['status'] == 'completed',
+            ),
+      );
       final question = pending(waiting);
       final call = part(waiting, question);
       check(
