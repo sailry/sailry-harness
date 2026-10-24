@@ -357,6 +357,11 @@ systemd installer, service controls and profile-preserving update with an isolat
 home and exact package bytes. Installer fixtures replace downloads, not the
 service manager or Host process; pairing acceptance remains separate.
 
+GitHub publications are ordinary releases, including versions with a SemVer preview
+suffix. Update channels follow the semantic version rather than GitHub's Pre-release
+flag; preview versions remain in the experience channel and do not replace Latest.
+Older preview releases retain their existing GitHub flag.
+
 The release title is `Sailry Harness <version>`. Release notes use the exact
 version's section in `CHANGELOG.md`; when that section is absent, they are
 generated from the immutable tag's Git commits since the previous version tag.

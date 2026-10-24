@@ -84,7 +84,7 @@ impl Release {
             .map_err(|_| invalid("invalid current application version"))?;
         if self.draft
             || !version.build.is_empty()
-            || self.prerelease != !version.pre.is_empty()
+            || (self.prerelease && version.pre.is_empty())
             || !config.channel.accepts(&version)
             || version.cmp_precedence(&current) != std::cmp::Ordering::Greater
             || config

@@ -24,7 +24,8 @@ def apple(value):
 
 
 def release_flags(value):
-    return ["--prerelease", "--latest=false"] if parse(value).group("preview") else ["--latest"]
+    latest = "--latest=false" if parse(value).group("preview") else "--latest"
+    return ["--prerelease=false", latest]
 
 
 def product(root):

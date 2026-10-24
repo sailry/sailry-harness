@@ -43,6 +43,7 @@ class FakeGitHub:
             return copy.deepcopy(self.release)
         if method == "POST":
             self.release = metadata(draft=True)
+            self.release.update(payload)
             return copy.deepcopy(self.release)
         if method == "PATCH":
             self.release.update(payload)
@@ -149,11 +150,11 @@ class PackagePublication(unittest.TestCase):
         creation = next(call for call in client.calls if call[0] == "POST")
         self.assertEqual(creation[2]["target_commitish"], COMMIT)
         self.assertTrue(creation[2]["draft"])
-        self.assertTrue(creation[2]["prerelease"])
+        self.assertFalse(creation[2]["prerelease"])
         self.assertEqual(len(client.uploads), 8)
         self.assertEqual(client.calls[-1][2], {
             "name": "Sailry Harness 0.1.0-alpha.1", "body": "Release notes",
-            "target_commitish": COMMIT, "draft": False, "make_latest": "false",
+            "target_commitish": COMMIT, "draft": False, "prerelease": False, "make_latest": "false",
         })
 
     def test_desktop_retry_preserves_published_assets(self):
@@ -237,12 +238,34 @@ class PackagePublication(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.publish(component, FakeGitHub(), files)
 
-    def test_moved_tag_and_wrong_channel_fail(self):
+    def test_published_preview_flags_preserve_existing_assets(self):
+        for preview_flag in (False, True):
+            with self.subTest(prerelease=preview_flag):
+                existing = self.public_desktop()
+                existing["prerelease"] = preview_flag
+                original = copy.deepcopy(existing["assets"])
+                client = FakeGitHub(existing)
+                self.publish("host", client)
+                self.assertEqual(client.release["assets"][:len(original)], original)
+                self.assertEqual(client.release["prerelease"], preview_flag)
+                self.assertFalse(client.release["draft"])
+                self.assertEqual(set(client.uploads), {path.name for path in self.host})
+
+    def test_stable_rejects_prerelease_flag(self):
+        existing = self.public_desktop()
+        existing["tag_name"] = "v0.1.0"
+        client = FakeGitHub(existing)
+        with self.assertRaisesRegex(ValueError, "channel"):
+            publication.release(client, REPOSITORY, "v0.1.0", COMMIT, published=True)
+        self.assertFalse(client.uploads)
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    def test_rejects_moved_or_different_tag(self):
         client = FakeGitHub(self.public_desktop())
         with self.assertRaisesRegex(ValueError, "differs"):
             publisher.publish("host", TAG, None, self.host, REPOSITORY, "b" * 40, client)
-        client.release["prerelease"] = False
-        with self.assertRaisesRegex(ValueError, "channel"):
+        client.release["tag_name"] = "v0.1.0-alpha.2"
+        with self.assertRaisesRegex(ValueError, "tag or channel"):
             self.publish("host", client)
         self.assertFalse(client.uploads)
 

@@ -898,7 +898,7 @@ installation is available once its assets appear. Mobile distribution remains ma
 The release-only `sailry-release` tool owns Desktop archive and catalog signing;
 it is not linked into Desktop, Host or Node. Desktop discovers published releases
 through GitHub's API and selects the highest compatible SemVer in its channel
-with complete formal assets and a signed catalog. Stable excludes prereleases;
+with complete formal assets and a signed catalog. Stable excludes SemVer prereleases;
 experience includes stable and prerelease versions. Desktop verifies the exact
 v1 catalog payload, version and tag-bound archive URL, then the archive's
 filename-bound signature. Ad-hoc packages are not automatic update candidates.

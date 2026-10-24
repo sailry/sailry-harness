@@ -24,8 +24,8 @@ class NativeVersions(unittest.TestCase):
                 versions.apple(value)
 
     def test_previews_do_not_replace_latest_stable(self):
-        self.assertEqual(versions.release_flags("0.1.0-alpha.1"), ["--prerelease", "--latest=false"])
-        self.assertEqual(versions.release_flags("0.1.0"), ["--latest"])
+        self.assertEqual(versions.release_flags("0.1.0-alpha.1"), ["--prerelease=false", "--latest=false"])
+        self.assertEqual(versions.release_flags("0.1.0"), ["--prerelease=false", "--latest"])
 
 
 class ProductVersions(unittest.TestCase):

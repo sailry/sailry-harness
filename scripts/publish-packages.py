@@ -84,7 +84,7 @@ def publish(component, tag, notes, assets, repository, commit, client=None, sign
         metadata = client.api("POST", endpoint, {
             "tag_name": tag, "target_commitish": commit, "name": f"Sailry Harness {tag[1:]}",
             "body": notes.read_text(), "draft": True,
-            "prerelease": versions.parse(tag[1:]).group("preview") is not None,
+            "prerelease": False,
         })
     if metadata.get("immutable"):
         raise ValueError("The release is immutable; Host assets require a mutable published release")
@@ -108,6 +108,7 @@ def publish(component, tag, notes, assets, repository, commit, client=None, sign
             "name": f"Sailry Harness {tag[1:]}", "body": notes.read_text(),
             "target_commitish": commit,
             "draft": False,
+            "prerelease": False,
             "make_latest": latest_flag(tag),
         })
 

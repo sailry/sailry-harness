@@ -84,6 +84,64 @@ async fn selects_semver_by_channel_not_api_order() {
 }
 
 #[tokio::test]
+async fn ordinary_previews_keep_semver_channels() {
+    for (channel, expected) in [
+        (Channel::Stable, "2.0.0"),
+        (Channel::Experience, "3.0.0-alpha.3"),
+    ] {
+        let (base, serving) = server(|base| {
+            let mut preview = release(base, "3.0.0-alpha.3");
+            preview["prerelease"] = false.into();
+            BTreeMap::from([
+                (
+                    "/releases?per_page=100&page=1".into(),
+                    serde_json::to_vec(&vec![preview, release(base, "2.0.0")]).unwrap(),
+                ),
+                (
+                    format!("/v{expected}/update-v1.json"),
+                    catalog(base, expected),
+                ),
+            ])
+        })
+        .await;
+        let mut config = configure(&base);
+        config.channel = channel;
+        let selected = transfer::check(
+            transfer::client().unwrap(),
+            &config,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.release.version, expected);
+        assert!(
+            selected
+                .release
+                .url
+                .starts_with(&format!("{base}/v{expected}/"))
+        );
+        serving.await.unwrap();
+    }
+}
+
+#[test]
+fn stable_versions_reject_prerelease_flags() {
+    let base = "https://github.com/sailry/sailry-harness/releases/download";
+    let mut config = configure(base);
+    config.channel = Channel::Experience;
+    let mut value = release(base, "3.0.0");
+    value["prerelease"] = true.into();
+    assert!(
+        serde_json::from_value::<Release>(value)
+            .unwrap()
+            .published(&config)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn skips_adhoc_and_requires_exact_host_version() {
     for required in [None, Some("1.0.0".to_owned())] {
         let (base, serving) = server(|base| {

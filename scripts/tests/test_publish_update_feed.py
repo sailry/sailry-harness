@@ -49,11 +49,16 @@ class ReleaseOwnership(unittest.TestCase):
         self.assertFalse(stable.preview)
         self.assertTrue(preview.preview)
 
+    def test_ordinary_preview_keeps_experience_channel(self):
+        result = publisher.publication(event("0.1.0-alpha.3", prerelease=False), "sailry/sailry-harness")
+        self.assertEqual(result.tag, "v0.1.0-alpha.3")
+        self.assertTrue(result.preview)
+
     def test_rejects_draft_wrong_event_channel_or_repository(self):
         fixtures = [
             event(draft=True),
             event(action="edited"),
-            event("1.0.0-alpha.1", prerelease=False),
+            event("1.0.0", prerelease=True),
             {**event(), "repository": {"full_name": "other/project"}},
         ]
         for fixture in fixtures:

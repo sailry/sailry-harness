@@ -3,6 +3,38 @@
 Release entries supply the corresponding GitHub Release notes. When an entry is
 missing, publication generates it from the tagged Git history.
 
+## [0.1.0-alpha.3](https://github.com/sailry/sailry-harness/releases/tag/v0.1.0-alpha.3)
+
+### Highlights
+
+- Use native Turso storage with concurrent reads and short, conflict-aware
+  transactions. Captured file-tool results can be persisted again without
+  repeating the file operation.
+- Refresh file views after checkpoint restores and release Node network
+  resources on shutdown so the same endpoint can restart.
+- Improve provider retry and WebSocket recovery, preserve uncertain outcomes,
+  and retain useful provider error details.
+- Keep plugin settings pages mounted, add Git initialization to the repository
+  sidebar, and make delegated-role editors scroll completely.
+- Clarify tool output and source-code headers, improve folding, and remove the
+  extra partial-results footer from file changes.
+- Keep structured Plan tools bundled and offer the Activity Board as a separate
+  optional plugin.
+- Show consistent session throughput and request latency in Statistics, with
+  All selections and visible filter state. Statistics cover Sailry sessions.
+
+### Downloads
+
+- macOS Desktop: Apple silicon and Intel DMG installers and ZIP archives
+- Sailry Host: macOS and Linux archives for arm64 and x86_64, with an installer
+  and SHA-256 checksums
+
+Storage uses new native Turso files. Existing SQLite databases are retained and
+are not imported automatically.
+
+This is an ordinary GitHub Release. Its alpha version remains in the experience
+update channel.
+
 ## [0.1.0-alpha.1](https://github.com/sailry/sailry-harness/releases/tag/v0.1.0-alpha.1)
 
 The first Sailry Harness alpha brings AI conversations and development tools into

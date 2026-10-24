@@ -187,7 +187,7 @@ def release(client, repository, tag, commit, published=False):
             raise ValueError("Desktop must publish this release before Host or publication follow-ups run")
         return None
     preview = versions.parse(tag[1:]).group("preview") is not None
-    if metadata.get("tag_name") != tag or bool(metadata.get("prerelease")) != preview:
+    if metadata.get("tag_name") != tag or (metadata.get("prerelease") and not preview):
         raise ValueError("The release tag or channel does not match the application version")
     if published and (metadata.get("draft") is not False or not metadata.get("published_at")):
         raise ValueError("A published Desktop release is required")

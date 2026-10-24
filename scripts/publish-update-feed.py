@@ -41,7 +41,7 @@ def publication(event, repository):
         raise ValueError("Only a published non-draft release can update feeds")
     if event.get("repository", {}).get("full_name") != repository:
         raise ValueError("Published release belongs to another repository")
-    if bool(release.get("prerelease")) != preview:
+    if release.get("prerelease") and not preview:
         raise ValueError("Release channel does not match its semantic version")
     return Publication(tag, version, preview)
 
