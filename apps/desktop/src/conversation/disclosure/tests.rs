@@ -37,6 +37,16 @@ fn colors_failure_text_semantically(cx: &mut TestAppContext) {
                 cx.theme().warning
             );
             assert_eq!(
+                tone(
+                    &Detail {
+                        warning: true,
+                        ..Default::default()
+                    },
+                    cx
+                ),
+                cx.theme().warning
+            );
+            assert_eq!(
                 detail.accessible(&"Read".into()),
                 "Read missing.txt Read failed"
             );

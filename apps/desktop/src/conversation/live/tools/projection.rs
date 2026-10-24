@@ -14,7 +14,11 @@ pub(super) fn grouped(call: &Call, page: &Page) -> bool {
             .resolved
             .as_ref()
             .and_then(|resolved| resolved.output.as_ref())
-            .is_some_and(|output| !output.paths.is_empty())
+            .is_some_and(|output| match output.paths.as_slice() {
+                [] => false,
+                [path] => summary(call, page).detail.text.as_ref() != path.as_str(),
+                _ => true,
+            })
 }
 
 fn paths(calls: &[&Call]) -> Vec<SharedString> {
@@ -56,6 +60,8 @@ pub(super) fn group(
         })
         .collect();
     let worktree = view.turn_worktree(first.turn);
+    let node = view.binding.client.target();
+    let turn = first.turn;
     Some(Group {
         count: paths.len().max(failures.len()),
         content: v_flex()
@@ -71,16 +77,21 @@ pub(super) fn group(
                     path.clone(),
                     Detail {
                         secondary: true,
+                        hide_caret: true,
                         ..Default::default()
                     },
                     false,
                     cx,
                 )
+                .w_full()
                 .text_size(cx.theme().typography_tokens().sm.size)
                 .font_normal()
                 .font_family(cx.theme().mono_font_family.clone())
-                .on_click(cx.listener(move |_, _, _, cx| {
-                    if let Some(worktree) = worktree {
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    if view.binding.client.target() == node
+                        && view.turn_worktree(turn) == worktree
+                        && let Some(worktree) = worktree
+                    {
                         cx.emit(Event::FileAt(worktree, path.to_string()));
                     }
                 }))
@@ -126,16 +137,19 @@ pub(super) fn render(
         if !text.is_empty() {
             actions.push(view.copy_result(key, text.to_owned()));
         }
-        if let Some(path) = path {
-            actions.push(view.path_link(key, call.turn, path.to_owned().into(), cx));
-        }
         if let Some(style) = body.diff {
-            return Some(diff::file_rows(
+            return Some(view.path_result(
                 key,
-                text,
-                path.unwrap_or_default(),
-                style == Format::Added,
-                actions,
+                call.turn,
+                path.map(|path| path.to_owned().into()),
+                diff::file_rows(
+                    key,
+                    text,
+                    path.unwrap_or_default(),
+                    style == Format::Added,
+                    actions,
+                ),
+                cx,
             ));
         }
         let content =
@@ -153,7 +167,13 @@ pub(super) fn render(
                     cx,
                 )
             };
-        return Some(surface::result(key, content, actions, cx).into_any_element());
+        return Some(view.path_result(
+            key,
+            call.turn,
+            path.map(|path| path.to_owned().into()),
+            surface::result(key, content, actions, cx).into_any_element(),
+            cx,
+        ));
     }
     if output.preview.is_empty() && output.notices.is_empty() {
         return None;
@@ -187,14 +207,18 @@ pub(super) fn render(
     if !copy.is_empty() {
         actions.push(view.copy_result(key, copy));
     }
-    if let Some(path) = call
+    let path = call
         .resolved
         .as_ref()
         .and_then(|resolved| resolved.input.target.as_ref())
         .map(|path| path.text.as_str())
         .filter(|path| !path.is_empty())
-    {
-        actions.push(view.path_link(key, call.turn, path.to_owned().into(), cx));
-    }
-    Some(surface::result(key, content.into_any_element(), actions, cx).into_any_element())
+        .map(|path| path.to_owned().into());
+    Some(view.path_result(
+        key,
+        call.turn,
+        path,
+        surface::result(key, content.into_any_element(), actions, cx).into_any_element(),
+        cx,
+    ))
 }

@@ -253,7 +253,7 @@ impl RenderOnce for ActivityScroll {
     }
 }
 
-/// Literal diagnostics stay readable; the activity icon carries failure emphasis.
+/// Literal diagnostics use the body tone; callers supply outcome emphasis.
 pub(crate) fn notice(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .px_3()
@@ -265,7 +265,10 @@ pub(crate) fn notice(text: impl Into<SharedString>, cx: &App) -> Div {
 
 /// Compact copy action alongside the result.
 pub(crate) fn copy(id: String, value: impl Into<SharedString>) -> Clipboard {
-    Clipboard::new(id).value(value).tooltip(tr("tool_copy"))
+    Clipboard::new(id)
+        .value(value)
+        .tooltip(tr("tool_copy"))
+        .accessibility_label(tr("tool_copy"))
 }
 
 /// Keep file/tool text literal even when it contains Markdown fences or links.

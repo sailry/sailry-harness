@@ -1,5 +1,6 @@
 use super::*;
-use sailry_protocol::conversation::recovery::{Retry, Stop, Transport};
+use sailry_protocol::conversation::recovery::{Retry, Stop};
+use std::collections::BTreeSet;
 
 impl View {
     pub(super) fn recovery(
@@ -7,51 +8,17 @@ impl View {
         turn: TurnId,
         key: String,
         retry: Retry,
+        recovered: bool,
         active: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = format!("live-model-retry-{turn}-{key}");
-        let label = if retry.fallback {
-            tr("chat_model_http_fallback").to_string()
-        } else {
-            match retry.limit {
-                Some(limit) => rust_i18n::t!(
-                    if active {
-                        "chat_model_reconnecting"
-                    } else {
-                        "chat_model_retried"
-                    },
-                    attempt = retry.attempt,
-                    limit = limit
-                )
-                .to_string(),
-                None => tr(if active {
-                    "chat_model_reconnecting_continuously"
-                } else {
-                    "chat_model_connection_retried"
-                })
-                .to_string(),
-            }
-        };
-        let label = if active {
-            match retry.delay_ms {
-                Some(delay) => format!("{label} · {}", wait(delay)),
-                None => label,
-            }
-        } else {
-            label
-        };
+        let label = label(&retry, active);
         let detail = crate::conversation::disclosure::Detail {
             running: active,
             ..Default::default()
         };
-        let error = retry
-            .error
-            .as_deref()
-            .filter(|text| !text.trim().is_empty());
-        let code = retry.code.as_deref().filter(|text| !text.trim().is_empty());
-        let diagnostics = fields(&retry);
-        if error.is_none() && code.is_none() && diagnostics.is_empty() {
+        let Some(error) = body(&retry) else {
             return crate::conversation::disclosure::summary(
                 id,
                 IconName::Network,
@@ -60,7 +27,8 @@ impl View {
                 cx,
             )
             .into_any_element();
-        }
+        };
+        let key = expansion(key, recovered);
         let open = self
             .expanded
             .get(&(turn, key.clone()))
@@ -84,69 +52,92 @@ impl View {
                 ),
             )
             .content(crate::conversation::disclosure::body(
-                v_flex()
-                    .gap_2()
+                div()
+                    .id(format!("{id}-scroll"))
                     .text_sm()
                     .min_w_0()
+                    .max_h_40()
+                    .overflow_y_scroll()
                     .text_color(cx.theme().muted_foreground)
-                    .children(
-                        diagnostics
-                            .into_iter()
-                            .map(|(label, value)| div().child(format!("{}: {value}", tr(label)))),
-                    )
-                    .when_some(code, |body, code| {
-                        body.child(format!("{}: {code}", tr("chat_model_error_code")))
-                    })
-                    .when_some(error, |body, error| {
-                        body.child(
-                            div()
-                                .id(format!("{id}-scroll"))
-                                .min_w_0()
-                                .max_h_40()
-                                .overflow_y_scroll()
-                                .child(gpui_kit::base::SelectableText::new(
-                                    format!("{id}-text"),
-                                    diagnostic::display(error),
-                                )),
-                        )
-                    }),
+                    .child(gpui_kit::base::SelectableText::new(
+                        format!("{id}-text"),
+                        error.to_owned(),
+                    )),
                 cx,
             ))
             .into_any_element()
     }
 }
 
-fn wait(milliseconds: u64) -> String {
-    rust_i18n::t!("chat_model_retry_wait", delay = duration(milliseconds)).to_string()
-}
-
-fn duration(milliseconds: u64) -> String {
-    if milliseconds % 1000 == 0 {
-        format!("{} s", milliseconds / 1000)
+fn label(retry: &Retry, active: bool) -> String {
+    if retry.fallback {
+        tr("chat_model_http_fallback").to_string()
     } else {
-        format!("{milliseconds} ms")
+        match retry.limit {
+            Some(limit) => rust_i18n::t!(
+                if active {
+                    "chat_model_reconnecting"
+                } else {
+                    "chat_model_retried"
+                },
+                attempt = retry.attempt,
+                limit = limit
+            )
+            .to_string(),
+            None => tr(if active {
+                "chat_model_reconnecting_continuously"
+            } else {
+                "chat_model_connection_retried"
+            })
+            .to_string(),
+        }
     }
 }
 
-fn fields(retry: &Retry) -> Vec<(&'static str, String)> {
-    let mut fields = Vec::new();
-    if let Some(status) = retry.status {
-        fields.push(("chat_model_http_status", status.to_string()));
+fn body(retry: &Retry) -> Option<&str> {
+    if retry.fallback {
+        return None;
     }
-    if let Some(transport) = retry.transport {
-        fields.push((
-            "chat_model_transport",
-            match transport {
-                Transport::Http => "HTTP",
-                Transport::WebSocket => "WebSocket",
+    retry
+        .error
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+}
+
+fn expansion(key: String, recovered: bool) -> String {
+    // Recovery closes the old detail once; manual expansion uses the settled key.
+    if recovered {
+        format!("{key}-recovered")
+    } else {
+        key
+    }
+}
+
+pub(super) fn recovered(blocks: &[Block<'_>]) -> BTreeSet<String> {
+    let mut output = false;
+    let mut recovered = BTreeSet::new();
+    for block in blocks.iter().rev() {
+        match block {
+            Block::Retry(key, _) if output => {
+                recovered.insert(key.clone());
             }
-            .into(),
-        ));
+            Block::Text(_, text) | Block::Thinking(_, text) if !text.trim().is_empty() => {
+                output = true;
+            }
+            Block::Search(entry)
+                if entry
+                    .parts
+                    .iter()
+                    .any(|part| matches!(part, Part::Text(text) if !text.trim().is_empty())) =>
+            {
+                output = true;
+            }
+            Block::Images(images) if !images.is_empty() => output = true,
+            Block::Tools(_) | Block::Question(_) | Block::Children(_) => output = true,
+            _ => {}
+        }
     }
-    if let Some(delay) = retry.delay_ms {
-        fields.push(("chat_model_retry_delay", duration(delay)));
-    }
-    fields
+    recovered
 }
 
 pub(super) fn stop_key(reason: Stop) -> &'static str {
@@ -169,7 +160,93 @@ pub(super) fn stop_key(reason: Stop) -> &'static str {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    use sailry_protocol::conversation::recovery::Transport;
     use sailry_protocol::{ErrorCode, Fault, FaultDetails};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn omits_headline_delay() {
+        for (attempt, fallback, limit) in
+            [(4, false, Some(5)), (2, false, None), (0, true, Some(5))]
+        {
+            let mut retry = Retry {
+                attempt,
+                fallback,
+                limit,
+                delay_ms: None,
+                transport: Some(Transport::WebSocket),
+                status: Some(503),
+                code: Some("connection_lost".into()),
+                error: Some("Connection closed".into()),
+            };
+            let active = label(&retry, true);
+            let settled = label(&retry, false);
+            for delay in [0, 1723, 5000] {
+                retry.delay_ms = Some(delay);
+                assert_eq!(label(&retry, true), active);
+                assert_eq!(label(&retry, false), settled);
+            }
+        }
+    }
+
+    #[test]
+    fn preserves_original_error_body() {
+        let mut retry = Retry {
+            attempt: 4,
+            fallback: false,
+            limit: Some(5),
+            delay_ms: Some(1723),
+            transport: Some(Transport::WebSocket),
+            status: Some(426),
+            code: Some("model.openai_responses.ws_handshake".into()),
+            error: None,
+        };
+        assert_eq!(body(&retry), None);
+        for error in [
+            "Responses WebSocket closed before completion",
+            "WebSocket handshake rejected with HTTP 426",
+            r#"{"error":{"message":"Provider explanation"}}"#,
+            "  Original detail\n\n[redacted]  ",
+        ] {
+            retry.error = Some(error.into());
+            assert_eq!(body(&retry), Some(error));
+        }
+        for error in ["", "  "] {
+            retry.error = Some(error.into());
+            assert_eq!(body(&retry), None);
+        }
+        retry.error = Some("Responses WebSocket closed before completion".into());
+        retry.fallback = true;
+        retry.attempt = 0;
+        assert_eq!(body(&retry), None);
+    }
+
+    #[test]
+    fn collapses_after_model_output() {
+        let retry = Retry::from_resource(&serde_json::json!({
+            "type":"model_retry", "attempt":4, "limit":5,
+            "error":"Responses WebSocket closed before completion"
+        }))
+        .unwrap();
+        let mut blocks = vec![
+            Block::Text("earlier".into(), "Earlier response".into()),
+            Block::Retry("failure".into(), retry.clone()),
+            Block::Resource,
+            Block::Text("empty".into(), "  ".into()),
+        ];
+        assert!(recovered(&blocks).is_empty());
+        blocks.push(Block::Thinking("output".into(), "Response resumed".into()));
+        blocks.push(Block::Retry("later".into(), retry));
+        assert_eq!(recovered(&blocks), BTreeSet::from(["failure".into()]));
+
+        let pending = expansion("failure".into(), false);
+        let settled = expansion("failure".into(), true);
+        let mut expanded = BTreeMap::from([(pending, true)]);
+        assert!(!expanded.get(&settled).copied().unwrap_or(false));
+        expanded.insert(settled.clone(), true);
+        assert_eq!(expansion("failure".into(), true), settled);
+        assert_eq!(expanded.get(&settled), Some(&true));
+    }
 
     #[test]
     fn preserves_stop_details_and_original_cause() {
@@ -200,10 +277,6 @@ mod tests {
                 };
                 let original = fault.clone();
                 assert_eq!(failure_key(&fault), expected);
-                assert_eq!(
-                    diagnostic::display(&fault.message),
-                    "error.message: Final provider failure"
-                );
                 assert_eq!(fault, original);
             }
         }

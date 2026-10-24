@@ -19,10 +19,7 @@ use gpui::{
 use gpui_kit as gpui;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{
-    ActiveTheme, Sizable,
-    attachment::AttachmentGroup,
-    button::{Button, ButtonVariants},
-    scroll::ScrollableElement as _,
+    ActiveTheme, attachment::AttachmentGroup, clipboard::Clipboard, scroll::ScrollableElement as _,
 };
 use theme::{TextStyle, Theme, Typeset};
 
@@ -514,7 +511,7 @@ pub fn with_block(
     doc: &Doc,
     editing: Editing,
     mut replacement: Option<(usize, AnyElement)>,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     let Editing {
@@ -644,21 +641,14 @@ pub fn with_block(
                         .when(overlay.covers_block(), |el| {
                             el.rounded(px(theme.radius)).bg(theme.selection)
                         })
-                        .child(block_element(
-                            block,
-                            overlay,
-                            &typography,
-                            &theme,
-                            window,
-                            cx,
-                        ))
+                        .child(block_element(block, overlay, &typography, &theme, cx))
                         .into_any_element()
                 }))
                 .into_any_element()
         } else if replacement.as_ref().is_some_and(|(block, _)| *block == ix) {
             replacement.take().unwrap().1
         } else {
-            block_element(block, overlay, &typography, &theme, window, cx)
+            block_element(block, overlay, &typography, &theme, cx)
         };
         let mut element = div()
             .debug_selector(move || {
@@ -760,7 +750,6 @@ fn block_element(
     overlay: Overlay,
     typography: &Typography,
     theme: &Theme,
-    window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     if let Some(render) = overlay.on_file
@@ -868,7 +857,6 @@ fn block_element(
                     overlay.at(Part::Code),
                     typography,
                     theme,
-                    window,
                     cx,
                 )
             })
@@ -884,7 +872,6 @@ fn block_element(
                     overlay.at(Part::Code),
                     typography,
                     theme,
-                    window,
                     cx,
                 )
             }),
@@ -896,7 +883,6 @@ fn block_element(
                     overlay.at(Part::Code),
                     typography,
                     theme,
-                    window,
                     cx,
                 )
             }),
@@ -906,7 +892,6 @@ fn block_element(
             overlay.at(Part::Code),
             typography,
             theme,
-            window,
             cx,
         ),
         BlockKind::Image { url, alt, width } => {
@@ -1513,7 +1498,6 @@ fn code_block(
     overlay: Overlay,
     typography: &Typography,
     theme: &Theme,
-    window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     let ix = overlay.block;
@@ -1539,7 +1523,8 @@ fn code_block(
                 .border_b_1()
                 .border_color(theme.border)
                 .bg(theme.ink(0.02))
-                .text_style(TextStyle::Subheadline, theme)
+                .text_size(cx.theme().typography_tokens().sm.size)
+                .font_family(cx.theme().font_family.clone())
                 .text_color(match language {
                     Some(_) => theme.text_muted,
                     None => theme.text_faint,
@@ -1553,7 +1538,7 @@ fn code_block(
                 ),
         )
         .child(body)
-        .child(copy_button(code, ix, theme, window, cx))
+        .child(copy_button(code, ix, cx))
         .into_any_element()
 }
 
@@ -1599,58 +1584,21 @@ fn code_body(
     }
 }
 
-/// A copy button that owns its own feedback.
-///
-/// The state is the element's, not the caller's: a component library cannot ask
-/// every host to thread a handler and a "which block is showing Copied" index
-/// through its render tree just to put a button on a code block. It resets when
-/// the pointer leaves, which needs no clock.
-fn copy_button(
-    code: &str,
-    ix: usize,
-    theme: &Theme,
-    window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    let copied = window.use_keyed_state(ElementId::named_usize("md-copied", ix), cx, |_, _| false);
-    let showing = *copied.read(cx);
-    let text: SharedString = code.to_string().into();
-
-    Button::new(ElementId::named_usize("md-copy", ix))
-        .ghost()
-        .small()
-        .compact()
+/// Kit owns the icon button's focus, copy action and feedback.
+fn copy_button(code: &str, ix: usize, cx: &App) -> AnyElement {
+    let label = cx.global::<crate::Labels>().copy_code.clone();
+    div()
+        .id(ElementId::named_usize("md-copy-control", ix))
         .absolute()
         .top(px(3.0))
         .right(px(5.0))
-        .h(px(20.0))
-        .px(px(6.0))
-        .rounded(px(theme.radius))
-        .text_style(TextStyle::Caption, theme)
-        .text_color(theme.text_muted)
-        .label(if showing {
-            cx.global::<crate::Labels>().copied_code.clone()
-        } else {
-            cx.global::<crate::Labels>().copy_code.clone()
-        })
-        .on_click({
-            let copied = copied.clone();
-            move |_, _, cx| {
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.to_string()));
-                copied.update(cx, |state, cx| {
-                    *state = true;
-                    cx.notify();
-                });
-            }
-        })
-        .on_hover(move |hovering, _, cx| {
-            if !*hovering && *copied.read(cx) {
-                copied.update(cx, |state, cx| {
-                    *state = false;
-                    cx.notify();
-                });
-            }
-        })
+        .on_click(|_, _, cx| cx.stop_propagation())
+        .child(
+            Clipboard::new(ElementId::named_usize("md-copy", ix))
+                .value(code.to_owned())
+                .tooltip(label.clone())
+                .accessibility_label(label),
+        )
         .into_any_element()
 }
 

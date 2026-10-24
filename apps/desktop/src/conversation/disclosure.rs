@@ -32,9 +32,8 @@ pub(crate) struct Detail {
     /// Model metadata remains subdued when the action is hovered.
     pub secondary: bool,
     pub state: Option<SharedString>,
-    /// Quiet terminal outcomes retain their label in the status icon's tooltip.
-    pub state_icon: Option<IconName>,
     pub failed: bool,
+    pub warning: bool,
     pub running: bool,
     pub rotate_icon: bool,
     pub pending: bool,
@@ -166,7 +165,7 @@ pub(crate) fn summary(
 fn tone(detail: &Detail, cx: &App) -> Hsla {
     if detail.failed {
         cx.theme().danger
-    } else if detail.pending {
+    } else if detail.pending || detail.warning {
         cx.theme().warning
     } else if detail.running && !detail.pending {
         cx.theme().muted_foreground.mix(cx.theme().foreground, 0.35)
@@ -185,13 +184,6 @@ fn row(
     cx: &App,
 ) -> impl IntoElement {
     let state_color = tone(&detail, cx);
-    let status_color = if detail.failed {
-        cx.theme().danger
-    } else if detail.pending {
-        cx.theme().warning
-    } else {
-        state_color
-    };
     let selector = id.clone();
     h_flex()
         .id(id.clone())
@@ -202,7 +194,7 @@ fn row(
         .text_size(cx.theme().typography_tokens().sm.size)
         .text_color(state_color)
         .group_hover(group.clone(), |style| {
-            style.text_color(if detail.failed || detail.pending {
+            style.text_color(if detail.failed || detail.pending || detail.warning {
                 state_color
             } else {
                 cx.theme().foreground
@@ -234,20 +226,22 @@ fn row(
                 .when(!detail.wrap && !detail.secondary, |label| {
                     label.flex_shrink_0()
                 })
-                .child(if detail.running && !detail.pending && !detail.failed {
-                    let selector = format!("{id}-shimmer");
-                    div()
-                        .id(selector.clone())
-                        .test_support()
-                        .debug_selector(move || selector.clone())
-                        .child(
-                            gpui_kit::component::shimmer::ShimmerText::new(label)
-                                .id(format!("{id}-label-shimmer")),
-                        )
-                        .into_any_element()
-                } else {
-                    div().child(label).into_any_element()
-                }),
+                .child(
+                    if detail.running && !detail.pending && !detail.failed && !detail.warning {
+                        let selector = format!("{id}-shimmer");
+                        div()
+                            .id(selector.clone())
+                            .test_support()
+                            .debug_selector(move || selector.clone())
+                            .child(
+                                gpui_kit::component::shimmer::ShimmerText::new(label)
+                                    .id(format!("{id}-label-shimmer")),
+                            )
+                            .into_any_element()
+                    } else {
+                        div().child(label).into_any_element()
+                    },
+                ),
         )
         .when(!detail.text.is_empty(), |row| {
             row.child(
@@ -258,9 +252,10 @@ fn row(
                     })
                     .min_w_0()
                     .text_ellipsis()
-                    .when(detail.secondary && !detail.failed, |text| {
-                        text.text_color(cx.theme().muted_foreground.opacity(0.65))
-                    })
+                    .when(
+                        detail.secondary && !detail.failed && !detail.warning,
+                        |text| text.text_color(cx.theme().muted_foreground.opacity(0.65)),
+                    )
                     .when(detail.mono, |text| {
                         text.max_w(px(480.))
                             .font_family(cx.theme().mono_font_family.clone())
@@ -273,29 +268,7 @@ fn row(
                 .state
                 .clone()
                 .filter(|_| !detail.pending && !detail.failed),
-            |row, state| {
-                row.child(if let Some(icon) = detail.state_icon {
-                    div()
-                        .id(format!("{id}-state"))
-                        .debug_selector({
-                            let selector = format!("{id}-state");
-                            move || selector.clone()
-                        })
-                        .flex_shrink_0()
-                        .text_color(status_color)
-                        .tooltip(move |window, cx| {
-                            tooltip::Tooltip::new(state.clone()).build(window, cx)
-                        })
-                        .child(Icon::new(icon).size_4())
-                        .into_any_element()
-                } else {
-                    div()
-                        .flex_shrink_0()
-                        .text_color(status_color)
-                        .child(state)
-                        .into_any_element()
-                })
-            },
+            |row, state| row.child(div().flex_shrink_0().text_color(state_color).child(state)),
         )
         .when(!detail.hide_caret, |row| {
             row.child(caret(open, group).when(detail.wrap, |caret| caret.pt_0p5()))
@@ -317,7 +290,7 @@ fn glyph(icon: Icon, detail: &Detail, cx: &App) -> AnyElement {
         crate::ui::identicon::animated(
             icon.size(ICON_SIZE)
                 .flex_shrink_0()
-                .when(detail.failed, |icon| icon.text_color(cx.theme().danger)),
+                .text_color(tone(detail, cx)),
             detail.rotate_icon,
         )
     }

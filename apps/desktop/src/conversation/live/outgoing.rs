@@ -1,7 +1,6 @@
 //! Local input retained for presentation until canonical user content arrives.
 use super::*;
 use gpui_kit::component::message::{Message as ChatMessage, MessageAlignment};
-use gpui_kit::prelude::FluentBuilder as _;
 use sailry_protocol::{RequestId, conversation::Input};
 
 pub(super) struct Message {
@@ -244,20 +243,7 @@ impl View {
                         message.attachments.clone(),
                         cx,
                     ))
-                    .footer(
-                        self.user_footer(message.row, &message.input.text, None, cx)
-                            .when(self.transcript_pending().is_some(), |footer| {
-                                footer.child(
-                                    h_flex()
-                                        .w_full()
-                                        .justify_end()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .debug_selector(|| "live-outgoing-queued".into())
-                                        .child(tr("turn_queued")),
-                                )
-                            }),
-                    ),
+                    .footer(self.user_footer(message.row, &message.input.text, None, cx)),
             )
             .into_any_element()
     }

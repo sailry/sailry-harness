@@ -217,59 +217,65 @@ impl View {
         sent_ms: Option<i64>,
         cx: &mut Context<Self>,
     ) -> MessageFooter {
-        MessageFooter::new().content_inset(false).w_full().child(
-            h_flex()
-                .id(format!("user-footer-{turn}"))
-                .w_full()
-                .justify_end()
-                .group(format!("user-footer-{turn}"))
-                .gap_2()
-                .debug_selector(move || format!("live-user-footer-{turn}"))
-                .when_some(sent_ms.and_then(frame::at), |row, time| {
-                    let full = sent_ms
-                        .and_then(frame::full_at)
-                        .unwrap_or_else(|| time.clone());
-                    row.child(
-                        h_flex()
-                            .id(format!("user-time-{turn}"))
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .opacity(0.)
-                            .group_hover(format!("user-footer-{turn}"), |style| style.opacity(1.))
-                            .tooltip(move |window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new(full.clone())
-                                    .build(window, cx)
-                            })
-                            .child(time),
-                    )
-                })
-                .when(!text.is_empty(), |row| {
-                    row.child(
-                        h_flex()
-                            .debug_selector(move || format!("live-user-copy-{turn}"))
-                            .child(
-                                Clipboard::new(format!("user-copy-{turn}"))
-                                    .value(text.to_owned())
-                                    .tooltip(tr("message_copy")),
-                            ),
-                    )
-                })
-                .when(!self.readonly(), |row| {
-                    row.child(
-                        Button::new(format!("user-edit-{turn}"))
-                            .ghost()
-                            .small()
-                            .icon(Icon::default().path("icons/reicon/writing.svg"))
-                            .disabled(!self.can_edit() || self.editing.is_some())
-                            .tooltip(tr("message_edit"))
-                            .accessibility_label(tr("message_edit"))
-                            .debug_selector(move || format!("live-user-edit-{turn}"))
-                            .on_click(cx.listener(move |view, _, window, cx| {
-                                view.edit_message(turn, window, cx)
-                            })),
-                    )
-                }),
-        )
+        MessageFooter::new()
+            .content_inset(false)
+            .w_full()
+            .justify_end()
+            .child(
+                h_flex()
+                    .id(format!("user-footer-{turn}"))
+                    .w_full()
+                    .justify_end()
+                    .group(format!("user-footer-{turn}"))
+                    .gap_2()
+                    .debug_selector(move || format!("live-user-footer-{turn}"))
+                    .when_some(sent_ms.and_then(frame::at), |row, time| {
+                        let full = sent_ms
+                            .and_then(frame::full_at)
+                            .unwrap_or_else(|| time.clone());
+                        row.child(
+                            h_flex()
+                                .id(format!("user-time-{turn}"))
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .opacity(0.)
+                                .group_hover(format!("user-footer-{turn}"), |style| {
+                                    style.opacity(1.)
+                                })
+                                .tooltip(move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(full.clone())
+                                        .build(window, cx)
+                                })
+                                .child(time),
+                        )
+                    })
+                    .when(!text.is_empty(), |row| {
+                        row.child(
+                            h_flex()
+                                .debug_selector(move || format!("live-user-copy-{turn}"))
+                                .child(
+                                    Clipboard::new(format!("user-copy-{turn}"))
+                                        .value(text.to_owned())
+                                        .tooltip(tr("message_copy")),
+                                ),
+                        )
+                    })
+                    .when(!self.readonly(), |row| {
+                        row.child(
+                            Button::new(format!("user-edit-{turn}"))
+                                .ghost()
+                                .small()
+                                .icon(Icon::default().path("icons/reicon/writing.svg"))
+                                .disabled(!self.can_edit() || self.editing.is_some())
+                                .tooltip(tr("message_edit"))
+                                .accessibility_label(tr("message_edit"))
+                                .debug_selector(move || format!("live-user-edit-{turn}"))
+                                .on_click(cx.listener(move |view, _, window, cx| {
+                                    view.edit_message(turn, window, cx)
+                                })),
+                        )
+                    }),
+            )
     }
 }
 

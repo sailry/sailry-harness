@@ -366,6 +366,7 @@ impl View {
             .join("\n\n");
         let retrying = frame::active(run.status) && self.history.connected;
         let last_block = blocks.len().saturating_sub(1);
+        let recovered = retry::recovered(&blocks);
         let answer_from = work::answer_from(&blocks);
         let work_open = self.work_open(turn, frame::active(run.status));
         let rows = blocks
@@ -441,7 +442,15 @@ impl View {
                     .child(tr("chat_resource_pending"))
                     .into_any_element(),
                 Block::Retry(key, retry) => {
-                    self.recovery(turn, key, retry, retrying && index == last_block, cx)
+                    let recovered = recovered.contains(&key);
+                    self.recovery(
+                        turn,
+                        key,
+                        retry,
+                        recovered,
+                        retrying && index == last_block,
+                        cx,
+                    )
                 }
             })
             .collect();
@@ -524,7 +533,7 @@ impl View {
                                     .overflow_y_scroll()
                                     .child(gpui_kit::base::SelectableText::new(
                                         format!("{turn}-error-text"),
-                                        diagnostic::display(&error.message),
+                                        error.message.clone(),
                                     ))
                                     .into_any_element(),
                                 Vec::<AnyElement>::new(),

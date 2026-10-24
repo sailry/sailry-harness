@@ -369,10 +369,9 @@ impl Render for Card {
                                 .h_10()
                                 .px_3()
                                 .py_0()
-                                .when(
-                                    index + 1 == count && count <= PREVIEW_FILES && !data.partial,
-                                    |row| row.rounded_b(bottom_radius),
-                                )
+                                .when(index + 1 == count && count <= PREVIEW_FILES, |row| {
+                                    row.rounded_b(bottom_radius)
+                                })
                                 .when(index > 0, |row| {
                                     row.border_t_1().border_color(cx.theme().border)
                                 })
@@ -515,7 +514,7 @@ impl Render for Card {
                         .h_10()
                         .px_3()
                         .py_0()
-                        .when(!data.partial, |row| row.rounded_b(bottom_radius))
+                        .rounded_b(bottom_radius)
                         .border_t_1()
                         .border_color(cx.theme().border)
                         .bg(cx.theme().muted.opacity(0.2))
@@ -538,9 +537,6 @@ impl Render for Card {
                             card.changed(cx);
                         })),
                 )
-            })
-            .when(data.partial, |body| {
-                body.child(surface::notice(tr("tool_partial"), cx))
             });
         surface::card(Some(header.into_any_element()), body.into_any_element(), cx)
             .bg(cx.theme().muted.opacity(0.2))

@@ -3,10 +3,7 @@ use crate::conversation::{
     disclosure::{self, Detail},
     surface::{self, diff},
 };
-use gpui_kit::component::{
-    button::{Button, ButtonVariants},
-    collapsible::Collapsible,
-};
+use gpui_kit::component::{button::Button, collapsible::Collapsible};
 use gpui_kit::prelude::FluentBuilder as _;
 use sailry_client::conversation::tools::{Call, State};
 use sailry_protocol::conversation::{ApprovalState, Page};
@@ -16,6 +13,8 @@ mod inspector;
 pub(super) mod output;
 pub(super) mod progress;
 mod projection;
+#[cfg(test)]
+mod tests;
 
 impl View {
     pub(super) fn tools(
@@ -288,7 +287,11 @@ impl View {
                         |column, error| {
                             let selector = format!("live-tool-error-{key}");
                             column.child(
-                                surface::notice(error, cx).debug_selector(move || selector.clone()),
+                                surface::notice(error, cx)
+                                    .when_some(outcome_tone(call, result, cx), |notice, tone| {
+                                        notice.text_color(tone)
+                                    })
+                                    .debug_selector(move || selector.clone()),
                             )
                         },
                     )
@@ -339,7 +342,9 @@ impl View {
     fn copy_result(&self, key: &str, text: String) -> AnyElement {
         let selector = format!("live-tool-copy-{key}");
         h_flex()
+            .id(selector.clone())
             .debug_selector(move || selector.clone())
+            .on_click(|_, _, cx| cx.stop_propagation())
             .child(surface::copy(format!("{key}-copy"), text))
             .into_any_element()
     }
@@ -349,37 +354,40 @@ impl View {
         call: &Call,
         page: &Page,
         id: String,
-        summary: Summary,
+        mut summary: Summary,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let group = SharedString::from(format!("{id}-actions"));
-        let mut actions = Vec::new();
-        if let Some(path) = activity_path(call) {
-            actions.push(self.path_link(&id, call.turn, path.to_owned().into(), cx));
-        }
+        summary.detail.hide_caret = true;
         if call.raw_result(page) {
-            actions.push(self.raw_action(call, &id, cx));
-        }
-        h_flex()
-            .group(group.clone())
-            .min_w_0()
-            .gap_2()
-            .child(disclosure::summary(
+            let trigger = disclosure::trigger(
                 id.clone(),
                 summary.icon,
                 summary.label,
                 summary.detail,
+                false,
                 cx,
-            ))
-            .when(!actions.is_empty(), |row| {
-                row.child(surface::Actions {
-                    id: format!("{id}-controls").into(),
-                    group,
-                    actions,
-                    absolute: false,
-                })
-            })
-            .into_any_element()
+            )
+            .w_full();
+            return self.raw_action(call, &id, trigger, cx).into_any_element();
+        }
+        if let Some(path) = activity_path(call) {
+            let node = self.binding.client.target();
+            let turn = call.turn;
+            let worktree = self.turn_worktree(turn);
+            let path = path.to_owned();
+            return disclosure::trigger(id, summary.icon, summary.label, summary.detail, false, cx)
+                .w_full()
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    if view.binding.client.target() == node
+                        && view.turn_worktree(turn) == worktree
+                        && let Some(worktree) = worktree
+                    {
+                        cx.emit(Event::FileAt(worktree, path.clone()));
+                    }
+                }))
+                .into_any_element();
+        }
+        disclosure::summary(id, summary.icon, summary.label, summary.detail, cx).into_any_element()
     }
 
     fn preparing_summary(&self, mut summary: Summary, calls: &[&Call], page: &Page) -> Summary {
@@ -389,26 +397,34 @@ impl View {
         summary
     }
 
-    fn path_link(
+    fn path_result(
         &self,
         key: &str,
         turn: TurnId,
-        path: SharedString,
+        path: Option<SharedString>,
+        content: AnyElement,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let target = path.clone();
+        let Some(path) = path else { return content };
+        let node = self.binding.client.target();
         let worktree = self.turn_worktree(turn);
-        Button::new(format!("{key}-path"))
-            .ghost()
-            .xsmall()
-            .icon(IconName::PanelRightOpen)
-            .tooltip(path.clone())
-            .px_0()
+        gpui_kit::base::Button::new(format!("{key}-open"))
+            .w_full()
             .min_w_0()
+            .items_start()
+            .justify_start()
+            .line_height(relative(1.5))
             .accessibility_label(path.clone())
-            .on_click(cx.listener(move |_, _, _, cx| {
-                if let Some(worktree) = worktree {
-                    cx.emit(Event::FileAt(worktree, target.to_string()));
+            .child(content)
+            .on_click(cx.listener(move |view, event, _, cx| {
+                if !stationary(event) {
+                    return;
+                }
+                if view.binding.client.target() == node
+                    && view.turn_worktree(turn) == worktree
+                    && let Some(worktree) = worktree
+                {
+                    cx.emit(Event::FileAt(worktree, path.to_string()));
                 }
             }))
             .into_any_element()
@@ -429,17 +445,17 @@ impl View {
         if !copy.is_empty() {
             actions.push(self.copy_result(key, copy));
         }
-        if let Some(path) = path {
-            actions.push(self.path_link(key, call.turn, path, cx));
-        }
-        let notices = v_flex().children(
-            body.notices
-                .iter()
-                .map(|notice| surface::notice(tr(notice), cx)),
-        );
+        let tone = outcome_tone(call, result, cx);
+        let notices = v_flex().children(body.notices.iter().map(|notice| {
+            surface::notice(tr(notice), cx).when_some(tone, |notice, tone| notice.text_color(tone))
+        }));
         let content = if fault.is_some() && !body.text.is_empty() {
             let selector = format!("live-tool-error-{key}");
-            v_flex().child(surface::notice(body.text, cx).debug_selector(move || selector.clone()))
+            v_flex().child(
+                surface::notice(body.text, cx)
+                    .when_some(tone, |notice, tone| notice.text_color(tone))
+                    .debug_selector(move || selector.clone()),
+            )
         } else if body.text.is_empty() {
             v_flex().child(notices)
         } else {
@@ -452,7 +468,13 @@ impl View {
                 ))
                 .child(notices)
         };
-        surface::result(key, content.into_any_element(), actions, cx).into_any_element()
+        self.path_result(
+            key,
+            call.turn,
+            path,
+            surface::result(key, content.into_any_element(), actions, cx).into_any_element(),
+            cx,
+        )
     }
 }
 
@@ -547,11 +569,11 @@ fn summary(call: &Call, page: &Page) -> Summary {
         state.map(tr)
     };
     detail.failed = !denied && failed;
-    detail.state_icon = matches!(
-        state,
-        Some("approval_rejected" | "turn_cancelled" | "tool_interrupted" | "tool_not_executed")
-    )
-    .then_some(IconName::CircleX);
+    detail.warning = !detail.failed
+        && matches!(
+            state,
+            Some("approval_rejected" | "turn_cancelled" | "tool_interrupted" | "tool_not_executed")
+        );
     detail.hide_caret = !has_content(call, page);
     detail.pending = call
         .approval
@@ -603,12 +625,34 @@ fn activity_path(call: &Call) -> Option<&str> {
         .filter(|path| !path.is_empty())
 }
 
+fn stationary(event: &ClickEvent) -> bool {
+    if let ClickEvent::Mouse(mouse) = event {
+        let moved = mouse.up.position - mouse.down.position;
+        return moved.x.abs() <= px(3.) && moved.y.abs() <= px(3.);
+    }
+    true
+}
+
+fn outcome_tone(call: &Call, result: &serde_json::Value, cx: &App) -> Option<Hsla> {
+    call.failure.as_ref()?;
+    if output::expected(call.failure.as_ref(), Some(result)).is_some() {
+        return None;
+    }
+    Some(if output::is_error(call.failure.as_ref(), Some(result)) {
+        cx.theme().danger
+    } else {
+        cx.theme().warning
+    })
+}
+
 /// While parallel calls run, show the latest active call; otherwise show the last result.
 fn group_summary(calls: &[&Call], page: &Page) -> Summary {
     let mut summaries: Vec<_> = calls.iter().map(|call| summary(call, page)).collect();
     let pending = summaries.iter().any(|item| item.detail.pending);
     let running = summaries.iter().any(|item| item.detail.running);
     let failed = !pending && !running && summaries.iter().any(|item| item.detail.failed);
+    let warning =
+        !pending && !running && !failed && summaries.iter().any(|item| item.detail.warning);
     let index = summaries
         .iter()
         .rposition(|item| item.detail.pending || item.detail.running)
@@ -618,6 +662,7 @@ fn group_summary(calls: &[&Call], page: &Page) -> Summary {
     latest.detail.running = running;
     let latest_failed = latest.detail.failed;
     latest.detail.failed = failed;
+    latest.detail.warning = warning;
     latest.detail.hide_caret = false;
     if failed && !latest_failed {
         latest.detail.state = Some(tr("tool_failed"));

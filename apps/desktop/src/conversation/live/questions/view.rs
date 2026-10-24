@@ -250,15 +250,12 @@ impl View {
                     Button::new(format!("question-{id}-submit"))
                         .primary()
                         .debug_selector(|| "live-question-submit".into())
-                        .label(tr(if self.questions.attempt.is_some() {
-                            "chat_retry"
-                        } else if plan {
-                            "interaction_start"
-                        } else if matches!(editing.spec.input, Input::Url { .. }) {
-                            "question_open_url"
-                        } else {
-                            "interaction_submit"
-                        }))
+                        .label(tr(submit_key(
+                            &editing.spec.input,
+                            self.questions.pending,
+                            self.questions.attempt.is_some(),
+                            self.questions.error.is_some(),
+                        )))
                         .disabled(
                             self.questions.pending
                                 || !self.connected()
@@ -307,5 +304,52 @@ impl View {
             .child(content)
             .child(actions)
             .into_any_element()
+    }
+}
+
+fn submit_key(input: &Input, pending: bool, attempt: bool, error: bool) -> &'static str {
+    if !pending && attempt && error {
+        "chat_retry"
+    } else if matches!(input, Input::Plan) {
+        "interaction_start"
+    } else if matches!(input, Input::Url { .. }) {
+        "question_open_url"
+    } else {
+        "interaction_submit"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn labels_only_failed_attempts_as_retries() {
+        for (input, expected) in [
+            (
+                Input::Choice {
+                    options: vec!["Continue".into(), "Revise".into()],
+                    multiple: false,
+                    allow_other: false,
+                },
+                "interaction_submit",
+            ),
+            (Input::Plan, "interaction_start"),
+            (
+                Input::Url {
+                    url: "https://fixture.invalid/authorize".into(),
+                    elicitation_id: "fixture".into(),
+                },
+                "question_open_url",
+            ),
+        ] {
+            assert_eq!(submit_key(&input, false, false, false), expected);
+            assert_eq!(submit_key(&input, true, true, false), expected);
+            assert_eq!(submit_key(&input, false, true, false), expected);
+            assert_eq!(submit_key(&input, false, true, true), "chat_retry");
+            assert_eq!(submit_key(&input, true, true, true), expected);
+            assert_eq!(submit_key(&input, false, false, true), expected);
+        }
     }
 }

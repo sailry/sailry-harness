@@ -14,48 +14,52 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> MessageFooter {
         let id = location.id();
-        MessageFooter::new().content_inset(false).w_full().child(
-            h_flex()
-                .id(format!("{id}-user-footer"))
-                .w_full()
-                .justify_end()
-                .group(format!("{id}-user-footer"))
-                .gap_2()
-                .child(
-                    div()
-                        .id(format!("{id}-user-time"))
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .opacity(0.)
-                        .group_hover(format!("{id}-user-footer"), |style| style.opacity(1.))
-                        .child(tr("turn_preview_time")),
-                )
-                .child(
-                    Clipboard::new(format!("{id}-user-copy"))
-                        .value(turn.prompt.clone())
-                        .tooltip(tr("message_copy")),
-                )
-                .when(location.child.is_none(), |row| {
-                    row.child(
-                        Button::new(format!("{id}-user-edit"))
-                            .ghost()
-                            .small()
-                            .icon(Icon::default().path("icons/reicon/writing.svg"))
-                            .tooltip(tr("message_edit"))
-                            .accessibility_label(tr("message_edit"))
-                            .disabled(
-                                self.conversations[&location.session]
-                                    .turns
-                                    .iter()
-                                    .any(|turn| turn.status.active()),
-                            )
-                            .debug_selector(move || location.selector("user-edit", None))
-                            .on_click(cx.listener(move |shell, _, window, cx| {
-                                shell.edit_preview(location, window, cx)
-                            })),
+        MessageFooter::new()
+            .content_inset(false)
+            .w_full()
+            .justify_end()
+            .child(
+                h_flex()
+                    .id(format!("{id}-user-footer"))
+                    .w_full()
+                    .justify_end()
+                    .group(format!("{id}-user-footer"))
+                    .gap_2()
+                    .child(
+                        div()
+                            .id(format!("{id}-user-time"))
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .opacity(0.)
+                            .group_hover(format!("{id}-user-footer"), |style| style.opacity(1.))
+                            .child(tr("turn_preview_time")),
                     )
-                }),
-        )
+                    .child(
+                        Clipboard::new(format!("{id}-user-copy"))
+                            .value(turn.prompt.clone())
+                            .tooltip(tr("message_copy")),
+                    )
+                    .when(location.child.is_none(), |row| {
+                        row.child(
+                            Button::new(format!("{id}-user-edit"))
+                                .ghost()
+                                .small()
+                                .icon(Icon::default().path("icons/reicon/writing.svg"))
+                                .tooltip(tr("message_edit"))
+                                .accessibility_label(tr("message_edit"))
+                                .disabled(
+                                    self.conversations[&location.session]
+                                        .turns
+                                        .iter()
+                                        .any(|turn| turn.status.active()),
+                                )
+                                .debug_selector(move || location.selector("user-edit", None))
+                                .on_click(cx.listener(move |shell, _, window, cx| {
+                                    shell.edit_preview(location, window, cx)
+                                })),
+                        )
+                    }),
+            )
     }
 
     fn edit_preview(&self, location: Location, window: &mut Window, cx: &mut Context<Self>) {
