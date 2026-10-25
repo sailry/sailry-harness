@@ -1,14 +1,7 @@
 //! The native editor observes core ownership and locks independently of script redraws.
 use super::*;
 use crate::plugins::host::Host;
-use gpui_kit::component::{
-    Disableable, Sizable,
-    button::{Button, ButtonVariants},
-    h_flex,
-    input::Editor,
-    v_flex,
-};
-use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::component::{input::Editor, v_flex};
 use std::sync::Arc;
 
 pub(super) struct Surface {
@@ -74,18 +67,6 @@ impl Render for Surface {
                 .aria_label(document.path.clone())
                 .into_any_element()
         };
-        let provider = document.code.clone();
-        let startup = provider
-            .as_ref()
-            .and_then(|provider| provider.startup.borrow().clone());
-        let starting = provider
-            .as_ref()
-            .is_some_and(|provider| *provider.starting.borrow());
-        let retry = provider
-            .as_ref()
-            .is_some_and(|provider| provider.attempt.borrow().is_some());
-        let controller = self.controller.clone();
-        let id = self.document;
         v_flex()
             .key_context("FileEditor")
             .debug_selector({
@@ -114,28 +95,6 @@ impl Render for Surface {
                     });
                 }),
             )
-            .when(startup.is_some() || retry, |surface| {
-                surface.child(
-                    h_flex().py_1().gap_2().child(
-                        Button::new("editor-code-start")
-                            .ghost()
-                            .small()
-                            .label(if retry {
-                                crate::tr("editor_code_retry")
-                            } else {
-                                crate::tr("editor_code_start")
-                            })
-                            .loading(starting)
-                            .disabled(starting)
-                            .debug_selector(|| "editor-code-start".into())
-                            .on_click(move |_, window, cx| {
-                                controller.update(cx, |controller, cx| {
-                                    controller.confirm_code(id, window, cx)
-                                })
-                            }),
-                    ),
-                )
-            })
             .child(div().flex_1().min_h_0().child(view))
             .into_any_element()
     }

@@ -5,7 +5,7 @@ mod agent;
 mod artifacts;
 mod backup;
 mod browser;
-mod code;
+mod code_index;
 mod computer;
 mod databases;
 mod decision;
@@ -43,8 +43,6 @@ use std::time::Duration;
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 
-#[cfg(any(test, feature = "test-support"))]
-pub use code::fixtures::CodeServerFixture;
 pub use error::Error;
 #[cfg(feature = "test-support")]
 pub use plugins::script::fixture as plugin_test;
@@ -508,18 +506,6 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))?
     }
 
-    /// Rewrites official code downloads to a declared loopback test fixture.
-    #[cfg(any(test, feature = "test-support"))]
-    pub async fn start_with_code(
-        path: impl AsRef<Path>,
-        environment: EnvironmentFixture,
-        endpoint: &str,
-    ) -> Result<Self, Error> {
-        let node = Self::start_with_environment(path, environment).await?;
-        node.ingress.code.fixture(endpoint);
-        Ok(node)
-    }
-
     /// Preserves an isolated login environment while fixtures install their required packages.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn start_empty_with_environment(
@@ -614,18 +600,6 @@ impl Node {
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
-    }
-
-    /// Preserves isolated environment and code downloads without unrelated bundled packages.
-    #[cfg(any(test, feature = "test-support"))]
-    pub async fn start_empty_with_code(
-        path: impl AsRef<Path>,
-        environment: EnvironmentFixture,
-        endpoint: &str,
-    ) -> Result<Self, Error> {
-        let node = Self::start_empty_with_environment(path, environment).await?;
-        node.ingress.code.fixture(endpoint);
-        Ok(node)
     }
 
     /// Pins a public test hostname to an isolated HTTP server after public-IP validation.

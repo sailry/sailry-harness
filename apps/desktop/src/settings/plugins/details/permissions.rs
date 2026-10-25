@@ -6,10 +6,14 @@ pub(super) fn label(action: &Action) -> &'static str {
     match action {
         Action::ReadArtifacts => "market_permission_artifacts_read",
         Action::WriteArtifacts => "market_permission_artifacts_write",
-        Action::ReadCode => "market_permission_code_read",
+        Action::ReadCodeIndex | Action::ReadCode => "market_permission_code_read",
         Action::ManageCode => "market_permission_code_manage",
-        Action::ReadCodeSettings => "market_permission_code_settings_read",
-        Action::SaveCodeSettings => "market_permission_code_settings_write",
+        Action::ReadCodeIndexSettings | Action::ReadCodeSettings => {
+            "market_permission_code_settings_read"
+        }
+        Action::SaveCodeIndexSettings | Action::SaveCodeSettings => {
+            "market_permission_code_settings_write"
+        }
         Action::ReadSearchSettings => "market_permission_web_settings_read",
         Action::SaveSearchSettings => "market_permission_web_settings_write",
         Action::ReadActivity => "market_permission_activity_read",

@@ -611,8 +611,13 @@ jobs:
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Native shared bridge
         run: cargo build --locked -p sailry-mobile-bridge --lib --jobs 1
+      - name: Code index contract resources
+        run: |
+          task_source="$(python3 scripts/package/code-parsers.py --target aarch64-apple-darwin --output target/debug/code-parsers --sign -)"
+          printf 'TSLP_SOURCE_BUNDLE_URL=%s\n' "$task_source" >> "$GITHUB_ENV"
       - name: Dart FFI contract fixtures
         run: |
+          unset TSLP_OFFLINE TSLP_LANGUAGES
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           cd tests/mobile-contract

@@ -28,7 +28,8 @@ impl Review {
                     worktree: data.worktree,
                     path,
                     offset: 0,
-                    limit: 1
+                    limit: 1,
+                    expected_revision: None,
                 })),
                 client.execute(client.prepare(Command::InspectGit {
                     worktree: data.worktree

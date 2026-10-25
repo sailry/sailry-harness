@@ -1,4 +1,5 @@
-//! Bounded read-only language-service requests on the execution Node.
+//! Retired language-service data retained only for immutable history and request results.
+//! No command, subscription or executable query is provided by this module.
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,74 +40,6 @@ pub enum Severity {
     Warning,
     Information,
     Hint,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    content = "data",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum Query {
-    Diagnostics {
-        path: String,
-        severity: Option<Severity>,
-    },
-    Definition {
-        path: String,
-        line: u32,
-        symbol: String,
-    },
-    References {
-        path: String,
-        line: u32,
-        symbol: String,
-    },
-    Hover {
-        path: String,
-        line: u32,
-        symbol: String,
-    },
-    DefinitionAt {
-        path: String,
-        position: Position,
-    },
-    HoverAt {
-        path: String,
-        position: Position,
-    },
-    Completion {
-        path: String,
-        position: Position,
-    },
-    Symbols {
-        path: Option<String>,
-        query: Option<String>,
-    },
-}
-
-impl Query {
-    pub fn path(&self) -> Option<&str> {
-        match self {
-            Self::Diagnostics { path, .. }
-            | Self::Definition { path, .. }
-            | Self::References { path, .. }
-            | Self::Hover { path, .. }
-            | Self::DefinitionAt { path, .. }
-            | Self::HoverAt { path, .. }
-            | Self::Completion { path, .. } => Some(path),
-            Self::Symbols { path, .. } => path.as_deref(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Overlay {
-    pub path: String,
-    pub expected_revision: String,
-    pub text: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -85,6 +85,20 @@ export function prepareNotification(content: {
 }): string;
 export function inspectGit(): Promise<Json>;
 export function readFile(path: string): Promise<{ text: string; revision: string | null; truncated: boolean }>;
+/** Zero-based offsets, one-based returned line numbers; requires files.read. */
+export function readFileLines(path:string, offset?:number, limit?:number, expectedRevision?:string|null):Promise<FileLines>;
+export type FileLines = {path:string; lines:{number:number; text:string}[]; size:number; revision:string; offset:number; next_offset:number|null};
+/** Zero-based positions and UTF-8 byte columns; end_byte is exclusive. */
+export type CodeRange = {start_byte:number; end_byte:number; start_line:number; start_column:number; end_line:number; end_column:number};
+export type CodeSymbol = {path:string; language:string; name:string; kind:string; range:CodeRange; signature:string|null; file_revision:string; depth:number};
+export type CodeQuery = {query?:string; name?:string|null; path?:string|null; language?:string|null; limit?:number};
+export type CodeStatus = "parsed"|"unsupported"|"too_large"|"invalid"|"failed";
+export type CodeSearch = {symbols:CodeSymbol[]; index_revision:number; partial:boolean; truncated:boolean; visited:number; skipped:number; issues:{path:string;status:CodeStatus}[]};
+export type CodeOutline = {path:string; language:string|null; file_revision:string|null; index_revision:number; status:CodeStatus; symbols:CodeSymbol[]; capabilities:{structure:boolean;symbols:boolean;data:boolean;embedded:boolean}; partial:boolean; truncated:boolean};
+/** Literal symbol search through the current worktree; requires code.index.read. */
+export function searchCode(query?:CodeQuery):Promise<CodeSearch>;
+/** Parses only this file when it is absent from the index; requires code.index.read. */
+export function outlineCode(path:string):Promise<CodeOutline>;
 export function prepareFile(path: string, text: string, expectedRevision: string | null): string;
 
 /** Creates an identifier without admission. */

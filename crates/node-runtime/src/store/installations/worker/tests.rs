@@ -8,92 +8,6 @@ use sailry_protocol::{
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-#[tokio::test]
-async fn orders_language_removal_without_installation_presentation() {
-    let (_directory, store, ingress, mut receiver) = fixture().await;
-    let mut worker = Worker::new(ingress.clone());
-    let mut first = mutation(ingress.node);
-    first.request.command = Command::InstallCodeServer {
-        install: sailry_protocol::code::Install {
-            package: "same".into(),
-            version: "1".into(),
-            purl: "pkg:github/fixture/server@1".into(),
-            urls: Vec::new(),
-            licenses: Vec::new(),
-            command: None,
-            revision: "a".repeat(64),
-        },
-    };
-    let first_id = first.request.id;
-    let mut removal = mutation(ingress.node);
-    removal.observe = false;
-    removal.request.command = Command::UninstallCodeServer {
-        package: "same".into(),
-        version: "2".into(),
-    };
-    let remove_id = removal.request.id;
-    let (started, mut starting) = oneshot::channel();
-    let resource = |version: &str| Resource::Language {
-        package: "same".into(),
-        version: version.into(),
-    };
-    assert!(
-        worker
-            .submit(first, resource("1"), move |_, _| async move {
-                Ok(Output::InstallationDismissed { request: first_id })
-            })
-            .is_ok()
-    );
-    assert!(
-        worker
-            .submit(removal, resource("2"), move |report, _| async move {
-                let _ = started.send(());
-                report(Phase::Installing, None);
-                Ok(Output::CodeUninstalled {
-                    package: "same".into(),
-                    version: "2".into(),
-                })
-            })
-            .is_ok()
-    );
-    let (first, release) = installed(&mut receiver).await;
-    assert_eq!(first.request.id, first_id);
-    assert!(starting.try_recv().is_err());
-    let tasks = ingress
-        .installations
-        .read(ingress.node, &[first_id, remove_id], None)
-        .unwrap();
-    assert_eq!(
-        tasks.iter().map(|task| task.request).collect::<Vec<_>>(),
-        vec![first_id]
-    );
-    ingress
-        .installations
-        .finish(first.caller, first.request.id, &first.result);
-    worker.pending -= 1;
-    release.send(()).unwrap();
-    starting.await.unwrap();
-    let (removed, release) = installed(&mut receiver).await;
-    assert_eq!(removed.request.id, remove_id);
-    assert_eq!(
-        removed.request.command,
-        Command::UninstallCodeServer {
-            package: "same".into(),
-            version: "2".into()
-        }
-    );
-    assert!(
-        ingress
-            .installations
-            .read(ingress.node, &[first_id, remove_id], None)
-            .unwrap()
-            .is_empty()
-    );
-    worker.pending -= 1;
-    release.send(()).unwrap();
-    store.shutdown().await.unwrap();
-}
-
 async fn fixture() -> (tempfile::TempDir, Store, Arc<Ingress>, mpsc::Receiver<Job>) {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let directory = tempfile::tempdir().unwrap();
@@ -349,17 +263,17 @@ async fn cleanup_preserves_pending_predecessors() {
     let mut preceding = BTreeMap::new();
     let (committed, completed) = oneshot::channel();
     committed.send(()).unwrap();
-    preceding.insert(lane(&plugin("completed")), completed);
+    preceding.insert(lane(&plugin("completed")).unwrap(), completed);
     let (abandoned, closed) = oneshot::channel();
     drop(abandoned);
-    preceding.insert(lane(&plugin("closed")), closed);
+    preceding.insert(lane(&plugin("closed")).unwrap(), closed);
     let (committed, pending) = oneshot::channel();
-    preceding.insert(lane(&plugin("pending")), pending);
+    preceding.insert(lane(&plugin("pending")).unwrap(), pending);
     retain(&mut preceding);
     assert_eq!(preceding.len(), 1);
     committed.send(()).unwrap();
     preceding
-        .remove(&lane(&plugin("pending")))
+        .remove(&lane(&plugin("pending")).unwrap())
         .unwrap()
         .await
         .unwrap();

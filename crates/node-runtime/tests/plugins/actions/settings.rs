@@ -3,10 +3,59 @@ use super::*;
 #[tokio::test]
 async fn isolates_controller_capabilities() {
     for remote in [false, true] {
-        let (_directory, node, controller, client, worktree) =
+        let (directory, node, controller, client, worktree) =
             crate::plugins::support::packages(remote, &["code", "web-search", "media"]).await;
+        let code = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "code".into(),
+                },
+            )
+            .await,
+        );
+        let scope = Context {
+            invocation: None,
+            turn: None,
+            surface: plugin::desktop::Surface::Settings,
+            package: code.summary.reference(),
+            worktree: None,
+            session: None,
+        };
+        assert_eq!(
+            client
+                .execute(
+                    client
+                        .prepare(Command::ReadCodeIndexSettings)
+                        .with_plugin(scope)
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        declare(
+            &directory.path().join("source/package"),
+            &[Action::ReadCodeIndexSettings, Action::SaveCodeIndexSettings],
+        );
+        let path = directory.path().join("source/package/plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        manifest["extensions"]["dev.sailry.platform"]["settings_page"] =
+            serde_json::json!({"navigation":{"label":"Code index"}});
+        fs::write(path, manifest.to_string()).unwrap();
+        let installed = info(execute(&client, install(worktree, 0)).await);
+        assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+        assert!(
+            installed
+                .extension
+                .as_ref()
+                .unwrap()
+                .settings_page
+                .is_some()
+        );
         for (name, command) in [
-            ("code", Command::ReadCodeSettings),
+            ("example", Command::ReadCodeIndexSettings),
             ("web-search", Command::ReadSearchSettings),
         ] {
             let package = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);
@@ -34,9 +83,9 @@ async fn isolates_controller_capabilities() {
                 .await
                 .unwrap();
             let save = match output {
-                Output::CodeSettings(mut settings) => {
-                    settings.after_edit = false;
-                    Command::SaveCodeSettings {
+                Output::CodeIndexSettings(mut settings) => {
+                    settings.enabled = false;
+                    Command::SaveCodeIndexSettings {
                         expected_revision: settings.revision,
                         settings,
                     }

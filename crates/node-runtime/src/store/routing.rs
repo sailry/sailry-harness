@@ -27,7 +27,7 @@ pub(super) fn read(command: &Command) -> bool {
             | Command::ReadAttachment { .. }
             | Command::ListKnowledgeCollections
             | Command::ReadHooks { .. }
-            | Command::ReadCodeSettings
+            | Command::ReadCodeIndexSettings
             | Command::ReadPowerSettings
             | Command::ReadTerminalSettings
             | Command::ReadSandboxSettings
@@ -156,13 +156,8 @@ pub(super) fn external(command: &Command) -> bool {
                 | Command::RestoreBackupFile { .. }
                 | Command::ExportBackup { .. }
                 | Command::RestoreBackup { .. }
-                | Command::StartCodeServer { .. }
-                | Command::StopCodeServer { .. }
                 | Command::InstallLocalModel { .. }
                 | Command::DeleteLocalModel { .. }
-                | Command::InstallCodeServer { .. }
-                | Command::UninstallCodeServer { .. }
-                | Command::UpdateCodeRules
                 | Command::UseExternalBrowser { .. }
                 | Command::UseBrowser { .. }
                 | Command::UseMedia { .. }

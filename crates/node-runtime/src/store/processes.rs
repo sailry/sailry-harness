@@ -142,7 +142,7 @@ pub(super) struct Worker {
     agents: Arc<crate::agent::Controls>,
     environment: Arc<Environment>,
     commands: Arc<process::background::Commands>,
-    code: Arc<crate::code::Pool>,
+    code: Arc<crate::code_index::Service>,
     plugins: crate::plugins::Host,
 }
 
@@ -150,7 +150,7 @@ impl Worker {
     pub fn new(runtime: Handle, completed: mpsc::Sender<Job>, ingress: &super::Ingress) -> Self {
         Self {
             pending: 0,
-            code: ingress.code.clone(),
+            code: ingress.code_index.clone(),
             plugins: ingress.plugins.clone(),
             commands: ingress.commands.clone(),
             runtime,

@@ -29,7 +29,6 @@ pub(super) fn accepts(job: &Job) -> bool {
             | Job::NetworkScope { .. }
             | Job::ProjectRemovalPlan { .. }
             | Job::ProjectTerminalClosed { .. }
-            | Job::CodeApproved { .. }
             | Job::PluginView { .. }
             | Job::PluginUpdate { .. }
             | Job::ProviderHttp { .. }
@@ -110,7 +109,6 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
         | Job::KnowledgeSource { .. }
         | Job::ConnectorTarget { .. }
         | Job::NetworkScope { .. }
-        | Job::CodeApproved { .. }
         | Job::PluginView { .. }
         | Job::PluginUpdate { .. }
         | Job::ProviderHttp { .. }
@@ -327,9 +325,7 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
                         .await,
                 );
             }),
-            Job::CodeApproved { startup, reply } => Box::pin(async move {
-                let _ = reply.send(code::approved(&database.connection, &startup).await);
-            }),
+
             Job::PluginView {
                 package,
                 surface,

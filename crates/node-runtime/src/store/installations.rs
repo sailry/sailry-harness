@@ -1,5 +1,4 @@
 //! Transient task observation and the existing bounded installation queue.
-pub(super) mod language;
 pub(super) mod models;
 mod registry;
 mod worker;

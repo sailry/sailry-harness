@@ -90,6 +90,12 @@ New-Item -ItemType Directory -Path $task_output | Out-Null
 $task_app = Join-Path $task_output 'Sailry'
 New-Item -ItemType Directory -Path $task_app | Out-Null
 Copy-Item -LiteralPath $task_executable -Destination (Join-Path $task_app 'sailry-desktop.exe')
+& python (Join-Path $task_root 'scripts/package/code-parsers.py') --target $Target `
+    --output (Join-Path $task_app 'code-parsers') --cache (Join-Path $task_root '.runtime/code-index/resources')
+if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the pinned code parsers' }
+foreach ($task_parser in Get-ChildItem -LiteralPath (Join-Path $task_app 'code-parsers') -Filter '*.dll' -File) {
+    Assert-PeTarget $task_parser.FullName
+}
 & python (Join-Path $task_root 'scripts/package/python-runtime.py') --target $Target `
     --output $task_app --cache (Join-Path $task_root 'target/python-cache')
 if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the pinned Python runtime' }

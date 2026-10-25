@@ -189,7 +189,6 @@ pub(super) enum Operation {
         deadline: std::time::Instant,
         request: adk_core::ToolConfirmationRequest,
         binding: Option<ApprovalBinding>,
-        startup: Option<sailry_protocol::code::Startup>,
         ssh: Option<sailry_protocol::ssh::Trust>,
         prepared: Option<Command>,
         reply: oneshot::Sender<Result<Decision, Fault>>,
@@ -845,7 +844,6 @@ pub(super) fn execute<'a>(
             deadline,
             request,
             binding,
-            startup,
             ssh,
             prepared,
             reply,
@@ -860,7 +858,6 @@ pub(super) fn execute<'a>(
                 &request,
                 binding.as_ref(),
                 approvals::Capture {
-                    startup: startup.as_ref(),
                     ssh: ssh.as_ref(),
                     prepared: prepared.as_ref(),
                 },

@@ -20,7 +20,6 @@ mod tests;
 
 #[derive(Default)]
 pub(super) struct Capture<'a> {
-    pub(super) startup: Option<&'a sailry_protocol::code::Startup>,
     pub(super) ssh: Option<&'a sailry_protocol::ssh::Trust>,
     pub(super) prepared: Option<&'a Command>,
 }
@@ -60,38 +59,6 @@ impl Ingress {
             deadline: pending.deadline,
             request,
             binding,
-            startup: None,
-            ssh: None,
-            prepared: None,
-            reply,
-        })))
-        .await
-        .map_err(|_| super::super::unavailable())?;
-        pending.wait(response).await
-    }
-
-    pub(crate) async fn confirm_code(
-        &self,
-        turn: TurnId,
-        request: ToolConfirmationRequest,
-        binding: Binding,
-        startup: sailry_protocol::code::Startup,
-    ) -> Result<Decision, Fault> {
-        let root = self.worktree_root(startup.worktree).await?;
-        self.code.validate(&startup, &root).await?;
-        let (reply, response) = oneshot::channel();
-        let pending = waiting::Pending::new(self, turn, &request)?;
-        let _waiting = self
-            .agents
-            .timeline(turn)
-            .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
-        self.submit(Job::Agent(Box::new(Operation::Confirm {
-            turn,
-            owner: pending.owner,
-            deadline: pending.deadline,
-            request,
-            binding: Some(binding),
-            startup: Some(startup),
             ssh: None,
             prepared: None,
             reply,
@@ -121,7 +88,6 @@ impl Ingress {
             deadline: pending.deadline,
             request,
             binding: Some(binding),
-            startup: None,
             ssh,
             prepared: Some(prepared),
             reply,
@@ -226,30 +192,7 @@ pub(super) async fn begin(
     binding: Option<&Binding>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
-    begin_with(database, turn, request, binding, None, events).await
-}
-
-#[cfg(test)]
-pub(super) async fn begin_with(
-    database: &mut Database,
-    turn: TurnId,
-    request: &ToolConfirmationRequest,
-    binding: Option<&Binding>,
-    startup: Option<&sailry_protocol::code::Startup>,
-    events: &broadcast::Sender<EventEnvelope>,
-) -> Result<Approval, Fault> {
-    begin_for(
-        database,
-        turn,
-        request,
-        binding,
-        Capture {
-            startup,
-            ..Default::default()
-        },
-        events,
-    )
-    .await
+    begin_for(database, turn, request, binding, Capture::default(), events).await
 }
 
 pub(super) async fn begin_for(
@@ -260,11 +203,7 @@ pub(super) async fn begin_for(
     capture: Capture<'_>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
-    let Capture {
-        startup,
-        ssh,
-        prepared,
-    } = capture;
+    let Capture { ssh, prepared } = capture;
     let publication = database.publication.clone();
     let mut write = Some(database.write().await?);
     let result: Result<_, Fault> = async {
@@ -286,8 +225,6 @@ pub(super) async fn begin_for(
                 ));
             }
             ApprovalSource::User
-        } else if let Some(startup) = startup {
-            super::permissions::code_source(&transaction, turn, request, startup).await?
         } else {
             super::permissions::source(&transaction, turn, request).await?
         };
@@ -304,8 +241,7 @@ pub(super) async fn begin_for(
         if escape && source != ApprovalSource::Full {
             source = ApprovalSource::User;
         }
-        let can_remember = startup.is_none()
-            && ssh.is_none()
+        let can_remember = ssh.is_none()
             && binding.is_some()
             && source == ApprovalSource::User
             && !escape;
@@ -339,7 +275,7 @@ pub(super) async fn begin_for(
             prefix,
             can_remember,
             access,
-            startup: startup.cloned(),
+            startup: None,
             ssh: ssh.cloned(),
         };
         let exists: bool = {
@@ -602,16 +538,7 @@ pub(super) async fn authorize(
         }
         prepared::check_connection(&transaction, &approval, prepared).await?;
         access::check(&approval, prepared)?;
-        if let Some(startup) = &approval.startup {
-            if !matches!(prepared, Some(Command::StartCodeServer { startup: actual }) if actual == startup)
-            {
-                return Err(Fault::new(
-                    ErrorCode::PermissionDenied,
-                    "prepared language startup differs from approval",
-                ));
-            }
-            super::super::code::grant(&transaction, startup).await?;
-        }
+        if approval.startup.is_some() {return Err(Fault::new(ErrorCode::Unavailable,"retired language startup cannot be executed"));}
         if let Some(ssh) = &approval.ssh
             && !matches!(prepared, Some(Command::RunSsh { profile, expected_revision, .. } | Command::TransferSsh { profile, expected_revision, .. }) if *profile == ssh.profile && *expected_revision == ssh.expected_revision)
         {

@@ -22,7 +22,6 @@ ammonia = "=4.1.4"
 html5ever = "=0.39.0"
 html5gum = "=0.8.4"
 ropey = "=2.0.0-beta.1"
-percent-encoding = "=2.3.2"
 embed-resource = "=3.0.11"
 # Application permissions and selection shortcuts remain separate from computer use.
 cua-platform-macos = { package = "platform-macos", git = "https://github.com/trycua/cua.git", rev = "58aba84b5b83d77e7e2b0f006547699eb594e50d" }
@@ -87,9 +86,10 @@ serde-saphyr = { version = "=0.0.29", default-features = false, features = ["des
 uuid = { version = "=1.26.0", features = ["serde", "v4"] }
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 turso = { version = "=0.8.3", default-features = false, features = ["fts"] }
+tree-sitter = "=0.26.13"
+tree-sitter-language-pack = { version = "=1.18.0", default-features = false, features = ["dynamic-loading", "serde"] }
 iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring"] }
 iroh-relay = { version = "=1.3.0", default-features = false, features = ["tls-ring"] }
-lsp-types = "=0.97.0"
 flate2 = "=1.1.10"
 tar = "=0.4.46"
 xz2 = { version = "=0.1.7", features = ["static"] }

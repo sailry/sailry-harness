@@ -95,6 +95,12 @@ export function prepareKnowledgeRemoval(id, expectedRevision) {
 }
 export async function inspectGit() { return read("inspect_git", {worktree: scope.worktree}); }
 export async function readFile(path) { return read("read_file", {worktree: scope.worktree, path}); }
+/** Zero-based line offset; the full-content revision is checked before slicing. */
+export async function readFileLines(path, offset=0, limit=200, expectedRevision=null) {
+  return read("read_file_lines", {worktree:scope.worktree,path,offset,limit,expected_revision:expectedRevision});
+}
+export async function searchCode(query={}) { return read("search_code", {worktree:scope.worktree,query}); }
+export async function outlineCode(path) { return read("outline_code", {worktree:scope.worktree,path}); }
 export function prepareFile(path, text, expectedRevision) {
   return prepareRequest({kind: "write_file", data: {worktree: scope.worktree, path, text, expected_revision: expectedRevision}});
 }

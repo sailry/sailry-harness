@@ -8,6 +8,7 @@ use sailry_protocol::{Command, Request, plugin, tool::Operation};
 use serde_json::{Value, json};
 
 mod artifacts;
+mod code;
 mod commands;
 pub(super) mod connections;
 mod files;
@@ -133,11 +134,8 @@ pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: O
         operation if connections::handles(operation) => {
             connections::supports_mode(operation, invocation.turn.config.mode)
         }
-        operation
-            if crate::code::handles(operation) || crate::code::management::handles(operation) =>
-        {
-            ingress.code.enabled()
-        }
+        operation if !operation.current() => false,
+        operation if code::handles(operation) => ingress.code_index.enabled(),
         Operation::SearchWeb => {
             ingress.search.available() && !super::model_tools::preferred(ingress, invocation)
         }
@@ -421,27 +419,6 @@ impl HostOperation {
             }
             commands::annotate(&output, &mut value, workspace);
             artifacts::annotate(&output, &mut value);
-            if self.ingress.code.after_edit()
-                && matches!(self.operation, Operation::WriteFile | Operation::EditFile)
-                && let sailry_protocol::Output::FileWritten(written) = &output
-                && let Some(worktree) = self.context.worktree
-            {
-                match self
-                    .ingress
-                    .code
-                    .changed(worktree, std::slice::from_ref(&written.path), &self.stop)
-                    .await
-                {
-                    Ok(diagnostics) if !diagnostics.is_empty() => {
-                        value["data"]["diagnostics_after_edit"] =
-                            json!({"title":"Diagnostics after edit:","diagnostics":diagnostics});
-                    }
-                    Ok(_) => {}
-                    Err(error) => {
-                        value["data"]["diagnostics_notice"] = json!(error.message);
-                    }
-                }
-            }
             Ok(value)
         };
         tokio::select! {
@@ -495,54 +472,6 @@ impl HostOperation {
                 self.ingress
                     .check_plugin(self.caller, request.clone())
                     .await?;
-            }
-            if let Command::ReadCode {
-                worktree, query, ..
-            } = &request.command
-                && let Some(startup) = self.ingress.prepare_code(*worktree, query).await?
-            {
-                let confirmation = adk_core::ToolConfirmationRequest {
-                    acting: None,
-                    origin: None,
-                    tool_name: self.name.clone(),
-                    function_call_id: Some(context.function_call_id().into()),
-                    args: authorized_arguments.clone(),
-                };
-                let binding = crate::store::agent::ApprovalBinding {
-                    owner: self.context.package.clone(),
-                    tool: self.name.clone(),
-                    operation: Some(self.operation),
-                };
-                let decision = tokio::select! {biased;_ = self.stop.cancelled()=>return Err(Fault::new(ErrorCode::Cancelled,"language startup was cancelled")),decision=self.ingress.confirm_code(self.turn,confirmation,binding,startup.clone())=>decision?};
-                if !matches!(
-                    decision,
-                    sailry_protocol::conversation::Decision::Approve
-                        | sailry_protocol::conversation::Decision::ApproveSession
-                        | sailry_protocol::conversation::Decision::ApprovePrefix(_)
-                ) {
-                    return Err(Fault::new(
-                        ErrorCode::PermissionDenied,
-                        "language startup was denied",
-                    ));
-                }
-                let command = Command::StartCodeServer { startup };
-                let id = self
-                    .authorize(
-                        context.as_ref(),
-                        authorized_arguments.clone(),
-                        Some(command.clone()),
-                    )
-                    .await?;
-                let mut start = Request::new(self.transport.target(), command)
-                    .with_plugin(self.context.clone());
-                start.id = id;
-                let admission = self.transport.dispatch(start).await?;
-                admission.completion.await.map_err(|_| {
-                    Fault::new(
-                        ErrorCode::OutcomeUnknown,
-                        "language startup outcome is unavailable",
-                    )
-                })??;
             }
             let ssh_trust = if connections::ssh(self.operation)
                 || (connections::handles(self.operation) && !self.is_read_only() && self.managed)
@@ -631,7 +560,12 @@ impl HostOperation {
                         .await?;
                 }
             }
-            self.dispatch(context.as_ref(), request).await
+            let mut cancellation = code::Cancellation::new(&self.ingress, self.caller, &request);
+            let result = self.dispatch(context.as_ref(), request).await;
+            if let Some(cancellation) = cancellation.as_mut() {
+                cancellation.finish();
+            }
+            result
         };
         Ok(match work.await {
             Ok(output) => output,

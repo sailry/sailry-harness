@@ -49,15 +49,10 @@ impl Database {
             Command::UseBrowser { .. }
                 | Command::UseExternalBrowser { .. }
                 | Command::UseMedia { .. }
-                | Command::InstallCodeServer { .. }
-                | Command::UninstallCodeServer { .. }
-                | Command::StopCodeServer { .. }
                 | Command::RegisterLocalModel { .. }
                 | Command::InstallLocalModel { .. }
                 | Command::DeleteLocalModel { .. }
-        ) || matches!(request.command, Command::StartCodeServer { .. })
-            && super::super::code::startup_action(self, request).await? == Action::ManageCode)
-            && !context.controller_settings()
+        )) && !context.controller_settings()
             && !super::required(&self.connection, &context.package.name)
                 .await?
                 .summary
@@ -354,22 +349,11 @@ impl Database {
                 | Command::CancelWebFetch { .. }
                 | Command::SearchWeb(_)
                 | Command::CancelWebSearch { .. } => (Some(Action::ReadWeb), None, None),
-                Command::ReadCodeSettings | Command::ReadCodeCatalog | Command::ReadCodeRules
-                    if context.controller_settings() =>
-                {
-                    (Some(Action::ReadCodeSettings), None, None)
+                Command::ReadCodeIndexSettings if context.controller_settings() => {
+                    (Some(Action::ReadCodeIndexSettings), None, None)
                 }
-                Command::SaveCodeSettings { .. }
-                | Command::UpdateCodeRules
-                | Command::CancelCodeInstall { .. }
-                    if context.controller_settings() =>
-                {
-                    (Some(Action::SaveCodeSettings), None, None)
-                }
-                Command::InstallCodeServer { .. } | Command::UninstallCodeServer { .. }
-                    if context.controller_settings() =>
-                {
-                    (Some(Action::ManageCode), None, None)
+                Command::SaveCodeIndexSettings { .. } if context.controller_settings() => {
+                    (Some(Action::SaveCodeIndexSettings), None, None)
                 }
                 Command::ReadSearchSettings if context.controller_settings() => {
                     (Some(Action::ReadSearchSettings), None, None)
@@ -379,36 +363,14 @@ impl Database {
                 {
                     (Some(Action::SaveSearchSettings), None, None)
                 }
-                Command::ListCodeInstallations => (Some(Action::ReadCode), None, None),
-                Command::ReadCodeCatalog
-                    if context.turn.is_some() && context.invocation.is_none() =>
-                {
-                    (Some(Action::ReadCode), context.worktree, context.session)
+                Command::SearchCode { worktree, .. } | Command::OutlineCode { worktree, .. } => {
+                    (Some(Action::ReadCodeIndex), Some(*worktree), None)
                 }
-                Command::ReadCode { worktree, .. }
-                | Command::ListCodeServers { worktree }
-                | Command::ListCodePackages { worktree } => {
-                    (Some(Action::ReadCode), Some(*worktree), None)
-                }
-                Command::InstallCodeServer { .. } | Command::UninstallCodeServer { .. }
-                    if context.turn.is_some() && context.invocation.is_none() =>
-                {
-                    (Some(Action::ManageCode), context.worktree, context.session)
-                }
-                Command::StartCodeServer { startup } if context.turn.is_some() => (
-                    Some(super::super::code::startup_action(self, request).await?),
-                    Some(startup.worktree),
+                Command::CancelCodeIndexQuery { .. } => (
+                    Some(Action::ReadCodeIndex),
+                    context.worktree,
                     context.session,
                 ),
-                Command::StopCodeServer { startup }
-                    if context.turn.is_some() && context.invocation.is_none() =>
-                {
-                    (
-                        Some(Action::ManageCode),
-                        Some(startup.worktree),
-                        context.session,
-                    )
-                }
                 Command::ListDirectory { worktree, .. }
                 | Command::ReadFile { worktree, .. }
                 | Command::ReadFileLines { worktree, .. }
@@ -775,15 +737,8 @@ impl Database {
                     | Command::RemovePluginValue { .. }
                     | Command::PluginTransaction { .. }
                     | Command::SavePluginSettings { .. }
-                    | Command::ReadCodeSettings
-                    | Command::ReadCodeCatalog
-                    | Command::ReadCodeRules
-                    | Command::ListCodeInstallations
-                    | Command::SaveCodeSettings { .. }
-                    | Command::UpdateCodeRules
-                    | Command::CancelCodeInstall { .. }
-                    | Command::InstallCodeServer { .. }
-                    | Command::UninstallCodeServer { .. }
+                    | Command::ReadCodeIndexSettings
+                    | Command::SaveCodeIndexSettings { .. }
                     | Command::ReadSearchSettings
                     | Command::SaveSearchSettings(_)
                     | Command::TestSearchDriver { .. }
@@ -822,8 +777,6 @@ impl Database {
                 Command::ReadInstallations { .. } | Command::DismissInstallation { .. }
             ) {
                 extension.actions.contains(&Action::InstallModels)
-                    || extension.actions.contains(&Action::ReadCode)
-                    || extension.actions.contains(&Action::ManageCode)
             } else {
                 action.is_none_or(|action| extension.actions.contains(&action))
             }

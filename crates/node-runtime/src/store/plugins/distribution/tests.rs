@@ -70,10 +70,9 @@ async fn adds_missing_defaults_without_reinstalling_records() {
     db.execute("DELETE FROM plugins WHERE name='code'", ())
         .await
         .unwrap();
-    let mut settings = crate::store::code::settings(&db).await.unwrap();
+    let mut settings = crate::store::code_index::settings(&db).await.unwrap();
     settings.enabled = false;
-    settings.after_edit = false;
-    let settings = crate::store::code::save(&db, &settings, settings.revision)
+    let settings = crate::store::code_index::save(&db, &settings, settings.revision)
         .await
         .unwrap();
     let before = list(&db).await.unwrap();
@@ -103,7 +102,10 @@ async fn adds_missing_defaults_without_reinstalling_records() {
     install(&mut db, &host).await.unwrap();
     let code = required(&db, "code").await.unwrap();
     assert!(!code.summary.enabled);
-    assert_eq!(crate::store::code::settings(&db).await.unwrap(), settings);
+    assert_eq!(
+        crate::store::code_index::settings(&db).await.unwrap(),
+        settings
+    );
     assert_eq!(code.summary.revision, 1);
     assert_eq!(
         code.extension
@@ -112,7 +114,7 @@ async fn adds_missing_defaults_without_reinstalling_records() {
             .unwrap()
             .entry
             .as_deref(),
-        Some("dev.sailry.platform/desktop/settings.js")
+        None
     );
     assert_eq!(required(&db, "memory").await.unwrap(), memory);
     assert!(get(&db, "web-search").await.unwrap().is_none());
@@ -195,7 +197,7 @@ async fn refresh_preserves_configuration_and_private_records() {
             .unwrap()
             .entry
             .as_deref(),
-        Some("dev.sailry.platform/desktop/settings.js")
+        None
     );
     let saved: Vec<u8> = (async {
         let mut statement = db
@@ -455,30 +457,29 @@ async fn binds_services_without_package_names() {
     let (_directory, _host, db) = fixture().await;
     let mut code = required(&db, "code").await.unwrap();
     let mut custom = code.clone();
-    custom.summary.name = "language-tools".into();
+    custom.summary.name = "index-tools".into();
     assert!(services::check(&db, &custom).await.is_err());
     code.extension.as_mut().unwrap().enabled_service = None;
     save(&db, &code, true).await.unwrap();
     services::check(&db, &custom).await.unwrap();
     save(&db, &custom, true).await.unwrap();
     services::apply(&db, &custom, false).await.unwrap();
-    assert!(!crate::store::code::settings(&db).await.unwrap().enabled);
-    let changed = services::synchronize(&db, plugin::Service::Language, false)
+    assert!(
+        !crate::store::code_index::settings(&db)
+            .await
+            .unwrap()
+            .enabled
+    );
+    let changed = services::synchronize(&db, plugin::Service::CodeIndex, false)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(changed.name, "language-tools");
+    assert_eq!(changed.name, "index-tools");
     assert!(required(&db, "code").await.unwrap().summary.enabled);
-    assert!(
-        !required(&db, "language-tools")
-            .await
-            .unwrap()
-            .summary
-            .enabled
-    );
+    assert!(!required(&db, "index-tools").await.unwrap().summary.enabled);
     save(&db, &custom, false).await.unwrap();
     assert_eq!(
-        services::synchronize(&db, plugin::Service::Language, true)
+        services::synchronize(&db, plugin::Service::CodeIndex, true)
             .await
             .unwrap_err()
             .code,

@@ -127,33 +127,6 @@ impl Ingress {
         self.submit(job).await
     }
 
-    async fn recorded(
-        &self,
-        caller: NodeId,
-        request: &Request,
-        internal: bool,
-    ) -> Result<bool, Fault> {
-        let body = super::database::encode(request)?;
-        let digest = blake3::hash(&body).to_hex().to_string();
-        let inspection = Request::new(
-            self.node,
-            sailry_protocol::Command::InspectRequest {
-                id: request.id,
-                digest,
-            },
-        );
-        let admission = self.dispatch_request(caller, inspection, internal).await?;
-        match admission.completion.await.map_err(|_| unavailable())?? {
-            sailry_protocol::Output::RequestOutcome { id, outcome } if id == request.id => Ok(
-                !matches!(outcome, sailry_protocol::RequestOutcome::NotAdmitted),
-            ),
-            _ => Err(Fault::new(
-                ErrorCode::Internal,
-                "request outcome response expected",
-            )),
-        }
-    }
-
     pub(super) fn dispatch_request(
         &self,
         caller: NodeId,
@@ -208,32 +181,6 @@ impl Ingress {
             }
             if super::routing::read(&request.command) {
                 return defer(move || self.read_request(caller, request)).await;
-            }
-            if let sailry_protocol::Command::StartCodeServer { startup } = &request.command {
-                if request.target != self.node || request.version != sailry_protocol::VERSION {
-                    return Err(Fault::new(
-                        ErrorCode::WrongTarget,
-                        "Node or protocol version mismatch",
-                    ));
-                }
-                // Restore the canonical receipt before inspecting mutable discovery or ownership.
-                if !self.recorded(caller, &request, internal).await? {
-                    self.check_plugin(caller, request.clone()).await?;
-                    let root = self.worktree_root_with(startup.worktree, internal).await?;
-                    self.code.validate(startup, &root).await?;
-                }
-            }
-            if let sailry_protocol::Command::InstallCodeServer { install } = &request.command {
-                if request.target != self.node || request.version != sailry_protocol::VERSION {
-                    return Err(Fault::new(
-                        ErrorCode::WrongTarget,
-                        "Node or protocol version mismatch",
-                    ));
-                }
-                if !self.recorded(caller, &request, internal).await? {
-                    self.check_plugin(caller, request.clone()).await?;
-                    self.code.validate_install(install)?;
-                }
             }
             if request.plugin.is_some() && !request.command.durable() {
                 self.check_plugin(caller, request.clone()).await?;
@@ -315,16 +262,11 @@ impl Ingress {
             }
             if matches!(
                 request.command,
-                sailry_protocol::Command::ReadCode { .. }
-                    | sailry_protocol::Command::ListCodeServers { .. }
-                    | sailry_protocol::Command::ListCodePackages { .. }
-                    | sailry_protocol::Command::ReadCodeCatalog
-                    | sailry_protocol::Command::ListCodeInstallations
-                    | sailry_protocol::Command::CancelCodeInstall { .. }
-                    | sailry_protocol::Command::CancelCodeQuery { .. }
-                    | sailry_protocol::Command::ReadCodeRules
+                sailry_protocol::Command::SearchCode { .. }
+                    | sailry_protocol::Command::OutlineCode { .. }
+                    | sailry_protocol::Command::CancelCodeIndexQuery { .. }
             ) {
-                return defer(move || self.read_code(caller, request)).await;
+                return defer(move || self.read_code_index(caller, request)).await;
             }
             if matches!(
                 request.command,

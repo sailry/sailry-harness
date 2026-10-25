@@ -1018,8 +1018,8 @@ activity_board_waiting: 待审批
 activity_board_running: 运行中
 activity_board_empty: 暂无活动
 activity_all_projects: 全部项目
-activity_no_project: 未归类
-sessions_unassigned: 未归类
+activity_no_project: 对话
+sessions_unassigned: 对话
 activity_idle: 空闲
 activity_running: 进行中
 activity_waiting: 待处理
@@ -1228,7 +1228,7 @@ composer_mode_plan_description: 分析需求、制定方案，不修改文件
 composer_branch_main: main
 composer_branch_preview: preview/ui
 composer_context: 上下文 —
-composer_no_project: 无项目
+composer_no_project: 对话
 composer_branch_none: 无 worktree
 composer_host_local: 本机
 composer_host_remote: 远程

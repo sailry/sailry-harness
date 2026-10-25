@@ -1,5 +1,6 @@
 pub mod activity;
 mod artifacts;
+mod code_index;
 pub mod commands;
 pub mod connection;
 pub mod connectors;
@@ -128,26 +129,13 @@ impl Client {
             }
         }
         let durable = request.command.durable();
+        let mut pending = code_index::Pending::new(self.transport.clone(), &request);
         let result = execute(&*self.transport, request).await;
+        pending.complete();
         if durable && let Some(reads) = &self.git {
             reads.invalidate(self.target());
         }
         result
-    }
-
-    pub async fn subscribe_code_servers(
-        &self,
-        worktree: sailry_protocol::WorktreeId,
-    ) -> Result<Box<dyn Subscription>, Fault> {
-        self.transport
-            .subscribe(sailry_protocol::Topic::CodeServers(worktree))
-            .await
-    }
-
-    pub async fn subscribe_code_installations(&self) -> Result<Box<dyn Subscription>, Fault> {
-        self.transport
-            .subscribe(sailry_protocol::Topic::CodeInstallations)
-            .await
     }
 
     pub async fn subscribe_browser(&self) -> Result<Box<dyn Subscription>, Fault> {

@@ -36,7 +36,8 @@ class CodeSigning(unittest.TestCase):
             binary = app / "Contents/MacOS/sailry-desktop"
             helper = app / "Contents/Helpers/Sailry Computer Use.app"
             native = helper / "Contents/MacOS/OpenComputerUse"
-            for path in (binary, native):
+            parser = app / "Contents/Resources/code-parsers/libtree_sitter_rust.dylib"
+            for path in (binary, native, parser):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
             with patch.object(signing.python_runtime, "unlock"), \
@@ -44,11 +45,14 @@ class CodeSigning(unittest.TestCase):
                     patch.object(signing.python_runtime, "finalize"), \
                     patch.object(signing.runtime, "finalize"), \
                     patch.object(signing.llama_runtime, "finalize"), \
+                    patch.object(signing.code_parsers, "finalize") as parser_finalize, \
                     patch.object(signing, "run") as run, patch.object(signing, "verify") as verify:
                 signing.sign(app, None, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
             targets = [call.args[-1] for call in run.call_args_list]
             self.assertLess(targets.index(native), targets.index(helper))
             self.assertLess(targets.index(helper), targets.index(app))
+            self.assertLess(targets.index(parser), targets.index(app))
+            parser_finalize.assert_called_once_with("aarch64-apple-darwin", parser.parent)
             native_call = next(call for call in run.call_args_list if call.args[-1] == native)
             self.assertIn("--preserve-metadata=entitlements", native_call.args)
             helper_call = next(call for call in run.call_args_list if call.args[-1] == helper)
@@ -71,12 +75,15 @@ class CodeSigning(unittest.TestCase):
                         patch.object(signing.python_runtime, "finalize") as python_finalize, \
                         patch.object(signing.runtime, "finalize") as finalize, \
                         patch.object(signing.llama_runtime, "finalize") as llama_finalize, \
+                        patch.object(signing.code_parsers, "finalize") as parser_finalize, \
                         patch.object(signing, "run") as run, patch.object(signing, "verify") as verify:
                     signing.sign(app, host, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
                 unlock.assert_called_once_with(output)
                 finalize.assert_called_once_with("aarch64-apple-darwin", output, speech=desktop)
                 llama_finalize.assert_called_once_with("aarch64-apple-darwin", output)
                 python_finalize.assert_called_once_with("aarch64-apple-darwin", output)
+                parser_finalize.assert_called_once_with(
+                    "aarch64-apple-darwin", app / "Contents/Resources/code-parsers" if desktop else host / "code-parsers")
                 verify.assert_any_call(executable, "FIXTURE")
                 self.assertEqual(run.call_count, 2 if desktop else 1)
                 if desktop:
@@ -230,6 +237,7 @@ class CodeSigning(unittest.TestCase):
             with patch.object(signing, "keychain_scope", return_value=nullcontext()), \
                     patch.object(signing.python_runtime, "LOCK", lock), \
                     patch.object(signing.llama_runtime, "LOCK", llama_lock), \
+                    patch.object(signing.code_parsers, "finalize"), \
                     patch.object(signing.python_runtime, "urlopen") as request, \
                     patch.object(signing, "run", side_effect=command) as run, \
                     patch.object(signing, "verify") as verify:

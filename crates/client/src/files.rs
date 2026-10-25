@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use sailry_link::CancellationToken;
-use sailry_protocol::{ErrorCode, Fault, Topic, Update, WorktreeId};
+use sailry_protocol::{Command, ErrorCode, Fault, FileLines, Output, Topic, Update, WorktreeId};
 use tokio::sync::watch;
 
 use crate::Client;
@@ -23,6 +23,40 @@ impl Drop for Closing {
 }
 
 impl Client {
+    /// Offsets are zero-based; returned line numbers are one-based.
+    /// A supplied full-content revision must match before any source is returned.
+    pub async fn read_file_lines(
+        &self,
+        worktree: WorktreeId,
+        path: &str,
+        offset: usize,
+        limit: usize,
+        expected_revision: Option<String>,
+    ) -> Result<FileLines, Fault> {
+        match self
+            .execute(self.prepare(Command::ReadFileLines {
+                worktree,
+                path: path.into(),
+                offset,
+                limit,
+                expected_revision: expected_revision.clone(),
+            }))
+            .await?
+        {
+            Output::FileLines(lines)
+                if lines.path == path
+                    && lines.offset == offset
+                    && lines.lines.len() <= limit
+                    && expected_revision
+                        .as_ref()
+                        .is_none_or(|expected| expected == &lines.revision) =>
+            {
+                Ok(lines)
+            }
+            _ => Err(Fault::invalid("invalid file lines response")),
+        }
+    }
+
     pub async fn watch_files(
         &self,
         worktree: WorktreeId,

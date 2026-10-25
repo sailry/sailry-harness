@@ -1,5 +1,6 @@
 use super::*;
 
+mod code_index;
 mod definitions;
 mod indexes;
 mod references;

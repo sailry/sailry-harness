@@ -3,12 +3,11 @@ use super::*;
 use serde_json::json;
 
 mod access;
-mod code;
 mod connections;
-mod management;
 mod models;
 mod permissions;
 mod planning;
+mod retired;
 mod roles;
 mod rules;
 
@@ -35,15 +34,7 @@ impl Fixture {
         permission: Permission,
         mode: sailry_protocol::WorkMode,
     ) -> sailry_link::Pending<'static, Self> {
-        Self::with_catalog(permission, mode, false)
-    }
-
-    fn with_catalog(
-        permission: Permission,
-        mode: sailry_protocol::WorkMode,
-        code: bool,
-    ) -> sailry_link::Pending<'static, Self> {
-        Self::with_package(permission, mode, code.then_some("code"))
+        Self::with_package(permission, mode, None)
     }
 
     fn with_package<'a>(

@@ -31,6 +31,10 @@ ocu_spec = importlib.util.spec_from_file_location("ocu_helper", Path(__file__).w
 ocu_helper = importlib.util.module_from_spec(ocu_spec)
 ocu_spec.loader.exec_module(ocu_helper)
 
+parser_spec = importlib.util.spec_from_file_location("code_parsers", Path(__file__).with_name("code-parsers.py"))
+code_parsers = importlib.util.module_from_spec(parser_spec)
+parser_spec.loader.exec_module(code_parsers)
+
 
 def run(*args):
     result = subprocess.run([str(arg) for arg in args], capture_output=True, text=True)
@@ -132,6 +136,7 @@ def sign(app, host, target, identity, team, keychain=None):
                 run("codesign", *options, *metadata, *python_runtime.signing_options(path, app / "Contents/MacOS"), path)
                 verify(path, team)
             nested_apps(app, options, team)
+            code_parsers.finalize(target, app / "Contents/Resources/code-parsers")
             ocu_helper.finalize(app / "Contents/Helpers")
             llama_runtime.finalize(target, app / "Contents/MacOS")
             runtime.finalize(target, app / "Contents/MacOS", speech=True)
@@ -146,6 +151,7 @@ def sign(app, host, target, identity, team, keychain=None):
                 run("codesign", *options, *metadata, *python_runtime.signing_options(path, host), path)
                 verify(path, team)
             nested_apps(host, options, team)
+            code_parsers.finalize(target, host / "code-parsers")
             ocu_helper.finalize(host / "helpers")
             llama_runtime.finalize(target, host)
             runtime.finalize(target, host, speech=False)

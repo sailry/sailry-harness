@@ -29,7 +29,7 @@ impl Ingress {
             let attachment_profile = &self.profile;
             let backup_resources = &self.backup_resources;
             let cleanup_runtime = tokio::runtime::Handle::current();
-            let code_pool = &self.code;
+            let code_index = &self.code_index;
             let searcher = &self.search;
             let power = &self.power;
 
@@ -63,7 +63,7 @@ impl Ingress {
             } else {
                 (reply, None)
             };
-            let code_settings = code::configures(&request.command);
+            let code_settings = code_index::configures(&request.command);
             let (reply, code_completion) = if code_settings {
                 let (complete, response) = oneshot::channel();
                 (complete, Some((reply, response)))
@@ -140,7 +140,7 @@ impl Ingress {
             if let Some((reply, completion)) = code_completion {
                 let result = completion.await.unwrap_or_else(|_| Err(unavailable()));
                 if result.is_ok() {
-                    code::refresh(&database.connection, code_pool, &cleanup_runtime).await;
+                    code_index::refresh(&database.connection, code_index).await;
                 }
                 let _ = reply.send(result);
             }

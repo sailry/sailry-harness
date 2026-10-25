@@ -41,8 +41,8 @@ fn binds_filtered_launch_values() {
         ("OPENAI_API_KEY".into(), "private".into()),
         ("SSH_AUTH_SOCK".into(), "/fixture/agent".into()),
     ]);
-    assert_ne!(initial.identity(), changed.identity());
-    assert_eq!(initial.identity(), ignored.identity());
+    assert_ne!(initial.values, changed.values);
+    assert_eq!(initial.values, ignored.values);
 }
 
 #[test]
@@ -407,6 +407,6 @@ fn validates_developer_selection() {
     ] {
         let invalid = Environment::filtered([("DEVELOPER_DIR".into(), path.as_os_str().into())]);
         assert!(invalid.developer().is_none());
-        assert_ne!(environment.identity(), invalid.identity());
+        assert_ne!(environment.values, invalid.values);
     }
 }

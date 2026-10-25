@@ -1211,35 +1211,18 @@ pub enum Command {
         worktree: WorktreeId,
         path: String,
     },
-    ReadCode {
+    SearchCode {
         worktree: WorktreeId,
-        query: crate::code::Query,
-        overlay: Option<crate::code::Overlay>,
+        query: crate::code_index::Search,
     },
-    ListCodeServers {
+    OutlineCode {
         worktree: WorktreeId,
+        path: String,
     },
-    ListCodePackages {
-        worktree: WorktreeId,
-    },
-    InstallCodeServer {
-        install: crate::code::Install,
-    },
-    CancelCodeInstall {
-        package: String,
-    },
-    CancelCodeQuery {
+    CancelCodeIndexQuery {
         request: RequestId,
     },
-    ReadCodeCatalog,
-    ListCodeInstallations,
-    UninstallCodeServer {
-        package: String,
-        version: String,
-    },
-    ReadCodeRules,
-    UpdateCodeRules,
-    ReadCodeSettings,
+    ReadCodeIndexSettings,
     ReadHooks {
         worktree: WorktreeId,
     },
@@ -1248,21 +1231,17 @@ pub enum Command {
         settings: crate::hooks::Settings,
         expected_revision: u64,
     },
-    SaveCodeSettings {
-        settings: crate::code::Settings,
+    SaveCodeIndexSettings {
+        settings: crate::code_index::Settings,
         expected_revision: u64,
-    },
-    StartCodeServer {
-        startup: crate::code::Startup,
-    },
-    StopCodeServer {
-        startup: crate::code::Startup,
     },
     ReadFileLines {
         worktree: WorktreeId,
         path: String,
         offset: usize,
         limit: usize,
+        #[serde(default)]
+        expected_revision: Option<String>,
     },
     FindFiles {
         worktree: WorktreeId,
@@ -1655,20 +1634,15 @@ impl Command {
                 | Self::ListDirectory { .. }
                 | Self::BrowseFiles { .. }
                 | Self::ReadFile { .. }
-                | Self::ReadCode { .. }
+                | Self::SearchCode { .. }
+                | Self::OutlineCode { .. }
+                | Self::CancelCodeIndexQuery { .. }
                 | Self::FetchWeb(_)
                 | Self::CancelWebFetch { .. }
                 | Self::SearchWeb(_)
                 | Self::CancelWebSearch { .. }
                 | Self::TestSearchDriver { .. }
-                | Self::ListCodeServers { .. }
-                | Self::ListCodePackages { .. }
-                | Self::ReadCodeCatalog
-                | Self::ListCodeInstallations
-                | Self::CancelCodeInstall { .. }
-                | Self::CancelCodeQuery { .. }
-                | Self::ReadCodeRules
-                | Self::ReadCodeSettings
+                | Self::ReadCodeIndexSettings
                 | Self::ReadHooks { .. }
                 | Self::ReadFileLines { .. }
                 | Self::FindFiles { .. }
@@ -1788,6 +1762,13 @@ pub enum Output {
     KnowledgeCollectionDeleted {
         id: crate::KnowledgeId,
     },
+    CodeSearch(crate::code_index::SearchPage),
+    CodeOutline(crate::code_index::Outline),
+    CodeIndexSettings(crate::code_index::Settings),
+    CodeIndexQueryCancelled {
+        request: RequestId,
+    },
+    // Retired language-service outputs remain data for persisted request results.
     Code(crate::code::Result),
     HookSettings(crate::hooks::State),
     CodeSettings(crate::code::Settings),
@@ -2188,20 +2169,9 @@ pub enum Update {
         node: NodeId,
         tasks: Vec<crate::installation::Task>,
     },
-    CodeInstallations {
-        node: NodeId,
-        installations: Vec<crate::code::Installation>,
-    },
     Python {
         node: NodeId,
         preparations: Vec<crate::python::Preparation>,
-    },
-    CodeServers {
-        node: NodeId,
-        worktree: WorktreeId,
-        editor_enabled: bool,
-        servers: Vec<crate::code::Server>,
-        installations: Vec<crate::code::Installation>,
     },
     Commands {
         node: NodeId,
@@ -2233,8 +2203,6 @@ pub enum Topic {
     Installations,
     ScopedInstallations(Box<Request>),
     Python,
-    CodeServers(WorktreeId),
-    CodeInstallations,
     Commands(SessionId),
     Browser,
     ConnectorLogin(RequestId),

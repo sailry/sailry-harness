@@ -167,6 +167,12 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         ),
     )
     .await?;
+    records::<sailry_protocol::code_index::Settings>(
+        db,
+        "code_index_settings.body",
+        "SELECT body FROM code_index_settings",
+    )
+    .await?;
     records::<sailry_protocol::code::Settings>(
         db,
         "code_settings.body",

@@ -91,10 +91,9 @@ const result = await decide({state: pageText, questions: {
 }});
 ```
 
-`sailry/installations.read(ids)` observes only owned model or language installation
-requests in their original captured scope. Language observations require `code.read`
-or `code.manage`; model observations require `models.install`. Both retain the exact
-prepared request IDs and expose only their resource category, never another plugin's
+`sailry/installations.read(ids)` observes only owned model installation requests
+in their original captured scope and requires `models.install`. It retains the exact
+prepared request IDs and exposes only their resource category, never another plugin's
 or the controller's installation feed. `watch(ids)` starts a Desktop subscription and `next()` consumes its
 Client-reduced snapshots. Headless callbacks use bounded model-only `read(ids)` snapshots;
 `watch` and `next` cannot retain live subscriptions beyond their callback budget.
@@ -477,7 +476,7 @@ Read-only checks cannot request OS permissions. The Node SDK exposes
 "screen_capture")` for the captured computer helper; plugins map those service
 results to standard permission kinds and own any onboarding policy.
 
-`settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. Feature pages and workflows belong in the package, including bundled language-service and search settings. The host provides Kit composition and scoped service APIs, never package-specific native page selectors.
+`settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. Feature pages and workflows belong in the package, including bundled code-index and search settings. The host provides Kit composition and scoped service APIs, never package-specific native page selectors.
 
 String settings may declare a JSON Schema `pattern` alongside length limits. Invalid
 patterns reject the schema; values that do not match are rejected before saving.
@@ -497,11 +496,45 @@ outcomes and do not replace the saved settings receipt.
 
 A Host package declaring `agents.delegate` may mark one required public string setting with `x-sailry-child-concurrency: true`. Its default and saved values are positive decimal integers in the `u64` domain. One installed package may own this execution policy. The shared service reads its current configuration when claiming children, with separate running budgets and FIFO order for each main session; configuration changes do not rewrite admitted model or permission captures. Use ordinary `readSettings()` and `sailry/settings.prepareSettings` for package-owned controls. Without a declared owner, no product-specific child limit is applied.
 
-`code.settings.read` allows reading Node-wide language settings, catalog and registry metadata. `code.settings.write` allows saving settings, updating rules and cancelling installation. `code.manage` allows exact-descriptor installation/removal and explicit worktree-scoped server start/stop; `code.read` observes installations and running instances. `web.settings.read` and `web.settings.write` allow search settings and driver checks. Settings operations require the captured settings surface, without a worktree, session, turn or callback invocation. Agent lifecycle tools still require their original approval and cannot change service enable settings. Disabled packages can configure their own settings surface.
+`searchCode(query)` and `outlineCode(path)` require `code.index.read` and use the
+current worktree through the shared Protocol and Client boundary. Search accepts
+literal terms plus optional name substring, path prefix and language, returning
+20 symbols by default and at most 100. Outline parses only its requested saved
+file when needed and returns at most 256 declarations. Both report the index
+revision and `partial` / `truncated`; symbols carry full-content `file_revision`
+and zero-based ranges with UTF-8 byte columns and exclusive byte ends. Actual
+per-file capabilities and unsupported states must remain visible. Grammar support
+is source structure, not type analysis or compiler diagnostics.
 
-`nextCodeInstallations()` observes managed receipts and inventory on the captured Node and closes with the view. Install stages use the shared `sailry/installations` queue; a ready receipt is not the command's durable completion. Registered package availability, managed installation and running worktree instances are separate observations. Removal is serialized with installation for the same package and returns Busy before stopping or deleting a package currently in use. Use `sailry/search.prepareSettings` with opaque `sailry/credentials` field handles to prepare credential updates; plaintext credentials never enter JavaScript. Complete and recover these requests through the ordinary SDK request API.
+`readFileLines(path, offset, limit, expectedRevision?)` requires `files.read` and
+reads the current worktree through the same confined file service. Offsets are
+zero-based and returned line numbers are one-based. The Node compares the complete
+file's BLAKE3 revision before slicing when `expectedRevision` is supplied. A
+revision conflict returns no source from the changed file. The existing 128 KiB
+`readFile` preview is not complete index input. Indexing reads a complete bounded
+file separately, with a 1 MiB default limit.
 
-A package can declare `enabled_service: "language"` with Host scope and `code.settings.write` to bind its switch to the Node language service. Only one installed package may own a service binding. Omitting it creates no service coupling. The host validates and applies the lifecycle atomically; the field grants no actions.
+The `code` package composes `code_context` with ordinary `code.search` and
+`files.read_lines` flow operations. It selects at most 20 symbols and five merged
+source snippets within 16 KiB of UTF-8 JSON, preserving file/index revisions and
+incomplete-result flags. File reads check each selected revision; stale ranges
+never expand against new source. Abandoning a Client search or outline sends its
+scoped `cancel_code_index_query` while the transport runtime remains available.
+
+`code.index.settings.read` and `code.index.settings.write` expose the Node index
+enable setting on the captured settings surface, without a worktree, session,
+turn or callback invocation. `web.settings.read` and `web.settings.write` retain
+search settings and driver checks. Disabled packages can configure their own
+settings surface. Use `sailry/search.prepareSettings` with opaque
+`sailry/credentials` field handles for search credential updates; plaintext
+credentials never enter JavaScript.
+
+A Host package can declare `enabled_service: "code_index"` with `code.index.read`
+to bind its switch to the Node code index. Only one installed package may own a
+service binding. The inventory owner applies the enable choice atomically and
+preserves it through package updates; the field grants no actions. Retired
+`language` bindings and `code.*` language-server capabilities remain readable only
+inside historical captures and cannot be installed or executed.
 
 Game prompts, legal-move selection and response validation belong in each game package. Use `prepareRequest` with `generate_plugin_text`, then `completeRequest` and `forgetRequest`; the core model API does not construct game prompts or interpret moves.
 

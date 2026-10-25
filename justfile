@@ -11,6 +11,11 @@ ci *args:
     bash scripts/python.sh scripts/ci.py local "$@"
 
 check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TSLP_SOURCE_BUNDLE_URL="$(bash scripts/python.sh scripts/package/code-parsers.py --source-only)"
+    export TSLP_SOURCE_BUNDLE_URL
+    unset TSLP_OFFLINE TSLP_LANGUAGES
     cargo fmt --all -- --check
     cargo clippy --locked --workspace --all-targets -- -D warnings
 
@@ -28,6 +33,14 @@ test-plugins:
     bash scripts/python.sh scripts/test-plugins.py
 
 host data_dir="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    task_triple="$(rustc -vV | awk '/^host: / {print $2}')"
+    task_parsers=(--target "$task_triple" --output "${CARGO_TARGET_DIR:-target}/debug/code-parsers")
+    if [[ "$task_triple" == *apple-darwin ]]; then task_parsers+=(--sign -); fi
+    TSLP_SOURCE_BUNDLE_URL="$(bash scripts/python.sh scripts/package/code-parsers.py "${task_parsers[@]}")"
+    export TSLP_SOURCE_BUNDLE_URL
+    unset TSLP_OFFLINE TSLP_LANGUAGES
     if test -n {{quote(data_dir)}}; then cargo run --locked -p sailry-host -- --data-dir {{quote(data_dir)}}; else cargo run --locked -p sailry-host; fi
 
 test-backend:
@@ -75,6 +88,12 @@ test-workload:
     set -euo pipefail
     mkdir -p .preview
     task_output="$(mktemp -d "$PWD/.preview/native-workload-XXXXXX")"
+    task_triple="$(rustc -vV | awk '/^host: / {print $2}')"
+    task_parsers=(--target "$task_triple" --output "${CARGO_TARGET_DIR:-target}/release/code-parsers")
+    if [[ "$task_triple" == *apple-darwin ]]; then task_parsers+=(--sign -); fi
+    TSLP_SOURCE_BUNDLE_URL="$(bash scripts/python.sh scripts/package/code-parsers.py "${task_parsers[@]}")"
+    export TSLP_SOURCE_BUNDLE_URL
+    unset TSLP_OFFLINE TSLP_LANGUAGES
     cargo build --locked --release -p sailry-desktop --features workload-tests
     printf 'Workload output: %s\n' "$task_output"
     SAILRY_WORKLOAD_OUTPUT="$task_output" ZED_MEASUREMENTS=1 target/release/sailry-desktop > "$task_output/stdout.log" 2> "$task_output/stderr.log"

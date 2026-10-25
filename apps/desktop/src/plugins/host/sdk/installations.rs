@@ -85,10 +85,8 @@ impl Host {
             let request = drafts
                 .get(id)
                 .filter(|request| {
-                    matches!(
-                        request.command,
-                        Command::InstallLocalModel { .. } | Command::InstallCodeServer { .. }
-                    ) && request.plugin.as_ref() == Some(&scope)
+                    matches!(request.command, Command::InstallLocalModel { .. })
+                        && request.plugin.as_ref() == Some(&scope)
                 })
                 .ok_or_else(|| {
                     values::fault(sailry_protocol::Fault::new(

@@ -19,6 +19,8 @@ struct File {
     offset: usize,
     #[serde(default = "default_limit")]
     limit: usize,
+    #[serde(default)]
+    expected_revision: Option<String>,
 }
 
 fn default_limit() -> usize {
@@ -87,7 +89,7 @@ pub(super) fn failure(operation: Operation, error: Fault) -> Value {
     let expected = (error.code == ErrorCode::NotFound)
         .then_some(match operation {
             Operation::ListDirectory => Some(Expected::DirectoryNotFound),
-            Operation::ReadFile => Some(Expected::FileNotFound),
+            Operation::ReadFile | Operation::ReadFileLines => Some(Expected::FileNotFound),
             _ => None,
         })
         .flatten();
@@ -109,7 +111,7 @@ pub(super) fn failure(operation: Operation, error: Fault) -> Value {
 pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
         Operation::ListDirectory => "List a directory in the captured worktree",
-        Operation::ReadFile => {
+        Operation::ReadFile | Operation::ReadFileLines => {
             "Read numbered lines with a full file revision; offset starts at zero and defaults to 0, limit defaults to 200"
         }
         Operation::WriteFile => "Write UTF-8 text using the expected file revision",
@@ -149,8 +151,8 @@ pub(super) fn parameters(operation: Operation) -> Value {
             json!({"path":path,"after":{"type":["object","null"],"properties":{"revision":{"type":"string"},"directory":{"type":"boolean"},"name":{"type":"string"}},"required":["revision","directory","name"],"additionalProperties":false}}),
             vec!["path", "after"],
         ),
-        Operation::ReadFile => (
-            json!({"path":path,"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":200}}),
+        Operation::ReadFile | Operation::ReadFileLines => (
+            json!({"path":path,"expected_revision":{"type":"string"},"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":200}}),
             vec!["path"],
         ),
         Operation::WriteFile => (
@@ -227,13 +229,14 @@ pub(super) fn command(
                 after: input.after,
             }
         }
-        Operation::ReadFile => {
+        Operation::ReadFile | Operation::ReadFileLines => {
             let input: File = decode(arguments)?;
             Command::ReadFileLines {
                 worktree,
                 path: input.path,
                 offset: input.offset,
                 limit: input.limit,
+                expected_revision: input.expected_revision,
             }
         }
         Operation::WriteFile => {

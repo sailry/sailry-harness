@@ -7,12 +7,23 @@ pub enum Action {
     ReadArtifacts,
     #[serde(rename = "artifacts.write")]
     WriteArtifacts,
+    #[serde(rename = "code.index.read")]
+    ReadCodeIndex,
+    #[serde(rename = "code.index.settings.read")]
+    ReadCodeIndexSettings,
+    #[serde(rename = "code.index.settings.write")]
+    SaveCodeIndexSettings,
+    // Retained only when reading immutable historical package declarations.
+    #[schemars(skip)]
     #[serde(rename = "code.read")]
     ReadCode,
+    #[schemars(skip)]
     #[serde(rename = "code.manage")]
     ManageCode,
+    #[schemars(skip)]
     #[serde(rename = "code.settings.read")]
     ReadCodeSettings,
+    #[schemars(skip)]
     #[serde(rename = "code.settings.write")]
     SaveCodeSettings,
     #[serde(rename = "web.settings.read")]
@@ -133,10 +144,19 @@ pub enum Access {
 }
 
 impl Action {
+    pub fn current(&self) -> bool {
+        !matches!(
+            self,
+            Self::ReadCode | Self::ManageCode | Self::ReadCodeSettings | Self::SaveCodeSettings
+        )
+    }
+
     /// Presentation classification only; execution and permission checks retain their owners.
     pub fn access(&self) -> Access {
         match self {
             Self::ReadArtifacts
+            | Self::ReadCodeIndex
+            | Self::ReadCodeIndexSettings
             | Self::ReadCode
             | Self::ReadCodeSettings
             | Self::ReadSearchSettings
@@ -163,6 +183,7 @@ impl Action {
             | Self::ReadStorage
             | Self::ReadKnowledge => Access::Read,
             Self::WriteArtifacts
+            | Self::SaveCodeIndexSettings
             | Self::ManageCode
             | Self::SaveCodeSettings
             | Self::SaveSearchSettings
@@ -202,6 +223,8 @@ impl Action {
         matches!(
             self,
             Self::ReadCode
+                | Self::ReadCodeIndex
+                | Self::ReadCodeIndexSettings
                 | Self::ReadArtifacts
                 | Self::ReadCodeSettings
                 | Self::ReadSearchSettings
@@ -246,6 +269,9 @@ mod tests {
             ("models.generate", Action::GenerateText),
             ("knowledge.read", Action::ReadKnowledge),
             ("knowledge.write", Action::WriteKnowledge),
+            ("code.index.read", Action::ReadCodeIndex),
+            ("code.index.settings.read", Action::ReadCodeIndexSettings),
+            ("code.index.settings.write", Action::SaveCodeIndexSettings),
         ] {
             assert_eq!(serde_json::to_value(&action).unwrap(), json!(name));
             assert_eq!(
@@ -288,6 +314,17 @@ mod tests {
         assert!(names.contains(&json!("models.generate")));
         assert!(names.contains(&json!("knowledge.read")));
         assert!(names.contains(&json!("knowledge.write")));
+        assert!(names.contains(&json!("code.index.read")));
+        for name in [
+            "code.read",
+            "code.manage",
+            "code.settings.read",
+            "code.settings.write",
+        ] {
+            assert!(!names.contains(&json!(name)));
+            let action: Action = serde_json::from_value(json!(name)).unwrap();
+            assert!(!action.current());
+        }
         assert!(!names.contains(&json!("unknown.action")));
         assert!(!names.contains(&json!("Unsupported")));
         assert!(!names.is_empty());

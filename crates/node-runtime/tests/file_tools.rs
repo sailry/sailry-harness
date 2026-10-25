@@ -9,6 +9,7 @@ async fn page(client: &Client, worktree: WorktreeId, path: &str, offset: usize) 
             path: path.into(),
             offset,
             limit: 2,
+            expected_revision: None,
         }))
         .await
         .unwrap()
@@ -332,6 +333,7 @@ async fn rejects_paths_outside_worktree() {
                     path: path.into(),
                     offset: 0,
                     limit: 2,
+                    expected_revision: None,
                 },
                 Command::EditFile {
                     worktree: fixture.worktree,

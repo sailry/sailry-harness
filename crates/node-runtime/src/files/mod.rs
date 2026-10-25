@@ -9,6 +9,7 @@ mod create;
 mod directory;
 pub(crate) mod edit;
 mod lines;
+pub(crate) use lines::bounded as index_text;
 mod media;
 pub(crate) mod mutations;
 pub(crate) mod notebook;
@@ -128,8 +129,17 @@ impl Files {
                     path,
                     offset,
                     limit,
+                    expected_revision,
                     ..
-                } => lines::read(scope, path, offset, limit, &control).map(Output::FileLines),
+                } => lines::read_version(
+                    scope,
+                    path,
+                    offset,
+                    limit,
+                    expected_revision.as_deref(),
+                    &control,
+                )
+                .map(Output::FileLines),
                 Command::FindFiles {
                     globs,
                     path,
@@ -249,12 +259,15 @@ pub(crate) struct Control {
 
 impl Control {
     pub(crate) fn new(cancelled: CancellationToken) -> Self {
+        Self::until(cancelled, Instant::now() + Duration::from_secs(5))
+    }
+    pub(crate) fn until(cancelled: CancellationToken, deadline: Instant) -> Self {
         Self {
             cancelled,
-            deadline: Instant::now() + Duration::from_secs(5),
+            deadline,
         }
     }
-    fn check(&self) -> Result<(), Fault> {
+    pub(crate) fn check(&self) -> Result<(), Fault> {
         if self.cancelled.is_cancelled() {
             Err(Fault::new(ErrorCode::Cancelled, "file read cancelled"))
         } else if Instant::now() >= self.deadline {

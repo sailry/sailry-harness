@@ -13,6 +13,9 @@ mkdir -p "$task_root/dist"
 task_output="$(mktemp -d "$task_root/dist/host-$task_target-$task_profile-XXXXXX")"
 mkdir "$task_output/host"
 cp "$task_root/target/host-artifacts/$task_target/sailry-host" "$task_output/host/sailry-host"
+cp -R "$task_root/target/host-artifacts/$task_target/code-parsers" "$task_output/host/"
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" --target "$task_target" \
+  --output "$task_output/host/code-parsers" --cache "$task_root/.runtime/code-index/resources"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/python-runtime.py" --target "$task_target" \
   --output "$task_output/host" --cache "$task_root/target/python-cache"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \

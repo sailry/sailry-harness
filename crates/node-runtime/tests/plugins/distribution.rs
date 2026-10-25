@@ -2,6 +2,8 @@ use super::*;
 use sailry_link::Transport;
 use std::sync::Arc;
 
+#[path = "distribution/history.rs"]
+mod history;
 #[path = "distribution/refresh.rs"]
 mod refresh;
 
@@ -452,39 +454,18 @@ async fn removed_default(name: &str, enabled: bool) {
         if name == "code" {
             use sailry_protocol::tool::Operation;
             let extension = installed.extension.as_ref().unwrap();
-            let desktop = extension.desktop.as_ref().unwrap();
             let page = extension.settings_page.as_ref().unwrap();
             assert!(page.enabled_control);
-            assert_eq!(
-                page.entry.as_deref(),
-                Some("dev.sailry.platform/desktop/settings.js")
-            );
-            assert!(desktop.resources.contains(page.entry.as_ref().unwrap()));
-            let Output::PluginView(bundle) = execute(
-                &client,
-                Command::ReadPluginView {
-                    package: installed.summary.reference(),
-                    surface: plugin::desktop::Surface::Settings,
-                },
-            )
-            .await
-            else {
-                panic!("view expected")
-            };
-            assert!(bundle.valid());
-            assert_eq!(Some(&bundle.entry), page.entry.as_ref());
-            assert!(extension.host.is_none());
+            assert!(page.entry.is_none());
+            assert!(extension.desktop.is_none());
+            assert!(extension.host.as_ref().unwrap().valid());
+            assert_eq!(extension.enabled_service, Some(plugin::Service::CodeIndex));
             assert!(installed.skills.is_empty());
             assert!(installed.mcp.is_empty());
             assert!(extension.model_tools.is_empty());
             assert_eq!(
                 extension.actions,
-                [
-                    plugin::Action::ReadCode,
-                    plugin::Action::ManageCode,
-                    plugin::Action::ReadCodeSettings,
-                    plugin::Action::SaveCodeSettings,
-                ]
+                [plugin::Action::ReadCodeIndex, plugin::Action::ReadFiles]
             );
             assert_eq!(
                 extension
@@ -493,26 +474,23 @@ async fn removed_default(name: &str, enabled: bool) {
                     .map(|tool| tool.operation)
                     .collect::<Vec<_>>(),
                 vec![
-                    Some(Operation::CodeDiagnostics),
-                    Some(Operation::CodeDefinition),
-                    Some(Operation::CodeReferences),
-                    Some(Operation::CodeHover),
-                    Some(Operation::CodeSymbols),
-                    Some(Operation::CodePackages),
-                    Some(Operation::CodeCatalog),
-                    Some(Operation::CodeServers),
-                    Some(Operation::StartCodeServer),
-                    Some(Operation::StopCodeServer),
-                    Some(Operation::InstallCodeServer),
-                    Some(Operation::UninstallCodeServer),
+                    Some(Operation::SearchCode),
+                    Some(Operation::OutlineCode),
+                    None
                 ]
             );
-            assert!(
-                extension
-                    .tools
-                    .iter()
-                    .all(|tool| tool.handler.is_none() && tool.server.is_none())
+            assert_eq!(
+                extension.tools[2]
+                    .handler
+                    .as_ref()
+                    .unwrap()
+                    .flow
+                    .as_ref()
+                    .unwrap()
+                    .operations,
+                [Operation::SearchCode, Operation::ReadFileLines]
             );
+            assert!(extension.tools.iter().all(|tool| tool.server.is_none()));
         } else if let Some(desktop) = &installed.extension.as_ref().unwrap().desktop {
             let (surface, entry) = if let Some(entry) = &desktop.entry {
                 (plugin::desktop::Surface::Workspace, entry)
@@ -659,9 +637,10 @@ async fn removed_default(name: &str, enabled: bool) {
         );
         assert!(reinstalled.summary.enabled);
         if name == "code" {
-            let Output::CodeSettings(settings) = execute(&client, Command::ReadCodeSettings).await
+            let Output::CodeIndexSettings(settings) =
+                execute(&client, Command::ReadCodeIndexSettings).await
             else {
-                panic!("language settings expected")
+                panic!("code index settings expected")
             };
             assert!(settings.enabled);
         }

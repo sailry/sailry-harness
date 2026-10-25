@@ -6,6 +6,11 @@ cd "$task_root"
 task_target="${CARGO_TARGET_DIR:-$task_root/target}"
 task_build="$task_target/debug"
 task_triple="$(rustc -vV | awk '/^host: / {print $2}')"
+task_parsers=(--target "$task_triple" --output "$task_build/code-parsers" --cache "$task_root/.runtime/code-index/resources")
+if [[ "$task_triple" == *apple-darwin ]]; then task_parsers+=(--sign -); fi
+TSLP_SOURCE_BUNDLE_URL="$(bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" "${task_parsers[@]}")"
+export TSLP_SOURCE_BUNDLE_URL
+unset TSLP_OFFLINE TSLP_LANGUAGES
 task_native="$task_target/onnx-native/$task_triple"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/python-runtime.py" --target "$task_triple" \
   --output "$task_build" --cache "$task_target/python-cache"
@@ -43,6 +48,9 @@ fi
 SHERPA_ONNX_LIB_DIR="$task_native" cargo build --locked -p sailry-desktop
 task_app="$task_build/Sailry.app"
 mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources"
+cp -R "$task_build/code-parsers" "$task_app/Contents/Resources/"
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" --target "$task_triple" \
+  --output "$task_app/Contents/Resources/code-parsers" --cache "$task_root/.runtime/code-index/resources" --sign "$task_identity"
 if test -d "$task_app/Contents/Resources/office-runtime"; then
   rm -rf "$task_app/Contents/Resources/office-runtime"
 fi

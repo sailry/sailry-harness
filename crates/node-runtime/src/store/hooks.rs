@@ -276,9 +276,7 @@ impl Ingress {
             &metadata,
         )
         .await;
-        if result.is_ok() {
-            self.code.watched(invocation.worktree).await;
-        }
+        self.code_index.changed(invocation.worktree, None);
         result
     }
 }

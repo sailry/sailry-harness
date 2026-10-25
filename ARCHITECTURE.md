@@ -196,7 +196,7 @@ collections through the same Client boundary. Source revisions, tags, paths and
 access grants constrain candidates before ranking. Citations resolve through the
 execution Node and recheck their source identity before returning original text.
 Uninstalled models keep keyword retrieval available. Code discovery continues to
-use filename matching, text search and language-server symbols.
+use filename matching, text search and the worktree code index.
 Knowledge retrieval is a Node service for plugin-owned features; no standalone
 knowledge plugin is bundled. Desktop settings configure vector models. Plugins
 such as notes and reminders organize their own collections and expose their
@@ -536,28 +536,35 @@ opens of the same terminal share the existing result. Stop prevents late starts
 from publishing. Closing a local terminal stops its verified PTY session's job
 groups before its shell, or its existing Windows Job. If the Unix leader has
 already been reaped or its identity cannot be verified, cleanup does not infer
-ownership from a recycled session ID. Language services
-and configured hooks retain their own execution policies.
-The language-service plugin's enable switch controls the Node's service setting
-atomically. Disabling it cancels pending starts and queries immediately and omits
-language tools from subsequent turns. Server cleanup runs asynchronously outside
-Store admission and metadata locks; startup and shutdown remain serialized, and
-obsolete cleanup cannot replace current service policy or newly started servers.
-Installation remains available while disabled. Enabled services start on demand
-and stop after inactivity; installation alone does not launch a server.
-Controllers may stop one exact running server without changing its settings or
-startup grant; later use can start it on demand again.
-Language service settings are Node-wide: catalog, installation and server overrides do not
-require a selected project. Disabling a server stops its instances across worktrees.
-Execution remains worktree-scoped, with approved on-demand startup and idle shutdown.
-The language plugin exposes registry discovery, managed installation, actual worktree
-instances and explicit start, stop and removal tools to conversations. Installation or
-an available registry descriptor does not imply a running server.
-Lifecycle tools reuse exact Node registry descriptors, conversation approvals and durable
-resource admission; Plan turns cannot explicitly start, stop, install or remove software.
-Removing a managed package stops only its idle owned instances across worktrees;
-active installation or use returns Busy before shutdown or deletion. External executables,
-project files and service configuration are not removed.
+ownership from a recycled session ID. Configured hooks retain their own execution policies.
+
+Code structure is a lazy Node service backed by the pinned Tree-sitter language pack.
+The application ships verified parser libraries and embedded-language queries; the Node
+loads these resources without runtime downloads. Editor syntax highlighting, editing,
+saving and drafts use Kit; neither the editor nor Agent starts language servers.
+
+Each worktree shares a rebuildable `cache/code-index/<WorktreeId>/index.turso` database
+inside its Node profile. It holds file metadata, full-content BLAKE3 revisions,
+extraction fingerprints, symbols, bounded signatures and Turso native full-text indexes.
+Original source stays in the worktree. A file outline reads only that file; the first
+repository query discovers the worktree through the existing confined, ignore-aware
+file service. Project, editor and session opening do not start repository indexing.
+
+Queries reuse cached extraction after checking complete file hashes. Shared file watchers,
+managed writes, commands and Git operations mark affected paths or invalidate a worktree.
+Bounded parse batches run without writer connections. File replacements and their native
+full-text updates commit together; only a complete traversal establishes deletions.
+Dirty generations retain changes that arrive during parsing. File ranges use zero-based
+UTF-8 byte coordinates, and source expansion checks the indexed full-content revision
+before slicing. Partial and truncated results state their actual limits.
+
+The code package owns `code_search`, `code_outline` and `code_context` orchestration.
+Its enable switch binds to the generic Node code-index service while retaining the
+installed enable choice. Local and remote controllers use the same Protocol, Client
+and SDK commands. Context composition stays in the plugin, with bounded symbol and
+snippet budgets. Retired language identifiers survive only as historical data;
+current manifests and execution reject retired operations.
+
 Native controllers configure ordered hook scripts per worktree. Admitted turns
 capture each script's order and enabled state; a phase has one durable launch
 receipt, and recovery never replays that group after a crash or cancellation.

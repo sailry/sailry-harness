@@ -9,6 +9,11 @@ cd "$task_root"
 task_build="${CARGO_TARGET_DIR:-$task_root/target}"
 export CARGO_TARGET_DIR="$task_build"
 task_native="$(rustc -vV | awk '/^host: / {print $2}')"
+task_parsers=(--target "$task_native" --output "$task_build/$task_profile/code-parsers" --cache "$task_root/.runtime/code-index/resources")
+if [[ "$task_native" == *apple-darwin ]]; then task_parsers+=(--sign -); fi
+TSLP_SOURCE_BUNDLE_URL="$(bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" "${task_parsers[@]}")"
+export TSLP_SOURCE_BUNDLE_URL
+unset TSLP_OFFLINE TSLP_LANGUAGES
 task_llvm_ar="$(command -v llvm-ar || true)"
 task_llvm_strip="$(command -v llvm-strip || true)"
 if { test -z "$task_llvm_ar" || test -z "$task_llvm_strip"; } && command -v brew >/dev/null; then
@@ -53,8 +58,11 @@ for task_target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu "$task_nat
   mkdir -p "$task_output"
   if test "$task_target" = "$task_native"; then
     cp "$task_build/$task_profile/sailry-host" "$task_output/sailry-host"
+    cp -R "$task_build/$task_profile/code-parsers" "$task_output/"
   else
     cp "$task_build/$task_target/$task_profile/sailry-host" "$task_output/sailry-host"
+    bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" --target "$task_target" \
+      --output "$task_output/code-parsers" --cache "$task_root/.runtime/code-index/resources"
   fi
   "$task_llvm_strip" --strip-debug "$task_output/sailry-host"
   if [[ "$task_target" == *apple-darwin ]]; then codesign --force --sign - "$task_output/sailry-host"; fi

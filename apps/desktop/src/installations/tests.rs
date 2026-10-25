@@ -47,19 +47,12 @@ impl sailry_link::Transport for DraftTransport {
 }
 
 #[test]
-fn identifies_captured_language_installs() {
+fn captures_plugin_installs() {
     let request = Request::new(
         NodeId([1; 32]),
-        Command::InstallCodeServer {
-            install: sailry_protocol::code::Install {
-                package: "analyzer".into(),
-                version: "1".into(),
-                purl: "pkg:generic/analyzer@1".into(),
-                urls: vec![],
-                licenses: vec![],
-                command: None,
-                revision: "a".repeat(64),
-            },
+        Command::InstallBundledPlugin {
+            name: "example".into(),
+            expected_revision: 1,
         },
     )
     .with_plugin(sailry_protocol::plugin::Context {
@@ -76,18 +69,11 @@ fn identifies_captured_language_installs() {
     });
     assert_eq!(
         resource(&request.command),
-        Some(Resource::Language {
-            package: "analyzer".into(),
-            version: "1".into()
+        Some(Resource::Plugin {
+            name: "example".into(),
         })
     );
-    assert!(
-        resource(&Command::UninstallCodeServer {
-            package: "analyzer".into(),
-            version: "1".into()
-        })
-        .is_none()
-    );
+    assert!(resource(&Command::Snapshot).is_none());
     let client = Client::new(Arc::new(DraftTransport));
     let recovered = Attempt::Recover.request(&client, &request);
     assert_eq!(recovered, request);

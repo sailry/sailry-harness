@@ -74,6 +74,21 @@ class NativeAssets(unittest.TestCase):
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text("resource fixture")
         (self.project / "scripts/package/ocu-helper.py").write_text("# The dedicated helper suite verifies native staging and signing.\n")
+        (self.project / "scripts/package/code-parsers.py").write_text('''
+# The dedicated parser suite verifies archive checksums and native signing.
+import argparse
+from pathlib import Path
+parser = argparse.ArgumentParser()
+parser.add_argument("--output", type=Path, required=True)
+parser.add_argument("--cache", type=Path, required=True)
+args, _ = parser.parse_known_args()
+args.output.mkdir(parents=True, exist_ok=True)
+(args.output / "code-parsers.json").write_text('{"synthetic": true}')
+source = args.cache / "synthetic-query.fixture"
+source.parent.mkdir(parents=True, exist_ok=True)
+source.write_bytes(b"synthetic query fixture")
+print("file://" + str(source.absolute()))
+''')
         self.old_calls = self.root / "old-python-calls"
         self.calls = self.root / "native-python-calls"
         self.signatures = self.root / "signatures"
@@ -97,7 +112,9 @@ exec {shlex.quote(sys.executable)} "$@"
 import json, os, sys
 from pathlib import Path
 Path({str(self.build)!r}).write_text(json.dumps({{
-    "args": sys.argv[1:], "native": os.environ["SHERPA_ONNX_LIB_DIR"]
+    "args": sys.argv[1:], "native": os.environ["SHERPA_ONNX_LIB_DIR"],
+    "parsers": os.environ["TSLP_SOURCE_BUNDLE_URL"],
+    "offline": os.environ.get("TSLP_OFFLINE"), "languages": os.environ.get("TSLP_LANGUAGES")
 }}))
 binary = Path(os.environ["CARGO_TARGET_DIR"]) / "debug/sailry-desktop"
 binary.write_bytes(b"compiled fixture")
@@ -164,7 +181,8 @@ printf '%s' 'signature fixture' >> "$task_target"
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith("SAILRY_")}
         environment.update({"PATH": str(self.bin) + os.pathsep + "/usr/bin:/bin",
-                            "CARGO_TARGET_DIR": str(self.target)})
+                            "CARGO_TARGET_DIR": str(self.target),
+                            "TSLP_OFFLINE": "1", "TSLP_LANGUAGES": "all"})
         result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
                                 env=environment, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 73, result.stderr)
@@ -172,8 +190,11 @@ printf '%s' 'signature fixture' >> "$task_target"
         native = self.target / "onnx-native/aarch64-apple-darwin"
         debug = self.target / "debug"
         app = debug / "Sailry.app"
-        stages = [("python-runtime.py", debug), ("onnx-runtime.py", native), ("llama-runtime.py", native),
-                  ("onnx-runtime.py", debug), ("llama-runtime.py", debug), ("python-runtime.py", app / "Contents/MacOS"),
+        stages = [("code-parsers.py", debug / "code-parsers"), ("python-runtime.py", debug),
+                  ("onnx-runtime.py", native), ("llama-runtime.py", native),
+                  ("onnx-runtime.py", debug), ("llama-runtime.py", debug),
+                  ("code-parsers.py", app / "Contents/Resources/code-parsers"),
+                  ("python-runtime.py", app / "Contents/MacOS"),
                   ("python-runtime.py", app / "Contents/MacOS"), ("onnx-runtime.py", app / "Contents/MacOS"),
                   ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS"),
                   ("ocu-helper.py", app / "Contents/Helpers")]
@@ -182,14 +203,20 @@ printf '%s' 'signature fixture' >> "$task_target"
         for arguments, (script, output) in zip(calls, stages):
             self.assertEqual(arguments[0], str(self.project / "scripts/package" / script))
             self.assertEqual(arguments[arguments.index("--output") + 1], str(output))
+        self.assertEqual(calls[0][calls[0].index("--sign") + 1], "-")
         self.assertEqual(calls[6][calls[6].index("--sign") + 1], "FIXTURE")
+        self.assertEqual(calls[8][calls[8].index("--sign") + 1], "FIXTURE")
         self.assertIn("--finalize", calls[-3])
         self.assertEqual(calls[-2][calls[-2].index("--source") + 1], str(debug))
         self.assertEqual(calls[-2][calls[-2].index("--sign") + 1], "FIXTURE")
         self.assertIn("--development", calls[-1])
         self.assertEqual(calls[-1][calls[-1].index("--sign") + 1], "FIXTURE")
         self.assertEqual(json.loads(self.build.read_text()), {
-            "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native)})
+            "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native),
+            "parsers": "file://" + str(self.project / ".runtime/code-index/resources/synthetic-query.fixture"),
+            "offline": None, "languages": None})
+        self.assertEqual((app / "Contents/Resources/code-parsers/code-parsers.json").read_text(),
+                         '{"synthetic": true}')
         signatures = self.arguments(self.signatures)
         python = app / "Contents/Resources/python"
         link = app / "Contents/MacOS/python"
@@ -260,7 +287,8 @@ printf '%s' 'signature fixture' >> "$task_target"
         (self.target / "debug").mkdir(parents=True)
         environment = {key: value for key, value in os.environ.items() if not key.startswith("SAILRY_")}
         environment.update({"PATH": str(self.bin) + os.pathsep + "/usr/bin:/bin",
-                            "CARGO_TARGET_DIR": str(self.target)})
+                            "CARGO_TARGET_DIR": str(self.target),
+                            "TSLP_OFFLINE": "1", "TSLP_LANGUAGES": "all"})
         result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
                                 env=environment, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -268,8 +296,12 @@ printf '%s' 'signature fixture' >> "$task_target"
         self.assertEqual(helper[0], str(self.project / "scripts/package/ocu-helper.py"))
         self.assertEqual(helper[helper.index("--target") + 1], target)
         self.assertEqual(helper[helper.index("--output") + 1], str(self.target / "debug/helpers"))
-        self.assertEqual(json.loads(self.build.read_text())["args"],
-                         ["run", "--locked", "-p", "sailry-desktop", "--"])
+        build = json.loads(self.build.read_text())
+        self.assertEqual(build["args"], ["run", "--locked", "-p", "sailry-desktop", "--"])
+        self.assertEqual(build["parsers"],
+                         "file://" + str(self.project / ".runtime/code-index/resources/synthetic-query.fixture"))
+        self.assertIsNone(build["offline"])
+        self.assertIsNone(build["languages"])
         self.assertFalse(self.signatures.exists())
 
 

@@ -11,6 +11,13 @@ cd "$task_root"
 task_build="${CARGO_TARGET_DIR:-$task_root/target}"
 export CARGO_TARGET_DIR="$task_build"
 task_native="$(rustc -vV | awk '/^host: / {print $2}')"
+task_parser_output="$task_build/$task_profile/code-parsers"
+if [[ "$task_target" == *linux-gnu ]]; then task_parser_output="$task_build/$task_target/$task_profile/code-parsers"; fi
+task_parsers=(--target "$task_target" --output "$task_parser_output" --cache "$task_root/.runtime/code-index/resources")
+if [[ "$task_target" == *apple-darwin ]]; then task_parsers+=(--sign -); fi
+TSLP_SOURCE_BUNDLE_URL="$(bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" "${task_parsers[@]}")"
+export TSLP_SOURCE_BUNDLE_URL
+unset TSLP_OFFLINE TSLP_LANGUAGES
 if [[ "$task_target" == *linux-gnu ]]; then
   task_ar="$(command -v llvm-ar || true)"
   task_strip="$(command -v llvm-strip || true)"
@@ -42,6 +49,7 @@ fi
 task_output="$task_root/target/host-artifacts/$task_target"
 mkdir -p "$task_output"
 cp "$task_binary" "$task_output/sailry-host"
+cp -R "$task_parser_output" "$task_output/"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
   --output "$task_output" --cache "$task_root/target/sherpa-onnx-prebuilt"
 task_llama=(--target "$task_target" --output "$task_output" --cache "$task_root/target/llama-prebuilt")

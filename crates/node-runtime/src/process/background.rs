@@ -20,7 +20,7 @@ struct Entry {
     output: watch::Receiver<(Capture, Capture)>,
     stop: CancellationToken,
     task: Option<JoinHandle<()>>,
-    watch: Option<(sailry_protocol::WorktreeId, Arc<crate::code::Pool>)>,
+    watch: Option<(sailry_protocol::WorktreeId, Arc<crate::code_index::Service>)>,
     input: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
     explicit: bool,
 }
@@ -59,7 +59,7 @@ impl Commands {
         &self,
         id: RequestId,
         worktree: sailry_protocol::WorktreeId,
-        code: Arc<crate::code::Pool>,
+        code: Arc<crate::code_index::Service>,
     ) {
         let finished = {
             let mut entries = self.entries.lock().unwrap();
@@ -74,9 +74,7 @@ impl Commands {
             }
         };
         if finished {
-            tokio::spawn(async move {
-                code.watched(worktree).await;
-            });
+            code.changed(worktree, None);
         }
     }
 
@@ -212,7 +210,7 @@ impl Commands {
                 }
             };
             if let Some((worktree, code)) = watch {
-                code.watched(worktree).await;
+                code.changed(worktree, None);
             }
         });
         entries.get_mut(&id).unwrap().task = Some(task);

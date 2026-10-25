@@ -5,6 +5,7 @@ pub mod backup;
 pub mod browser;
 pub mod chart;
 pub mod code;
+pub mod code_index;
 pub mod computer;
 mod config;
 pub mod connection;

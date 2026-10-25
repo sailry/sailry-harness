@@ -65,8 +65,6 @@ impl Projection {
         match update {
             Update::Python { .. }
             | Update::Installations { .. }
-            | Update::CodeServers { .. }
-            | Update::CodeInstallations { .. }
             | Update::Commands { .. }
             | Update::BrowserCall(_)
             | Update::ProviderLogin(_)

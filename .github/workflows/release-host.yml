@@ -149,6 +149,9 @@ jobs:
           python3 scripts/ci.py fixtures host
       - name: Build native Host
         run: |
+          TSLP_SOURCE_BUNDLE_URL="$(python3 scripts/package/code-parsers.py --source-only)"
+          export TSLP_SOURCE_BUNDLE_URL
+          unset TSLP_OFFLINE TSLP_LANGUAGES
           python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings -p sailry-host
       - name: Save speech native libraries
         if: always() && steps.speech-cache.outputs.cache-hit != 'true'

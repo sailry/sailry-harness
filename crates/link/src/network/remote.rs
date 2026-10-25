@@ -296,8 +296,6 @@ impl Transport for Remote {
                 sailry_protocol::Topic::ConnectorLogin(id) => Call::WatchConnectorLogin(id),
                 sailry_protocol::Topic::Connections => Call::WatchConnections,
                 sailry_protocol::Topic::Files(worktree) => Call::WatchFiles(worktree),
-                sailry_protocol::Topic::CodeInstallations => Call::WatchCodeInstallations,
-                sailry_protocol::Topic::CodeServers(worktree) => Call::WatchCodeServers(worktree),
                 sailry_protocol::Topic::Terminal(terminal) => Call::WatchTerminal(terminal),
                 sailry_protocol::Topic::Conversation(session) => Call::WatchConversation(session),
             };

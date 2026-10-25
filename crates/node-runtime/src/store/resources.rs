@@ -30,16 +30,6 @@ pub(super) async fn prepare(database: &Database, request: &Request) -> Result<()
     ) {
         return super::local_models::approvals::check(&database.connection, request).await;
     }
-    if matches!(
-        request.command,
-        Command::StartCodeServer { .. }
-            | Command::StopCodeServer { .. }
-            | Command::InstallCodeServer { .. }
-            | Command::UninstallCodeServer { .. }
-            | Command::UpdateCodeRules
-    ) {
-        return super::code::prepare(database, request).await;
-    }
     let (session, worktree) = match &request.command {
         Command::UseBrowser {
             session,
@@ -164,13 +154,6 @@ impl Worker {
                         ingress
                             .change_backup(execution.caller, &execution.request, &stop)
                             .await
-                    }
-                    Command::StartCodeServer { .. }
-                    | Command::StopCodeServer { .. }
-                    | Command::InstallCodeServer { .. }
-                    | Command::UninstallCodeServer { .. }
-                    | Command::UpdateCodeRules => {
-                        ingress.change_code(&execution.request, &stop, None).await
                     }
                     Command::UseBrowser { .. } => {
                         crate::browser::execute(

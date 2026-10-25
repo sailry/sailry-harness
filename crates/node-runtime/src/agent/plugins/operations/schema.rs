@@ -8,11 +8,8 @@ pub(super) fn description(operation: Operation) -> &'static str {
     if artifacts::handles(operation) {
         return "Access versioned HTML artifacts owned by this conversation";
     }
-    if crate::code::management::handles(operation) {
-        return crate::code::management::description(operation);
-    }
-    if crate::code::handles(operation) {
-        return crate::code::description(operation);
+    if code::handles(operation) {
+        return code::description(operation);
     }
     if knowledge::handles(operation) {
         return knowledge::description(operation);
@@ -37,6 +34,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
+        Operation::SearchCode | Operation::OutlineCode => {
+            unreachable!("code operation handled above")
+        }
         Operation::CodePackages
         | Operation::CodeCatalog
         | Operation::CodeServers
@@ -44,7 +44,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::StopCodeServer
         | Operation::InstallCodeServer
         | Operation::UninstallCodeServer => {
-            unreachable!("language management handled above")
+            unreachable!("retired operation is not executable")
         }
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
@@ -73,6 +73,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::TransferSsh => connections::description(operation),
         Operation::ListDirectory
         | Operation::ReadFile
+        | Operation::ReadFileLines
         | Operation::FindFiles
         | Operation::WriteFile
         | Operation::EditFile
@@ -137,11 +138,8 @@ pub(super) fn parameters(operation: Operation) -> Value {
     if artifacts::handles(operation) {
         return artifacts::parameters(operation);
     }
-    if crate::code::management::handles(operation) {
-        return crate::code::management::parameters(operation);
-    }
-    if crate::code::handles(operation) {
-        return crate::code::parameters(operation);
+    if code::handles(operation) {
+        return code::parameters(operation);
     }
     if knowledge::handles(operation) {
         return knowledge::parameters(operation);
@@ -156,6 +154,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         operation,
         Operation::ListDirectory
             | Operation::ReadFile
+            | Operation::ReadFileLines
             | Operation::FindFiles
             | Operation::WriteFile
             | Operation::EditFile
@@ -189,6 +188,9 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
+        Operation::SearchCode | Operation::OutlineCode => {
+            unreachable!("code operation handled above")
+        }
         Operation::CodePackages
         | Operation::CodeCatalog
         | Operation::CodeServers
@@ -196,7 +198,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::StopCodeServer
         | Operation::InstallCodeServer
         | Operation::UninstallCodeServer => {
-            unreachable!("language management handled above")
+            unreachable!("retired operation is not executable")
         }
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
@@ -311,6 +313,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         }
         Operation::ListDirectory
         | Operation::ReadFile
+        | Operation::ReadFileLines
         | Operation::FindFiles
         | Operation::WriteFile
         | Operation::EditFile
@@ -330,6 +333,12 @@ pub(super) fn command(
     arguments: Value,
     context: &plugin::Context,
 ) -> Result<Command, Fault> {
+    if !operation.current() {
+        return Err(Fault::new(
+            ErrorCode::Unavailable,
+            "retired operation cannot be executed",
+        ));
+    }
     if models::handles(operation) {
         return models::command(operation, arguments);
     }
@@ -339,11 +348,8 @@ pub(super) fn command(
     if roles::handles(operation) {
         return roles::command(operation, arguments, context);
     }
-    if crate::code::management::handles(operation) {
-        return crate::code::management::command(operation, arguments, context);
-    }
-    if crate::code::handles(operation) {
-        return crate::code::command(operation, arguments, context);
+    if code::handles(operation) {
+        return code::command(operation, arguments, context);
     }
     if knowledge::handles(operation) {
         return knowledge::command(operation, arguments, context);
@@ -354,6 +360,7 @@ pub(super) fn command(
         }
         Operation::ListDirectory
         | Operation::ReadFile
+        | Operation::ReadFileLines
         | Operation::FindFiles
         | Operation::WriteFile
         | Operation::EditFile
@@ -539,6 +546,9 @@ pub(super) fn command(
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
+        Operation::SearchCode | Operation::OutlineCode => {
+            unreachable!("code operation handled above")
+        }
         Operation::CodePackages
         | Operation::CodeCatalog
         | Operation::CodeServers
@@ -546,7 +556,7 @@ pub(super) fn command(
         | Operation::StopCodeServer
         | Operation::InstallCodeServer
         | Operation::UninstallCodeServer => {
-            unreachable!("language management handled above")
+            unreachable!("retired operation is not executable")
         }
         Operation::CodeDiagnostics
         | Operation::CodeDefinition
@@ -621,6 +631,7 @@ pub(super) fn command(
         }
         Operation::ListDirectory
         | Operation::ReadFile
+        | Operation::ReadFileLines
         | Operation::FindFiles
         | Operation::WriteFile
         | Operation::EditFile

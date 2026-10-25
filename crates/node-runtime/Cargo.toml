@@ -54,6 +54,10 @@ path = "tests/suites/resources.rs"
 name = "knowledge"
 path = "tests/suites/knowledge.rs"
 
+[[test]]
+name = "code_index"
+path = "tests/code_index.rs"
+
 [features]
 test-support = ["sailry-link/test-support"]
 
@@ -91,6 +95,8 @@ sailry-model-assets.workspace = true
 sha1.workspace = true
 sailry-link.workspace = true
 turso.workspace = true
+tree-sitter.workspace = true
+tree-sitter-language-pack.workspace = true
 unicode-normalization.workspace = true
 serde.workspace = true
 schemars.workspace = true
@@ -136,7 +142,6 @@ image.workspace = true
 adk-browser.workspace = true
 adk-core.workspace = true
 adk-gemini.workspace = true
-lsp-types.workspace = true
 flate2.workspace = true
 tar.workspace = true
 xz2.workspace = true

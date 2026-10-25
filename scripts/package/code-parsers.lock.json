@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "language_pack": "1.18.0",
+  "tree_sitter": "0.26.13",
+  "source": "https://github.com/xberg-io/tree-sitter-language-pack/releases/download/v1.18.0/",
+  "manifest": {
+    "archive": "parsers.json",
+    "sha256": "3012d9e1c81c85198bd52a9b3ddd125ff416aa285b8dfe341e46c5d218f791b6"
+  },
+  "queries": {
+    "archive": "parser-sources-1.18.0.tar.zst",
+    "size": 36575959,
+    "sha256": "3bdfbbf639f8e0fdec61c7f957bcb3da7671cb208b18aefbd721874af2017b28"
+  },
+  "targets": {
+    "aarch64-apple-darwin": {
+      "archive": "parsers-macos-arm64.tar.zst",
+      "size": 25644762,
+      "sha256": "24912f0e2d4c9a2e7f41db424aa288a010c1865df955ccb4a5843ebdef0e65fe"
+    },
+    "x86_64-apple-darwin": {
+      "archive": "parsers-macos-x86_64.tar.zst",
+      "size": 22012592,
+      "sha256": "3b9c5eeb7e7c0b9f390f49ae9a0da83bde9933f8b056b45354cd6d099c1be777"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "archive": "parsers-linux-aarch64.tar.zst",
+      "size": 22200962,
+      "sha256": "5f9af019e30e89eeea1a5c75b98a8078abdc48432c6ddb115f147fbf3808070f"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "archive": "parsers-linux-x86_64.tar.zst",
+      "size": 22571364,
+      "sha256": "17fbc905204878d72e9a85afa2fd2e76c020d5b784efd3d4727424ebb3d74a65"
+    },
+    "aarch64-pc-windows-msvc": {
+      "archive": "parsers-windows-aarch64.tar.zst",
+      "size": 21142468,
+      "sha256": "e1800172b2f7c6859c8aaa169ba0d9d8fc1f7a98314637fed59e874f6f187991"
+    },
+    "x86_64-pc-windows-msvc": {
+      "archive": "parsers-windows-x86_64.tar.zst",
+      "size": 21562264,
+      "sha256": "3e392d8a37441f63a4f1ab081d7e4def69685b1d432343f22aa4e3c56e3a8f05"
+    }
+  }
+}

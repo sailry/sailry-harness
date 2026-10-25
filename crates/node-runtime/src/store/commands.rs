@@ -221,40 +221,33 @@ pub(super) fn execute<'a>(
                 ))
             })
         }
-        Command::ReadCode { .. }
-        | Command::ListCodeServers { .. }
-        | Command::StartCodeServer { .. }
-        | Command::StopCodeServer { .. }
-        | Command::ListCodePackages { .. }
-        | Command::InstallCodeServer { .. }
-        | Command::CancelCodeInstall { .. }
-        | Command::CancelCodeQuery { .. }
-        | Command::ReadCodeCatalog
-        | Command::ListCodeInstallations
-        | Command::UninstallCodeServer { .. }
-        | Command::ReadCodeRules
-        | Command::UpdateCodeRules => defer(move || async move {
+        Command::SearchCode { .. }
+        | Command::OutlineCode { .. }
+        | Command::CancelCodeIndexQuery { .. } => defer(move || async move {
             Err(Fault::new(
                 ErrorCode::Internal,
-                "language operations must run outside the database",
+                "code queries must run outside the database",
             ))
         }),
-        Command::ReadCodeSettings => defer(move || async move {
-            Ok((Output::CodeSettings(super::code::settings(db).await?), None))
+        Command::ReadCodeIndexSettings => defer(move || async move {
+            Ok((
+                Output::CodeIndexSettings(super::code_index::settings(db).await?),
+                None,
+            ))
         }),
-        Command::SaveCodeSettings {
+        Command::SaveCodeIndexSettings {
             settings,
             expected_revision,
         } => defer(move || async move {
-            let saved = super::code::save(db, settings, *expected_revision).await?;
+            let saved = super::code_index::save(db, settings, *expected_revision).await?;
             let changed = super::plugins::services::synchronize(
                 db,
-                sailry_protocol::plugin::Service::Language,
+                sailry_protocol::plugin::Service::CodeIndex,
                 saved.enabled,
             )
             .await?;
             Ok((
-                Output::CodeSettings(saved),
+                Output::CodeIndexSettings(saved),
                 changed.map(Event::PluginChanged),
             ))
         }),

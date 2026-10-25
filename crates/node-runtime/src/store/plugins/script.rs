@@ -12,6 +12,10 @@ impl Ingress {
         deadline: Instant,
         stop: &CancellationToken,
     ) -> sailry_link::Response {
+        let code_query = matches!(
+            request.command,
+            Command::SearchCode { .. } | Command::OutlineCode { .. }
+        );
         let durable = request.command.durable();
         let id = request.id;
         #[cfg(any(test, feature = "test-support"))]
@@ -45,8 +49,8 @@ impl Ingress {
         let mut result = tokio::select! {
             biased;
             result = completion => result,
-            _ = stop.cancelled() => Err(interrupted(durable, id, false)),
-            _ = tokio::time::sleep_until(deadline.into()) => Err(interrupted(durable, id, true)),
+            _ = stop.cancelled() => {if code_query {self.code_queries.cancel(caller,id);}Err(interrupted(durable, id, false))},
+            _ = tokio::time::sleep_until(deadline.into()) => {if code_query {self.code_queries.cancel(caller,id);}Err(interrupted(durable, id, true))},
         };
         if let Err(fault) = &mut result
             && fault.details.is_none()

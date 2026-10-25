@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::{code, search};
+use sailry_protocol::{code_index, search};
 use serde_json::json;
 use std::collections::BTreeMap;
 use turso::{Connection, params};
@@ -39,6 +39,14 @@ async fn previous(
     extension.remove("enabled_service");
     if name == "computer" {
         extension.remove("tools");
+    } else if name == "code" {
+        extension.remove("host");
+        extension
+            .get_mut("tools")
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .retain(|tool| tool.get("handler").is_none());
     }
     let path = format!("previous-{name}");
     let source = directory.join("source").join(&path);
@@ -140,7 +148,7 @@ async fn disable(client: &Client, installed: Info) -> Info {
 }
 
 #[tokio::test]
-async fn adds_missing_language_settings_on_each_path() {
+async fn adds_missing_index_settings_on_each_path() {
     for remote in [false, true] {
         let (directory, node, controller, client, _) = fixture(remote).await;
         let memory = info(
@@ -170,22 +178,22 @@ async fn adds_missing_language_settings_on_each_path() {
             },
         )
         .await;
-        let Output::CodeSettings(mut settings) = execute(&client, Command::ReadCodeSettings).await
+        let Output::CodeIndexSettings(mut settings) =
+            execute(&client, Command::ReadCodeIndexSettings).await
         else {
-            panic!("language settings expected")
+            panic!("code index settings expected")
         };
         settings.enabled = false;
-        settings.after_edit = false;
-        let Output::CodeSettings(settings) = execute(
+        let Output::CodeIndexSettings(settings) = execute(
             &client,
-            Command::SaveCodeSettings {
+            Command::SaveCodeIndexSettings {
                 expected_revision: settings.revision,
                 settings,
             },
         )
         .await
         else {
-            panic!("language settings expected")
+            panic!("code index settings expected")
         };
         let Output::Plugins(mut before) = execute(&client, Command::ListPlugins).await else {
             panic!("inventory expected")
@@ -238,18 +246,15 @@ async fn adds_missing_language_settings_on_each_path() {
         );
         assert!(!code.summary.enabled);
         assert_eq!(
-            execute(&client, Command::ReadCodeSettings).await,
-            Output::CodeSettings(settings)
+            execute(&client, Command::ReadCodeIndexSettings).await,
+            Output::CodeIndexSettings(settings)
         );
         assert_eq!(code.origin, Some(plugin::Origin::Bundled));
         let page = code.extension.unwrap().settings_page.unwrap();
-        assert_eq!(
-            page.entry.as_deref(),
-            Some("dev.sailry.platform/desktop/settings.js")
-        );
-        assert_eq!(page.navigation.label("en"), "Language services");
+        assert!(page.entry.is_none());
+        assert_eq!(page.navigation.label("en"), "Code index");
         assert_eq!(page.placement.group, plugin::desktop::SettingsGroup::Tools);
-        assert!(page.entry.is_some());
+        assert!(page.entry.is_none());
         assert_eq!(
             info(
                 execute(
@@ -304,7 +309,7 @@ async fn adds_missing_language_settings_on_each_path() {
     }
 }
 
-async fn capture(client: &Client, worktree: WorktreeId) -> (Session, TurnId) {
+pub(super) async fn capture(client: &Client, worktree: WorktreeId) -> (Session, TurnId) {
     let model = completion::configure(client, "http://127.0.0.1:9/".into()).await;
     let Output::Snapshot(snapshot) = execute(client, Command::Snapshot).await else {
         panic!("snapshot expected");
@@ -377,24 +382,15 @@ async fn capture(client: &Client, worktree: WorktreeId) -> (Session, TurnId) {
     (session, turn.id)
 }
 
-async fn settings(client: &Client) -> (code::Settings, search::Settings) {
-    let Output::CodeSettings(mut code) = execute(client, Command::ReadCodeSettings).await else {
-        panic!("code settings expected");
+async fn settings(client: &Client) -> (code_index::Settings, search::Settings) {
+    let Output::CodeIndexSettings(mut code) = execute(client, Command::ReadCodeIndexSettings).await
+    else {
+        panic!("code index settings expected");
     };
-    code.after_edit = false;
-    code.servers.insert(
-        "rust-analyzer".into(),
-        code::Override {
-            disabled: false,
-            command: Some("fixture-language-server".into()),
-            args: Some(vec!["--fixture".into()]),
-            config: Some(json!({"fixture":true})),
-            environment: Some(BTreeMap::from([("FIXTURE".into(), "retained".into())])),
-        },
-    );
-    let Output::CodeSettings(code) = execute(
+    code.enabled = false;
+    let Output::CodeIndexSettings(code) = execute(
         client,
-        Command::SaveCodeSettings {
+        Command::SaveCodeIndexSettings {
             expected_revision: code.revision,
             settings: code,
         },
@@ -687,10 +683,10 @@ async fn retains_disabled_configuration_on_each_path() {
                 .unwrap();
             assert_eq!(
                 page.entry.as_deref(),
-                Some("dev.sailry.platform/desktop/settings.js")
+                (previous.summary.name != "code")
+                    .then_some("dev.sailry.platform/desktop/settings.js")
             );
             assert!(page.enabled_control);
-            assert!(page.entry.is_some());
             let captured = info(
                 execute(
                     &client,
@@ -766,8 +762,8 @@ async fn retains_disabled_configuration_on_each_path() {
         };
         assert_eq!(current_captures, captures);
         assert_eq!(
-            execute(&client, Command::ReadCodeSettings).await,
-            Output::CodeSettings(configured.0.clone())
+            execute(&client, Command::ReadCodeIndexSettings).await,
+            Output::CodeIndexSettings(configured.0.clone())
         );
         assert_eq!(
             execute(&client, Command::ReadSearchSettings).await,
@@ -805,8 +801,8 @@ async fn retains_disabled_configuration_on_each_path() {
         });
         assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
         assert_eq!(
-            execute(&client, Command::ReadCodeSettings).await,
-            Output::CodeSettings(configured.0)
+            execute(&client, Command::ReadCodeIndexSettings).await,
+            Output::CodeIndexSettings(configured.0)
         );
         assert_eq!(
             execute(&client, Command::ReadSearchSettings).await,

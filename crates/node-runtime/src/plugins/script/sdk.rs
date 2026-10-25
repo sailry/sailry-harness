@@ -454,6 +454,9 @@ fn allowed(command: &Command) -> bool {
             | Command::Dispatch { .. }
             | Command::StopDispatchTurn { .. }
             | Command::ReadFile { .. }
+            | Command::SearchCode { .. }
+            | Command::OutlineCode { .. }
+            | Command::CancelCodeIndexQuery { .. }
             | Command::ReadFileLines { .. }
             | Command::FindFiles { .. }
             | Command::WriteFile { .. }

@@ -173,6 +173,9 @@ jobs:
           python3 scripts/ci.py fixtures desktop
       - name: Build native Desktop
         run: |
+          TSLP_SOURCE_BUNDLE_URL="$(python3 scripts/package/code-parsers.py --source-only)"
+          export TSLP_SOURCE_BUNDLE_URL
+          unset TSLP_OFFLINE TSLP_LANGUAGES
           python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings -p sailry-desktop -p sailry-release
       - name: Stage native Desktop
         env:

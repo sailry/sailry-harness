@@ -331,6 +331,7 @@ mod tests {
                 path: "file".into(),
                 offset: 0,
                 limit: 200,
+                expected_revision: None,
             },
             crate::Command::FindFiles {
                 worktree: crate::WorktreeId::new(),

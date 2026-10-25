@@ -60,6 +60,8 @@ class Selection(unittest.TestCase):
             ("services/pairing-relay/src/server.ts", {"services"}),
             ("plugins", ci.NATIVE),
             ("plugins/code/skills/python/SKILL.md", ci.NATIVE),
+            ("scripts/package/code-parsers.py", {"shared", "desktop", "host", "mobile_ffi"}),
+            ("scripts/package/code-parsers.lock.json", {"shared", "desktop", "host", "mobile_ffi"}),
             ("themes", set()),
             ("themes/catalog.json", set()),
             ("themes/great-sage/theme.json", set()),
@@ -212,12 +214,14 @@ class Lint(unittest.TestCase):
                          ["sailry-content", "sailry-desktop", "sailry-host"])
 
     def test_runs_one_strict_command(self):
-        with patch.object(ci.subprocess, "run") as run:
+        with patch.object(ci, "parser_environment", return_value={}) as prepare, \
+                patch.object(ci.subprocess, "run") as run:
             run.return_value.returncode = 1
             self.assertEqual(ci.lint(ci.outputs({"host"}), "1"), 1)
             run.assert_called_once_with(
                 ["cargo", "clippy", "--locked", "-p", "sailry-host", "--all-targets",
-                 "--jobs", "1", "--", "-D", "warnings"], check=False)
+                 "--jobs", "1", "--", "-D", "warnings"], env={}, check=False)
+            prepare.assert_called_once_with(ROOT, None, libraries=False)
         for selection, jobs in (({}, "1"), (ci.outputs(set()), "1"),
                                 (ci.outputs({"host"}), "0"), (ci.outputs({"host"}), "1; false")):
             with self.subTest(selection=selection, jobs=jobs):

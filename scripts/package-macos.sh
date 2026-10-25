@@ -57,9 +57,13 @@ task_ocu=(--target "$task_target" --cache "$task_root/target/ocu-helper-cache")
 if test "$task_signing" != developer-id; then task_ocu+=(--sign -); fi
 task_llama=(--target "$task_target" --cache "$task_root/target/llama-prebuilt" --source "$task_build")
 if test "$task_signing" != developer-id; then task_llama+=(--sign -); fi
+task_parsers=(--target "$task_target" --cache "$task_root/.runtime/code-index/resources")
+if test "$task_signing" != developer-id; then task_parsers+=(--sign -); fi
 if test "$task_desktop" = 1; then
   mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources"
   cp "$task_build/sailry-desktop" "$task_app/Contents/MacOS/sailry-desktop"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" "${task_parsers[@]}" \
+    --output "$task_app/Contents/Resources/code-parsers"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
     --output "$task_app/Contents/MacOS" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt" --speech
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" "${task_llama[@]}" \
@@ -81,6 +85,8 @@ fi
 if test "$task_host" = 1; then
   mkdir -p "$task_output/host"
   cp "$task_build/sailry-host" "$task_output/host/sailry-host"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/code-parsers.py" "${task_parsers[@]}" \
+    --output "$task_output/host/code-parsers"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
     --output "$task_output/host" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" "${task_llama[@]}" \

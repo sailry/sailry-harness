@@ -3,11 +3,23 @@ use sailry_protocol::{
     ErrorCode, Fault, FileLine, FileLines, MAX_EDIT_BYTES, MAX_FILE_BYTES, MAX_FILE_LINES,
 };
 
+#[cfg(test)]
 pub(super) fn read<'a>(
     root: impl Into<super::Scope<'a>>,
     path: String,
     offset: usize,
     limit: usize,
+    control: &Control,
+) -> Result<FileLines, Fault> {
+    read_version(root, path, offset, limit, None, control)
+}
+
+pub(super) fn read_version<'a>(
+    root: impl Into<super::Scope<'a>>,
+    path: String,
+    offset: usize,
+    limit: usize,
+    expected: Option<&str>,
     control: &Control,
 ) -> Result<FileLines, Fault> {
     if limit == 0 {
@@ -17,6 +29,12 @@ pub(super) fn read<'a>(
     let text = complete(root, &path, control)?;
     let size = text.len() as u64;
     let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
+    if expected.is_some_and(|expected| expected != revision) {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "file changed before reading its indexed range",
+        ));
+    }
     let mut lines = Vec::new();
     let mut bytes = 0usize;
     let mut next_offset = None;
@@ -54,6 +72,20 @@ pub(super) fn complete<'a>(
     relative: &str,
     control: &Control,
 ) -> Result<String, Fault> {
+    bounded(root, relative, MAX_EDIT_BYTES, control)?
+        .ok_or_else(|| Fault::invalid("text file exceeds the inspection limit"))
+}
+
+/// Read complete text through the ordinary confined file kernel, never a preview.
+pub(crate) fn bounded<'a>(
+    root: impl Into<super::Scope<'a>>,
+    relative: &str,
+    limit: usize,
+    control: &Control,
+) -> Result<Option<String>, Fault> {
+    if limit == 0 || limit > MAX_EDIT_BYTES {
+        return Err(Fault::invalid("text inspection limit is invalid"));
+    }
     let scope = root.into();
     control.check()?;
     let parts = scope.components(relative, false)?;
@@ -61,12 +93,13 @@ pub(super) fn complete<'a>(
     let directory = path::descend(path::root(scope.path())?, parents)?;
     let mut file = open_regular(&directory, name)?;
     let before = file.metadata().map_err(io_error)?;
-    if before.len() > MAX_EDIT_BYTES as u64 {
-        return Err(Fault::invalid("text file exceeds the inspection limit"));
+    if before.len() > limit as u64 {
+        return Ok(None);
     }
-    let bytes = read_bytes(&mut file, MAX_EDIT_BYTES + 1, control)?;
+    let bytes = read_bytes(&mut file, limit + 1, control)?;
     let after = file.metadata().map_err(io_error)?;
-    if bytes.len() as u64 != before.len()
+    if bytes.len() > limit
+        || bytes.len() as u64 != before.len()
         || before.len() != after.len()
         || before.modified().ok() != after.modified().ok()
     {
@@ -79,7 +112,7 @@ pub(super) fn complete<'a>(
     if text.contains('\0') {
         return Err(Fault::invalid("binary file cannot be displayed as text"));
     }
-    Ok(text)
+    Ok(Some(text))
 }
 
 #[cfg(test)]

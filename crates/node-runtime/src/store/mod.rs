@@ -5,7 +5,7 @@ mod attachments;
 mod background_settings;
 mod backup;
 mod captures;
-mod code;
+mod code_index;
 mod commands;
 mod connections;
 pub(crate) mod database;
@@ -278,10 +278,6 @@ enum Job {
         id: sailry_protocol::TerminalId,
         reply: oneshot::Sender<Result<terminals::Opening, Fault>>,
     },
-    CodeApproved {
-        startup: sailry_protocol::code::Startup,
-        reply: oneshot::Sender<Result<bool, Fault>>,
-    },
     PluginView {
         surface: sailry_protocol::plugin::desktop::Surface,
         package: sailry_protocol::plugin::Reference,
@@ -355,11 +351,11 @@ pub(crate) struct Ingress {
     pub(crate) browsers: Arc<crate::browser::Browsers>,
     pub(crate) external_browser: Arc<crate::external_browser::Browsers>,
     pub(crate) git: crate::git::Git,
-    pub(crate) code: Arc<crate::code::Pool>,
+    pub(crate) code_index: Arc<crate::code_index::Service>,
     pub(crate) ocr: Arc<crate::ocr::Service>,
     pub(crate) local_models: Arc<crate::models::registry::Registry>,
     pub(crate) knowledge: Arc<OnceLock<Arc<crate::knowledge::Service>>>,
-    code_queries: Arc<crate::code::Queries>,
+    pub(crate) code_queries: Arc<crate::code_index::Queries>,
     pub(crate) web: Arc<crate::web::Fetcher>,
     pub(crate) search: Arc<crate::web::Searcher>,
     terminals: Arc<crate::terminal::Terminals>,
@@ -483,6 +479,7 @@ impl Store {
                 let _ = failures.send(Job::PowerFailed(code)).await;
             });
         });
+        let watches = Arc::new(crate::files::watch::Watches::default());
         let ingress = Arc::new(Ingress {
             storage: Arc::default(),
             operations: operations.tasks.clone(),
@@ -503,16 +500,21 @@ impl Store {
             model_catalog_fixtures: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             forwarding_wait: Arc::default(),
-            watches: Arc::new(crate::files::watch::Watches::default()),
+            watches: watches.clone(),
             transfers: crate::files::transfers::Transfers::new(profile.clone()),
             ports: Arc::new(crate::ports::Ports::default()),
             browsers: Arc::default(),
             external_browser: Arc::new(crate::external_browser::Browsers::new(profile.clone())),
             git: crate::git::Git::new(),
-            code_queries: Arc::new(crate::code::Queries::default()),
+            code_queries: Arc::new(crate::code_index::Queries::default()),
             web: Arc::default(),
             search: Arc::default(),
-            code: crate::code::Pool::new(profile.clone(), environment.clone(), closed.clone()),
+            code_index: crate::code_index::Service::new(
+                profile.clone(),
+                node,
+                watches.clone(),
+                closed.clone(),
+            ),
             ocr,
             local_models,
             knowledge: Arc::new(OnceLock::new()),
@@ -560,7 +562,6 @@ impl Store {
         let git = ingress.git.clone();
         let commands = ingress.commands.clone();
         let process_runtime = tokio::runtime::Handle::current();
-        let cleanup_runtime = tokio::runtime::Handle::current();
         let attachment_profile = profile.clone();
         let terminal_profile = profile.clone();
         let mut network_work = network::Worker::new(
@@ -597,7 +598,7 @@ impl Store {
             ingress.sender.clone(),
             ingress.closed.clone(),
         );
-        let code_pool = ingress.code.clone();
+        let code_index = ingress.code_index.clone();
         let searcher = ingress.search.clone();
         let feeds = ingress.feeds.clone();
         let model_clients = ingress.model_clients.clone();
@@ -647,9 +648,9 @@ impl Store {
                 let _ = ready.send(Err(crate::Error::from(error)));
                 return Ok(());
             }
-            match code::initialize(&mut database.connection).await {
+            match code_index::initialize(&mut database.connection).await {
                 Ok(settings) => {
-                    cleanup_runtime.spawn(code_pool.configure(settings));
+                    code_index.configure(settings.enabled);
                 }
                 Err(error) => {
                     let _ = ready.send(Err(crate::Error::from(error)));
@@ -660,6 +661,7 @@ impl Store {
             let mut mutations = match mutations::Worker::start(
                 completed,
                 watches.clone(),
+                code_index.clone(),
                 move |caller, roots, request| {
                     let root = &roots.target;
                     match &request.command {
@@ -965,8 +967,7 @@ impl Store {
                     let mutations = &mut mutations;
                     let events = &events;
                     let agents = &agents;
-                    let code_pool = &code_pool;
-                    let cleanup_runtime = &cleanup_runtime;
+                    let code_index = &code_index;
                     let accepting = &accepting;
                     let closing = &closing;
                     let dispatch_controls = &dispatch_controls;
@@ -1047,13 +1048,12 @@ impl Store {
                             closing.store(true, Ordering::Release);
                         }),
                         Job::Completed(completed) => Box::pin(async move {
-                            code::observe(
-                                database,
-                                &completed.request,
-                                &completed.result,
-                                code_pool,
-                                cleanup_runtime,
-                            );
+                            if completed.result.is_ok()
+                                && let sailry_protocol::Command::RemoveWorktree { worktree, .. } =
+                                    completed.request.command
+                            {
+                                code_index.remove(worktree);
+                            }
                             let result = database
                                 .finish_external(
                                     completed.caller,
@@ -1065,9 +1065,9 @@ impl Store {
                             if matches!(&result, Ok(sailry_protocol::Output::Plugin(_))) {
                                 dispatch_controls.wake.notify_one();
                             }
-                            if result.is_ok() && code::configures(&completed.request.command) {
-                                code::refresh(&database.connection, code_pool, cleanup_runtime)
-                                    .await;
+                            if result.is_ok() && code_index::configures(&completed.request.command)
+                            {
+                                code_index::refresh(&database.connection, code_index).await;
                             }
                             let _ = completed.reply.send(result);
                             mutations.pending -= 1;
@@ -1088,9 +1088,9 @@ impl Store {
                             if matches!(&result, Ok(sailry_protocol::Output::Plugin(_))) {
                                 dispatch_controls.wake.notify_one();
                             }
-                            if result.is_ok() && code::configures(&completed.request.command) {
-                                code::refresh(&database.connection, code_pool, cleanup_runtime)
-                                    .await;
+                            if result.is_ok() && code_index::configures(&completed.request.command)
+                            {
+                                code_index::refresh(&database.connection, code_index).await;
                             }
                             installing.installations.finish(
                                 completed.caller,
@@ -1165,16 +1165,14 @@ impl Store {
                             resource_work.pending -= 1;
                         }),
                         Job::Executed(completed) => Box::pin(async move {
-                            if matches!(completed.result, Ok(sailry_protocol::Output::CommandResult(_)))
-                                && let sailry_protocol::Command::RunCommand { turn, .. } = &completed.request.command
+                            if let sailry_protocol::Command::RunCommand { turn, .. } = &completed.request.command
                                 && let Ok(worktree) = (async { let mut statement = database.connection.prepare("SELECT r.worktree FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1").await?;
 let row = statement.query_row([turn.to_string()]).await?;
 let mapped: turso::Result<_> = row.get::<String>(0);
 mapped }).await
                                 && let Ok(worktree) = worktree.parse()
                             {
-                                let pool = code_pool.clone();
-                                cleanup_runtime.spawn(async move { pool.watched(worktree).await; });
+                                code_index.changed(worktree,None);
                             }
                             let result = database
                                 .finish_external(
@@ -1243,18 +1241,6 @@ mapped }).await
                                             execution,
                                         )
                                         .await
-                                        .err()
-                                        .map(|execution| {
-                                            (execution.caller, execution.request, execution.reply)
-                                        })
-                                    } else if installations::language::handles(
-                                        &execution.request.command,
-                                    ) {
-                                        installations::language::submit(
-                                            installations,
-                                            installing.clone(),
-                                            execution,
-                                        )
                                         .err()
                                         .map(|execution| {
                                             (execution.caller, execution.request, execution.reply)
@@ -1451,7 +1437,7 @@ mapped }).await
         let browsers = self.ingress.external_browser.shutdown().await;
         self.ingress.ports.join().await;
         self.ingress.commands.close().await;
-        self.ingress.code.shutdown().await;
+        self.ingress.code_index.shutdown();
         let terminals = self.ingress.terminals.clone();
         tokio::task::spawn_blocking(move || terminals.join())
             .await
@@ -1592,15 +1578,6 @@ impl Handler for Ingress {
             }
             if let sailry_protocol::Topic::Conversation(id) = topic {
                 return self.conversation(id).await;
-            }
-            if matches!(topic, sailry_protocol::Topic::CodeInstallations) {
-                return Ok(self.code.subscribe(self.node, None, self.closed.clone()));
-            }
-            if let sailry_protocol::Topic::CodeServers(worktree) = topic {
-                self.worktree_root(worktree).await?;
-                return Ok(self
-                    .code
-                    .subscribe(self.node, Some(worktree), self.closed.clone()));
             }
             if let sailry_protocol::Topic::Files(worktree) = topic {
                 let root = self.worktree_root(worktree).await?;

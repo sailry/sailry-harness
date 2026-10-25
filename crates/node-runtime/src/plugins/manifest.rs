@@ -148,22 +148,22 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                                 )
                             && parsed.tools.len() <= 256
                             && parsed.tools.iter().enumerate().all(|(index, tool)| {
-                                tool.valid()
+                                tool.valid() && tool.operation.is_none_or(|operation|operation.current())
                                     && tool.handler.as_ref().is_none_or(|handler| {
-                                        parsed.host.as_ref().is_some_and(|host| {
+                                        handler.operation.is_none_or(|operation|operation.current()) && parsed.host.as_ref().is_some_and(|host| {
                                             host.handlers.contains(&handler.name)
                                                 && handler
                                                     .result
                                                     .as_ref()
                                                     .is_none_or(|name| host.handlers.contains(name))
                                         }) && handler.flow.as_ref().is_none_or(|flow| {
-                                            flow.operations.iter().all(|operation| {
+                                            flow.operations.iter().all(|operation| {operation.current() &&
                                                 operation.action().is_none_or(|action| {
                                                     parsed.actions.contains(&action)
                                                 })
                                             })
                                         }) && handler
-                                            .operation
+                                            .operation.filter(|operation|operation.current())
                                             .and_then(|operation| operation.action())
                                             .is_none_or(|action| parsed.actions.contains(&action))
                                     })
@@ -176,11 +176,12 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                                     })
                             })
                             && parsed.actions.iter().enumerate().all(|(index, action)| {
-                                !parsed.actions[..index].contains(action)
+                                action.current() && !parsed.actions[..index].contains(action)
                             })
                             && parsed.enabled_service.is_none_or(|service| match service {
-                                sailry_protocol::plugin::Service::Language => parsed.scope == sailry_protocol::plugin::Scope::Host
-                                    && parsed.actions.contains(&sailry_protocol::plugin::Action::SaveCodeSettings),
+                                sailry_protocol::plugin::Service::CodeIndex => parsed.scope == sailry_protocol::plugin::Scope::Host
+                                    && parsed.actions.contains(&sailry_protocol::plugin::Action::ReadCodeIndex),
+                                sailry_protocol::plugin::Service::Language => false,
                             })
                             && parsed.desktop.as_ref().is_none_or(|desktop| {
                                 desktop.valid()

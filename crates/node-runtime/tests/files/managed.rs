@@ -114,6 +114,7 @@ async fn shares_manual_operations_without_root_grants() {
                 path: path.clone(),
                 offset: 0,
                 limit: 10,
+                expected_revision: None,
             },
         )
         .await

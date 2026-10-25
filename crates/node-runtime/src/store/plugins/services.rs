@@ -3,13 +3,19 @@ use super::*;
 use plugin::Service;
 
 fn binding(info: &Info) -> Option<Service> {
-    info.extension.as_ref()?.enabled_service
+    info.extension
+        .as_ref()?
+        .enabled_service
+        .map(|service| match service {
+            Service::Language => Service::CodeIndex,
+            service => service,
+        })
 }
 
 pub(super) async fn initial(db: &Connection, info: &Info) -> Result<Option<bool>, Fault> {
     match binding(info) {
-        Some(Service::Language) => Ok(Some(super::super::code::settings(db).await?.enabled)),
-        None => Ok(None),
+        Some(Service::CodeIndex) => Ok(Some(super::super::code_index::settings(db).await?.enabled)),
+        None | Some(Service::Language) => Ok(None),
     }
 }
 
@@ -25,8 +31,8 @@ pub(in crate::store) async fn enabled(
 
 pub(super) async fn apply(db: &Connection, info: &Info, enabled: bool) -> Result<(), Fault> {
     match binding(info) {
-        Some(Service::Language) => super::super::code::enable(db, enabled).await,
-        None => Ok(()),
+        Some(Service::CodeIndex) => super::super::code_index::enable(db, enabled).await,
+        None | Some(Service::Language) => Ok(()),
     }
 }
 

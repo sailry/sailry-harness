@@ -172,12 +172,20 @@ pub struct Extension {
     pub cards: Vec<card::Declaration>,
 }
 
-/// Protected native account sources; never expose plaintext to package scripts.
 /// A service binding grants no command capabilities by itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Service {
+    CodeIndex,
+    // Retained only when reading immutable historical package declarations.
+    #[schemars(skip)]
     Language,
+}
+
+impl Service {
+    pub fn current(self) -> bool {
+        self == Self::CodeIndex
+    }
 }
 
 impl Extension {

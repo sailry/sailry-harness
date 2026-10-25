@@ -117,28 +117,45 @@ pub enum Operation {
     ListArtifactRevisions,
     #[serde(rename = "artifacts.write")]
     WriteArtifact,
+    #[serde(rename = "code.search")]
+    SearchCode,
+    #[serde(rename = "code.outline")]
+    OutlineCode,
+    // Historical declarations still deserialize, but cannot be installed or executed.
+    #[schemars(skip)]
     #[serde(rename = "code.packages")]
     CodePackages,
+    #[schemars(skip)]
     #[serde(rename = "code.catalog")]
     CodeCatalog,
+    #[schemars(skip)]
     #[serde(rename = "code.servers")]
     CodeServers,
+    #[schemars(skip)]
     #[serde(rename = "code.start")]
     StartCodeServer,
+    #[schemars(skip)]
     #[serde(rename = "code.stop")]
     StopCodeServer,
+    #[schemars(skip)]
     #[serde(rename = "code.install")]
     InstallCodeServer,
+    #[schemars(skip)]
     #[serde(rename = "code.uninstall")]
     UninstallCodeServer,
+    #[schemars(skip)]
     #[serde(rename = "code.diagnostics")]
     CodeDiagnostics,
+    #[schemars(skip)]
     #[serde(rename = "code.definition")]
     CodeDefinition,
+    #[schemars(skip)]
     #[serde(rename = "code.references")]
     CodeReferences,
+    #[schemars(skip)]
     #[serde(rename = "code.hover")]
     CodeHover,
+    #[schemars(skip)]
     #[serde(rename = "code.symbols")]
     CodeSymbols,
     #[serde(rename = "git.status")]
@@ -191,6 +208,8 @@ pub enum Operation {
     ListDirectory,
     #[serde(rename = "files.read")]
     ReadFile,
+    #[serde(rename = "files.read_lines")]
+    ReadFileLines,
     #[serde(rename = "files.write")]
     WriteFile,
     #[serde(rename = "files.edit")]
@@ -272,6 +291,24 @@ pub enum Operation {
 }
 
 impl Operation {
+    pub fn current(self) -> bool {
+        !matches!(
+            self,
+            Self::CodePackages
+                | Self::CodeCatalog
+                | Self::CodeServers
+                | Self::StartCodeServer
+                | Self::StopCodeServer
+                | Self::InstallCodeServer
+                | Self::UninstallCodeServer
+                | Self::CodeDiagnostics
+                | Self::CodeDefinition
+                | Self::CodeReferences
+                | Self::CodeHover
+                | Self::CodeSymbols
+        )
+    }
+
     pub fn action(self) -> Option<crate::plugin::Action> {
         use crate::plugin::Action;
         match self {
@@ -282,6 +319,7 @@ impl Operation {
                 Some(Action::ReadArtifacts)
             }
             Self::WriteArtifact => Some(Action::WriteArtifacts),
+            Self::SearchCode | Self::OutlineCode => Some(Action::ReadCodeIndex),
             Self::InstallCodeServer
             | Self::UninstallCodeServer
             | Self::StartCodeServer
@@ -318,6 +356,7 @@ impl Operation {
             }
             Self::ListDirectory
             | Self::ReadFile
+            | Self::ReadFileLines
             | Self::FindFiles
             | Self::SearchFiles
             | Self::ReadOffice

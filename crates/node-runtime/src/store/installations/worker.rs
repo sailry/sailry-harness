@@ -24,15 +24,14 @@ pub(in crate::store) struct Worker {
 enum Lane {
     Plugin(String),
     Model(Kind),
-    Language(String),
 }
 
-fn lane(resource: &Resource) -> Lane {
+fn lane(resource: &Resource) -> Option<Lane> {
     match resource {
-        Resource::Plugin { name } => Lane::Plugin(name.clone()),
+        Resource::Plugin { name } => Some(Lane::Plugin(name.clone())),
         // Model services serialize mutation within a family, including distinct model IDs.
-        Resource::Model { kind, .. } => Lane::Model(*kind),
-        Resource::Language { package, .. } => Lane::Language(package.clone()),
+        Resource::Model { kind, .. } => Some(Lane::Model(*kind)),
+        Resource::Language { .. } => None,
     }
 }
 
@@ -56,6 +55,9 @@ impl Worker {
         F: FnOnce(Reporter, CancellationToken) -> Future + Send + 'static,
         Future: std::future::Future<Output = Response> + Send + 'static,
     {
+        let Some(lane) = lane(&resource) else {
+            return Err(Box::new(execution));
+        };
         let reporter: Reporter = if execution.observe {
             self.ingress
                 .installations
@@ -86,7 +88,7 @@ impl Worker {
         };
         retain(&mut self.preceding);
         let (release, waiting) = oneshot::channel();
-        let preceding = self.preceding.insert(lane(&resource), waiting);
+        let preceding = self.preceding.insert(lane, waiting);
         self.pending += 1;
         let ingress = self.ingress.clone();
         self.runtime.spawn(async move {

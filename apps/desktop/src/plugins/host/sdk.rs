@@ -346,10 +346,7 @@ impl Host {
             .ok_or_else(|| HostError::new("plugin request draft is unavailable"))?;
 
         let owner = self.clone();
-        let feedback = self
-            .model_feedback(&request)
-            .or_else(|| self.language_feedback(&request));
-        let captured = request.clone();
+        let feedback = self.model_feedback(&request);
         Ok(async move {
             let runtime = owner.runtime.clone();
             runtime
@@ -357,18 +354,13 @@ impl Host {
                     let work = async {
                         let result = confirmed(&owner.client, request).await?;
                         if let Some(feedback) = feedback {
-                            let outcome =
-                                if matches!(captured.command, Command::InstallCodeServer { .. }) {
-                                    crate::installations::language::completion(&captured, &result)
-                                } else {
-                                    match &result {
-                                        Ok(Output::LocalModel { .. }) => Ok(()),
-                                        Err(error) => Err(error.clone()),
-                                        _ => Err(sailry_protocol::Fault::invalid(
-                                            "unexpected model installation response",
-                                        )),
-                                    }
-                                };
+                            let outcome = match &result {
+                                Ok(Output::LocalModel { .. }) => Ok(()),
+                                Err(error) => Err(error.clone()),
+                                _ => Err(sailry_protocol::Fault::invalid(
+                                    "unexpected model installation response",
+                                )),
+                            };
                             let _ = feedback.send(outcome);
                         }
                         owner.finish_settings(id, &result)?;
@@ -386,32 +378,6 @@ impl Host {
                 .await
                 .map_err(|_| HostError::new("plugin request worker failed"))?
         })
-    }
-
-    fn language_feedback(
-        &self,
-        request: &Request,
-    ) -> Option<tokio::sync::oneshot::Sender<Result<(), sailry_protocol::Fault>>> {
-        if !matches!(request.command, Command::InstallCodeServer { .. }) {
-            return None;
-        }
-        let runtime = self.models.lock().ok()?.runtime.clone()?;
-        gpui_shell::with_current_app(|cx| {
-            let window = cx.active_window()?;
-            window
-                .update(cx, |_, window, cx| {
-                    crate::installations::language::external(
-                        self.client.clone(),
-                        runtime,
-                        request,
-                        window,
-                        cx,
-                    )
-                })
-                .ok()
-                .flatten()
-        })
-        .flatten()
     }
 }
 

@@ -1,6 +1,7 @@
 use super::*;
 use sailry_protocol::backup::Destination;
 use std::time::Duration;
+mod history;
 
 fn destination() -> Destination {
     Destination {

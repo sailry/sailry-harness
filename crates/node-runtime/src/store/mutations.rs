@@ -26,7 +26,21 @@ pub(super) struct Roots {
 }
 
 impl Roots {
-    fn changed(&self, output: &Output, watches: &crate::files::watch::Watches) {
+    fn changed(
+        &self,
+        command: &Command,
+        output: &Output,
+        watches: &crate::files::watch::Watches,
+        index: &crate::code_index::Service,
+    ) {
+        for (root, path) in self.entries(command) {
+            index.invalidate(&root, Some(&path));
+        }
+        match output {
+            Output::FileWritten(file) => index.invalidate(&self.target, Some(&file.path)),
+            Output::FileRestored(file) => index.invalidate(&self.target, Some(&file.path)),
+            _ => {}
+        }
         match output {
             Output::EntryMoved { .. } => {
                 watches.changed(&self.source);
@@ -91,6 +105,7 @@ impl Worker {
     pub fn start(
         completed: mpsc::Sender<Job>,
         watches: Arc<crate::files::watch::Watches>,
+        index: Arc<crate::code_index::Service>,
         execute: impl Fn(NodeId, &Roots, &Request) -> Response + Send + 'static,
     ) -> Result<Self, Error> {
         let (sender, mut receiver) = mpsc::channel::<Mutation>(CAPACITY);
@@ -109,7 +124,21 @@ impl Worker {
                     });
                     if let Ok(output) = &result {
                         // A completed physical change remains visible if receipt persistence fails.
-                        mutation.roots.changed(output, &watches);
+                        mutation
+                            .roots
+                            .changed(&mutation.request.command, output, &watches, &index);
+                    }
+                    if matches!(
+                        mutation.request.command,
+                        Command::RunGitAction { .. }
+                            | Command::CreateGitBranch { .. }
+                            | Command::RenameGitBranch { .. }
+                            | Command::DeleteGitBranch { .. }
+                            | Command::MergeGitBranch { .. }
+                            | Command::SwitchGitBranch { .. }
+                    ) {
+                        index.invalidate(&mutation.roots.target, None);
+                        watches.changed(&mutation.roots.target);
                     }
                     // The store drains completions before closing its database and joining us.
                     if completed

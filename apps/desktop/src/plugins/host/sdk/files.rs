@@ -12,6 +12,7 @@ impl Host {
         documents: Option<Entity<Controller>>,
     ) -> HostModule {
         let list = self.clone();
+        let lines = self.clone();
         let search = self.clone();
         let action = self.clone();
         let pending: Arc<Mutex<Option<CancellationToken>>> = Default::default();
@@ -20,6 +21,17 @@ impl Host {
             let path = args.string(0)?.to_owned();
             let after = args.get(1).filter(|value| !matches!(value, HostValue::Null)).map(|value| serde_json::from_value(decode(value)?).map_err(|error| HostError::new(error.to_string()))).transpose()?;
             list.read_scoped(Command::ListDirectory { worktree: list.file_worktree()?, path, after }, true)
+        }).async_function("readFileLines", move |args| {
+            let offset = args.get(1).map(decode).transpose()?.map(serde_json::from_value)
+                .transpose().map_err(|_| HostError::new("invalid line offset"))?.unwrap_or(0);
+            let limit = args.get(2).map(decode).transpose()?.map(serde_json::from_value)
+                .transpose().map_err(|_| HostError::new("invalid line limit"))?.unwrap_or(200);
+            let expected_revision = args.get(3).filter(|value| !matches!(value, HostValue::Null))
+                .map(|value| value.as_str().map(str::to_owned).ok_or_else(|| HostError::new("invalid file revision")))
+                .transpose()?;
+            lines.read_scoped(Command::ReadFileLines {
+                worktree:lines.file_worktree()?, path:args.string(0)?.into(), offset, limit, expected_revision,
+            }, true)
         }).async_function("searchFiles", move |args| {
             let options: FileSearch = serde_json::from_value(decode(args.value(0)?)?).map_err(|error| HostError::new(error.to_string()))?;
             let request = search.client.prepare(Command::SearchFiles { worktree: search.file_worktree()?, options }).with_plugin(search.context.clone());

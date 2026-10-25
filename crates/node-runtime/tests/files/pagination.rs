@@ -92,6 +92,7 @@ async fn preserves_context_and_pages_large_requests() {
                     path: "lines.txt".into(),
                     offset,
                     limit: 1_000_000,
+                    expected_revision: None,
                 }))
                 .await
                 .unwrap()

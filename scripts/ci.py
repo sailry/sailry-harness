@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import platform
@@ -26,7 +27,7 @@ PRODUCTS = {
 FIXTURES = {
     "shared": {
         "test_ci_local", "test_ci_resources", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
-        "test_names", "test_ocu_helper", "test_onnx_runtime", "test_llama_runtime", "test_public_source", "test_publish_packages",
+        "test_names", "test_ocu_helper", "test_onnx_runtime", "test_llama_runtime", "test_code_parsers", "test_public_source", "test_publish_packages",
         "test_python_launcher", "test_python_runtime", "test_release_notes", "test_source_cache",
         "test_release_versions", "test_suites",
     },
@@ -58,6 +59,7 @@ LINT_PACKAGES = {
 }
 # Node is also exercised by Desktop and Mobile's real-Node contract fixtures.
 DEPENDENTS = (
+    (("scripts/package/code-parsers.",), {"shared", "desktop", "host", "mobile_ffi"}),
     (("tools/release/",), {"shared"}),
     (("apps/desktop/", "crates/content/"), {"desktop"}),
     (("apps/host/",), {"host"}),
@@ -161,7 +163,9 @@ def lint_command(selection, jobs):
 
 
 def lint(selection, jobs):
-    return subprocess.run(lint_command(selection, jobs), check=False).returncode
+    command = lint_command(selection, jobs)
+    environment = parser_environment(ROOT, None, libraries=False)
+    return subprocess.run(command, env=environment, check=False).returncode
 
 
 def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
@@ -228,8 +232,41 @@ def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
     return [{"argv": argv, "cwd": cwd} for argv, cwd in commands[name]]
 
 
+def parser_environment(root, env, libraries):
+    spec = importlib.util.spec_from_file_location("code_parsers", root / "scripts/package/code-parsers.py")
+    parsers = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(parsers)
+    environment = dict(os.environ if env is None else env)
+    cache = (root / ".runtime/code-index/resources").absolute()
+    target = output = None
+    if libraries:
+        target = environment.get("CARGO_BUILD_TARGET")
+        if target is None:
+            toolchain = subprocess.check_output(["rustc", "-vV"], env=environment, text=True)
+            target = next(line.removeprefix("host: ") for line in toolchain.splitlines() if line.startswith("host: "))
+        build = Path(environment.get("CARGO_TARGET_DIR", str(root / "target")))
+        if not build.is_absolute():
+            build = root / build
+        if environment.get("CARGO_BUILD_TARGET"):
+            build /= target
+        output = build.absolute() / "debug/code-parsers"
+    environment["TSLP_SOURCE_BUNDLE_URL"] = parsers.prepare(target, output, cache, source_only=not libraries)
+    # Both settings override the locked dynamic-loading configuration: OFFLINE
+    # omits embedded queries, while LANGUAGES requests native grammar compilation.
+    environment.pop("TSLP_OFFLINE", None)
+    environment.pop("TSLP_LANGUAGES", None)
+    if libraries and "apple" in target:
+        parsers.sign(target, output, "-")
+    return environment
+
+
 def run_check(name, jobs="2", root=ROOT, selection=None, env=None):
-    for command in check_commands(name, jobs, root, selection, env):
+    commands = check_commands(name, jobs, root, selection, env)
+    if name in {"backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac"}:
+        env = parser_environment(root, env, libraries=True)
+    elif name in {"lint", "desktop-production", "host-production"}:
+        env = parser_environment(root, env, libraries=False)
+    for command in commands:
         print(f"Check {name}: " + " ".join(command["argv"]), flush=True)
         code = subprocess.run(command["argv"], cwd=root / command["cwd"], env=env, check=False).returncode
         if code:

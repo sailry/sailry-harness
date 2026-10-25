@@ -34,12 +34,12 @@ impl Report {
     }
 }
 
-pub(super) struct Entry {
+pub(crate) struct Entry {
     pub path: String,
     pub modified: SystemTime,
 }
 
-pub(super) struct Listing {
+pub(crate) struct Listing {
     pub entries: Vec<Entry>,
     pub report: Report,
 }
@@ -106,9 +106,18 @@ pub(super) fn find<'a>(
     })
 }
 
-pub(super) fn collect<'a>(
+pub(crate) fn collect<'a>(
     root: impl Into<super::Scope<'a>>,
     scope: &str,
+    control: &Control,
+) -> Result<Listing, Fault> {
+    collect_bounded(root, scope, usize::MAX, control)
+}
+
+pub(crate) fn collect_bounded<'a>(
+    root: impl Into<super::Scope<'a>>,
+    scope: &str,
+    limit: usize,
     control: &Control,
 ) -> Result<Listing, Fault> {
     let mut entries = Vec::new();
@@ -118,6 +127,9 @@ pub(super) fn collect<'a>(
         true,
         control,
         &mut |_, _, relative, metadata| {
+            if entries.len() >= limit {
+                return Err(Fault::new(ErrorCode::Busy, "file discovery limit reached"));
+            }
             entries.push(Entry {
                 path: relative.into(),
                 modified: metadata.modified().map_err(io_error)?.into_std(),
@@ -127,22 +139,6 @@ pub(super) fn collect<'a>(
         &mut |_, _| Ok(()),
     )?;
     Ok(Listing { entries, report })
-}
-
-pub(crate) fn visit(
-    root: &Path,
-    control: &Control,
-    visitor: &mut impl FnMut(&Dir, &str, &str) -> Result<bool, Fault>,
-) -> Result<Report, Fault> {
-    // Existing workspace language detection keeps its own filtering policy.
-    traverse(
-        root,
-        "",
-        false,
-        control,
-        &mut |dir, name, relative, _| visitor(dir, name, relative),
-        &mut |_, _| Ok(()),
-    )
 }
 
 fn traverse<'a>(

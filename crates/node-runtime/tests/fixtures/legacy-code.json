@@ -1,0 +1,33 @@
+{
+  "summary": {
+    "name": "code",
+    "revision": 1,
+    "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "settings_revision": 0,
+    "enabled": false,
+    "version": "0.1.7",
+    "description": "Retired code metadata fixture"
+  },
+  "extension": {
+    "api_version": "v1",
+    "scope": "host",
+    "enabled_service": "language",
+    "actions": [
+      "code.read",
+      "code.manage",
+      "code.settings.read",
+      "code.settings.write"
+    ],
+    "tools": [
+      {
+        "name": "code_symbols",
+        "operation": "code.symbols",
+        "presentation": "details",
+        "contexts": ["workspace"]
+      }
+    ]
+  },
+  "skills": [],
+  "mcp": [],
+  "issues": []
+}
