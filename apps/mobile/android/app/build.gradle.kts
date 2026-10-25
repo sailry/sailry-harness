@@ -30,11 +30,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = if (System.getenv("SAILRY_ANDROID_TEST_APP") == "1") {
-            "com.sailry.sailry_mobile.acceptance"
-        } else {
-            "com.sailry.sailry_mobile"
-        }
+        applicationId = "com.sailry.sailry_mobile"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

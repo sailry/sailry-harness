@@ -69,8 +69,11 @@ impl View {
                         row.child(
                             h_flex()
                                 .gap_2()
-                                .child(crate::ui::identicon::agent(
+                                .child(crate::ui::identicon::child(
                                     &approval.session.to_string(),
+                                    self.child(approval.session).is_some_and(|child| {
+                                        subagents::is_running(child.run.status)
+                                    }),
                                     cx,
                                 ))
                                 .child(

@@ -4,6 +4,8 @@ use super::*;
 fn normalizes_windows_names() {
     for (key, expected) in [
         ("Path", "PATH"),
+        ("home", "HOME"),
+        ("UserProfile", "USERPROFILE"),
         ("ComSpec", "COMSPEC"),
         ("pathext", "PATHEXT"),
         ("SystemRoot", "SystemRoot"),
@@ -41,6 +43,27 @@ fn binds_filtered_launch_values() {
     ]);
     assert_ne!(initial.identity(), changed.identity());
     assert_eq!(initial.identity(), ignored.identity());
+}
+
+#[test]
+fn prefers_home_over_profile() {
+    let environment = Environment::filtered([
+        ("HOME".into(), "/fixture/home".into()),
+        ("USERPROFILE".into(), "/fixture/profile".into()),
+    ]);
+    assert_eq!(environment.home(), Some(Path::new("/fixture/home")));
+}
+
+#[test]
+fn falls_back_to_user_profile() {
+    let environment = Environment::filtered([("USERPROFILE".into(), "/fixture/profile".into())]);
+    assert_eq!(environment.home(), Some(Path::new("/fixture/profile")));
+}
+
+#[test]
+fn preserves_missing_home() {
+    let environment = Environment::filtered([("PATH".into(), "/fixture/bin".into())]);
+    assert!(environment.home().is_none());
 }
 
 #[test]

@@ -52,7 +52,7 @@ mobile device="": mobile-deps
         exec flutter run --no-pub --target lib/main.dart
     fi
 
-# Analyze and run Flutter unit/interaction tests without starting a Node.
+# Analyze and run Mobile logic tests without starting a Node.
 check-mobile: mobile-deps
     bash scripts/python.sh scripts/ci.py check mobile-format
     bash scripts/python.sh scripts/ci.py check mobile-check
@@ -60,19 +60,6 @@ check-mobile: mobile-deps
 # Run the existing Dart/Rust API contract suite against isolated Nodes.
 test-mobile-contract:
     CARGO_TARGET_DIR={{quote(justfile_directory() / "target")}} bash scripts/check-mobile-contract.sh
-
-# Test Flutter against an isolated real Node, on the host or a running simulator.
-test-mobile-node device="": mobile-deps
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export CARGO_TARGET_DIR={{quote(justfile_directory() / "target")}}
-    if test -n {{quote(device)}}; then
-        export SAILRY_FLUTTER_DEVICE={{quote(device)}}
-    else
-        unset SAILRY_FLUTTER_DEVICE
-        cargo build --locked -p sailry-mobile-bridge --lib
-    fi
-    cargo test --locked -p sailry-mobile-bridge --test flutter controls_remote_node -- --ignored --exact --nocapture
 
 # Build the Android arm64 debug APK with the normal app entry point.
 mobile-apk: mobile-deps

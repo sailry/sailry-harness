@@ -14,6 +14,7 @@ import 'ui/kit.dart';
 import 'ui/theme.dart';
 import 'ui/toast.dart';
 import 'runtime/session.dart';
+import 'runtime/preferences.dart';
 import 'l10n/strings.dart';
 import 'l10n/language.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -28,17 +29,14 @@ class SailryApp extends StatefulWidget {
 }
 
 class _SailryAppState extends State<SailryApp> {
-  ThemeMode _mode = ThemeMode.dark;
-  bool _themeEdited = false;
-  AppLanguage _language = AppLanguage.chinese;
-  bool _languageEdited = false;
-  bool _notifications = true;
-  bool _notificationsEdited = false;
-  bool _preferencesLoaded = false;
   AppSession? _session;
   AppUpdates? _updates;
   final _navigator = GlobalKey<NavigatorState>();
-  late final _preferences = widget.preferences ?? SharedPreferencesAsync();
+  late final _preferences = AppPreferences(
+    preferences: widget.preferences,
+    persist: _persist,
+    onError: _preferenceError,
+  );
   bool get _persist => widget.session == null || widget.preferences != null;
   @override
   void initState() {
@@ -46,37 +44,12 @@ class _SailryAppState extends State<SailryApp> {
     _updates = widget.updates ?? (widget.session == null ? AppUpdates() : null);
     _session = widget.session ?? AppSession();
     if (widget.session == null) unawaited(_session!.start());
-    if (_persist) unawaited(_loadPreferences());
+    _preferences.addListener(_refreshPreferences);
+    if (_persist) unawaited(_preferences.load());
   }
 
-  Future<void> _loadPreferences() async {
-    try {
-      final saved = await _preferences.getString('theme');
-      final language = await _preferences.getString('language');
-      final notifications =
-          await _preferences.getBool('notifications.in_app') ?? true;
-      if (!mounted) return;
-      setState(() {
-        if (!_themeEdited) {
-          _mode =
-              ThemeMode.values
-                  .where((mode) => mode.name == saved)
-                  .firstOrNull ??
-              ThemeMode.dark;
-        }
-        if (!_notificationsEdited) _notifications = notifications;
-        if (!_languageEdited) {
-          _language =
-              AppLanguage.values
-                  .where((item) => item.name == language)
-                  .firstOrNull ??
-              AppLanguage.chinese;
-        }
-        _preferencesLoaded = true;
-      });
-    } catch (_) {
-      _preferenceError();
-    }
+  void _refreshPreferences() {
+    if (mounted) setState(() {});
   }
 
   void _preferenceError() {
@@ -85,50 +58,10 @@ class _SailryAppState extends State<SailryApp> {
     if (context != null) showToast(context, context.tr('preferencesFailed'));
   }
 
-  Future<void> _savePreference(Future<void> Function() save) async {
-    try {
-      await save();
-    } catch (_) {
-      _preferenceError();
-    }
-  }
-
-  void _setTheme(ThemeMode mode) {
-    _themeEdited = true;
-    setState(() => _mode = mode);
-    if (_persist) {
-      unawaited(
-        _savePreference(() => _preferences.setString('theme', mode.name)),
-      );
-    }
-  }
-
-  void _setLanguage(AppLanguage language) {
-    _languageEdited = true;
-    setState(() => _language = language);
-    if (_persist) {
-      unawaited(
-        _savePreference(
-          () => _preferences.setString('language', language.name),
-        ),
-      );
-    }
-  }
-
-  void _setNotifications(bool enabled) {
-    _notificationsEdited = true;
-    setState(() => _notifications = enabled);
-    if (_persist) {
-      unawaited(
-        _savePreference(
-          () => _preferences.setBool('notifications.in_app', enabled),
-        ),
-      );
-    }
-  }
-
   @override
   void dispose() {
+    _preferences.removeListener(_refreshPreferences);
+    _preferences.dispose();
     FToast().removeQueuedCustomToasts();
     if (widget.session == null) _session?.dispose();
     if (widget.updates == null) _updates?.dispose();
@@ -143,8 +76,8 @@ class _SailryAppState extends State<SailryApp> {
       debugShowCheckedModeBanner: false,
       theme: SailryTheme.of(Brightness.light),
       darkTheme: SailryTheme.of(Brightness.dark),
-      themeMode: _mode,
-      locale: _language.locale,
+      themeMode: _preferences.mode,
+      locale: _preferences.language.locale,
       localeListResolutionCallback: AppLanguage.resolve,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -172,20 +105,22 @@ class _SailryAppState extends State<SailryApp> {
 
   Widget _home() {
     Widget home = _Shell(
-      language: _language,
-      onLanguageChanged: _setLanguage,
-      themeMode: _mode,
-      onThemeChanged: _setTheme,
-      notifications: _notifications,
-      onNotificationsChanged: _setNotifications,
+      language: _preferences.language,
+      onLanguageChanged: _preferences.setLanguage,
+      themeMode: _preferences.mode,
+      onThemeChanged: _preferences.setTheme,
+      notifications: _preferences.notifications,
+      onNotificationsChanged: _preferences.setNotifications,
       updates: _updates,
     );
     if (_session != null) {
       home = NotificationDelivery(
         session: _session!,
         enabled:
-            _notifications &&
-            (!_persist || _preferencesLoaded || _notificationsEdited),
+            _preferences.notifications &&
+            (!_persist ||
+                _preferences.loaded ||
+                _preferences.notificationsEdited),
         child: home,
       );
     }

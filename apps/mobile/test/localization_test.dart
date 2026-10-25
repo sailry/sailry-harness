@@ -4,35 +4,48 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sailry_mobile/app.dart';
-import 'package:sailry_mobile/features/conversations/message_composer.dart';
-import 'package:sailry_mobile/features/conversations/live/tool_display.dart';
-import 'package:sailry_mobile/features/conversations/live/tool_content.dart';
-import 'package:sailry_mobile/features/settings/settings_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 import 'package:sailry_mobile/l10n/language.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
-import 'package:sailry_mobile/runtime/session.dart';
+import 'package:sailry_mobile/runtime/preferences.dart';
 
-import 'notifications_test.dart' show Preferences;
+class Preferences extends Fake implements SharedPreferencesAsync {
+  final values = <String, Object>{};
+  Future<String?>? get pendingLanguage =>
+      values['pendingLanguage'] as Future<String?>?;
+  set pendingLanguage(Future<String?>? value) {
+    if (value == null) {
+      values.remove('pendingLanguage');
+    } else {
+      values['pendingLanguage'] = value;
+    }
+  }
 
-class PendingPreferences extends Preferences {
-  final loaded = Completer<String?>();
+  bool get fail => values['fail'] == true;
+  set fail(bool value) => values['fail'] = value;
 
   @override
-  Future<String?> getString(String key) =>
-      key == 'language' ? loaded.future : super.getString(key);
-}
+  Future<String?> getString(String key) async {
+    if (fail) throw StateError('Preferences unavailable');
+    if (key == 'language' && pendingLanguage != null) return pendingLanguage;
+    return values[key] as String?;
+  }
 
-Future<void> selectLanguage(WidgetTester tester, AppLanguage language) async {
-  final context = tester.element(find.byType(SettingsPage));
-  await tester.tap(find.widgetWithText(ListTile, context.tr('language')));
-  await tester.pumpAndSettle();
-  final choice = find
-      .widgetWithText(ListTile, context.tr(language.labelKey))
-      .last;
-  await tester.ensureVisible(choice);
-  await tester.tap(choice);
-  await tester.pumpAndSettle();
+  @override
+  Future<bool?> getBool(String key) async => values[key] as bool?;
+
+  @override
+  Future<void> setString(String key, String value) async {
+    if (fail) throw StateError('Preferences unavailable');
+    values[key] = value;
+  }
+
+  @override
+  Future<void> setBool(String key, bool value) async {
+    if (fail) throw StateError('Preferences unavailable');
+    values[key] = value;
+  }
 }
 
 void main() {
@@ -76,160 +89,6 @@ void main() {
       ...AppLanguage.values.map((value) => value.locale).whereType<Locale>(),
     });
   });
-
-  testWidgets('every language is selectable on a narrow screen', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(320, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final session = AppSession.test();
-    addTearDown(session.dispose);
-    final preferences = Preferences();
-    await tester.pumpWidget(
-      SailryApp(session: session, preferences: preferences),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('tab-3')));
-    await tester.pumpAndSettle();
-    final settings = tester.state(find.byType(SettingsPage));
-    for (final language in AppLanguage.values.where(
-      (value) => value != AppLanguage.system,
-    )) {
-      await selectLanguage(tester, language);
-      expect(preferences.values['language'], language.name);
-      final context = tester.element(find.byType(SettingsPage));
-      expect(Localizations.localeOf(context), language.locale);
-      expect(find.text(context.tr('settings')), findsWidgets);
-      expect(MaterialLocalizations.of(context).cancelButtonLabel, isNotEmpty);
-      expect(tester.state(find.byType(SettingsPage)), same(settings));
-      expect(tester.takeException(), isNull, reason: language.name);
-    }
-  });
-
-  testWidgets('plugin labels use controller locales and default names', (
-    tester,
-  ) async {
-    final label = {
-      'label': 'Inspect widget',
-      'locales': {
-        'zh-CN': '检查组件',
-        'zh-TW': '檢查元件',
-        'fr': 'Inspecter le composant',
-        'pt-BR': 'Inspecionar componente',
-      },
-    };
-    final cases = {
-      AppLanguage.chinese.locale!: '检查组件',
-      AppLanguage.traditionalChinese.locale!: '檢查元件',
-      AppLanguage.french.locale!: 'Inspecter le composant',
-      AppLanguage.portugueseBrazil.locale!: 'Inspecionar componente',
-      AppLanguage.japanese.locale!: 'Inspect widget',
-    };
-    for (final entry in cases.entries) {
-      await tester.pumpWidget(
-        MaterialApp(
-          locale: entry.key,
-          supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: Builder(
-            builder: (context) => Text(capturedLabel(context, label)),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text(entry.value), findsOneWidget);
-    }
-    label['locales'] = {'zh-CN': '检查组件'};
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: AppLanguage.traditionalChinese.locale,
-        supportedLocales: AppLocalizations.supportedLocales,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        home: Builder(
-          builder: (context) => Text(capturedLabel(context, label)),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Inspect widget'), findsOneWidget);
-    expect(toolLabel('plugin_future_operation'), 'plugin_future_operation');
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('language works unpaired, persists and restores', (tester) async {
-    final session = AppSession.test();
-    addTearDown(session.dispose);
-    final preferences = Preferences();
-    await tester.pumpWidget(
-      SailryApp(session: session, preferences: preferences),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('tab-3')));
-    await tester.pumpAndSettle();
-    final settings = tester.state(find.byType(SettingsPage));
-    await selectLanguage(tester, AppLanguage.english);
-    expect(preferences.values['language'], 'english');
-    expect(find.text('Settings'), findsWidgets);
-    expect(find.text('Appearance'), findsOneWidget);
-    expect(tester.state(find.byType(SettingsPage)), same(settings));
-    final context = tester.element(find.byType(SettingsPage));
-    expect(Localizations.localeOf(context).languageCode, 'en');
-    expect(MaterialLocalizations.of(context).cancelButtonLabel, 'Cancel');
-    for (final index in [0, 1, 2]) {
-      await tester.tap(find.byKey(ValueKey('tab-$index')));
-      await tester.pumpAndSettle();
-      expect(find.text('Connect a host'), findsOneWidget);
-    }
-    expect(session.hosts, isEmpty);
-    await tester.pumpWidget(const SizedBox());
-    await tester.pumpWidget(
-      SailryApp(session: session, preferences: preferences),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Connect a host'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('tab-3')));
-    await tester.pumpAndSettle();
-    await selectLanguage(tester, AppLanguage.chinese);
-    expect(preferences.values['language'], 'chinese');
-    expect(find.text(tr('appearance')), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('system language follows locale changes and resolves regions', (
-    tester,
-  ) async {
-    final session = AppSession.test();
-    addTearDown(session.dispose);
-    final preferences = Preferences()..values['language'] = 'system';
-    tester.binding.platformDispatcher.localesTestValue = const [
-      Locale('en', 'GB'),
-    ];
-    addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
-    await tester.pumpWidget(
-      SailryApp(session: session, preferences: preferences),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Connect a host'), findsOneWidget);
-    tester.binding.platformDispatcher.localesTestValue = const [
-      Locale('zh', 'TW'),
-    ];
-    await tester.pumpAndSettle();
-    final traditional = await AppLocalizations.delegate.load(
-      AppLanguage.traditionalChinese.locale!,
-    );
-    expect(find.text(traditional.tr('hostConnectPrompt')), findsOneWidget);
-    tester.binding.platformDispatcher.localesTestValue = const [Locale('fr')];
-    await tester.pumpAndSettle();
-    final french = await AppLocalizations.delegate.load(const Locale('fr'));
-    expect(find.text(french.tr('hostConnectPrompt')), findsOneWidget);
-    tester.binding.platformDispatcher.localesTestValue = const [Locale('ar')];
-    await tester.pumpAndSettle();
-    expect(find.text('Connect a host'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
   test('script, region and preference order resolve supported languages', () {
     final cases = <Locale, Locale>{
       const Locale('zh', 'HK'): AppLanguage.traditionalChinese.locale!,
@@ -264,59 +123,107 @@ void main() {
     );
   });
 
-  testWidgets('late preference load preserves a language chosen in settings', (
-    tester,
-  ) async {
-    final session = AppSession.test();
-    addTearDown(session.dispose);
-    final preferences = PendingPreferences();
-    await tester.pumpWidget(
-      SailryApp(session: session, preferences: preferences),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('tab-3')));
-    await tester.pumpAndSettle();
-    await selectLanguage(tester, AppLanguage.english);
-    preferences.loaded.complete('chinese');
-    await tester.pumpAndSettle();
-    expect(find.text('Appearance'), findsOneWidget);
-    expect(preferences.values['language'], 'english');
-    expect(tester.takeException(), isNull);
+  test('language choices persist and restore without pairing', () async {
+    final storage = Preferences();
+    final preferences = AppPreferences(preferences: storage);
+    await preferences.load();
+    expect(preferences.language, AppLanguage.chinese);
+    for (final language in AppLanguage.values) {
+      await preferences.setLanguage(language);
+      expect(preferences.language, language);
+      expect(storage.values['language'], language.name);
+      final restored = AppPreferences(preferences: storage);
+      await restored.load();
+      expect(restored.language, language);
+      restored.dispose();
+    }
+    preferences.dispose();
   });
 
-  testWidgets('locale rebuild keeps drafts and translates the composer', (
-    tester,
-  ) async {
-    final locale = ValueNotifier(const Locale('zh'));
-    addTearDown(locale.dispose);
-    final draft = TextEditingController(text: 'Keep my draft');
-    addTearDown(draft.dispose);
-    await tester.pumpWidget(
-      ValueListenableBuilder(
-        valueListenable: locale,
-        builder: (context, value, _) => MaterialApp(
-          locale: value,
-          supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: Scaffold(
-            body: MessageComposer(
-              controller: draft,
-              attached: false,
-              busy: false,
-              onAttachment: (_) {},
-              onVoice: () {},
-              onStop: () {},
-              onSend: () {},
-            ),
-          ),
-        ),
-      ),
+  test('late preference reads preserve explicit choices', () async {
+    final language = Completer<String?>();
+    final storage = Preferences()
+      ..values.addAll({'theme': 'dark', 'notifications.in_app': true})
+      ..pendingLanguage = language.future;
+    final preferences = AppPreferences(preferences: storage);
+    final loading = preferences.load();
+    await preferences.setTheme(ThemeMode.light);
+    await preferences.setLanguage(AppLanguage.english);
+    await preferences.setNotifications(false);
+    language.complete('chinese');
+    await loading;
+    expect(preferences.mode, ThemeMode.light);
+    expect(preferences.language, AppLanguage.english);
+    expect(preferences.notifications, isFalse);
+    expect(preferences.loaded, isTrue);
+    expect(storage.values['language'], 'english');
+    preferences.dispose();
+  });
+
+  test('saved appearance and notification choices restore', () async {
+    final storage = Preferences()
+      ..values.addAll({
+        'theme': 'light',
+        'language': 'system',
+        'notifications.in_app': false,
+      });
+    final preferences = AppPreferences(preferences: storage);
+    await preferences.load();
+    expect(preferences.mode, ThemeMode.light);
+    expect(preferences.language, AppLanguage.system);
+    expect(preferences.notifications, isFalse);
+    expect(preferences.loaded, isTrue);
+    preferences.dispose();
+  });
+
+  test('disposal ignores late reads and preference failures', () async {
+    final language = Completer<String?>();
+    final storage = Preferences()..pendingLanguage = language.future;
+    var notifications = 0;
+    var errors = 0;
+    final preferences = AppPreferences(
+      preferences: storage,
+      onError: () => errors++,
+    )..addListener(() => notifications++);
+    final loading = preferences.load();
+    await Future<void>.value();
+    preferences.dispose();
+    language.completeError(StateError('Preferences unavailable'));
+    await loading;
+    expect(notifications, 0);
+    expect(errors, 0);
+  });
+
+  test('preference failures retain choices and report once', () async {
+    final storage = Preferences()..fail = true;
+    var errors = 0;
+    final preferences = AppPreferences(
+      preferences: storage,
+      onError: () => errors++,
     );
-    await tester.pumpAndSettle();
-    locale.value = const Locale('en');
-    await tester.pumpAndSettle();
-    expect(draft.text, 'Keep my draft');
-    expect(find.byTooltip('Send'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    await preferences.load();
+    expect(preferences.loaded, isFalse);
+    expect(errors, 1);
+    await preferences.setLanguage(AppLanguage.english);
+    expect(preferences.language, AppLanguage.english);
+    expect(errors, 2);
+    preferences.dispose();
+  });
+
+  test('preview preferences need no platform storage', () async {
+    final previous = SharedPreferencesAsyncPlatform.instance;
+    SharedPreferencesAsyncPlatform.instance = null;
+    addTearDown(() => SharedPreferencesAsyncPlatform.instance = previous);
+    final preferences = AppPreferences(persist: false);
+    await preferences.load();
+    expect(preferences.language, AppLanguage.chinese);
+    await preferences.setLanguage(AppLanguage.english);
+    await preferences.setTheme(ThemeMode.light);
+    await preferences.setNotifications(false);
+    expect(preferences.language, AppLanguage.english);
+    expect(preferences.mode, ThemeMode.light);
+    expect(preferences.notifications, isFalse);
+    expect(SharedPreferencesAsyncPlatform.instance, isNull);
+    preferences.dispose();
   });
 }

@@ -21,7 +21,7 @@ impl View {
             parent: None,
             name: self.child_name(child),
             status: status_key(child.run.status),
-            running: matches!(child.run.status, Status::Running | Status::Stopping),
+            running: is_running(child.run.status),
             icon: match child.run.status {
                 Status::Completed => IconName::Check,
                 Status::Continued => IconName::ArrowRight,
@@ -143,15 +143,17 @@ impl View {
                 .into()
             })
             .unwrap_or_default();
-        crate::conversation::disclosure::trigger(
+        crate::conversation::disclosure::trigger_with_icons(
             format!("live-subagent-row-{}", key(child)),
-            crate::ui::identicon::agent(&id.to_string(), cx),
+            crate::ui::identicon::animated(
+                crate::ui::identicon::child(&id.to_string(), row.running, cx),
+                row.running,
+            ),
             row.name.clone(),
             crate::conversation::disclosure::Detail {
                 text,
                 secondary: true,
                 running: continuing || row.running,
-                rotate_icon: row.running,
                 failed: matches!(child.run.status, Status::Failed | Status::Interrupted),
                 ..Default::default()
             },
@@ -206,7 +208,7 @@ fn icons(children: &[&Child], cx: &App) -> impl IntoElement {
         .children(children.iter().map(|child| {
             let id = format!("live-subagent-icon-{}", key(child));
             let selector = id.clone();
-            let running = matches!(child.run.status, Status::Running | Status::Stopping);
+            let running = is_running(child.run.status);
             let state = format!("{id}-{}", if running { "rotating" } else { "static" });
             div()
                 .id(id)
@@ -215,7 +217,7 @@ fn icons(children: &[&Child], cx: &App) -> impl IntoElement {
                 .flex_shrink_0()
                 .child(div().debug_selector(move || state.clone()).size_4().child(
                     crate::ui::identicon::animated(
-                        crate::ui::identicon::agent(&child.run.session.to_string(), cx),
+                        crate::ui::identicon::child(&child.run.session.to_string(), running, cx),
                         running,
                     ),
                 ))

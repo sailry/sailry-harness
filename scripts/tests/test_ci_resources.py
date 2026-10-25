@@ -193,6 +193,17 @@ class Workflow(unittest.TestCase):
         for lane in ci.LANES:
             self.assertNotIn("needs: [source, lint]", job_section(workflow, lane))
 
+    def test_runs_shared_package_tests(self):
+        workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
+        packages = {tomllib.loads((ROOT / member / "Cargo.toml").read_text())["package"]["name"]
+                    for member in workspace}
+        products = {package for owner, names in ci.LINT_PACKAGES.items()
+                    if owner != "shared" for package in names}
+        command = ci.check_commands("backend")[0]["argv"]
+        selected = {command[index + 1] for index, value in enumerate(command) if value == "-p"}
+        self.assertEqual(selected, packages - products)
+        self.assertNotIn("--run-ignored", command)
+
     def test_compiles_tests_once_and_keeps_timings(self):
         workflow = workflow_source()
         self.assertNotIn("--no-run", workflow)
@@ -285,6 +296,10 @@ class Workflow(unittest.TestCase):
         mobile = workflow.split("\n  mobile:\n", 1)[1].split("\n  mobile_ffi:\n", 1)[0]
         ffi = workflow.split("\n  mobile_ffi:\n", 1)[1].split("\n  android:\n", 1)[0]
         self.assertNotIn("--test dart", mobile)
+        self.assertNotIn("--test flutter", mobile)
+        self.assertIn("flutter analyze --no-pub", mobile)
+        self.assertIn("flutter test --no-pub", mobile)
+        self.assertIn("flutter build ios --release --no-codesign", mobile)
         self.assertIn("runs-on: macos-15", ffi)
         self.assertIn("DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer", ffi)
         self.assertIn("if: needs.source.outputs.mobile_ffi == 'true'", ffi)
@@ -313,7 +328,7 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("hashFiles('Cargo.lock')", workflow)
         for name, target in (
             ("lint", "aarch64-apple-darwin"), ("shared", "aarch64-apple-darwin"),
-            ("desktop", "aarch64-apple-darwin"), ("mobile", "aarch64-apple-darwin"),
+            ("desktop", "aarch64-apple-darwin"),
             ("mobile_ffi", "aarch64-apple-darwin"),
         ):
             with self.subTest(job=name):
@@ -324,7 +339,7 @@ class Workflow(unittest.TestCase):
                 self.assertIn("steps.speech-cache.outputs.cache-hit != 'true'", preparation)
                 self.assertIn("cargo build --locked -p sailry-speech", preparation)
 
-        for name in ("host", "host_mac"):
+        for name in ("host", "host_mac", "mobile"):
             self.assertNotIn("sailry-speech", job_section(workflow, name))
             self.assertNotIn("speech-key", job_section(workflow, name))
         lint = job_section(workflow, "lint")

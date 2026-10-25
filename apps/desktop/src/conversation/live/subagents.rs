@@ -5,6 +5,10 @@ mod panel;
 pub(crate) use panel::{Panel, Tab};
 mod presentation;
 
+pub(super) fn is_running(status: Status) -> bool {
+    matches!(status, Status::Running | Status::Stopping)
+}
+
 pub(super) fn status_key(status: Status) -> &'static str {
     match status {
         Status::Queued => "turn_queued",
@@ -33,7 +37,7 @@ pub(super) fn latest<'a>(children: impl IntoIterator<Item = &'a Child>) -> Vec<&
 
 pub(super) fn rank(child: &Child) -> (bool, bool, u64) {
     (
-        matches!(child.run.status, Status::Running | Status::Stopping),
+        is_running(child.run.status),
         child.run.status != Status::Queued,
         child.run.sequence,
     )

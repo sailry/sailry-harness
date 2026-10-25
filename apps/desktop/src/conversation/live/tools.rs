@@ -107,7 +107,7 @@ impl View {
     fn tool_group(&self, calls: &[&Call], continuing: bool, cx: &mut Context<Self>) -> AnyElement {
         let page = &self.history.snapshot.as_ref().unwrap().page;
         let first = calls[0];
-        let grouped = projection::group(self, calls, page, cx);
+        let grouped = projection::group(self, calls, page, cx).filter(|group| group.count > 0);
         let turn = first.turn;
         let key = format!("tool-group-{}", first.source.key());
         let summary = self
@@ -119,15 +119,7 @@ impl View {
             .copied()
             .unwrap_or(false);
         let detail = summary.detail;
-        if grouped.is_none()
-            && calls.iter().any(|call| activity_path(call).is_some())
-            && !calls.iter().any(|call| has_content(call, page))
-        {
-            return self.tool_rows(calls, continuing, cx);
-        }
-        if (grouped.is_none() && !calls.iter().any(|call| has_content(call, page)))
-            || grouped.as_ref().is_some_and(|group| group.count == 0)
-        {
+        if !expandable(calls, page) {
             return self.activity(
                 calls[0],
                 format!("live-{turn}-{key}"),
@@ -595,6 +587,10 @@ fn summary(call: &Call, page: &Page) -> Summary {
 
 fn has_content(call: &Call, page: &Page) -> bool {
     call.details(page)
+}
+
+fn expandable(calls: &[&Call], page: &Page) -> bool {
+    calls.len() > 1 || calls.iter().any(|call| has_content(call, page))
 }
 
 fn activity_path(call: &Call) -> Option<&str> {

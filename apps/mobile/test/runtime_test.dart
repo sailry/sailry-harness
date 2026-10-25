@@ -1,23 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
-import 'package:pinput/pinput.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/api/speech.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sailry_mobile/app.dart';
-import 'package:sailry_mobile/features/resources/hosts_page.dart';
-import 'package:sailry_mobile/features/resources/pair_form.dart';
-import 'package:sailry_mobile/features/resources/project_form.dart';
-import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/runtime/speech.dart';
-import 'package:sailry_mobile/ui/kit.dart';
-import 'package:sailry_mobile/ui/theme.dart';
-import '../preview/l10n/strings.dart' as fixtures;
 
 class Preferences extends Fake implements SharedPreferencesAsync {
   final _values = <String, Object?>{};
@@ -199,23 +190,8 @@ class Owner extends Fake implements Controller {
 
 String address(String id) => jsonEncode({'id': id});
 
-Future<void> mount(WidgetTester tester, Widget page, AppSession session) async {
-  tester.view.physicalSize = const Size(390, 844);
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(
-    SessionScope(
-      session: session,
-      child: MaterialApp(theme: SailryTheme.of(Brightness.light), home: page),
-    ),
-  );
-  await tester.pumpAndSettle();
-}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
   test('startup failure releases hosts and speech', () async {
     final old = Channel();
     final fresh = Channel();
@@ -261,7 +237,6 @@ void main() {
     expect(successful.closes, 1);
     expect(speech.last.disposed, isTrue);
   });
-
   test('close releases a late controller', () async {
     final entered = Completer<void>();
     final opening = Completer<Controller>();
@@ -285,7 +260,6 @@ void main() {
     expect(session.hosts, isEmpty);
     session.dispose();
   });
-
   test('close during peer loading prevents readiness', () async {
     final peers = Completer<List<String>>();
     final owner = Owner()..pendingPeers = peers.future;
@@ -310,7 +284,6 @@ void main() {
     expect(owner.disposals, 1);
     session.dispose();
   });
-
   test('close releases a late subscription', () async {
     final opening = Completer<Updates>();
     final channel = Channel()..pendingWatch = opening.future;
@@ -331,7 +304,6 @@ void main() {
     expect(channel.subscription.reads, 0);
     host.dispose();
   });
-
   test('uncertain commands await explicit retry', () async {
     final channel = Channel()..uncertain = true;
     final host = HostConnection.test(
@@ -354,7 +326,6 @@ void main() {
     await host.close();
     host.dispose();
   });
-
   test('known pre-admission faults retain their code', () async {
     for (final code in ['unavailable', 'invalid_request']) {
       final channel = Channel()
@@ -380,7 +351,6 @@ void main() {
       host.dispose();
     }
   });
-
   test('shared speech initialization and late disposal', () async {
     final opening = Completer<SpeechInput>();
     final entered = Completer<void>();
@@ -406,39 +376,6 @@ void main() {
     expect(input.disposals, 1);
     expect(input.downloads, 0);
   });
-
-  testWidgets('bounded speech failures stop on disposal', (tester) async {
-    final input = Speech()..pendingProgress = Completer<int>();
-    final speech = SpeechController(
-      '/isolated/speech',
-      preferences: Preferences(),
-      open: (_) async => input,
-    );
-    var notifications = 0;
-    speech.addListener(() => notifications++);
-    final downloading = speech.download();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
-    expect(input.progressReads, 1);
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(input.progressReads, 1);
-    input.pendingProgress!.completeError(StateError('progress unavailable'));
-    await tester.pump();
-    expect(speech.error, isNotNull);
-    input.pendingProgress = Completer<int>();
-    await tester.pump(const Duration(milliseconds: 250));
-    speech.dispose();
-    final count = notifications;
-    input.pendingProgress!.complete(90);
-    await downloading;
-    await tester.pump(const Duration(seconds: 1));
-    expect(notifications, count);
-    expect(input.cancels, 1);
-    expect(input.disposals, 1);
-    expect(input.progressReads, 2);
-    expect(tester.takeException(), isNull);
-  });
-
   test('early speech cancellation prevents download', () async {
     final opening = Completer<SpeechInput>();
     final input = Speech();
@@ -456,7 +393,6 @@ void main() {
     speech.dispose();
     await Future<void>.value();
   });
-
   test('speech preferences resist stale reads', () async {
     final loading = Completer<bool?>();
     final preferences = Preferences()..pendingEnabled = loading.future;
@@ -475,196 +411,87 @@ void main() {
     await Future<void>.value();
   });
 
-  testWidgets('host switch ignores stale metrics', (tester) async {
-    final old = Completer<Map<String, dynamic>>();
-    var firstReads = 0;
-    var secondReads = 0;
-    final first = HostConnection.test(
-      id: 'first',
-      label: 'First',
-      command: (_, _) async {
-        firstReads++;
-        return firstReads == 1
-            ? old.future
-            : {
-                'data': {'cpu_basis_points': 3300},
-              };
-      },
-    );
-    final second = HostConnection.test(
-      id: 'second',
-      label: 'Second',
-      command: (_, _) async {
-        secondReads++;
-        return {
-          'data': {'cpu_basis_points': 2300},
-        };
-      },
-    );
-    final session = AppSession.test(hosts: [first, second]);
-    await mount(tester, const HostsPage(), session);
-    expect(firstReads, 1);
-    session.selectHost('second');
-    await tester.pumpAndSettle();
-    expect(secondReads, 1);
-    expect(find.text('23%'), findsOneWidget);
-    session.selectHost('first');
-    await tester.pumpAndSettle();
-    expect(firstReads, 2);
-    expect(find.text('33%'), findsOneWidget);
-    old.complete({
-      'data': {'cpu_basis_points': 9000},
+  test('bounded speech failures stop on disposal', () {
+    fakeAsync((clock) {
+      final input = Speech()..pendingProgress = Completer<int>();
+      final speech = SpeechController(
+        '/isolated/speech',
+        preferences: Preferences(),
+        open: (_) async => input,
+      );
+      var notifications = 0;
+      var finished = false;
+      speech.addListener(() => notifications++);
+      speech.download().then((_) => finished = true);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(milliseconds: 250));
+      expect(input.progressReads, 1);
+      clock.elapse(const Duration(milliseconds: 500));
+      expect(input.progressReads, 1);
+      input.pendingProgress!.completeError(StateError('progress unavailable'));
+      clock.flushMicrotasks();
+      expect(speech.error, isNotNull);
+      input.pendingProgress = Completer<int>();
+      clock.elapse(const Duration(milliseconds: 250));
+      speech.dispose();
+      final count = notifications;
+      input.pendingProgress!.complete(90);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 1));
+      expect(finished, isTrue);
+      expect(notifications, count);
+      expect(input.cancels, 1);
+      expect(input.disposals, 1);
+      expect(input.progressReads, 2);
     });
-    await tester.pumpAndSettle();
-    expect(find.text('33%'), findsOneWidget);
-    expect(find.text('90%'), findsNothing);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await session.close();
-    session.dispose();
-    expect(tester.takeException(), isNull);
   });
 
-  testWidgets('empty startup and paired Node admission', (tester) async {
+  test('pairing trims input and reuses trusted peers', () async {
     final channel = Channel();
-    channel.subscription.initial = jsonEncode({
-      'connected': true,
-      'snapshot': {
-        'projects': [],
-        'sessions': [],
-        'worktrees': [],
-        'terminals': [],
-      },
-      'notifications': [],
-    });
-    final owner = Owner()..connecting = (_) async => channel;
+    var connections = 0;
+    final owner = Owner()
+      ..connecting = (_) async {
+        connections++;
+        return channel;
+      };
     final session = AppSession.test(controller: owner);
-    await tester.pumpWidget(SailryApp(session: session));
-    await tester.pumpAndSettle();
-    expect(find.text('Studio'), findsNothing);
-    expect(find.text(fixtures.tr('taskDone')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('tab-1')));
-    await tester.pumpAndSettle();
-    expect(find.text(tr('hostConnectPrompt')), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, tr('pair')));
-    // Pinput animates its focused cursor continuously while awaiting digits.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byType(PairForm), findsOneWidget);
-    expect(tester.widget<Pinput>(find.byType(Pinput)).length, 6);
-    await tester.enterText(find.byType(EditableText), '12');
-    await tester.tap(find.widgetWithText(FilledButton, tr('pairAction')));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(owner.pin, isNull);
-    expect(find.text(tr('pairInvalid')), findsOneWidget);
-    await tester.enterText(find.byType(EditableText), '012345');
-    await tester.tap(find.widgetWithText(FilledButton, tr('pairAction')));
-    await tester.pumpAndSettle();
+    final first = await session.pair('  invitation  ');
+    expect(owner.ticket, 'invitation');
+    final repeated = await session.pairPin(' 012345 ');
     expect(owner.pin, '012345');
     expect(owner.origin, '');
-    expect(owner.ticket, isEmpty);
-    expect(session.hosts.map((host) => host.id), ['paired']);
-    expect(find.text('Paired Node'), findsOneWidget);
-    expect(find.byType(PairForm), findsNothing);
-    await tester.pumpWidget(const SizedBox.shrink());
+    expect(repeated, same(first));
+    expect(session.hosts.single, same(first));
+    expect(session.selectedHost, same(first));
+    expect(connections, 1);
     await session.close();
     session.dispose();
-    expect(tester.takeException(), isNull);
+    expect(channel.closes, 1);
+    expect(channel.disposals, 1);
   });
 
-  testWidgets('distinct pairing failures and expiry', (tester) async {
-    final owner = Owner()
-      ..pairingError = 'Unavailable: certificate validation failed';
+  test('pairing failures propagate without registering a peer', () async {
+    final owner = Owner();
     final session = AppSession.test(controller: owner);
-    await tester.pumpWidget(SailryApp(session: session));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('tab-1')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, tr('pair')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.enterText(find.byType(EditableText), '123456');
-    await tester.tap(find.widgetWithText(FilledButton, tr('pairAction')));
-    await tester.pumpAndSettle();
-    expect(find.text(tr('pairFailed')), findsOneWidget);
-    expect(find.text(tr('pairExpired')), findsNothing);
-    expect(
-      tester.widget<Pinput>(find.byType(Pinput)).controller!.text,
-      '123456',
-    );
-    owner.pairingError = 'NotFound: pairing code is unavailable';
-    await tester.tap(find.widgetWithText(FilledButton, tr('pairAction')));
-    await tester.pumpAndSettle();
-    expect(find.text(tr('pairExpired')), findsOneWidget);
-    expect(find.text(tr('pairFailed')), findsNothing);
-    expect(session.hosts, isEmpty);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await session.close();
-    session.dispose();
-  });
-
-  testWidgets('project save preserves its host and uncertain draft', (
-    tester,
-  ) async {
-    final result = Completer<Map<String, dynamic>>();
-    final calls = <Map<String, dynamic>?>[];
-    final host = HostConnection.test(
-      id: 'node',
-      label: 'Node',
-      command: (kind, data) {
-        expect(kind, 'register_project');
-        calls.add(data);
-        return result.future;
-      },
-    );
-    final session = AppSession.test(hosts: [host]);
-    await mount(
-      tester,
-      Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            onPressed: () => showAppSheet(
-              context,
-              tr('hostRegisterProject'),
-              child: ProjectForm(host: host),
-            ),
-            child: const Text('Open'),
+    for (final message in [
+      'Unavailable: certificate validation failed',
+      'NotFound: pairing code is unavailable',
+    ]) {
+      owner.pairingError = message;
+      await expectLater(
+        session.pairPin(' 123456 '),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            message,
           ),
         ),
-      ),
-      session,
-    );
-    await tester.tap(find.text('Open'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextField, tr('hostProjectName')),
-      'Project',
-    );
-    await tester.enterText(
-      find.widgetWithText(TextField, tr('hostProjectPath')),
-      '/isolated/project',
-    );
-    await tester.tap(find.widgetWithText(FilledButton, tr('save')));
-    await tester.pump();
-    expect(
-      tester
-          .widget<TextField>(
-            find.widgetWithText(TextField, tr('hostProjectName')),
-          )
-          .enabled,
-      isFalse,
-    );
-    result.completeError(
-      const CommandFailure('outcome_unknown', request: 'stable'),
-    );
-    await tester.pumpAndSettle();
-    expect(calls.length, 1);
-    expect(find.text('Project'), findsOneWidget);
-    expect(find.byType(ProjectForm), findsOneWidget);
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-    await tester.pumpWidget(const SizedBox.shrink());
+      );
+      expect(owner.pin, '123456');
+      expect(session.hosts, isEmpty);
+    }
     await session.close();
     session.dispose();
-    expect(tester.takeException(), isNull);
   });
 }

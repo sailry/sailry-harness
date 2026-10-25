@@ -53,10 +53,7 @@ class UI(unittest.TestCase):
         self.assertEqual(len(selected), 3)
         arguments = selected[0]["argv"]
         self.assertEqual(arguments[:3], ["cargo", "nextest", "run"])
-        self.assertEqual(packages(arguments), {
-            "sailry-protocol", "sailry-link", "sailry-client",
-            "sailry-node-runtime", "sailry-release",
-        })
+        self.assertEqual(packages(arguments), set(ci.LINT_PACKAGES["shared"]))
         self.assertEqual(arguments[arguments.index("--profile") + 1], "ci")
         self.assertNotIn("--release", arguments)
 
@@ -67,7 +64,7 @@ class UI(unittest.TestCase):
         formatting, analysis, tests = [command["argv"] for command in selected]
         self.assertEqual(formatting[:2], ["dart", "format"])
         self.assertIn("--set-exit-if-changed", formatting)
-        self.assertEqual(set(formatting[4:]), {"lib", "preview", "test", "integration_test", "tool"})
+        self.assertEqual(set(formatting[4:]), {"lib", "preview", "test", "tool"})
         self.assertEqual(analysis, ["flutter", "analyze", "--no-pub"])
         self.assertEqual(tests, ["flutter", "test", "--no-pub"])
         self.assertIn("check-mobile: mobile-deps", (ROOT / "justfile").read_text())

@@ -33,6 +33,22 @@ fn child(session: SessionId, status: Status) -> Child {
 }
 
 #[test]
+fn colors_only_running_states() {
+    for (status, expected) in [
+        (Status::Queued, false),
+        (Status::Running, true),
+        (Status::Stopping, true),
+        (Status::Completed, false),
+        (Status::Continued, false),
+        (Status::Cancelled, false),
+        (Status::Interrupted, false),
+        (Status::Failed, false),
+    ] {
+        assert_eq!(is_running(status), expected);
+    }
+}
+
+#[test]
 fn lists_only_running_children() {
     let session = SessionId::new();
     let mut children: Vec<_> = [

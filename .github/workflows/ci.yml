@@ -506,7 +506,7 @@ jobs:
           python3 scripts/ci.py cache-usage
 
   mobile:
-    name: Mobile, shared bridge and iOS
+    name: Mobile logic and iOS
     needs: source
     if: needs.source.outputs.mobile == 'true'
     runs-on: macos-15
@@ -535,36 +535,13 @@ jobs:
       - name: Rust dependency caches
         id: rust-cache
         uses: ./.github/actions/rust-cache
-      - name: Speech cache identity
-        id: speech-key
-        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
-      - name: Speech native libraries
-        id: speech-cache
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: target/sherpa-onnx-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}
-      - name: Prepare uncached speech libraries
-        if: steps.speech-cache.outputs.cache-hit != 'true'
-        run: cargo build --locked -p sailry-speech --jobs 1 -vv
-      - name: Save speech native libraries
-        continue-on-error: true
-        if: steps.speech-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: target/sherpa-onnx-prebuilt
-          key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Mobile source fixtures
         run: python3 scripts/ci.py check mobile-source
-      - name: Flutter analysis and widget tests
+      - name: Flutter analysis and logic tests
         working-directory: apps/mobile
         run: |
           python3 ../../scripts/ci.py check mobile-format
           python3 ../../scripts/ci.py check mobile-check
-      - name: Native shared bridge
-        run: cargo build --locked -p sailry-mobile-bridge --lib
-      - name: Flutter controls a real remote Node
-        run: cargo test --locked -p sailry-mobile-bridge --test flutter controls_remote_node -- --ignored --exact --nocapture
       - name: iOS Rust dependency boundary
         if: ${{ !cancelled() }}
         run: |

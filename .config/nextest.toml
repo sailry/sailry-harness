@@ -1,5 +1,5 @@
 [profile.ci]
-# Each test gets a fresh process, including its locale and GPUI test platform.
+# Each test gets a fresh process to isolate environment and global state.
 test-threads = 2
 retries = 0
 fail-fast = false

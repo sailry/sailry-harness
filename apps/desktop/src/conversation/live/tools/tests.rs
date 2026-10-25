@@ -212,18 +212,55 @@ fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
 }
 
 #[test]
-fn raw_success_stays_compact() {
+fn raw_single_has_no_extra_details() {
     let result = json!({"output":{"logs_content":"Job output","job_id":12},"metadata":{"cursor":"next","revision":4}});
     let (call, page) = raw_fixture(result.clone());
     let original = page.clone();
     assert!(call.raw_result(&page));
     assert!(!has_content(&call, &page));
+    assert!(!expandable(&[&call], &page));
     assert!(summary(&call, &page).detail.hide_caret);
     assert!(!summary(&call, &page).detail.failed);
     assert_eq!(summary(&call, &page).label.as_ref(), "External read");
     assert!(inspector::copy(&call, &page).is_none());
     assert_eq!(call.result(&page), Some(&result));
     assert_eq!(page, original);
+}
+
+#[test]
+fn groups_calls_without_details() {
+    for raw in [false, true] {
+        let result = json!({"output":{"logs_content":"Job output"},"metadata":{"cursor":"next"}});
+        let (first, mut page) = raw_fixture(result.clone());
+        if let Part::ToolCall { display, .. } = &mut page.entries[0].parts[0] {
+            display.as_mut().unwrap().raw_result = raw;
+        }
+        let mut second = first.clone();
+        second.id = Some("second".into());
+        second.source.index = 1;
+        second.response.as_mut().unwrap().index = 1;
+        let mut source = page.entries[0].parts[0].clone();
+        if let Part::ToolCall { id, .. } = &mut source {
+            *id = second.id.clone();
+        }
+        page.entries[0].parts.push(source);
+        let mut response = page.entries[1].parts[0].clone();
+        if let Part::ToolResult { id, .. } = &mut response {
+            *id = second.id.clone();
+        }
+        page.entries[1].parts.push(response);
+        let original = page.clone();
+        let calls = [&first, &second];
+        assert!(expandable(&calls, &page));
+        assert!(!group_summary(&calls, &page).detail.hide_caret);
+        for call in calls {
+            assert!(!has_content(call, &page));
+            assert!(summary(call, &page).detail.hide_caret);
+            assert!(inspector::copy(call, &page).is_none());
+            assert_eq!(call.result(&page), Some(&result));
+        }
+        assert_eq!(page, original);
+    }
 }
 
 #[test]
@@ -238,6 +275,7 @@ fn declared_content_keeps_expansion() {
     call.content = call.presentation.content(&result);
     assert!(call.content.is_some());
     assert!(has_content(&call, &page));
+    assert!(expandable(&[&call], &page));
     assert!(!summary(&call, &page).detail.hide_caret);
     assert!(inspector::copy(&call, &page).is_none());
     assert_eq!(call.result(&page), Some(&result));
@@ -251,6 +289,7 @@ fn failed_raw_keeps_diagnostics() {
         code: Some(ErrorCode::Unavailable),
     });
     assert!(has_content(&call, &page));
+    assert!(expandable(&[&call], &page));
     assert!(!summary(&call, &page).detail.hide_caret);
     assert!(summary(&call, &page).detail.failed);
     assert_eq!(

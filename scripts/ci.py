@@ -61,7 +61,7 @@ DEPENDENTS = (
     (("tools/release/",), {"shared"}),
     (("apps/desktop/", "crates/content/"), {"desktop"}),
     (("apps/host/",), {"host"}),
-    (("crates/node-runtime/", "crates/embedding/", "crates/ocr/"),
+    (("crates/node-runtime/", "crates/embedding/", "crates/ocr/", "crates/decision/"),
      {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
     (("crates/protocol/", "crates/link/", "crates/client/",
       "crates/speech/", "crates/model-assets/", "sdk/", "schemas/", "plugins/"), NATIVE),
@@ -74,9 +74,15 @@ DEPENDENTS = (
 
 def select_paths(paths):
     selected = set()
+    fixtures = {f"scripts/tests/{name}.py": set() if owner == "shared" else {owner}
+                for owner, names in FIXTURES.items() for name in names}
     for path in paths:
         if (path in DOCS or path.startswith(("third_party_licenses/", "assets/readme/"))
                 or (path.startswith("sdk/") and path.endswith(".md"))):
+            continue
+        if path in fixtures:
+            # Source always runs its fixtures; product fixtures run with their owner.
+            selected.update(fixtures[path])
             continue
         if path == "plugins":  # A changed submodule pointer includes its SDK and assets.
             selected.update(NATIVE)
@@ -171,8 +177,7 @@ def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
     runtime_host = target / "debug/examples/plugin-test-host"
     if platform.system() == "Windows":
         runtime_host = runtime_host.with_suffix(".exe")
-    shared = ["sailry-protocol", "sailry-link", "sailry-client", "sailry-node-runtime", "sailry-release"]
-    packages = [part for package in shared for part in ("-p", package)]
+    packages = [part for package in LINT_PACKAGES["shared"] for part in ("-p", package)]
     backend = ["cargo", "nextest", "run", "--locked", *packages]
     desktop = ["cargo", "nextest", "run", "--locked", "-p", "sailry-content", "-p", "sailry-desktop"]
     host = ["cargo", "nextest", "run", "--locked", "-p", "sailry-host"]
@@ -203,7 +208,7 @@ def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
         ],
         "host-source": [([python, "scripts/ci.py", "fixtures", "host"], ".")],
         "mobile-source": [([python, "scripts/ci.py", "fixtures", "mobile"], "."), ([python, "scripts/check-locales.py", "--product", "mobile"], ".")],
-        "mobile-format": [(["dart", "format", "--output=none", "--set-exit-if-changed", "lib", "preview", "test", "integration_test", "tool"], "apps/mobile")],
+        "mobile-format": [(["dart", "format", "--output=none", "--set-exit-if-changed", "lib", "preview", "test", "tool"], "apps/mobile")],
         "mobile-check": [(["flutter", "analyze", "--no-pub"], "apps/mobile"), (["flutter", "test", "--no-pub"], "apps/mobile")],
         "services": [(["pnpm", task], "services/pairing-relay") for task in ("typecheck", "test", "build", "build:edgeone")],
     }
@@ -263,7 +268,7 @@ def local_checks(selected, tier, system):
                 remaining.append("Host CI requires Linux or macOS")
         if "mobile" in selected:
             checks.append("mobile-check")
-            remaining.append("Mobile CI also runs a real Node and builds unsigned iOS")
+            remaining.append("Mobile CI also builds unsigned iOS")
         if "services" in selected:
             checks.append("services")
     if "mobile_ffi" in selected:

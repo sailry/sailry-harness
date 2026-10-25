@@ -88,6 +88,8 @@ mod ssh;
 mod terminal_tools;
 #[path = "dart/tools.rs"]
 mod tools;
+#[path = "dart/unassigned.rs"]
+mod unassigned;
 #[path = "dart/web_search.rs"]
 mod web_search;
 

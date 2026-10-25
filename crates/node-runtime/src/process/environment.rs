@@ -72,7 +72,7 @@ impl Environment {
         Self::filtered(std::env::vars_os())
     }
 
-    fn filtered(values: impl IntoIterator<Item = (OsString, OsString)>) -> Self {
+    pub(crate) fn filtered(values: impl IntoIterator<Item = (OsString, OsString)>) -> Self {
         let mut result = Self {
             values: BTreeMap::new(),
             terminal: BTreeMap::new(),
@@ -178,7 +178,10 @@ impl Environment {
     }
 
     pub(crate) fn home(&self) -> Option<&Path> {
-        self.values.get(OsStr::new("HOME")).map(Path::new)
+        self.values
+            .get(OsStr::new("HOME"))
+            .or_else(|| self.values.get(OsStr::new("USERPROFILE")))
+            .map(Path::new)
     }
 
     pub(crate) fn identity(&self) -> [u8; 32] {

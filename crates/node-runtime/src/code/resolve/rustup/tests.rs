@@ -1,8 +1,46 @@
-#![cfg(unix)]
 use super::*;
+#[cfg(unix)]
 use crate::code::{Pool, tests::Fixture};
+#[cfg(unix)]
 use sailry_link::CancellationToken;
 
+#[test]
+fn tracks_components_from_captured_home() {
+    for key in ["HOME", "USERPROFILE"] {
+        let directory = tempfile::tempdir().unwrap();
+        let bin = directory.path().join("bin");
+        let profile = directory.path().join("profile");
+        let home = profile.join(".rustup");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let launcher = bin.join(format!("rustup{}", std::env::consts::EXE_SUFFIX));
+        let executable = bin.join(format!("rust-analyzer{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(&launcher, "fixture rustup launcher").unwrap();
+        std::fs::hard_link(&launcher, &executable).unwrap();
+        std::fs::write(
+            home.join("settings.toml"),
+            "default_toolchain = 'stable-fixture-host'\n",
+        )
+        .unwrap();
+        let environment =
+            crate::process::Environment::filtered([(key.into(), profile.as_os_str().to_owned())]);
+        let variables = BTreeMap::new();
+        assert!(!available(&executable, None, &environment, &[], &variables));
+
+        let toolchain = home.join("toolchains/stable-fixture-host/bin");
+        std::fs::create_dir_all(&toolchain).unwrap();
+        let installed = toolchain.join(executable.file_name().unwrap());
+        std::fs::write(&installed, "fixture language server").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert!(available(&executable, None, &environment, &[], &variables));
+    }
+}
+
+#[cfg(unix)]
 fn proxy(fixture: &Fixture, hard_link: bool) -> PathBuf {
     let executable = fixture.bin.join("rust-analyzer");
     std::fs::remove_file(&executable).unwrap();
@@ -25,6 +63,7 @@ fn proxy(fixture: &Fixture, hard_link: bool) -> PathBuf {
     home
 }
 
+#[cfg(unix)]
 fn component(home: &Path, name: &str) {
     let bin = home.join("toolchains").join(name).join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -35,6 +74,7 @@ fn component(home: &Path, name: &str) {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn missing_components_are_not_installed() {
     for hard_link in [false, true] {
         let fixture = Fixture::new().await;
@@ -69,6 +109,7 @@ async fn missing_components_are_not_installed() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn keeps_explicit_dispatchers_available() {
     let fixture = Fixture::new().await;
     proxy(&fixture, false);
@@ -84,6 +125,7 @@ async fn keeps_explicit_dispatchers_available() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn respects_project_and_explicit_overrides() {
     let fixture = Fixture::new().await;
     let home = proxy(&fixture, false);

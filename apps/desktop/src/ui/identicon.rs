@@ -40,8 +40,28 @@ fn designs() -> &'static [String; 8] {
 }
 
 pub(crate) fn agent(key: &str, cx: &App) -> Icon {
+    child(key, true, cx)
+}
+
+pub(crate) fn child(key: &str, running: bool, cx: &App) -> Icon {
     let (shape, color) = identity(key);
     let theme = cx.theme();
+    Icon::default()
+        .data(designs()[shape].as_bytes())
+        .size_4()
+        .flex_shrink_0()
+        .text_color(tint(
+            color,
+            running,
+            theme.is_dark(),
+            theme.muted_foreground,
+        ))
+}
+
+fn tint(index: usize, running: bool, dark: bool, muted: Hsla) -> Hsla {
+    if !running {
+        return muted;
+    }
     let colors = [
         ColorName::Cyan,
         ColorName::Blue,
@@ -52,11 +72,7 @@ pub(crate) fn agent(key: &str, cx: &App) -> Icon {
         ColorName::Orange,
         ColorName::Indigo,
     ];
-    Icon::default()
-        .data(designs()[shape].as_bytes())
-        .size_4()
-        .flex_shrink_0()
-        .text_color(colors[color].scale(if theme.is_dark() { 400 } else { 600 }))
+    colors[index].scale(if dark { 400 } else { 600 })
 }
 
 pub(crate) fn rotation() -> Animation {
@@ -94,6 +110,23 @@ mod tests {
         assert!(identities.len() > 32);
         assert_eq!(identity("agent-7"), (2, 0));
         assert_ne!(identity("agent-7"), identity("agent-8"));
+    }
+
+    #[test]
+    fn settled_badges_use_muted_color() {
+        let muted = hsla(0., 0., 0.5, 1.);
+        for index in 0..8 {
+            assert_eq!(tint(index, false, false, muted), muted);
+            assert_eq!(tint(index, false, true, muted), muted);
+        }
+    }
+
+    #[test]
+    fn running_badges_retain_identity_color() {
+        let muted = hsla(0., 0., 0.5, 1.);
+        assert_eq!(tint(0, true, false, muted), ColorName::Cyan.scale(600));
+        assert_eq!(tint(0, true, true, muted), ColorName::Cyan.scale(400));
+        assert_ne!(tint(0, true, true, muted), tint(1, true, true, muted));
     }
 
     #[gpui_kit::test]

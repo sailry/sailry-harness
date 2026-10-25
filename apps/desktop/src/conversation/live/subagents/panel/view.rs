@@ -21,7 +21,7 @@ impl Shell {
                     .read(cx)
                     .summary()
                     .and_then(|session| session.activity.run.as_ref())
-                    .is_some_and(|run| matches!(run.status, Status::Running | Status::Stopping));
+                    .is_some_and(|run| is_running(run.status));
                 let close = Button::new(format!("close-child-{id}"))
                     .ghost()
                     .xsmall()
@@ -38,7 +38,7 @@ impl Shell {
                     label.clone(),
                     id == panel.selected,
                     Some(crate::ui::identicon::animated(
-                        crate::ui::identicon::agent(&id.to_string(), cx),
+                        crate::ui::identicon::child(&id.to_string(), running, cx),
                         running,
                     )),
                     close,

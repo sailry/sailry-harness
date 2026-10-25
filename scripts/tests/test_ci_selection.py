@@ -43,6 +43,7 @@ class Selection(unittest.TestCase):
             ("crates/node-runtime/src/store.rs", {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
             ("crates/embedding/Cargo.toml", {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
             ("crates/ocr/src/lib.rs", {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
+            ("crates/decision/src/lib.rs", {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
             ("crates/protocol/Cargo.toml", ci.NATIVE),
             ("crates/link/src/lib.rs", ci.NATIVE),
             ("crates/client/src/lib.rs", ci.NATIVE),
@@ -73,6 +74,18 @@ class Selection(unittest.TestCase):
     def test_combines_changes(self):
         paths = ["apps/desktop/src/main.rs", "services/pairing-relay/package.json", "README.md"]
         self.assertEqual(ci.select_paths(paths), {"desktop", "services"})
+
+    def test_selects_registered_fixture_owners(self):
+        for owner, names in ci.FIXTURES.items():
+            for name in names:
+                with self.subTest(owner=owner, name=name):
+                    self.assertEqual(ci.select_paths([f"scripts/tests/{name}.py"]),
+                                     set() if owner == "shared" else {owner})
+        self.assertEqual(ci.select_paths(["scripts/tests/test_names.py", "apps/host/src/main.rs"]),
+                         {"host"})
+        for path in ("scripts/tests/test_new_owner.py", "scripts/test_names.py", "scripts/ci.py"):
+            with self.subTest(path=path):
+                self.assertEqual(ci.select_paths([path]), ci.LANES)
 
     def test_skips_only_known_documentation(self):
         self.assertEqual(ci.select_paths([]), set())
@@ -228,9 +241,7 @@ class Commands(unittest.TestCase):
         backend = ci.check_commands("backend", "2")[0]
         databases = ci.check_commands("databases", "2")[0]
         packages = lambda argv: [argv[index + 1] for index, value in enumerate(argv) if value == "-p"]
-        self.assertEqual(packages(backend["argv"]), [
-            "sailry-protocol", "sailry-link", "sailry-client", "sailry-node-runtime", "sailry-release",
-        ])
+        self.assertEqual(packages(backend["argv"]), list(ci.LINT_PACKAGES["shared"]))
         self.assertEqual(packages(backend["argv"]), packages(databases["argv"]))
         self.assertEqual(backend["argv"][backend["argv"].index("--profile") + 1], "ci")
         self.assertEqual(databases["argv"][databases["argv"].index("--profile") + 1], "databases")

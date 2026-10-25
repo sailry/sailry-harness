@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
 class BrowserPlatform extends WebViewPlatform {
@@ -14,11 +13,6 @@ class BrowserPlatform extends WebViewPlatform {
   PlatformNavigationDelegate createPlatformNavigationDelegate(
     PlatformNavigationDelegateCreationParams params,
   ) => navigation = BrowserNavigation(params);
-
-  @override
-  PlatformWebViewWidget createPlatformWebViewWidget(
-    PlatformWebViewWidgetCreationParams params,
-  ) => BrowserWidget(params);
 }
 
 class BrowserController extends PlatformWebViewController {
@@ -67,11 +61,4 @@ class BrowserNavigation extends PlatformNavigationDelegate {
   Future<void> setOnNavigationRequest(
     NavigationRequestCallback callback,
   ) async => request = callback;
-}
-
-class BrowserWidget extends PlatformWebViewWidget {
-  BrowserWidget(super.params) : super.implementation();
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.expand();
 }

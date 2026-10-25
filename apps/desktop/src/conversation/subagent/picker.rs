@@ -254,7 +254,11 @@ impl Render for Picker {
                                         })
                                     })
                                     .child(crate::ui::identicon::animated(
-                                        crate::ui::identicon::agent(&key.debug_id(), cx),
+                                        crate::ui::identicon::child(
+                                            &key.debug_id(),
+                                            row.running,
+                                            cx,
+                                        ),
                                         row.running,
                                     ))
                                     .child(

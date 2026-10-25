@@ -101,7 +101,11 @@ impl Assets {
                                 div()
                                     .debug_selector(move || format!("asset-child-avatar-{id}"))
                                     .child(crate::ui::identicon::animated(
-                                        crate::ui::identicon::agent(&id.to_string(), cx),
+                                        crate::ui::identicon::child(
+                                            &id.to_string(),
+                                            child.running,
+                                            cx,
+                                        ),
                                         child.running,
                                     )),
                             )

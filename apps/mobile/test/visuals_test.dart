@@ -1,15 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'package:fake_async/fake_async.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sailry_mobile/content/code.dart';
-import 'package:sailry_mobile/content/markdown.dart';
-import 'package:sailry_mobile/content/visuals.dart';
-import 'package:sailry_mobile/content/visuals/image.dart';
-import 'package:sailry_mobile/ui/theme.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:sailry_mobile/content/visuals/data.dart';
+import 'package:sailry_mobile/content/visuals/renderer.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
 import 'support/webview.dart';
@@ -24,45 +21,22 @@ const testSvg = VisualSvg(
 const png =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
 
-Finder get formulaPictures => find.byWidgetPredicate(
-  (widget) => widget is SvgPicture && widget.bytesLoader is SvgStringLoader,
+VisualRequest request(
+  String source, {
+  bool dark = false,
+  VisualKind kind = VisualKind.inlineMath,
+}) => VisualRequest(
+  kind: kind,
+  source: source,
+  dark: dark,
+  foreground: dark ? '#ffffff' : '#000000',
+  background: dark ? '#000000' : '#ffffff',
+  accent: '#123456',
+  fontSize: 14,
 );
-
-Future<void> mount(
-  WidgetTester tester,
-  Widget child, {
-  VisualRender? render,
-  Brightness brightness = Brightness.light,
-  Duration animation = Duration.zero,
-  bool Function()? ready,
-}) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: SailryTheme.of(brightness),
-      themeAnimationDuration: animation,
-      home: Scaffold(
-        body: SingleChildScrollView(
-          child: VisualScope(render: render, child: child),
-        ),
-      ),
-    ),
-  );
-  if (ready != null) {
-    for (var attempt = 0; attempt < 500 && !ready(); attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      // Asset replies resume in the widget test's fake zone; flush it separately.
-      await tester.pump();
-    }
-    expect(ready(), isTrue, reason: 'Visual fixture did not initialize');
-  }
-  await tester.pumpAndSettle();
-}
 
 class VisualPlatform extends BrowserPlatform {
   final controllers = <VisualController>[];
-  int paints = 0;
   bool hold = false;
   bool rejectLoad = false;
   bool holdDispatch = false;
@@ -78,33 +52,6 @@ class VisualPlatform extends BrowserPlatform {
     controllers.add(created);
     return controller = created;
   }
-
-  @override
-  PlatformWebViewWidget createPlatformWebViewWidget(
-    PlatformWebViewWidgetCreationParams params,
-  ) => VisualWidget(params, this);
-}
-
-class VisualWidget extends BrowserWidget {
-  VisualWidget(super.params, this.platform);
-  final VisualPlatform platform;
-
-  @override
-  Widget build(BuildContext context) => CustomPaint(
-    painter: SurfacePainter(platform),
-    child: const SizedBox.expand(),
-  );
-}
-
-class SurfacePainter extends CustomPainter {
-  SurfacePainter(this.platform);
-  final VisualPlatform platform;
-
-  @override
-  void paint(Canvas canvas, Size size) => platform.paints++;
-
-  @override
-  bool shouldRepaint(SurfacePainter oldDelegate) => false;
 }
 
 class VisualController extends BrowserController {
@@ -170,7 +117,48 @@ class VisualController extends BrowserController {
   }
 }
 
+class RenderResult {
+  RenderResult(Future<VisualSvg> future) {
+    future.then(
+      (value) {
+        this.value = value;
+        completed = true;
+      },
+      onError: (Object error) {
+        this.error = error;
+        completed = true;
+      },
+    );
+  }
+  VisualSvg? value;
+  Object? error;
+  bool completed = false;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final assets = <String>[];
+  final previous = WebViewPlatform.instance;
+  late VisualPlatform platform;
+  setUp(() {
+    platform = VisualPlatform();
+    WebViewPlatform.instance = platform;
+    assets.clear();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMessageHandler('flutter/assets', (message) {
+          final key = utf8.decode(message!.buffer.asUint8List());
+          assets.add(key);
+          return SynchronousFuture(
+            ByteData.sublistView(utf8.encode('/* Bundled fixture: $key */')),
+          );
+        });
+  });
+  tearDown(() {
+    WebViewPlatform.instance = previous ?? BrowserPlatform();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMessageHandler('flutter/assets', null);
+  });
+
   group('SVG validation', () {
     test('accepts local paths and rejects external resources', () {
       expect(testSvg.validate, returnsNormally);
@@ -216,565 +204,333 @@ void main() {
     });
   });
 
-  testWidgets('shares results and uses themed inline baselines', (
-    tester,
-  ) async {
-    final requests = <VisualRequest>[];
-    Future<VisualSvg> render(VisualRequest request) async {
-      requests.add(request);
-      return testSvg;
-    }
-
-    const content = Column(
-      children: [
-        MarkdownContent(r'Before $x$ after.'),
-        MarkdownContent(r'$x$'),
-      ],
-    );
-    await mount(tester, content, render: render);
-    expect(requests, hasLength(1));
-    expect(requests.single.kind, VisualKind.inlineMath);
-    expect(requests.single.dark, isFalse);
-    expect(formulaPictures, findsNWidgets(2));
-    expect(
-      tester
-          .widgetList<FormulaBaseline>(find.byType(FormulaBaseline))
-          .every((value) => value.baseline == 8),
-      isTrue,
-    );
-    expect(find.byType(WebViewWidget, skipOffstage: false), findsNothing);
-    for (final picture in tester.widgetList<SvgPicture>(formulaPictures)) {
-      final loader = picture.bytesLoader as SvgStringLoader;
-      await tester.runAsync(() => loader.loadBytes(null));
-      expect(svg.cache.evict(loader.cacheKey(null)), isFalse);
-    }
-    await mount(tester, content, render: render, brightness: Brightness.dark);
-    expect(requests, hasLength(2));
-    expect(requests.last.dark, isTrue);
-    expect(requests.last.foreground, isNot(requests.first.foreground));
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('tall inline formulas fit their paragraph', (tester) async {
-    const tall = VisualSvg(
-      source:
-          '<svg xmlns="http://www.w3.org/2000/svg" width="203.64" height="29.51"><path d="M0 0L203.64 29.51"/></svg>',
-      width: 203.64,
-      height: 29.51,
-      baseline: 18.88,
-    );
-    final pending = Completer<VisualSvg>();
-    await mount(
-      tester,
-      const SizedBox(
-        width: 320,
-        child: MarkdownContent(r'Before $fraction$ after text.'),
-      ),
-      render: (_) => pending.future,
-    );
-    expect(formulaPictures, findsNothing);
-    pending.complete(tall);
-    await tester.pumpAndSettle();
-    final picture = tester.getRect(formulaPictures);
-    final paragraph = find.byWidgetPredicate(
-      (widget) =>
-          widget is SelectableText &&
-          widget.textSpan?.toPlainText().contains('Before') == true,
-    );
-    final bounds = tester.getRect(paragraph);
-    expect(picture.top, greaterThanOrEqualTo(bounds.top));
-    expect(picture.bottom, lessThanOrEqualTo(bounds.bottom));
-    expect(bounds.height, greaterThanOrEqualTo(picture.height));
-    expect(
-      tester.widget<SelectableText>(paragraph).textSpan!.toPlainText(),
-      contains('after text.'),
-    );
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('plain paragraphs retain fixed line height', (tester) async {
-    await mount(tester, const MarkdownContent('Plain text paragraph.'));
-    final paragraph = tester.widget<SelectableText>(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is SelectableText &&
-            widget.textSpan?.toPlainText() == 'Plain text paragraph.',
-      ),
-    );
-    expect(paragraph.strutStyle!.forceStrutHeight, isTrue);
-    expect(paragraph.strutStyle!.height, 1.7);
-    expect(paragraph.strutStyle!.fontSize, 14);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('preserves failed and unfinished source', (tester) async {
-    const content = MarkdownContent(
-      r'Inline $x$ and unfinished \(value'
-      '\n\n```mermaid\ngraph INVALID\n```',
-    );
-    await mount(
-      tester,
-      content,
-      render: (_) async => throw const FormatException('Invalid fixture'),
-    );
-    expect(formulaPictures, findsNothing);
-    expect(find.textContaining(r'$x$', findRichText: true), findsWidgets);
-    expect(find.textContaining('(value', findRichText: true), findsWidgets);
-    expect(
-      tester.widget<CodeBlock>(find.byType(CodeBlock)).text,
-      'graph INVALID\n',
-    );
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('bounds retained SVG bytes and entries', (tester) async {
-    var calls = 0;
-    var large = true;
-    final source =
-        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><!--${'x' * 1600000}--><path d="M0 0L20 10"/></svg>';
-    Future<VisualSvg> render(VisualRequest _) async {
-      calls++;
-      return large ? VisualSvg(source: source, width: 20, height: 10) : testSvg;
-    }
-
-    Widget content(String value) =>
-        MarkdownVisual(kind: VisualKind.displayMath, source: value);
-    for (var index = 0; index < 6; index++) {
-      await mount(tester, content('large-$index'), render: render);
-    }
-    expect(calls, 6);
-    await mount(tester, content('large-0'), render: render);
-    expect(calls, 7, reason: 'Completed SVGs exceeding 16 MiB are evicted');
-    large = false;
-    for (var index = 0; index < 129; index++) {
-      await mount(tester, content('small-$index'), render: render);
-    }
-    final before = calls;
-    await mount(tester, content('small-0'), render: render);
-    expect(
-      calls,
-      before + 1,
-      reason: 'Completed cache retains at most 128 entries',
-    );
-    await tester.pumpWidget(const SizedBox());
-    await mount(tester, content('small-0'), render: render);
-    expect(calls, before + 2, reason: 'Disposal releases the scoped cache');
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('uses one offline surface and serializes jobs', (tester) async {
-    final platform = VisualPlatform()..hold = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    await mount(
-      tester,
-      const Column(
-        children: [
-          MarkdownVisual(kind: VisualKind.inlineMath, source: 'x'),
-          MarkdownVisual(kind: VisualKind.mermaid, source: 'graph TD; A-->B'),
-        ],
-      ),
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.calls.isNotEmpty,
-    );
-    expect(platform.controllers, hasLength(1));
-    final controller = platform.controllers.single;
-    expect(controller.calls, hasLength(1));
-    expect(controller.pages.single, contains("connect-src 'none'"));
-    expect(controller.pages.single, contains('window.sailryRender'));
-    expect(
-      controller.pages.single,
-      contains('MathJax.loader.paths = {mathjax:"sailry-visual://localhost"}'),
-    );
-    expect(
-      controller.pages.single.indexOf('MathJax.loader.paths ='),
-      lessThan(controller.pages.single.indexOf('new URL(t,location)')),
-    );
-    expect(controller.pages.single.split('</script>'), hasLength(2));
-    expect(find.byType(WebViewWidget, skipOffstage: false), findsOneWidget);
-    expect(
-      await platform.navigation.request(
-        const NavigationRequest(url: 'https://example.com', isMainFrame: true),
-      ),
-      NavigationDecision.prevent,
-    );
-    controller.reply(controller.calls.single);
-    await tester.pumpAndSettle();
-    expect(controller.calls, hasLength(2));
-    controller.reply(controller.calls.last);
-    await tester.pumpAndSettle();
-    expect(formulaPictures, findsOneWidget);
-    expect(find.byType(Image), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-    expect(controller.removals, 1);
-    expect(find.byType(WebViewWidget, skipOffstage: false), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('composes a transparent noninteractive native surface', (
-    tester,
-  ) async {
-    final platform = VisualPlatform()..hold = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.inlineMath, source: 'x'),
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.calls.isNotEmpty,
-    );
-    final surface = find.byType(WebViewWidget);
-    expect(surface, findsOneWidget);
-    expect(platform.paints, greaterThan(0));
-    expect(tester.getSize(surface), const Size(640, 480));
-    expect(platform.controllers.single.background, Colors.transparent);
-    expect(
-      tester
-          .getRect(surface)
-          .overlaps(tester.getRect(find.byType(VisualScope))),
-      isTrue,
-    );
-    expect(
-      platform.controllers.single.pages.single,
-      contains(
-        'html,body{width:640px;min-height:480px;margin:0;background:transparent!important}body{opacity:0}',
-      ),
-    );
-    expect(
-      tester
-          .widget<IgnorePointer>(
-            find
-                .ancestor(of: surface, matching: find.byType(IgnorePointer))
-                .first,
-          )
-          .ignoring,
-      isTrue,
-    );
-    expect(
-      tester
-          .widget<ExcludeSemantics>(
-            find
-                .ancestor(of: surface, matching: find.byType(ExcludeSemantics))
-                .first,
-          )
-          .excluding,
-      isTrue,
-    );
-    final scope = find.byType(VisualScope);
-    expect(
-      tester
-          .widget<Stack>(
-            find.descendant(of: scope, matching: find.byType(Stack)).first,
-          )
-          .clipBehavior,
-      Clip.hardEdge,
-    );
-    await tester.pumpWidget(const SizedBox());
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('accepts escaped envelopes within SVG size limits', (
-    tester,
-  ) async {
-    final platform = VisualPlatform()
-      ..output =
-          '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><desc>${'"' * 1200000}</desc><path d="M0 0L20 10"/></svg>';
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.displayMath, source: 'x'),
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.calls.isNotEmpty,
-    );
-    expect(formulaPictures, findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('releases failed loads and permits a fresh source', (
-    tester,
-  ) async {
-    final platform = VisualPlatform()..rejectLoad = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.displayMath, source: 'first'),
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.removals == 1,
-    );
-    expect(find.byType(WebViewWidget, skipOffstage: false), findsNothing);
-    expect(find.byType(CodeBlock), findsOneWidget);
-    expect(platform.controllers.single.removals, 1);
-    await tester.pump(const Duration(seconds: 31));
-    expect(tester.takeException(), isNull);
-    platform.rejectLoad = false;
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.displayMath, source: 'second'),
-      ready: () =>
-          platform.controllers.length == 2 &&
-          platform.controllers.last.calls.isNotEmpty,
-    );
-    expect(platform.controllers, hasLength(2));
-    expect(formulaPictures, findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('drops timed out jobs before reinitializing', (tester) async {
-    final platform = VisualPlatform()..hold = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    await mount(
-      tester,
-      const Column(
-        children: [
-          MarkdownVisual(kind: VisualKind.displayMath, source: 'first'),
-          MarkdownVisual(kind: VisualKind.displayMath, source: 'queued'),
-        ],
-      ),
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.calls.isNotEmpty,
-    );
-    final failed = platform.controllers.single;
-    await tester.pump(const Duration(seconds: 31));
-    await tester.pumpAndSettle();
-    expect(failed.calls, hasLength(1));
-    expect(failed.removals, 1);
-    expect(find.byType(WebViewWidget, skipOffstage: false), findsNothing);
-    platform.hold = false;
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.displayMath, source: 'fresh'),
-      ready: () =>
-          platform.controllers.length == 2 &&
-          platform.controllers.last.calls.isNotEmpty,
-    );
-    expect(platform.controllers, hasLength(2));
-    expect(formulaPictures, findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final reply in [false, true]) {
-    testWidgets('bounds held dispatch with reply $reply', (tester) async {
-      final platform = VisualPlatform()
-        ..holdDispatch = true
-        ..replyBeforeHold = reply;
-      final previous = WebViewPlatform.instance;
-      WebViewPlatform.instance = platform;
-      addTearDown(
-        () => WebViewPlatform.instance = previous ?? BrowserPlatform(),
+  group('cache', () {
+    test('shares identical requests and captures distinct themes', () async {
+      final requests = <VisualRequest>[];
+      final renderer = VisualRenderer(
+        render: (request) async {
+          requests.add(request);
+          return testSvg;
+        },
       );
-      await mount(
-        tester,
-        const Column(
-          children: [
-            MarkdownVisual(kind: VisualKind.inlineMath, source: 'active'),
-            MarkdownVisual(kind: VisualKind.inlineMath, source: 'queued'),
-          ],
-        ),
-        ready: () =>
-            platform.controllers.isNotEmpty &&
-            platform.controllers.single.calls.isNotEmpty,
-      );
-      final controller = platform.controllers.single;
-      await tester.pump(const Duration(seconds: 31));
-      await tester.pumpAndSettle();
-      expect(controller.calls, hasLength(1));
-      expect(controller.removals, 1);
-      expect(find.byType(WebViewWidget, skipOffstage: false), findsNothing);
-      await tester.pumpWidget(const SizedBox());
-      expect(tester.takeException(), isNull);
+      final first = renderer.render(request('x'));
+      expect(renderer.render(request('x')), same(first));
+      expect((await first).baseline, 8);
+      expect(renderer.render(request('x')), same(first));
+      await renderer.render(request('x', dark: true));
+      expect(requests.map((value) => value.dark), [false, true]);
+      renderer.dispose();
+      await expectLater(renderer.render(request('fresh')), throwsStateError);
     });
-  }
 
-  testWidgets('ignores late initialization after deadline', (tester) async {
-    final platform = VisualPlatform()..holdMode = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.displayMath, source: 'first'),
-      ready: () => platform.controllers.isNotEmpty,
-    );
-    final expired = platform.controllers.single;
-    await tester.pump(const Duration(seconds: 31));
-    await tester.pumpAndSettle();
-    expect(expired.removals, 1);
-    expect(find.byType(WebViewWidget, skipOffstage: false), findsNothing);
-    platform.holdMode = false;
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.displayMath, source: 'second'),
-      ready: () =>
-          platform.controllers.length == 2 &&
-          platform.controllers.last.calls.isNotEmpty,
-    );
-    expired.mode.complete();
-    await tester.pumpAndSettle();
-    expect(expired.pages, isEmpty);
-    expect(platform.controllers.last.calls, hasLength(1));
-    expect(formulaPictures, findsOneWidget);
-    expect(tester.takeException(), isNull);
+    test('bounds retained bytes and entries', () async {
+      var calls = 0;
+      var large = true;
+      final source =
+          '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><!--${'x' * 1600000}--><path d="M0 0L20 10"/></svg>';
+      final renderer = VisualRenderer(
+        render: (_) async {
+          calls++;
+          return large
+              ? VisualSvg(source: source, width: 20, height: 10)
+              : testSvg;
+        },
+      );
+      for (var index = 0; index < 6; index++) {
+        await renderer.render(request('large-$index'));
+      }
+      expect(calls, 6);
+      await renderer.render(request('large-0'));
+      expect(calls, 7, reason: 'Completed SVGs exceeding 16 MiB are evicted');
+      large = false;
+      for (var index = 0; index < 129; index++) {
+        await renderer.render(request('small-$index'));
+      }
+      final before = calls;
+      await renderer.render(request('small-0'));
+      expect(
+        calls,
+        before + 1,
+        reason: 'Completed cache retains at most 128 entries',
+      );
+      renderer.dispose();
+      final fresh = VisualRenderer(
+        render: (_) async {
+          calls++;
+          return testSvg;
+        },
+      );
+      await fresh.render(request('small-0'));
+      expect(calls, before + 2, reason: 'Disposal releases the scoped cache');
+      fresh.dispose();
+    });
   });
 
-  testWidgets('returns to a superseded theme successfully', (tester) async {
-    final platform = VisualPlatform()..hold = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    const content = Column(
-      children: [
-        MarkdownVisual(kind: VisualKind.inlineMath, source: 'active'),
-        MarkdownVisual(kind: VisualKind.inlineMath, source: 'queued'),
-      ],
-    );
-    await mount(
-      tester,
-      content,
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.calls.isNotEmpty,
-    );
-    await mount(tester, content, brightness: Brightness.dark);
-    await mount(tester, content, brightness: Brightness.light);
-    final controller = platform.controllers.single;
-    platform.hold = false;
-    controller.reply(controller.calls.single);
-    await tester.pumpAndSettle();
-    expect(formulaPictures, findsNWidgets(2));
-    expect(controller.calls, hasLength(2));
-    expect(controller.calls.last, contains('"dark":false'));
-    expect(tester.takeException(), isNull);
-  });
+  group('offline renderer', () {
+    test('loads bundled assets and serializes jobs', () {
+      fakeAsync((clock) {
+        platform.hold = true;
+        final renderer = VisualRenderer();
+        final first = RenderResult(renderer.render(request('x')));
+        final second = RenderResult(
+          renderer.render(request('graph TD; A-->B', kind: VisualKind.mermaid)),
+        );
+        clock.flushMicrotasks();
+        expect(platform.controllers, hasLength(1));
+        final controller = platform.controllers.single;
+        expect(controller.calls, hasLength(1));
+        expect(assets, [
+          for (final name in [
+            'config',
+            'mermaid',
+            'mathjax',
+            'fonts',
+            'render',
+          ])
+            'assets/visuals/$name.js',
+        ]);
+        expect(controller.pages.single, contains("connect-src 'none'"));
+        expect(
+          controller.pages.single,
+          contains(
+            'MathJax.loader.paths = {mathjax:"sailry-visual://localhost"}',
+          ),
+        );
+        expect(controller.pages.single.split('</script>'), hasLength(2));
+        NavigationDecision? decision;
+        Future<NavigationDecision>.value(
+          platform.navigation.request(
+            const NavigationRequest(
+              url: 'https://example.com',
+              isMainFrame: true,
+            ),
+          ),
+        ).then((value) => decision = value);
+        clock.flushMicrotasks();
+        expect(decision, NavigationDecision.prevent);
+        controller.reply(controller.calls.single);
+        clock.flushMicrotasks();
+        expect(first.value?.source, testSvg.source);
+        expect(controller.calls, hasLength(2));
+        controller.reply(controller.calls.last);
+        clock.flushMicrotasks();
+        expect(second.value?.png, base64Decode(png));
+        expect(second.error, isNull);
+        renderer.dispose();
+        clock.flushMicrotasks();
+        expect(controller.removals, 1);
+      });
+    });
 
-  testWidgets('observes cancellation before a queued consumer attaches', (
-    tester,
-  ) async {
-    final platform = VisualPlatform()..hold = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.inlineMath, source: 'active'),
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.calls.isNotEmpty,
-    );
-    final dynamic owner = tester.state(find.byType(VisualScope));
-    Future<VisualSvg> queued(bool dark) =>
-        owner.render(
-              VisualRequest(
-                kind: VisualKind.inlineMath,
-                source: 'queued',
-                dark: dark,
-                foreground: '#ffffff',
-                background: dark ? '#000000' : '#ffffff',
-                accent: '#123456',
-                fontSize: 14,
-              ),
-            )
-            as Future<VisualSvg>;
-    final obsolete = queued(false);
-    final current = queued(true);
-    await tester.pump();
-    expect(tester.takeException(), isNull);
-    await expectLater(obsolete, throwsStateError);
-    platform.hold = false;
-    final controller = platform.controllers.single;
-    controller.reply(controller.calls.single);
-    await tester.pumpAndSettle();
-    expect((await current).source, testSvg.source);
-    expect(controller.calls, hasLength(2));
-    expect(controller.calls.last, contains('"dark":true'));
-    expect(tester.takeException(), isNull);
-  });
+    test('accepts escaped envelopes within SVG limits', () {
+      fakeAsync((clock) {
+        platform.output =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><desc>${'"' * 1200000}</desc><path d="M0 0L20 10"/></svg>';
+        final renderer = VisualRenderer();
+        final result = RenderResult(renderer.render(request('x')));
+        clock.flushMicrotasks();
+        expect(result.completed, isTrue);
+        expect(result.error, isNull);
+        expect(result.value?.source, platform.output);
+        renderer.dispose();
+        clock.flushMicrotasks();
+      });
+    });
 
-  testWidgets('renders the final animated theme under load', (tester) async {
-    final platform = VisualPlatform()..hold = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    final content = Column(
-      children: [
-        for (var index = 0; index < 80; index++)
-          MarkdownVisual(kind: VisualKind.inlineMath, source: 'x_$index'),
-      ],
-    );
-    await mount(
-      tester,
-      content,
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.calls.isNotEmpty,
-    );
-    await mount(
-      tester,
-      content,
-      brightness: Brightness.dark,
-      animation: const Duration(milliseconds: 200),
-    );
-    final controller = platform.controllers.single;
-    platform.hold = false;
-    controller.reply(controller.calls.single);
-    await tester.pumpAndSettle();
-    expect(formulaPictures, findsNWidgets(80));
-    expect(controller.calls, hasLength(81));
-    expect(
-      controller.calls
-          .skip(1)
-          .every((script) => script.contains('"dark":true')),
-      isTrue,
-    );
-    expect(tester.takeException(), isNull);
-  });
+    test('releases failed loads and permits a fresh source', () {
+      fakeAsync((clock) {
+        platform.rejectLoad = true;
+        final renderer = VisualRenderer();
+        final failed = RenderResult(renderer.render(request('first')));
+        clock.flushMicrotasks();
+        expect(failed.error, isStateError);
+        expect(renderer.controller, isNull);
+        expect(platform.controllers.single.removals, 1);
+        clock.elapse(const Duration(seconds: 31));
+        platform.rejectLoad = false;
+        final fresh = RenderResult(renderer.render(request('second')));
+        clock.flushMicrotasks();
+        expect(platform.controllers, hasLength(2));
+        expect(fresh.value?.source, testSvg.source);
+        renderer.dispose();
+        clock.flushMicrotasks();
+      });
+    });
 
-  testWidgets('observes abandoned renders when the scope closes', (
-    tester,
-  ) async {
-    final platform = VisualPlatform()..hold = true;
-    final previous = WebViewPlatform.instance;
-    WebViewPlatform.instance = platform;
-    addTearDown(() => WebViewPlatform.instance = previous ?? BrowserPlatform());
-    await mount(
-      tester,
-      const MarkdownVisual(kind: VisualKind.inlineMath, source: 'active'),
-      ready: () =>
-          platform.controllers.isNotEmpty &&
-          platform.controllers.single.calls.isNotEmpty,
-    );
-    final dynamic owner = tester.state(find.byType(VisualScope));
-    final queued =
-        owner.render(
-              const VisualRequest(
-                kind: VisualKind.inlineMath,
-                source: 'queued',
-                dark: false,
-                foreground: '#000000',
-                background: '#ffffff',
-                accent: '#123456',
-                fontSize: 14,
-              ),
-            )
-            as Future<VisualSvg>;
-    await tester.pumpWidget(const SizedBox());
-    await tester.pump();
-    expect(tester.takeException(), isNull);
-    await expectLater(queued, throwsStateError);
-    expect(platform.controllers.single.removals, 1);
-    expect(tester.takeException(), isNull);
+    test('drops timed out jobs before reinitializing', () {
+      fakeAsync((clock) {
+        platform.hold = true;
+        final renderer = VisualRenderer();
+        final active = RenderResult(renderer.render(request('first')));
+        final queued = RenderResult(renderer.render(request('queued')));
+        clock.flushMicrotasks();
+        final failed = platform.controllers.single;
+        clock.elapse(const Duration(seconds: 31));
+        expect(active.error, isA<TimeoutException>());
+        expect(queued.error, isA<TimeoutException>());
+        expect(failed.calls, hasLength(1));
+        expect(failed.removals, 1);
+        expect(renderer.controller, isNull);
+        platform.hold = false;
+        final fresh = RenderResult(renderer.render(request('fresh')));
+        clock.flushMicrotasks();
+        expect(platform.controllers, hasLength(2));
+        expect(fresh.value?.source, testSvg.source);
+        renderer.dispose();
+        clock.flushMicrotasks();
+      });
+    });
+
+    for (final reply in [false, true]) {
+      test('bounds held dispatch with reply $reply', () {
+        fakeAsync((clock) {
+          platform.holdDispatch = true;
+          platform.replyBeforeHold = reply;
+          final renderer = VisualRenderer();
+          final active = RenderResult(renderer.render(request('active')));
+          final queued = RenderResult(renderer.render(request('queued')));
+          clock.flushMicrotasks();
+          final controller = platform.controllers.single;
+          clock.elapse(const Duration(seconds: 31));
+          if (reply) {
+            expect(active.value?.source, testSvg.source);
+          } else {
+            expect(active.error, isA<TimeoutException>());
+          }
+          expect(queued.error, isA<TimeoutException>());
+          expect(controller.calls, hasLength(1));
+          expect(controller.removals, 1);
+          expect(renderer.controller, isNull);
+          renderer.dispose();
+          clock.flushMicrotasks();
+        });
+      });
+    }
+
+    test('ignores late initialization after deadline', () {
+      fakeAsync((clock) {
+        platform.holdMode = true;
+        final renderer = VisualRenderer();
+        final first = RenderResult(renderer.render(request('first')));
+        clock.flushMicrotasks();
+        final expired = platform.controllers.single;
+        clock.elapse(const Duration(seconds: 31));
+        expect(first.error, isA<TimeoutException>());
+        expect(expired.removals, 1);
+        expect(renderer.controller, isNull);
+        platform.holdMode = false;
+        final second = RenderResult(renderer.render(request('second')));
+        clock.flushMicrotasks();
+        expired.mode.complete();
+        clock.flushMicrotasks();
+        expect(expired.pages, isEmpty);
+        expect(platform.controllers.last.calls, hasLength(1));
+        expect(second.value?.source, testSvg.source);
+        renderer.dispose();
+        clock.flushMicrotasks();
+      });
+    });
+
+    test('returns to a superseded theme successfully', () {
+      fakeAsync((clock) {
+        platform.hold = true;
+        final renderer = VisualRenderer();
+        final active = RenderResult(renderer.render(request('active')));
+        clock.flushMicrotasks();
+        final old = RenderResult(renderer.render(request('queued')));
+        final dark = RenderResult(
+          renderer.render(request('queued', dark: true)),
+        );
+        final current = RenderResult(renderer.render(request('queued')));
+        clock.flushMicrotasks();
+        expect(old.error, isStateError);
+        expect(dark.error, isStateError);
+        final controller = platform.controllers.single;
+        platform.hold = false;
+        controller.reply(controller.calls.single);
+        clock.flushMicrotasks();
+        expect(active.value?.source, testSvg.source);
+        expect(current.value?.source, testSvg.source);
+        expect(controller.calls, hasLength(2));
+        expect(controller.calls.last, contains('"dark":false'));
+        renderer.dispose();
+        clock.flushMicrotasks();
+      });
+    });
+
+    test('observes cancellation before a queued consumer attaches', () {
+      fakeAsync((clock) {
+        platform.hold = true;
+        final renderer = VisualRenderer();
+        RenderResult(renderer.render(request('active')));
+        clock.flushMicrotasks();
+        final obsolete = renderer.render(request('queued'));
+        final current = RenderResult(
+          renderer.render(request('queued', dark: true)),
+        );
+        clock.flushMicrotasks();
+        final cancelled = RenderResult(obsolete);
+        clock.flushMicrotasks();
+        expect(cancelled.error, isStateError);
+        platform.hold = false;
+        final controller = platform.controllers.single;
+        controller.reply(controller.calls.single);
+        clock.flushMicrotasks();
+        expect(current.value?.source, testSvg.source);
+        expect(controller.calls, hasLength(2));
+        expect(controller.calls.last, contains('"dark":true'));
+        renderer.dispose();
+        clock.flushMicrotasks();
+      });
+    });
+
+    test('renders the final captured theme under load', () {
+      fakeAsync((clock) {
+        platform.hold = true;
+        final renderer = VisualRenderer();
+        for (var index = 0; index < 80; index++) {
+          RenderResult(renderer.render(request('x_$index')));
+        }
+        clock.flushMicrotasks();
+        final current = [
+          for (var index = 0; index < 80; index++)
+            RenderResult(renderer.render(request('x_$index', dark: true))),
+        ];
+        platform.hold = false;
+        final controller = platform.controllers.single;
+        controller.reply(controller.calls.single);
+        clock.flushMicrotasks();
+        expect(
+          current.every((result) => result.value?.source == testSvg.source),
+          isTrue,
+        );
+        expect(controller.calls, hasLength(81));
+        expect(
+          controller.calls
+              .skip(1)
+              .every((script) => script.contains('"dark":true')),
+          isTrue,
+        );
+        renderer.dispose();
+        clock.flushMicrotasks();
+      });
+    });
+
+    test('observes abandoned renders when the owner closes', () {
+      fakeAsync((clock) {
+        platform.hold = true;
+        final renderer = VisualRenderer();
+        final active = RenderResult(renderer.render(request('active')));
+        clock.flushMicrotasks();
+        final queued = renderer.render(request('queued'));
+        renderer.dispose();
+        clock.flushMicrotasks();
+        final abandoned = RenderResult(queued);
+        clock.flushMicrotasks();
+        expect(active.error, isStateError);
+        expect(abandoned.error, isStateError);
+        expect(platform.controllers.single.removals, 1);
+      });
+    });
   });
 }

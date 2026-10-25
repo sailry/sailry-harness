@@ -204,7 +204,18 @@ impl Shell {
                     .items_center()
                     .when(session.delegation.is_some(), |row| {
                         row.child(
-                            crate::ui::identicon::agent(&id.to_string(), cx).into_any_element(),
+                            crate::ui::identicon::child(
+                                &id.to_string(),
+                                session.activity.run.as_ref().is_some_and(|run| {
+                                    matches!(
+                                        run.status,
+                                        sailry_protocol::conversation::Status::Running
+                                            | sailry_protocol::conversation::Status::Stopping
+                                    )
+                                }),
+                                cx,
+                            )
+                            .into_any_element(),
                         )
                     })
                     .child(super::title::Title::new(

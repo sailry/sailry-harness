@@ -17,6 +17,7 @@ import 'attachments.dart';
 import 'configuration.dart';
 import 'connection_status.dart';
 import 'draft_attachments.dart';
+import 'turn_draft.dart';
 import 'queue.dart';
 import 'presentation.dart';
 import 'timeline.dart';
@@ -53,15 +54,20 @@ class LiveConversationPage extends StatefulWidget {
 }
 
 class _LiveConversationPageState extends State<LiveConversationPage> {
-  late final _draft = TextEditingController(text: widget.initialDraft);
+  late final _submission = TurnDraft(
+    host: widget.host,
+    session: widget.sessionId,
+    text: widget.initialDraft,
+    attachments: widget.initialAttachments,
+  );
+  TextEditingController get _draft => _submission.input;
+  List<PickedAttachment> get _attachments => _submission.attachments;
+  bool get _sending => _submission.sending;
+  PendingMessage? get _pendingSend => _submission.pending;
   final _scroll = ScrollController();
   final _view = ValueNotifier<Map<String, dynamic>>({});
-  late final List<PickedAttachment> _attachments = List.of(
-    widget.initialAttachments,
-  );
   ConversationUpdates? _updates;
   bool _closed = false;
-  bool _sending = false;
   bool _initialSubmitted = false;
   bool _historyBusy = false;
   ({String kind, String request})? _historyPending;
@@ -69,13 +75,6 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   final _edits = <String, String>{};
   final _turnKeys = <String, GlobalKey>{};
   ({String turn, int revision})? _reveal;
-  ({
-    String request,
-    String text,
-    List<PickedAttachment> attachments,
-    bool composer,
-  })?
-  _pendingSend;
   late final _artifactActions = ArtifactActions(
     submit: _sendArtifact,
     check: _checkSend,
@@ -108,6 +107,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   @override
   void initState() {
     super.initState();
+    _submission.addListener(_rebuild);
     unawaited(_acknowledge());
     unawaited(_watch());
   }
@@ -198,7 +198,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     _closed = true;
     final updates = _updates;
     if (updates != null) unawaited(updates.close());
-    _draft.dispose();
+    _submission.removeListener(_rebuild);
+    _submission.dispose();
     _scroll.dispose();
     _artifactActions.dispose();
     _view.dispose();
@@ -219,118 +220,26 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   }
 
   Future<void> _send() async {
-    final text = _draft.text;
-    if (_historyBusy ||
-        _historyPending != null ||
-        _sending ||
-        _pendingSend != null ||
-        !widget.host.connected ||
-        text.trim().isEmpty && _attachments.isEmpty) {
-      return;
-    }
-    final attachments = List<PickedAttachment>.of(_attachments);
-    setState(() => _sending = true);
-    _artifactActions.changed();
+    if (_historyBusy || _historyPending != null) return;
     try {
-      await _command('submit_turn', {
-        'session': widget.sessionId,
-        'expected_revision': _session['revision'],
-        'message': {
-          'text': text,
-          'attachments': attachments
-              .map((item) => item.attachment['id'])
-              .toList(),
-        },
-      });
-      if (!mounted) return;
-      // Preserve typing and newly attached files made while admission was pending.
-      if (_draft.text == text) _draft.clear();
-      setState(
-        () => _attachments.removeWhere((item) => attachments.contains(item)),
-      );
+      await _submission.send(_session['revision'] as int);
     } catch (error) {
-      if (error is CommandFailure &&
-          error.code == 'outcome_unknown' &&
-          error.request != null &&
-          mounted) {
-        setState(
-          () => _pendingSend = (
-            request: error.request!,
-            text: text,
-            attachments: attachments,
-            composer: true,
-          ),
-        );
-      }
       _failure(error);
-    } finally {
-      if (mounted) {
-        setState(() => _sending = false);
-        _artifactActions.changed();
-      }
     }
   }
 
   Future<bool> _checkSend() async {
-    final pending = _pendingSend;
-    if (pending == null || _sending) return false;
-    setState(() => _sending = true);
-    _artifactActions.changed();
     try {
-      // Explicit reconciliation keeps the original durable request identity.
-      await widget.host.execute(pending.request);
-      if (!mounted) return false;
-      if (pending.composer && _draft.text == pending.text) _draft.clear();
-      setState(() {
-        _attachments.removeWhere(pending.attachments.contains);
-        _pendingSend = null;
-      });
-      return true;
+      return await _submission.check();
     } catch (error) {
-      if (error is CommandFailure && error.rejected && mounted) {
-        setState(() => _pendingSend = null);
-      }
       _failure(error);
       return false;
-    } finally {
-      if (mounted) {
-        setState(() => _sending = false);
-        _artifactActions.changed();
-      }
     }
   }
 
   Future<void> _sendArtifact(String message) async {
     if (!_artifactActions.writable()) throw const CommandFailure('unavailable');
-    setState(() => _sending = true);
-    _artifactActions.changed();
-    try {
-      await _command('submit_turn', {
-        'session': widget.sessionId,
-        'expected_revision': _session['revision'],
-        'message': {'text': message, 'attachments': <String>[]},
-      });
-    } catch (error) {
-      if (error is CommandFailure &&
-          error.code == 'outcome_unknown' &&
-          error.request != null &&
-          mounted) {
-        setState(
-          () => _pendingSend = (
-            request: error.request!,
-            text: message,
-            attachments: <PickedAttachment>[],
-            composer: false,
-          ),
-        );
-      }
-      rethrow;
-    } finally {
-      if (mounted) {
-        setState(() => _sending = false);
-        _artifactActions.changed();
-      }
-    }
+    await _submission.send(_session['revision'] as int, message: message);
   }
 
   Future<void> _stop() async {
