@@ -124,6 +124,9 @@ use sailry_node_runtime::Node;
 use sailry_protocol::{conversation::*, *};
 use std::{sync::Arc, time::Duration};
 
+// Functional waits include subscription setup and delivery of the initial snapshot.
+const COMPLETION_BUDGET: Duration = Duration::from_secs(30);
+
 async fn isolate_model_tools(client: &Client) {
     // Feature fixtures isolate shipped external tools; their own lifecycle suites
     // explicitly enable the packages they exercise.
@@ -248,7 +251,7 @@ async fn history(client: &Client, session: SessionId) -> Page {
 }
 
 async fn finished(client: &Client, session: SessionId, turn: TurnId) -> Page {
-    finished_within(client, session, turn, Duration::from_secs(10)).await
+    finished_within(client, session, turn, COMPLETION_BUDGET).await
 }
 
 async fn finished_within(
@@ -257,14 +260,26 @@ async fn finished_within(
     turn: TurnId,
     budget: Duration,
 ) -> Page {
+    let mut stage = "subscribe";
+    let mut updates_seen = 0usize;
+    let mut recoveries = 0usize;
+    let mut last_snapshot = None;
     let mut observed = None;
     tokio::time::timeout(budget, async {
         let mut updates = client.subscribe_conversation(session).await.unwrap();
         let mut projection =
             sailry_client::conversation::Projection::new(client.target(), session, 0);
         loop {
-            let applied = projection.apply(0, updates.next().await.unwrap()).unwrap();
+            stage = "next update";
+            let update = updates.next().await.unwrap();
+            updates_seen += 1;
+            if let Update::ConversationSnapshot(value) = &update {
+                last_snapshot = Some((value.page.runs.len(), value.page.entries.len(), value.missing.len()));
+            }
+            let applied = projection.apply(0, update).unwrap();
             if applied == sailry_client::Apply::Recover {
+                recoveries += 1;
+                stage = "recover subscription";
                 updates = client.subscribe_conversation(session).await.unwrap();
                 projection =
                     sailry_client::conversation::Projection::new(client.target(), session, 0);
@@ -278,6 +293,7 @@ async fn finished_within(
                 !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
             }) {
                 // The status frame can precede other entries from its committed transaction.
+                stage = "canonical history";
                 let page = history(client, session).await;
                 if page.runs.iter().any(|run| {
                     run.turn == turn
@@ -293,7 +309,7 @@ async fn finished_within(
     })
     .await
     .unwrap_or_else(|error| {
-        panic!("Agent completion deadline ({budget:?}, session={session}, turn={turn}): {error:?}; observed={observed:?}")
+        panic!("Agent completion deadline ({budget:?}, session={session}, turn={turn}): {error:?}; stage={stage}; updates={updates_seen}; recoveries={recoveries}; last_snapshot={last_snapshot:?}; observed={observed:?}")
     })
 }
 

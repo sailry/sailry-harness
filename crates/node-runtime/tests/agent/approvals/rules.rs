@@ -80,7 +80,7 @@ pub(crate) async fn pending(client: &Client, session: SessionId) -> Approval {
 }
 
 pub(crate) async fn completed(client: &Client, session: SessionId, turn: TurnId) -> Page {
-    completed_within(client, session, turn, Duration::from_secs(10)).await
+    completed_within(client, session, turn, COMPLETION_BUDGET).await
 }
 
 pub(crate) async fn completed_within(

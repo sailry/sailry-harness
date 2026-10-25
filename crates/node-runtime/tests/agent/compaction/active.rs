@@ -12,12 +12,10 @@ async fn resumes_without_replay() {
             )
             .unwrap();
         }
-        // This turn performs seven generations, four summaries and six file reads.
-        let (request, turn, page) = submit_within(
+        let (request, turn, page) = submit(
             &fixture.client,
             fixture.session.id,
             "Verify all six files and preserve evidence".into(),
-            Duration::from_secs(30),
         )
         .await;
         assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Thinking(text) if text.contains("Inspect the next evidence source"))));

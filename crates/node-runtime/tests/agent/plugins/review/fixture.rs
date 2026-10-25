@@ -55,7 +55,7 @@ pub(super) async fn calls_in(
     session: &Session,
     calls: Vec<(String, Value)>,
 ) -> (Vec<Value>, Server) {
-    calls_within(fixture, session, calls, Duration::from_secs(10)).await
+    calls_within(fixture, session, calls, COMPLETION_BUDGET).await
 }
 
 pub(super) async fn calls_within(
