@@ -5,6 +5,7 @@ use gpui_kit::{App, FontWeight, Hsla, SharedString, Styled, px};
 #[derive(Clone)]
 pub struct Theme {
     pub text: Hsla,
+    pub strong_color: Option<Hsla>,
     pub link: Hsla,
     pub text_muted: Hsla,
     pub text_faint: Hsla,
@@ -37,6 +38,7 @@ impl Theme {
         let theme = cx.theme();
         Self {
             text: theme.foreground,
+            strong_color: None,
             link: theme.link,
             text_muted: theme.muted_foreground,
             text_faint: theme.muted_foreground.opacity(0.7),

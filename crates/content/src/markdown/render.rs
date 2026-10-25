@@ -109,6 +109,7 @@ pub struct Editing<'a> {
     /// application theme; an explicit value can scale the same hierarchy.
     pub typography: Option<Typography>,
     pub foreground: Option<Hsla>,
+    pub strong_color: Option<Hsla>,
     pub on_link: Option<OnLink>,
     pub hovered_link: Option<Cursor>,
     pub underline_links: bool,
@@ -131,6 +132,7 @@ impl Default for Editing<'_> {
             placeholder: None,
             typography: None,
             foreground: None,
+            strong_color: None,
             on_link: None,
             hovered_link: None,
             underline_links: true,
@@ -521,6 +523,7 @@ pub fn with_block(
         placeholder,
         typography,
         foreground,
+        strong_color,
         on_link,
         hovered_link,
         underline_links,
@@ -545,6 +548,7 @@ pub fn with_block(
     // Cloned once so the theme is readable while `cx` stays free for the
     // element state the copy button needs.
     let mut theme = Theme::of(cx);
+    theme.strong_color = strong_color;
     if let Some(color) = foreground {
         theme.text = color;
         theme.caret = color;

@@ -40,6 +40,7 @@ pub struct State {
     scroll: Option<Viewport>,
     pub(super) typography: Option<super::typography::Typography>,
     pub(super) foreground: Option<gpui_kit::Hsla>,
+    pub(super) strong_color: Option<gpui_kit::Hsla>,
 }
 
 #[derive(Clone)]
@@ -120,6 +121,7 @@ impl State {
             scroll: None,
             typography: None,
             foreground: None,
+            strong_color: None,
         }
     }
 
@@ -419,6 +421,7 @@ impl Render for State {
                     on_file: self.on_file.clone(),
                     typography: self.typography,
                     foreground: self.foreground,
+                    strong_color: self.strong_color,
                     visuals: Some(&visuals),
                     on_math_link: Some(on_math_link),
                     ..Editing::default()
@@ -440,6 +443,7 @@ pub struct View {
     scroll: Option<Viewport>,
     typography: Option<super::typography::Typography>,
     foreground: Option<gpui_kit::Hsla>,
+    strong_color: Option<gpui_kit::Hsla>,
     hover_links: bool,
     underline_links: bool,
 }
@@ -456,6 +460,7 @@ impl View {
             scroll: None,
             typography: None,
             foreground: None,
+            strong_color: None,
             hover_links: false,
             underline_links: true,
         }
@@ -472,6 +477,7 @@ impl View {
             scroll: None,
             typography: None,
             foreground: None,
+            strong_color: None,
             hover_links: false,
             underline_links: true,
         }
@@ -509,6 +515,12 @@ impl View {
 
     pub fn foreground(mut self, color: Option<gpui_kit::Hsla>) -> Self {
         self.foreground = color;
+        self
+    }
+
+    /// Color explicit bold prose while preserving code, link and annotation styles.
+    pub fn strong_color(mut self, color: Option<gpui_kit::Hsla>) -> Self {
+        self.strong_color = color;
         self
     }
 
@@ -574,6 +586,10 @@ impl RenderOnce for View {
             }
             if state.foreground != self.foreground {
                 state.foreground = self.foreground;
+                cx.notify();
+            }
+            if state.strong_color != self.strong_color {
+                state.strong_color = self.strong_color;
                 cx.notify();
             }
             if state.typography != self.typography {
