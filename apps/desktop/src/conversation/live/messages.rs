@@ -148,7 +148,7 @@ impl View {
             .link_hover_underline(true)
             .link_underline(false)
             .foreground(crate::theme::messages::foreground("assistant", cx))
-            .strong_color(answer.then_some(cx.theme().magenta))
+            .strong_color(answer.then_some(cx.theme().primary))
             .typography(
                 typography.scaled(f32::from(self.message_text_size) / typography.body.size()),
             )

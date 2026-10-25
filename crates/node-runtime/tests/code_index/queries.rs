@@ -1,4 +1,112 @@
 use super::*;
+use std::time::Duration;
+
+#[tokio::test]
+async fn returns_receipts_before_indexing() {
+    let fixture = Fixture::empty().await;
+    std::fs::write(fixture.root.join("main.rs"), "pub fn admitted() {}\n").unwrap();
+    for client in fixture.clients() {
+        let (entered, release) = fixture.node.hold_code_query_fixture();
+        let request = client.prepare(Command::SearchCode {
+            worktree: fixture.worktree,
+            query: code_index::Search::default(),
+        });
+        let id = request.id;
+        let mut admission = tokio::time::timeout(Duration::from_secs(5), client.dispatch(request))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(admission.receipt.id, id);
+        assert!(!admission.receipt.durable);
+        tokio::time::timeout(Duration::from_secs(5), entered)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            admission.completion.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        release.cancel();
+        let Output::CodeSearch(page) = admission.completion.await.unwrap().unwrap() else {
+            panic!("code search expected")
+        };
+        assert!(page.symbols.iter().any(|symbol| symbol.name == "admitted"));
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn cancels_admitted_queries() {
+    let fixture = Fixture::empty().await;
+    std::fs::write(fixture.root.join("main.rs"), "pub fn retained() {}\n").unwrap();
+    for client in fixture.clients() {
+        let (entered, release) = fixture.node.hold_code_query_fixture();
+        let request = client.prepare(Command::SearchCode {
+            worktree: fixture.worktree,
+            query: code_index::Search::default(),
+        });
+        let id = request.id;
+        let admission = client.dispatch(request).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), entered)
+            .await
+            .unwrap()
+            .unwrap();
+        client
+            .execute(client.prepare(Command::CancelCodeIndexQuery { request: id }))
+            .await
+            .unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), admission.completion)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap_err()
+                .code,
+            ErrorCode::Cancelled
+        );
+        assert!(!database(&fixture).exists());
+        release.cancel();
+    }
+    let [local, _] = fixture.clients();
+    assert!(
+        local
+            .search_code(fixture.worktree, code_index::Search::default())
+            .await
+            .unwrap()
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "retained")
+    );
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn shutdown_cancels_admitted_queries() {
+    let fixture = Fixture::empty().await;
+    let [local, _] = fixture.clients();
+    let (entered, release) = fixture.node.hold_code_query_fixture();
+    let admission = local
+        .dispatch(local.prepare(Command::SearchCode {
+            worktree: fixture.worktree,
+            query: code_index::Search::default(),
+        }))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), entered)
+        .await
+        .unwrap()
+        .unwrap();
+    fixture.controller.close().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), fixture.node.shutdown())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        admission.completion.await.unwrap().unwrap_err().code,
+        ErrorCode::Cancelled
+    );
+    release.cancel();
+}
 
 #[tokio::test]
 async fn opens_lazily_and_shares_cached_revisions() {

@@ -631,9 +631,7 @@ impl Render for View {
         self.navigation.rows.borrow_mut().clear();
         let welcome = self.session.is_none() && self.rows.is_empty();
         let owner = cx.entity().downgrade();
-        let body = if self.loading_history() {
-            self.history_placeholder().into_any_element()
-        } else if self.rows.is_empty() && self.readonly() {
+        let body = if self.loading_history() || (self.rows.is_empty() && self.readonly()) {
             div().into_any_element()
         } else if self.rows.is_empty() && (self.resource.is_some() || self.assistant.is_some()) {
             crate::empty_state::panel(IconName::Bot, "chat_sidebar_empty", cx).into_any_element()
@@ -768,6 +766,8 @@ impl Render for View {
                         || !self.rows.is_empty()),
                 |body| body.child(self.composer(cx)),
             )
+            // Delegated sessions omit the composer but still receive queued guidance.
+            .when(self.readonly(), |body| body.children(self.queue_tray(cx)))
             .children(self.contributions.read(cx).overlays(window, cx))
             .children(self.selection_toolbar(cx))
     }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::theme::{self, market as service};
+use crate::ui::skeleton::block;
 use std::{collections::BTreeMap, sync::Arc};
 
 const PREVIEW_RATIO: f32 = 5. / 2.;
@@ -253,9 +254,10 @@ impl Market {
                     .object_fit(ObjectFit::Cover)
                     .into_any_element()
             } else {
-                Skeleton::new()
+                block(cx)
                     .size_full()
-                    .rounded_none()
+                    .rounded_b(px(0.))
+                    .rounded_t(cx.theme().radius_lg)
                     .into_any_element()
             };
             let id = entry.id.clone();

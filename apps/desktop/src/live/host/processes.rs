@@ -1,6 +1,8 @@
 use super::resources::{Tones, bytes, mono, percent};
 use super::*;
+use crate::ui::skeleton::block;
 use gpui_kit::component::{
+    Size,
     chart::AreaChart,
     table::{Column, ColumnSort, TableDelegate, TableState},
 };
@@ -286,6 +288,41 @@ impl TableDelegate for Processes {
     }
     fn loading(&self, _: &App) -> bool {
         self.view.sample.is_none() && self.view.error.is_none()
+    }
+    fn render_loading(
+        &mut self,
+        size: Size,
+        _: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        // Kit 7fc6a4c keeps its loading composition private without a style hook.
+        let padding = size.table_cell_padding();
+        let height = size.table_row_height() * 0.5;
+        v_flex().gap_0().children((0..5).map(|index| {
+            h_flex()
+                .gap_3()
+                .h(size.table_row_height())
+                .overflow_hidden()
+                .pt(padding.top)
+                .pb(padding.bottom)
+                .pl(padding.left)
+                .pr(padding.right)
+                .items_center()
+                .justify_between()
+                .when(index == 0, |row| row.bg(cx.theme().tokens.table_head))
+                .when(index > 0, |row| {
+                    row.border_t_1().border_color(cx.theme().table_row_border)
+                })
+                .child(
+                    h_flex()
+                        .gap_3()
+                        .flex_1()
+                        .child(block(cx).h(height).w_24())
+                        .child(block(cx).h(height).w_48())
+                        .child(block(cx).h(height).w_16()),
+                )
+                .child(block(cx).h(height).w_24())
+        }))
     }
     fn render_last_empty_col(
         &mut self,

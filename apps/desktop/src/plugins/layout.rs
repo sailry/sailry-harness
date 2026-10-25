@@ -10,6 +10,7 @@ use gpui_shell::{HostModule, HostValue};
 mod cards;
 mod collapse;
 mod scroll;
+mod text;
 
 #[cfg(test)]
 mod tests;
@@ -24,7 +25,7 @@ fn plain_body(value: Option<&HostValue>) -> Option<SharedString> {
 }
 
 pub(super) fn extend(module: HostModule) -> HostModule {
-    let module = scroll::extend(collapse::extend(cards::extend(module)));
+    let module = text::extend(scroll::extend(collapse::extend(cards::extend(module))));
     let declarations = format!(
         "{}\n{}",
         module.declared().unwrap_or_default(),

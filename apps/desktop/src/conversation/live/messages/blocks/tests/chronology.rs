@@ -196,3 +196,58 @@ fn keeps_reused_calls_independent() {
         matches!(&blocks[0], Block::Children(children) if children[0].run.turn == source && children[1].run.turn == reused)
     );
 }
+
+#[test]
+fn joins_children_after_hidden_reasoning() {
+    let (turn, mut history) = history();
+    let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+    page.entries[0]
+        .parts
+        .push(Part::Thinking("Before the next delegation".into()));
+    let original = page.clone();
+    let blocks = collect(turn, &history);
+    assert_eq!(blocks.len(), 5);
+    assert!(matches!(&blocks[1], Block::Thinking(..)));
+    let blocks = super::super::compact(blocks);
+    assert_eq!(blocks.len(), 3);
+    assert!(
+        matches!(&blocks[0], Block::Children(children) if children.iter().map(|child| child.run.session).eq(original.children[..2].iter().map(|child| child.run.session)))
+    );
+    assert!(matches!(&blocks[1], Block::Compaction(..)));
+    assert!(
+        matches!(&blocks[2], Block::Children(children) if children.len() == 1 && children[0].run.session == original.children[2].run.session)
+    );
+    assert_eq!(history.snapshot.as_ref().unwrap().page.as_ref(), &original);
+}
+
+#[test]
+fn keeps_children_at_visible_boundaries() {
+    let (_, history) = history();
+    let children = &history.snapshot.as_ref().unwrap().page.children;
+    let call = &history.calls[2];
+    let mut progress = (*call).clone();
+    progress.presentation = sailry_protocol::tool::Presentation::Progress;
+    for separator in [
+        Block::Text("answer".into(), "Keep this answer here".into()),
+        Block::Tools(vec![call]),
+        Block::Tools(vec![&progress]),
+        Block::Question(call),
+        Block::Resource,
+        Block::Compaction("summary".into(), "Summary"),
+    ] {
+        let blocks = super::super::compact(vec![
+            Block::Children(vec![&children[0]]),
+            Block::Thinking("before".into(), "Before".into()),
+            separator,
+            Block::Thinking("after".into(), "After".into()),
+            Block::Children(vec![&children[1]]),
+        ]);
+        assert_eq!(blocks.len(), 3);
+        assert!(
+            matches!(&blocks[0], Block::Children(group) if group.len() == 1 && std::ptr::eq(group[0], &children[0]))
+        );
+        assert!(
+            matches!(&blocks[2], Block::Children(group) if group.len() == 1 && std::ptr::eq(group[0], &children[1]))
+        );
+    }
+}

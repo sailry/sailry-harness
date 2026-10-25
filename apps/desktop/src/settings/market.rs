@@ -7,7 +7,6 @@ use gpui_kit::{
         button::{Button, ButtonVariants},
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu, PopupMenuItem},
-        skeleton::Skeleton,
         switch::Switch,
         tab::{Tab, TabBar},
         *,

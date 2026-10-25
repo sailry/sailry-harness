@@ -269,6 +269,11 @@ async fn merges_writes_from_independent_sessions() {
             .unwrap()
             .unwrap();
         assert!(support::list(&fixture.client).await.unwrap().is_empty());
+        let held: Vec<_> = sessions
+            .iter()
+            .skip(1)
+            .map(|_| fixture.node.hold_plugin_operation_fixture())
+            .collect();
         for session in sessions.iter().skip(1) {
             turns.push(
                 submit(
@@ -279,9 +284,46 @@ async fn merges_writes_from_independent_sessions() {
                 .await,
             );
         }
-        for (session, turn) in sessions.iter().zip(&turns).skip(1) {
-            completed(&finished(&fixture.client, session.id, *turn).await, *turn);
+        let mut pending = Vec::new();
+        for (entered, release) in held {
+            let request = tokio::time::timeout(Duration::from_secs(5), entered)
+                .await
+                .unwrap()
+                .unwrap();
+            pending.push((request, release));
         }
+        assert!(support::list(&fixture.client).await.unwrap().is_empty());
+        // All writers prepared the same catalog. Release them in order so each
+        // stale CAS is reconciled without exhausting read-snapshot acquisition.
+        for (index, (session, turn)) in sessions.iter().zip(&turns).enumerate().skip(1) {
+            let position = pending
+                .iter()
+                .position(|(request, _)| {
+                    request.plugin.as_ref().is_some_and(|context| {
+                        context.session == Some(session.id) && context.turn == Some(*turn)
+                    })
+                })
+                .expect("prepared memory request for the session");
+            let (_, release) = pending.swap_remove(position);
+            release.cancel();
+            let page = finished(&fixture.client, session.id, *turn).await;
+            completed(&page, *turn);
+            let output = results(&page);
+            assert_eq!(output.len(), 1, "{page:?}");
+            assert_eq!(
+                output[0]["updated"].as_array().map(Vec::len),
+                Some(1),
+                "{output:?}"
+            );
+            let id: MemoryId =
+                serde_json::from_value(output[0]["updated"][0]["id"].clone()).unwrap();
+            let stored = support::read(&fixture.client, id).await.unwrap();
+            assert_eq!(
+                stored.body,
+                format!("Verified independent condition {index}")
+            );
+        }
+        assert!(pending.is_empty());
         assert_eq!(support::list(&fixture.client).await.unwrap().len(), 5);
         release.cancel();
         let mut ids = BTreeSet::new();

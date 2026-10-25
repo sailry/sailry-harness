@@ -3,11 +3,13 @@ use sailry_client::Client;
 use sailry_link::CancellationToken;
 use sailry_protocol::plugin::{Info, Reference, Summary};
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
 mod loading;
+mod operations;
 #[cfg(test)]
 mod tests;
 
@@ -74,6 +76,7 @@ pub(crate) struct Metadata {
     pub(crate) entries: BTreeMap<String, Info>,
     pub(crate) errors: BTreeMap<String, &'static str>,
     pub(crate) diagnostics: BTreeMap<String, sailry_protocol::Fault>,
+    operations: RefCell<Option<operations::Cached>>,
     reads: BTreeMap<String, Read>,
     stop: CancellationToken,
 }
@@ -103,6 +106,7 @@ impl Metadata {
         self.reads.clear();
         self.errors.clear();
         self.diagnostics.clear();
+        *self.operations.get_mut() = None;
         cx.notify();
     }
 
@@ -114,6 +118,7 @@ impl Metadata {
             entries: BTreeMap::new(),
             errors: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
+            operations: RefCell::new(None),
             reads: BTreeMap::new(),
             stop: CancellationToken::new(),
         }
@@ -129,6 +134,7 @@ impl Metadata {
         if self.expected == expected {
             return false;
         }
+        *self.operations.get_mut() = None;
         self.reads
             .retain(|_, read| expected.contains(&read.expected));
         self.errors.retain(|name, _| {
@@ -196,6 +202,9 @@ impl Metadata {
             })
             .cloned()
             .collect::<Vec<_>>();
+        if !expected.is_empty() {
+            *self.operations.get_mut() = None;
+        }
         for summary in &expected {
             self.reads.remove(&summary.name);
             self.errors.remove(&summary.name);
@@ -262,6 +271,7 @@ impl Metadata {
             match result {
                 Ok(info) => {
                     self.errors.remove(&name);
+                    *self.operations.get_mut() = None;
                     self.entries.insert(name, info);
                 }
                 Err(error) => {

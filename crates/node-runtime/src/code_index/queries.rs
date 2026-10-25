@@ -14,6 +14,8 @@ pub(crate) struct Queries(Mutex<State>);
 struct State {
     running: BTreeMap<(NodeId, RequestId), CancellationToken>,
     cancelled: BTreeMap<(NodeId, RequestId), Instant>,
+    #[cfg(any(test, feature = "test-support"))]
+    prepared: Option<(tokio::sync::oneshot::Sender<()>, CancellationToken)>,
 }
 
 pub(crate) struct Query {
@@ -23,6 +25,23 @@ pub(crate) struct Query {
 }
 
 impl Queries {
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn hold_fixture(&self) -> (tokio::sync::oneshot::Receiver<()>, CancellationToken) {
+        let (entered, observed) = tokio::sync::oneshot::channel();
+        let release = CancellationToken::new();
+        self.0.lock().unwrap().prepared = Some((entered, release.clone()));
+        (observed, release)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) async fn prepared(&self) {
+        let wait = self.0.lock().unwrap().prepared.take();
+        if let Some((entered, release)) = wait {
+            let _ = entered.send(());
+            release.cancelled().await;
+        }
+    }
+
     pub(crate) fn begin(
         self: &Arc<Self>,
         caller: NodeId,

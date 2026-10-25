@@ -197,6 +197,13 @@ access grants constrain candidates before ranking. Citations resolve through the
 execution Node and recheck their source identity before returning original text.
 Uninstalled models keep keyword retrieval available. Code discovery continues to
 use filename matching, text search and the worktree code index.
+
+Code outlines refresh only the requested file. Repository queries refresh a
+bounded segment of the worktree index, keep committed progress for the next
+query and report partial results while work remains. Concurrent queries can
+read committed snapshots during that refresh. Node admission precedes indexing;
+the same local and remote completion path carries the query result or cancellation.
+
 Knowledge retrieval is a Node service for plugin-owned features; no standalone
 knowledge plugin is bundled. Desktop settings configure vector models. Plugins
 such as notes and reminders organize their own collections and expose their

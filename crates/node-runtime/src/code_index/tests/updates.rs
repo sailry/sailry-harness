@@ -1,6 +1,27 @@
 use super::*;
 
 #[tokio::test]
+async fn reuses_oversized_status_until_size_changes() {
+    let fixture = Fixture::new();
+    fixture.write("main.rs", &"x".repeat(MAX_FILE_BYTES + 1));
+    let first = fixture.search().await;
+    assert_eq!(first.issues[0].status, Status::TooLarge);
+    fixture.service.changed(fixture.id, None);
+    let checked = fixture.search().await;
+    assert_eq!(checked.index_revision, first.index_revision);
+    fixture.write("main.rs", "pub fn now_readable() {}\n");
+    fixture.service.changed(fixture.id, Some("main.rs"));
+    let parsed = fixture.search().await;
+    assert_eq!(parsed.index_revision, first.index_revision + 1);
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "now_readable")
+    );
+}
+
+#[tokio::test]
 async fn incomplete_walk_preserves_unvisited_records() {
     let fixture = Fixture::new();
     fixture.write("first.rs", "pub fn first() {}\n");
@@ -16,7 +37,17 @@ async fn incomplete_walk_preserves_unvisited_records() {
     let resources = fixture.service.resources().await.unwrap();
     let report = fixture
         .service
-        .synchronize(&worktree, index, resources, &CancellationToken::new(), 1)
+        .synchronize(
+            &worktree,
+            index,
+            resources,
+            &CancellationToken::new(),
+            &mut *worktree.sync.lock().await,
+            sync::Limits {
+                files: 1,
+                ..Default::default()
+            },
+        )
         .await
         .unwrap();
     assert!(report.partial && report.truncated);

@@ -6,6 +6,8 @@ use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Receipt, Reques
 use std::{collections::VecDeque, sync::Mutex, time::Duration};
 use tokio::sync::{Notify, mpsc};
 
+mod operations;
+
 enum Step {
     Reply(Response),
     Hold {

@@ -229,17 +229,17 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
     // Keep whitespace while joining streamed chunks, but do not render a
     // standalone blank response as a paragraph between tool rows.
     blocks.retain(|block| !matches!(block, Block::Text(_, text) if text.trim().is_empty()));
-    // Empty streamed messages do not divide an otherwise consecutive tool sequence.
-    join_tools(blocks)
+    // Empty streamed messages do not divide an otherwise consecutive activity sequence.
+    join(blocks)
 }
 
-/// Hide reasoning only in the visual projection, then regroup adjacent tools.
+/// Hide reasoning only in the visual projection, then regroup adjacent activity.
 pub(super) fn compact(mut blocks: Vec<Block<'_>>) -> Vec<Block<'_>> {
     blocks.retain(|block| !matches!(block, Block::Thinking(..)));
-    join_tools(blocks)
+    join(blocks)
 }
 
-fn join_tools(blocks: Vec<Block<'_>>) -> Vec<Block<'_>> {
+fn join(blocks: Vec<Block<'_>>) -> Vec<Block<'_>> {
     let mut joined = Vec::with_capacity(blocks.len());
     for block in blocks {
         match (joined.last_mut(), block) {
@@ -247,6 +247,9 @@ fn join_tools(blocks: Vec<Block<'_>>) -> Vec<Block<'_>> {
                 if previous.iter().chain(&calls).all(|call| groupable(call)) =>
             {
                 previous.extend(calls)
+            }
+            (Some(Block::Children(previous)), Block::Children(children)) => {
+                previous.extend(children)
             }
             (_, block) => joined.push(block),
         }

@@ -14,8 +14,23 @@ use std::{
 };
 use turso::{params, transaction::TransactionBehavior};
 
+pub(super) const BATCH_SYMBOLS: usize = 512;
+
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
-pub(super) struct Index(Arc<Handle>);
+pub(super) struct Index {
+    handle: Arc<Handle>,
+    #[cfg(test)]
+    prepared: Arc<std::sync::Mutex<Option<Pause>>>,
+}
+
+#[cfg(test)]
+type Pause = (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::sync::oneshot::Receiver<()>,
+);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct State {
@@ -26,6 +41,18 @@ pub(super) struct State {
     pub truncated: bool,
 }
 
+impl From<&Parsed> for State {
+    fn from(file: &Parsed) -> Self {
+        Self {
+            language: file.language.clone(),
+            status: file.status,
+            capabilities: file.capabilities.clone(),
+            partial: file.partial,
+            truncated: file.truncated,
+        }
+    }
+}
+
 pub(super) struct Cached {
     pub hash: Option<String>,
     pub fingerprint: String,
@@ -34,10 +61,14 @@ pub(super) struct Cached {
 
 impl Index {
     pub(super) async fn open(path: &Path) -> Result<Self, Fault> {
-        let index = Self(Arc::new(Handle::new(
-            path.to_owned(),
-            crate::store::database::engine(path).await.map_err(error)?,
-        )));
+        let index = Self {
+            handle: Arc::new(Handle::new(
+                path.to_owned(),
+                crate::store::database::engine(path).await.map_err(error)?,
+            )),
+            #[cfg(test)]
+            prepared: Default::default(),
+        };
         let mut lease = index.lease(false).await?;
         let tx = lease.connection_mut().transaction().await.map_err(error)?;
         tx.execute_batch(include_str!("index/schema.sql"))
@@ -61,11 +92,19 @@ impl Index {
 
     async fn lease(&self, readonly: bool) -> Result<Lease, Fault> {
         if readonly {
-            self.0.lease(true).await
+            self.handle.lease(true).await
         } else {
-            self.0.writer().await
+            self.handle.writer().await
         }
         .map_err(error)
+    }
+
+    #[cfg(test)]
+    pub(super) fn hold_fixture(&self) -> Pause {
+        let (entered, observed) = tokio::sync::oneshot::channel();
+        let (release, resume) = tokio::sync::oneshot::channel();
+        *self.prepared.lock().unwrap() = Some((entered, resume));
+        (release, observed)
     }
 
     pub(super) async fn files(&self) -> Result<BTreeMap<String, Cached>, Fault> {
@@ -109,26 +148,61 @@ impl Index {
             .map_err(error)?;
         for file in files {
             check(stop)?;
-            let state = State {
-                language: file.language.clone(),
-                status: file.status,
-                capabilities: file.capabilities.clone(),
-                partial: file.partial,
-                truncated: file.truncated,
-            };
+            let state = State::from(file);
             tx.execute("INSERT INTO files(path,fingerprint,hash,state) VALUES(?1,?2,?3,?4) ON CONFLICT(path) DO UPDATE SET fingerprint=excluded.fingerprint,hash=excluded.hash,state=excluded.state",
                 params![file.path.as_str(),fingerprint,file.hash.as_deref(),serde_json::to_string(&state).map_err(error)?]).await.map_err(error)?;
             tx.execute("DELETE FROM symbols WHERE path=?1", [file.path.as_str()])
                 .await
                 .map_err(error)?;
+        }
+        // Turso 0.8.3 publishes native FTS at each statement boundary.
+        // Multi-row inserts bound that work to 512 rows / 4096 parameters.
+        let prefix = "INSERT INTO symbols(path,name,language,body,field0,field1,cjk0,cjk1) VALUES ";
+        let mut sql = String::from(prefix);
+        let mut values = Vec::with_capacity(BATCH_SYMBOLS * 8);
+        for file in files {
             for symbol in &file.symbols {
+                if !values.is_empty() {
+                    sql.push(',');
+                }
+                sql.push_str("(?,?,?,?,?,?,?,?)");
                 let context = format!(
                     "{} {}",
                     file.path,
                     symbol.signature.as_deref().unwrap_or_default()
                 );
-                tx.execute("INSERT INTO symbols(path,name,language,body,field0,field1,cjk0,cjk1) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-                    params![file.path.as_str(),symbol.name.as_str(),symbol.language.as_str(),serde_json::to_string(symbol).map_err(error)?,text::field(&symbol.name),text::field(&context),text::index(&symbol.name),text::index(&context)]).await.map_err(error)?;
+                values.extend([
+                    file.path.clone(),
+                    symbol.name.clone(),
+                    symbol.language.clone(),
+                    serde_json::to_string(symbol).map_err(error)?,
+                    text::field(&symbol.name),
+                    text::field(&context),
+                    text::index(&symbol.name),
+                    text::index(&context),
+                ]);
+                if values.len() == BATCH_SYMBOLS * 8 {
+                    check(stop)?;
+                    tx.execute(
+                        &sql,
+                        std::mem::replace(&mut values, Vec::with_capacity(BATCH_SYMBOLS * 8)),
+                    )
+                    .await
+                    .map_err(error)?;
+                    sql.truncate(prefix.len());
+                }
+            }
+        }
+        if !values.is_empty() {
+            check(stop)?;
+            tx.execute(&sql, values).await.map_err(error)?;
+        }
+        #[cfg(test)]
+        {
+            let pause = self.prepared.lock().unwrap().take();
+            if let Some((entered, resume)) = pause {
+                let _ = entered.send(());
+                let _ = resume.await;
             }
         }
         tx.execute(

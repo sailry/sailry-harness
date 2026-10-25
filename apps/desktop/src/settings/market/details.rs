@@ -1,5 +1,6 @@
 //! Shared right-pane composition; each catalog kind owns its data and actions.
 use super::*;
+use crate::ui::skeleton::block;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::scroll::ScrollableElement;
 
@@ -13,19 +14,13 @@ pub(in crate::settings) fn skeleton(cx: &App) -> Div {
         .w_full()
         .min_w_0()
         .gap_5()
-        .child(Skeleton::new().w_2_3().h_6().rounded(cx.theme().radius))
-        .child(v_flex().gap_3().children((0..4).map(|index| {
-            Skeleton::new()
-                .secondary()
-                .when(index == 3, |line| line.w_3_4())
-                .rounded(cx.theme().radius)
-        })))
+        .child(block(cx).w_2_3().h_6())
         .child(
-            Skeleton::new()
-                .secondary()
-                .h_24()
-                .rounded(cx.theme().radius_lg),
+            v_flex()
+                .gap_3()
+                .children((0..4).map(|index| block(cx).when(index == 3, |line| line.w_3_4()))),
         )
+        .child(block(cx).h_24())
 }
 
 pub(in crate::settings) fn panel(

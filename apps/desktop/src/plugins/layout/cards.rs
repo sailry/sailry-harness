@@ -1,8 +1,9 @@
 //! Script access to the shared card composition, without package-specific fields.
 use crate::ui::card_list::{self, Column};
+use crate::ui::skeleton::block;
 use gpui_kit::{
     IntoElement as _, ParentElement as _, SharedString, Styled as _,
-    component::{Icon, StyledExt as _, skeleton::Skeleton},
+    component::{Icon, StyledExt as _},
     div,
 };
 use gpui_shell::{HostModule, HostValue};
@@ -37,8 +38,8 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                             .w_full()
                             .py_6()
                             .gap_3()
-                            .child(Skeleton::new().w_40().h_4().rounded_md())
-                            .child(Skeleton::new().w_64().max_w_full().h_4().rounded_md()),
+                            .child(block(cx).w_40().h_4())
+                            .child(block(cx).w_64().max_w_full().h_4()),
                         cx,
                     )
                     .into_any_element(),

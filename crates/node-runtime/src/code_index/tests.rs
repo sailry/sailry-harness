@@ -1,5 +1,6 @@
 use super::*;
 
+mod budgets;
 mod performance;
 mod updates;
 
@@ -203,7 +204,7 @@ fn retains_a_new_dirty_generation() {
     let captured = dirty.generation;
     dirty.change(Some("second.rs"));
     assert!(!dirty.finish(captured));
-    assert!(dirty.paths.contains("main.rs") && dirty.paths.contains("second.rs"));
+    assert!(dirty.paths.contains_key("main.rs") && dirty.paths.contains_key("second.rs"));
     assert_ne!(dirty.clean, dirty.generation);
     assert!(dirty.finish(dirty.generation));
     assert!(dirty.paths.is_empty());

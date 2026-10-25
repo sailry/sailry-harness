@@ -21,46 +21,61 @@ impl Ingress {
                 "Node or protocol version mismatch",
             ));
         }
-        let output = match &request.command {
-            Command::SearchCode { worktree, query } => {
-                let active = self.code_queries.begin(caller, request.id, &self.closed)?;
-                Output::CodeSearch(
-                    active
-                        .run(async {
-                            let root = self.worktree_root(*worktree).await?;
-                            self.code_index
-                                .search(*worktree, root, query, &active.stop)
-                                .await
-                        })
-                        .await?,
-                )
-            }
-            Command::OutlineCode { worktree, path } => {
-                let active = self.code_queries.begin(caller, request.id, &self.closed)?;
-                Output::CodeOutline(
-                    active
-                        .run(async {
-                            let root = self.worktree_root(*worktree).await?;
-                            self.code_index
-                                .outline(*worktree, root, path, &active.stop)
-                                .await
-                        })
-                        .await?,
-                )
-            }
+        let id = request.id;
+        let (mut reply, completion) = tokio::sync::oneshot::channel();
+        match &request.command {
             Command::CancelCodeIndexQuery { request } => {
                 self.code_queries.cancel(caller, *request);
-                Output::CodeIndexQueryCancelled { request: *request }
+                let _ = reply.send(Ok(Output::CodeIndexQueryCancelled { request: *request }));
+            }
+            Command::SearchCode { .. } | Command::OutlineCode { .. } => {
+                let active = self.code_queries.begin(caller, id, &self.closed)?;
+                let ingress = self.clone();
+                // Admission is memory-only. Business work runs under the existing
+                // Node supervisor, independently of Link's receipt I/O deadline.
+                let _task = self
+                    .operations
+                    .spawn(async move {
+                        let query = async {
+                            #[cfg(any(test, feature = "test-support"))]
+                            ingress.code_queries.prepared().await;
+                            match request.command {
+                                Command::SearchCode { worktree, query } => {
+                                    let root = ingress.worktree_root(worktree).await?;
+                                    ingress
+                                        .code_index
+                                        .search(worktree, root, &query, &active.stop)
+                                        .await
+                                        .map(Output::CodeSearch)
+                                }
+                                Command::OutlineCode { worktree, path } => {
+                                    let root = ingress.worktree_root(worktree).await?;
+                                    ingress
+                                        .code_index
+                                        .outline(worktree, root, &path, &active.stop)
+                                        .await
+                                        .map(Output::CodeOutline)
+                                }
+                                _ => unreachable!("admitted code query expected"),
+                            }
+                        };
+                        tokio::select! {
+                            biased;
+                            _ = reply.closed() => {},
+                            result = active.run(query) => { let _ = reply.send(result); },
+                        }
+                    })
+                    .map_err(|error| match error {
+                        crate::Error::Busy => {
+                            Fault::new(ErrorCode::Busy, "code query capacity is exhausted")
+                        }
+                        _ => super::unavailable(),
+                    })?;
             }
             _ => return Err(Fault::invalid("code query expected")),
-        };
-        let (reply, completion) = tokio::sync::oneshot::channel();
-        let _ = reply.send(Ok(output));
+        }
         Ok(Admission {
-            receipt: Receipt {
-                id: request.id,
-                durable: false,
-            },
+            receipt: Receipt { id, durable: false },
             completion,
         })
     }

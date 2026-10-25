@@ -118,6 +118,14 @@ struct Bootstrap {
 pub use power::Status as PowerStatus;
 
 impl Node {
+    /// Hold the next admitted code query before file discovery or parsing.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_code_query_fixture(
+        &self,
+    ) -> (oneshot::Receiver<()>, sailry_link::CancellationToken) {
+        self.ingress.code_queries.hold_fixture()
+    }
+
     /// Hold the next admitted session transfer before its remote dispatch.
     #[cfg(any(test, feature = "test-support"))]
     pub fn hold_forwarding_fixture(

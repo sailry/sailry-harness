@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::skeleton::block;
 use gpui_kit::assets::IconName;
 
 pub(super) fn content(
@@ -140,13 +141,13 @@ pub(super) fn skeleton(cx: &App) -> AnyElement {
                 .border_1()
                 .border_color(cx.theme().border)
                 .rounded(cx.theme().radius_lg)
-                .child(Skeleton::new().size_10().rounded(cx.theme().radius_lg))
+                .child(block(cx).size_10())
                 .child(
                     v_flex()
                         .flex_1()
                         .gap_2()
-                        .child(Skeleton::new().w_1_2().h_4().rounded(cx.theme().radius))
-                        .child(Skeleton::new().w_full().h_3().rounded(cx.theme().radius)),
+                        .child(block(cx).w_1_2().h_4())
+                        .child(block(cx).w_full().h_3()),
                 )
         }))
         .into_any_element()

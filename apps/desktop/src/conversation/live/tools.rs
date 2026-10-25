@@ -35,7 +35,11 @@ impl View {
         }
         let page = &self.history.snapshot.as_ref().unwrap().page;
         let summary = self
-            .preparing_summary(group_summary(calls, page), calls, page)
+            .preparing_summary(
+                group_summary(calls, page).sequence(calls.len()),
+                calls,
+                page,
+            )
             .continuing(continuing);
         let turn = first.turn;
         let key = format!("tool-sequence-{}", first.source.key());
@@ -466,6 +470,16 @@ struct Summary {
 }
 
 impl Summary {
+    fn sequence(mut self, count: usize) -> Self {
+        self.icon = Icon::new(IconName::Settings2);
+        self.label = tr("provider_cap_tools");
+        self.detail.text = rust_i18n::t!("tool_group_count", count = count)
+            .to_string()
+            .into();
+        self.detail.mono = false;
+        self
+    }
+
     fn continuing(mut self, continuing: bool) -> Self {
         if continuing && !self.detail.pending {
             self.detail.running = true;

@@ -295,23 +295,7 @@ async fn reads_bound_worktree() {
                     "read_git_change",
                 ],
             ),
-            (
-                "code",
-                &[
-                    "code_hover",
-                    "code_definition",
-                    "code_references",
-                    "code_diagnostics",
-                    "code_symbols",
-                    "code_packages",
-                    "code_install",
-                    "code_uninstall",
-                    "code_catalog",
-                    "code_servers",
-                    "code_start",
-                    "code_stop",
-                ],
-            ),
+            ("code", &["code_search", "code_outline", "code_context"]),
         ];
         for (package, tools) in packages {
             expected.extend(tools.iter().map(|tool| plugin_tool(package, tool)));

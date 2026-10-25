@@ -12,6 +12,7 @@ pub(crate) mod overlays;
 pub(crate) mod path_picker;
 pub(crate) mod session_preview;
 pub(crate) mod settings_page;
+pub(crate) mod skeleton;
 pub(crate) mod status_list;
 pub(crate) mod status_ring;
 pub(crate) mod thinking;

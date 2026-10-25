@@ -12,10 +12,9 @@
           "enum": [
             "artifacts.read",
             "artifacts.write",
-            "code.read",
-            "code.manage",
-            "code.settings.read",
-            "code.settings.write",
+            "code.index.read",
+            "code.index.settings.read",
+            "code.index.settings.write",
             "web.settings.read",
             "web.settings.write",
             "activity.read",
@@ -2545,18 +2544,8 @@
         "artifacts.list",
         "artifacts.revisions",
         "artifacts.write",
-        "code.packages",
-        "code.catalog",
-        "code.servers",
-        "code.start",
-        "code.stop",
-        "code.install",
-        "code.uninstall",
-        "code.diagnostics",
-        "code.definition",
-        "code.references",
-        "code.hover",
-        "code.symbols",
+        "code.search",
+        "code.outline",
         "git.status",
         "git.diff",
         "git.log",
@@ -2582,6 +2571,7 @@
         "agents.wait",
         "files.list",
         "files.read",
+        "files.read_lines",
         "files.write",
         "files.edit",
         "files.delete",
@@ -3313,9 +3303,9 @@
       "type": "object"
     },
     "Service": {
-      "description": "Protected native account sources; never expose plaintext to package scripts.\nA service binding grants no command capabilities by itself.",
+      "description": "A service binding grants no command capabilities by itself.",
       "enum": [
-        "language"
+        "code_index"
       ],
       "type": "string"
     },

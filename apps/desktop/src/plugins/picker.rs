@@ -4,6 +4,7 @@ use super::{
     host::sdk::values::{decode, encode},
     native_context::Events,
 };
+use crate::ui::skeleton::block;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     component::{
@@ -164,6 +165,24 @@ impl ListDelegate for Rows {
     }
     fn loading(&self, _: &App) -> bool {
         self.loading
+    }
+    fn render_loading(
+        &mut self,
+        _: &mut Window,
+        cx: &mut Context<ListState<Self>>,
+    ) -> impl IntoElement {
+        // Kit 7fc6a4c keeps its loading composition private without a style hook.
+        v_flex().py_2p5().gap_3().children((0usize..3).map(|index| {
+            ListItem::new(("plugin-picker-loading", index))
+                .disabled(true)
+                .child(
+                    v_flex()
+                        .gap_1p5()
+                        .overflow_hidden()
+                        .child(block(cx).h_5().w_48().max_w_full())
+                        .child(block(cx).h_3().w_64().max_w_full()),
+                )
+        }))
     }
     fn render_section_header(
         &mut self,

@@ -91,7 +91,7 @@ fn bounds_resources_and_invalidates_revisions() {
         let fixture = Fixture::new(remote);
         let mut resources = resources(&fixture);
         let mut summaries = Vec::new();
-        for name in ["browser", "code", "delegation", "media", "memory"] {
+        for name in ["browser", "web-search", "delegation", "media", "memory"] {
             let summary = package(&fixture, name);
             let prepared = fixture
                 .runtime

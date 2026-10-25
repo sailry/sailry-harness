@@ -37,7 +37,7 @@ struct Worktree {
     root: PathBuf,
     database: PathBuf,
     index: OnceCell<index::Index>,
-    sync: tokio::sync::Mutex<()>,
+    sync: tokio::sync::Mutex<sync::Progress>,
     dirty: Mutex<Dirty>,
     stop: CancellationToken,
     observed: OnceCell<()>,
@@ -55,7 +55,7 @@ struct Worktree {
 struct Dirty {
     generation: u64,
     clean: u64,
-    paths: BTreeSet<String>,
+    paths: BTreeMap<String, u64>,
     root: bool,
     watch_failed: bool,
 }
@@ -64,7 +64,7 @@ impl Dirty {
     fn change(&mut self, path: Option<&str>) {
         self.generation = self.generation.wrapping_add(1);
         if let Some(path) = path {
-            self.paths.insert(path.into());
+            self.paths.insert(path.into(), self.generation);
         } else {
             self.root = true;
         }
@@ -236,7 +236,12 @@ impl Service {
             outline.partial |= worktree.dirty.lock().unwrap().watch_failed;
             Ok(outline)
         };
-        tokio::select! {biased;_=worktree.stop.cancelled()=>Err(cancelled()),result=operation=>result}
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => Err(cancelled()),
+            _ = worktree.stop.cancelled() => Err(cancelled()),
+            result = operation => result,
+        }
     }
 
     pub(crate) async fn search(
@@ -264,15 +269,29 @@ impl Service {
         let _cancel = running.clone().drop_guard();
         let stop = &running;
         let operation = async {
-            let _sync = tokio::select! {biased; _=stop.cancelled()=>return Err(cancelled()),guard=worktree.sync.lock()=>guard};
             worktree
                 .observe(self.watches.clone(), self.node, id, stop)
                 .await?;
             let index = worktree.index().await?;
-            let resources = self.resources().await?;
-            let report = self
-                .synchronize(&worktree, index, resources, stop, MAX_FILES)
-                .await?;
+            let report = if let Ok(mut progress) = worktree.sync.try_lock() {
+                self.synchronize(
+                    &worktree,
+                    index,
+                    self.resources().await?,
+                    stop,
+                    &mut progress,
+                    sync::Limits::default(),
+                )
+                .await?
+            } else {
+                // Another reader is already refreshing this worktree. Its committed
+                // transactions remain readable without queuing a second full scan.
+                sync::Report {
+                    partial: true,
+                    truncated: true,
+                    ..Default::default()
+                }
+            };
             let mut page = index.search(query, stop).await?;
             page.visited = report.visited;
             page.skipped = report.skipped;
@@ -281,7 +300,12 @@ impl Service {
             page.issues = report.issues;
             Ok(page)
         };
-        tokio::select! {biased;_=worktree.stop.cancelled()=>Err(cancelled()),result=operation=>result}
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => Err(cancelled()),
+            _ = worktree.stop.cancelled() => Err(cancelled()),
+            result = operation => result,
+        }
     }
 }
 
