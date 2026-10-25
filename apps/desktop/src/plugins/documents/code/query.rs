@@ -136,9 +136,7 @@ impl Provider {
         let id = self.document;
         let stop = self.stop.clone();
         let task = cx.spawn(async move |controller, cx| {
-            let Ok(result) = request.await else {
-                return;
-            };
+            let result = request.await;
             let _ = controller.update(cx, |controller, cx| {
                 if stop.is_cancelled() {
                     return;
@@ -155,7 +153,18 @@ impl Provider {
                 let Some(provider) = &document.code else {
                     return;
                 };
-                *provider.startup.borrow_mut() = result.startup.clone();
+                let Ok(result) = result else {
+                    provider.startup.borrow_mut().take();
+                    provider.configure(false, cx);
+                    cx.notify();
+                    return;
+                };
+                let ready = matches!(result.status, code::Status::Ready | code::Status::Indexing);
+                provider.configure(ready, cx);
+                let startup = (result.status == code::Status::Stopped)
+                    .then_some(result.startup)
+                    .flatten();
+                *provider.startup.borrow_mut() = startup.clone();
                 if let code::Content::Diagnostics(items) = result.content {
                     let items = mapping::diagnostics(&document.path, items);
                     let _ = input.update(cx, |input, cx| {
@@ -166,7 +175,7 @@ impl Provider {
                         cx.notify();
                     });
                 }
-                if let Some(startup) = result.startup {
+                if let Some(startup) = startup {
                     controller.auto_code(id, startup, result.startup_approved, cx);
                 }
                 cx.notify();

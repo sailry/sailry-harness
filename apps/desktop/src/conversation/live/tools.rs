@@ -3,7 +3,7 @@ use crate::conversation::{
     disclosure::{self, Detail},
     surface::{self, diff},
 };
-use gpui_kit::component::{button::Button, collapsible::Collapsible};
+use gpui_kit::component::collapsible::Collapsible;
 use gpui_kit::prelude::FluentBuilder as _;
 use sailry_client::conversation::tools::{Call, State};
 use sailry_protocol::conversation::{ApprovalState, Page};
@@ -120,9 +120,7 @@ impl View {
             .unwrap_or(false);
         let detail = summary.detail;
         if grouped.is_none()
-            && calls
-                .iter()
-                .any(|call| call.raw_result(page) || activity_path(call).is_some())
+            && calls.iter().any(|call| activity_path(call).is_some())
             && !calls.iter().any(|call| has_content(call, page))
         {
             return self.tool_rows(calls, continuing, cx);
@@ -132,7 +130,6 @@ impl View {
         {
             return self.activity(
                 calls[0],
-                page,
                 format!("live-{turn}-{key}"),
                 Summary {
                     icon: summary.icon,
@@ -193,7 +190,7 @@ impl View {
                     .preparing_summary(summary(call, page), &[call], page)
                     .continuing(continuing);
                 if !has_content(call, page) {
-                    return self.activity(call, page, format!("live-{turn}-{key}"), summary, cx);
+                    return self.activity(call, format!("live-{turn}-{key}"), summary, cx);
                 }
                 let has_result = has_content(call, page);
                 let open = has_result
@@ -352,24 +349,11 @@ impl View {
     fn activity(
         &self,
         call: &Call,
-        page: &Page,
         id: String,
         mut summary: Summary,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         summary.detail.hide_caret = true;
-        if call.raw_result(page) {
-            let trigger = disclosure::trigger(
-                id.clone(),
-                summary.icon,
-                summary.label,
-                summary.detail,
-                false,
-                cx,
-            )
-            .w_full();
-            return self.raw_action(call, &id, trigger, cx).into_any_element();
-        }
         if let Some(path) = activity_path(call) {
             let node = self.binding.client.target();
             let turn = call.turn;
@@ -441,7 +425,12 @@ impl View {
         let fault = output::failure(call.failure.as_ref(), Some(result));
         let body = output::tool_preview(call.failure.as_ref(), result);
         let mut actions = Vec::new();
-        let copy = body.copy_text();
+        let copy = self
+            .history
+            .snapshot
+            .as_ref()
+            .and_then(|snapshot| inspector::copy(call, &snapshot.page))
+            .unwrap_or_else(|| body.copy_text());
         if !copy.is_empty() {
             actions.push(self.copy_result(key, copy));
         }

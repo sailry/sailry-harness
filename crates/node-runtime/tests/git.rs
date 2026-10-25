@@ -18,6 +18,9 @@ mod inspection;
 #[path = "git/reads.rs"]
 mod reads;
 
+#[path = "git/submodules.rs"]
+mod submodules;
+
 #[path = "git/branches.rs"]
 mod branches;
 

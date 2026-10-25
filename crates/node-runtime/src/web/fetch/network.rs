@@ -12,6 +12,16 @@ fn unavailable(message: &str) -> Fault {
     Fault::new(ErrorCode::Unavailable, message)
 }
 
+fn request_error(error: reqwest::Error) -> Fault {
+    unavailable(if error.is_timeout() {
+        "web request timed out"
+    } else if error.is_connect() {
+        "web connection failed"
+    } else {
+        "web request failed"
+    })
+}
+
 async fn lookup(_owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> {
     let port = url.port_or_known_default().expect("HTTP(S) URL port");
     let host = url.host_str().expect("HTTP(S) URL host");
@@ -119,7 +129,7 @@ pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fau
             .header(header::ACCEPT_ENCODING, "identity")
             .send()
             .await
-            .map_err(|_| unavailable("web request failed"))?;
+            .map_err(request_error)?;
         if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
             if redirects == web::MAX_REDIRECTS {
                 return Err(unavailable("web redirect limit exceeded"));

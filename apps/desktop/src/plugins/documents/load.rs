@@ -165,7 +165,6 @@ impl Controller {
                             stop: controller.stop.child_token(),
                             code_capture: super::code::Capture {
                                 context: context.clone(),
-                                window: window.window_handle(),
                                 attempt: Default::default(),
                                 starting: Default::default(),
                             },

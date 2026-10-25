@@ -1,6 +1,7 @@
 use super::super::tests::server;
 use super::*;
 use hyper_util::client::proxy::matcher::Matcher;
+mod errors;
 #[path = "../../../../tests/support/web_proxy.rs"]
 mod proxy;
 mod tls;

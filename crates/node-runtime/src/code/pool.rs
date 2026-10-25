@@ -664,14 +664,22 @@ impl Pool {
             return Ok(result);
         };
         self.available(&server.plan.startup.server)?;
-        let status = server.rpc.state.lock().await.status;
+        let (status, failure) = {
+            let state = server.rpc.state.lock().await;
+            (state.status, state.failure.clone())
+        };
         self.current(&active)?;
         if !matches!(status, Status::Ready | Status::Indexing) {
-            let mut result = operations::empty(query, None);
+            let mut result = operations::empty(
+                query,
+                candidate
+                    .as_ref()
+                    .and_then(|candidate| candidate.package.clone()),
+            );
             result.status = status;
             result.startup = Some(server.plan.startup.clone());
             result.server = Some(server.plan.startup.server.clone());
-            result.notice = Some("Language server has stopped".into());
+            result.notice = failure.or_else(|| Some("Language server has stopped".into()));
             return Ok(result);
         }
         let result = operations::read(&server, query, overlay, stop).await;

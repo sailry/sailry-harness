@@ -9,6 +9,8 @@ use sailry_protocol::{Credential, conversation::Provider};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+mod mcp;
+
 struct Model {
     inner: Arc<dyn Llm>,
     origin: ProviderOrigin,
@@ -86,6 +88,7 @@ where
 
 fn project(request: &mut LlmRequest, origin: &ProviderOrigin) {
     adk_core::history::for_provider(&mut request.contents, origin);
+    mcp::project(&mut request.contents);
     coalesce(&mut request.contents);
 }
 

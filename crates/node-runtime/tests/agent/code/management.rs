@@ -21,6 +21,108 @@ async fn installed(fixture: &Fixture) -> Vec<code::Installation> {
 }
 
 #[tokio::test]
+async fn recovers_missing_proxy_components() {
+    use std::os::unix::fs::PermissionsExt;
+    for remote in [false, true] {
+        let server = Server::scripted_tools(vec![]).await;
+        let sources = install::Sources::new().await;
+        let mut fixture = Fixture::new(remote, &server).await;
+        let launcher = fixture.bin.join("rustup");
+        std::fs::write(
+            &launcher,
+            "#!/bin/sh\nprintf ran > proxy-started\nexit 92\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let executable = fixture.bin.join("rust-analyzer");
+        std::fs::remove_file(&executable).unwrap();
+        std::os::unix::fs::symlink(&launcher, &executable).unwrap();
+        let rustup = fixture.directory.path().join(".rustup");
+        std::fs::create_dir_all(&rustup).unwrap();
+        std::fs::write(
+            rustup.join("settings.toml"),
+            "default_toolchain = 'stable-x86_64-unknown-linux-gnu'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            fixture.root.join("rust-toolchain.toml"),
+            "[toolchain]\nchannel = '1.98.0'\nprofile = 'minimal'\n",
+        )
+        .unwrap();
+        fixture = install::restart(fixture, remote, &sources, None).await;
+        fixture.config(WorkMode::Code, Permission::Full).await;
+        let Output::CodeSettings(mut settings) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadCodeSettings))
+            .await
+            .unwrap()
+        else {
+            panic!("settings expected")
+        };
+        settings.editor_enabled = true;
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SaveCodeSettings {
+                expected_revision: settings.revision,
+                settings,
+            }))
+            .await
+            .unwrap();
+        let missing = fixture.read(query(), None).await;
+        assert_eq!(missing.status, code::Status::NotInstalled);
+        assert!(missing.startup.is_none());
+        assert_eq!(missing.package.as_deref(), Some("rust-analyzer"));
+        let descriptor = missing.package_info.unwrap().install.unwrap();
+        assert!(!fixture.root.join("proxy-started").exists());
+        assert!(installed(&fixture).await.is_empty());
+        server.replace_tools(vec![
+            (
+                plugin_tool("code", "code_hover"),
+                json!({"path":"main.rs","line":1,"symbol":"symbol"}),
+            ),
+            (
+                plugin_tool("code", "code_install"),
+                serde_json::to_value(&descriptor).unwrap(),
+            ),
+            (
+                plugin_tool("code", "code_diagnostics"),
+                json!({"path":"main.rs"}),
+            ),
+        ]);
+        let turn = fixture.submit().await;
+        let page = fixture.finish(turn).await;
+        let output = results(&page);
+        assert_eq!(output[0]["status"], "not_installed", "{output:?}");
+        assert_eq!(
+            output[0]["package_info"]["install"],
+            serde_json::to_value(&descriptor).unwrap()
+        );
+        assert!(
+            output.iter().any(|result| {
+                result["status"] == "ready" && result.to_string().contains("fixture syntax error")
+            }),
+            "{output:?}"
+        );
+        assert!(!fixture.root.join("proxy-started").exists());
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("main.rs")).unwrap(),
+            "🙂 broken symbol\n"
+        );
+        let Output::CodeSettings(settings) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadCodeSettings))
+            .await
+            .unwrap()
+        else {
+            panic!("settings expected")
+        };
+        assert!(settings.enabled && settings.editor_enabled);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn installs_queries_and_uninstalls_through_agent() {
     for remote in [false, true] {
         let server = Server::scripted_tools(vec![]).await;

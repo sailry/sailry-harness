@@ -169,3 +169,109 @@ fn avoids_duplicate_file_context() {
     }
     assert_eq!(page, original);
 }
+
+fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
+    let mut call = call(State::Returned, None);
+    call.response = Some(sailry_client::conversation::tools::Reference {
+        entry: "result".into(),
+        index: 0,
+    });
+    let mut page = page();
+    page.entries.push(sailry_protocol::conversation::Entry {
+        id: "source".into(),
+        sequence: 1,
+        turn: call.turn,
+        author: "assistant".into(),
+        branch: String::new(),
+        timestamp_ms: 1,
+        parts: vec![Part::ToolCall {
+            id: call.id.clone(),
+            name: call.name.clone(),
+            arguments: json!({}),
+            presentation: call.presentation,
+            grouping: call.grouping,
+            display: Some(Box::new(
+                serde_json::from_value(json!({"label":"External read","raw_result":true})).unwrap(),
+            )),
+        }],
+        usage: None,
+        citations: vec![],
+        search_suggestions: None,
+    });
+    let mut response = page.entries[0].clone();
+    response.id = "result".into();
+    response.sequence = 2;
+    response.parts = vec![Part::ToolResult {
+        id: call.id.clone(),
+        name: call.name.clone(),
+        result,
+        images: vec![],
+    }];
+    page.entries.push(response);
+    (call, page)
+}
+
+#[test]
+fn raw_success_stays_compact() {
+    let result = json!({"output":{"logs_content":"Job output","job_id":12},"metadata":{"cursor":"next","revision":4}});
+    let (call, page) = raw_fixture(result.clone());
+    let original = page.clone();
+    assert!(call.raw_result(&page));
+    assert!(!has_content(&call, &page));
+    assert!(summary(&call, &page).detail.hide_caret);
+    assert!(!summary(&call, &page).detail.failed);
+    assert_eq!(summary(&call, &page).label.as_ref(), "External read");
+    assert!(inspector::copy(&call, &page).is_none());
+    assert_eq!(call.result(&page), Some(&result));
+    assert_eq!(page, original);
+}
+
+#[test]
+fn declared_content_keeps_expansion() {
+    let result = json!({"output":{"text":"Job output","revision":4,
+        "sailry_content":{"version":1,"blocks":[{"kind":"text","path":"/text"}]}}});
+    let (mut call, mut page) = raw_fixture(result.clone());
+    call.presentation = tool::Presentation::Content;
+    if let Part::ToolCall { presentation, .. } = &mut page.entries[0].parts[0] {
+        *presentation = call.presentation;
+    }
+    call.content = call.presentation.content(&result);
+    assert!(call.content.is_some());
+    assert!(has_content(&call, &page));
+    assert!(!summary(&call, &page).detail.hide_caret);
+    assert!(inspector::copy(&call, &page).is_none());
+    assert_eq!(call.result(&page), Some(&result));
+}
+
+#[test]
+fn failed_raw_keeps_diagnostics() {
+    let result = json!({"error":sailry_protocol::Fault::new(ErrorCode::Unavailable,"Read failed")});
+    let (mut call, page) = raw_fixture(result.clone());
+    call.failure = Some(tool::Failure {
+        code: Some(ErrorCode::Unavailable),
+    });
+    assert!(has_content(&call, &page));
+    assert!(!summary(&call, &page).detail.hide_caret);
+    assert!(summary(&call, &page).detail.failed);
+    assert_eq!(
+        output::tool_preview(call.failure.as_ref(), &result).text,
+        "Read failed"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&inspector::copy(&call, &page).unwrap()).unwrap(),
+        result
+    );
+    for changed in 0..3 {
+        let mut page = page.clone();
+        if changed == 0 {
+            page.entries[1].turn = TurnId::new();
+        } else if let Part::ToolResult { id, name, .. } = &mut page.entries[1].parts[0] {
+            if changed == 1 {
+                *id = Some("other-call".into());
+            } else {
+                *name = "other-tool".into();
+            }
+        }
+        assert!(inspector::copy(&call, &page).is_none());
+    }
+}

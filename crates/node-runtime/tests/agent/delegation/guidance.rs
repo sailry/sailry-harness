@@ -44,7 +44,7 @@ async fn marks_rejected_child_control() {
 }
 
 #[tokio::test]
-async fn rejects_completed_child() {
+async fn resumes_completed_child() {
     for remote in [false, true] {
         let parent = Server::scripted_tools(vec![(
             plugin_tool("delegation", "spawn_agent"),
@@ -57,6 +57,8 @@ async fn rejects_completed_child() {
         let page = finished(&fixture.client, fixture.session.id, first.id).await;
         assert_eq!(page.children[0].run.status, Status::Completed);
         let child = page.children[0].run.session;
+        let original = history(&fixture.client, child).await;
+        let recipient = original.runs[0].turn;
         let requests = fixture.child.requests.lock().unwrap().len();
         let name = plugin_tool("delegation", "guide_agent");
         fixture.parent.replace_tools(vec![(
@@ -71,17 +73,48 @@ async fn rejects_completed_child() {
             .iter()
             .find(|call| call.turn == turn.id && call.name == name)
             .unwrap();
-        assert_eq!(
-            call.failure.as_ref().and_then(|failure| failure.code),
-            Some(ErrorCode::Conflict)
+        assert!(call.failure.is_none());
+        let admitted = call.result(&page).unwrap();
+        assert_eq!(admitted["session"], json!(child));
+        assert_eq!(admitted["recipient"], json!(recipient));
+        assert_eq!(admitted["status"], "completed");
+        let resumed: TurnId = serde_json::from_value(admitted["turn"].clone()).unwrap();
+        assert_ne!(resumed, recipient);
+        let child_page = finished(&fixture.client, child, resumed).await;
+        assert_eq!(status(&child_page, recipient), Status::Completed);
+        assert_eq!(status(&child_page, resumed), Status::Completed);
+        assert!(child_page.entries.starts_with(&original.entries));
+        assert!(child_page.entries.iter().any(|entry| {
+            entry.turn == resumed
+                && entry
+                    .parts
+                    .contains(&Part::Text("Inspect another detail".into()))
+        }));
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), requests + 1);
+        let request = fixture
+            .child
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone();
+        assert_eq!(request["model"], "fixture-child");
+        assert!(
+            request["messages"]
+                .to_string()
+                .contains("Frozen review instructions")
         );
-        assert!(call.diagnostics(&page));
-        assert!(call.details(&page));
-        assert_eq!(call.result(&page).unwrap()["error"]["code"], "conflict");
-        assert_eq!(fixture.child.requests.lock().unwrap().len(), requests);
-        assert_eq!(page.children.len(), 1);
-        assert_eq!(history(&fixture.client, fixture.session.id).await, page);
-        fixture.close().await;
+        assert_eq!(
+            children(&fixture.client, fixture.session.id, 1).await.len(),
+            1
+        );
+        let recovered = fixture.restart().await;
+        assert_eq!(
+            history(&recovered.client, child).await.entries,
+            child_page.entries
+        );
+        recovered.close().await;
     }
 }
 

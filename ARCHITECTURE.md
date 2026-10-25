@@ -614,6 +614,8 @@ its founding ancestry. The same parent session may reuse an idle child without
 losing history or changing its role, effective configuration or worktree. Idle
 reuse captures current packages and settings; initial delegation inherits the
 parent's frozen capture, and guidance retains the active recipient's capture.
+Explicit guidance can also start a new task in an idle child through the same
+durable reuse admission and supervisor, without replaying its completed work.
 Delegation observes completion synchronously by default within a bounded tool-wait
 window. If the admitted child is still queued or running, the tool returns its
 actual session, turn and pending status; observation expiry never cancels or

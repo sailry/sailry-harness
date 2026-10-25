@@ -87,6 +87,12 @@ impl Pool {
                 let installed = base.is_some_and(|base| {
                     let mut server = base.clone();
                     server.command = command.into();
+                    if let Some(args) = custom.and_then(|value| value.args.as_ref()) {
+                        server.args = args.clone();
+                    }
+                    if let Some(variables) = custom.and_then(|value| value.environment.as_ref()) {
+                        server.environment.extend(variables.clone());
+                    }
                     resolve::executable(
                         &root,
                         &root,

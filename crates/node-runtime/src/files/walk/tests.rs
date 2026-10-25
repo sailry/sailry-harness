@@ -209,6 +209,62 @@ fn inherits_ignores_with_negation_and_subpaths() {
 }
 
 #[test]
+fn distinguishes_missing_and_ignored_scopes() {
+    let root = directory();
+    let repository = git2::Repository::init(root.path()).unwrap();
+    let patterns = ["**/*.py".into()];
+    assert_eq!(
+        super::find(root.path(), &patterns, "scripts", 500, 0, &control())
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    let mut module = repository
+        .submodule(
+            "https://example.invalid/scripts.git",
+            Path::new("scripts"),
+            true,
+        )
+        .unwrap();
+    let child = module.open().unwrap();
+    std::fs::write(root.path().join("scripts/task.py"), "print('fixture')\n").unwrap();
+    let mut index = child.index().unwrap();
+    index.add_path(Path::new("task.py")).unwrap();
+    index.write().unwrap();
+    let tree = child.find_tree(index.write_tree().unwrap()).unwrap();
+    let author = git2::Signature::now("Fixture", "fixture@example.invalid").unwrap();
+    child
+        .commit(Some("HEAD"), &author, &author, "Fixture", &tree, &[])
+        .unwrap();
+    module.add_finalize().unwrap();
+    let names = super::find(root.path(), &patterns, "scripts", 500, 0, &control()).unwrap();
+    assert_eq!(names.paths, ["scripts/task.py"]);
+    assert!(!names.partial);
+    assert!(!names.truncated);
+    assert_eq!(names.skipped, 0);
+    assert!(names.diagnostics.is_empty());
+    let names = super::find(root.path(), &["**/*".into()], "scripts", 500, 0, &control()).unwrap();
+    assert_eq!(names.paths, ["scripts/task.py"]);
+    for scope in [".git", "scripts/.git"] {
+        assert_eq!(
+            super::find(root.path(), &patterns, scope, 500, 0, &control())
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+    }
+    std::fs::create_dir(root.path().join("ignored")).unwrap();
+    std::fs::write(root.path().join("ignored/private.py"), "private fixture\n").unwrap();
+    std::fs::write(root.path().join(".gitignore"), "/ignored/\n").unwrap();
+    let names = super::find(root.path(), &patterns, "ignored", 500, 0, &control()).unwrap();
+    assert!(names.paths.is_empty());
+    assert!(!names.partial);
+    assert!(!names.truncated);
+    assert_eq!(names.skipped, 0);
+    assert!(names.diagnostics.is_empty());
+}
+
+#[test]
 fn orders_by_modification_then_path_and_pages() {
     let root = directory();
     for (name, modified) in [("old.rs", 1000), ("b.rs", 2000), ("a.rs", 2000)] {

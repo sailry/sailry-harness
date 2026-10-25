@@ -166,7 +166,7 @@ pub(super) fn commit(root: &Path, id: &str, control: &Control) -> Result<GitComm
     };
     control.check()?;
     let mut options = git2::DiffOptions::new();
-    options.ignore_submodules(true).max_size(1024 * 1024);
+    options.ignore_submodules(false).max_size(1024 * 1024);
     let diff = repository
         .diff_tree_to_tree(parent.as_ref(), Some(&tree), Some(&mut options))
         .map_err(fault)?;

@@ -11,8 +11,7 @@ pub(in crate::agent) struct Control {
     context: plugin::Context,
     stop: CancellationToken,
     operation: Operation,
-    name: String,
-    description: String,
+    resume: Delegate,
 }
 
 impl Control {
@@ -22,8 +21,7 @@ impl Control {
         package: &plugin::Info,
         stop: &CancellationToken,
         operation: Operation,
-        name: String,
-        description: String,
+        resume: Delegate,
     ) -> Self {
         Self {
             ingress: ingress.clone(),
@@ -40,8 +38,7 @@ impl Control {
             },
             stop: stop.clone(),
             operation,
-            name,
-            description,
+            resume,
         }
     }
 }
@@ -57,10 +54,10 @@ struct Arguments {
 #[async_trait]
 impl Tool for Control {
     fn name(&self) -> &str {
-        &self.name
+        self.resume.name()
     }
     fn description(&self) -> &str {
-        &self.description
+        self.resume.description()
     }
     fn parameters_schema(&self) -> Option<Value> {
         Some(if self.operation == Operation::GuideAgent {
@@ -80,17 +77,53 @@ impl Tool for Control {
         {
             return Err(AdkError::tool("child control is no longer active"));
         }
-        let work = async {
-            let args: Arguments = serde_json::from_value(arguments)
+        let loaded = async {
+            let args: Arguments = serde_json::from_value(arguments.clone())
                 .map_err(|_| Fault::invalid("invalid child control arguments"))?;
-            let state = self.ingress.child_state(self.turn, args.session).await?;
             if self.operation == Operation::GuideAgent {
                 if args.turn.is_some() {
                     return Err(Fault::invalid("guidance does not accept an execution turn"));
                 }
-                let message = args
+                if args
                     .message
-                    .ok_or_else(|| Fault::invalid("child guidance message is required"))?;
+                    .as_ref()
+                    .is_none_or(|message| message.trim().is_empty())
+                {
+                    return Err(Fault::invalid("child guidance message is required"));
+                }
+            } else if args.message.is_some() {
+                return Err(Fault::invalid("waiting does not accept a message"));
+            }
+            let state = self.ingress.child_state(self.turn, args.session).await?;
+            Ok((args, state))
+        }
+        .await;
+        let (args, state) = match loaded {
+            Ok(loaded) => loaded,
+            Err(error) => return Ok(self.failure(context.as_ref(), error)),
+        };
+        if self.operation == Operation::GuideAgent
+            && !matches!(
+                state.run.status,
+                Status::Queued | Status::Running | Status::Stopping
+            )
+        {
+            let mut output = self
+                .resume
+                .execute_prepared(
+                    context,
+                    json!({"session":args.session,"task":args.message.unwrap()}),
+                    arguments,
+                )
+                .await?;
+            if output.get("session") == Some(&json!(args.session)) {
+                output["recipient"] = json!(state.run.turn);
+            }
+            return Ok(output);
+        }
+        let work = async {
+            if self.operation == Operation::GuideAgent {
+                let message = args.message.unwrap();
                 if state.run.status != sailry_protocol::conversation::Status::Running {
                     return Err(Fault::new(
                         ErrorCode::Conflict,
@@ -122,9 +155,6 @@ impl Tool for Control {
                 return Ok(
                     json!({"session":turn.session,"turn":turn.id,"recipient":state.run.turn,"status":"queued"}),
                 );
-            }
-            if args.message.is_some() {
-                return Err(Fault::invalid("waiting does not accept a message"));
             }
             let deadline = tokio::time::Instant::now() + observation::window(&self.ingress.agents);
             loop {
@@ -170,17 +200,21 @@ impl Tool for Control {
         };
         Ok(match work.await {
             Ok(output) => output,
-            Err(error) => {
-                if let Some(timeline) = self.ingress.agents.timeline(self.turn) {
-                    timeline.fail_tool(
-                        context.branch(),
-                        context.function_call_id(),
-                        &self.name,
-                        Some(error.code),
-                    );
-                }
-                json!({"isError":true,"error":error})
-            }
+            Err(error) => self.failure(context.as_ref(), error),
         })
+    }
+}
+
+impl Control {
+    fn failure(&self, context: &dyn ToolContext, error: Fault) -> Value {
+        if let Some(timeline) = self.ingress.agents.timeline(self.turn) {
+            timeline.fail_tool(
+                context.branch(),
+                context.function_call_id(),
+                self.name(),
+                Some(error.code),
+            );
+        }
+        json!({"isError":true,"error":error})
     }
 }

@@ -256,11 +256,76 @@ async fn delivers_once_after_restart_without_a_view() {
         let (directory, node, controller, client, _worktree) = fixture(remote).await;
         let context = install(&client).await;
         let id = ScheduleId::new();
-        let due = chrono::Utc::now().timestamp_millis() + 150;
+        let due = chrono::Utc::now().timestamp_millis() + 86_400_000;
         let saved = call(&client, &context, "save", draft(id, Some(due))).await;
         assert_eq!(saved["Ok"]["revision"], "1", "{saved}");
+        let mut reminder = storage(
+            &client,
+            &context,
+            Command::ReadPluginValue {
+                key: format!("reminder/{id}"),
+            },
+        )
+        .await;
+        let jobs::Output::Schedules(mut schedules) =
+            dispatch::run(&client, &context, jobs::Command::ListSchedules).await
+        else {
+            panic!("schedules expected")
+        };
+        let mut schedule = schedules.pop().unwrap();
+        assert_eq!(schedule.id, id);
+        assert!(schedule.enabled);
+        assert_eq!(schedule.next_ms, Some(due));
+        assert_eq!(reminder.revision, 1);
+        assert!(notices(&client).await.is_empty());
         drop(client);
         node.shutdown().await.unwrap();
+
+        // Age this isolated fixture only after its old owner has stopped. The
+        // restarted worker must deliver an enabled, unconsumed overdue cursor.
+        let original = serde_json::to_vec(&schedule).unwrap();
+        let overdue = chrono::Utc::now().timestamp_millis() - 1;
+        schedule.timing = jobs::Timing::Once { at_ms: overdue };
+        schedule.next_ms = Some(overdue);
+        reminder.value["due_ms"] = json!(overdue);
+        let (handle, database) = crate::plugins::database_fixture::open(
+            &directory.path().join("node/storage/node.turso"),
+            false,
+        )
+        .await;
+        let transaction = database.unchecked_transaction().await.unwrap();
+        assert_eq!(
+            transaction
+                .execute(
+                    "UPDATE dispatch_schedules SET next_ms=?1,body=?2 WHERE package=?3 AND id=?4 AND body=?5",
+                    turso::params![
+                        overdue,
+                        serde_json::to_vec(&schedule).unwrap(),
+                        context.package.name.as_str(),
+                        id.to_string(),
+                        original
+                    ],
+                )
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            transaction
+                .execute(
+                    "UPDATE plugin_values SET value=?1 WHERE name=?2 AND key=?3 AND revision=1",
+                    turso::params![
+                        serde_json::to_vec(&reminder.value).unwrap(),
+                        context.package.name.as_str(),
+                        reminder.key.as_str()
+                    ],
+                )
+                .await
+                .unwrap(),
+            1
+        );
+        transaction.commit().await.unwrap();
+        crate::plugins::database_fixture::close(handle, database).await;
         let node = Node::start(directory.path().join("node")).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())

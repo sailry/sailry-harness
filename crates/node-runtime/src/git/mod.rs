@@ -296,6 +296,10 @@ pub(crate) fn valid_path(value: &str) -> Result<(), Fault> {
 }
 
 fn check_entry(root: &Path, value: &str) -> Result<(), Fault> {
+    check_entry_kind(root, value, false)
+}
+
+fn check_entry_kind(root: &Path, value: &str, gitlink: bool) -> Result<(), Fault> {
     use cap_fs_ext::DirExt;
     let parts = path::components(value, false)?;
     let mut dir = path::root(root)?;
@@ -307,7 +311,11 @@ fn check_entry(root: &Path, value: &str) -> Result<(), Fault> {
         };
     }
     match dir.symlink_metadata(parts[parts.len() - 1]) {
-        Ok(metadata) if metadata.is_file() || metadata.is_symlink() => Ok(()),
+        Ok(metadata)
+            if metadata.is_file() || metadata.is_symlink() || gitlink && metadata.is_dir() =>
+        {
+            Ok(())
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(io_error(error)),
         _ => Err(Fault::invalid(

@@ -234,8 +234,11 @@ pub(super) async fn admit(
     let inherits_input = selected.is_some();
     let message = selected.unwrap_or_else(|| args.task.clone().into());
     queue::validate(&message)?;
-    if super::plugins::operation(&database.connection, parent, &request.tool_name).await?
-        != Some(sailry_protocol::tool::Operation::DelegateAgent)
+    let operation =
+        super::plugins::operation(&database.connection, parent, &request.tool_name).await?;
+    if operation != Some(sailry_protocol::tool::Operation::DelegateAgent)
+        && !(operation == Some(sailry_protocol::tool::Operation::GuideAgent)
+            && args.session.is_some())
     {
         return Err(sailry_protocol::Fault::invalid("invalid delegation tool"));
     }

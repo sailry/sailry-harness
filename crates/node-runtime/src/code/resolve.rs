@@ -10,6 +10,8 @@ use std::{
     time::Duration,
 };
 
+mod rustup;
+
 #[derive(Clone, Serialize)]
 pub(super) struct Plan {
     pub startup: Startup,
@@ -146,6 +148,15 @@ impl Resolver {
                 .and_then(|value| value.command.as_ref())
                 .and_then(|command| which::which_in(command, environment.path(), &directory).ok())
                 .and_then(installed)
+                .filter(|path| {
+                    rustup::available(
+                        path,
+                        Some(&directory),
+                        environment,
+                        &server.args,
+                        &server.environment,
+                    )
+                })
                 .and_then(|path| selected(path, None))
                 .or_else(|| executable(root, &directory, profile, environment, &server, package))
             else {
@@ -271,14 +282,32 @@ pub(super) fn executable(
     which::which_in(&server.command, environment.path(), directory)
         .ok()
         .and_then(installed)
+        .filter(|path| {
+            rustup::available(
+                path,
+                Some(directory),
+                environment,
+                &server.args,
+                &server.environment,
+            )
+        })
         .and_then(|path| selected(path, None))
 }
 
 // A global catalog must not resolve relative commands or PATH entries against a project.
-pub(super) fn global_executable(command: &str, environment: &crate::process::Environment) -> bool {
+pub(super) fn global_executable(
+    command: &str,
+    environment: &crate::process::Environment,
+    args: &[String],
+    variables: &BTreeMap<String, String>,
+) -> bool {
     let command = Path::new(command);
+    let available = |path| {
+        installed(path)
+            .is_some_and(|path| rustup::available(&path, None, environment, args, variables))
+    };
     if command.is_absolute() {
-        return installed(command.to_owned()).is_some();
+        return available(command.to_owned());
     }
     if command.components().count() != 1 {
         return false;
@@ -286,7 +315,7 @@ pub(super) fn global_executable(command: &str, environment: &crate::process::Env
     environment.path().is_some_and(|path| {
         std::env::split_paths(path)
             .filter(|directory| directory.is_absolute())
-            .any(|directory| installed(directory.join(command)).is_some())
+            .any(|directory| available(directory.join(command)))
     })
 }
 

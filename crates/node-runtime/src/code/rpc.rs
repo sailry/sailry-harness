@@ -26,6 +26,7 @@ pub(super) struct State {
     pub generation: u64,
     pub diagnostics_revision: u64,
     pub stderr: Vec<u8>,
+    pub failure: Option<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -134,6 +135,7 @@ impl Rpc {
             generation: 0,
             diagnostics_revision: 0,
             stderr: Vec::new(),
+            failure: None,
         }));
         let stop = CancellationToken::new();
         let diagnostics = state.clone();
@@ -189,7 +191,8 @@ impl Rpc {
             id,
         };
         let work = async {
-            self.sender
+            if self
+                .sender
                 .send(Send::Request {
                     id,
                     method: method.into(),
@@ -197,10 +200,14 @@ impl Rpc {
                     reply,
                 })
                 .await
-                .map_err(|_| io("language server has stopped"))?;
-            receive
-                .await
-                .map_err(|_| io("language server has stopped"))?
+                .is_err()
+            {
+                return Err(self.failure().await);
+            }
+            match receive.await {
+                Ok(result) => result,
+                Err(_) => Err(self.failure().await),
+            }
         };
         tokio::select! {
             biased;
@@ -211,13 +218,31 @@ impl Rpc {
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<(), Fault> {
-        self.sender
+        if self
+            .sender
             .send(Send::Notify {
                 method: method.into(),
                 params,
             })
             .await
-            .map_err(|_| io("language server has stopped"))
+            .is_err()
+        {
+            Err(self.failure().await)
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn failure(&self) -> Fault {
+        Fault::new(
+            ErrorCode::Unavailable,
+            self.state
+                .lock()
+                .await
+                .failure
+                .clone()
+                .unwrap_or_else(|| "language server has stopped".into()),
+        )
     }
 
     pub async fn shutdown(&self) {
@@ -367,23 +392,33 @@ async fn run(
             }
         }
     };
+    let error = {
+        let mut state = state.lock().await;
+        state.status = if failure.is_some() {
+            Status::Failed
+        } else {
+            Status::Stopped
+        };
+        state.failure = failure;
+        state.progress = None;
+        state.generation = state.generation.wrapping_add(1);
+        let _ = changed.send(state.generation);
+        Fault::new(
+            ErrorCode::Unavailable,
+            state
+                .failure
+                .clone()
+                .unwrap_or_else(|| "language server has stopped".into()),
+        )
+    };
     for (_, reply) in pending {
-        let _ = reply.send(Err(io("language server has stopped")));
+        let _ = reply.send(Err(error.clone()));
     }
     let _ = child.inner.start_kill();
     let _ = tokio::time::timeout(Duration::from_secs(1), child.wait_root()).await;
     child.armed = false;
     stderr.abort();
     let _ = stderr.await;
-    let mut state = state.lock().await;
-    state.status = if failure.is_some() {
-        Status::Failed
-    } else {
-        Status::Stopped
-    };
-    state.progress = None;
-    state.generation = state.generation.wrapping_add(1);
-    let _ = changed.send(state.generation);
 }
 
 async fn emit(

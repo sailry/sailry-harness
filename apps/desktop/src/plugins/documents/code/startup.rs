@@ -109,12 +109,6 @@ impl Controller {
                     return;
                 }
                 let Ok(Ok(Output::Snapshot(snapshot))) = result else {
-                    crate::feedback::error(
-                        "editor_code_failed",
-                        "Worktree metadata is unavailable",
-                        window,
-                        cx,
-                    );
                     return;
                 };
                 let Some(worktree) = snapshot
@@ -215,47 +209,35 @@ impl Controller {
             .binding
             .runtime
             .spawn(async move { confirmed(&client, request).await });
-        let window = provider.window;
         cx.spawn(async move |controller, cx| {
             let result = job.await;
-            let feedback = controller
-                .update(cx, |controller, cx| {
-                    let document = controller.documents.get(&id)?;
-                    let current = document.code.as_ref();
-                    let attached = current.is_some_and(|current| Rc::ptr_eq(current, &provider));
-                    *provider.starting.borrow_mut() = false;
-                    let feedback = match result {
-                        Ok(Ok(Ok(Output::CodeServer(_)))) => {
-                            provider.attempt.borrow_mut().take();
-                            if attached {
-                                provider.startup.borrow_mut().take();
-                                provider.observed.borrow_mut().take();
-                                provider.automatic.borrow_mut().take();
-                            }
-                            Ok(())
+            let _ = controller.update(cx, |controller, cx| {
+                let document = controller.documents.get(&id)?;
+                let current = document.code.as_ref();
+                let attached = current.is_some_and(|current| Rc::ptr_eq(current, &provider));
+                *provider.starting.borrow_mut() = false;
+                match result {
+                    Ok(Ok(Ok(Output::CodeServer(_)))) => {
+                        provider.attempt.borrow_mut().take();
+                        if attached {
+                            provider.startup.borrow_mut().take();
+                            provider.observed.borrow_mut().take();
+                            provider.automatic.borrow_mut().take();
                         }
-                        Ok(Ok(Err(error))) => {
-                            if error.code != ErrorCode::OutcomeUnknown {
-                                provider.attempt.borrow_mut().take();
-                            }
-                            Err(error)
+                    }
+                    Ok(Ok(Err(error))) if error.code != ErrorCode::OutcomeUnknown => {
+                        provider.attempt.borrow_mut().take();
+                        if attached {
+                            provider.startup.borrow_mut().take();
+                            provider.configure(false, cx);
                         }
-                        _ => Err(Fault::new(
-                            ErrorCode::OutcomeUnknown,
-                            "Language startup outcome is unknown",
-                        )),
-                    };
-                    controller.refresh_code(cx);
-                    cx.notify();
-                    Some(feedback)
-                })
-                .ok()
-                .flatten();
-            if let Some(Err(error)) = feedback {
-                let _ = cx.update_window(window, |_, window, cx| {
-                    crate::feedback::error("editor_code_failed", &error.to_string(), window, cx);
-                });
-            }
+                    }
+                    _ => {}
+                }
+                controller.refresh_code(cx);
+                cx.notify();
+                Some(())
+            });
         })
         .detach();
         cx.notify();

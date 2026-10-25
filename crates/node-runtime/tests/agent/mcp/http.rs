@@ -5,6 +5,7 @@ mod captures;
 #[cfg(feature = "test-support")]
 mod cli;
 mod configuration;
+mod projection;
 #[cfg(feature = "test-support")]
 mod waiting;
 use sailry_link::CancellationToken;
@@ -24,6 +25,7 @@ use tokio::{
 #[derive(Clone)]
 enum Reply {
     Normal,
+    RepeatedJson,
     HeldInitialization,
     Expired,
     #[cfg(feature = "test-support")]
@@ -304,11 +306,18 @@ async fn respond(
                 if matches!(reply, Reply::Expired) {
                     (404, None)
                 } else {
+                    let output = json!({"value":request["params"]["arguments"]["value"]});
+                    let content = if matches!(reply, Reply::RepeatedJson) {
+                        json!([
+                            {"type":"text", "text":output.to_string()},
+                            {"type":"text", "text":"Distinct report note"}
+                        ])
+                    } else {
+                        json!([{"type":"text", "text":"HTTP full result 中文 🙂"}])
+                    };
                     (
                         200,
-                        Some(
-                            json!({"content": [{"type": "text", "text": "HTTP full result 中文 🙂"}], "structuredContent": {"value": request["params"]["arguments"]["value"]}}),
-                        ),
+                        Some(json!({"content":content,"structuredContent":output})),
                     )
                 }
             }

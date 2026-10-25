@@ -72,8 +72,15 @@ pub(super) fn bind(
                     package,
                     stop,
                     operation,
-                    name,
-                    declaration.description.clone().unwrap_or_default(),
+                    super::super::delegation::Delegate::new(
+                        ingress,
+                        tasks,
+                        invocation,
+                        stop,
+                        name,
+                        declaration.description.clone().unwrap_or_default(),
+                        Value::Null,
+                    ),
                 ))
             } else if operation == Operation::Progress {
                 Arc::new(progress::UpdatePlan {

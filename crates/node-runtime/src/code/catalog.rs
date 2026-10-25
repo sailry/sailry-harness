@@ -28,11 +28,23 @@ impl Pool {
                     let package = rules
                         .package(command)
                         .or_else(|| base.and_then(|server| rules.package(&server.command)));
-                    let installed = package.is_some_and(|package| {
-                        installations.iter().any(|installation| {
-                            installation.package == package.name && installation.receipt.is_some()
-                        })
-                    }) || resolve::global_executable(command, &environment);
+                    let args = custom
+                        .and_then(|value| value.args.as_deref())
+                        .or_else(|| base.map(|server| server.args.as_slice()))
+                        .unwrap_or_default();
+                    let mut variables = base
+                        .map(|server| server.environment.clone())
+                        .unwrap_or_default();
+                    if let Some(overrides) = custom.and_then(|value| value.environment.as_ref()) {
+                        variables.extend(overrides.clone());
+                    }
+                    let installed =
+                        package.is_some_and(|package| {
+                            installations.iter().any(|installation| {
+                                installation.package == package.name
+                                    && installation.receipt.is_some()
+                            })
+                        }) || resolve::global_executable(command, &environment, args, &variables);
                     servers.push(code::Candidate {
                         server: name.clone(),
                         command: command.clone(),

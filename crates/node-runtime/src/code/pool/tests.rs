@@ -190,6 +190,43 @@ async fn wait_failed(pool: &Pool, startup: &Startup) {
 }
 
 #[tokio::test]
+async fn failed_servers_keep_package_suggestions() {
+    let fixture = Fixture::new().await;
+    let pool = Pool::new(None, fixture.environment.clone(), CancellationToken::new());
+    let query = Query::Hover {
+        path: "main.rs".into(),
+        line: 1,
+        symbol: "symbol".into(),
+    };
+    let stop = CancellationToken::new();
+    let startup = pool
+        .prepare(fixture.worktree, fixture.root.clone(), &query)
+        .await
+        .unwrap()
+        .unwrap();
+    pool.start(&startup, &fixture.root, &stop).await.unwrap();
+    fixture.settings(json!({"crash":true}));
+    assert!(
+        pool.query(fixture.worktree, fixture.root.clone(), &query, None, &stop)
+            .await
+            .is_err()
+    );
+    wait_failed(&pool, &startup).await;
+    let failed = pool
+        .query(fixture.worktree, fixture.root.clone(), &query, None, &stop)
+        .await
+        .unwrap();
+    assert_eq!(failed.status, Status::Failed);
+    assert_eq!(failed.package.as_deref(), Some("rust-analyzer"));
+    assert_eq!(failed.server.as_deref(), Some("rust-analyzer"));
+    assert_ne!(
+        failed.notice.as_deref(),
+        Some("Language server has stopped")
+    );
+    pool.shutdown().await;
+}
+
+#[tokio::test]
 async fn limits_servers_without_evicting_active_queries() {
     let fixture = Fixture::new().await;
     let pool = Pool::new(None, fixture.environment.clone(), CancellationToken::new());

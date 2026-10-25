@@ -2,6 +2,44 @@
 use super::*;
 use crate::code::tests::Fixture;
 #[tokio::test]
+async fn preserves_initial_exit_reason() {
+    let fixture = Fixture::new().await;
+    fixture.settings(json!({"initial_crash":true}));
+    let plan = fixture.plan();
+    let rpc = Rpc::spawn(&plan, &fixture.environment, CancellationToken::new()).unwrap();
+    let error = rpc
+        .request(
+            "initialize",
+            json!({"rootUri":url::Url::from_directory_path(&fixture.root).unwrap()}),
+            plan.timeout,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Unavailable);
+    assert!(
+        error.message.starts_with("language server exited:")
+            || error.message == "language server closed its output",
+        "{error:?}"
+    );
+    assert_eq!(
+        rpc.state.lock().await.failure.as_deref(),
+        Some(error.message.as_str())
+    );
+    let stopped = rpc
+        .request(
+            "initialize",
+            json!({}),
+            plan.timeout,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(stopped, error);
+    rpc.shutdown().await;
+}
+
+#[tokio::test]
 async fn cancels_requests_and_bounds_stderr() {
     let fixture = Fixture::new().await;
     fixture.settings(json!({"hang":true,"stderr":70000}));

@@ -23,7 +23,6 @@ enum Kind {
 #[derive(Clone)]
 pub(super) struct Capture {
     pub context: plugin::Context,
-    pub window: AnyWindowHandle,
     pub attempt: Rc<RefCell<Option<sailry_protocol::Request>>>,
     pub starting: Rc<RefCell<bool>>,
 }
@@ -34,7 +33,6 @@ pub(super) struct Provider {
     document: RequestId,
     context: plugin::Context,
     binding: Binding,
-    window: AnyWindowHandle,
     stop: CancellationToken,
     requests: RefCell<BTreeMap<Kind, CancellationToken>>,
     observed: RefCell<Option<(String, String)>>,
@@ -69,7 +67,6 @@ impl Controller {
             document: id,
             context: document.code_capture.context.clone(),
             binding: self.binding.clone(),
-            window: document.code_capture.window,
             stop: document.stop.child_token(),
             requests: Default::default(),
             observed: Default::default(),
@@ -87,16 +84,6 @@ impl Controller {
             confirming: Default::default(),
             automatic: Default::default(),
             diagnostics: Default::default(),
-        });
-        let navigation = provider.clone();
-        document.input.update(cx, |input, _| {
-            let lsp = input.lsp_mut();
-            lsp.hover_provider = Some(provider.clone());
-            lsp.definition_provider = Some(provider.clone());
-            lsp.completion_provider = Some(provider.clone());
-            lsp.show_document = Some(Rc::new(move |params, window, cx| {
-                navigation.show(params, window, cx)
-            }));
         });
         document.code = Some(provider);
     }
@@ -119,17 +106,7 @@ impl Controller {
                     for stop in provider.requests.borrow().values() {
                         stop.cancel();
                     }
-                    document.input.update(cx, |input, cx| {
-                        let lsp = input.lsp_mut();
-                        lsp.hover_provider = None;
-                        lsp.definition_provider = None;
-                        lsp.completion_provider = None;
-                        lsp.show_document = None;
-                        if let Some(diagnostics) = input.diagnostics_mut() {
-                            diagnostics.clear();
-                        }
-                        cx.notify();
-                    });
+                    provider.configure(false, cx);
                 }
             }
         }
@@ -160,6 +137,30 @@ impl Controller {
 }
 
 impl Provider {
+    fn configure(self: &Rc<Self>, ready: bool, cx: &mut App) {
+        let navigation = self.clone();
+        let _ = self.input.update(cx, |input, cx| {
+            let lsp = input.lsp_mut();
+            if ready {
+                lsp.hover_provider = Some(self.clone());
+                lsp.definition_provider = Some(self.clone());
+                lsp.completion_provider = Some(self.clone());
+                lsp.show_document = Some(Rc::new(move |params, window, cx| {
+                    navigation.show(params, window, cx)
+                }));
+            } else {
+                lsp.hover_provider = None;
+                lsp.definition_provider = None;
+                lsp.completion_provider = None;
+                lsp.show_document = None;
+            }
+            if !ready && let Some(diagnostics) = input.diagnostics_mut() {
+                diagnostics.clear();
+            }
+            cx.notify();
+        });
+    }
+
     pub(super) fn pending(&self) -> bool {
         self.attempt.borrow().is_some()
     }

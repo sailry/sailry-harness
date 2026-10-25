@@ -5,7 +5,7 @@ use std::path::Path;
 use git2::{DiffFormat, DiffOptions};
 use sailry_protocol::*;
 
-use super::{Control, check_entry, fault, open, valid_path};
+use super::{Control, check_entry_kind, fault, open, valid_path};
 
 pub(super) fn read(
     root: &Path,
@@ -14,7 +14,6 @@ pub(super) fn read(
     control: &Control,
 ) -> Result<GitDiff, Fault> {
     valid_path(&path)?;
-    check_entry(root, &path)?;
     let repository = open(root)?;
     let tree = match repository.head() {
         Ok(head) => Some(head.peel_to_tree().map_err(fault)?),
@@ -22,11 +21,13 @@ pub(super) fn read(
         Err(error) => return Err(fault(error)),
     };
     let index = repository.index().map_err(fault)?;
+    let gitlink = gitlink(&index, tree.as_ref(), Path::new(&path))?;
+    check_entry_kind(root, &path, gitlink)?;
     let mut options = DiffOptions::new();
     options
         .pathspec(&path)
         .disable_pathspec_match(true)
-        .ignore_submodules(true)
+        .ignore_submodules(false)
         .max_size(1024 * 1024);
     if scope != GitDiffScope::Staged {
         options
@@ -48,8 +49,25 @@ pub(super) fn read(
     }
     .map_err(fault)?;
     let result = print(&diff, path, scope, control)?;
-    check_entry(root, &result.path)?;
+    check_entry_kind(root, &result.path, gitlink)?;
     Ok(result)
+}
+
+fn gitlink(index: &git2::Index, tree: Option<&git2::Tree<'_>>, path: &Path) -> Result<bool, Fault> {
+    if index
+        .get_path(path, 0)
+        .is_some_and(|entry| entry.mode == 0o160000)
+    {
+        return Ok(true);
+    }
+    let Some(tree) = tree else {
+        return Ok(false);
+    };
+    match tree.get_path(path) {
+        Ok(entry) => Ok(entry.filemode() == 0o160000),
+        Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(false),
+        Err(error) => Err(fault(error)),
+    }
 }
 
 pub(super) fn print(
