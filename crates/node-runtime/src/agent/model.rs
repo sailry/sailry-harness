@@ -13,6 +13,7 @@ pub(super) mod plugin;
 mod reasoning;
 pub(crate) mod registry;
 mod retry;
+mod streaming;
 pub(super) mod timing;
 mod transport;
 use adk_core::Llm;
@@ -401,9 +402,7 @@ fn native(
                     .with_default_headers(hosted::headers())
                     .map_err(error)?;
             }
-            if let Some(adapter) = adapter {
-                client = client.with_request_adapter(adapter);
-            }
+            client = client.with_request_adapter(streaming::adapter(adapter, websocket.as_ref()));
             if let Some(observer) = observer {
                 client = client.with_response_observer(observer);
             }

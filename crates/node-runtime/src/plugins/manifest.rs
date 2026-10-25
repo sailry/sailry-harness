@@ -122,6 +122,7 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                                 !text.trim().is_empty() && text.len() <= 16 * 1024
                             })
                             && super::options::schema(&parsed).is_ok()
+                            && super::modes::valid(&parsed)
                             && sailry_protocol::plugin::model_tools::valid(&parsed.model_tools)
                             && parsed.host.as_ref().is_none_or(|host| host.valid())
                             && sailry_protocol::permissions::valid(&parsed)

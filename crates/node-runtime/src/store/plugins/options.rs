@@ -81,6 +81,7 @@ pub(in crate::store) async fn validate(
         });
         crate::plugins::options::project(extension, declared.as_ref())?;
     }
+    super::modes::validate(db, config).await?;
     Ok(())
 }
 

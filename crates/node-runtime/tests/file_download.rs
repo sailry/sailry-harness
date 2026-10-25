@@ -2,8 +2,49 @@ use sailry_client::Client;
 use sailry_link::{CancellationToken, Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
-use std::{path::Path, time::Duration};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::{
+    io,
+    path::Path,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream},
+    sync::Notify,
+};
+
+struct BlockedWriter {
+    writer: DuplexStream,
+    entered: Arc<Notify>,
+    written: bool,
+}
+
+impl AsyncWrite for BlockedWriter {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let result = Pin::new(&mut self.writer).poll_write(cx, bytes);
+        if matches!(&result, Poll::Ready(Ok(count)) if *count > 0) {
+            self.written = true;
+        }
+        if self.written && result.is_pending() {
+            self.entered.notify_one();
+        }
+        result
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.writer).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.writer).poll_shutdown(cx)
+    }
+}
 
 async fn register(client: &Client, root: &Path) -> WorktreeId {
     client
@@ -165,22 +206,28 @@ async fn shares_binary_lifecycle() {
             ErrorCode::Unavailable
         );
         let blocked = prepare(client, worktree, "资料.bin").await;
-        let (mut writer, mut reader) = tokio::io::duplex(1);
+        let (writer, mut reader) = tokio::io::duplex(1);
+        let entered = Arc::new(Notify::new());
+        let mut writer = BlockedWriter {
+            writer,
+            entered: entered.clone(),
+            written: false,
+        };
         let stop = CancellationToken::new();
         let stopping = stop.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            stopping.cancel();
-        });
-        assert_eq!(
-            client
-                .download(&blocked, &mut writer, stop, |_| {})
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Cancelled
-        );
-        assert_eq!(reader.read(&mut [0; 2]).await.unwrap(), 1);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let (result, ()) = tokio::join!(
+                client.download(&blocked, &mut writer, stop, |_| {}),
+                async {
+                    entered.notified().await;
+                    stopping.cancel();
+                },
+            );
+            assert_eq!(result.unwrap_err().code, ErrorCode::Cancelled);
+            assert_eq!(reader.read(&mut [0; 2]).await.unwrap(), 1);
+        })
+        .await
+        .expect("blocked destination cancellation deadline");
         assert!(client.open(blocked.stream).await.is_err());
         // Control requests remain responsive while an auxiliary stream is unread.
         let waiting = prepare(client, worktree, "资料.bin").await;

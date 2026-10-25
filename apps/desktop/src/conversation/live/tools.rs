@@ -35,11 +35,7 @@ impl View {
         }
         let page = &self.history.snapshot.as_ref().unwrap().page;
         let summary = self
-            .preparing_summary(
-                group_summary(calls, page).sequence(calls.len()),
-                calls,
-                page,
-            )
+            .preparing_summary(group_summary(calls, page), calls, page)
             .continuing(continuing);
         let turn = first.turn;
         let key = format!("tool-sequence-{}", first.source.key());
@@ -470,16 +466,6 @@ struct Summary {
 }
 
 impl Summary {
-    fn sequence(mut self, count: usize) -> Self {
-        self.icon = Icon::new(IconName::Settings2);
-        self.label = tr("provider_cap_tools");
-        self.detail.text = rust_i18n::t!("tool_group_count", count = count)
-            .to_string()
-            .into();
-        self.detail.mono = false;
-        self
-    }
-
     fn continuing(mut self, continuing: bool) -> Self {
         if continuing && !self.detail.pending {
             self.detail.running = true;
@@ -644,7 +630,7 @@ fn outcome_tone(call: &Call, result: &serde_json::Value, cx: &App) -> Option<Hsl
     })
 }
 
-/// While parallel calls run, show the latest active call; otherwise show the last result.
+/// Keep the last tool's title while aggregating the group's outcome.
 fn group_summary(calls: &[&Call], page: &Page) -> Summary {
     let mut summaries: Vec<_> = calls.iter().map(|call| summary(call, page)).collect();
     let pending = summaries.iter().any(|item| item.detail.pending);
@@ -652,11 +638,7 @@ fn group_summary(calls: &[&Call], page: &Page) -> Summary {
     let failed = !pending && !running && summaries.iter().any(|item| item.detail.failed);
     let warning =
         !pending && !running && !failed && summaries.iter().any(|item| item.detail.warning);
-    let index = summaries
-        .iter()
-        .rposition(|item| item.detail.pending || item.detail.running)
-        .unwrap_or(summaries.len() - 1);
-    let mut latest = summaries.remove(index);
+    let mut latest = summaries.pop().unwrap();
     latest.detail.pending = pending;
     latest.detail.running = running;
     let latest_failed = latest.detail.failed;

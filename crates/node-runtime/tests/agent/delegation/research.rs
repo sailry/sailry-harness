@@ -43,7 +43,11 @@ async fn loads_the_skill_without_expanding_authority() {
         config.permission = Permission::Full;
         config.options.insert(
             "delegation".into(),
-            [("proactive".into(), json!(true))].into(),
+            [
+                ("proactive".into(), json!(true)),
+                ("mode".into(), json!("multitask")),
+            ]
+            .into(),
         );
         let Output::Session(session) = fixture
             .client
@@ -82,6 +86,10 @@ async fn loads_the_skill_without_expanding_authority() {
         expected.mode = WorkMode::Plan;
         assert_eq!(child.config, expected);
         assert_eq!(child.config.options["delegation"]["proactive"], json!(true));
+        assert_eq!(
+            child.config.options["delegation"]["mode"],
+            json!("multitask")
+        );
         assert_eq!(child.delegation.as_ref().unwrap().role, Some(role.id));
         let requests = fixture.parent.requests.lock().unwrap().clone();
         let request = requests
@@ -106,7 +114,7 @@ async fn loads_the_skill_without_expanding_authority() {
                 .unwrap()
                 .iter()
                 .filter_map(|message| message["content"].as_str())
-                .any(|text| text.contains("Proactive delegation"))
+                .any(|text| text.contains("enables autonomous delegation"))
         );
         let instructions = request["messages"]
             .as_array()
@@ -114,7 +122,7 @@ async fn loads_the_skill_without_expanding_authority() {
             .iter()
             .filter_map(|message| message["content"].as_str())
             .collect::<String>();
-        assert!(!instructions.contains("Proactive delegation"));
+        assert!(!instructions.contains("enables autonomous delegation"));
         assert!(instructions.contains("Selected skill web-search:research"));
         assert!(instructions.contains("Search snippets identify candidates"));
         assert!(instructions.contains("six queries and eight distinct fetched sources"));

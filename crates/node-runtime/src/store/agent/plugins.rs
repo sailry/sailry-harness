@@ -3,7 +3,7 @@ use super::*;
 mod readonly;
 mod references;
 pub(in crate::store) use readonly::check_action;
-pub(in crate::store) use references::{assistant, capture, packages, read};
+pub(in crate::store) use references::{assistant, capture, configuration, packages, read};
 
 pub(in crate::store) async fn package(
     db: &Connection,

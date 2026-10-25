@@ -454,9 +454,7 @@ async fn removed_default(name: &str, enabled: bool) {
         if name == "code" {
             use sailry_protocol::tool::Operation;
             let extension = installed.extension.as_ref().unwrap();
-            let page = extension.settings_page.as_ref().unwrap();
-            assert!(page.enabled_control);
-            assert!(page.entry.is_none());
+            assert!(extension.settings_page.is_none());
             assert!(extension.desktop.is_none());
             assert!(extension.host.as_ref().unwrap().valid());
             assert_eq!(extension.enabled_service, Some(plugin::Service::CodeIndex));

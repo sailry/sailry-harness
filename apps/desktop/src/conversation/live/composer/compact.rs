@@ -4,13 +4,22 @@ use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement;
 
 impl View {
-    pub(in crate::conversation::live) fn mode_entry(&self, _cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::conversation::live) fn mode_entry(&self, cx: &mut Context<Self>) -> AnyElement {
         let current = self
             .config
             .as_ref()
             .map(|config| config.mode)
             .or(self.draft_mode)
             .unwrap_or(sailry_protocol::WorkMode::Code);
+        let active = self.selected_plugin_mode(cx);
+        let label = active
+            .as_ref()
+            .map(|mode| mode.label())
+            .unwrap_or_else(|| tr(mode::label(current)));
+        let icon = active
+            .as_ref()
+            .map(|mode| mode.icon())
+            .unwrap_or_else(|| mode::icon(current).into());
         let owner = self.composer_settings.downgrade();
         Button::new("composer-mode-page")
             .ghost()
@@ -18,10 +27,11 @@ impl View {
             .h_8()
             .w_full()
             .min_w_0()
-            .accessibility_label(tr(mode::label(current)))
-            .child(row(
-                mode::label(current),
-                mode::icon(current).into(),
+            .accessibility_label(label.clone())
+            .child(row_text(
+                "composer-mode",
+                label,
+                icon,
                 Some(IconName::ChevronRight.into()),
             ))
             .debug_selector(|| "composer-mode-page".into())
@@ -75,10 +85,14 @@ impl View {
             .or(self.draft_permission)
             .unwrap_or(sailry_protocol::Permission::Ask);
         let mode = self.current_mode();
+        let mode_label = self
+            .selected_plugin_mode(cx)
+            .map(|mode| mode.label())
+            .unwrap_or_else(|| tr(mode::label(mode)));
         let hint = format!(
             "{} · {} · {}",
             tr("composer_settings"),
-            tr(mode::label(mode)),
+            mode_label,
             tr(permission::label(current))
         );
         crate::theme::popover(Popover::new("composer-settings-popover"), cx)
@@ -115,6 +129,8 @@ impl View {
             .map(|config| config.mode)
             .or(self.draft_mode)
             .unwrap_or(sailry_protocol::WorkMode::Code);
+        let active = self.selected_plugin_mode(cx);
+        let plugins = self.plugin_modes(cx);
         v_flex()
             .gap_1()
             .children(mode::MODES.into_iter().map(|mode| {
@@ -133,11 +149,11 @@ impl View {
                         mode::label(mode),
                         mode::description(mode),
                         mode::icon(mode),
-                        current == mode,
+                        active.is_none() && current == mode,
                         cx,
                     ))
-                    .selected(current == mode)
-                    .toggled(current == mode)
+                    .selected(active.is_none() && current == mode)
+                    .toggled(active.is_none() && current == mode)
                     .disabled(
                         self.configuration_blocked()
                             || (self.session.is_some() && !self.connected()),
@@ -148,6 +164,32 @@ impl View {
                         let _ =
                             panel.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
                     }))
+            }))
+            .children(plugins.into_iter().map(|entry| {
+                let panel = panel.clone();
+                let selected = active.as_ref().is_some_and(|active| {
+                    active.package == entry.package && active.declaration.id == entry.declaration.id
+                });
+                Button::new(SharedString::from(format!(
+                    "mode-{}-{}",
+                    entry.package.name, entry.declaration.id
+                )))
+                .ghost()
+                .w_full()
+                .justify_start()
+                .icon(entry.icon())
+                .label(entry.label())
+                .selected(selected)
+                .toggled(selected)
+                .disabled(
+                    self.config.is_none()
+                        || self.configuration_blocked()
+                        || (self.session.is_some() && !self.connected()),
+                )
+                .on_click(cx.listener(move |view, _, window, cx| {
+                    view.select_plugin_mode(&entry, window, cx);
+                    let _ = panel.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
+                }))
             }))
     }
 
@@ -303,6 +345,10 @@ impl Render for Panel {
 }
 
 fn row(key: &'static str, icon: Icon, indicator: Option<Icon>) -> Div {
+    row_text(key, tr(key), icon, indicator)
+}
+
+fn row_text(key: &'static str, label: SharedString, icon: Icon, indicator: Option<Icon>) -> Div {
     h_flex()
         .w_full()
         .min_w_0()
@@ -316,7 +362,7 @@ fn row(key: &'static str, icon: Icon, indicator: Option<Icon>) -> Div {
                 .truncate()
                 .text_left()
                 .debug_selector(move || format!("{key}-label"))
-                .child(tr(key)),
+                .child(label),
         )
         .child(
             div()

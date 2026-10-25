@@ -57,6 +57,7 @@ pub(in crate::store) async fn accept(
     crate::store::sessions::writable(&session)?;
     commands::check_revision(session.revision, *expected_revision)?;
     if session.config.mode != WorkMode::Code {
+        crate::store::plugins::modes::clear(db, &mut session.config).await?;
         session.config.mode = WorkMode::Code;
         let (Output::Session(updated), _) = commands::revise_session(db, session).await? else {
             unreachable!("session revision returns the updated session");

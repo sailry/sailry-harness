@@ -93,6 +93,7 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ConfigurationFields(
+            host: widget.host,
             providers: providers,
             config: _config,
             enabled: enabled,

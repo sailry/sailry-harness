@@ -87,6 +87,37 @@ fn preserves_group_outcome_priority() {
 }
 
 #[test]
+fn keeps_last_title_while_earlier_tool_runs() {
+    let page = page();
+    let mut running = call(State::Running, None);
+    running.name = "shell".into();
+    let mut last = call(State::Returned, None);
+    last.name = "read_file".into();
+    last.resolved = Some(display::Resolved {
+        label: None,
+        input: display::Input {
+            summary: Some(display::Text {
+                text: "src/lib.rs".into(),
+                code: true,
+            }),
+            ..Default::default()
+        },
+        output: None,
+        approval: vec![],
+        status: None,
+        command: None,
+        diagnostics: vec![],
+    });
+    let expected = summary(&last, &page);
+    let summary = group_summary(&[&running, &last], &page);
+    assert_eq!(summary.label, expected.label);
+    assert_eq!(summary.detail.text.as_ref(), "src/lib.rs");
+    assert!(summary.detail.mono);
+    assert!(summary.detail.running);
+    assert!(!summary.detail.hide_caret);
+}
+
+#[test]
 fn avoids_duplicate_file_context() {
     let mut call = call(State::Returned, Some(ErrorCode::InvalidRequest));
     call.name = "read_file".into();

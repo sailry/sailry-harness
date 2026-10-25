@@ -305,10 +305,8 @@ pub(super) async fn admit(
         }
         let references = if created {
             super::plugins::read(&tx, run.turn).await?
-        } else if let Some(binding) = &session.config.assistant {
-            super::plugins::assistant(&tx, binding).await?
         } else {
-            super::plugins::capture(&tx).await?
+            super::plugins::configuration(&tx, &session.config).await?
         };
         let plugins = super::plugins::packages(&tx, &references).await?;
         if !created && let Some(role) = &role {

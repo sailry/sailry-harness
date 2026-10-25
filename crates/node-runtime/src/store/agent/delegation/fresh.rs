@@ -45,6 +45,7 @@ pub(super) async fn capture(
     }
     let references = super::super::plugins::read(db, run.turn).await?;
     let plugins = super::super::plugins::packages(db, &references).await?;
+    crate::plugins::modes::selected(&plugins, &config)?;
     if let Some(role) = &role {
         let resources: Vec<_> = plugins
             .into_iter()

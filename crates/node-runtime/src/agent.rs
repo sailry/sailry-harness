@@ -425,6 +425,12 @@ async fn execute_with(
         invocation.turn.config.permission,
         invocation.child.is_some(),
     );
+    instruction.push_str("\n\n");
+    instruction.push_str(&prompt::workflow(
+        &invocation.plugins,
+        &invocation.turn.config,
+        invocation.child.is_some(),
+    )?);
     let personal = prompt::personal(ingress, invocation.worktree, &stop).await?;
     if !personal.is_empty() {
         instruction.push_str("\n\n");

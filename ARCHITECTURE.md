@@ -513,6 +513,15 @@ Delegated work uses the same ADK engine and history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
+Build is the default work mode and delegates only on an explicit user request.
+Plan retains the core read-only policy and reviewed transition into Build.
+Host packages may declare additional modes through validated conversation options;
+the delegation package contributes Multitask's autonomous coordination instructions.
+Node maps each selected declaration to an effective core mode without increasing
+tool permission, and freezes its package and options with the sent turn. Child
+tasks inherit those effective restrictions. Controllers compose the common selector
+from declarations and change its single selection through revision-checked configuration.
+
 Node owns each tool approval's five-minute deadline, with ADK explicitly delegating
 that bound to its handler. Expiry requests a decision from the same storage actor that
 commits approvals and session rules; it never independently denies a call during commit.

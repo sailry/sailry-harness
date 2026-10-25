@@ -250,11 +250,7 @@ async fn adds_missing_index_settings_on_each_path() {
             Output::CodeIndexSettings(settings)
         );
         assert_eq!(code.origin, Some(plugin::Origin::Bundled));
-        let page = code.extension.unwrap().settings_page.unwrap();
-        assert!(page.entry.is_none());
-        assert_eq!(page.navigation.label("en"), "Code index");
-        assert_eq!(page.placement.group, plugin::desktop::SettingsGroup::Tools);
-        assert!(page.entry.is_none());
+        assert!(code.extension.unwrap().settings_page.is_none());
         assert_eq!(
             info(
                 execute(
@@ -674,19 +670,17 @@ async fn retains_disabled_configuration_on_each_path() {
             assert_eq!(current.summary.settings_revision, 1);
             assert!(!current.summary.enabled);
             assert_ne!(current.summary.digest, previous.summary.digest);
-            let page = current
-                .extension
-                .as_ref()
-                .unwrap()
-                .settings_page
-                .as_ref()
-                .unwrap();
-            assert_eq!(
-                page.entry.as_deref(),
-                (previous.summary.name != "code")
-                    .then_some("dev.sailry.platform/desktop/settings.js")
-            );
-            assert!(page.enabled_control);
+            let page = current.extension.as_ref().unwrap().settings_page.as_ref();
+            if previous.summary.name == "code" {
+                assert!(page.is_none());
+            } else {
+                let page = page.unwrap();
+                assert_eq!(
+                    page.entry.as_deref(),
+                    Some("dev.sailry.platform/desktop/settings.js")
+                );
+                assert!(page.enabled_control);
+            }
             let captured = info(
                 execute(
                     &client,

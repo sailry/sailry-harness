@@ -112,6 +112,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
         }
 
         return DraftSettings(
+          host: widget.host,
           projects: objects(widget.host.snapshot['projects']),
           worktrees: _creation.worktrees,
           project: _creation.project,

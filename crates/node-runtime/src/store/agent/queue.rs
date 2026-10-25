@@ -54,11 +54,7 @@ async fn capture(
     super::super::sessions::writable(&session)?;
     super::super::worktrees::present(db, session.worktree).await?;
     super::super::commands::validate_config(db, request.target, &session.config).await?;
-    let plugins = if let Some(binding) = &session.config.assistant {
-        super::plugins::assistant(db, binding).await?
-    } else {
-        super::plugins::capture(db).await?
-    };
+    let plugins = super::plugins::configuration(db, &session.config).await?;
     let mut roles = session.roles;
     if session.profile.is_none() {
         super::super::sessions::roles::refresh(db, &mut roles).await?;

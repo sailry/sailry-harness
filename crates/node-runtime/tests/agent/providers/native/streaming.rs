@@ -98,6 +98,10 @@ async fn publishes_before_completion() {
                 assert_eq!(completion::response(&snapshot.page), "First second third");
                 assert_eq!(server.requests.lock().unwrap().len(), 1);
                 assert_eq!(server.requests.lock().unwrap()[0]["stream"], true);
+                assert_eq!(
+                    server.authorization.lock().unwrap().as_slice(),
+                    &[Some(format!("Bearer {}", server::KEY))]
+                );
                 stop.cancel();
             };
             let (result, ()) = tokio::join!(watcher, verify);

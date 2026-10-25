@@ -16,6 +16,7 @@ pub mod model_adapter;
 pub mod model_auth;
 pub mod model_tools;
 pub mod models;
+pub mod modes;
 pub mod schema;
 pub mod settings;
 pub mod skillcatalog;
@@ -143,6 +144,9 @@ pub struct Extension {
     /// Public package-owned options frozen with each conversation turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_options: Option<serde_json::Value>,
+    /// Package-owned work modes bound to declared conversation options.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conversation_modes: Vec<modes::Declaration>,
     /// Settings navigation and an optional custom desktop entry.
     pub settings_page: Option<desktop::Settings>,
     /// Inline schemas for package-owned Node and conversation values.

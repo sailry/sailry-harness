@@ -75,6 +75,33 @@ pub(in crate::store) async fn capture(db: &Connection) -> Result<Vec<plugin::Ref
     Ok(references)
 }
 
+pub(in crate::store) async fn configuration(
+    db: &Connection,
+    config: &SessionConfig,
+) -> Result<Vec<plugin::Reference>, Fault> {
+    let mut references = if let Some(binding) = &config.assistant {
+        assistant(db, binding).await?
+    } else {
+        capture(db).await?
+    };
+    if let Some(mode) = crate::store::plugins::modes::validate(db, config).await? {
+        match references
+            .iter()
+            .find(|reference| reference.name == mode.name)
+        {
+            Some(reference) if reference != &mode => {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "conversation mode package revision differs from the assistant",
+                ));
+            }
+            Some(_) => {}
+            None => references.push(mode),
+        }
+    }
+    Ok(references)
+}
+
 pub(in crate::store) async fn validate(
     db: &Connection,
     reference: &plugin::Reference,

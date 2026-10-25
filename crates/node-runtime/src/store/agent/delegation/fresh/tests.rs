@@ -110,6 +110,86 @@ async fn freezes_read_only_execution() {
 }
 
 #[tokio::test]
+async fn inherits_captured_mode_after_removal() {
+    let mut fixture = setup().await;
+    let info = crate::plugins::modes::tests::package("review-mode", "review", false);
+    let db = &fixture.database.connection;
+    db.execute(
+        "INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2)",
+        params![info.summary.name.as_str(), encode(&info).unwrap()],
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3)",
+        params![
+            info.summary.digest.as_str(),
+            info.summary.name.as_str(),
+            encode(&info).unwrap()
+        ],
+    )
+    .await
+    .unwrap();
+    let session = crate::store::commands::session(db, fixture.session)
+        .await
+        .unwrap();
+    let mut config = session.config;
+    config.mode = WorkMode::Plan;
+    config.permission = Permission::Full;
+    config.options = serde_json::from_value(json!({"review-mode":{"mode":"review"}})).unwrap();
+    crate::store::agent::tests::command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetSessionConfig {
+            session: fixture.session,
+            expected_revision: session.revision,
+            config: config.clone(),
+        },
+    )
+    .await;
+    let parent = start(&mut fixture).await;
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE plugins SET installed=0 WHERE name='review-mode'",
+            (),
+        )
+        .await
+        .unwrap();
+    let child = invoke(&mut fixture, parent, json!({"task":"Inspect changes"}))
+        .await
+        .unwrap();
+    assert_eq!(child.turn.config, config);
+    assert_eq!(
+        crate::plugins::modes::selected(&child.plugins, &child.turn.config)
+            .unwrap()
+            .unwrap()
+            .0
+            .summary
+            .reference(),
+        info.summary.reference()
+    );
+    assert_eq!(
+        super::super::super::permissions::source(
+            &fixture.database.connection,
+            child.turn.id,
+            &ToolConfirmationRequest {
+                acting: None,
+                origin: None,
+                tool_name: crate::plugins::tools::alias("files", "write_file"),
+                function_call_id: Some("write-attempt".into()),
+                args: json!({"path":"changed.txt","text":"Changed","expected_revision":null}),
+            }
+        )
+        .await
+        .unwrap_err()
+        .code,
+        ErrorCode::PermissionDenied
+    );
+}
+
+#[tokio::test]
 async fn uses_constraints_independently_of_names() {
     for (key, read_only, mode) in [
         ("explore", false, WorkMode::Code),

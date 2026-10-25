@@ -59,7 +59,17 @@ impl View {
                 .and_then(|session| session.config.assistant.as_ref())
                 .or(self.assistant.as_ref()),
         );
-        json!({"configuring":self.configuration_blocked(),"model_tools":model_tools,"operations":operations,"command":command,"mode":self.current_mode(),"session":self.session(),"connected":self.connected(),
+        let selection =
+            self.selected_plugin_mode(cx)
+                .map(|mode| sailry_protocol::plugin::modes::Selection {
+                    package: mode.package,
+                    id: mode.declaration.id,
+                });
+        let modes: Vec<_> = self.plugin_modes(cx).into_iter().map(|mode| json!({
+            "package":mode.package,"id":mode.declaration.id,"display":mode.declaration.display,
+            "permissions":mode.declaration.permissions,
+        })).collect();
+        json!({"configuring":self.configuration_blocked(),"model_tools":model_tools,"operations":operations,"command":command,"mode":self.current_mode(),"mode_selection":selection,"modes":modes,"session":self.session(),"connected":self.connected(),
             "connection":self.node.connection,"model":self.config.as_ref().map(|config| &config.model),"busy":self.busy(),"readonly":self.readonly(),"statistics":statistics,"context_limit":self.context_limit(),
             "compacting":compacting,"sidebar":self.sidebar,"has_messages":!self.rows.is_empty()})
     }
@@ -155,8 +165,25 @@ impl View {
                 Ok(())
             }
             "mode" => {
-                let mode = serde_json::from_value(value).map_err(|_| "invalid composer mode")?;
-                self.select_mode(mode, window, cx);
+                if value.is_string() {
+                    let mode =
+                        serde_json::from_value(value).map_err(|_| "invalid composer mode")?;
+                    self.select_mode(mode, window, cx);
+                } else {
+                    let selection: sailry_protocol::plugin::modes::Selection =
+                        serde_json::from_value(value).map_err(|_| "invalid composer mode")?;
+                    if selection.package != *owner {
+                        return Err("conversation mode belongs to another package".into());
+                    }
+                    let mode = self
+                        .plugin_modes(cx)
+                        .into_iter()
+                        .find(|mode| {
+                            mode.package == selection.package && mode.declaration.id == selection.id
+                        })
+                        .ok_or("conversation mode is unavailable")?;
+                    self.select_plugin_mode(&mode, window, cx);
+                }
                 Ok(())
             }
             "command" => {

@@ -9,6 +9,9 @@ mod attention;
 #[path = "sessions/configuration.rs"]
 mod configuration;
 
+#[path = "sessions/modes.rs"]
+mod modes;
+
 #[path = "sessions/order.rs"]
 mod order;
 

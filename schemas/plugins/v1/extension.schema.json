@@ -1144,6 +1144,36 @@
       ],
       "type": "object"
     },
+    "ConversationMode": {
+      "additionalProperties": false,
+      "properties": {
+        "display": {
+          "$ref": "#/$defs/Navigation"
+        },
+        "id": {
+          "type": "string"
+        },
+        "instructions": {
+          "description": "Coordinator instructions; child roles retain their own task instructions.",
+          "type": "string"
+        },
+        "option": {
+          "description": "A string option in this package's conversation schema; empty selects no mode.",
+          "type": "string"
+        },
+        "permissions": {
+          "$ref": "#/$defs/ModePermissions"
+        }
+      },
+      "required": [
+        "id",
+        "option",
+        "display",
+        "permissions",
+        "instructions"
+      ],
+      "type": "object"
+    },
     "Declaration": {
       "additionalProperties": false,
       "properties": {
@@ -2400,6 +2430,19 @@
         "POST"
       ],
       "type": "string"
+    },
+    "ModePermissions": {
+      "additionalProperties": false,
+      "properties": {
+        "write": {
+          "description": "Writing still requires the captured session's ordinary tool permission.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "write"
+      ],
+      "type": "object"
     },
     "Models": {
       "oneOf": [
@@ -3840,6 +3883,13 @@
         }
       ],
       "description": "Localized controller marker for this package's automatic continuations."
+    },
+    "conversation_modes": {
+      "description": "Package-owned work modes bound to declared conversation options.",
+      "items": {
+        "$ref": "#/$defs/ConversationMode"
+      },
+      "type": "array"
     },
     "conversation_options": {
       "description": "Public package-owned options frozen with each conversation turn."

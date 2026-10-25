@@ -14,6 +14,7 @@ pub(crate) mod http;
 pub(crate) mod icon;
 mod manifest;
 pub(crate) mod mcp;
+pub(crate) mod modes;
 mod notes;
 pub(crate) mod options;
 mod package;

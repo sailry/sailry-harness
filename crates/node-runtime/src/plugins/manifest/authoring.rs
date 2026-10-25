@@ -77,6 +77,41 @@ fn validates_continuation_markers() {
 }
 
 #[test]
+fn validates_conversation_modes() {
+    let validator = validator();
+    let original: Value = serde_json::from_slice(include_bytes!(
+        "../../../../../plugins/delegation/plugin.json"
+    ))
+    .unwrap();
+    assert!(validator.is_valid(&original));
+    assert!(
+        parse(&serde_json::to_vec(&original).unwrap())
+            .unwrap()
+            .issues
+            .is_empty()
+    );
+    let mut invalid = original.clone();
+    invalid["extensions"]["dev.sailry.platform"]["conversation_modes"][0]["permissions"]["write"] =
+        json!("yes");
+    assert!(!validator.is_valid(&invalid));
+    assert!(
+        parse(&serde_json::to_vec(&invalid).unwrap())
+            .unwrap()
+            .extension
+            .is_none()
+    );
+    let mut invalid = original;
+    invalid["extensions"]["dev.sailry.platform"]["conversation_options"]["properties"]["mode"]["default"] =
+        json!("multitask");
+    assert!(
+        parse(&serde_json::to_vec(&invalid).unwrap())
+            .unwrap()
+            .extension
+            .is_none()
+    );
+}
+
+#[test]
 fn rejects_retired_navigation_options() {
     let validator = validator();
     let mut manifest: Value =

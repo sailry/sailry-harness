@@ -107,15 +107,7 @@ async fn adds_missing_defaults_without_reinstalling_records() {
         settings
     );
     assert_eq!(code.summary.revision, 1);
-    assert_eq!(
-        code.extension
-            .unwrap()
-            .settings_page
-            .unwrap()
-            .entry
-            .as_deref(),
-        None
-    );
+    assert!(code.extension.unwrap().settings_page.is_none());
     assert_eq!(required(&db, "memory").await.unwrap(), memory);
     assert!(get(&db, "web-search").await.unwrap().is_none());
     let mut after = list(&db).await.unwrap();
@@ -150,77 +142,84 @@ async fn adds_missing_defaults_without_reinstalling_records() {
 
 #[tokio::test]
 async fn refresh_preserves_configuration_and_private_records() {
-    let (_directory, host, mut db) = fixture().await;
-    let mut before = changed(&db, "code", "0.0.1").await;
-    before.summary.enabled = false;
-    before.summary.settings_revision = 7;
-    save(&db, &before, true).await.unwrap();
-    let settings = serde_json::json!({
-        "schema":null,"values":{"draft":"retained", "model":"fixture/model"},
-        "slots":{},"authorizations":{}
-    });
-    let body = serde_json::to_vec(&settings).unwrap();
-    db.execute(
-        "INSERT INTO plugin_settings(plugin,revision,body) VALUES('code',7,?1)",
-        [body.as_slice()],
-    )
-    .await
-    .unwrap();
-    db.execute(
-        "INSERT INTO plugin_values(name,key,revision,value) VALUES('code','draft',1,?1)",
-        [&b"{\"text\":\"retained\"}"[..]],
-    )
-    .await
-    .unwrap();
-    let retained = captured(&db, &before).await;
-    install(&mut db, &host).await.unwrap();
-    let after = required(&db, "code").await.unwrap();
-    assert_eq!(after.summary.revision, before.summary.revision + 1);
-    assert_eq!(after.summary.settings_revision, 7);
-    assert!(!after.summary.enabled);
-    assert_eq!(after.origin, Some(plugin::Origin::Bundled));
-    assert_eq!(
-        after.summary.version,
-        crate::plugins::Host::bundled_version("code").unwrap()
-    );
-    assert_eq!(
-        after.summary.digest,
-        crate::plugins::Host::bundled_digest("code").unwrap()
-    );
-    assert_ne!(after.summary.digest, before.summary.digest);
-    assert_eq!(captured(&db, &before).await, retained);
-    assert_eq!(
-        after
+    for name in ["code", "delegation"] {
+        let (_directory, host, mut db) = fixture().await;
+        let page = required(&db, name)
+            .await
+            .unwrap()
             .extension
             .unwrap()
-            .settings_page
-            .unwrap()
-            .entry
-            .as_deref(),
-        None
-    );
-    let saved: Vec<u8> = (async {
-        let mut statement = db
-            .prepare("SELECT body FROM plugin_settings WHERE plugin='code' AND revision=7")
-            .await?;
-        let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = row.get(0);
-        mapped
-    })
-    .await
-    .unwrap();
-    assert_eq!(saved, body);
-    let value: Vec<u8> = (async {
-        let mut statement = db
-            .prepare("SELECT value FROM plugin_values WHERE name='code' AND key='draft'")
-            .await?;
-        let row = statement.query_row(()).await?;
-        let mapped: turso::Result<_> = row.get(0);
-        mapped
-    })
-    .await
-    .unwrap();
-    assert_eq!(value, b"{\"text\":\"retained\"}");
+            .settings_page;
+        if name == "code" {
+            assert!(page.is_none());
+        } else {
+            assert_eq!(
+                page.as_ref().unwrap().entry.as_deref(),
+                Some("dev.sailry.platform/desktop/settings.js")
+            );
+        }
+        let mut before = changed(&db, name, "0.0.1").await;
+        before.summary.enabled = false;
+        before.summary.settings_revision = 7;
+        save(&db, &before, true).await.unwrap();
+        let settings = serde_json::json!({
+            "schema":null,"values":{"draft":"retained", "model":"fixture/model"},
+            "slots":{},"authorizations":{}
+        });
+        let body = serde_json::to_vec(&settings).unwrap();
+        db.execute(
+            "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,7,?2)",
+            params![name, body.as_slice()],
+        )
+        .await
+        .unwrap();
+        db.execute(
+            "INSERT INTO plugin_values(name,key,revision,value) VALUES(?1,'draft',1,?2)",
+            params![name, b"{\"text\":\"retained\"}".as_slice()],
+        )
+        .await
+        .unwrap();
+        let retained = captured(&db, &before).await;
+        install(&mut db, &host).await.unwrap();
+        let after = required(&db, name).await.unwrap();
+        assert_eq!(after.summary.revision, before.summary.revision + 1);
+        assert_eq!(after.summary.settings_revision, 7);
+        assert!(!after.summary.enabled);
+        assert_eq!(after.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(
+            after.summary.version,
+            crate::plugins::Host::bundled_version(name).unwrap()
+        );
+        assert_eq!(
+            after.summary.digest,
+            crate::plugins::Host::bundled_digest(name).unwrap()
+        );
+        assert_ne!(after.summary.digest, before.summary.digest);
+        assert_eq!(captured(&db, &before).await, retained);
+        assert_eq!(after.extension.unwrap().settings_page, page);
+        let saved: Vec<u8> = (async {
+            let mut statement = db
+                .prepare("SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=7")
+                .await?;
+            let row = statement.query_row([name]).await?;
+            let mapped: turso::Result<_> = row.get(0);
+            mapped
+        })
+        .await
+        .unwrap();
+        assert_eq!(saved, body);
+        let value: Vec<u8> = (async {
+            let mut statement = db
+                .prepare("SELECT value FROM plugin_values WHERE name=?1 AND key='draft'")
+                .await?;
+            let row = statement.query_row([name]).await?;
+            let mapped: turso::Result<_> = row.get(0);
+            mapped
+        })
+        .await
+        .unwrap();
+        assert_eq!(value, b"{\"text\":\"retained\"}");
+    }
 }
 
 #[tokio::test]

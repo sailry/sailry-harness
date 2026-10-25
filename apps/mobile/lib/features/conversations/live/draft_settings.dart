@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
+import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/project_icon.dart';
 import 'configuration_fields.dart';
@@ -9,6 +10,7 @@ import 'configuration_fields.dart';
 class DraftSettings extends StatelessWidget {
   const DraftSettings({
     super.key,
+    required this.host,
     required this.projects,
     required this.worktrees,
     required this.project,
@@ -20,6 +22,7 @@ class DraftSettings extends StatelessWidget {
     required this.onConfig,
   });
 
+  final HostConnection host;
   final List<Map<String, dynamic>> projects;
   final List<Map<String, dynamic>> worktrees;
   final Map<String, dynamic>? project;
@@ -94,6 +97,7 @@ class DraftSettings extends StatelessWidget {
       ),
       const Divider(height: 16),
       ConfigurationFields(
+        host: host,
         providers: providers,
         config: config,
         onChanged: onConfig,

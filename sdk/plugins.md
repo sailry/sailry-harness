@@ -683,6 +683,41 @@ A field may declare `x-sailry-import` naming a retired public configuration fiel
 Installation imports explicit current values once, without overwriting an existing
 namespaced value or rewriting historical revisions. Imports grant no authority.
 
+Host packages can contribute `conversation_modes` to the common mode selector:
+
+```json
+{
+  "id": "review",
+  "option": "mode",
+  "display": {"label": "Review", "locales": {"en": "Review"}},
+  "permissions": {"write": false},
+  "instructions": "Inspect the requested changes and report findings"
+}
+```
+
+The named `conversation_options` field must be a string with an empty default and
+an enum containing `""` and the IDs of modes using that field. Each package can
+declare up to 16 distinct modes. `permissions.write: false` requires the effective
+Plan mode; `true` uses Build and still needs the session's ordinary tool permission.
+Stricter inherited Plan restrictions remain valid. Instructions configure the main
+coordinator; delegated children keep their task, role and captured restrictions.
+Node validates the selected declaration before configuration or turn admission.
+Exactly one package mode may be selected. Changing modes uses the existing session
+revision; returning to Build or Plan clears active mode options while preserving
+other choices. Disabled modes reject new admission; removed declarations become
+inactive without deleting stored options or rewriting captures. Turn instructions
+come from the captured package, including packages that provide only modes.
+
+`readComposer()` includes `modes`, the current `mode_selection: {package, id} | null`
+and the effective `mode: 'code' | 'plan'`. A package with `conversation.control` can
+select its declared mode with `setComposerOption(cursor, 'mode', {package, id})`,
+or select the builtins with `'code'` or `'plan'`. The host atomically clears other
+active mode choices. A mode cannot replace a captured assistant with another
+revision of the same package. Build handles tasks directly and permits delegation
+when the user explicitly requests it; the delegation package's Multitask mode owns
+the optional autonomous coordination policy. Retained `proactive` values do not
+select that mode.
+
 Tools can bind public operations (`progress.update`, `storage.get/list/set/delete`, `settings.read`, `http.request`, `artifacts.write/read/list`) without an MCP server. Declare each operation's required action. Node owns approval, planning restrictions, cancellation and durable outcomes; a desktop JavaScript callback is not an Agent tool implementation.
 
 Packages that submit automatic input with `ContinueTurn` can declare

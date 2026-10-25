@@ -468,6 +468,9 @@ async fn respond(
             .await?;
         return stream.shutdown().await;
     }
+    if matches!(&reply, Reply::ResponsesStaged(_)) {
+        streaming::headers(headers);
+    }
     let responses = headers.starts_with("POST /v1/responses ");
     let media = headers.starts_with("POST /v1/images/generations ")
         || headers.starts_with("POST /v1/videos ");

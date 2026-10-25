@@ -13,6 +13,7 @@ pub(in crate::store) mod installing;
 pub(super) mod invocations;
 pub(in crate::store) mod mcp;
 pub(super) mod models;
+pub(in crate::store) mod modes;
 pub(in crate::store) mod options;
 pub(in crate::store) mod policy;
 mod repository;

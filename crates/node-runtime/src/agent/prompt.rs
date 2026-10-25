@@ -2,9 +2,11 @@ use sailry_protocol::{Permission, WorkMode};
 
 mod environment;
 mod instructions;
+mod modes;
 mod personal;
 mod role;
 pub(super) use environment::capture as environment;
+pub(super) use modes::workflow;
 pub(super) use personal::capture as personal;
 pub(super) use role::bind;
 
