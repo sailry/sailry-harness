@@ -91,6 +91,7 @@
   "conversationNoMessages": "暂无消息",
   "conversationPreviewUnavailable": "消息暂不可用",
   "conversationInterrupted": "已中断",
+  "conversationContinued": "已接续",
   "conversationFailedStatus": "处理失败",
   "conversationStopping": "正在停止",
   "conversationQueued": "等待处理",

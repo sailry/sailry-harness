@@ -44,6 +44,7 @@ class _ToolSequenceState extends State<ToolSequence> {
             .lastOrNull ??
         tools.last;
     return WorkDisclosure(
+      key: PageStorageKey(('sequence', widget.key)),
       autoExpanded: false,
       title: ToolHeading(
         call: latest.call,

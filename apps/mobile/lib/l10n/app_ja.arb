@@ -91,6 +91,7 @@
   "conversationNoMessages": "メッセージなし",
   "conversationPreviewUnavailable": "メッセージは利用できません",
   "conversationInterrupted": "中断済み",
+  "conversationContinued": "継続済み",
   "conversationFailedStatus": "失敗",
   "conversationStopping": "停止中",
   "conversationQueued": "キュー",

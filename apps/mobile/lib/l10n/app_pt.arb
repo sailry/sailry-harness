@@ -91,6 +91,7 @@
   "conversationNoMessages": "Nenhuma mensagem encontrada",
   "conversationPreviewUnavailable": "Mensagem não disponível",
   "conversationInterrupted": "Interrompido",
+  "conversationContinued": "Continuado",
   "conversationFailedStatus": "Falhou",
   "conversationStopping": "Parando",
   "conversationQueued": "Em fila",

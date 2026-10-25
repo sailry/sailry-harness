@@ -171,6 +171,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationInterrupted => '中断済み';
 
   @override
+  String get conversationContinued => '継続済み';
+
+  @override
   String get conversationFailedStatus => '失敗';
 
   @override

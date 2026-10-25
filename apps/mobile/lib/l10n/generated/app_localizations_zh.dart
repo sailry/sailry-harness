@@ -169,6 +169,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationInterrupted => '已中断';
 
   @override
+  String get conversationContinued => '已接续';
+
+  @override
   String get conversationFailedStatus => '处理失败';
 
   @override
@@ -2287,6 +2290,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationInterrupted => '已中斷';
+
+  @override
+  String get conversationContinued => '已接續';
 
   @override
   String get conversationFailedStatus => '處理失敗';

@@ -11,6 +11,57 @@ String turnWorktree(
   text(session['worktree']),
 );
 
+typedef InputContent = ({
+  String text,
+  List<Map<String, dynamic>> attachments,
+  List<Map<String, dynamic>> references,
+  bool canonical,
+});
+
+/// Display the Client's admitted capture until its canonical user rows arrive.
+List<InputContent> turnInputs(
+  Map<String, dynamic> page,
+  Map<String, dynamic> run,
+) {
+  if (run['notice'] == true) return [];
+  final entries = objects(page['entries'])
+      .where(
+        (entry) => entry['turn'] == run['turn'] && entry['author'] == 'user',
+      )
+      .toList();
+  if (entries.isNotEmpty) {
+    return [
+      for (final entry in entries)
+        (
+          text: objects(entry['parts'])
+              .where((part) => part['kind'] == 'text')
+              .map((part) => text(part['data']))
+              .join('\n'),
+          attachments: objects(entry['parts'])
+              .where((part) => part['kind'] == 'attachment')
+              .map((part) => object(part['data']))
+              .toList(),
+          references: objects(entry['parts'])
+              .where((part) => part['kind'] == 'reference')
+              .map((part) => object(part['data']))
+              .toList(),
+          canonical: true,
+        ),
+    ];
+  }
+  final input = object(run['input']);
+  if (input.isEmpty) return [];
+  final message = object(input['message']);
+  return [
+    (
+      text: text(message['text']),
+      attachments: objects(input['attachments']),
+      references: objects(message['references']),
+      canonical: false,
+    ),
+  ];
+}
+
 Map<String, dynamic> sentInput(Map<String, dynamic> page, Object? turn) {
   final parts = objects(page['entries'])
       .where((entry) => entry['turn'] == turn && entry['author'] == 'user')

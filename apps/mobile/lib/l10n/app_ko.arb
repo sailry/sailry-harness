@@ -91,6 +91,7 @@
   "conversationNoMessages": "메시지 없음",
   "conversationPreviewUnavailable": "사용할 수 없는 메시지",
   "conversationInterrupted": "중단됨",
+  "conversationContinued": "이어짐",
   "conversationFailedStatus": "실패",
   "conversationStopping": "중지 중",
   "conversationQueued": "대기열",

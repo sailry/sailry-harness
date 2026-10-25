@@ -177,6 +177,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationInterrupted => 'Interrompido';
 
   @override
+  String get conversationContinued => 'Continuado';
+
+  @override
   String get conversationFailedStatus => 'Falhou';
 
   @override

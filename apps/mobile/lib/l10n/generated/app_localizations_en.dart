@@ -176,6 +176,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationInterrupted => 'Interrupted';
 
   @override
+  String get conversationContinued => 'Continued';
+
+  @override
   String get conversationFailedStatus => 'Failed';
 
   @override

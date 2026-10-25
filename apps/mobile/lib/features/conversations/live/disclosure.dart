@@ -34,7 +34,13 @@ class _WorkDisclosureState extends State<WorkDisclosure> {
   void initState() {
     super.initState();
     if (widget.autoExpanded) _controller.expand();
+    _controller.addListener(_changed);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _changed();
+    });
   }
+
+  void _changed() => widget.onChanged?.call(_controller.isExpanded);
 
   @override
   void didUpdateWidget(covariant WorkDisclosure oldWidget) {
@@ -71,7 +77,6 @@ class _WorkDisclosureState extends State<WorkDisclosure> {
           onTap: () {
             _chosen = !_controller.isExpanded;
             _controller.toggle();
-            widget.onChanged?.call(_controller.isExpanded);
           },
           child: Container(
             constraints: const BoxConstraints(minHeight: 40),

@@ -414,6 +414,12 @@ abstract class AppLocalizations {
   /// **'Interrupted'**
   String get conversationInterrupted;
 
+  /// No description provided for @conversationContinued.
+  ///
+  /// In en, this message translates to:
+  /// **'Continued'**
+  String get conversationContinued;
+
   /// No description provided for @conversationFailedStatus.
   ///
   /// In en, this message translates to:

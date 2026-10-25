@@ -176,6 +176,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationInterrupted => 'Прервано';
 
   @override
+  String get conversationContinued => 'Продолжено';
+
+  @override
   String get conversationFailedStatus => 'Ошибка';
 
   @override

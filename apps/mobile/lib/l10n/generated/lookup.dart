@@ -59,6 +59,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'conversationNoMessages' => strings.conversationNoMessages,
   'conversationPreviewUnavailable' => strings.conversationPreviewUnavailable,
   'conversationInterrupted' => strings.conversationInterrupted,
+  'conversationContinued' => strings.conversationContinued,
   'conversationFailedStatus' => strings.conversationFailedStatus,
   'conversationStopping' => strings.conversationStopping,
   'conversationQueued' => strings.conversationQueued,

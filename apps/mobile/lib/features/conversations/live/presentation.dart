@@ -66,6 +66,7 @@ String runLabel(String? status, {Translator translate = tr}) =>
       'stopping' => 'conversationStopping',
       'queued' => 'conversationQueued',
       'completed' => 'completed',
+      'continued' => 'conversationContinued',
       'cancelled' => 'stoppedStatus',
       'interrupted' => 'conversationInterrupted',
       'failed' => 'conversationFailedStatus',

@@ -8,6 +8,50 @@ import 'presentation.dart';
 import 'turn_frame.dart';
 import 'activity.dart';
 
+/// Match Desktop's active, then claimed, then newest child presentation order.
+Map<String, dynamic>? latestChild(Iterable<Map<String, dynamic>> children) {
+  int priority(Map<String, dynamic> child) =>
+      switch (object(child['run'])['status']) {
+        'running' || 'stopping' => 2,
+        'queued' => 0,
+        _ => 1,
+      };
+  Map<String, dynamic>? selected;
+  for (final child in children) {
+    if (selected == null ||
+        priority(child) > priority(selected) ||
+        priority(child) == priority(selected) &&
+            (object(child['run'])['sequence'] as int) >
+                (object(selected['run'])['sequence'] as int)) {
+      selected = child;
+    }
+  }
+  return selected;
+}
+
+Map<String, dynamic>? childSession(
+  Map<String, dynamic> snapshot,
+  Map<String, dynamic> parent,
+  Map<String, dynamic> child,
+) {
+  final run = object(child['run']);
+  final origin = object(child['origin']);
+  return objects(snapshot['sessions']).where((session) {
+    final delegation = object(session['delegation']);
+    return session['id'] == run['session'] &&
+        session['project'] == parent['project'] &&
+        session['worktree'] == run['worktree'] &&
+        delegation.isNotEmpty &&
+        delegation['session'] == origin['session'] &&
+        delegation['role'] == origin['role'] &&
+        objects(snapshot['worktrees']).any(
+          (tree) =>
+              tree['id'] == session['worktree'] &&
+              tree['project'] == session['project'],
+        );
+  }).firstOrNull;
+}
+
 class ChildTask extends StatelessWidget {
   const ChildTask({
     super.key,

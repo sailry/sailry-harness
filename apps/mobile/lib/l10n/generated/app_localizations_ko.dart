@@ -172,6 +172,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationInterrupted => '중단됨';
 
   @override
+  String get conversationContinued => '이어짐';
+
+  @override
   String get conversationFailedStatus => '실패';
 
   @override

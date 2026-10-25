@@ -74,6 +74,7 @@ class LiveTimeline extends StatefulWidget {
 
 class _LiveTimelineState extends State<LiveTimeline> {
   final _documents = <String, FileDocument>{};
+  final _toolKeys = <(String, int), GlobalKey>{};
 
   @override
   Widget build(BuildContext context) {
@@ -90,6 +91,14 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final page = object(snapshot['page']);
     final entries = objects(page['entries']);
     final calls = objects(view['calls']);
+    final sources = {
+      for (final call in calls)
+        (
+          object(call['source'])['entry'] as String,
+          object(call['source'])['index'] as int,
+        ),
+    };
+    _toolKeys.removeWhere((source, _) => !sources.contains(source));
     final drafts = objects(snapshot['drafts']);
     final runs = objects(page['runs']);
     final colors = Theme.of(context).colorScheme;
@@ -204,7 +213,11 @@ class _LiveTimelineState extends State<LiveTimeline> {
           if (call == null) return const SizedBox.shrink();
           return ToolRecord(
             documents: _documents,
-            key: ValueKey('tool-${entry['id']}-$index'),
+            // A call can move from a single row into a growing tool sequence.
+            key: _toolKeys.putIfAbsent((
+              entry['id'] as String,
+              index,
+            ), GlobalKey.new),
             call: call,
             page: page,
             session: session,
@@ -333,14 +346,14 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   object(call['source'])['index'] == index,
             )
             .firstOrNull;
-        final child = objects(page['children'])
-            .where(
-              (child) =>
-                  object(child['origin'])['turn'] == run['turn'] &&
-                  object(child['origin'])['entry'] == entry['id'] &&
-                  object(child['origin'])['index'] == index,
-            )
-            .firstOrNull;
+        final child = latestChild(
+          objects(page['children']).where(
+            (child) =>
+                object(child['origin'])['turn'] == run['turn'] &&
+                object(child['origin'])['entry'] == entry['id'] &&
+                object(child['origin'])['index'] == index,
+          ),
+        );
         if (call?['progress'] != null && progressShown) continue;
         final rendered = call?['progress'] != null
             ? TaskProgress(
@@ -359,12 +372,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                 connected: connected,
                 onOpen:
                     onOpenChild == null ||
-                        !objects(host.snapshot['sessions']).any(
-                          (session) =>
-                              session['id'] ==
-                                  object(child['run'])['session'] &&
-                              session['delegation'] != null,
-                        )
+                        childSession(host.snapshot, session, child) == null
                     ? null
                     : () => onOpenChild(child),
               )
@@ -401,52 +409,27 @@ class _LiveTimelineState extends State<LiveTimeline> {
             children: objects(page['children']),
             onOpenChild: onOpenChild,
           ),
-          for (final entry in rows.where(
-            (entry) => entry['author'] == 'user' && !noticeTurn(run),
-          ))
+          for (final input in turnInputs(page, run))
             UserBubble(
-              onEdit: onTurnAction == null || !canChangeHistory
+              onEdit:
+                  onTurnAction == null || !canChangeHistory || !input.canonical
                   ? null
                   : () => onTurnAction('edit', run['turn'] as String),
-              text: objects(entry['parts'])
-                  .where((part) => part['kind'] == 'text')
-                  .map((part) => part['data'] as String)
-                  .join('\n'),
-              attachment:
-                  !objects(entry['parts']).any(
-                    (part) =>
-                        ['reference', 'attachment'].contains(part['kind']),
-                  )
+              text: input.text,
+              attachment: input.attachments.isEmpty && input.references.isEmpty
                   ? null
                   : Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        MessageReferences(
-                          documents: _documents,
-                          host: host,
-                          worktree: turnWorktree(page, session, run['turn']),
-                          references: objects(entry['parts'])
-                              .where((part) => part['kind'] == 'reference')
-                              .map((part) => object(part['data']))
-                              .toList(),
-                        ),
-                        !objects(
-                              entry['parts'],
-                            ).any((part) => part['kind'] == 'attachment')
-                            ? const SizedBox.shrink()
-                            : Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  for (final value
-                                      in objects(entry['parts']).where(
-                                        (part) => part['kind'] == 'attachment',
-                                      ))
-                                    AttachmentView(
-                                      host: host,
-                                      attachment: object(value['data']),
-                                    ),
-                                ],
-                              ),
+                        if (input.references.isNotEmpty)
+                          MessageReferences(
+                            documents: _documents,
+                            host: host,
+                            worktree: turnWorktree(page, session, run['turn']),
+                            references: input.references,
+                          ),
+                        for (final attachment in input.attachments)
+                          AttachmentView(host: host, attachment: attachment),
                       ],
                     ),
             ),

@@ -5,12 +5,43 @@ import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import 'presentation.dart' show ConversationCommand, failureLabel;
 
+class QueueSummary extends StatelessWidget {
+  const QueueSummary({super.key, required this.queue, required this.onOpen});
+
+  final Map<String, dynamic> queue;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    child: Surface(
+      radius: 18,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      onTap: onOpen,
+      child: Row(
+        children: [
+          const AppIcon('clock', size: 17),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              '${context.tr('queueShort')}  ${objects(queue['items']).length}',
+            ),
+          ),
+          if (queue['paused'] == true) Text(context.tr('pauseQueue')),
+          const AppIcon('chevron', size: 14),
+        ],
+      ),
+    ),
+  );
+}
+
 class LiveQueue extends StatefulWidget {
   const LiveQueue({
     super.key,
     required this.view,
     required this.session,
     required this.command,
+    this.delegated = false,
     this.mutate,
     this.isPending,
     this.check,
@@ -18,6 +49,7 @@ class LiveQueue extends StatefulWidget {
   final ValueNotifier<Map<String, dynamic>> view;
   final String session;
   final ConversationCommand command;
+  final bool delegated;
   final Future<bool> Function(String, Map<String, dynamic>)? mutate;
   final bool Function()? isPending;
   final Future<bool> Function()? check;
@@ -64,7 +96,7 @@ class _LiveQueueState extends State<LiveQueue> {
     }
   }
 
-  Future<void> _edit(Map<String, dynamic> item) async {
+  Future<void> _open(Map<String, dynamic> item) async {
     try {
       final message = object(
         (await widget.command('read_queued_turn', {
@@ -77,56 +109,66 @@ class _LiveQueueState extends State<LiveQueue> {
       var pending = false;
       await showAppSheet(
         context,
-        context.tr('edit'),
-        child: StatefulBuilder(
-          builder: (context, update) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  initialValue: draft,
-                  enabled: !pending && !_pending,
-                  onChanged: (value) => draft = value,
-                  autofocus: true,
-                  minLines: 3,
-                  maxLines: 6,
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: pending
-                      ? null
-                      : () async {
-                          update(() => pending = true);
-                          try {
-                            final accepted = _pending
-                                ? await widget.check!()
-                                : await _mutate('edit_queued_turn', {
-                                    'turn': item['turn'],
-                                    'expected_revision': message['revision'],
-                                    'message': {...input, 'text': draft},
-                                  });
-                            if (context.mounted) {
-                              update(() => pending = false);
-                              if (accepted) Navigator.pop(context);
-                            }
-                          } catch (error) {
-                            if (context.mounted) {
-                              update(() => pending = false);
-                              showToast(
-                                context,
-                                failureLabel(error, translate: context.tr),
-                              );
-                            }
-                          }
-                        },
-                  child: Text(
-                    context.tr(_pending ? 'conversationCheckResult' : 'save'),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
+        context.tr(widget.delegated ? 'queue' : 'edit'),
+        // Child input keeps its captured owner; only reading and removal are
+        // available here, including guidance retained after a stop or restart.
+        child: widget.delegated
+            ? SelectableText(draft)
+            : StatefulBuilder(
+                builder: (context, update) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        initialValue: draft,
+                        enabled: !pending && !_pending,
+                        onChanged: (value) => draft = value,
+                        autofocus: true,
+                        minLines: 3,
+                        maxLines: 6,
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: pending
+                            ? null
+                            : () async {
+                                update(() => pending = true);
+                                try {
+                                  final accepted = _pending
+                                      ? await widget.check!()
+                                      : await _mutate('edit_queued_turn', {
+                                          'turn': item['turn'],
+                                          'expected_revision':
+                                              message['revision'],
+                                          'message': {...input, 'text': draft},
+                                        });
+                                  if (context.mounted) {
+                                    update(() => pending = false);
+                                    if (accepted) Navigator.pop(context);
+                                  }
+                                } catch (error) {
+                                  if (context.mounted) {
+                                    update(() => pending = false);
+                                    showToast(
+                                      context,
+                                      failureLabel(
+                                        error,
+                                        translate: context.tr,
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        child: Text(
+                          context.tr(
+                            _pending ? 'conversationCheckResult' : 'save',
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
       );
     } catch (error) {
       if (mounted) {
@@ -165,7 +207,7 @@ class _LiveQueueState extends State<LiveQueue> {
                   children: [
                     InkWell(
                       onTap: enabled && item['notice'] != true
-                          ? () => _edit(item)
+                          ? () => _open(item)
                           : null,
                       child: Text(
                         item['notice'] == true
@@ -176,9 +218,9 @@ class _LiveQueueState extends State<LiveQueue> {
                     ),
                     Wrap(
                       children: [
-                        if (item['notice'] != true)
+                        if (!widget.delegated && item['notice'] != true)
                           TextButton(
-                            onPressed: enabled ? () => _edit(item) : null,
+                            onPressed: enabled ? () => _open(item) : null,
                             child: Text(context.tr('edit')),
                           ),
                         TextButton(
@@ -190,7 +232,8 @@ class _LiveQueueState extends State<LiveQueue> {
                               : null,
                           child: Text(context.tr('delete')),
                         ),
-                        if (index > 0 &&
+                        if (!widget.delegated &&
+                            index > 0 &&
                             item['notice'] != true &&
                             items[index - 1]['notice'] != true)
                           TextButton(
@@ -204,7 +247,7 @@ class _LiveQueueState extends State<LiveQueue> {
                                 : null,
                             child: Text(context.tr('moveUp')),
                           ),
-                        if (item['notice'] != true)
+                        if (!widget.delegated && item['notice'] != true)
                           TextButton(
                             onPressed: enabled
                                 ? () => _run('send_queued_turn', {
@@ -220,7 +263,7 @@ class _LiveQueueState extends State<LiveQueue> {
                 ),
               ),
             ),
-          if (items.isNotEmpty)
+          if (!widget.delegated && items.isNotEmpty)
             OutlinedButton(
               onPressed: enabled
                   ? () => _run('set_queue_paused', {

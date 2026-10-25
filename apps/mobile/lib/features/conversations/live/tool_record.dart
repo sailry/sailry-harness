@@ -15,6 +15,7 @@ import '../../../content/code.dart';
 import 'tool_content.dart';
 import 'message_data.dart';
 import 'tool_display.dart';
+import 'tool_output.dart';
 import '../../../ui/toast.dart';
 
 class ToolRecord extends StatefulWidget {
@@ -46,65 +47,45 @@ class ToolRecord extends StatefulWidget {
 class _ToolRecordState extends State<ToolRecord> {
   bool _busy = false;
   bool _expanded = false;
-  bool _loadingOutput = false;
-  bool _loadedOutput = false;
-  Map<String, dynamic>? _output;
+  final _output = DeferredOutput();
 
-  Object _identity(Map<String, dynamic> call) {
-    final source = object(call['source']);
-    final response = object(call['response']);
-    return (
-      source['entry'],
-      source['index'],
-      response['entry'],
-      response['index'],
-    );
+  @override
+  void initState() {
+    super.initState();
+    _output.bind(widget.call);
+    _output.addListener(_outputChanged);
+  }
+
+  void _outputChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void didUpdateWidget(covariant ToolRecord oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_identity(oldWidget.call) != _identity(widget.call)) {
-      _output = null;
-      _loadedOutput = false;
-      _loadingOutput = false;
-    }
+    _output.bind(widget.call);
     if (_expanded) unawaited(_resolveOutput());
   }
 
   Future<void> _resolveOutput() async {
-    final load = widget.toolOutput;
-    if (!_expanded ||
-        widget.call['details'] != true ||
-        _loadedOutput ||
-        _loadingOutput ||
-        load == null) {
-      return;
-    }
-    if (widget.call['output_deferred'] != true) {
-      return;
-    }
-    final identity = _identity(widget.call);
-    final source = object(widget.call['source']);
-    _loadingOutput = true;
     try {
-      final output = await load(
-        source['entry'] as String,
-        source['index'] as int,
+      await _output.resolve(
+        widget.call,
+        expanded: _expanded,
+        enabled: widget.enabled,
+        load: widget.toolOutput,
       );
-      if (mounted && identity == _identity(widget.call)) {
-        setState(() {
-          _output = output;
-          _loadedOutput = true;
-        });
-      }
     } catch (error) {
-      if (mounted && _expanded && identity == _identity(widget.call)) {
+      if (mounted && _expanded && widget.enabled) {
         showToast(context, failureLabel(error, translate: context.tr));
       }
-    } finally {
-      if (mounted && identity == _identity(widget.call)) _loadingOutput = false;
     }
+  }
+
+  @override
+  void dispose() {
+    _output.dispose();
+    super.dispose();
   }
 
   Future<void> _approve(String decision) async {
@@ -198,7 +179,7 @@ class _ToolRecordState extends State<ToolRecord> {
                       documents: widget.documents,
                       call: call,
                       result: result,
-                      output: _loadedOutput ? _output : null,
+                      output: _output.value,
                       host: widget.host,
                       worktree: turnWorktree(
                         widget.page,

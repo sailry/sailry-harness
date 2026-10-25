@@ -91,6 +91,7 @@
   "conversationNoMessages": "Сообщений нет",
   "conversationPreviewUnavailable": "сообщение недоступно",
   "conversationInterrupted": "Прервано",
+  "conversationContinued": "Продолжено",
   "conversationFailedStatus": "Ошибка",
   "conversationStopping": "Остановка",
   "conversationQueued": "В очереди",

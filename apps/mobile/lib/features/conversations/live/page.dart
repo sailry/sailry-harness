@@ -19,6 +19,7 @@ import 'connection_status.dart';
 import 'draft_attachments.dart';
 import 'turn_draft.dart';
 import 'queue.dart';
+import 'children.dart';
 import 'presentation.dart';
 import 'timeline.dart';
 import 'background_data.dart';
@@ -259,6 +260,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
       view: _view,
       session: widget.sessionId,
       command: _command,
+      delegated: _session['delegation'] != null,
       mutate: _historyCommand,
       isPending: () => _historyPending != null,
       check: () async {
@@ -287,14 +289,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
 
   void _openChild(Map<String, dynamic> child) {
     final id = object(child['run'])['session'];
-    final session = objects(widget.host.snapshot['sessions'])
-        .where(
-          (session) =>
-              session['id'] == id &&
-              session['worktree'] == _session['worktree'] &&
-              session['delegation'] != null,
-        )
-        .firstOrNull;
+    final session = childSession(widget.host.snapshot, _session, child);
     if (session == null) {
       _failure(context.tr('conversationUnavailable'));
       return;
@@ -629,25 +624,34 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             ),
           ),
           composer: delegated
-              ? Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    20,
-                    12,
-                    20,
-                    MediaQuery.paddingOf(context).bottom + 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(context.tr('conversationChildReadonly')),
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (objects(queue['items']).isNotEmpty)
+                      QueueSummary(queue: queue, onOpen: _queue),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        12,
+                        20,
+                        MediaQuery.paddingOf(context).bottom + 12,
                       ),
-                      if (_active.isNotEmpty)
-                        FilledButton(
-                          onPressed: connected ? _stop : null,
-                          child: Text(context.tr('stop')),
-                        ),
-                    ],
-                  ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              context.tr('conversationChildReadonly'),
+                            ),
+                          ),
+                          if (_active.isNotEmpty)
+                            FilledButton(
+                              onPressed: connected ? _stop : null,
+                              child: Text(context.tr('stop')),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 )
               : MessageComposer(
                   controller: _draft,
@@ -673,31 +677,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                   onSend: _send,
                   priority: objects(queue['items']).isEmpty
                       ? null
-                      : Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          child: Surface(
-                            radius: 18,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            onTap: _queue,
-                            child: Row(
-                              children: [
-                                const AppIcon('clock', size: 17),
-                                const SizedBox(width: 7),
-                                Expanded(
-                                  child: Text(
-                                    '${context.tr('queueShort')}  ${objects(queue['items']).length}',
-                                  ),
-                                ),
-                                if (queue['paused'] == true)
-                                  Text(context.tr('pauseQueue')),
-                                const AppIcon('chevron', size: 14),
-                              ],
-                            ),
-                          ),
-                        ),
+                      : QueueSummary(queue: queue, onOpen: _queue),
                 ),
         );
       },
