@@ -32,8 +32,7 @@ pub(super) fn metadata(root: &Path) -> Result<Option<Metadata>, Fault> {
     let gitdir = path::root(repository.path())?;
     let common = path::root(repository.commondir())?;
     let reference = match repository.head() {
-        Ok(reference) => reference
-            .name()
+        Ok(reference) => Some(reference.name().map_err(fault)?)
             .filter(|name| *name != "HEAD")
             .map(str::to_owned),
         Err(error) if error.code() == git2::ErrorCode::UnbornBranch => repository
