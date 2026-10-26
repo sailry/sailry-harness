@@ -207,6 +207,9 @@ pub(super) async fn finish(
         let current = match prepare_enable(db, name, *expected_revision).await {
             Ok(info) => info,
             Err(error) => {
+                if super::database::conflict::is_conflict(&error) {
+                    return Err(error);
+                }
                 *result = Err(error);
                 return Ok(None);
             }
@@ -252,6 +255,9 @@ pub(super) async fn finish(
                 db.execute_batch("ROLLBACK TO mcp_configuration; RELEASE mcp_configuration")
                     .await
                     .map_err(storage_error)?;
+                if super::database::conflict::is_conflict(&error) {
+                    return Err(error);
+                }
                 *result = Err(error);
                 Ok(None)
             }
@@ -272,6 +278,9 @@ pub(super) async fn finish(
                 db.execute_batch("ROLLBACK TO mcp_install; RELEASE mcp_install")
                     .await
                     .map_err(storage_error)?;
+                if super::database::conflict::is_conflict(&error) {
+                    return Err(error);
+                }
                 *result = Err(error);
                 Ok(None)
             }
@@ -334,6 +343,9 @@ async fn finish_package(
     let current = match check_install(db, name, *expected_revision).await {
         Ok(current) => current,
         Err(error) => {
+            if super::database::conflict::is_conflict(&error) {
+                return Err(error);
+            }
             *result = Err(error);
             return Ok(None);
         }

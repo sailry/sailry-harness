@@ -151,3 +151,148 @@ async fn retains_captured_file_outcomes_after_conflict() {
 async fn bounds_recording_without_repeating_effects() {
     preserves_effect(conflict::RETRIES + 1).await;
 }
+
+async fn preserves_external(conflicts: usize, known_failure: bool) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let caller = NodeId([84; 32]);
+    let mut database = Database::open(&root.join("node.turso"), caller, None)
+        .await
+        .unwrap();
+    let (events, _) = broadcast::channel(64);
+    command(
+        &mut database,
+        &events,
+        Request::new(
+            caller,
+            Command::RegisterProject {
+                name: "External receipt".into(),
+                path: root.to_str().unwrap().into(),
+            },
+        ),
+    )
+    .await
+    .unwrap();
+    let worktree: String = database
+        .connection
+        .prepare("SELECT id FROM worktrees LIMIT 1")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    let request = Request::new(
+        caller,
+        Command::CreateDirectory {
+            worktree: worktree.parse().unwrap(),
+            path: "created".into(),
+        },
+    );
+    let (reply, response) = oneshot::channel();
+    let Some(Work::Mutation(mutation)) = database
+        .dispatch(caller, request.clone(), reply, &events)
+        .await
+    else {
+        panic!("directory work expected")
+    };
+    assert!(response.await.unwrap().unwrap().receipt.durable);
+    let captured = if known_failure {
+        let mut error = Fault::new(ErrorCode::Busy, "captured external conflict");
+        error.details = Some(sailry_protocol::FaultDetails::StorageConflict);
+        Err(error)
+    } else {
+        let result = mutations::execute(&mutation.roots, &mutation.request);
+        assert!(result.is_ok());
+        std::fs::write(root.join("created/sentinel"), "later manual edit").unwrap();
+        result
+    };
+    let other = database.handle.lease(false).await.unwrap();
+    let attempts = AtomicUsize::new(0);
+    let mut changes = events.subscribe();
+    let result = database
+        .finish_external_with(
+            caller,
+            &request,
+            captured.clone(),
+            &events,
+            async |db, result| {
+                assert_eq!(*result, captured);
+                let status: String = db
+                    .prepare("SELECT status FROM requests WHERE id=?1")
+                    .await
+                    .map_err(storage_error)?
+                    .query_row([request.id.to_string()])
+                    .await
+                    .map_err(storage_error)?
+                    .get(0)
+                    .map_err(storage_error)?;
+                assert_eq!(status, "admitted");
+                if attempts.fetch_add(1, Ordering::SeqCst) < conflicts {
+                    let transaction = conflict::begin(&other).await?;
+                    transaction
+                        .execute(
+                            "UPDATE requests SET body=body WHERE id=?1",
+                            [request.id.to_string()],
+                        )
+                        .await
+                        .map_err(storage_error)?;
+                    conflict::commit(transaction).await?;
+                    // The next attempt must restore the captured result before finalizers run.
+                    *result = Err(Fault::invalid("uncommitted attempt"));
+                }
+                Ok(Some(sailry_protocol::Event::KnowledgeCollectionsChanged))
+            },
+        )
+        .await;
+    assert!(database.connection.is_autocommit().unwrap());
+    assert_eq!(
+        attempts.load(Ordering::SeqCst),
+        conflicts.min(conflict::RETRIES) + 1
+    );
+    if conflicts > conflict::RETRIES {
+        assert_eq!(result.unwrap_err().code, ErrorCode::OutcomeUnknown);
+        assert!(changes.try_recv().is_err());
+        assert_eq!(
+            command(&mut database, &events, request)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::OutcomeUnknown
+        );
+    } else {
+        assert_eq!(result, captured);
+        assert!(matches!(
+            changes.try_recv().unwrap().event,
+            sailry_protocol::Event::KnowledgeCollectionsChanged
+        ));
+        assert!(changes.try_recv().is_err());
+        assert_eq!(command(&mut database, &events, request).await, captured);
+    }
+    if known_failure {
+        assert!(!root.join("created").exists());
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(root.join("created/sentinel")).unwrap(),
+            "later manual edit"
+        );
+    }
+}
+
+#[tokio::test]
+async fn retries_external_receipts_after_conflict() {
+    preserves_external(1, false).await;
+}
+
+#[tokio::test]
+async fn bounds_external_receipt_retries() {
+    preserves_external(conflict::RETRIES + 1, false).await;
+}
+
+#[tokio::test]
+async fn records_captured_external_conflicts() {
+    preserves_external(0, true).await;
+}

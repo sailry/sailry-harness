@@ -1140,108 +1140,124 @@ impl Database {
         &mut self,
         caller: NodeId,
         request: &Request,
-        mut result: Response,
+        captured: Response,
         events: &broadcast::Sender<EventEnvelope>,
-        finish: impl AsyncFnOnce(&Connection, &mut Response) -> Result<Option<Event>, Fault>,
+        finish: impl AsyncFnOnce(&Connection, &mut Response) -> Result<Option<Event>, Fault> + Clone,
     ) -> Response {
         if !request.command.durable() {
-            return result;
+            return captured;
         }
         self.end_removal(caller, request);
         self.relocations
             .lock()
             .unwrap()
             .remove(&(caller, request.id));
-        let mut background = Vec::new();
-        let mut deliveries = Vec::new();
         let publication = self.publication.clone();
         let recorded = (async || {
-            let transaction = self.connection.unchecked_transaction().await.map_err(storage_error)?;
-            let event = finish(&transaction, &mut result).await?;
-            let event = match event {
-                Some(event) => Some(event),
-                None => {
-                    super::worktrees::finish(
-                        &transaction,
-                        &mut result,
-                        matches!(request.command, Command::RegisterWorktree { .. }),
-                    )
-                    .await?
-                }
-            };
-            let event = match event {
-                Some(event) => Some(event),
-                None => {
-                    super::terminals::finish(&transaction, &request.command, &mut result).await?
-                }
-            };
-            let event = match event {
-                Some(event) => Some(event),
-                None => {
-                    super::plugins::finish(
-                        &transaction,
-                        self.profile.as_deref(),
-                        &request.command,
-                        &mut result,
-                    )
-                    .await?
-                }
-            };
-            let event = match event {
-                Some(event) => Some(event),
-                None => {
-                    super::projects::finish(&transaction, &request.command, &mut result).await?
-                }
-            };
-            super::attachments::finish(&transaction, caller, &request.command, &result).await?;
-            if let Some(task) =
-                super::agent::background::finish_request(&transaction, request, &result).await?
-            {
-                if let Some(turn) =
-                    super::agent::background::schedule(&transaction, self.node, task.session)
+            let write = self.write().await?;
+            for attempt in 0..=conflict::RETRIES {
+                // Only the captured outcome is retried, never the external operation.
+                let publication = publication.clone();
+                let mut result = captured.clone();
+                let mut background = Vec::new();
+                let mut deliveries = Vec::new();
+                let recorded = (async || {
+                    let transaction = conflict::begin(&self.connection).await?;
+                    let event = finish.clone()(&transaction, &mut result).await?;
+                    let event = match event {
+                        Some(event) => Some(event),
+                        None => {
+                            super::worktrees::finish(
+                                &transaction,
+                                &mut result,
+                                matches!(request.command, Command::RegisterWorktree { .. }),
+                            )
+                            .await?
+                        }
+                    };
+                    let event = match event {
+                        Some(event) => Some(event),
+                        None => {
+                            super::terminals::finish(&transaction, &request.command, &mut result).await?
+                        }
+                    };
+                    let event = match event {
+                        Some(event) => Some(event),
+                        None => {
+                            super::plugins::finish(
+                                &transaction,
+                                self.profile.as_deref(),
+                                &request.command,
+                                &mut result,
+                            )
+                            .await?
+                        }
+                    };
+                    let event = match event {
+                        Some(event) => Some(event),
+                        None => {
+                            super::projects::finish(&transaction, &request.command, &mut result).await?
+                        }
+                    };
+                    super::attachments::finish(&transaction, caller, &request.command, &result).await?;
+                    if let Some(task) =
+                        super::agent::background::finish_request(&transaction, request, &result).await?
+                    {
+                        if let Some(turn) =
+                            super::agent::background::schedule(&transaction, self.node, task.session)
+                                .await?
+                        {
+                            deliveries.push(turn);
+                        }
+                        background.push(task);
+                    }
+                    let mut changes: Vec<_> = event.into_iter().collect();
+                    if let Some(Event::PluginChanged(summary)) = changes.first() {
+                        let info = super::plugins::get(&transaction, &summary.name)
+                            .await?
+                            .ok_or_else(|| storage_error("updated plugin is missing"))?;
+                        changes.extend(super::plugins::options::migrate(&transaction, &info).await?);
+                    }
+                    if self.profile.is_some()
+                        && changes
+                            .iter()
+                            .any(|event| matches!(event, Event::PluginChanged(_)))
+                        && super::knowledge::semantic::startup(
+                            &transaction,
+                            &sailry_link::CancellationToken::new(),
+                        )
                         .await?
-                {
-                    deliveries.push(turn);
+                    {
+                        changes.push(Event::KnowledgeCollectionsChanged);
+                    }
+                    let envelopes = record(&transaction, self.node, changes).await?;
+                    let changed = transaction.execute(
+                        "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2 AND status='admitted'",
+                        params![&caller.0[..], request.id.to_string(), serde_json::to_string(&result).map_err(storage_error)?],
+                    ).await.map_err(storage_error)?;
+                    if changed != 1 {
+                        return Err(storage_error("durable admission missing"));
+                    }
+                    let delivered = { let mut selected = Vec::new(); for value in deliveries
+                        .iter() { selected.push((async |turn: &QueuedTurn| {
+                            Ok((
+                                super::agent::runs::get(&transaction, turn.id).await?,
+                                super::agent::background::list(&transaction, turn.session).await?,
+                            ))
+                        })(value).await?); } Ok::<_,Fault>(selected) }?;
+                    let publication = publication.lock().await;
+                    crate::store::database::conflict::commit(transaction).await?;
+                    Ok::<_, Fault>((envelopes, delivered, publication, result, background))
+                })().await;
+                if let Err(error) = conflict::rollback(&self.connection).await {
+                    self.connection.hold_write(write);
+                    return Err(error);
                 }
-                background.push(task);
+                if !conflict::again(&recorded, attempt).await {
+                    return recorded;
+                }
             }
-            let mut changes: Vec<_> = event.into_iter().collect();
-            if let Some(Event::PluginChanged(summary)) = changes.first() {
-                let info = super::plugins::get(&transaction, &summary.name)
-                    .await?
-                    .ok_or_else(|| storage_error("updated plugin is missing"))?;
-                changes.extend(super::plugins::options::migrate(&transaction, &info).await?);
-            }
-            if self.profile.is_some()
-                && changes
-                    .iter()
-                    .any(|event| matches!(event, Event::PluginChanged(_)))
-                && super::knowledge::semantic::startup(
-                    &transaction,
-                    &sailry_link::CancellationToken::new(),
-                )
-                .await?
-            {
-                changes.push(Event::KnowledgeCollectionsChanged);
-            }
-            let envelopes = record(&transaction, self.node, changes).await?;
-            let changed = transaction.execute(
-                "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2 AND status='admitted'",
-                params![&caller.0[..], request.id.to_string(), serde_json::to_string(&result).map_err(storage_error)?],
-            ).await.map_err(storage_error)?;
-            if changed != 1 {
-                return Err(storage_error("durable admission missing"));
-            }
-            let delivered = { let mut selected = Vec::new(); for value in deliveries
-                .iter() { selected.push((async |turn: &QueuedTurn| {
-                    Ok((
-                        super::agent::runs::get(&transaction, turn.id).await?,
-                        super::agent::background::list(&transaction, turn.session).await?,
-                    ))
-                })(value).await?); } Ok::<_,Fault>(selected) }?;
-            let publication = publication.lock().await;
-            crate::store::database::conflict::commit(transaction).await?;
-            Ok::<_, Fault>((envelopes, delivered, publication))
+            unreachable!("the final attempt returns its result")
         })().await;
         match recorded {
             Err(cause) => {
@@ -1258,7 +1274,7 @@ impl Database {
                 }
                 Err(error)
             }
-            Ok((envelopes, delivered, publication)) => {
+            Ok((envelopes, delivered, publication, result, background)) => {
                 super::agent::background::publish(self, background).await;
                 for (run, tasks) in delivered {
                     super::agent::publish_run(self, run).await;

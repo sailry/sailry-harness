@@ -116,6 +116,7 @@ pub(super) async fn finish(
                     *result = Ok(output);
                     Ok(event)
                 }
+                Err(error) if super::database::conflict::is_conflict(&error) => Err(error),
                 Err(mut error) => {
                     let tasks_active = matches!(
                         error.details,
