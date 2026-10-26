@@ -90,6 +90,17 @@ impl Index {
         Ok(index)
     }
 
+    pub(super) async fn close(&self) -> Result<(), Fault> {
+        match self.handle.pause().await {
+            Ok(closed) => {
+                drop(closed);
+                Ok(())
+            }
+            Err(crate::Error::Stopped) => Ok(()),
+            Err(cause) => Err(error(cause)),
+        }
+    }
+
     async fn lease(&self, readonly: bool) -> Result<Lease, Fault> {
         if readonly {
             self.handle.lease(true).await

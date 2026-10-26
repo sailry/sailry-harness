@@ -161,3 +161,35 @@ pub(super) async fn refresh(db: &Connection, service: &crate::code_index::Servic
         Err(_) => service.configure(false),
     }
 }
+
+/// Clean only derived caches after their resource removal has succeeded.
+pub(super) async fn removed(
+    db: &Connection,
+    service: &crate::code_index::Service,
+    output: &Output,
+) -> Result<(), Fault> {
+    let worktrees = match output {
+        Output::WorktreeRemoved { id } => vec![*id],
+        Output::ProjectRemoved { id } => {
+            // Project removal retains history and its worktree foreign keys.
+            let mut rows = db
+                .query(
+                    "SELECT id FROM worktrees WHERE project=?1",
+                    [id.to_string()],
+                )
+                .await
+                .map_err(storage_error)?;
+            let mut worktrees = Vec::new();
+            while let Some(row) = rows.next().await.map_err(storage_error)? {
+                let id: String = row.get(0).map_err(storage_error)?;
+                worktrees.push(id.parse().map_err(storage_error)?);
+            }
+            worktrees
+        }
+        _ => return Ok(()),
+    };
+    for worktree in worktrees {
+        service.remove(worktree).await?;
+    }
+    Ok(())
+}

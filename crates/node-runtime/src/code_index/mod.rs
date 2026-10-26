@@ -38,6 +38,7 @@ struct Worktree {
     database: PathBuf,
     index: OnceCell<index::Index>,
     sync: tokio::sync::Mutex<sync::Progress>,
+    access: tokio::sync::RwLock<()>,
     dirty: Mutex<Dirty>,
     stop: CancellationToken,
     observed: OnceCell<()>,
@@ -143,6 +144,7 @@ impl Service {
                 .join("index.turso"),
             index: OnceCell::new(),
             sync: Default::default(),
+            access: Default::default(),
             dirty: Default::default(),
             stop: self.closed.child_token(),
             observed: OnceCell::new(),
@@ -188,10 +190,36 @@ impl Service {
         }
     }
 
-    pub(crate) fn remove(&self, id: WorktreeId) {
-        if let Some(worktree) = self.worktrees.lock().unwrap().remove(&id) {
+    pub(crate) async fn remove(&self, id: WorktreeId) -> Result<(), Fault> {
+        let worktree = self.worktrees.lock().unwrap().get(&id).cloned();
+        let directory = if let Some(worktree) = &worktree {
             worktree.stop.cancel();
+            // Readers release initialization and native leases before cache removal.
+            let _access = worktree.access.write().await;
+            if let Some(index) = worktree.index.get() {
+                index.close().await?;
+            }
+            worktree.database.parent().unwrap().to_owned()
+        } else {
+            let profile = self.profile.clone().or_else(|| {
+                self.temporary
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map(|directory| directory.path().to_owned())
+            });
+            let Some(profile) = profile else {
+                return Ok(());
+            };
+            profile.join("cache/code-index").join(id.to_string())
+        };
+        match tokio::fs::remove_dir_all(directory).await {
+            Ok(()) => {}
+            Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => {}
+            Err(cause) => return Err(error(cause)),
         }
+        self.worktrees.lock().unwrap().remove(&id);
+        Ok(())
     }
 
     pub(crate) fn shutdown(&self) {
@@ -211,6 +239,8 @@ impl Service {
         let _cancel = running.clone().drop_guard();
         let stop = &running;
         let operation = async {
+            let _access = worktree.access.read().await;
+            check(&worktree.stop)?;
             let _sync = tokio::select! {biased; _=stop.cancelled()=>return Err(cancelled()),guard=worktree.sync.lock()=>guard};
             worktree
                 .observe(self.watches.clone(), self.node, id, stop)
@@ -269,6 +299,8 @@ impl Service {
         let _cancel = running.clone().drop_guard();
         let stop = &running;
         let operation = async {
+            let _access = worktree.access.read().await;
+            check(&worktree.stop)?;
             worktree
                 .observe(self.watches.clone(), self.node, id, stop)
                 .await?;

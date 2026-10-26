@@ -1048,11 +1048,11 @@ impl Store {
                             closing.store(true, Ordering::Release);
                         }),
                         Job::Completed(completed) => Box::pin(async move {
-                            if completed.result.is_ok()
-                                && let sailry_protocol::Command::RemoveWorktree { worktree, .. } =
-                                    completed.request.command
+                            // A removed checkout is gone even when its receipt cannot be saved.
+                            if let Ok(output @ sailry_protocol::Output::WorktreeRemoved { .. }) = &completed.result
+                                && let Err(error) = code_index::removed(&database.connection, code_index, output).await
                             {
-                                code_index.remove(worktree);
+                                eprintln!("removed worktree index cleanup failed: {error}");
                             }
                             let result = database
                                 .finish_external(
@@ -1062,6 +1062,11 @@ impl Store {
                                     events,
                                 )
                                 .await;
+                            if let Ok(output @ sailry_protocol::Output::ProjectRemoved { .. }) = &result
+                                && let Err(error) = code_index::removed(&database.connection, code_index, output).await
+                            {
+                                eprintln!("removed project index cleanup failed: {error}");
+                            }
                             if matches!(&result, Ok(sailry_protocol::Output::Plugin(_))) {
                                 dispatch_controls.wake.notify_one();
                             }

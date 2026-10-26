@@ -127,11 +127,22 @@ async fn local_and_remote_removal() {
             }
             uploads.push(upload);
         }
+        client
+            .search_code(tree.id, sailry_protocol::code_index::Search::default())
+            .await
+            .unwrap();
+        let cache = fixture
+            .node
+            .profile()
+            .join("cache/code-index")
+            .join(tree.id.to_string());
+        assert!(cache.join("index.turso").is_file());
         let request = client.prepare(command);
         let admission = client.dispatch(request.clone()).await.unwrap();
         assert!(admission.receipt.durable);
         let expected = Output::WorktreeRemoved { id: tree.id };
         assert_eq!(admission.completion.await.unwrap().unwrap(), expected);
+        assert!(!cache.exists());
         assert!(client.open(download.stream).await.is_err());
         for upload in uploads {
             assert!(client.open(upload.stream).await.is_err());

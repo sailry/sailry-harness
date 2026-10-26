@@ -209,3 +209,27 @@ fn retains_a_new_dirty_generation() {
     assert!(dirty.finish(dirty.generation));
     assert!(dirty.paths.is_empty());
 }
+
+#[tokio::test]
+async fn removes_loaded_and_unloaded_caches() {
+    for loaded in [true, false] {
+        let fixture = Fixture::new();
+        fixture.write("main.rs", "pub fn indexed() {}\n");
+        fixture.search().await;
+        let cache = fixture
+            .service
+            .profile
+            .as_ref()
+            .unwrap()
+            .join("cache/code-index")
+            .join(fixture.id.to_string());
+        assert!(cache.join("index.turso").is_file());
+        if !loaded {
+            fixture.service.configure(false);
+        }
+        fixture.service.remove(fixture.id).await.unwrap();
+        assert!(!cache.exists());
+        assert!(fixture.root.join("main.rs").is_file());
+        fixture.service.remove(fixture.id).await.unwrap();
+    }
+}

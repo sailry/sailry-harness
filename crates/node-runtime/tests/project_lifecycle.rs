@@ -222,12 +222,50 @@ async fn edits_and_restores() {
             .into_iter()
             .find(|value| value.id == session.id)
             .unwrap();
+        let indexed: Vec<_> = snapshot(&client)
+            .await
+            .worktrees
+            .into_iter()
+            .filter(|tree| tree.project == Some(updated.id))
+            .collect();
+        for tree in &indexed {
+            client
+                .search_code(tree.id, code_index::Search::default())
+                .await
+                .unwrap();
+            assert!(
+                profile
+                    .join("cache/code-index")
+                    .join(tree.id.to_string())
+                    .join("index.turso")
+                    .is_file()
+            );
+        }
+        client
+            .search_code(other_tree, code_index::Search::default())
+            .await
+            .unwrap();
         let request = client.prepare(Command::RemoveProject {
             expected: updated.clone(),
         });
         let result = client.execute(request.clone()).await.unwrap();
         assert_eq!(client.execute(request).await.unwrap(), result);
         assert_eq!(result, Output::ProjectRemoved { id: updated.id });
+        for tree in &indexed {
+            assert!(
+                !profile
+                    .join("cache/code-index")
+                    .join(tree.id.to_string())
+                    .exists()
+            );
+        }
+        assert!(
+            profile
+                .join("cache/code-index")
+                .join(other_tree.to_string())
+                .join("index.turso")
+                .is_file()
+        );
         let state = snapshot(&client).await;
         let closed = state
             .terminals
