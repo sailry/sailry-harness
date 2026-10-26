@@ -12,43 +12,77 @@ pub fn pending(queue: &Queue, request: RequestId) -> Option<&Pending> {
         .find(|item| item.request == Some(request))
 }
 
-/// Canonical user content replaces the claim capture without inventing history entries.
-pub fn input(page: &Page, turn: TurnId) -> Option<SentInput> {
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct InputView {
+    #[serde(flatten)]
+    pub input: SentInput,
+    pub canonical: bool,
+}
+
+/// Canonical user entries replace the admitted capture without inventing history.
+pub fn inputs(page: &Page, turn: TurnId) -> Vec<InputView> {
     if page.runs.iter().any(|run| run.turn == turn && run.notice) {
-        return None;
+        return Vec::new();
     }
-    let mut canonical = false;
-    let mut message = Input::default();
-    let mut attachments = Vec::new();
-    for entry in page
+    let canonical: Vec<_> = page
         .entries
         .iter()
         .filter(|entry| entry.turn == turn && entry.author == "user")
-    {
-        canonical = true;
-        for part in &entry.parts {
-            match part {
-                Part::Text(text) => message.text.push_str(text),
-                Part::Attachment(attachment) => {
-                    message.attachments.push(attachment.id);
-                    attachments.push(attachment.clone());
+        .map(|entry| {
+            let mut message = Input::default();
+            let mut attachments = Vec::new();
+            for part in &entry.parts {
+                match part {
+                    Part::Text(text) => message.text.push_str(text),
+                    Part::Attachment(attachment) => {
+                        message.attachments.push(attachment.id);
+                        attachments.push(attachment.clone());
+                    }
+                    Part::Reference(reference) => message.references.push(reference.clone()),
+                    _ => {}
                 }
-                Part::Reference(reference) => message.references.push(reference.clone()),
-                _ => {}
             }
-        }
-    }
-    if canonical {
-        Some(SentInput {
-            message,
-            attachments,
+            InputView {
+                input: SentInput {
+                    message,
+                    attachments,
+                },
+                canonical: true,
+            }
         })
-    } else {
-        page.runs
-            .iter()
-            .find(|run| run.turn == turn)
-            .and_then(|run| run.input.clone())
+        .collect();
+    if !canonical.is_empty() {
+        return canonical;
     }
+    page.runs
+        .iter()
+        .find(|run| run.turn == turn)
+        .and_then(|run| run.input.clone())
+        .map(|input| {
+            vec![InputView {
+                input,
+                canonical: false,
+            }]
+        })
+        .unwrap_or_default()
+}
+
+pub fn input(page: &Page, turn: TurnId) -> Option<SentInput> {
+    let mut selected = inputs(page, turn).into_iter();
+    let mut input = selected.next()?.input;
+    for next in selected {
+        input.message.text.push_str(&next.input.message.text);
+        input
+            .message
+            .attachments
+            .extend(next.input.message.attachments);
+        input
+            .message
+            .references
+            .extend(next.input.message.references);
+        input.attachments.extend(next.input.attachments);
+    }
+    Some(input)
 }
 
 pub fn visible(run: &Run, page: &Page, drafts: &[Draft]) -> bool {

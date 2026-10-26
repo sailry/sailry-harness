@@ -7,7 +7,11 @@ import 'package:sailry_bridge/frb_generated.dart';
 import 'conversation.dart' show canonicalJson, check, execute, until;
 import 'approvals.dart' show hasPending, pending, part;
 
-Future<List<dynamic>> children(Updates updates, String parent) async {
+Future<List<dynamic>> children(
+  Updates updates,
+  String parent, {
+  Map<String, dynamic>? targets,
+}) async {
   return Future(() async {
     while (true) {
       final view = jsonDecode(await updates.next());
@@ -21,7 +25,15 @@ Future<List<dynamic>> children(Updates updates, String parent) async {
       final turns = (snapshot['turns'] as List).where(
         (turn) => ids.contains(turn['session']),
       );
-      if (children.length == 2 && turns.length == 2) return children;
+      if (children.length == 2 && turns.length == 2) {
+        final projected = view['child_targets'] as Map<String, dynamic>;
+        check(
+          ids.every(projected.values.contains),
+          'Client exposes registered child navigation targets',
+        );
+        targets?.addAll(projected);
+        return children;
+      }
     }
   }).timeout(const Duration(seconds: 10));
 }
@@ -87,7 +99,8 @@ Future<void> main() async {
   );
   final receipt = await connection.execute(request: request);
   final parentTurn = jsonDecode(receipt)['Ok']['data']['id'];
-  final descendants = await children(workspace, session);
+  final targets = <String, dynamic>{};
+  final descendants = await children(workspace, session, targets: targets);
   var firstUpdates = await connection.watchConversation(
     session: descendants[0]['id'],
   );
@@ -135,6 +148,26 @@ Future<void> main() async {
     check(
       origin['turn'] == parentTurn && origin['role'] != null,
       'child belongs to the admitted parent turn and role',
+    );
+    final reference = parentView['children']['sessions'][child['id']];
+    check(
+      targets[reference['target']] == child['id'] &&
+          canonicalJson(
+                parentView['snapshot']['page']['children'][reference['index']],
+              ) ==
+              canonicalJson(summary),
+      'Client child selection points to its canonical summary',
+    );
+    final associated = (parentView['calls'] as List).singleWhere(
+      (call) =>
+          call['source']['entry'] == origin['entry'] &&
+          call['source']['index'] == origin['index'],
+    );
+    check(
+      (associated['children'] as List).any(
+        (child) => canonicalJson(child) == canonicalJson(reference),
+      ),
+      'Client call includes its selected child reference',
     );
     final call = part(parentView, origin);
     check(

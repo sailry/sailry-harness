@@ -1,24 +1,25 @@
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
+import 'package:sailry_bridge/api/rules.dart' as rules;
 
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 
 class ConversationMode {
-  ConversationMode(this.package, this.declaration, {required this.enabled});
+  ConversationMode(this.reference, this.declaration, {required this.enabled});
 
-  final String package;
+  final Map<String, dynamic> reference;
+  String get package => text(reference['name']);
   final Map<String, dynamic> declaration;
   final bool enabled;
 
   String get key => '$package/${declaration['id']}';
-  String get option => text(declaration['option']);
-  String get base =>
-      object(declaration['permissions'])['write'] == true ? 'code' : 'plan';
-
-  bool matches(Map<String, dynamic> config) =>
-      object(object(config['options'])[package])[option] == declaration['id'];
+  Map<String, dynamic> get wire => {
+    'package': reference,
+    'declaration': declaration,
+    'enabled': enabled,
+  };
 
   String label(Locale locale) {
     final display = object(declaration['display']);
@@ -39,14 +40,55 @@ class ConversationMode {
   }
 }
 
+typedef ModeProjection =
+    Map<String, dynamic> Function(
+      Map<String, dynamic> config,
+      List<ConversationMode> modes,
+    );
+typedef ModeSelection =
+    Map<String, dynamic>? Function(
+      Map<String, dynamic> config,
+      List<ConversationMode> modes,
+      String key,
+    );
+
+Map<String, dynamic> _projectModes(
+  Map<String, dynamic> config,
+  List<ConversationMode> modes,
+) => object(
+  jsonDecode(
+    rules.projectModes(
+      config: jsonEncode(config),
+      modes: jsonEncode(modes.map((mode) => mode.wire).toList()),
+    ),
+  ),
+);
+
+Map<String, dynamic>? _selectMode(
+  Map<String, dynamic> config,
+  List<ConversationMode> modes,
+  String key,
+) {
+  final selected = rules.selectMode(
+    config: jsonEncode(config),
+    modes: jsonEncode(modes.map((mode) => mode.wire).toList()),
+    key: key,
+  );
+  return selected == null ? null : object(jsonDecode(selected));
+}
+
 /// A control-owned metadata projection; Node owns effective configuration.
 class ConversationModes extends ChangeNotifier {
-  ConversationModes(this.host) {
+  ConversationModes(this.host, {ModeProjection? project, ModeSelection? select})
+    : _project = project ?? _projectModes,
+      _select = select ?? _selectMode {
     host.addListener(_changed);
     _changed();
   }
 
   final HostConnection host;
+  final ModeProjection _project;
+  final ModeSelection _select;
   final Map<String, (String, List<ConversationMode>)> _cache = {};
   List<ConversationMode> _modes = [];
   String? _inventory;
@@ -95,7 +137,10 @@ class ConversationModes extends ChangeNotifier {
     return [
       for (final declaration in objects(extension['conversation_modes']))
         ConversationMode(
-          name,
+          {
+            for (final key in ['name', 'digest', 'settings_revision'])
+              key: summary[key],
+          },
           declaration,
           enabled: summary['enabled'] == true,
         ),
@@ -122,44 +167,19 @@ class ConversationModes extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<ConversationMode> choices(Map<String, dynamic> config) => !ready
-      ? []
-      : [
-          for (final mode in _modes)
-            if (mode.enabled || mode.matches(config)) mode,
-        ];
-
-  String? selected(Map<String, dynamic> config) {
-    if (!ready) return null;
-    final selected = _modes.where((mode) => mode.matches(config)).toList();
-    if (selected.length > 1) return null;
-    if (selected.isNotEmpty) {
-      final mode = selected.single;
-      if (mode.base == 'plan' && config['mode'] != 'plan') return null;
-      return mode.key;
-    }
-    return text(config['mode'], 'code');
+  List<ConversationMode> choices(Map<String, dynamic> config) {
+    if (!ready) return [];
+    final keys = _project(config, _modes)['choices'] as List;
+    return [
+      for (final key in keys) _modes.firstWhere((mode) => mode.key == key),
+    ];
   }
 
-  Map<String, dynamic>? select(Map<String, dynamic> config, String key) {
-    if (!ready || !host.connected) return null;
-    final selected = _modes
-        .where((mode) => mode.key == key && mode.enabled)
-        .firstOrNull;
-    if (selected == null && key != 'code' && key != 'plan') return null;
-    final options = {
-      for (final entry in object(config['options']).entries)
-        entry.key: object(entry.value),
-    };
-    for (final mode in _modes) {
-      if (mode.matches(config)) options[mode.package]![mode.option] = '';
-    }
-    if (selected != null) {
-      options.putIfAbsent(selected.package, () => {})[selected.option] =
-          selected.declaration['id'];
-    }
-    return {...config, 'mode': selected?.base ?? key, 'options': options};
-  }
+  String? selected(Map<String, dynamic> config) =>
+      ready ? _project(config, _modes)['selected'] as String? : null;
+
+  Map<String, dynamic>? select(Map<String, dynamic> config, String key) =>
+      ready && host.connected ? _select(config, _modes, key) : null;
 
   @override
   void dispose() {

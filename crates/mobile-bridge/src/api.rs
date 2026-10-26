@@ -6,6 +6,7 @@ pub(crate) mod conversation;
 pub(crate) mod login;
 pub(crate) mod overview;
 pub(crate) mod ports;
+pub mod rules;
 pub(crate) mod speech;
 pub(crate) mod terminal;
 #[cfg(test)]

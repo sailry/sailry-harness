@@ -6,31 +6,25 @@ use gpui_kit::component::{
 };
 use sailry_protocol::plugin;
 
-mod selection;
+use sailry_client::conversation::modes as selection;
+pub(super) use selection::Mode as PluginMode;
 
-#[derive(Clone)]
-pub(super) struct PluginMode {
-    pub package: plugin::Reference,
-    pub declaration: plugin::modes::Declaration,
+fn label(mode: &PluginMode) -> SharedString {
+    mode.declaration
+        .display
+        .label(&rust_i18n::locale())
+        .to_owned()
+        .into()
 }
 
-impl PluginMode {
-    pub fn label(&self) -> SharedString {
-        self.declaration
-            .display
-            .label(&rust_i18n::locale())
-            .to_owned()
-            .into()
-    }
-
-    pub fn icon(&self) -> gpui_kit::component::Icon {
-        self.declaration
-            .display
-            .icon
-            .as_ref()
-            .map(crate::assets::icons::icon)
-            .unwrap_or_else(|| mode::icon(self.declaration.base()).into())
-    }
+fn icon(entry: &PluginMode) -> gpui_kit::component::Icon {
+    entry
+        .declaration
+        .display
+        .icon
+        .as_ref()
+        .map(crate::assets::icons::icon)
+        .unwrap_or_else(|| mode::icon(entry.declaration.base()).into())
 }
 
 impl View {
@@ -50,8 +44,9 @@ impl View {
         if self.session.is_none() {
             self.draft_mode = Some(mode);
         }
-        if let Some(mut config) = self.config.clone() {
-            selection::configure(&mut config, &self.declared_modes(cx), mode, None);
+        if let Some(config) = self.config.as_ref() {
+            let config = selection::select(config, &self.declared_modes(cx), selection::key(mode))
+                .expect("built-in modes are always available");
             self.configure(config, window, cx);
         } else {
             self.remember_options(cx);
@@ -60,16 +55,8 @@ impl View {
     }
 
     pub(super) fn plugin_modes(&self, cx: &App) -> Vec<PluginMode> {
-        self.declared_modes(cx)
-            .into_iter()
-            .filter(|mode| {
-                self.contribution_metadata
-                    .read(cx)
-                    .entries
-                    .get(&mode.package.name)
-                    .is_some_and(|info| info.summary.enabled)
-            })
-            .collect()
+        let modes = self.declared_modes(cx);
+        selection::choices(None, &modes).cloned().collect()
     }
 
     fn declared_modes(&self, cx: &App) -> Vec<PluginMode> {
@@ -85,6 +72,7 @@ impl View {
                     .map(move |declaration| PluginMode {
                         package: info.summary.reference(),
                         declaration: declaration.clone(),
+                        enabled: info.summary.enabled,
                     })
             })
             .collect()
@@ -92,7 +80,9 @@ impl View {
 
     pub(super) fn selected_plugin_mode(&self, cx: &App) -> Option<PluginMode> {
         let config = self.config.as_ref()?;
-        selection::selected(config, &self.plugin_modes(cx))
+        let modes = self.declared_modes(cx);
+        let selected = selection::project(config, &modes).selected?;
+        modes.into_iter().find(|mode| mode.key() == selected)
     }
 
     pub(super) fn select_plugin_mode(
@@ -110,15 +100,12 @@ impl View {
         {
             return;
         }
-        let Some(mut config) = self.config.clone() else {
+        let Some(config) = self.config.as_ref() else {
             return;
         };
-        selection::configure(
-            &mut config,
-            &self.declared_modes(cx),
-            mode.declaration.base(),
-            Some(mode),
-        );
+        let Some(config) = selection::select(config, &self.declared_modes(cx), &mode.key()) else {
+            return;
+        };
         self.replace_mode_marker(config.mode, window, cx);
         if self.session.is_none() {
             self.draft_mode = Some(config.mode);
@@ -198,7 +185,10 @@ impl View {
             .or(self.draft_mode);
         let current = selected.unwrap_or(sailry_protocol::WorkMode::Code);
         let active = self.selected_plugin_mode(cx);
-        let plugins = self.plugin_modes(cx);
+        let declared = self.declared_modes(cx);
+        let plugins: Vec<_> = selection::choices(self.config.as_ref(), &declared)
+            .cloned()
+            .collect();
         let configured = self.config.is_some();
         let owner = cx.entity().downgrade();
         let button = Button::new("live-chat-mode")
@@ -206,14 +196,14 @@ impl View {
             .icon(
                 active
                     .as_ref()
-                    .map(PluginMode::icon)
+                    .map(icon)
                     .unwrap_or_else(|| mode::icon(current).into()),
             )
             .rounded_full()
             .label(
                 active
                     .as_ref()
-                    .map(PluginMode::label)
+                    .map(label)
                     .unwrap_or_else(|| tr(mode::label(current))),
             )
             .dropdown_caret(false)
@@ -246,10 +236,10 @@ impl View {
                     });
                     let entry = entry.clone();
                     menu.item(
-                        PopupMenuItem::new(entry.label())
-                            .icon(entry.icon())
+                        PopupMenuItem::new(label(&entry))
+                            .icon(icon(&entry))
                             .checked(selected)
-                            .disabled(!configured)
+                            .disabled(!configured || !entry.enabled)
                             .on_click(move |_, window, cx| {
                                 let _ = owner.update(cx, |view, cx| {
                                     view.select_plugin_mode(&entry, window, cx)

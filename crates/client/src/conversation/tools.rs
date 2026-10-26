@@ -64,6 +64,10 @@ pub struct Call {
 }
 
 impl Call {
+    pub fn children(&self, page: &Page) -> Vec<super::children::Reference> {
+        super::children::associated(page, self.turn, &self.source.entry, self.source.index)
+    }
+
     /// Completed synthetic plan review is consent, not a running tool request.
     pub fn question_pending<'a>(
         &self,

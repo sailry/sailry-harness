@@ -290,6 +290,7 @@ class HostConnection extends ChangeNotifier {
     required this.id,
     required String this._label,
     this.snapshot = const {},
+    this.childTargets = const {},
     this.connected = true,
     required CommandHandler command,
     this._connection,
@@ -310,6 +311,7 @@ class HostConnection extends ChangeNotifier {
   Map<String, dynamic> snapshot = {};
   Map<String, dynamic> info = {};
   List<Map<String, dynamic>> notifications = [];
+  Map<String, dynamic> childTargets = {};
   bool connected = false;
   Map<String, dynamic> transport = {};
   Object? error;
@@ -341,6 +343,7 @@ class HostConnection extends ChangeNotifier {
         transport = connected ? object(view['connection']) : {};
         error = view['error'];
         notifications = objects(view['notifications']);
+        childTargets = object(view['child_targets']);
         notifyListeners();
         if (connected && info.isEmpty) unawaited(inspect());
       }

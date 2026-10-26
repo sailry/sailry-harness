@@ -11,6 +11,7 @@ import 'api/conversation.dart';
 import 'api/login.dart';
 import 'api/overview.dart';
 import 'api/ports.dart';
+import 'api/rules.dart';
 import 'api/speech.dart';
 import 'api/terminal.dart';
 import 'api/transfers.dart';
@@ -77,7 +78,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1671011532;
+  int get rustContentHash => -2071399461;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -343,6 +344,17 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiUsageUsageUpdatesNext({required UsageUpdates that});
 
   Future<void> crateApiUsageUsageUpdatesRefresh({required UsageUpdates that});
+
+  String crateApiRulesProjectModes({
+    required String config,
+    required String modes,
+  });
+
+  String? crateApiRulesSelectMode({
+    required String config,
+    required String modes,
+    required String key,
+  });
 
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_CommandUpdates;
@@ -2881,6 +2893,66 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         argNames: ["that"],
       );
 
+  @override
+  String crateApiRulesProjectModes({
+    required String config,
+    required String modes,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(config, serializer);
+          sse_encode_String(modes, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 69)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRulesProjectModesConstMeta,
+        argValues: [config, modes],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRulesProjectModesConstMeta => const TaskConstMeta(
+    debugName: "project_modes",
+    argNames: ["config", "modes"],
+  );
+
+  @override
+  String? crateApiRulesSelectMode({
+    required String config,
+    required String modes,
+    required String key,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(config, serializer);
+          sse_encode_String(modes, serializer);
+          sse_encode_String(key, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 70)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRulesSelectModeConstMeta,
+        argValues: [config, modes, key],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRulesSelectModeConstMeta => const TaskConstMeta(
+    debugName: "select_mode",
+    argNames: ["config", "modes", "key"],
+  );
+
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_CommandUpdates => wire
       .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerCommandUpdates;
@@ -3452,6 +3524,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  String? dco_decode_opt_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_String(raw);
   }
 
   @protected
@@ -4093,6 +4171,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
   }
 
   @protected
@@ -4801,6 +4890,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_String(self, serializer);
+    }
   }
 
   @protected

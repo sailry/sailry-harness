@@ -87,6 +87,33 @@ impl Client {
         session: SessionId,
         updates: watch::Sender<View>,
         stop: CancellationToken,
+        requests: mpsc::Receiver<HistoryRequest>,
+    ) -> Result<(), Fault> {
+        let cancellation = stop.child_token();
+        let history = async {
+            let result = self
+                .watch_history(session, updates.clone(), cancellation.clone(), requests)
+                .await;
+            if matches!(&result, Err(error) if error.code == ErrorCode::NotFound) {
+                // A history miss alone is not deletion; wait for the Node confirmation.
+                std::future::pending::<Result<(), Fault>>().await
+            } else {
+                result
+            }
+        };
+        let result = tokio::select! {
+            result = history => result,
+            result = super::removal::watch(self, session, updates.clone(), cancellation.clone()) => result,
+        };
+        cancellation.cancel();
+        result
+    }
+
+    async fn watch_history(
+        &self,
+        session: SessionId,
+        updates: watch::Sender<View>,
+        stop: CancellationToken,
         mut requests: mpsc::Receiver<HistoryRequest>,
     ) -> Result<(), Fault> {
         let mut log = crate::observation::Observation::new(self.target(), Some(session));

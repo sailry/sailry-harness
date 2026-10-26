@@ -2,62 +2,55 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/command_result.dart';
-import 'package:sailry_mobile/features/conversations/live/timeline.dart';
+import 'package:sailry_mobile/features/conversations/live/message_data.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_content.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_display.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 
 void main() {
-  test('shared visibility controls activity rows', () {
-    Map<String, dynamic> entry(String id) => {
-      'id': id,
-      'author': 'assistant',
-      'parts': [
-        {
-          'kind': 'tool_call',
-          'data': {'arguments': <String, dynamic>{}},
-        },
-      ],
-    };
-    final entries = [
-      entry('hidden'),
-      entry('summary'),
-      entry('failure'),
-      entry('image'),
-      {
-        'id': 'response',
-        'author': 'assistant',
-        'parts': [
-          {
-            'kind': 'tool_result',
-            'data': {
-              'result': null,
-              'images': [
-                {'part': 0, 'index': 0, 'attachment': <String, dynamic>{}},
+  test('renders Client rows with their citation offsets', () {
+    final view = {
+      'snapshot': {
+        'page': {
+          'entries': [
+            {
+              'id': 'entry',
+              'citations': [
+                {'uri': 'https://example.com/source', 'end': 3},
               ],
             },
+          ],
+        },
+        'drafts': [
+          {'id': 'draft'},
+        ],
+      },
+      'rows': {
+        'turn': [
+          {
+            'source': {'entry': 'entry', 'index': 2},
+            'draft': false,
+            'part': {'kind': 'text', 'data': 'B'},
+            'text_offset': 2,
+            'text_last': true,
+          },
+          {
+            'source': {'entry': 'draft', 'index': 0},
+            'draft': true,
+            'part': {'kind': 'thinking', 'data': 'Working'},
           },
         ],
       },
-    ];
-    final calls = [
-      for (final id in ['hidden', 'summary', 'failure', 'image'])
-        {
-          'source': {'entry': id, 'index': 0},
-          'hidden': id == 'hidden',
-          'details': id == 'failure' || id == 'image',
-        },
-    ];
-    final before = jsonEncode(entries);
-    final visible = visibleParts(entries, calls);
-    expect(visible.map((row) => row.$1['id']), [
-      'summary',
-      'failure',
-      'image',
-      'response',
-    ]);
-    expect(visible.last.$3['kind'], 'image');
-    expect(jsonEncode(entries), before);
+    };
+    final before = jsonEncode(view);
+    final rows = displayRows(view, 'turn');
+    expect(rows.first.$1['id'], 'entry');
+    expect(rows.first.$2, 2);
+    expect(rows.first.$3['data'], 'B [1](<https://example.com/source>)');
+    expect(rows.last.$1['id'], 'draft');
+    expect(rows.last.$3['data'], 'Working');
+    expect(displayRows(view, 'other'), isEmpty);
+    expect(jsonEncode(view), before);
   });
 
   test('business fields never establish execution failure', () {

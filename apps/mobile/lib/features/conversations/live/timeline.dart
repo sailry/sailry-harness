@@ -91,6 +91,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final page = object(snapshot['page']);
     final entries = objects(page['entries']);
     final calls = objects(view['calls']);
+    final children = object(object(view['children'])['sessions']);
     final sources = {
       for (final call in calls)
         (
@@ -189,7 +190,17 @@ class _LiveTimelineState extends State<LiveTimeline> {
             session: session['id'] as String,
           );
         case 'resource':
-          final retry = object(data);
+          final resource = object(data);
+          if (resource['type'] == 'compaction_failure') {
+            return ErrorDetails(
+              key: PageStorageKey('compaction-error-${entry['id']}-$index'),
+              reason: text(
+                object(resource['failure'])['cause'],
+                context.tr('conversationFailedStatus'),
+              ),
+            );
+          }
+          if (resource['type'] != 'model_retry') return const SizedBox.shrink();
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: ActivityText(
@@ -199,8 +210,8 @@ class _LiveTimelineState extends State<LiveTimeline> {
                         ? 'conversationModelRetrying'
                         : 'conversationModelRetried',
                   )
-                  .replaceAll('{attempt}', '${retry['attempt']}')
-                  .replaceAll('{limit}', '${retry['limit']}'),
+                  .replaceAll('{attempt}', '${resource['attempt']}')
+                  .replaceAll('{limit}', '${resource['limit']}'),
               active: retrying,
             ),
           );
@@ -245,7 +256,8 @@ class _LiveTimelineState extends State<LiveTimeline> {
         ...drafts.where((entry) => entry['turn'] == run['turn']),
       ];
       final active = activeRun(run);
-      final visible = visibleParts(rows, calls);
+      final visible = displayRows(view, run['turn']);
+      final inputs = turnInputs(view, run['turn']);
       final last = visible.lastOrNull;
       final waiting = calls.any(
         (call) =>
@@ -284,11 +296,17 @@ class _LiveTimelineState extends State<LiveTimeline> {
           ? 'conversationWaiting'
           : continuingTools ||
                 running ||
-                objects(page['children']).any(
-                  (child) =>
-                      object(child['origin'])['turn'] == run['turn'] &&
-                      activeRun(object(child['run'])),
-                )
+                children.values
+                    .map(
+                      (reference) => objects(
+                        page['children'],
+                      )[object(reference)['index'] as int],
+                    )
+                    .any(
+                      (child) =>
+                          object(child['origin'])['turn'] == run['turn'] &&
+                          activeRun(object(child['run'])),
+                    )
           ? null
           : last?.$3['kind'] == 'text'
           ? 'conversationGenerating'
@@ -346,14 +364,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   object(call['source'])['index'] == index,
             )
             .firstOrNull;
-        final child = latestChild(
-          objects(page['children']).where(
-            (child) =>
-                object(child['origin'])['turn'] == run['turn'] &&
-                object(child['origin'])['entry'] == entry['id'] &&
-                object(child['origin'])['index'] == index,
-          ),
-        );
+        final childReferences = objects(call?['children']);
         if (call?['progress'] != null && progressShown) continue;
         final rendered = call?['progress'] != null
             ? TaskProgress(
@@ -361,20 +372,32 @@ class _LiveTimelineState extends State<LiveTimeline> {
                 progress: object(latestProgress!['progress']),
                 continuing: continuingTools && lastCall['progress'] != null,
               )
-            : child != null
-            ? ChildTask(
-                child: child,
-                continuing: continuingTools && row == last,
-                title: text(
-                  object(object(value['data'])['arguments'])['title'],
-                  text(child['name'], context.tr('conversationChild')),
-                ),
-                connected: connected,
-                onOpen:
-                    onOpenChild == null ||
-                        childSession(host.snapshot, session, child) == null
-                    ? null
-                    : () => onOpenChild(child),
+            : childReferences.isNotEmpty
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final reference in childReferences)
+                    ChildTask(
+                      child: objects(
+                        page['children'],
+                      )[reference['index'] as int],
+                      continuing: continuingTools && row == last,
+                      title: text(
+                        object(object(value['data'])['arguments'])['title'],
+                        text(
+                          objects(page['children'])[reference['index']
+                              as int]['name'],
+                          context.tr('conversationChild'),
+                        ),
+                      ),
+                      connected: connected,
+                      onOpen:
+                          onOpenChild == null ||
+                              childSession(host, reference) == null
+                          ? null
+                          : () => onOpenChild(reference),
+                    ),
+                ],
               )
             : part(
                 entry,
@@ -406,10 +429,10 @@ class _LiveTimelineState extends State<LiveTimeline> {
         children: [
           BackgroundNotices(
             items: objects(run['notices']),
-            children: objects(page['children']),
+            children: children,
             onOpenChild: onOpenChild,
           ),
-          for (final input in turnInputs(page, run))
+          for (final input in inputs)
             UserBubble(
               onEdit:
                   onTurnAction == null || !canChangeHistory || !input.canonical
@@ -484,7 +507,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
               canEdit:
                   canChangeHistory &&
                   !noticeTurn(run) &&
-                  rows.any((entry) => entry['author'] == 'user'),
+                  inputs.any((input) => input.canonical),
               copy: rows
                   .where((entry) => entry['author'] != 'user')
                   .expand((entry) => objects(entry['parts']))
@@ -520,7 +543,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
         children: [
           BackgroundNotices(
             items: pendingBackground(page),
-            children: objects(page['children']),
+            children: children,
             pending: true,
             onOpenChild: onOpenChild,
           ),
@@ -538,102 +561,5 @@ class _LiveTimelineState extends State<LiveTimeline> {
 
 bool _modelRetry(Map<String, dynamic> part) {
   final data = object(part['data']);
-  return part['kind'] == 'resource' &&
-      data['type'] == 'model_retry' &&
-      data['attempt'] is int &&
-      data['attempt'] >= 0 &&
-      data['limit'] is int &&
-      data['limit'] >= 0;
-}
-
-/// Consecutive retry counters share a single visual row, like Desktop's blocks.
-List<(Map<String, dynamic>, int, Map<String, dynamic>)> visibleParts(
-  List<Map<String, dynamic>> entries,
-  List<Map<String, dynamic>> calls,
-) {
-  final rows = <(Map<String, dynamic>, int, Map<String, dynamic>)>[];
-  for (final entry in entries.where((entry) => entry['author'] != 'user')) {
-    for (final (index, part) in _displayParts(
-      objects(entry['parts']),
-      objects(entry['citations']),
-    )) {
-      final call = calls.where((call) {
-        final source = object(call['source']);
-        return source['entry'] == entry['id'] && source['index'] == index;
-      }).firstOrNull;
-      if (call?['hidden'] == true) continue;
-      if (part['kind'] == 'text' && text(part['data']).trim().isEmpty) {
-        continue;
-      }
-      if (part['kind'] == 'tool_result') {
-        // Image results remain visible when execution details collapse.
-        for (final image in objects(object(part['data'])['images'])) {
-          rows.add((entry, index, {'kind': 'image', 'data': image}));
-        }
-        if (calls.any(
-          (call) =>
-              object(call['source'])['entry'] == entry['id'] &&
-              object(call['source'])['index'] == index,
-        )) {
-          rows.add((entry, index, part));
-        }
-        continue;
-      }
-      if (part['kind'] == 'resource' && !_modelRetry(part)) {
-        continue;
-      }
-      final previous = rows.lastOrNull?.$3;
-      if (_modelRetry(part) && previous != null && _modelRetry(previous)) {
-        final next = object(part['data']);
-        final before = object(previous['data']);
-        if (next['limit'] == before['limit'] &&
-            next['attempt'] > before['attempt']) {
-          rows.removeLast();
-        }
-      }
-      rows.add((entry, index, part));
-    }
-  }
-  return rows;
-}
-
-/// Like Desktop's message blocks, pass contiguous text in one entry to the
-/// Markdown parser together so table rows and inline syntax remain intact.
-/// Keep source indices for tools; this does not change Client projections.
-Iterable<(int, Map<String, dynamic>)> _displayParts(
-  List<Map<String, dynamic>> parts,
-  List<Map<String, dynamic>> citations,
-) sync* {
-  var offset = 0;
-  for (var index = 0; index < parts.length; index++) {
-    final part = parts[index];
-    final kind = part['kind'];
-    if (kind != 'text' && kind != 'thinking') {
-      yield (index, part);
-      continue;
-    }
-    final start = index;
-    final content = StringBuffer(part['data'] as String);
-    while (index + 1 < parts.length && parts[index + 1]['kind'] == kind) {
-      content.write(parts[++index]['data'] as String);
-    }
-    final original = content.toString();
-    if (kind == 'text') {
-      yield (
-        start,
-        {
-          ...part,
-          'data': citedText(
-            original,
-            citations,
-            offset,
-            !parts.skip(index + 1).any((part) => part['kind'] == 'text'),
-          ),
-        },
-      );
-      offset += original.runes.length;
-    } else {
-      yield (start, {...part, 'data': original});
-    }
-  }
+  return part['kind'] == 'resource' && data['type'] == 'model_retry';
 }

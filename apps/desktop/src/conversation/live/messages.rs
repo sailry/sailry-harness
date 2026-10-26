@@ -294,40 +294,27 @@ impl View {
         }
         let automatic = run.continuation.is_some() || run.notice;
 
-        let mut prompt = String::new();
-        let mut sent_ms = None;
-        let mut attachments = Vec::new();
-        let mut references = Vec::new();
-        for entry in snapshot
+        let sent_ms = snapshot
             .page
             .entries
             .iter()
-            .filter(|entry| entry.turn == turn)
-        {
-            if entry.author == "user" {
-                sent_ms.get_or_insert(entry.timestamp_ms);
-                for part in &entry.parts {
-                    if let Part::Text(text) = part {
-                        prompt.push_str(text);
-                    } else if let Part::Attachment(attachment) = part {
-                        attachments.push(attachments::images::ImageSource::from(attachment));
-                    } else if let Part::Reference(reference) = part {
-                        references.push(reference.clone());
-                    }
-                }
-            }
-        }
-        if sent_ms.is_none()
-            && let Some(input) = sailry_client::conversation::turns::input(&snapshot.page, turn)
-        {
-            prompt = input.message.text;
-            references = input.message.references;
-            attachments = input
-                .attachments
-                .iter()
-                .map(attachments::images::ImageSource::from)
-                .collect();
-        }
+            .find(|entry| entry.turn == turn && entry.author == "user")
+            .map(|entry| entry.timestamp_ms);
+        let input = sailry_client::conversation::turns::input(&snapshot.page, turn);
+        let mut prompt = input
+            .as_ref()
+            .map(|input| input.message.text.clone())
+            .unwrap_or_default();
+        let mut references = input
+            .as_ref()
+            .map(|input| input.message.references.clone())
+            .unwrap_or_default();
+        let mut attachments: Vec<_> = input
+            .as_ref()
+            .into_iter()
+            .flat_map(|input| &input.attachments)
+            .map(attachments::images::ImageSource::from)
+            .collect();
         // Admission and canonical user content arrive independently. Keep the
         // local prompt in its admitted turn until the user event replaces it.
         if sent_ms.is_none()

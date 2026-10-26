@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/modes.dart';
-import 'package:sailry_mobile/runtime/json.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 
 Map<String, dynamic> package(
@@ -82,123 +81,58 @@ HostConnection host(
       },
 );
 
+ConversationModes controllerFor(HostConnection owner) => ConversationModes(
+  owner,
+  project: (_, modes) => {
+    'selected': 'client-selection',
+    'choices': modes.map((mode) => mode.key).toList(),
+  },
+  select: (config, _, _) => config,
+);
+
 void main() {
-  test('shows the declared selection and clears builtins', () async {
+  test('loads metadata and presents localized mode labels', () async {
     final owner = host({'first': package('first')});
-    final modes = ConversationModes(owner);
+    final modes = controllerFor(owner);
     addTearDown(owner.dispose);
     addTearDown(modes.dispose);
     await modes.settled;
-    final original = config();
-    expect(modes.selected(original), 'code');
-    final active = modes.select(original, 'first/selected')!;
-    expect(modes.selected(active), 'first/selected');
-    expect(modes.choices(active).single.label(const Locale('zh')), '多任务');
+    expect(modes.selected(config()), 'client-selection');
+    final choice = modes.choices(config()).single;
+    expect(choice.label(const Locale('zh')), '多任务');
     expect(
-      modes
-          .choices(active)
-          .single
-          .label(
-            const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
-          ),
+      choice.label(
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      ),
       '多工',
     );
-    for (final builtin in ['code', 'plan']) {
-      final changed = modes.select(active, builtin)!;
-      expect(modes.selected(changed), builtin);
-      expect(changed['mode'], builtin);
-      expect(changed['permission'], 'ask');
-      expect(object(object(changed['options'])['first'])['mode'], '');
-      expect(object(object(changed['options'])['first'])['proactive'], true);
-      expect(object(object(changed['options'])['first'])['retained'], {
-        'value': 42,
-      });
-      expect(
-        object(changed['options'])['unrelated'],
-        object(original['options'])['unrelated'],
-      );
-    }
-    expect(
-      object(object(original['options'])['first']).containsKey('mode'),
-      false,
-    );
-    expect(object(object(active['options'])['first'])['mode'], 'selected');
-  });
-
-  test('switches package ownership and maps readonly authority', () async {
-    final owner = host({
-      'first': package('first'),
-      'second': package('second', write: false),
+    expect(choice.wire['package'], {
+      'name': 'first',
+      'digest': 'first-1',
+      'settings_revision': 0,
     });
-    final modes = ConversationModes(owner);
-    addTearDown(owner.dispose);
-    addTearDown(modes.dispose);
-    await modes.settled;
-    final active = modes.select(config(), 'first/selected')!;
-    final review = modes.select(active, 'second/selected')!;
-    expect(modes.selected(review), 'second/selected');
-    expect(review['mode'], 'plan');
-    expect(review['permission'], 'ask');
-    expect(object(object(review['options'])['first'])['mode'], '');
-    expect(object(object(review['options'])['second'])['other'], false);
-    final ambiguous = {
-      ...review,
-      'options': {
-        ...object(review['options']),
-        'first': {
-          ...object(object(review['options'])['first']),
-          'mode': 'selected',
-        },
-      },
-    };
-    expect(modes.selected(ambiguous), isNull);
-    final build = modes.select(ambiguous, 'code')!;
-    expect(modes.selected(build), 'code');
-    expect(object(object(build['options'])['first'])['mode'], '');
-    expect(object(object(build['options'])['second'])['mode'], '');
   });
 
-  test('loading cannot mislabel or commit the current mode', () async {
+  test('loading cannot present or commit a selection', () async {
     final reply = Completer<Map<String, dynamic>>();
     final info = package('first');
     final owner = host({'first': info}, read: (_, _) => reply.future);
-    final modes = ConversationModes(owner);
+    final modes = controllerFor(owner);
     addTearDown(owner.dispose);
     addTearDown(modes.dispose);
     final current = config();
-    (current['options'] as Map)['first'] = {'mode': 'selected'};
     expect(modes.ready, false);
     expect(modes.selected(current), isNull);
     expect(modes.choices(current), isEmpty);
     expect(modes.select(current, 'code'), isNull);
     reply.complete({'data': info});
     await modes.settled;
-    expect(modes.selected(current), 'first/selected');
-    expect(modes.select(current, 'code'), isNotNull);
+    expect(modes.selected(current), 'client-selection');
+    expect(modes.select(current, 'code'), same(current));
+    owner.connected = false;
+    owner.notifyListeners();
+    expect(modes.select(current, 'code'), isNull);
   });
-
-  test(
-    'disabled current modes remain recognizable and can be cleared',
-    () async {
-      final owner = host({'first': package('first', enabled: false)});
-      final modes = ConversationModes(owner);
-      addTearDown(owner.dispose);
-      addTearDown(modes.dispose);
-      await modes.settled;
-      final current = config();
-      (current['options'] as Map)['first'] = {
-        'mode': 'selected',
-        'proactive': true,
-      };
-      expect(modes.selected(current), 'first/selected');
-      expect(modes.choices(current).single.enabled, false);
-      expect(modes.select(current, 'first/selected'), isNull);
-      final build = modes.select(current, 'code')!;
-      expect(modes.selected(build), 'code');
-      expect(modes.choices(build), isEmpty);
-      expect(object(object(build['options'])['first'])['proactive'], true);
-    },
-  );
 
   test('inventory changes invalidate only the affected metadata', () async {
     final packages = {'first': package('first'), 'second': package('second')};
@@ -212,7 +146,7 @@ void main() {
         return {'data': packages[name]};
       },
     );
-    final modes = ConversationModes(owner);
+    final modes = controllerFor(owner);
     addTearDown(owner.dispose);
     addTearDown(modes.dispose);
     await modes.settled;
@@ -235,16 +169,7 @@ void main() {
     owner.snapshot = {'plugins': []};
     owner.notifyListeners();
     await modes.settled;
-    final retained = config();
-    (retained['options'] as Map)['first'] = {
-      'mode': 'selected',
-      'proactive': true,
-    };
-    expect(modes.selected(retained), 'code');
-    expect(object(modes.select(retained, 'code')!['options'])['first'], {
-      'mode': 'selected',
-      'proactive': true,
-    });
+    expect(modes.choices(config()), isEmpty);
   });
 
   test('late replies cannot replace current declarations', () async {
@@ -258,7 +183,7 @@ void main() {
         return {'data': package('first', revision: 2)};
       },
     );
-    final modes = ConversationModes(owner);
+    final modes = controllerFor(owner);
     addTearDown(owner.dispose);
     addTearDown(modes.dispose);
     final previous = modes.settled;
@@ -275,21 +200,18 @@ void main() {
     );
   });
 
-  test(
-    'read failures preserve configuration without a false selection',
-    () async {
-      final owner = host({
-        'first': package('first'),
-      }, read: (_, _) async => throw const CommandFailure('not_configured'));
-      final modes = ConversationModes(owner);
-      addTearDown(owner.dispose);
-      addTearDown(modes.dispose);
-      final current = config();
-      await modes.settled;
-      expect(modes.error, isA<CommandFailure>());
-      expect(modes.selected(current), isNull);
-      expect(modes.select(current, 'code'), isNull);
-      expect(current, config());
-    },
-  );
+  test('read failures leave the current configuration available', () async {
+    final owner = host({
+      'first': package('first'),
+    }, read: (_, _) async => throw const CommandFailure('not_configured'));
+    final modes = controllerFor(owner);
+    addTearDown(owner.dispose);
+    addTearDown(modes.dispose);
+    final current = config();
+    await modes.settled;
+    expect(modes.error, isA<CommandFailure>());
+    expect(modes.selected(current), isNull);
+    expect(modes.select(current, 'code'), isNull);
+    expect(current, config());
+  });
 }

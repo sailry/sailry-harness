@@ -255,6 +255,7 @@ Future<Fixture> create(
   fixture.session = created['data']['id'] as String;
   final updates = await connection.watchConversation(session: fixture.session);
   final empty = await until(updates, (_) => true);
+  check(empty['removed'] == false, 'existing session remains available');
   final emptyStatistics = empty['snapshot']['statistics'];
   check(
     emptyStatistics['turns'] == 0 &&
@@ -295,6 +296,23 @@ Future<Fixture> create(
     ),
     'partial output is not committed history',
   );
+  final turn = partial['snapshot']['page']['runs'].last['turn'];
+  final partialRows = partial['rows'][turn] as List;
+  check(
+    partialRows.any(
+      (row) =>
+          row['draft'] == true &&
+          row['source']['entry'] == partial['snapshot']['drafts'][0]['id'] &&
+          row['part']['data'] == 'FFI streaming answer',
+    ),
+    'Client rows select transient output over FFI',
+  );
+  final inputs = partial['inputs'][turn] as List;
+  check(
+    inputs.single['message']['text'] == 'FFI conversation fixture' &&
+        inputs.single['canonical'] == true,
+    'Client inputs select canonical content over FFI',
+  );
   fixture.release.complete();
   final complete = await until(
     updates,
@@ -314,6 +332,19 @@ Future<Fixture> create(
   check(
     (complete['calls'] as List).length == 2,
     'shared call association over FFI',
+  );
+  final completeRows = complete['rows'][turn] as List;
+  check(
+    completeRows.every((row) => row['draft'] == false) &&
+        completeRows.any(
+          (row) =>
+              row['source']['entry'] ==
+                  complete['snapshot']['page']['entries'].last['id'] &&
+              row['part']['data'] == 'FFI streaming answer' &&
+              row['text_offset'] == 0 &&
+              row['text_last'] == true,
+        ),
+    'Client rows replace transient output over FFI',
   );
   checkStatistics(complete['snapshot']);
   final call = (complete['calls'] as List).singleWhere(

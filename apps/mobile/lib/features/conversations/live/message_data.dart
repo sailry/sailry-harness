@@ -18,48 +18,45 @@ typedef InputContent = ({
   bool canonical,
 });
 
-/// Display the Client's admitted capture until its canonical user rows arrive.
-List<InputContent> turnInputs(
-  Map<String, dynamic> page,
-  Map<String, dynamic> run,
-) {
-  if (run['notice'] == true) return [];
-  final entries = objects(page['entries'])
-      .where(
-        (entry) => entry['turn'] == run['turn'] && entry['author'] == 'user',
-      )
-      .toList();
-  if (entries.isNotEmpty) {
-    return [
-      for (final entry in entries)
-        (
-          text: objects(entry['parts'])
-              .where((part) => part['kind'] == 'text')
-              .map((part) => text(part['data']))
-              .join('\n'),
-          attachments: objects(entry['parts'])
-              .where((part) => part['kind'] == 'attachment')
-              .map((part) => object(part['data']))
-              .toList(),
-          references: objects(entry['parts'])
-              .where((part) => part['kind'] == 'reference')
-              .map((part) => object(part['data']))
-              .toList(),
-          canonical: true,
-        ),
-    ];
-  }
-  final input = object(run['input']);
-  if (input.isEmpty) return [];
-  final message = object(input['message']);
-  return [
+List<InputContent> turnInputs(Map<String, dynamic> view, Object? turn) => [
+  for (final input in objects(object(view['inputs'])[turn]))
     (
-      text: text(message['text']),
+      text: text(object(input['message'])['text']),
       attachments: objects(input['attachments']),
-      references: objects(message['references']),
-      canonical: false,
+      references: objects(object(input['message'])['references']),
+      canonical: input['canonical'] == true,
     ),
-  ];
+];
+
+/// Add Markdown citation links to the Client's selected rows and source offsets.
+List<(Map<String, dynamic>, int, Map<String, dynamic>)> displayRows(
+  Map<String, dynamic> view,
+  Object? turn,
+) {
+  final snapshot = object(view['snapshot']);
+  final entries = {
+    for (final entry in objects(object(snapshot['page'])['entries']))
+      entry['id']: entry,
+  };
+  final drafts = {
+    for (final entry in objects(snapshot['drafts'])) entry['id']: entry,
+  };
+  final rows = <(Map<String, dynamic>, int, Map<String, dynamic>)>[];
+  for (final row in objects(object(view['rows'])[turn])) {
+    final source = object(row['source']);
+    final entry = (row['draft'] == true ? drafts : entries)[source['entry']]!;
+    final part = object(row['part']);
+    if (part['kind'] == 'text') {
+      part['data'] = citedText(
+        text(part['data']),
+        objects(entry['citations']),
+        row['text_offset'] as int,
+        row['text_last'] == true,
+      );
+    }
+    rows.add((entry, source['index'] as int, part));
+  }
+  return rows;
 }
 
 Map<String, dynamic> sentInput(Map<String, dynamic> page, Object? turn) {

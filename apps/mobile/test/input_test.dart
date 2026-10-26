@@ -9,81 +9,36 @@ void main() {
     'spec': {'name': 'captured.png', 'worktree': 'child-tree'},
   };
   final reference = {'target': 'project', 'label': 'Captured project'};
-  final capture = {
-    'message': {
-      'text': 'Original input 中文 🙂',
-      'attachments': ['attachment'],
-      'references': [reference],
-    },
-    'attachments': [attachment],
-  };
-
-  test('admitted content survives claim and reconnect', () {
-    final page = {'entries': <Map<String, dynamic>>[]};
-    for (final status in ['queued', 'running', 'failed', 'interrupted']) {
-      final run = {'turn': 'turn', 'status': status, 'input': capture};
-      final before = jsonEncode([page, run]);
-      final input = turnInputs(page, run).single;
-      expect(input.text, 'Original input 中文 🙂');
-      expect(input.attachments, [attachment]);
-      expect(input.references, [reference]);
-      expect(input.canonical, isFalse);
-      expect(jsonEncode([page, run]), before);
-    }
-  });
-
-  test('canonical rows replace the capture once', () {
-    final run = {'turn': 'turn', 'input': capture};
-    final page = {
-      'entries': [
-        {
-          'turn': 'other',
-          'author': 'user',
-          'parts': [
-            {'kind': 'text', 'data': 'Another turn'},
-          ],
-        },
-        {
-          'turn': 'turn',
-          'author': 'user',
-          'parts': [
-            {'kind': 'text', 'data': 'Canonical input'},
-            {'kind': 'attachment', 'data': attachment},
-            {'kind': 'reference', 'data': reference},
-          ],
-        },
-      ],
+  test('reads the Client input projection without fallback', () {
+    final view = {
+      'inputs': {
+        'turn': [
+          {
+            'message': {
+              'text': 'Original input 中文 🙂',
+              'references': [reference],
+            },
+            'attachments': [attachment],
+            'canonical': false,
+          },
+          {
+            'message': {'text': '', 'references': []},
+            'attachments': [attachment],
+            'canonical': true,
+          },
+        ],
+      },
     };
-    final before = jsonEncode([page, run]);
-    final input = turnInputs(page, run).single;
-    expect(input.text, 'Canonical input');
-    expect(input.attachments, [attachment]);
-    expect(input.references, [reference]);
-    expect(input.canonical, isTrue);
-    expect(jsonEncode([page, run]), before);
-  });
-
-  test('empty canonical content still replaces captured text', () {
-    final page = {
-      'entries': [
-        {
-          'turn': 'turn',
-          'author': 'user',
-          'parts': [
-            {'kind': 'attachment', 'data': attachment},
-          ],
-        },
-      ],
-    };
-    final input = turnInputs(page, {'turn': 'turn', 'input': capture}).single;
-    expect(input.text, isEmpty);
-    expect(input.attachments, [attachment]);
-    expect(input.canonical, isTrue);
-    expect(turnInputs({}, {'turn': 'turn'}), isEmpty);
-    expect(
-      turnInputs(page, {'turn': 'turn', 'notice': true, 'input': capture}),
-      isEmpty,
-    );
+    final before = jsonEncode(view);
+    final inputs = turnInputs(view, 'turn');
+    expect(inputs.first.text, 'Original input 中文 🙂');
+    expect(inputs.first.references, [reference]);
+    expect(inputs.first.attachments, [attachment]);
+    expect(inputs.first.canonical, isFalse);
+    expect(inputs.last.text, isEmpty);
+    expect(inputs.last.canonical, isTrue);
+    expect(turnInputs(view, 'other'), isEmpty);
+    expect(jsonEncode(view), before);
   });
 
   test('history actions preserve canonical text boundaries', () {

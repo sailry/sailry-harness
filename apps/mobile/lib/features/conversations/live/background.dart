@@ -14,7 +14,7 @@ class BackgroundNotices extends StatelessWidget {
     this.onOpenChild,
   });
   final List<Map<String, dynamic>> items;
-  final List<Map<String, dynamic>> children;
+  final Map<String, dynamic> children;
   final bool pending;
   final ValueChanged<Map<String, dynamic>>? onOpenChild;
 
@@ -22,9 +22,8 @@ class BackgroundNotices extends StatelessWidget {
     final kind = object(item['kind']);
     if (kind['kind'] != 'agent') return null;
     final session = object(kind['data'])['session'];
-    return children
-        .where((entry) => object(entry['run'])['session'] == session)
-        .firstOrNull;
+    final reference = children[session];
+    return reference == null ? null : object(reference);
   }
 
   @override

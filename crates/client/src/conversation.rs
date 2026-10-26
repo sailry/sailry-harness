@@ -1,9 +1,13 @@
 mod assets;
+pub mod children;
 pub mod export;
 mod history;
+pub mod modes;
 mod observer;
 mod projection;
+mod removal;
 pub mod reply;
+pub mod rows;
 mod search;
 pub mod tools;
 pub mod turns;
@@ -31,6 +35,9 @@ pub struct View {
     pub live_start: Option<u64>,
     pub snapshot: Option<Arc<Snapshot>>,
     pub calls: Arc<Vec<tools::Call>>,
+    pub children: Arc<children::View>,
+    /// True only after authoritative Node observation and confirmation agree.
+    pub removed: bool,
     pub connected: bool,
     pub error: Option<Fault>,
     pub loading_older: bool,
@@ -53,6 +60,7 @@ impl View {
             .is_none_or(|previous| !Arc::ptr_eq(&previous.page, &snapshot.page))
         {
             self.calls = Arc::new(tools::collect(&snapshot.page));
+            self.children = Arc::new(children::project(&snapshot.page));
         }
         self.snapshot = Some(snapshot);
         self.generation = generation;

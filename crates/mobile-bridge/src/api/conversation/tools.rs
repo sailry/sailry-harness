@@ -7,10 +7,35 @@ pub(super) fn view(view: &View) -> Result<String, String> {
     let mut value = serde_json::to_value(view).map_err(super::error)?;
     if let Some(snapshot) = &view.snapshot {
         let page = &snapshot.page;
+        value["rows"] = serde_json::to_value(
+            page.runs
+                .iter()
+                .map(|run| {
+                    (
+                        run.turn,
+                        sailry_client::conversation::rows::collect(snapshot, &view.calls, run.turn),
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>(),
+        )
+        .map_err(super::error)?;
+        value["inputs"] = serde_json::to_value(
+            page.runs
+                .iter()
+                .map(|run| {
+                    (
+                        run.turn,
+                        sailry_client::conversation::turns::inputs(page, run.turn),
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>(),
+        )
+        .map_err(super::error)?;
         let calls = value["calls"]
             .as_array_mut()
             .expect("serialized calls are an array");
         for (value, call) in calls.iter_mut().zip(view.calls.iter()) {
+            value["children"] = json!(call.children(page));
             value["hidden"] = json!(call.hidden(page));
             value["details"] = json!(call.details(page));
             let deferred = call

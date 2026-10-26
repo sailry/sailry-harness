@@ -16,6 +16,7 @@ pub struct View {
     pub notifications: Vec<crate::activity::Notice>,
     pub package_cursors: std::collections::BTreeMap<String, u64>,
     pub credential_cursor: u64,
+    pub child_targets: std::collections::BTreeMap<String, sailry_protocol::SessionId>,
     pub connected: bool,
     pub connection: sailry_link::ConnectionInfo,
     pub error: Option<Fault>,
@@ -139,6 +140,7 @@ impl Client {
                                     notifications: activity.notices.clone(),
                                     package_cursors: projection.package_cursors().clone(),
                                     credential_cursor: projection.credential_cursor(),
+                                    child_targets: projection.snapshot().map(crate::conversation::children::targets).unwrap_or_default(),
                                     connected: true,
                                     connection,
                                     error: None,
@@ -160,6 +162,7 @@ impl Client {
                     notifications: activity.notices.clone(),
                     package_cursors: projection.package_cursors().clone(),
                     credential_cursor: projection.credential_cursor(),
+                    child_targets: projection.snapshot().map(crate::conversation::children::targets).unwrap_or_default(),
                     // Backpressure is not evidence that the authenticated transport
                     // or an already-valid projection became unavailable.
                     connected,

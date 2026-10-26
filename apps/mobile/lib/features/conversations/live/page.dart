@@ -141,11 +141,16 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
       _updates = updates;
       while (!_closed) {
         final value = object(jsonDecode(await updates.next()));
-        if (_closed) break;
+        if (_closed || !mounted) break;
         final following =
             !_scroll.hasClients || _scroll.position.extentBefore < 60;
         _error = null;
         _view.value = value;
+        if (value['removed'] == true) {
+          final route = ModalRoute.of(context);
+          if (route != null) Navigator.of(context).removeRoute(route);
+          break;
+        }
         _artifactActions.changed();
         _turnKeys.removeWhere(
           (turn, _) =>
@@ -287,9 +292,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
 
   Future<void> _voice() => dictate(context, _draft);
 
-  void _openChild(Map<String, dynamic> child) {
-    final id = object(child['run'])['session'];
-    final session = childSession(widget.host.snapshot, _session, child);
+  void _openChild(Map<String, dynamic> reference) {
+    final session = childSession(widget.host, reference);
     if (session == null) {
       _failure(context.tr('conversationUnavailable'));
       return;
@@ -299,7 +303,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         context,
         LiveConversationPage(
           host: widget.host,
-          sessionId: id as String,
+          sessionId: session['id'] as String,
           initialSession: session,
         ),
       ),

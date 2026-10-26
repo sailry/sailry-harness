@@ -6,6 +6,7 @@ import 'package:sailry_bridge/frb_generated.dart';
 import 'terminal.dart' as terminal;
 import 'conversation.dart' as conversation;
 import 'usage.dart' as usage;
+import 'rules.dart' as rules;
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);
@@ -16,6 +17,7 @@ Future<void> main() async {
   await RustLib.init(
     externalLibrary: ExternalLibrary.open(env['SAILRY_BRIDGE_LIBRARY']!),
   );
+  rules.run();
   final path = env['SAILRY_CONTROLLER_PROFILE']!;
   var controller = await Controller.open(
     path: path,

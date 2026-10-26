@@ -36,81 +36,51 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
         .rev()
         .find(|call| call.turn == turn && call.progress.is_some());
     let mut progress_shown = false;
-    let parts = snapshot
-        .page
-        .entries
-        .iter()
-        .filter(|entry| entry.turn == turn && entry.author != "user")
-        .flat_map(|entry| {
-            let mut offset = 0;
-            let last = entry
-                .parts
-                .iter()
-                .rposition(|part| matches!(part, Part::Text(_)));
-            let mut search = entry.search_suggestions.as_ref().map(|_| entry);
-            entry
-                .parts
-                .iter()
-                .enumerate()
-                .filter_map(move |(index, part)| {
-                    if matches!(part, Part::Text(_)) && entry.search_suggestions.is_some() {
-                        return search.take().map(|entry| {
-                            (
-                                format!("{}-{index}", entry.id),
-                                part,
-                                None,
-                                Some(entry),
-                                false,
-                            )
-                        });
-                    }
-                    let text = if let Part::Text(text) = part {
-                        let value = super::citations::text(
-                            text,
-                            offset,
-                            last == Some(index),
-                            &entry.citations,
-                        );
-                        offset += text.chars().count();
-                        Some(value)
-                    } else {
-                        None
-                    };
-                    Some((
-                        format!("{}-{index}", entry.id),
-                        part,
-                        text,
-                        None,
-                        continues(&entry.parts, index),
-                    ))
-                })
-        })
-        .chain(
-            snapshot
-                .drafts
-                .iter()
-                .filter(|draft| draft.turn == turn)
-                .flat_map(|draft| {
-                    draft.parts.iter().enumerate().map(|(index, part)| {
-                        (
-                            format!("draft-{}-{index}", draft.id),
-                            part,
-                            None,
-                            None,
-                            continues(&draft.parts, index),
-                        )
-                    })
-                }),
-        );
+    let rows = sailry_client::conversation::rows::collect(snapshot, &history.calls, turn);
     let mut blocks = Vec::new();
-    for (key, part, text, search, continuation) in parts {
-        if let Some(entry) = search {
-            blocks.push(Block::Search(entry));
+    let mut searches = std::collections::BTreeSet::new();
+    for row in rows {
+        let key = if row.draft {
+            format!("draft-{}-{}", row.source.entry, row.source.index)
+        } else {
+            row.source.key()
+        };
+        // Desktop renders result images inside the associated tool card.
+        if let Some(image) = row.image {
+            if !history
+                .calls
+                .iter()
+                .any(|call| call.response.as_ref() == Some(&row.source))
+            {
+                blocks.push(Block::Images(vec![image]));
+            }
+            continue;
+        }
+        let part = row.part;
+        let continuation = row.continuation;
+        if matches!(part, Part::Text(_))
+            && let Some(entry) = row.entry.filter(|entry| entry.search_suggestions.is_some())
+        {
+            if searches.insert(entry.id.as_str()) {
+                blocks.push(Block::Search(entry));
+            }
             continue;
         }
         match part {
             Part::Text(original) => {
-                let text = text.unwrap_or(Cow::Borrowed(original));
+                let text = row.text.unwrap_or_else(|| original.clone());
+                let text = match row.entry {
+                    Some(entry) => Cow::Owned(
+                        super::citations::text(
+                            &text,
+                            row.text_offset,
+                            row.text_last,
+                            &entry.citations,
+                        )
+                        .into_owned(),
+                    ),
+                    None => Cow::Owned(text),
+                };
                 if continuation && let Some(Block::Text(_, previous)) = blocks.last_mut() {
                     previous.to_mut().push_str(&text);
                 } else {
@@ -125,11 +95,10 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                 }
             }
             Part::Thinking(text) => {
-                if continuation && let Some(Block::Thinking(_, previous)) = blocks.last_mut() {
-                    previous.to_mut().push_str(text);
-                } else {
-                    blocks.push(Block::Thinking(key, Cow::Borrowed(text)));
-                }
+                blocks.push(Block::Thinking(
+                    key,
+                    Cow::Owned(row.text.unwrap_or_else(|| text.clone())),
+                ));
             }
             Part::Compaction(text) => blocks.push(Block::Compaction(key, text)),
             Part::Resource(value) if value["type"] == "compaction_failure" => {
@@ -139,27 +108,11 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                     blocks.push(Block::CompactionFailure(key, failure));
                 }
             }
-            Part::Resource(value)
-                if value["type"] == "provider_context"
-                    || value["type"] == "tool_started"
-                    || value["type"] == "tool_failed"
-                    || (value["type"] == "operation_warning"
-                        && value["code"] == "context_summary_failed") => {}
             Part::Resource(value) if value["type"] == "model_retry" => {
                 if let Some(retry) =
                     sailry_protocol::conversation::recovery::Retry::from_resource(value)
                 {
-                    if let Some(Block::Retry(_, previous)) = blocks.last_mut()
-                        && !previous.fallback
-                        && !retry.fallback
-                        && previous.limit == retry.limit
-                        && previous.transport == retry.transport
-                        && retry.attempt > previous.attempt
-                    {
-                        *previous = retry;
-                    } else {
-                        blocks.push(Block::Retry(key, retry));
-                    }
+                    blocks.push(Block::Retry(key, retry));
                 }
             }
             Part::Resource(_) | Part::Attachment(_) | Part::Reference(_) => {
@@ -179,13 +132,11 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                     }
                     // Represent admitted delegations through their child rows; keep
                     // calls that failed before a child was created as tool errors.
-                    let children = super::super::subagents::latest(
-                        snapshot.page.children.iter().filter(|child| {
-                            child.origin.turn == turn
-                                && child.origin.entry == call.source.entry
-                                && child.origin.index == call.source.index
-                        }),
-                    );
+                    let children: Vec<_> = call
+                        .children(&snapshot.page)
+                        .into_iter()
+                        .map(|reference| &snapshot.page.children[reference.index])
+                        .collect();
                     if !children.is_empty() {
                         match blocks.last_mut() {
                             Some(Block::Children(group)) => group.extend(children),
@@ -193,25 +144,8 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
                         }
                         continue;
                     }
-                    if call.name == "compact_context"
-                        && let Some(summary) = call
-                            .result(&snapshot.page)
-                            .and_then(|result| result["summary_id"].as_str())
-                        && snapshot.page.entries.iter().any(|entry| {
-                            entry.id == summary
-                                && entry
-                                    .parts
-                                    .iter()
-                                    .any(|part| matches!(part, Part::Compaction(_)))
-                        })
-                    {
-                        continue;
-                    }
                     if call.question_spec(&snapshot.page).is_some() {
                         blocks.push(Block::Question(call));
-                        continue;
-                    }
-                    if call.hidden(&snapshot.page) {
                         continue;
                     }
                     match blocks.last_mut() {
@@ -262,17 +196,6 @@ fn groupable(call: &Call) -> bool {
         && call.grouping == sailry_protocol::tool::Grouping::Sequence
         && call.presentation != sailry_protocol::tool::Presentation::Progress
         && call.progress.is_none()
-}
-
-fn continues(parts: &[Part], index: usize) -> bool {
-    index.checked_sub(1).is_some_and(|previous| {
-        matches!(
-            (&parts[previous], &parts[index]),
-            (Part::Text(_), Part::Text(_))
-                | (Part::Thinking(_), Part::Thinking(_))
-                | (Part::Image(_), Part::Image(_))
-        )
-    })
 }
 
 #[cfg(test)]

@@ -34,6 +34,10 @@ fn canonical_user_replaces_capture() {
     let input =
         super::super::super::turns::input(&projection.snapshot().unwrap().page, run.turn).unwrap();
     assert_eq!(input.message, captured);
+    let selected =
+        super::super::super::turns::inputs(&projection.snapshot().unwrap().page, run.turn);
+    assert_eq!(selected.len(), 1);
+    assert!(!selected[0].canonical);
     assert_eq!(
         input.attachments.as_slice(),
         std::slice::from_ref(&attachment)
@@ -68,6 +72,9 @@ fn canonical_user_replaces_capture() {
         "Canonical input"
     );
     let canonical = super::super::super::turns::input(&current.page, run.turn).unwrap();
+    let selected = super::super::super::turns::inputs(&current.page, run.turn);
+    assert_eq!(selected.len(), 1);
+    assert!(selected[0].canonical);
     assert_eq!(canonical.message.attachments, captured.attachments);
     assert_eq!(canonical.message.references, captured.references);
     assert_eq!(canonical.attachments, input.attachments);

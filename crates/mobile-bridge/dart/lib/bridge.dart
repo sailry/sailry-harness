@@ -6,7 +6,8 @@ Future<void>? _initialization;
 /// One native library per Dart isolate, shared by all controller connections.
 Future<void> initializeBridge({ExternalLibrary? library}) {
   if (RustLib.instance.initialized) return Future.value();
-  return _initialization ??= RustLib.init(externalLibrary: library).whenComplete(() {
-    _initialization = null;
-  });
+  return _initialization ??= RustLib.init(externalLibrary: library)
+      .whenComplete(() {
+        _initialization = null;
+      });
 }
