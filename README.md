@@ -6,7 +6,7 @@
 
 <p align="center">English · <a href="README.zh-CN.md">Chinese (Simplified)</a></p>
 
-<p align="center"><strong>You steer. Agents sail.</strong></p>
+<p align="center"><strong>You steer. Agents sail</strong></p>
 
 <p align="center">Bring your own models and machines. Agents work with your files, terminals, Git, SSH and databases, and you pick up from desktop or phone.</p>
 

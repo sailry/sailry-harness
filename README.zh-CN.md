@@ -6,7 +6,7 @@
 
 <p align="center"><a href="README.md">English</a> · 简体中文</p>
 
-<p align="center"><strong>你掌舵，AI 远航。</strong></p>
+<p align="center"><strong>你掌舵，AI 远航</strong></p>
 
 <p align="center">用你自己的模型，在你自己的机器上，让智能体调用文件、终端、Git、SSH 和数据库，桌面和手机都能接着干。</p>
 
