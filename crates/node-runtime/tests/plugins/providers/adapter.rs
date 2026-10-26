@@ -417,13 +417,13 @@ export async function echo(input) {
                 match part {
                     Part::ToolCall { id, .. } => calls.push((
                         id.clone(),
-                        crate::model_fixture::details::tool_detail(&client, &page, entry, index)
+                        model_fixture::details::tool_detail(&client, &page, entry, index)
                             .await
                             .arguments,
                     )),
                     Part::ToolResult { id, .. } => results.push((
                         id.clone(),
-                        crate::model_fixture::details::tool_detail(&client, &page, entry, index)
+                        model_fixture::details::tool_detail(&client, &page, entry, index)
                             .await
                             .result
                             .unwrap(),
