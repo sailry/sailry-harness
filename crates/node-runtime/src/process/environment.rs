@@ -195,6 +195,11 @@ impl Environment {
         command.env_clear().envs(&self.values);
     }
 
+    pub(crate) fn apply_native(&self, command: &mut tokio::process::Command) {
+        // Native Git retains configured credentials while using frozen login paths.
+        command.envs(&self.terminal);
+    }
+
     pub(crate) fn apply_terminal(&self, command: &mut portable_pty::CommandBuilder) {
         command.env_clear();
         for (key, value) in &self.terminal {

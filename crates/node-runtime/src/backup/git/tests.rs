@@ -231,16 +231,17 @@ async fn restores_independent_linked_checkouts() {
         values.push(entry.unwrap().value().unwrap().to_owned());
     }
     assert_eq!(values, ["first", "", "last"]);
-    let Output::GitStatus(status) = crate::git::Git::new()
-        .inspect(
-            restored,
-            Command::InspectGit {
-                worktree: WorktreeId::new(),
-            },
-            CancellationToken::new(),
-        )
-        .await
-        .unwrap()
+    let Output::GitStatus(status) =
+        crate::git::Git::new(std::sync::Arc::new(crate::process::Environment::ambient()))
+            .inspect(
+                restored,
+                Command::InspectGit {
+                    worktree: WorktreeId::new(),
+                },
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap()
     else {
         panic!("Git status expected")
     };

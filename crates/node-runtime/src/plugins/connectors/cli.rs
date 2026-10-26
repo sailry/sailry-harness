@@ -168,8 +168,7 @@ async fn run(
         .envs(env)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .stdout(Stdio::piped())
-        .kill_on_drop(true);
+        .stdout(Stdio::piped());
     if let Some(path) = environment.path() {
         command.env("PATH", path);
     }
@@ -188,10 +187,15 @@ async fn run(
             command.env(name, value);
         }
     }
+    let mut command = crate::process::command(command);
     let operation = async {
-        let mut child = command.spawn().map_err(|_| unavailable())?;
+        let mut child = crate::process::Child {
+            inner: command.spawn().map_err(|_| unavailable())?,
+            armed: true,
+        };
         let mut output = child
-            .stdout
+            .inner
+            .stdout()
             .take()
             .ok_or_else(unavailable)?
             .take(limit as u64 + 1);
@@ -203,7 +207,11 @@ async fn run(
         if bytes.len() > limit {
             return Err(unavailable());
         }
-        let success = child.wait().await.map_err(|_| unavailable())?.success();
+        let success = child
+            .wait_root()
+            .await
+            .map_err(|_| unavailable())?
+            .success();
         Ok(Output { bytes, success })
     };
     tokio::select! {biased;_=stop.cancelled()=>Err(cancelled()),result=tokio::time::timeout(Duration::from_millis(timeout),operation)=>result.map_err(|_|unavailable())?}

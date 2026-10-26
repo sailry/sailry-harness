@@ -15,7 +15,7 @@ fn admits_parallel_reads() {
         // Hold the blocking pool so every request is pending at the same time.
         let (release, held) = std::sync::mpsc::channel();
         let blocker = tokio::task::spawn_blocking(move || held.recv().unwrap());
-        let git = Git::new();
+        let git = Git::new(std::sync::Arc::new(crate::process::Environment::ambient()));
         let worktree = WorktreeId::new();
         let closed = CancellationToken::new();
         let mut reads = Box::pin(async {
@@ -59,7 +59,7 @@ fn admits_parallel_reads() {
 async fn shutdown_cancels_reads() {
     let closed = CancellationToken::new();
     closed.cancel();
-    let error = Git::new()
+    let error = Git::new(std::sync::Arc::new(crate::process::Environment::ambient()))
         .inspect(
             PathBuf::new(),
             Command::InspectGit {

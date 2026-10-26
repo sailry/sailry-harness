@@ -23,6 +23,7 @@ pub(super) struct Roots {
     pub source: PathBuf,
     pub target: PathBuf,
     pub access: crate::files::Access,
+    pub environment: Arc<crate::process::Environment>,
 }
 
 impl Roots {
@@ -502,6 +503,7 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             ..
         } => crate::git::actions::execute(
             root,
+            &roots.environment,
             action,
             expected_index,
             expected_head.as_deref(),
@@ -518,6 +520,7 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             ..
         } => crate::git::commit::create(
             root,
+            &roots.environment,
             message,
             *amend,
             options,

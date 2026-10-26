@@ -1,6 +1,6 @@
 //! One owned WebDriver process tree; never attach to the user's personal browser.
 use super::*;
-use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
+use process_wrap::tokio::ChildWrapper;
 use std::process::Stdio;
 
 pub(super) struct Driver {
@@ -30,12 +30,7 @@ impl Driver {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        let mut command = CommandWrap::from(command);
-        command.wrap(KillOnDrop);
-        #[cfg(unix)]
-        command.wrap(process_wrap::tokio::ProcessGroup::leader());
-        #[cfg(windows)]
-        command.wrap(process_wrap::tokio::JobObject);
+        let mut command = crate::process::command(command);
         drop(listener);
         let mut process = Self {
             child: command.spawn().map_err(io_error)?,

@@ -3,7 +3,7 @@
 //! and normal completion observe actual transport cleanup, not is_closed().
 use super::*;
 use crate::{mcp_transport::Tracked, plugins::resources::mcp::Launch};
-use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
+use process_wrap::tokio::ChildWrapper;
 use rmcp::{RoleClient, transport::Transport};
 use std::{io, process::Stdio};
 use tokio::sync::oneshot;
@@ -242,12 +242,7 @@ impl Connection {
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null());
-                let mut command = CommandWrap::from(command);
-                command.wrap(KillOnDrop);
-                #[cfg(unix)]
-                command.wrap(process_wrap::tokio::ProcessGroup::leader());
-                #[cfg(windows)]
-                command.wrap(process_wrap::tokio::JobObject);
+                let mut command = crate::process::command(command);
                 if turn_stop.is_cancelled() {
                     return Err(unavailable());
                 }

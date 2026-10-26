@@ -23,6 +23,7 @@ pub(super) fn check(
 
 pub(crate) fn execute(
     root: &Path,
+    environment: &crate::process::Environment,
     action: &GitAction,
     index: &str,
     head: Option<&str>,
@@ -138,7 +139,7 @@ pub(crate) fn execute(
                 return Err(Fault::invalid("pull branch requires a remote"));
             }
         }
-        GitAction::Sync { rebase } => return super::management::sync(root, *rebase),
+        GitAction::Sync { rebase } => return super::management::sync(root, environment, *rebase),
         GitAction::DiscardAll { .. }
         | GitAction::RemoveRemote { .. }
         | GitAction::DeleteRemoteBranch { .. }
@@ -148,7 +149,7 @@ pub(crate) fn execute(
         | GitAction::DropAllStashes { .. }
         | GitAction::SwitchTracking { .. }
         | GitAction::SwitchStashing { .. } => {
-            return super::management::execute(root, &repository, action);
+            return super::management::execute(root, environment, &repository, action);
         }
         GitAction::Push {
             remote,
@@ -241,7 +242,11 @@ pub(crate) fn execute(
         }
         GitAction::ApplyStash { commit, pop } => {
             let position = stash_position(root, commit)?;
-            cli::run(root, &["stash".into(), "apply".into(), commit.clone()])?;
+            cli::run(
+                root,
+                environment,
+                &["stash".into(), "apply".into(), commit.clone()],
+            )?;
             if *pop {
                 if stash_position(root, commit)? != position {
                     return Err(Fault::new(
@@ -251,6 +256,7 @@ pub(crate) fn execute(
                 }
                 cli::run(
                     root,
+                    environment,
                     &[
                         "stash".into(),
                         "drop".into(),
@@ -379,7 +385,7 @@ pub(crate) fn execute(
             ]);
         }
     }
-    cli::run(root, &args).map(|_| ())
+    cli::run(root, environment, &args).map(|_| ())
 }
 
 pub(super) fn name(value: &str) -> Result<(), Fault> {

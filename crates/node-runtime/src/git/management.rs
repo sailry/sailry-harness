@@ -7,9 +7,14 @@ use git2::Repository;
 use sailry_protocol::{ErrorCode, Fault, GitAction, GitTag};
 use std::path::Path;
 
-pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Result<(), Fault> {
+pub(super) fn execute(
+    root: &Path,
+    environment: &crate::process::Environment,
+    repo: &Repository,
+    action: &GitAction,
+) -> Result<(), Fault> {
     let args: Vec<String> = match action {
-        GitAction::DiscardAll { paths } => return discard(root, repo, paths),
+        GitAction::DiscardAll { paths } => return discard(root, environment, repo, paths),
         GitAction::RemoveRemote { name: remote } => {
             remote_name(repo, remote)?;
             vec!["remote".into(), "remove".into(), remote.clone()]
@@ -124,7 +129,7 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
                 ]
             };
             if *stash {
-                stash_before_switch(root)?;
+                stash_before_switch(root, environment)?;
             }
             args
         }
@@ -139,7 +144,7 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
                     "branch changed before switching",
                 ));
             }
-            stash_before_switch(root)?;
+            stash_before_switch(root, environment)?;
             vec!["switch".into(), branch.clone()]
         }
         _ => {
@@ -149,27 +154,33 @@ pub(super) fn execute(root: &Path, repo: &Repository, action: &GitAction) -> Res
             ));
         }
     };
-    cli::run(root, &args).map(|_| ()).map_err(|error| {
-        if matches!(
-            action,
-            GitAction::SwitchStashing { .. } | GitAction::SwitchTracking { stash: true, .. }
-        ) {
-            Fault::new(
-                ErrorCode::OutcomeUnknown,
-                format!(
-                    "changes were stashed before switching failed: {}",
-                    error.message
-                ),
-            )
-        } else {
-            error
-        }
-    })
+    cli::run(root, environment, &args)
+        .map(|_| ())
+        .map_err(|error| {
+            if matches!(
+                action,
+                GitAction::SwitchStashing { .. } | GitAction::SwitchTracking { stash: true, .. }
+            ) {
+                Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    format!(
+                        "changes were stashed before switching failed: {}",
+                        error.message
+                    ),
+                )
+            } else {
+                error
+            }
+        })
 }
 
-fn stash_before_switch(root: &Path) -> Result<(), Fault> {
+fn stash_before_switch(
+    root: &Path,
+    environment: &crate::process::Environment,
+) -> Result<(), Fault> {
     cli::run(
         root,
+        environment,
         &["stash".into(), "push".into(), "--include-untracked".into()],
     )
     .map(|_| ())
@@ -204,11 +215,16 @@ fn tag_name(tag: &str) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(super) fn remote_tags(root: &Path, remote: &str) -> Result<Vec<GitTag>, Fault> {
+pub(super) fn remote_tags(
+    root: &Path,
+    environment: &crate::process::Environment,
+    remote: &str,
+) -> Result<Vec<GitTag>, Fault> {
     let repo = Repository::open(root).map_err(fault)?;
     remote_name(&repo, remote)?;
     let output = cli::run(
         root,
+        environment,
         &[
             "ls-remote".into(),
             "--tags".into(),
@@ -237,19 +253,29 @@ pub(super) fn remote_tags(root: &Path, remote: &str) -> Result<Vec<GitTag>, Faul
     Ok(result)
 }
 
-pub(super) fn sync(root: &Path, rebase: bool) -> Result<(), Fault> {
+pub(super) fn sync(
+    root: &Path,
+    environment: &crate::process::Environment,
+    rebase: bool,
+) -> Result<(), Fault> {
     cli::run(
         root,
+        environment,
         &[
             "pull".into(),
             if rebase { "--rebase" } else { "--no-rebase" }.into(),
             "--no-edit".into(),
         ],
     )?;
-    cli::run(root, &["push".into()]).map(|_| ())
+    cli::run(root, environment, &["push".into()]).map(|_| ())
 }
 
-fn discard(root: &Path, repo: &Repository, paths: &[String]) -> Result<(), Fault> {
+fn discard(
+    root: &Path,
+    environment: &crate::process::Environment,
+    repo: &Repository,
+    paths: &[String],
+) -> Result<(), Fault> {
     if paths.is_empty() || paths.len() > sailry_protocol::MAX_GIT_ENTRIES {
         return Err(Fault::invalid("invalid discard paths"));
     }
@@ -279,12 +305,13 @@ fn discard(root: &Path, repo: &Repository, paths: &[String]) -> Result<(), Fault
                 "--".into(),
             ];
             args.extend(tracked.iter().map(|p| format!(":(literal){p}")));
-            cli::run(root, &args)?;
+            cli::run(root, environment, &args)?;
             changed = true;
         }
         for path in added {
             cli::run(
                 root,
+                environment,
                 &[
                     "rm".into(),
                     "--cached".into(),

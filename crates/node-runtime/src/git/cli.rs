@@ -1,11 +1,14 @@
 //! Native Git preserves the execution Node's credentials, hooks and signing configuration.
 //! Arguments are passed directly; no shell or controller-side Git process is involved.
 use super::{check_root, path};
-use process_wrap::tokio::{CommandWrap, KillOnDrop};
 use sailry_protocol::{ErrorCode, Fault};
 use std::{path::Path, process::Stdio, time::Duration};
 
-pub(super) fn run(root: &Path, args: &[String]) -> Result<String, Fault> {
+pub(super) fn run(
+    root: &Path,
+    environment: &crate::process::Environment,
+    args: &[String],
+) -> Result<String, Fault> {
     let retained = path::root(root)?;
     super::output::command(args);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -14,6 +17,7 @@ pub(super) fn run(root: &Path, args: &[String]) -> Result<String, Fault> {
         .map_err(|_| Fault::new(ErrorCode::Unavailable, "Git process runtime unavailable"))?;
     let result = runtime.block_on(async {
         let mut command = tokio::process::Command::new("git");
+        environment.apply_native(&mut command);
         // Ambient repository overrides must not redirect the authenticated worktree.
         for (name, _) in std::env::vars_os() {
             if name.to_string_lossy().starts_with("GIT_") {
@@ -31,12 +35,7 @@ pub(super) fn run(root: &Path, args: &[String]) -> Result<String, Fault> {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut command = CommandWrap::from(command);
-        command.wrap(KillOnDrop);
-        #[cfg(unix)]
-        command.wrap(process_wrap::tokio::ProcessGroup::leader());
-        #[cfg(windows)]
-        command.wrap(process_wrap::tokio::JobObject);
+        let mut command = crate::process::command(command);
         let mut child = command.spawn().map_err(|_| {
             Fault::new(
                 ErrorCode::Unavailable,

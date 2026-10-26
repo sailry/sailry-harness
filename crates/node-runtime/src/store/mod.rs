@@ -505,7 +505,7 @@ impl Store {
             ports: Arc::new(crate::ports::Ports::default()),
             browsers: Arc::default(),
             external_browser: Arc::new(crate::external_browser::Browsers::new(profile.clone())),
-            git: crate::git::Git::new(),
+            git: crate::git::Git::new(environment.clone()),
             code_queries: Arc::new(crate::code_index::Queries::default()),
             web: Arc::default(),
             search: Arc::default(),
@@ -628,7 +628,7 @@ impl Store {
                     return Ok(());
                 }
             }
-            if let Err(error) = database.configure(feeds, model_clients) {
+            if let Err(error) = database.configure(feeds, model_clients, environment.clone()) {
                 let _ = ready.send(Err(crate::Error::from(error)));
                 return database.close().await;
             }

@@ -29,6 +29,17 @@ use std::{
 
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Every owned native process uses the same group/Job and root cleanup policy.
+pub(crate) fn command(command: tokio::process::Command) -> CommandWrap {
+    let mut command = CommandWrap::from(command);
+    command.wrap(KillOnDrop);
+    #[cfg(unix)]
+    command.wrap(process_wrap::tokio::ProcessGroup::leader());
+    #[cfg(windows)]
+    command.wrap(process_wrap::tokio::JobObject);
+    command
+}
+
 pub(crate) struct Launch {
     pub root: PathBuf,
     pub profile: Option<PathBuf>,
@@ -83,13 +94,13 @@ impl Launch {
     }
 }
 
-struct Child {
-    inner: Box<dyn ChildWrapper>,
-    armed: bool,
+pub(crate) struct Child {
+    pub(crate) inner: Box<dyn ChildWrapper>,
+    pub(crate) armed: bool,
 }
 
 impl Child {
-    async fn wait_root(&mut self) -> std::io::Result<ExitStatus> {
+    pub(crate) async fn wait_root(&mut self) -> std::io::Result<ExitStatus> {
         // SAFETY: only the reviewed ProcessGroup/JobObject wrapper owns this native
         // child. We never call wrapper wait or mutate its group/Job; wrapper cleanup
         // remains active while Tokio caches and reaps the exact root process.
@@ -115,17 +126,7 @@ pub(crate) async fn execute(
     stop: &CancellationToken,
     closed: &CancellationToken,
 ) -> Result<Completion, Fault> {
-    execute_observed(launch, environment, stop, closed, None).await
-}
-
-pub(crate) async fn execute_observed(
-    launch: Launch,
-    environment: &Environment,
-    stop: &CancellationToken,
-    closed: &CancellationToken,
-    progress: Option<&tokio::sync::watch::Sender<(Capture, Capture)>>,
-) -> Result<Completion, Fault> {
-    execute_configured(launch, environment, stop, closed, progress, None, None).await
+    execute_configured(launch, environment, stop, closed, None, None, None).await
 }
 
 pub(crate) async fn execute_background(
@@ -208,12 +209,7 @@ async fn execute_configured(
     if let Some(metadata) = metadata {
         command.envs(metadata);
     }
-    let mut command = CommandWrap::from(command);
-    command.wrap(KillOnDrop);
-    #[cfg(unix)]
-    command.wrap(process_wrap::tokio::ProcessGroup::leader());
-    #[cfg(windows)]
-    command.wrap(process_wrap::tokio::JobObject);
+    let mut command = self::command(command);
     if stop.is_cancelled() || closed.is_cancelled() {
         return Ok(cancelled());
     }

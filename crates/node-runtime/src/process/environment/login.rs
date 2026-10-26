@@ -2,7 +2,6 @@
 // See third_party_licenses/sailry-code-terminal.md.
 use super::LIMIT;
 use crate::process::Child;
-use process_wrap::tokio::{CommandWrap, KillOnDrop, ProcessGroup};
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
@@ -44,8 +43,7 @@ pub(super) async fn capture(
     if let Some(home) = environment.get(OsStr::new("HOME")) {
         command.current_dir(home);
     }
-    let mut command = CommandWrap::from(command);
-    command.wrap(KillOnDrop).wrap(ProcessGroup::leader());
+    let mut command = crate::process::command(command);
     let mut child = Child {
         inner: command.spawn().ok()?,
         armed: true,

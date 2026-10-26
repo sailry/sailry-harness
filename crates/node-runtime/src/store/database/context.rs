@@ -19,6 +19,7 @@ pub(in crate::store) struct Facts {
     pub writes: Arc<tokio::sync::Semaphore>,
     orders: Mutex<BTreeMap<SessionId, Weak<tokio::sync::Mutex<()>>>>,
     pub model_clients: Arc<crate::agent::model::registry::Registry>,
+    pub environment: Arc<crate::process::Environment>,
     pub local_models: Option<Arc<crate::models::registry::Registry>>,
     pub approvals: Mutex<store::agent::approvals::Waiting>,
     pub questions: Mutex<store::agent::questions::Waiting>,
@@ -50,6 +51,7 @@ impl Facts {
             writes,
             orders: Default::default(),
             model_clients: Default::default(),
+            environment: Arc::new(crate::process::Environment::ambient()),
             local_models: None,
             approvals: Default::default(),
             questions: Default::default(),
@@ -163,11 +165,13 @@ impl Database {
         &mut self,
         feeds: store::agent::Feeds,
         model_clients: Arc<crate::agent::model::registry::Registry>,
+        environment: Arc<crate::process::Environment>,
     ) -> Result<(), sailry_protocol::Fault> {
         let facts = Arc::get_mut(&mut self.facts)
             .ok_or_else(|| super::storage_error("storage facts are already shared"))?;
         facts.feeds = feeds;
         facts.model_clients = model_clients;
+        facts.environment = environment;
         Ok(())
     }
 

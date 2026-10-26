@@ -1,5 +1,8 @@
 #[path = "git_commit/actions.rs"]
 mod actions;
+#[cfg(unix)]
+#[path = "git_commit/environment.rs"]
+mod environment;
 #[path = "git_commit/ignore.rs"]
 mod ignore;
 #[path = "git_commit/management.rs"]
@@ -24,6 +27,10 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::start(None).await
+    }
+
+    async fn start(environment: Option<sailry_node_runtime::EnvironmentFixture>) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project");
         let repository =
@@ -35,7 +42,13 @@ impl Fixture {
             .set_str("user.email", "node@example.invalid")
             .unwrap();
         config.set_bool("commit.gpgsign", false).unwrap();
-        let node = Node::start_empty(temp.path().join("node")).await.unwrap();
+        let node = match environment {
+            Some(environment) => {
+                Node::start_empty_with_environment(temp.path().join("node"), environment).await
+            }
+            None => Node::start_empty(temp.path().join("node")).await,
+        }
+        .unwrap();
         let client = Client::new(node.local());
         client
             .execute(client.prepare(Command::RegisterProject {

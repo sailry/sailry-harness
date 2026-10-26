@@ -81,4 +81,54 @@ mod process {
             .is_err()
         );
     }
+
+    #[tokio::test]
+    async fn cleans_up_descendants() {
+        for cancel in [true, false] {
+            let (directory, path) = executable(
+                "#!/bin/sh\nsleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > \"$1\"; wait \"$task_pid\"\n",
+            );
+            let pid_file = directory.path().join("child.pid");
+            let environment = crate::process::Environment::ambient();
+            let stop = CancellationToken::new();
+            let argv = [pid_file.to_str().unwrap().into()];
+            let env = BTreeMap::new();
+            let operation = run(&path, &argv, &env, &environment, 1000, 1024, &stop);
+            let observe = async {
+                let pid: i32 = tokio::time::timeout(Duration::from_secs(5), async {
+                    loop {
+                        if let Ok(text) = std::fs::read_to_string(&pid_file)
+                            && let Ok(pid) = text.parse()
+                        {
+                            break pid;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .expect("credential fixture did not start");
+                if cancel {
+                    stop.cancel();
+                }
+                pid
+            };
+            let (result, pid) = tokio::join!(operation, observe);
+            assert_eq!(
+                result.err().unwrap().code,
+                if cancel {
+                    ErrorCode::Cancelled
+                } else {
+                    ErrorCode::NotConfigured
+                }
+            );
+            tokio::time::timeout(Duration::from_secs(3), async {
+                // SAFETY: signal 0 only observes this fixture's exact descendant PID.
+                while unsafe { libc::kill(pid, 0) } == 0 {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("credential fixture descendant did not exit");
+        }
+    }
 }

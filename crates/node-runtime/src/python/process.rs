@@ -1,6 +1,5 @@
 use super::{cancelled, check};
 use crate::process::Environment;
-use process_wrap::tokio::{CommandWrap, KillOnDrop};
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{ffi::OsString, path::Path, process::Stdio, time::Duration};
@@ -27,12 +26,7 @@ pub(super) async fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    let mut command = CommandWrap::from(command);
-    command.wrap(KillOnDrop);
-    #[cfg(unix)]
-    command.wrap(process_wrap::tokio::ProcessGroup::leader());
-    #[cfg(windows)]
-    command.wrap(process_wrap::tokio::JobObject);
+    let mut command = crate::process::command(command);
     let mut child = command.spawn().map_err(|error| {
         Fault::new(
             ErrorCode::Unavailable,

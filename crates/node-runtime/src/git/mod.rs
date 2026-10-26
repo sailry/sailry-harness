@@ -23,6 +23,7 @@ pub(crate) mod worktrees;
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -36,12 +37,14 @@ use crate::files::path;
 #[derive(Clone)]
 pub(crate) struct Git {
     output: output::Journal,
+    environment: Arc<crate::process::Environment>,
 }
 
 impl Git {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(environment: Arc<crate::process::Environment>) -> Self {
         Self {
             output: Default::default(),
+            environment,
         }
     }
 
@@ -83,6 +86,7 @@ impl Git {
         closed: CancellationToken,
     ) -> Result<Output, Fault> {
         let output = self.output.clone();
+        let environment = self.environment.clone();
         let deadline = if matches!(command, Command::ListGitRemoteTags { .. }) {
             Duration::from_secs(125)
         } else {
@@ -102,6 +106,7 @@ impl Git {
                     actions::stash_position(&root, &commit)?;
                     cli::run(
                         &root,
+                        &environment,
                         &[
                             "stash".into(),
                             "show".into(),
@@ -116,7 +121,9 @@ impl Git {
                     text: output.read(&root),
                 }),
                 Command::ListGitRemoteTags { remote, .. } => output
-                    .capture(&root, || management::remote_tags(&root, &remote))
+                    .capture(&root, || {
+                        management::remote_tags(&root, &environment, &remote)
+                    })
                     .map(Output::GitRemoteTags),
                 Command::InspectGit { .. } => {
                     status::inspect(&root, &control).map(Output::GitStatus)

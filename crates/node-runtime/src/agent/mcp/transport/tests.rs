@@ -143,9 +143,7 @@ mod process {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
-        let mut command = CommandWrap::from(command);
-        command.wrap(KillOnDrop);
-        command.wrap(process_wrap::tokio::ProcessGroup::leader());
+        let mut command = crate::process::command(command);
         let mut inner = command.spawn().unwrap();
         let input = inner.stdin().take().unwrap();
         let (output, retained) = output::Reader::new(inner.stdout().take().unwrap());

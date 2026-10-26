@@ -684,6 +684,7 @@ impl Database {
                                 source,
                                 target,
                                 access,
+                                environment: self.environment.clone(),
                             };
                             if let Command::InstallPlugin {
                                 name,

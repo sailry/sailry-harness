@@ -6,6 +6,7 @@ use std::path::Path;
 
 pub(crate) fn create(
     root: &Path,
+    environment: &crate::process::Environment,
     message: &str,
     amend: bool,
     options: &GitCommitOptions,
@@ -28,12 +29,12 @@ pub(crate) fn create(
         args.push("--no-verify".into());
     }
     if options.all {
-        cli::run(root, &["add".into(), "--all".into()])?;
+        cli::run(root, environment, &["add".into(), "--all".into()])?;
     }
     if options.tracked {
         args.push("--all".into());
     }
-    cli::run(root, &args)?;
+    cli::run(root, environment, &args)?;
     let id = Repository::open(root)
         .and_then(|repo| {
             repo.head()?
@@ -58,6 +59,7 @@ pub(crate) fn create(
                 .ok_or_else(|| Fault::invalid("publishing requires an attached branch"))?;
             cli::run(
                 root,
+                environment,
                 &[
                     "push".into(),
                     "--set-upstream".into(),
@@ -67,8 +69,10 @@ pub(crate) fn create(
             )
             .map(|_| ())
         }
-        sailry_protocol::GitAfterCommit::Push => cli::run(root, &["push".into()]).map(|_| ()),
-        sailry_protocol::GitAfterCommit::Sync => super::management::sync(root, false),
+        sailry_protocol::GitAfterCommit::Push => {
+            cli::run(root, environment, &["push".into()]).map(|_| ())
+        }
+        sailry_protocol::GitAfterCommit::Sync => super::management::sync(root, environment, false),
     })()
     .err();
     Ok((id, follow_up))
