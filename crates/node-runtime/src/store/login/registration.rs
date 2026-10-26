@@ -6,6 +6,41 @@ use crate::{
 };
 use turso::Connection;
 
+pub(super) async fn record(
+    database: &mut Database,
+    provider: &Provider,
+    capture: Option<&crate::providers::login::plugin::Capture>,
+    client_id: &str,
+) -> Result<(), Fault> {
+    use crate::store::database::conflict;
+    let write = database.write().await?;
+    for attempt in 0..=conflict::RETRIES {
+        let recorded = async {
+            let transaction = conflict::begin(&database.connection).await?;
+            if let Some(capture) = capture {
+                super::model_auth::complete(&transaction, provider, capture).await?;
+            }
+            transaction
+                .execute(
+                    "INSERT INTO oauth_registrations(provider,client_id) VALUES(?1,?2) ON CONFLICT(provider) DO UPDATE SET client_id=excluded.client_id",
+                    turso::params![provider.id.to_string(), client_id],
+                )
+                .await
+                .map_err(storage_error)?;
+            conflict::commit(transaction).await
+        }
+        .await;
+        if let Err(error) = conflict::rollback(&database.connection).await {
+            database.connection.hold_write(write);
+            return Err(error);
+        }
+        if !conflict::again(&recorded, attempt).await {
+            return recorded;
+        }
+    }
+    unreachable!("the final attempt returns its result")
+}
+
 pub(super) struct Prepared {
     pub context: Context,
     pub registered: oneshot::Receiver<(String, oneshot::Sender<Result<(), Fault>>)>,
@@ -92,6 +127,93 @@ async fn host_id(database: &Connection) -> Result<String, Fault> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn records_during_other_writes() {
+        let root = tempfile::tempdir().unwrap();
+        let mut database = Database::open(&root.path().join("node.turso"), NodeId([87; 32]), None)
+            .await
+            .unwrap();
+        let provider = Provider {
+            id: ProviderId::new(),
+            revision: 1,
+            preset: None,
+            binding: None,
+            consent: None,
+            name: "Registration fixture".into(),
+            api: sailry_protocol::conversation::ModelApi::Responses,
+            authentication: Authentication::ChatGpt,
+            endpoint: crate::providers::login::CHATGPT_ENDPOINT.into(),
+            options: None,
+            oauth: None,
+            enabled: true,
+            models: vec![],
+            default_model: "fixture".into(),
+            request_max_retries: None,
+            stream_max_retries: None,
+            credential: None,
+        };
+        let cancel = Request::new(
+            database.node,
+            Command::CancelProviderLogin {
+                attempt: RequestId::new(),
+            },
+        );
+        let other = database.handle.lease(false).await.unwrap();
+        // A held writer creates a real storage conflict without relying on
+        // commit I/O timing.
+        let admission = turso::transaction::Transaction::new_unchecked(
+            &other,
+            turso::transaction::TransactionBehavior::Immediate,
+        )
+        .await
+        .unwrap();
+        admission
+            .execute(
+                "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')",
+                turso::params![
+                    &database.node.0[..],
+                    cancel.id.to_string(),
+                    serde_json::to_vec(&cancel).unwrap(),
+                ],
+            )
+            .await
+            .unwrap();
+        let mut registering = Box::pin(record(&mut database, &provider, None, "oaiapp_fixture"));
+        let initial = futures::poll!(registering.as_mut());
+        admission.commit().await.unwrap();
+        match initial {
+            std::task::Poll::Ready(result) => {
+                drop(registering);
+                result
+            }
+            std::task::Poll::Pending => registering.await,
+        }
+        .expect("registration must survive a concurrent storage write");
+        let saved: String = database
+            .connection
+            .prepare("SELECT client_id FROM oauth_registrations WHERE provider=?1")
+            .await
+            .unwrap()
+            .query_row([provider.id.to_string()])
+            .await
+            .unwrap()
+            .get(0)
+            .unwrap();
+        assert_eq!(saved, "oaiapp_fixture");
+        let status: String = other
+            .prepare("SELECT status FROM requests WHERE id=?1")
+            .await
+            .unwrap()
+            .query_row([cancel.id.to_string()])
+            .await
+            .unwrap()
+            .get(0)
+            .unwrap();
+        assert_eq!(status, "admitted");
+        drop(other);
+        database.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn remains_stable_across_registrations() {

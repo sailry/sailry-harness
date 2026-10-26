@@ -519,16 +519,20 @@ impl Worker {
                 let result = async {
                     let entry = self.entries.get(&(caller, id)).ok_or_else(missing)?;
                     if entry.stop.is_cancelled() {
-                        return Err(Fault::new(ErrorCode::Cancelled, "provider authorization was cancelled"));
+                        return Err(Fault::new(
+                            ErrorCode::Cancelled,
+                            "provider authorization was cancelled",
+                        ));
                     }
-                    if let Some(capture) = &entry.plugin {
-                        model_auth::complete(&database.connection, &entry.provider, capture).await?;
-                    }
-                    database.connection.execute(
-                        "INSERT INTO oauth_registrations(provider,client_id) VALUES(?1,?2) ON CONFLICT(provider) DO UPDATE SET client_id=excluded.client_id",
-                        turso::params![entry.provider.id.to_string(), client_id],
-                    ).await.map(|_| ()).map_err(super::database::storage_error)
-                }.await;
+                    registration::record(
+                        database,
+                        &entry.provider,
+                        entry.plugin.as_ref(),
+                        &client_id,
+                    )
+                    .await
+                }
+                .await;
                 let _ = reply.send(result);
             }
             Progress::Renewed { id, result } => {
