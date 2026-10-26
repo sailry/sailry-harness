@@ -171,18 +171,13 @@ impl ListDelegate for Rows {
         _: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) -> impl IntoElement {
-        // Kit 7fc6a4c keeps its loading composition private without a style hook.
-        v_flex().py_2p5().gap_3().children((0usize..3).map(|index| {
-            ListItem::new(("plugin-picker-loading", index))
-                .disabled(true)
-                .child(
-                    v_flex()
-                        .gap_1p5()
-                        .overflow_hidden()
-                        .child(block(cx).h_5().w_48().max_w_full())
-                        .child(block(cx).h_3().w_64().max_w_full()),
-                )
-        }))
+        // The loading body has the same extent as one command row.
+        div().p_2().child(
+            h_flex()
+                .h(px(crate::command_picker::ROW_HEIGHT))
+                .px_2()
+                .child(block(cx).h_3().w_48().max_w_full()),
+        )
     }
     fn render_section_header(
         &mut self,
@@ -463,15 +458,19 @@ fn popup(
     let focus = list.read(cx).focus_handle(cx);
     let width = crate::command_picker::width(window);
     let rows = list.read(cx).delegate();
-    let height = crate::command_picker::extent(
-        rows.visible.iter().map(Vec::len).sum(),
-        rows.visible
-            .iter()
-            .filter(|group| rows.mode == Mode::List && !group[0].group.is_empty())
-            .count(),
-        rows.height(),
-        window,
-    );
+    let height = if rows.loading {
+        crate::command_picker::height(1, 0, window)
+    } else {
+        crate::command_picker::extent(
+            rows.visible.iter().map(Vec::len).sum(),
+            rows.visible
+                .iter()
+                .filter(|group| rows.mode == Mode::List && !group[0].group.is_empty())
+                .count(),
+            rows.height(),
+            window,
+        )
+    };
     base::Dialog::new(cx)
         .focus_handle(focus)
         .on_ok(|_, _, _| false)
