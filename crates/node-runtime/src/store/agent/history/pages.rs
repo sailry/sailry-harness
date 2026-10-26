@@ -1,6 +1,6 @@
 //! Logical pages use turn boundaries; large turn bodies use bounded continuations.
 use super::*;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[cfg(test)]
 mod tests;
@@ -281,10 +281,17 @@ pub(in crate::store::agent) fn fit(
     let budget = (MAX_FRAME_BYTES - 64 * 1024)
         .checked_sub(headroom)
         .ok_or_else(|| Fault::invalid("conversation resources exceed the transport limit"))?;
+    let mut sizes = page
+        .entries
+        .iter()
+        .map(|entry| Ok((entry.turn, encode(entry)?.len())))
+        .collect::<Result<VecDeque<_>, Fault>>()?;
+    let mut entries_bytes = sizes.iter().map(|(_, bytes)| bytes).sum::<usize>();
     let mut trimmed = BTreeSet::new();
-    while encode(page)?.len() > budget {
+    while encoded_size(page, entries_bytes)? > budget {
         if page.entries.len() > 1 {
             trimmed.insert(page.entries.remove(0).turn);
+            entries_bytes -= sizes.pop_front().expect("cached entry size").1;
             retain_metadata(page);
             continue;
         }
@@ -308,6 +315,14 @@ pub(in crate::store::agent) fn fit(
         let (index, turn) = closed[0];
         page.runs.remove(index);
         page.entries.retain(|entry| entry.turn != turn);
+        sizes.retain(|(current, bytes)| {
+            if *current == turn {
+                entries_bytes -= *bytes;
+                false
+            } else {
+                true
+            }
+        });
         page.approvals.retain(|approval| approval.turn != turn);
         page.questions.retain(|question| question.turn != turn);
         page.children.retain(|child| child.origin.turn != turn);
@@ -315,6 +330,14 @@ pub(in crate::store::agent) fn fit(
     }
     trimmed.retain(|turn| page.runs.iter().any(|run| run.turn == *turn));
     Ok(trimmed)
+}
+
+fn encoded_size(page: &mut Page, entries_bytes: usize) -> Result<usize, Fault> {
+    // Retain exact metadata sizing while encoding each unchanged entry only once.
+    let entries = std::mem::take(&mut page.entries);
+    let metadata = encode(page);
+    page.entries = entries;
+    Ok(metadata?.len() + entries_bytes + page.entries.len().saturating_sub(1))
 }
 
 pub(in crate::store::agent) fn retain_metadata(page: &mut Page) {

@@ -2,6 +2,35 @@ use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
 #[tokio::test]
+async fn fits_cached_entry_lengths_exactly() {
+    let mut fixture = Fixture::new().await;
+    let turn = fixture.completed(&["escaped \"\n", "中文🙂", "tail"]).await;
+    let mut page = fixture.read(None, 1).await.page;
+    let entries = page.entries.clone();
+    let bytes = entries
+        .iter()
+        .map(|entry| encode(entry).unwrap().len())
+        .sum::<usize>();
+    assert_eq!(
+        encoded_size(&mut page, bytes).unwrap(),
+        encode(&page).unwrap().len()
+    );
+    let budget = encode(&page).unwrap().len() - encode(&entries[0]).unwrap().len() - 1;
+    let headroom = MAX_FRAME_BYTES - 64 * 1024 - budget;
+    assert_eq!(
+        fit(&mut page, headroom, true).unwrap(),
+        BTreeSet::from([turn])
+    );
+    assert_eq!(page.entries, entries[1..]);
+    assert_eq!(encode(&page).unwrap().len(), budget);
+    page.entries.clear();
+    assert_eq!(
+        encoded_size(&mut page, 0).unwrap(),
+        encode(&page).unwrap().len()
+    );
+}
+
+#[tokio::test]
 async fn preserves_turn_boundaries() {
     let mut fixture = Fixture::new().await;
     let first = fixture

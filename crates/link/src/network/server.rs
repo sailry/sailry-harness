@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
+};
 
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use sailry_protocol::{ErrorCode, Fault, NodeId};
@@ -13,6 +19,7 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection, peer: NodeId)
     let mut streams = JoinSet::new();
     // Conversation tabs retain subscriptions. Leave room for bulk streams and commands.
     let subscriptions = Arc::new(tokio::sync::Semaphore::new(MAX_STREAMS - 8));
+    let compression = Arc::new(AtomicBool::new(false));
     let mut trust_changed = core.trust_changed.subscribe();
     loop {
         tokio::select! {
@@ -26,10 +33,11 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection, peer: NodeId)
                 let Ok((send, recv)) = stream else { break; };
                 let core = core.clone();
                 let subscriptions = subscriptions.clone();
+                let compression = compression.clone();
                 streams.spawn(async move {
                     let started = Instant::now();
                     let stop = core.stop.clone();
-                    if let Err(error) = request(core, peer, send, recv, subscriptions).await
+                    if let Err(error) = request(core, peer, send, recv, subscriptions, compression).await
                         && !stop.is_cancelled()
                     {
                         diagnostics::request(&error, started);
@@ -53,8 +61,10 @@ async fn request(
     mut send: SendStream,
     mut recv: RecvStream,
     subscriptions: Arc<tokio::sync::Semaphore>,
+    compression: Arc<AtomicBool>,
 ) -> Result<(), Fault> {
-    let call: frame::Envelope = core.wait(frame::read(&mut recv)).await??;
+    let compressed = compression.load(Ordering::Acquire);
+    let call: frame::Envelope = core.wait(frame::read_with(&mut recv, compressed)).await??;
     if !core.trusted(peer) {
         core.wait(frame::write(
             &mut send,
@@ -78,10 +88,12 @@ async fn request(
     }
     match call.call {
         Call::Inspect => {
+            compression.store(call.zstd, Ordering::Release);
             let name = core.name.read().map_err(network)?.clone();
             core.wait(frame::write(
                 &mut send,
                 &Reply::Endpoint {
+                    zstd: true,
                     software_version: core.handler.product_version().map(str::to_owned),
                     execution: core.handler.execution_available(),
                     name,
@@ -129,8 +141,13 @@ async fn request(
                             "Node completion is unavailable",
                         ))
                     });
-                    frame::write_reply(&core, &mut send, &Reply::Completed(Box::new(output)))
-                        .await?;
+                    frame::write_reply(
+                        &core,
+                        &mut send,
+                        &Reply::Completed(Box::new(output)),
+                        compressed,
+                    )
+                    .await?;
                 }
                 Err(error) => {
                     core.wait(frame::write(&mut send, &Reply::Rejected(error)))
@@ -176,7 +193,7 @@ async fn request(
                     update = subscription.next() => match update {
                         Ok(update) => update,
                         Err(error) => {
-                            frame::write_reply(&core, &mut send, &Reply::Rejected(error)).await?;
+                            frame::write_reply(&core, &mut send, &Reply::Rejected(error), compressed).await?;
                             break;
                         }
                     },
@@ -184,7 +201,13 @@ async fn request(
                 if !core.trusted(peer) {
                     break;
                 }
-                frame::write_reply(&core, &mut send, &Reply::Update(Box::new(update))).await?;
+                frame::write_reply(
+                    &core,
+                    &mut send,
+                    &Reply::Update(Box::new(update)),
+                    compressed,
+                )
+                .await?;
             }
         }
     }

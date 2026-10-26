@@ -34,17 +34,30 @@ pub(super) async fn write(
     core: &super::super::Core,
     stream: &mut SendStream,
     reply: &Reply,
+    compressed: bool,
 ) -> Result<(), Fault> {
     let (snapshot, delivery) = match reply {
         Reply::Completed(response) => match response.as_ref() {
             Ok(Output::Snapshot(snapshot)) => (snapshot, Delivery::Completed),
-            _ => return core.wait(super::write(stream, reply)).await?,
+            _ => {
+                return core
+                    .wait(super::write_with(stream, reply, compressed))
+                    .await?;
+            }
         },
         Reply::Update(update) => match update.as_ref() {
             Update::Snapshot(snapshot) => (snapshot, Delivery::Update),
-            _ => return core.wait(super::write(stream, reply)).await?,
+            _ => {
+                return core
+                    .wait(super::write_with(stream, reply, compressed))
+                    .await?;
+            }
         },
-        _ => return core.wait(super::write(stream, reply)).await?,
+        _ => {
+            return core
+                .wait(super::write_with(stream, reply, compressed))
+                .await?;
+        }
     };
     // Serialize the already captured service result once. Pages never query the
     // live store again, so all records and the cursor belong to one snapshot.
@@ -55,8 +68,12 @@ pub(super) async fn write(
         cursor: snapshot.cursor,
         bytes: u64::try_from(bytes.len()).map_err(invalid)?,
     };
-    core.wait(super::write(stream, &Reply::SnapshotStart(header)))
-        .await??;
+    core.wait(super::write_with(
+        stream,
+        &Reply::SnapshotStart(header),
+        compressed,
+    ))
+    .await??;
     let mut start = 0;
     let mut index = 0;
     while start < bytes.len() {
@@ -66,12 +83,13 @@ pub(super) async fn write(
         }
         // Each bounded page has the ordinary frame deadline; the complete
         // snapshot can take longer without imposing a business-operation limit.
-        core.wait(super::write(
+        core.wait(super::write_with(
             stream,
             &Reply::SnapshotPage(Page {
                 index,
                 data: bytes[start..end].to_owned(),
             }),
+            compressed,
         ))
         .await??;
         start = end;

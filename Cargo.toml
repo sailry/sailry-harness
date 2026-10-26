@@ -109,6 +109,7 @@ windows-registry = "=0.6.1"
 http-body-util = "=0.1.5"
 eventsource-stream = "=0.2.3"
 zeroize = { version = "=1.9.0", features = ["derive"] }
+zstd = "=0.13.3"
 blake3 = "=1.8.7"
 aes = "=0.8.4"
 cbc = { version = "=0.1.2", features = ["alloc"] }

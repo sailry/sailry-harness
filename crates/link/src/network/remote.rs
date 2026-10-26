@@ -41,15 +41,20 @@ impl Transport for Remote {
     ) -> Pending<'_, Result<crate::Stream, Fault>> {
         Box::pin(async move {
             let connection = self.core.connection(&self.address, true).await?;
+            let compressed = self.core.compression(&self.address, &connection).await?;
             let (mut send, mut recv) = self
                 .core
                 .wait(connection.open_bi())
                 .await?
                 .map_err(network)?;
             self.core
-                .call(&mut send, Call::OpenStream(resource))
+                .call(&mut send, Call::OpenStream(resource), compressed)
                 .await??;
-            match self.core.wait(frame::read::<Reply>(&mut recv)).await?? {
+            match self
+                .core
+                .wait(frame::read_with::<Reply>(&mut recv, compressed))
+                .await??
+            {
                 Reply::StreamOpened => {
                     Ok(Box::new(super::stream::NetworkStream::new(send, recv)) as crate::Stream)
                 }
@@ -87,6 +92,7 @@ impl Transport for Remote {
                     return Err(error);
                 }
             };
+            let compressed = self.core.compression(&self.address, &connection).await?;
             let (mut send, mut recv) = match self.core.wait(connection.open_bi()).await {
                 Ok(Ok(streams)) => streams,
                 Ok(Err(error)) => {
@@ -110,7 +116,7 @@ impl Transport for Remote {
             log.sending();
             match self
                 .core
-                .call(&mut send, Call::Command(Box::new(request)))
+                .call(&mut send, Call::Command(Box::new(request)), compressed)
                 .await
             {
                 Ok(Ok(())) => {}
@@ -145,7 +151,11 @@ impl Transport for Remote {
             }
             // Once bytes may have reached the peer, a missing receipt does not
             // establish non-admission. The caller must retain the same request ID.
-            let receipt = match self.core.wait(frame::read::<Reply>(&mut recv)).await {
+            let receipt = match self
+                .core
+                .wait(frame::read_with::<Reply>(&mut recv, compressed))
+                .await
+            {
                 Ok(Ok(Reply::Receipt(receipt))) if receipt.id == id => receipt,
                 Ok(Ok(Reply::Rejected(error))) => {
                     log.rejected(&error);
@@ -206,7 +216,7 @@ impl Transport for Remote {
                             );
                             Err(error)
                         },
-                        reply = frame::read_reply(&mut recv) => match reply {
+                        reply = frame::read_reply(&mut recv, compressed) => match reply {
                             Ok(Reply::Completed(result)) => {
                                 observer_log.completed(
                                     result.as_ref(),
@@ -284,18 +294,21 @@ impl Transport for Remote {
     ) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
         Box::pin(async move {
             let connection = self.core.connection(&self.address, true).await?;
+            let compressed = self.core.compression(&self.address, &connection).await?;
             let (mut send, recv) = self
                 .core
                 .wait(connection.open_bi())
                 .await?
                 .map_err(network)?;
-            self.core.call(&mut send, Call::Subscribe(topic)).await??;
+            self.core
+                .call(&mut send, Call::Subscribe(topic), compressed)
+                .await??;
             send.finish().map_err(network)?;
             let mut events = Events {
                 connection,
                 core: self.core.clone(),
                 recv,
-                reader: frame::Reader::default(),
+                reader: frame::Reader::new(compressed),
             };
             match events.reply().await? {
                 Reply::Subscribed => Ok(Box::new(events) as Box<dyn Subscription>),

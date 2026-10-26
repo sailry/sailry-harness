@@ -1,5 +1,7 @@
 use super::*;
 
+mod transport;
+
 fn streaming() -> (Feeds, NodeId, SessionId, Draft) {
     let node = NodeId([74; 32]);
     let session = SessionId::new();
@@ -98,7 +100,7 @@ fn rejects_overflow_without_losing_drafts() {
 }
 
 #[tokio::test]
-async fn recovers_overflow() {
+async fn replays_retained_sequences() {
     let node = NodeId([71; 32]);
     let session = SessionId::new();
     let mut run = Run {
@@ -167,7 +169,25 @@ async fn recovers_overflow() {
             )
             .unwrap();
     }
-    assert_eq!(subscription.next().await.unwrap(), Update::ResetRequired);
+    for sequence in 2..=101 {
+        let Update::ConversationFrame(frame) = subscription.next().await.unwrap() else {
+            panic!("retained frame expected")
+        };
+        assert_eq!(frame.sequence, sequence);
+        assert!(
+            matches!(frame.change, Change::Delta(draft) if draft.parts == [Part::Text("x".into())])
+        );
+    }
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(10), subscription.next())
+            .await
+            .is_err()
+    );
+    feeds.publish(node, session, Change::Queue(Default::default()));
+    let Update::ConversationFrame(frame) = subscription.next().await.unwrap() else {
+        panic!("live frame expected")
+    };
+    assert_eq!(frame.sequence, 102);
     drop(subscription);
     let mut resumed = feeds
         .subscribe(
@@ -182,6 +202,10 @@ async fn recovers_overflow() {
         panic!("snapshot expected")
     };
     assert_eq!(snapshot.drafts[0].parts, vec![Part::Text("x".repeat(100))]);
+    for _ in 0..=MAX_RETAINED {
+        feeds.publish(node, session, Change::Queue(Default::default()));
+    }
+    assert_eq!(resumed.next().await.unwrap(), Update::ResetRequired);
     closed.cancel();
     assert!(resumed.next().await.is_err());
     drop(resumed);
@@ -189,6 +213,44 @@ async fn recovers_overflow() {
     feeds.publish(node, session, Change::Run(run));
     Feeds::prune(&mut feeds.0.lock().unwrap());
     assert!(feeds.0.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn reset_invalidates_retained_gap() {
+    let (feeds, node, session, draft) = streaming();
+    let reserved = feeds.reserve(session);
+    feeds.delta(node, session, draft.clone()).unwrap();
+    feeds.reset(session);
+    for _ in 0..100 {
+        feeds.delta(node, session, draft.clone()).unwrap();
+    }
+    let mut updates = Updates {
+        initial: None,
+        feeds,
+        session,
+        sequence: reserved.sequence,
+        pending: VecDeque::new(),
+        updates: reserved.updates,
+        closed: CancellationToken::new(),
+    };
+    assert_eq!(updates.next().await.unwrap(), Update::ResetRequired);
+}
+
+#[test]
+fn bounds_retained_bytes() {
+    let (feeds, node, session, mut draft) = streaming();
+    draft.parts = vec![Part::Text("x".repeat(1024 * 1024))];
+    for _ in 0..8 {
+        let mut retained = feeds.0.lock().unwrap();
+        let feed = retained.get_mut(&session).unwrap();
+        feed.send(node, session, Change::Delta(draft.clone()));
+        assert!(feed.retained_bytes <= MAX_RETAINED_BYTES);
+        assert_eq!(
+            feed.retained_bytes,
+            feed.retained.iter().map(|(_, bytes)| bytes).sum::<usize>()
+        );
+    }
+    assert!(feeds.0.lock().unwrap()[&session].retained.len() < 8);
 }
 
 #[test]

@@ -14745,6 +14745,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zeroize",
+ "zstd 0.13.3",
 ]
 
 [[package]]

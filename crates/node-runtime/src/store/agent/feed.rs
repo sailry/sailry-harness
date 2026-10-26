@@ -2,7 +2,7 @@
 use super::*;
 use sailry_link::{CancellationToken, Pending, Subscription};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Mutex,
 };
 
@@ -13,12 +13,16 @@ mod tests;
 pub(in crate::store) struct Feeds(Arc<Mutex<BTreeMap<SessionId, Feed>>>);
 
 pub(in crate::store) struct Reserved {
+    feeds: Feeds,
+    session: SessionId,
     sequence: u64,
     drafts: Vec<Draft>,
     updates: broadcast::Receiver<Update>,
 }
 
 const MAX_FINALIZED: usize = 4096;
+const MAX_RETAINED: usize = 512;
+const MAX_RETAINED_BYTES: usize = 4 * 1024 * 1024;
 // Per retained Part, including the serialized string's enclosing quotes.
 const PART_OVERHEAD: usize = 34;
 
@@ -29,6 +33,8 @@ struct Feed {
     // Saturation stops transient publication for this run, never evicts a seal.
     finalized: Option<BTreeSet<String>>,
     bytes: usize,
+    retained: VecDeque<(Frame, usize)>,
+    retained_bytes: usize,
     updates: broadcast::Sender<Update>,
 }
 
@@ -40,6 +46,8 @@ impl Default for Feed {
             drafts: Vec::new(),
             finalized: Some(BTreeSet::new()),
             bytes: 0,
+            retained: VecDeque::new(),
+            retained_bytes: 0,
             updates: broadcast::channel(64).0,
         }
     }
@@ -67,6 +75,8 @@ impl Feeds {
             feed.sequence += 1;
             feed.drafts.clear();
             feed.bytes = 0;
+            feed.retained.clear();
+            feed.retained_bytes = 0;
             let _ = feed.updates.send(Update::ResetRequired);
         }
     }
@@ -232,6 +242,8 @@ impl Feeds {
         Self::prune(&mut feeds);
         let feed = feeds.entry(session).or_default();
         Reserved {
+            feeds: self.clone(),
+            session,
             sequence: feed.sequence,
             drafts: feed.drafts.clone(),
             updates: feed.updates.subscribe(),
@@ -279,6 +291,10 @@ impl Reserved {
                     artifacts,
                 },
             ))),
+            feeds: self.feeds,
+            session: self.session,
+            sequence: self.sequence,
+            pending: VecDeque::new(),
             updates: self.updates,
             closed,
         }))
@@ -301,20 +317,73 @@ fn part_bytes(part: &Part) -> usize {
 impl Feed {
     fn send(&mut self, node: NodeId, session: SessionId, change: Change) {
         self.sequence += 1;
-        let _ = self.updates.send(Update::ConversationFrame(Frame {
+        let frame = Frame {
             node,
             session,
             sequence: self.sequence,
             change,
-        }));
+        };
+        let bytes = serde_json::to_vec(&frame)
+            .expect("conversation frames are serializable")
+            .len();
+        // Oversized frames still reach a live observer, but cannot leave an
+        // apparently contiguous replay window across their omitted sequence.
+        if bytes <= MAX_RETAINED_BYTES {
+            while self.retained.len() >= MAX_RETAINED
+                || self.retained_bytes + bytes > MAX_RETAINED_BYTES
+            {
+                self.retained_bytes -= self.retained.pop_front().expect("retained frame").1;
+            }
+            self.retained_bytes += bytes;
+            self.retained.push_back((frame.clone(), bytes));
+        } else {
+            self.retained.clear();
+            self.retained_bytes = 0;
+        }
+        let _ = self.updates.send(Update::ConversationFrame(frame));
     }
 }
 
 struct Updates {
     initial: Option<Update>,
+    feeds: Feeds,
+    session: SessionId,
+    sequence: u64,
+    pending: VecDeque<Frame>,
     updates: broadcast::Receiver<Update>,
     closed: CancellationToken,
 }
+
+impl Updates {
+    fn resume(&mut self) -> bool {
+        let feeds = self.feeds.0.lock().unwrap();
+        let Some(feed) = feeds.get(&self.session) else {
+            return false;
+        };
+        let pending: VecDeque<_> = feed
+            .retained
+            .iter()
+            .filter(|(frame, _)| frame.sequence > self.sequence)
+            .map(|(frame, _)| frame.clone())
+            .collect();
+        if self.sequence != feed.sequence
+            && (pending
+                .front()
+                .is_none_or(|frame| frame.sequence != self.sequence + 1)
+                || pending
+                    .back()
+                    .is_none_or(|frame| frame.sequence != feed.sequence))
+        {
+            return false;
+        }
+        // The retained window and the live receiver are captured under the same
+        // publication lock, so nothing can fall between replay and live delivery.
+        self.updates = feed.updates.subscribe();
+        self.pending = pending;
+        true
+    }
+}
+
 impl Subscription for Updates {
     fn next(&mut self) -> Pending<'_, Result<Update, Fault>> {
         Box::pin(async move {
@@ -324,13 +393,32 @@ impl Subscription for Updates {
             if let Some(initial) = self.initial.take() {
                 return Ok(initial);
             }
-            tokio::select! {
-                biased;
-                _ = self.closed.cancelled() => Err(super::super::unavailable()),
-                update = self.updates.recv() => match update {
-                    Ok(update) => Ok(update),
-                    Err(broadcast::error::RecvError::Lagged(_)) => Ok(Update::ResetRequired),
-                    Err(broadcast::error::RecvError::Closed) => Err(super::super::unavailable()),
+            loop {
+                if let Some(frame) = self.pending.pop_front() {
+                    self.sequence = frame.sequence;
+                    return Ok(Update::ConversationFrame(frame));
+                }
+                let update = tokio::select! {
+                    biased;
+                    _ = self.closed.cancelled() => return Err(super::super::unavailable()),
+                    update = self.updates.recv() => update,
+                };
+                match update {
+                    Ok(Update::ConversationFrame(frame)) if frame.sequence <= self.sequence => {}
+                    Ok(Update::ConversationFrame(frame)) if frame.sequence == self.sequence + 1 => {
+                        self.sequence = frame.sequence;
+                        return Ok(Update::ConversationFrame(frame));
+                    }
+                    Ok(Update::ConversationFrame(_))
+                    | Err(broadcast::error::RecvError::Lagged(_)) => {
+                        if !self.resume() {
+                            return Ok(Update::ResetRequired);
+                        }
+                    }
+                    Ok(update) => return Ok(update),
+                    Err(broadcast::error::RecvError::Closed) => {
+                        return Err(super::super::unavailable());
+                    }
                 }
             }
         })

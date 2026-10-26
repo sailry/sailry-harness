@@ -2,6 +2,66 @@ use super::*;
 use iroh::{RelayMode, endpoint::presets};
 
 #[tokio::test]
+async fn captures_negotiated_compression() {
+    let directory = tempfile::tempdir().unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    for enabled in [false, true] {
+        let host = Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr((std::net::Ipv4Addr::LOCALHOST, 0))
+            .unwrap()
+            .alpns(vec![ALPN.to_vec()])
+            .bind()
+            .await
+            .unwrap();
+        let address = host.addr();
+        let handle = controller.handle();
+        handle
+            .set_trust(NodeId(*address.id.as_bytes()), true)
+            .await
+            .unwrap();
+        let endpoint = host.clone();
+        let response = tokio::spawn(async move {
+            let connection = endpoint.accept().await.unwrap().await.unwrap();
+            let (mut send, mut recv) = connection.accept_bi().await.unwrap();
+            let request: frame::Envelope = frame::read(&mut recv).await.unwrap();
+            assert!(matches!(request.call, frame::Call::Inspect));
+            assert!(request.zstd);
+            frame::write(
+                &mut send,
+                &frame::Reply::Endpoint {
+                    software_version: Some(crate::PRODUCT_VERSION.into()),
+                    zstd: enabled,
+                    execution: false,
+                    name: None,
+                    platform: "fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
+            send.finish().unwrap();
+            connection.closed().await;
+        });
+        let connection = handle.core.connection(&address, false).await.unwrap();
+        assert_eq!(
+            handle
+                .core
+                .compression(&address, &connection)
+                .await
+                .unwrap(),
+            enabled
+        );
+        handle.disconnect(NodeId(*address.id.as_bytes())).await;
+        response.await.unwrap();
+        host.close().await;
+    }
+    controller.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn isolates_pending_inspection_and_revocation() {
     let directory = tempfile::tempdir().unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -77,6 +137,7 @@ async fn isolates_pending_inspection_and_revocation() {
         &mut send,
         &frame::Reply::Endpoint {
             software_version: Some(crate::PRODUCT_VERSION.into()),
+            zstd: false,
             execution: false,
             name: None,
             platform: "fixture".into(),

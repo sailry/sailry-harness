@@ -87,6 +87,7 @@ struct CachedConnection {
     address: EndpointAddr,
     connection: Connection,
     software_version: Option<String>,
+    zstd: bool,
     telemetry: watch::Receiver<crate::ConnectionInfo>,
     sampler: JoinHandle<()>,
 }
@@ -108,6 +109,7 @@ pub struct PeerInfo {
     pub platform: String,
     pub software_version: Option<String>,
     pub latency: Duration,
+    zstd: bool,
 }
 
 impl PeerInfo {
@@ -369,13 +371,16 @@ impl Core {
         &self,
         send: &mut iroh::endpoint::SendStream,
         call: frame::Call,
+        compressed: bool,
     ) -> Result<Result<(), Fault>, Fault> {
-        self.wait(frame::write(
+        self.wait(frame::write_with(
             send,
             &frame::Envelope {
                 software_version: self.handler.product_version().map(str::to_owned),
+                zstd: true,
                 call,
             },
+            compressed,
         ))
         .await
     }
@@ -383,7 +388,7 @@ impl Core {
     async fn inspect_connection(&self, connection: &Connection) -> Result<PeerInfo, Fault> {
         let started = std::time::Instant::now();
         let (mut send, mut recv) = self.wait(connection.open_bi()).await?.map_err(network)?;
-        self.call(&mut send, frame::Call::Inspect).await??;
+        self.call(&mut send, frame::Call::Inspect, false).await??;
         send.finish().map_err(network)?;
         match self.wait(frame::read::<frame::Reply>(&mut recv)).await?? {
             frame::Reply::Endpoint {
@@ -391,12 +396,14 @@ impl Core {
                 execution,
                 name,
                 platform,
+                zstd,
             } => Ok(PeerInfo {
                 software_version,
                 execution,
                 name,
                 platform,
                 latency: started.elapsed(),
+                zstd,
             }),
             frame::Reply::Rejected(error) => Err(error),
             _ => Err(frame::invalid("endpoint inspection expected")),
