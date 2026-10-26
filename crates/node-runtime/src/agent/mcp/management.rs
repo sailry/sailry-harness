@@ -270,16 +270,12 @@ impl Definition for Management {
         "Manage MCP servers on this execution Node: list declarations without starting servers, or install/update/uninstall standalone entries using their current revision. Definition env/headers contain credential slot names only. Never include private values in tool arguments, URLs or command arguments; use the protected configuration form. Existing secrets and enabled state are retained on update unless clear_credentials explicitly names a slot. OAuth still requires interactive authorization. Plan permits only list. Changes affect future captures, not this turn's tools. Do not replay uncertain mutations."
     }
     fn parameters(&self) -> Value {
-        let operations = if self.plan {
-            vec![("list", Operation::List)]
-        } else {
-            vec![
-                ("list", Operation::List),
-                ("install", Operation::Install),
-                ("update", Operation::Update),
-                ("uninstall", Operation::Uninstall),
-            ]
-        };
+        let operations = [
+            ("list", Operation::List),
+            ("install", Operation::Install),
+            ("update", Operation::Update),
+            ("uninstall", Operation::Uninstall),
+        ];
         let schemas: Vec<_> = operations
             .into_iter()
             .map(|(action, operation)| {

@@ -82,7 +82,6 @@ impl Definition for Management {
         ];
         let variants = actions
             .into_iter()
-            .filter(|action| !self.read_only || action.read_only())
             .map(|action| {
                 let mut schema = action.parameters();
                 let name = match action {
@@ -545,7 +544,7 @@ mod tests {
                 (json!({"action":"discover","path":"skills"}), true),
                 (
                     json!({"action":"uninstall","name":"fixture","expected_revision":1}),
-                    !read_only,
+                    true,
                 ),
                 (
                     json!({"action":"discover","path":"skills","repository":"https://example.invalid/repo"}),
@@ -620,6 +619,10 @@ mod tests {
     #[test]
     fn confines_plan_actions() {
         let read_only = Management { read_only: true };
+        assert_eq!(
+            read_only.parameters(),
+            Management { read_only: false }.parameters()
+        );
         assert!(read_only.arguments(json!({"action":"list"})).is_ok());
         assert!(
             read_only

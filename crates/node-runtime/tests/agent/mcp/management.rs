@@ -230,11 +230,32 @@ async fn manages_only_standalone_inventory() {
 }
 
 #[tokio::test]
-async fn planning_exposes_only_inventory() {
+async fn preserves_planning_inventory() {
     for remote in [false, true] {
-        let model = Server::tools(vec![("manage_mcp".into(), json!({"action":"list"}))]).await;
-        let mut fixture = process::Fixture::packages(remote, &model, &[]).await;
+        let model = Server::scripted_tools(Vec::new()).await;
+        let mut fixture = process::Fixture::packages(remote, &model, &["files"]).await;
         super::super::planning::configure(&mut fixture, WorkMode::Plan).await;
+        let before = execute(&fixture.client, Command::ListPlugins).await;
+        let Output::Plugin(files) = execute(
+            &fixture.client,
+            Command::ReadPlugin {
+                name: "files".into(),
+            },
+        )
+        .await
+        else {
+            panic!("files package expected")
+        };
+        model.replace_tools(vec![
+            ("manage_mcp".into(), json!({"action":"list"})),
+            ("manage_mcp".into(), json!({"action":"install","name":"mcp-planning","definition":{"type":"streamable-http","url":"https://example.invalid/mcp","headers":[]}})),
+            ("manage_mcp".into(), json!({"action":"update","name":"mcp-planning","expected_revision":1})),
+            ("manage_mcp".into(), json!({"action":"uninstall","name":"mcp-planning","expected_revision":1})),
+            ("manage_plugins".into(), json!({"action":"list"})),
+            ("manage_plugins".into(), json!({"action":"install","name":"memory","selection":{"kind":"bundled"}})),
+            ("manage_plugins".into(), json!({"action":"update","name":"files","expected_revision":files.summary.revision})),
+            ("manage_plugins".into(), json!({"action":"uninstall","name":"files","expected_revision":files.summary.revision})),
+        ]);
         let (_, turn) = submit(&fixture, false).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(
@@ -244,10 +265,28 @@ async fn planning_exposes_only_inventory() {
             page.runs
         );
         assert!(page.approvals.is_empty());
+        let output = results(&fixture.client, &page).await;
+        assert_eq!(output.len(), 8);
+        assert_eq!(output[0], json!({"servers":[]}));
+        assert_eq!(output[4]["plugins"].as_array().unwrap().len(), 1);
+        assert_eq!(output[4]["plugins"][0]["summary"]["name"], "files");
         assert_eq!(
-            results(&fixture.client, &page).await[0],
-            json!({"servers":[]})
+            output[4]["plugins"][0]["summary"]["revision"],
+            files.summary.revision
         );
+        for (indices, message) in [
+            (1..4, "MCP mutations are unavailable in Plan mode"),
+            (5..8, "planning turns cannot change plugins"),
+        ] {
+            for index in indices {
+                assert_eq!(
+                    output[index]["error"]["code"],
+                    json!(ErrorCode::PermissionDenied)
+                );
+                assert_eq!(output[index]["error"]["message"], message);
+            }
+        }
+        assert_eq!(execute(&fixture.client, Command::ListPlugins).await, before);
         for request in model.requests.lock().unwrap().iter() {
             let names: Vec<_> = request["tools"]
                 .as_array()

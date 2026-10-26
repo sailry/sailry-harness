@@ -850,8 +850,12 @@ async fn retains_recipient_capture() {
         assert_eq!(saved.turn.plugins, active.plugins);
         assert_eq!(saved.turn.roles, active.roles);
         assert_eq!(saved.message.text, "Do not replace captured tools");
-        let original = read(&fixture.client, selected.id).await;
-        assert_ne!(original.turn.plugins, active.plugins);
+        let original = fixture
+            .client
+            .read_turn_capture(fixture.session.id, selected.id)
+            .await
+            .unwrap();
+        assert_ne!(original.plugins, active.plugins);
         let page = history(&fixture.client, fixture.session.id).await;
         assert_eq!(status(&page, selected.id), Status::Cancelled);
         assert_eq!(status(&page, active.id), Status::Running);

@@ -256,7 +256,7 @@ impl Definition for Management {
         "Manage feature plugins on this execution Node. Use action=list, search, inspect, check_updates, install, update or uninstall. Search explicitly selects the real official or third_party catalog, not installed-name filtering. Inspect Git sources before installation and use their exact resolved commit/path/name; bundled installation uses the embedded package. Update checks do not install; update explicitly applies only a newer SemVer candidate and preserves existing configuration and enabled choices. Uploaded/directory packages without reusable provenance require a new explicit source selection in the existing package UI. Standalone skills and MCP servers use their own managers. Never provide credentials. Existing turns retain captured resources. Do not replay uncertain mutations. In Code mode this mixed-action tool uses the ordinary confirmation policy for all calls."
     }
     fn parameters(&self) -> Value {
-        parameters(self.plan)
+        parameters()
     }
     fn read_only(&self) -> bool {
         self.plan
@@ -419,7 +419,7 @@ impl Definition for Management {
     }
 }
 
-fn parameters(plan: bool) -> Value {
+fn parameters() -> Value {
     let name = json!({"type":"string","minLength":1});
     let revision = json!({"type":"integer","minimum":1});
     let catalog = json!({"enum":["official","third_party"]});
@@ -432,7 +432,7 @@ fn parameters(plan: bool) -> Value {
         required.push("action");
         json!({"type":"object","additionalProperties":false,"properties":properties,"required":required})
     };
-    let mut variants = vec![
+    let variants = vec![
         object("list", json!({}), vec![]),
         object(
             "search",
@@ -453,17 +453,25 @@ fn parameters(plan: bool) -> Value {
             json!({"packages":{"type":"array","maxItems":plugin::MAX_INSTALLED,"items":{"type":"object","additionalProperties":false,"required":["name","expected_revision"],"properties":{"name":name,"expected_revision":revision}}},"force":{"type":"boolean"}}),
             vec!["packages"],
         ),
-    ];
-    if !plan {
-        variants.extend([
-            object("install",json!({"name":name,"selection":{"oneOf":[
+        object(
+            "install",
+            json!({"name":name,"selection":{"oneOf":[
                 {"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"const":"bundled"}}},
                 {"type":"object","additionalProperties":false,"required":["kind","source"],"properties":{"kind":{"const":"git"},"source":resolved,"path":{"type":"string"}}}
-            ]}}),vec!["name","selection"]),
-            object("update",json!({"name":name,"expected_revision":revision,"force":{"type":"boolean"}}),vec!["name","expected_revision"]),
-            object("uninstall",json!({"name":name,"expected_revision":revision}),vec!["name","expected_revision"]),
-        ]);
-    }
+            ]}}),
+            vec!["name", "selection"],
+        ),
+        object(
+            "update",
+            json!({"name":name,"expected_revision":revision,"force":{"type":"boolean"}}),
+            vec!["name", "expected_revision"],
+        ),
+        object(
+            "uninstall",
+            json!({"name":name,"expected_revision":revision}),
+            vec!["name", "expected_revision"],
+        ),
+    ];
     let mut properties = serde_json::Map::new();
     let mut actions = Vec::new();
     for variant in &variants {

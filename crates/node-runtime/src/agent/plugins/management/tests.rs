@@ -18,7 +18,7 @@ fn preserves_anthropic_branches() {
             (json!({"action":"search","source":"official"}), true),
             (
                 json!({"action":"uninstall","name":"fixture","expected_revision":1}),
-                !plan,
+                true,
             ),
             (json!({"action":"search"}), false),
             (json!({"action":"uninstall","name":"fixture"}), false),
@@ -69,17 +69,32 @@ fn limits_planning_actions() {
     assert_eq!(plan.parameters()["required"], json!(["action"]));
     assert_eq!(
         plan.parameters()["properties"]["action"]["enum"],
-        json!(["list", "search", "inspect", "check_updates"])
+        json!([
+            "list",
+            "search",
+            "inspect",
+            "check_updates",
+            "install",
+            "update",
+            "uninstall"
+        ])
     );
-    for action in ["list", "search", "inspect", "check_updates"] {
+    assert_eq!(plan.parameters(), Management { plan: false }.parameters());
+    for arguments in [
+        json!({"action":"list"}),
+        json!({"action":"search","source":"official"}),
+        json!({"action":"inspect","target":{"kind":"installed","name":"fixture"}}),
+        json!({"action":"check_updates","packages":[]}),
+    ] {
         let schema = plan.parameters();
         assert!(
             schema["oneOf"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|variant| variant["properties"]["action"]["const"] == action)
+                .any(|variant| variant["properties"]["action"]["const"] == arguments["action"])
         );
+        assert!(plan.action(arguments).is_ok());
     }
     for arguments in [
         json!({"action":"install","name":"fixture","selection":{"kind":"bundled"}}),
@@ -91,7 +106,7 @@ fn limits_planning_actions() {
             ErrorCode::PermissionDenied
         );
     }
-    assert_eq!(plan.parameters()["oneOf"].as_array().unwrap().len(), 4);
+    assert_eq!(plan.parameters()["oneOf"].as_array().unwrap().len(), 7);
     assert!(!Management { plan: false }.read_only());
 }
 

@@ -188,7 +188,7 @@ async fn scopes_tool_switches_to_the_execution_node() {
                     .to_string()
                     .contains("Finish with an answer to the user's request")
             );
-            let environment = node_context(request, "Node environment");
+            let environment = node_context(request, "Session environment");
             assert!(environment.contains("Model:"));
             assert!(environment.contains("Git repository: no"));
             for name in [

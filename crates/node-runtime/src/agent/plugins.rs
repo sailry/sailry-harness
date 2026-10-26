@@ -114,10 +114,11 @@ pub(super) async fn bind(
     }
     assistants::apply(invocation, &mut bound)?;
     selection::apply(invocation, &mut bound)?;
-    if bound
-        .tools
-        .iter()
-        .any(|entry| skills::NAMES.contains(&entry.tool.name()))
+    if assistant.is_some()
+        || bound
+            .tools
+            .iter()
+            .any(|entry| skills::NAMES.contains(&entry.tool.name()))
     {
         bound.instruction.push_str(&skill_instruction);
     }

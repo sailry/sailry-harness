@@ -142,14 +142,20 @@ fn scopes_actions_to_the_frozen_mode() {
     for plan in [false, true] {
         let management = Management { plan };
         let schema = management.parameters();
+        assert_eq!(schema, Management { plan: false }.parameters());
         let validator = jsonschema::draft202012::options().build(&schema).unwrap();
         assert_eq!(management.name(), "manage_mcp");
         assert_eq!(management.read_only(), plan);
         assert!(validator.is_valid(&list));
         assert!(management.arguments(list.clone()).is_ok());
         for args in &writes {
-            assert_eq!(validator.is_valid(args), !plan);
-            assert_eq!(management.arguments(args.clone()).is_ok(), !plan);
+            assert!(validator.is_valid(args));
+            let result = management.arguments(args.clone());
+            if plan {
+                assert_eq!(result.err().unwrap().code, ErrorCode::PermissionDenied);
+            } else {
+                assert!(result.is_ok());
+            }
         }
         assert!(!validator.is_valid(&json!({"action":"list","secrets":{"key":"private"}})));
         assert!(management.arguments(json!({"action":"unknown"})).is_err());

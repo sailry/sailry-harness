@@ -43,13 +43,12 @@ async fn preserves_management_branches_on_wire() {
                         assert!(schema.get(keyword).is_none(), "{name}: {keyword}");
                     }
                     assert!(schema["not"]["not"]["oneOf"].is_array());
-                    let plan = mode == WorkMode::Plan;
                     let cases = match name {
                         "manage_mcp" => vec![
                             (json!({"action":"list"}), true),
                             (
                                 json!({"action":"uninstall","name":"mcp-fixture","expected_revision":1}),
-                                !plan,
+                                true,
                             ),
                             (json!({"action":"uninstall","name":"mcp-fixture"}), false),
                             (json!({"action":"list","name":"mcp-fixture"}), false),
@@ -61,7 +60,7 @@ async fn preserves_management_branches_on_wire() {
                             (json!({"action":"search","source":"official"}), true),
                             (
                                 json!({"action":"uninstall","name":"fixture","expected_revision":1}),
-                                !plan,
+                                true,
                             ),
                             (json!({"action":"search"}), false),
                             (json!({"action":"uninstall","name":"fixture"}), false),
@@ -76,7 +75,7 @@ async fn preserves_management_branches_on_wire() {
                             (json!({"action":"discover","path":"skills"}), true),
                             (
                                 json!({"action":"uninstall","name":"fixture","expected_revision":1}),
-                                !plan,
+                                true,
                             ),
                             (
                                 json!({"action":"discover","path":"skills","repository":"https://example.invalid/repo"}),

@@ -364,30 +364,50 @@ async fn preserves_identity_and_rejects_feature_packages() {
 }
 
 #[tokio::test]
-async fn planning_exposes_only_reads() {
+async fn preserves_planning_inventory() {
     for remote in [false, true] {
         let git = source::Git::new();
-        let fixture = Fixture::new(remote, &git, Permission::Full, WorkMode::Plan, |_, _| {
-            vec![
-                ("list".into(), json!({})),
-                (
-                    "discover".into(),
-                    json!({"repository":git.url,"ref":"release/v1","path":"skills/analysis"}),
-                ),
-            ]
-        })
+        let fixture = Fixture::new(
+            remote,
+            &git,
+            Permission::Full,
+            WorkMode::Plan,
+            |original, next| {
+                vec![
+                    ("list".into(), json!({})),
+                    (
+                        "discover".into(),
+                        json!({"repository":git.url,"ref":"release/v1","path":"skills/analysis"}),
+                    ),
+                    ("install".into(), install(original)),
+                    ("update".into(), update(next, 1)),
+                    (
+                        "uninstall".into(),
+                        json!({"name":selected(original).name,"expected_revision":1}),
+                    ),
+                    ("list".into(), json!({})),
+                ]
+            },
+        )
         .await;
+        let before = execute(&fixture.client, Command::ListPlugins).await;
         let turn = fixture.submit().await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
-        assert_eq!(
-            results(&fixture.client, &page).await[1]["skills"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
-        );
+        let output = results(&fixture.client, &page).await;
+        assert_eq!(output.len(), 6);
+        assert_eq!(output[0], json!({"skills":[]}));
+        assert_eq!(output[1]["skills"].as_array().unwrap().len(), 1);
+        for denied in &output[2..5] {
+            assert_eq!(denied["error"]["code"], json!(ErrorCode::PermissionDenied));
+            assert_eq!(
+                denied["error"]["message"],
+                "skill installation changes are unavailable in Plan mode"
+            );
+        }
+        assert_eq!(output[5], output[0]);
+        assert_eq!(execute(&fixture.client, Command::ListPlugins).await, before);
         for request in fixture.server.requests.lock().unwrap().iter() {
             let names = names(request);
             assert!(names.contains(&"manage_skills"));
@@ -400,7 +420,7 @@ async fn planning_exposes_only_reads() {
             let parameters = &tool["function"]["parameters"];
             assert_eq!(
                 parameters["properties"]["action"]["enum"],
-                json!(["list", "discover"]),
+                json!(["list", "discover", "install", "update", "uninstall"]),
                 "{parameters}"
             );
             let schema = jsonschema::validator_for(parameters).unwrap();
@@ -419,7 +439,7 @@ async fn planning_exposes_only_reads() {
                 ),
             ] {
                 arguments["action"] = json!(action);
-                assert!(!schema.is_valid(&arguments), "{arguments}: {parameters}");
+                assert!(schema.is_valid(&arguments), "{arguments}: {parameters}");
             }
         }
         fixture.close().await;
