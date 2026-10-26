@@ -125,6 +125,45 @@ use std::{sync::Arc, time::Duration};
 // Functional waits include subscription setup and delivery of the initial snapshot.
 const COMPLETION_BUDGET: Duration = Duration::from_secs(30);
 
+fn is_context(entry: &Entry) -> bool {
+    entry.author == "system" && entry.id.starts_with("context:")
+}
+
+fn message_text(value: &serde_json::Value) -> String {
+    if let Some(text) = value.as_str() {
+        return text.to_owned();
+    }
+    value
+        .as_array()
+        .expect("message text or parts expected")
+        .iter()
+        .filter_map(|part| part["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn node_context(request: &serde_json::Value, section: &str) -> String {
+    request["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .filter(|message| message["role"] == "user")
+        .map(|message| message_text(&message["content"]))
+        .find(|text| text.starts_with("Node context\n") && text.contains(&format!("\n\n{section}")))
+        .expect("captured Node context expected")
+}
+
+fn planning_denial(page: &Page, turn: TurnId) {
+    let run = page.runs.iter().find(|run| run.turn == turn).unwrap();
+    assert_eq!(run.status, Status::Failed, "{run:?}");
+    let error = run.error.as_ref().unwrap();
+    assert!(error.message.contains("PermissionDenied"), "{error:?}");
+    assert!(error.message.contains("planning"), "{error:?}");
+    assert!(page.approvals.iter().all(|approval| approval.turn != turn));
+    assert!(page.questions.iter().all(|question| question.turn != turn));
+}
+
 async fn isolate_model_tools(client: &Client) {
     // Feature fixtures isolate shipped external tools; their own lifecycle suites
     // explicitly enable the packages they exercise.
@@ -447,7 +486,15 @@ async fn shares_frozen_runs_after_restart() {
             panic!("history expected")
         };
         assert_eq!(recent.page.runs.len(), 1);
-        assert_eq!(recent.page.entries.len(), 2);
+        assert_eq!(
+            recent
+                .page
+                .entries
+                .iter()
+                .filter(|entry| !is_context(entry))
+                .count(),
+            2
+        );
         assert!(recent.page.next_before.is_some());
         let Output::Conversation(earlier) = client
             .execute(client.prepare(Command::ReadConversation {

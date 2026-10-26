@@ -22,25 +22,22 @@ impl Tool for Question {
         "Ask one focused question to collect missing information, clarify requirements, or learn a preference, and wait for the answer. Use text or single/multiple choices, optionally allowing another answer. Do not use this tool for tool permissions, blanket authorization, or repeated confirmation of work the user already requested. Invoke the actual tool; the runtime handles any required approval separately. Answers do not grant tool permissions. Never request passwords or secrets: questions and answers are stored in conversation history and sent to the model. Cancellation is not consent. Permission modes never answer questions automatically."
     }
     fn parameters_schema(&self) -> Option<Value> {
-        let mut schema = json!({"type": "object", "additionalProperties": false, "required": ["prompt", "input"], "properties": {
-            "prompt": {"type": "string"},
-            "input": {"anyOf": [
-                {"type": "object", "additionalProperties": false, "required": ["kind", "multiline", "max_bytes"], "properties": {
-                    "kind": {"type": "string", "enum": ["text"]}, "multiline": {"type": "boolean"}, "max_bytes": {"type": "integer", "minimum": 1, "maximum": MAX_TEXT_BYTES}
-                }},
-                {"type": "object", "additionalProperties": false, "required": ["kind", "options", "multiple"], "properties": {
-                    "kind": {"type": "string", "enum": ["choice"]}, "options": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "multiple": {"type": "boolean"}, "allow_other": {"type": "boolean", "default": false}
-                }}
-            ]}
-        }});
-        if self.planning {
-            schema["properties"]["input"]["anyOf"].as_array_mut().unwrap().push(
-                json!({"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {
-                    "kind": {"type": "string", "enum": ["plan"]}
-                }}),
-            );
-        }
-        Some(schema)
+        Some(
+            json!({"type": "object", "additionalProperties": false, "required": ["prompt", "input"], "properties": {
+                "prompt": {"type": "string"},
+                "input": {"anyOf": [
+                    {"type": "object", "additionalProperties": false, "required": ["kind", "multiline", "max_bytes"], "properties": {
+                        "kind": {"type": "string", "enum": ["text"]}, "multiline": {"type": "boolean"}, "max_bytes": {"type": "integer", "minimum": 1, "maximum": MAX_TEXT_BYTES}
+                    }},
+                    {"type": "object", "additionalProperties": false, "required": ["kind", "options", "multiple"], "properties": {
+                        "kind": {"type": "string", "enum": ["choice"]}, "options": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "multiple": {"type": "boolean"}, "allow_other": {"type": "boolean", "default": false}
+                    }},
+                    {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {
+                        "kind": {"type": "string", "enum": ["plan"]}
+                    }}
+                ]}
+            }}),
+        )
     }
     async fn execute(
         &self,

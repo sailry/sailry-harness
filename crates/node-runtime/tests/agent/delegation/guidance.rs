@@ -25,6 +25,13 @@ async fn marks_rejected_child_control() {
         assert_eq!(status(&page, turn.id), Status::Completed);
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
         let call = view.calls.iter().find(|call| call.name == name).unwrap();
+        let call = call.with_detail(
+            fixture
+                .client
+                .tool_detail(call.detail_reference(&page).unwrap())
+                .await
+                .unwrap(),
+        );
         assert_eq!(
             call.failure.as_ref().and_then(|failure| failure.code),
             Some(ErrorCode::PermissionDenied)
@@ -73,6 +80,13 @@ async fn resumes_completed_child() {
             .iter()
             .find(|call| call.turn == turn.id && call.name == name)
             .unwrap();
+        let call = call.with_detail(
+            fixture
+                .client
+                .tool_detail(call.detail_reference(&page).unwrap())
+                .await
+                .unwrap(),
+        );
         assert!(call.failure.is_none());
         let admitted = call.result(&page).unwrap();
         assert_eq!(admitted["session"], json!(child));
@@ -369,19 +383,26 @@ async fn settles_batch_before_handoff() {
             accepted
         );
         assert_eq!(read(&fixture, guided.id).await.message, message);
+        let next_request = prepare(&fixture, &recipient, "Another direction".into());
+        let accepted_next = fixture.client.execute(next_request.clone()).await.unwrap();
+        let Output::QueuedTurn(next) = &accepted_next else {
+            panic!("second guided turn expected")
+        };
+        assert_ne!(next.id, guided.id);
+        assert_eq!(next.config, guided.config);
+        assert_eq!(next.plugins, guided.plugins);
         assert_eq!(
-            fixture
-                .client
-                .execute(prepare(&fixture, &recipient, "Another direction".into()))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Conflict
+            read(&fixture, next.id).await.message.text,
+            "Another direction"
         );
         let page = history(&fixture.client, child.id).await;
         assert_eq!(status(&page, recipient.turn), Status::Running);
         assert_eq!(status(&page, guided.id), Status::Queued);
+        assert_eq!(status(&page, next.id), Status::Queued);
         assert_eq!(page.queue.items[0].guidance, Some(recipient.turn));
+        assert_eq!(page.queue.items[0].turn, guided.id);
+        assert_eq!(page.queue.items[1].guidance, Some(recipient.turn));
+        assert_eq!(page.queue.items[1].turn, next.id);
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
         fixture.provider.endpoint = "http://127.0.0.1:1/v1".into();
         fixture
@@ -416,6 +437,7 @@ async fn settles_batch_before_handoff() {
         assert_ne!(first.id, second.id);
         assert_eq!(status(&page, recipient.turn), Status::Running);
         assert_eq!(status(&page, guided.id), Status::Queued);
+        assert_eq!(status(&page, next.id), Status::Queued);
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
         fixture
             .client
@@ -429,6 +451,15 @@ async fn settles_batch_before_handoff() {
         let page = finished(&fixture.client, child.id, guided.id).await;
         assert_eq!(status(&page, recipient.turn), Status::Continued);
         assert_eq!(status(&page, guided.id), Status::Completed);
+        assert_eq!(status(&page, next.id), Status::Continued);
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == next.id)
+                .unwrap()
+                .joined,
+            Some(guided.id)
+        );
         assert!(page.queue.items.is_empty());
         assert_eq!(
             page.entries
@@ -447,15 +478,34 @@ async fn settles_batch_before_handoff() {
                     .parts
                     .contains(&Part::Reference(message.references[0].clone()))
         }));
+        assert_eq!(
+            page.entries
+                .iter()
+                .filter(|entry| entry.turn == next.id
+                    && entry.author == "user"
+                    && entry
+                        .parts
+                        .contains(&Part::Text("Another direction".into())))
+                .count(),
+            1
+        );
+        assert!(
+            page.entries
+                .iter()
+                .filter(|entry| entry.turn == next.id)
+                .all(|entry| entry.author != "assistant")
+        );
         let parent_page = finished(&fixture.client, fixture.session.id, parent.id).await;
         assert_eq!(status(&parent_page, parent.id), Status::Completed);
-        assert_eq!(parent_page.children.len(), 2);
+        assert_eq!(parent_page.children.len(), 3);
         assert_eq!(
             parent_page.children[0].origin,
             parent_page.children[1].origin
         );
         assert_eq!(parent_page.children[0].run.turn, recipient.turn);
         assert_eq!(parent_page.children[1].run.turn, guided.id);
+        assert_eq!(parent_page.children[2].run.turn, next.id);
+        assert_eq!(parent_page.children[2].run.joined, Some(guided.id));
         let returned = results(&fixture.client, &parent_page).await;
         assert_eq!(returned.len(), 1);
         assert_eq!(returned[0]["session"], json!(child.id));
@@ -467,6 +517,7 @@ async fn settles_batch_before_handoff() {
         let context = requests[1]["messages"].to_string();
         assert!(context.contains("settled evidence"));
         assert!(context.contains("Selected guidance attachment"));
+        assert!(context.contains("Another direction"));
         assert!(context.contains("Frozen review instructions"));
         assert!(!context.contains("Changed catalog instructions"));
         assert!(!context.contains("Parent-only private context"));
@@ -483,6 +534,10 @@ async fn settles_batch_before_handoff() {
         );
         assert!(!fixture.root().join("second.txt").exists());
         assert_eq!(fixture.client.execute(request).await.unwrap(), accepted);
+        assert_eq!(
+            fixture.client.execute(next_request).await.unwrap(),
+            accepted_next
+        );
         assert_eq!(
             children(&fixture.client, fixture.session.id, 1).await.len(),
             1

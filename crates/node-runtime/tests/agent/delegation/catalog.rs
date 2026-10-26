@@ -101,7 +101,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
             Status::Completed
         );
         let request = fixture.parent.requests.lock().unwrap()[0].clone();
-        let instruction = request["messages"][0].to_string();
+        let instruction = node_context(&request, "Work mode");
         assert_eq!(instruction.matches("<selected_skill>").count(), 1);
         assert!(instruction.contains(
             "Use this skill when the user requests two or more competing implementations"
@@ -176,7 +176,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                 .iter()
                 .filter_map(|tool| tool["function"]["name"].as_str())
                 .collect();
-            let instruction = request["messages"][0].to_string();
+            let instruction = node_context(&request, "Work mode");
             assert!(instruction.contains("1. Review this catalog and select the smallest set"));
             assert!(
                 instruction.contains("When load_skill is available in this turn's tool catalog")

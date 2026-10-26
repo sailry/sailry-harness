@@ -433,6 +433,14 @@ async fn execute_with(
         &invocation.turn.config,
         invocation.child.is_some(),
     )?;
+    let mut policy = format!(
+        "{}\n\n{workflow}",
+        prompt::policy(
+            invocation.turn.config.mode,
+            invocation.turn.config.permission,
+            invocation.child.is_some(),
+        )
+    );
     let personal = prompt::personal(ingress, invocation.worktree, &stop).await?;
     if !personal.is_empty() {
         ingress.agents.context_source(
@@ -446,8 +454,8 @@ async fn execute_with(
         .as_ref()
         .and_then(|child| child.role.as_ref())
     {
-        instruction.push_str("\n\n");
-        instruction.push_str(&role.instructions);
+        policy.push_str("\n\n");
+        policy.push_str(&role.instructions);
         for skill in &role.skills {
             let text = resources.read(skill, "SKILL.md").await?;
             ingress.agents.context_source(
@@ -455,7 +463,7 @@ async fn execute_with(
                 sailry_protocol::conversation::observation::CategoryKind::Skills,
                 &text.content,
             );
-            instruction.push_str(&format!(
+            policy.push_str(&format!(
                 "\n\nSelected skill {skill}\nDirectory: {}\n{}",
                 text.directory, text.content
             ));
@@ -481,8 +489,8 @@ async fn execute_with(
                     .any(|name| name == registration.tool.name())
             })
         {
-            instruction.push_str("\n\n");
-            instruction.push_str(&captured.text);
+            policy.push_str("\n\n");
+            policy.push_str(&captured.text);
             ingress.agents.context_source(
                 invocation.turn.id,
                 sailry_protocol::conversation::observation::CategoryKind::Injected,
@@ -491,8 +499,8 @@ async fn execute_with(
         }
     }
     if !extensions.instruction.is_empty() {
-        instruction.push_str("\n\n");
-        instruction.push_str(&extensions.instruction);
+        policy.push_str("\n\n");
+        policy.push_str(&extensions.instruction);
         ingress.agents.context_source(
             invocation.turn.id,
             sailry_protocol::conversation::observation::CategoryKind::Injected,
@@ -501,14 +509,6 @@ async fn execute_with(
     }
     instruction.push_str("\n\n");
     instruction.push_str(prompt::recipient(invocation.child.is_some()));
-    let mut policy = format!(
-        "{}\n\n{workflow}",
-        prompt::policy(
-            invocation.turn.config.mode,
-            invocation.turn.config.permission,
-            invocation.child.is_some(),
-        )
-    );
     policy.push_str(
         &references::capabilities::instruction(&invocation, &resources, &extensions.tools).await?,
     );

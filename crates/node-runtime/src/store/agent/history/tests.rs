@@ -146,13 +146,14 @@ async fn publishes_only_settled_batches() {
         event
     };
     let mut published = Vec::new();
+    let second = event("second", "function", vec![result("second")]);
     for (value, expected) in [
         (
             event("calls", "model", vec![call("first"), call("second")]),
             0,
         ),
-        (event("second", "function", vec![result("second")]), 0),
-        (event("second", "function", vec![result("second")]), 0),
+        (second.clone(), 0),
+        (second, 0),
         (event("first", "function", vec![result("first")]), 1),
         (event("unmatched", "function", vec![result("other")]), 1),
         (

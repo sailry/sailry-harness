@@ -174,6 +174,16 @@ fn users(api: ModelApi, body: &Value) -> Vec<String> {
         .collect()
 }
 
+fn ordered_tools(body: &Value) -> Value {
+    let mut tools = body["tools"].clone();
+    for tool in tools.as_array_mut().unwrap() {
+        if let Some(declarations) = tool["functionDeclarations"].as_array_mut() {
+            declarations.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
+        }
+    }
+    tools
+}
+
 fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
     let system = instruction(api, body);
     assert_eq!(system.matches(BASE.trim()).count(), 1, "{api:?}");
@@ -247,7 +257,15 @@ async fn preserves_native_roles_across_resume() {
                     instruction(api, &request.body),
                     instruction(api, &requests[0].body)
                 );
-                assert_eq!(request.body["tools"], requests[0].body["tools"]);
+                if api == ModelApi::Gemini && index == 2 {
+                    // The SDK does not persist its HashMap order across Node restarts.
+                    assert_eq!(
+                        ordered_tools(&request.body),
+                        ordered_tools(&requests[0].body)
+                    );
+                } else {
+                    assert_eq!(request.body["tools"], requests[0].body["tools"]);
+                }
             }
             assert!(requests[1].body.to_string().contains("工具内容 🙂"));
             assert!(requests[2].body.to_string().contains(server::ANSWER));
@@ -311,6 +329,16 @@ async fn preserves_gemini_summary_instructions() {
             [Part::Text(evidence.clone())]
         );
         assert_eq!(server.requests.lock().unwrap().len(), 1);
+        let context = users(ModelApi::Gemini, &server.requests.lock().unwrap()[0].body)
+            .into_iter()
+            .find(|text| text.starts_with("Node context\n"))
+            .expect("captured Node context expected");
+        let (_, captured) = context.split_once("\n\n").unwrap();
+        let (policy, remaining) = captured.split_once("\n\nSession environment\n").unwrap();
+        let (environment, personal) = remaining.split_once("\n\nPersonal instructions\n").unwrap();
+        let retained_context = format!(
+            "Session environment\n{environment}\n\nPersonal instructions\n{personal}\n\n{policy}"
+        );
         let Output::QueuedTurn(compact) = execute(
             &fixture.client,
             Command::CompactContext {
@@ -337,7 +365,12 @@ async fn preserves_gemini_summary_instructions() {
             "{}\n\nLatest user instruction (verbatim data)\n{task}",
             server::ANSWER
         );
-        assert_eq!(entry.parts, [Part::Compaction(retained.clone())]);
+        assert_eq!(
+            entry.parts,
+            [Part::Compaction(format!(
+                "{retained}\n\nCaptured Node context (verbatim)\n{retained_context}"
+            ))]
+        );
         assert!(retained.len() <= 3072);
         {
             let requests = server.requests.lock().unwrap();
@@ -349,7 +382,10 @@ async fn preserves_gemini_summary_instructions() {
                 1
             );
             assert_eq!(
-                users(ModelApi::Gemini, &requests[0].body),
+                users(ModelApi::Gemini, &requests[0].body)
+                    .into_iter()
+                    .filter(|text| !text.starts_with("Node context\n"))
+                    .collect::<Vec<_>>(),
                 std::slice::from_ref(&task)
             );
             let summary = &requests[1];
@@ -408,14 +444,17 @@ async fn preserves_gemini_summary_instructions() {
             assert!(retained.len() * 2 < transcript.len());
             let transcript: Value = serde_json::from_str(&transcript).unwrap();
             let events = transcript.as_array().unwrap();
-            assert_eq!(events.len(), 2);
+            assert_eq!(events.len(), 3);
             assert_eq!(events[0]["author"], "user");
             assert_eq!(events[0]["input_source"], "user");
             assert_eq!(events[0]["original_text_part"], 0);
             assert_eq!(events[0]["parts"], json!([{"text": task}]));
-            assert_eq!(events[1]["author"], "assistant");
+            assert_eq!(events[1]["author"], "system");
             assert!(events[1].get("input_source").is_none());
-            assert_eq!(events[1]["parts"], json!([{"text": evidence}]));
+            assert_eq!(events[1]["parts"], json!([{"text": context}]));
+            assert_eq!(events[2]["author"], "assistant");
+            assert!(events[2].get("input_source").is_none());
+            assert_eq!(events[2]["parts"], json!([{"text": evidence}]));
         }
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();

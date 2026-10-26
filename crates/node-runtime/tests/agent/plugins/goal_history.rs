@@ -335,17 +335,8 @@ async fn requires_explicit_resume_after_restart() {
             requests += 1;
             assert_eq!(server.requests.lock().unwrap().len(), requests);
             let request = server.requests.lock().unwrap().last().unwrap().clone();
-            assert!(
-                !request["messages"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|message| {
-                        message["content"]
-                            .as_str()
-                            .is_some_and(|text| text.contains("Active goal: "))
-                    })
-            );
+            assert!(!node_context(&request, "Work mode").contains("Active goal: "));
+            assert!(!request["messages"][0].to_string().contains("Active goal: "));
         }
 
         let before = history(&fixture.client, branch.id).await;

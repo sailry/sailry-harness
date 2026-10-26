@@ -79,18 +79,21 @@ fn has_delegate(request: &Value) -> bool {
 
 fn context(request: &Value, personal: &str) -> String {
     assert_eq!(request["messages"][0]["role"], "system");
-    let instructions = request["messages"][0]["content"].to_string();
-    assert!(instructions.contains("You are Sailry"));
+    let baseline = message_text(&request["messages"][0]["content"]);
+    assert!(baseline.contains("You are Sailry"));
+    let instructions = node_context(request, "Work mode");
+    let preferences = node_context(request, "Personal instructions");
     assert!(instructions.contains(INSTRUCTIONS));
-    assert!(instructions.contains(GUIDE));
-    assert_eq!(instructions.matches(personal).count(), 1);
+    assert!(node_context(request, "Project instructions").contains(GUIDE));
+    assert_eq!(preferences.matches(personal).count(), 1);
     assert!(!instructions.contains(CONTROLLER_RULE));
+    assert!(!request["messages"].to_string().contains(CONTROLLER_RULE));
     let previous = if personal == PERSONAL_FIRST {
         PERSONAL_NEXT
     } else {
         PERSONAL_FIRST
     };
-    assert!(!instructions.contains(previous));
+    assert!(!preferences.contains(previous));
     assert!(
         request["messages"]
             .as_array()
@@ -98,7 +101,10 @@ fn context(request: &Value, personal: &str) -> String {
             .iter()
             .filter(|message| message["role"] == "user")
             .all(|message| {
-                let content = message["content"].to_string();
+                let content = message_text(&message["content"]);
+                if content.starts_with("Node context\n") {
+                    return true;
+                }
                 !content.contains(PERSONAL_FIRST)
                     && !content.contains(PERSONAL_NEXT)
                     && !content.contains(CONTROLLER_RULE)

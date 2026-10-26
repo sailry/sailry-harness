@@ -151,13 +151,12 @@ async fn inherits_parent_model() {
                 })
                 .unwrap();
             let description = declaration["function"]["description"].as_str().unwrap();
-            assert!(description.contains("use its exact listed key and never invent a role"));
-            assert!(
-                description
-                    .contains("If no role fits or the roster is empty, omit role or use null")
-            );
-            assert!(description.contains("The child does not see this conversation"));
-            assert!(description.contains("self-contained task"));
+            assert!(description.contains("Choose an exact listed role"));
+            assert!(description.contains("or omit it to inherit the model and instructions"));
+            assert!(description.contains("the child cannot see this conversation"));
+            assert!(description.contains(
+                "Supply the goal, relevant paths and excerpts, constraints, edit ownership and expected result"
+            ));
             assert!(description.contains("disjoint files"));
             if roster {
                 let tool = requests[0]["tools"]
@@ -216,9 +215,7 @@ async fn inherits_parent_model() {
             }
 
             assert!(
-                child["messages"][0]
-                    .to_string()
-                    .contains("Shared default instructions")
+                node_context(child, "Project instructions").contains("Shared default instructions")
             );
             assert!(child["messages"].to_string().contains("第一轮：读取并总结"));
             assert!(

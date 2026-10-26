@@ -54,31 +54,51 @@ fn restores_the_first_request_prefix() {
         resumed.instruction("Changed instructions".into()),
         instruction
     );
-    let restored = resumed.declarations(&tools("Changed description"));
+    let restored = resumed.declarations(&tools("First description"));
     assert_eq!(
         serde_json::to_value(&restored).unwrap(),
         serde_json::to_value(&declarations).unwrap()
     );
     assert_eq!(serde_json::to_value(resumed).unwrap(), captured);
 
-    let mut request = LlmRequest {
-        model: "fixture".into(),
-        contents: vec![],
-        config: None,
-        tools: HashMap::from([("changed".into(), json!({"name":"changed"}))]),
-        previous_response_id: None,
-    };
-    project(&mut request, &declarations);
+    let projected = project(declarations);
     let expected = json!({
         "name":"fixture","description":"First description","parameters":{"type":"object"}
     });
-    assert_eq!(request.tools.len(), 1);
-    assert_eq!(request.tools["fixture"], expected);
-    project(&mut request, &restored);
-    assert_eq!(request.tools.len(), 1);
-    assert_eq!(request.tools["fixture"], expected);
+    assert_eq!(projected.len(), 1);
+    assert_eq!(projected["fixture"], expected);
+    assert_eq!(project(restored), projected);
     assert!(!instruction.contains("This turn uses Ask permission"));
     assert!(!instruction.contains("This is a planning turn"));
+}
+
+#[test]
+fn updates_the_captured_catalog() {
+    let mut snapshot = Snapshot::default();
+    let instruction = snapshot.instruction(super::super::baseline().into());
+    let first = snapshot.declarations(&tools("First description"));
+    let captured = serde_json::to_value(&snapshot).unwrap();
+    let mut resumed: Snapshot = serde_json::from_value(captured).unwrap();
+    let changed = resumed.declarations(&tools("Changed description"));
+    assert_eq!(
+        resumed.instruction("Changed instructions".into()),
+        instruction
+    );
+    assert_eq!(
+        project(first)["fixture"]["description"],
+        "First description"
+    );
+    assert_eq!(
+        project(changed)["fixture"]["description"],
+        "Changed description"
+    );
+    let empty = resumed.declarations(&[]);
+    assert!(project(empty).is_empty());
+    let persisted = serde_json::to_value(&resumed).unwrap();
+    assert_eq!(persisted["tools"], json!({}));
+    let mut restored: Snapshot = serde_json::from_value(persisted).unwrap();
+    assert!(restored.declarations(&[]).is_empty());
+    assert_eq!(restored.instruction("Changed again".into()), instruction);
 }
 
 #[test]

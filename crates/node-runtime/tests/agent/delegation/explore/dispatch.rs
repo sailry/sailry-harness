@@ -147,7 +147,7 @@ async fn rejects_captured_mutating_requests() {
         let mut fixture = Fixture::start(remote, parent, child).await;
         let package = install(&fixture).await;
         std::fs::write(fixture.root().join("source.txt"), EVIDENCE).unwrap();
-        select(&mut fixture, true).await;
+        select(&mut fixture, true, true).await;
         let turn = fixture.push("Start an exploration").await;
         fixture.child.wait_count(1).await;
         let child = children(&fixture.client, fixture.session.id, 1)

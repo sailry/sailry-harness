@@ -68,7 +68,7 @@ async fn follows_raw_output_with_read_authority() {
             panic!("output reader expected")
         };
         assert!(package.issues.is_empty(), "{:?}", package.issues);
-        let mut role = select(&mut fixture, false).await;
+        let mut role = select(&mut fixture, false, false).await;
         role.model = fixture.role.model.clone();
         role.tools = Some(vec![
             plugin::conversation::Tool::Package {
@@ -116,6 +116,7 @@ async fn follows_raw_output_with_read_authority() {
             .await
             .pop()
             .unwrap();
+        let owner = history(&fixture.client, child.id).await.runs[0].turn;
         assert_eq!(child.config.mode, WorkMode::Plan);
         let projected = result(&fixture.child, &plugin_tool("files", "read_file"));
         assert!(projected["output"]["call"].is_string(), "{projected}");
@@ -131,8 +132,13 @@ async fn follows_raw_output_with_read_authority() {
         let page = finished(&fixture.client, fixture.session.id, next.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let raw = result(&fixture.child, &plugin_tool(PACKAGE, "read"));
-        assert_eq!(raw["kind"], "tool_output", "{raw}");
-        let original: Value = serde_json::from_str(raw["data"]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(raw["turn"], json!(owner));
+        assert_eq!(raw["output"], projected["output"]);
+        assert_eq!(raw["offset"], 0);
+        assert!(raw["next_offset"].is_null());
+        let text = raw["text"].as_str().unwrap();
+        assert_eq!(raw["total_bytes"], text.len());
+        let original: Value = serde_json::from_str(text).unwrap();
         assert!(
             original
                 .to_string()

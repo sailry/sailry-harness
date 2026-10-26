@@ -309,9 +309,9 @@ async fn revoked_creation_leaves_no_record_or_schedule() {
 }
 
 #[tokio::test]
-async fn tool_visibility_follows_package_and_planning_policy() {
+async fn preserves_enablement_and_planning_policy() {
     for remote in [false, true] {
-        let server = Server::tools(vec![]).await;
+        let server = Server::scripted_tools(vec![]).await;
         let mut fixture = process::Fixture::packages(remote, &server, &["scheduled-tasks"]).await;
         let tool = plugin_tool("scheduled-tasks", "scheduled_tasks");
         for (enabled, mode) in [
@@ -341,20 +341,40 @@ async fn tool_visibility_follows_package_and_planning_policy() {
                     .unwrap();
             }
             planning::configure(&mut fixture, mode).await;
+            if mode == WorkMode::Plan {
+                server.replace_tools(vec![(tool.clone(), json!({
+                    "action":"create","name":"Forbidden schedule","prompt":"Must not run",
+                    "timing":{"kind":"once","data":{"at_ms":chrono::Utc::now().timestamp_millis()+3_600_000}}
+                }))]);
+            }
             let turn = submit(&fixture, "Inspect scheduled tools").await;
             let page = if mode == WorkMode::Plan {
                 questions::finish_plan(&fixture.client, fixture.session.id, turn).await
             } else {
                 finished(&fixture.client, fixture.session.id, turn).await
             };
-            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            let requests = server.requests.lock().unwrap();
-            let exposed = requests.last().unwrap()["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|declaration| declaration["function"]["name"] == tool);
-            assert_eq!(exposed, enabled && mode == WorkMode::Code);
+            if mode == WorkMode::Plan {
+                planning_denial(&page, turn);
+                let context = context(&fixture).await;
+                assert!(schedules(&fixture.client, &context).await.is_empty());
+                assert!(
+                    call(&fixture.client, &context, "list", json!({})).await["Ok"]["items"]
+                        .as_array()
+                        .unwrap()
+                        .is_empty()
+                );
+            } else {
+                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+            }
+            {
+                let requests = server.requests.lock().unwrap();
+                let exposed = requests.last().unwrap()["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|declaration| declaration["function"]["name"] == tool);
+                assert_eq!(exposed, enabled);
+            }
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

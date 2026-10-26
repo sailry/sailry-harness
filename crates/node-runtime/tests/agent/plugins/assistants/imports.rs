@@ -181,7 +181,7 @@ async fn qualifies_policy_without_a_loader() {
         assert!(tools.contains(alias("read_note").as_str()));
         assert!(!tools.contains("load_skill"));
         assert!(!tools.contains("read_skill_resource"));
-        let instruction = request["messages"][0].to_string();
+        let instruction = node_context(&request, "Work mode");
         assert!(instruction.contains("assistant-notes:review"));
         assert!(instruction.contains("When load_skill is available in this turn's tool catalog"));
         assert!(

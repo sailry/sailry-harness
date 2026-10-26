@@ -290,23 +290,17 @@ fn model(request: &Value) {
     assert!(!tools.contains(alias("list_notes").as_str()));
     let messages = request["messages"].as_array().unwrap();
     assert_eq!(
-        messages
-            .iter()
-            .filter(|message| message["role"] == "system")
-            .map(|message| message["content"]
-                .as_str()
-                .unwrap()
-                .matches(CONTEXT)
-                .count())
-            .sum::<usize>(),
+        node_context(request, "Work mode").matches(CONTEXT).count(),
         1
     );
+    assert!(!messages[0]["content"].to_string().contains(CONTEXT));
     let user: Vec<_> = messages
         .iter()
         .filter(|message| message["role"] == "user")
-        .map(|message| message["content"].as_str().unwrap())
+        .map(|message| message_text(&message["content"]))
+        .filter(|text| !text.starts_with("Node context\n"))
         .collect();
-    assert_eq!(user, [PROMPT]);
+    assert_eq!(user, [PROMPT.to_owned()]);
     assert!(!request["messages"].to_string().contains(REPLACEMENT));
     for rule in [
         "Use update_plan for substantial multi-step tasks",

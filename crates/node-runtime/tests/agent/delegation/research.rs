@@ -112,20 +112,16 @@ async fn loads_the_skill_without_expanding_authority() {
             })
             .expect("coordinator model request");
         assert!(
-            parent_request["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|message| message["content"].as_str())
-                .any(|text| text.contains("enables autonomous delegation"))
+            node_context(parent_request, "Work mode")
+                .contains("Flagship enables delegation; it does not require it")
         );
         let instructions = request["messages"]
             .as_array()
             .unwrap()
             .iter()
-            .filter_map(|message| message["content"].as_str())
+            .map(|message| message_text(&message["content"]))
             .collect::<String>();
-        assert!(!instructions.contains("enables autonomous delegation"));
+        assert!(!instructions.contains("Flagship enables delegation"));
         assert!(instructions.contains("Selected skill web-search:research"));
         assert!(instructions.contains("Search snippets identify candidates"));
         assert!(instructions.contains("six queries and eight distinct fetched sources"));

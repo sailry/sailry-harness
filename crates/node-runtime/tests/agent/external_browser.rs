@@ -262,15 +262,28 @@ async fn filters_without_provisioning() {
     for remote in [false, true] {
         for enabled in [false, true] {
             for mode in [WorkMode::Code, WorkMode::Plan] {
+                let denied = enabled && mode == WorkMode::Plan;
+                let calls = if denied {
+                    vec![(
+                        "external_browser_click".into(),
+                        json!({"selector":"#submit"}),
+                    )]
+                } else {
+                    vec![]
+                };
                 let fixture =
-                    Fixture::configured(remote, vec![], mode, Permission::Full, enabled, true)
-                        .await;
+                    Fixture::configured(remote, calls, mode, Permission::Full, enabled, true).await;
                 let page = if mode == WorkMode::Plan {
                     questions::finish_plan(&fixture.client, fixture.session, fixture.turn).await
                 } else {
                     finished(&fixture.client, fixture.session, fixture.turn).await
                 };
-                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+                if denied {
+                    planning_denial(&page, fixture.turn);
+                } else {
+                    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+                }
+                assert!(page.approvals.is_empty());
                 {
                     let requests = fixture._server.requests.lock().unwrap();
                     let tools = requests[0]["tools"].as_array().unwrap();
@@ -283,28 +296,15 @@ async fn filters_without_provisioning() {
                                 .is_some_and(|name| name.starts_with(&prefix))
                         })
                         .count();
-                    assert_eq!(
-                        count,
-                        if enabled {
-                            if mode == WorkMode::Plan { 19 } else { 49 }
-                        } else {
-                            0
-                        }
-                    );
+                    assert_eq!(count, if enabled { 49 } else { 0 });
                     let contains = |name| {
                         tools
                             .iter()
                             .any(|entry| entry["function"]["name"] == tool(name))
                     };
                     assert_eq!(contains("external_browser_navigate"), enabled);
-                    assert_eq!(
-                        contains("external_browser_click"),
-                        enabled && mode == WorkMode::Code
-                    );
-                    assert_eq!(
-                        contains("external_browser_file_upload"),
-                        enabled && mode == WorkMode::Code
-                    );
+                    assert_eq!(contains("external_browser_click"), enabled);
+                    assert_eq!(contains("external_browser_file_upload"), enabled);
                     assert!(!fixture.profile().join("tools/chromium").exists());
                 }
                 fixture.shutdown().await;

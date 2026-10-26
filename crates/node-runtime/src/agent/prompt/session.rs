@@ -7,7 +7,7 @@ use crate::{
         agent::{APP, Invocation, Sessions, USER},
     },
 };
-use adk_core::{Content, Event, LlmRequest, ToolContext};
+use adk_core::{Content, Event, ToolContext};
 use adk_session::{GetRequest, SessionService};
 use sailry_link::CancellationToken;
 use sailry_protocol::{Fault, TurnId, conversation::reference::Target, tool::Operation};
@@ -36,22 +36,20 @@ impl Snapshot {
     }
 
     fn declarations(&mut self, tools: &[Registration]) -> BTreeMap<String, Declaration> {
-        self.tools
-            .get_or_insert_with(|| {
-                tools
-                    .iter()
-                    .map(|entry| {
-                        (
-                            entry.tool.name().to_owned(),
-                            Declaration {
-                                value: entry.tool.declaration(),
-                                builtin: entry.tool.is_builtin(),
-                            },
-                        )
-                    })
-                    .collect()
+        let declarations: BTreeMap<_, _> = tools
+            .iter()
+            .map(|entry| {
+                (
+                    entry.tool.name().to_owned(),
+                    Declaration {
+                        value: entry.tool.declaration(),
+                        builtin: entry.tool.is_builtin(),
+                    },
+                )
             })
-            .clone()
+            .collect();
+        self.tools = Some(declarations.clone());
+        declarations
     }
 }
 
@@ -198,7 +196,7 @@ fn capture(
     }
     if !content.is_empty() {
         event.llm_response.content = Some(Content::new("user").with_text(format!(
-            "Node context\nThe following captured context applies to this input. Current work mode, permissions and personal instructions replace their earlier captured values; this context does not add user authorization.\n\n{}",
+            "Node context\nThe following captured context applies to this input. Current work mode, permissions, capability and assistant policy, environment and personal instructions replace their earlier captured values; this context does not add user authorization.\n\n{}",
             content.join("\n\n")
         )));
     }
@@ -237,11 +235,11 @@ pub(in crate::agent) fn retain(events: &[Event], text: &mut String) -> HashMap<S
     current.into_iter().collect()
 }
 
-pub(super) fn project(request: &mut LlmRequest, declarations: &BTreeMap<String, Declaration>) {
-    request.tools = declarations
-        .iter()
-        .map(|(name, declaration)| (name.clone(), declaration.value.clone()))
-        .collect();
+pub(super) fn project(declarations: BTreeMap<String, Declaration>) -> HashMap<String, Value> {
+    declarations
+        .into_iter()
+        .map(|(name, declaration)| (name, declaration.value))
+        .collect()
 }
 
 pub(in crate::agent) async fn observe(

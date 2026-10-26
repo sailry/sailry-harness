@@ -134,7 +134,8 @@ async fn retains_history_after_brief_removal() {
         {
             let requests = server.requests.lock().unwrap();
             let request = &requests[0];
-            assert!(system_prompt(request).contains(&instructions));
+            assert!(node_context(request, "Work mode").contains(&instructions));
+            assert!(!system_prompt(request).contains(&instructions));
             for name in ["write_brief", "read_brief", "list_briefs"] {
                 assert!(has_tool(request, &plugin_tool("brief", name)));
             }
@@ -157,8 +158,10 @@ async fn retains_history_after_brief_removal() {
             let requests = server.requests.lock().unwrap();
             assert!(requests.len() > first_request);
             for request in requests.iter().skip(first_request) {
-                assert!(!system_prompt(request).contains(&instructions));
-                assert!(!system_prompt(request).contains("offer an optional HTML brief"));
+                let current = node_context(request, "Work mode");
+                assert!(!current.contains(&instructions));
+                assert!(!current.contains("offer an optional HTML brief"));
+                assert_eq!(system_prompt(request), system_prompt(&requests[0]));
                 for name in ["write_brief", "read_brief", "list_briefs"] {
                     assert!(!has_tool(request, &plugin_tool("brief", name)));
                 }

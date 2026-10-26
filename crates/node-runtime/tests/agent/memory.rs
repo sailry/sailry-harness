@@ -55,7 +55,7 @@ async fn preserves_reads_in_plan() {
             ),
             (plugin_tool("memory", "review_memories"), json!({})),
         ];
-        let server = Server::tools(calls.clone()).await;
+        let server = Server::scripted_tools(calls.clone()).await;
         let mut fixture = fixture(remote, &server).await;
         install(&fixture).await;
         support::save_settings(
@@ -124,9 +124,32 @@ async fn preserves_reads_in_plan() {
                 assert!(tools.contains(name));
             }
             for name in ["save_memory", "forget_memory", "consolidate_memories"] {
-                assert!(!tools.contains(name));
+                assert!(tools.contains(name));
             }
         }
+        server.replace_tools(vec![(
+            plugin_tool("memory", "save_memory"),
+            json!({"id":id,"expected_revision":1,"kind":"project","title":"Forbidden update","body":"Must not change"}),
+        )]);
+        let Output::QueuedTurn(denied) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "Keep the existing memory unchanged".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("denied memory turn expected")
+        };
+        let denied_page = finished(&fixture.client, fixture.session.id, denied.id).await;
+        planning_denial(&denied_page, denied.id);
+        assert_eq!(support::read(&fixture.client, id).await.unwrap(), original);
+        assert_eq!(
+            support::list(&fixture.client).await.unwrap(),
+            [original.summary]
+        );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

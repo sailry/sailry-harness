@@ -159,22 +159,8 @@ async fn starts_one_coding_turn() {
             let planning = index == 0;
             assert!(tool_names(request).contains(&plugin_tool("files", "write_file").as_str()));
             assert_eq!(request["tools"], requests[0]["tools"]);
-            let latest = request["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .rev()
-                .find(|message| {
-                    message["role"] == "user"
-                        && message["content"]
-                            .as_str()
-                            .is_some_and(|text| text.starts_with("Node context"))
-                })
-                .unwrap();
-            assert_eq!(
-                latest.to_string().contains("This is a planning turn"),
-                planning
-            );
+            let latest = node_context(request, "Work mode");
+            assert_eq!(latest.contains("This is a planning turn"), planning);
             let schema = request["tools"]
                 .as_array()
                 .unwrap()
@@ -210,6 +196,32 @@ async fn starts_one_coding_turn() {
         assert_eq!(resumed.execute(request).await.unwrap(), output);
         assert_eq!(server.requests.lock().unwrap().len(), 3);
         node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn rejects_review_in_code() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![proposal("Accept this plan")]).await;
+        let mut fixture = Fixture::packages(remote, &server, &[]).await;
+        configure(&mut fixture, WorkMode::Code).await;
+        let turn = submit(&fixture).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Completed);
+        assert!(page.questions.is_empty());
+        assert!(page.approvals.is_empty());
+        let returned = tool_details(&fixture.client, &page).await;
+        assert_eq!(returned.len(), 1);
+        assert_eq!(returned[0].0, "ask_user");
+        let result = returned[0].1.result.as_ref().unwrap();
+        assert_eq!(result["error"]["code"], "permission_denied");
+        assert_eq!(
+            result["error"]["message"],
+            "plan review is unavailable in this turn"
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
 }

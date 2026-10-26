@@ -128,6 +128,9 @@ fn standard(tool: &sailry_protocol::tool::Declaration) -> bool {
                     | Operation::CreateDirectory
                     | Operation::ReadOffice
                     | Operation::ReadNotebook
+                    | Operation::ReadArtifact
+                    | Operation::ListArtifacts
+                    | Operation::ListArtifactRevisions
                     | Operation::EditNotebook
                     | Operation::SearchCode
                     | Operation::OutlineCode
@@ -175,6 +178,9 @@ mod tests {
             Operation::ReadCommand,
             Operation::InspectGit,
             Operation::ListRoles,
+            Operation::ReadArtifact,
+            Operation::ListArtifacts,
+            Operation::ListArtifactRevisions,
         ] {
             assert!(standard(&tool(operation)));
         }
@@ -185,6 +191,7 @@ mod tests {
             Operation::RunSsh,
             Operation::GenerateImage,
             Operation::StorageTransaction,
+            Operation::WriteArtifact,
         ] {
             assert!(!standard(&tool(operation)));
         }

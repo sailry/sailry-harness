@@ -132,11 +132,24 @@ pub(super) fn generation(request: &discovery_support::Request, access: &str, too
         system[0]["text"],
         "You are Claude Code, Anthropic's official CLI for Claude."
     );
-    assert!(system.iter().any(|block| {
+    assert!(!system.iter().any(|block| {
         block["text"]
             .as_str()
             .is_some_and(|text| text.contains(INSTRUCTION))
     }));
+    assert_eq!(
+        body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .flat_map(|message| message["content"].as_array().unwrap())
+            .filter_map(|block| block["text"].as_str())
+            .filter(|text| text.starts_with("Node context\n"))
+            .map(|text| text.matches(INSTRUCTION).count())
+            .sum::<usize>(),
+        1
+    );
     let continuation = body["messages"]
         .as_array()
         .unwrap()

@@ -385,7 +385,7 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
 #[tokio::test]
 async fn preserves_ask_and_plan_policy() {
     for remote in [false, true] {
-        let server = Server::tools(vec![(
+        let server = Server::turn_tools(vec![(
             name("write_file"),
             json!({"path":"approved.txt","text":"Approved","expected_revision":null}),
         )])
@@ -417,7 +417,12 @@ async fn preserves_ask_and_plan_policy() {
         configure(&mut fixture, Permission::Full, WorkMode::Plan).await;
         let planned = submit(&fixture).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, planned.id).await;
+        planning_denial(&page, planned.id);
         assert_eq!(page.approvals.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("approved.txt")).unwrap(),
+            "Approved"
+        );
         assert!(
             checkpoints(&fixture.client, fixture.session.id, planned.id)
                 .await
@@ -446,7 +451,7 @@ async fn preserves_ask_and_plan_policy() {
             "move_file",
             "create_directory",
         ] {
-            assert!(!names.contains(&name(mutation).as_str()));
+            assert!(names.contains(&name(mutation).as_str()));
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

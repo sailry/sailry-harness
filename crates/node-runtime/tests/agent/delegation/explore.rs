@@ -10,7 +10,7 @@ async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()
 }
 
-async fn select(fixture: &mut Fixture, fixed: bool) -> role::Profile {
+async fn select(fixture: &mut Fixture, fixed: bool, dispatch: bool) -> role::Profile {
     let mut role = fixture
         .snapshot()
         .await
@@ -20,16 +20,17 @@ async fn select(fixture: &mut Fixture, fixed: bool) -> role::Profile {
         .unwrap();
     if fixed {
         role.model = fixture.role.model.clone();
-        role.tools = Some(vec![
-            plugin::conversation::Tool::Package {
-                package: "files".into(),
-                name: "read_file".into(),
-            },
-            plugin::conversation::Tool::Package {
+        let mut tools = vec![plugin::conversation::Tool::Package {
+            package: "files".into(),
+            name: "read_file".into(),
+        }];
+        if dispatch {
+            tools.push(plugin::conversation::Tool::Package {
                 package: dispatch::PACKAGE.into(),
                 name: "inspect".into(),
-            },
-        ]);
+            });
+        }
+        role.tools = Some(tools);
         let revision = role.revision;
         let Output::Role(saved) = execute(
             &fixture.client,
@@ -85,7 +86,7 @@ async fn inherits_model_without_write_authority() {
         .await;
         let unused = Server::start(false).await;
         let mut fixture = Fixture::start(remote, parent, unused).await;
-        let role = select(&mut fixture, false).await;
+        let role = select(&mut fixture, false, false).await;
         assert!(role.model.is_none());
         let turn = fixture.push("Delegate the exploration").await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -158,7 +159,7 @@ async fn reuses_frozen_read_only_role() {
         let mut fixture = Fixture::start(remote, parent, child).await;
         std::fs::write(fixture.root().join("source.txt"), dispatch::EVIDENCE).unwrap();
         let package = dispatch::install(&fixture).await;
-        let role = select(&mut fixture, true).await;
+        let role = select(&mut fixture, true, true).await;
         let first = fixture
             .push("Inspect the project without changing it")
             .await;

@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 fn policy(request: &Value, title: Option<&str>) {
     assert_eq!(request["messages"][0]["role"], "system");
-    let instruction = request["messages"][0]["content"].as_str().unwrap();
+    let instruction = node_context(request, "Work mode");
     match title {
         Some(title) => {
             let assigned = format!(

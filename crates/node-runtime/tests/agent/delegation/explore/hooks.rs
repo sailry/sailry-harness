@@ -16,7 +16,7 @@ async fn skips_scripts_in_read_only_children() {
         .await;
         let mut fixture = Fixture::start(remote, parent, child).await;
         std::fs::write(fixture.root().join("source.txt"), "read-only fixture").unwrap();
-        select(&mut fixture, true).await;
+        select(&mut fixture, true, false).await;
         let script = Some(Script {
             command: "printf '%s\\n' \"$SAILRY_HOOK_TURN\" >> script-turns.txt".into(),
             timeout_ms: 5_000,

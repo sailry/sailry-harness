@@ -843,7 +843,7 @@ async fn retains_recipient_capture() {
         let replacement = queue
             .items
             .iter()
-            .find(|item| item.guidance == Some(active.id))
+            .find(|item| item.turn == selected.id && item.guidance == Some(active.id))
             .unwrap();
         let saved = read(&fixture.client, replacement.turn).await;
         assert_eq!(saved.turn.config, active.config);

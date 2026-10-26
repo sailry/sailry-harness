@@ -8,12 +8,15 @@ pub(in crate::agent) fn bind(
     declarations: BTreeMap<String, Declaration>,
 ) -> BeforeModelCallback {
     let expected = Content::new("user").with_text(instruction);
+    // Clone one captured map so provider iteration stays stable within this invocation.
+    // A restored invocation validates the same schemas, not a persisted HashMap order.
+    let declarations = session::project(declarations);
     Box::new(move |_, mut request| {
         let expected = expected.clone();
         let declarations = declarations.clone();
         Box::pin(async move {
             promote(&mut request, &expected)?;
-            session::project(&mut request, &declarations);
+            request.tools = declarations;
             Ok(BeforeModelResult::Continue(request))
         })
     })

@@ -92,7 +92,7 @@ async fn routes_through_controller() {
                 });
             }
             let count = calls.len();
-            let server = Server::tools(calls.clone()).await;
+            let server = Server::scripted_tools(calls.clone()).await;
             let session =
                 super::approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
             let mut config = session.config.clone();
@@ -151,7 +151,7 @@ async fn routes_through_controller() {
                 "{:?}",
                 page.runs
             );
-            let subscription = tokio::time::timeout(Duration::from_secs(2), browser)
+            let mut subscription = tokio::time::timeout(Duration::from_secs(2), browser)
                 .await
                 .unwrap_or_else(|error| {
                     panic!(
@@ -168,7 +168,7 @@ async fn routes_through_controller() {
             if mode == WorkMode::Plan {
                 for name in mutating {
                     assert!(
-                        !tools
+                        tools
                             .iter()
                             .any(|tool| tool["function"]["name"] == plugin_tool("browser", name))
                     );
@@ -189,6 +189,30 @@ async fn routes_through_controller() {
                     .iter()
                     .all(|result| result["text"] == "Browser fixture")
             );
+            if mode == WorkMode::Plan {
+                server.replace_tools(vec![(
+                    plugin_tool("browser", "browser_click"),
+                    json!({"tab":0,"snapshot":"fixture","element":1}),
+                )]);
+                let Output::QueuedTurn(denied) = client
+                    .execute(client.prepare(Command::SubmitTurn {
+                        session: session.id,
+                        expected_revision: 2,
+                        message: "Keep the planning browser read-only".into(),
+                    }))
+                    .await
+                    .unwrap()
+                else {
+                    panic!("denied browser turn expected")
+                };
+                let denied_page = finished(&client, session.id, denied.id).await;
+                planning_denial(&denied_page, denied.id);
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(20), subscription.next())
+                        .await
+                        .is_err()
+                );
+            }
             drop(subscription);
             controller.close().await.unwrap();
             node.shutdown().await.unwrap();

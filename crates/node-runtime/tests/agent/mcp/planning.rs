@@ -1,9 +1,9 @@
 use super::*;
 
 #[tokio::test]
-async fn exposes_readonly_tools() {
+async fn preserves_readonly_execution() {
     for remote in [false, true] {
-        let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
+        let model = Server::scripted_tools(vec![(alias("native", "read"), json!({}))]).await;
         let mut fixture = process::Fixture::packages(remote, &model, &[]).await;
         package(
             &fixture.root,
@@ -36,9 +36,18 @@ async fn exposes_readonly_tools() {
                 .collect();
             assert!(names.contains(&alias("native", "read").as_str()));
             for name in ["write", "fail", "hold"] {
-                assert!(!names.contains(&alias("native", name).as_str()));
+                assert!(names.contains(&alias("native", name).as_str()));
             }
         }
+        model.replace_tools(vec![(
+            alias("native", "write"),
+            json!({"value":"must not run"}),
+        )]);
+        let (_, denied) = submit(&fixture, false).await;
+        let denied_page = finished(&fixture.client, fixture.session.id, denied.id).await;
+        planning_denial(&denied_page, denied.id);
+        assert!(!data.join("effects").exists());
+        assert!(!data.join("holding").exists());
         fixture.node.shutdown().await.unwrap();
         reaped(&data);
         fixture.controller.close().await.unwrap();
