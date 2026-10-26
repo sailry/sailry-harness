@@ -1,5 +1,46 @@
 use super::*;
 
+#[test]
+fn applies_policy_before_protected_authorization() {
+    use sailry_protocol::conversation::presets::{Binding, RequestPolicy};
+    let mut provider: Provider = serde_json::from_value(json!({
+        "id": sailry_protocol::ProviderId::new(), "revision": 1, "name": "Captured fixture",
+        "api": "responses", "authentication": "chat_gpt_oauth", "endpoint": "https://example.invalid",
+        "enabled": true, "models": [], "default_model": "fixture"
+    })).unwrap();
+    provider.binding = Some(Box::new(Binding {
+        policies: vec![RequestPolicy {
+            models: vec!["fixture".into()],
+            reasoning_replay: None,
+            body: serde_json::from_value(
+                json!({"temperature":0.2,"store":true,"include":["reasoning.encrypted_content"]}),
+            )
+            .unwrap(),
+        }],
+        ..Default::default()
+    }));
+    let adapter = captured(
+        &provider,
+        "fixture",
+        Arc::new(|body, headers| {
+            assert_eq!(body["temperature"], 0.2);
+            body.as_object_mut().unwrap().remove("temperature");
+            headers.insert(
+                "authorization",
+                HeaderValue::from_static("Bearer captured-grant"),
+            );
+            Ok(())
+        }),
+        false,
+    );
+    provider.binding.as_mut().unwrap().policies.clear();
+    let mut body = json!({"input":[],"previous_response_id":"stale"});
+    let mut headers = HeaderMap::new();
+    adapter(&mut body, &mut headers).unwrap();
+    assert_eq!(body, json!({"input":[],"store":false}));
+    assert_eq!(headers["authorization"], "Bearer captured-grant");
+}
+
 #[tokio::test]
 async fn isolates_concurrent_request_captures() {
     let observed = Arc::new(std::sync::Mutex::new(Vec::new()));

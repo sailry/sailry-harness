@@ -29,8 +29,8 @@ fn failure(
 #[test]
 fn distinguishes_http_and_stream_mappings() {
     for (status, code, kind, expected) in [
-        (401, None, None, Class::Backoff),
-        (403, None, None, Class::Backoff),
+        (401, None, None, Class::Terminal(Stop::LocalFailure)),
+        (403, None, None, Class::Terminal(Stop::LocalFailure)),
         (400, None, None, Class::Terminal(Stop::InvalidRequest)),
         (429, None, None, Class::Advice(Stop::RateLimited)),
         (
@@ -85,35 +85,36 @@ fn distinguishes_http_and_stream_mappings() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn separates_rate_limits_from_socket_backoff() {
+async fn applies_one_interval_to_retryable_failures() {
     for code in ["rate_limit_exceeded", "slow_down"] {
         let mut error = failure(None, Some("response.failed"), Some(code), None);
         let classified = Failure::new(&error);
+        let now = Instant::now();
         assert!(matches!(
-            super::super::budget::Budget::default().next(&classified, 5, false),
-            super::super::budget::Decision::Stop(Stop::RateLimited)
+            super::super::budget::Budget::default().next(&classified, 5),
+            super::super::budget::Decision::Retry { at, limit: Some(5), .. }
+                if at == now + std::time::Duration::from_secs(60)
         ));
         error.message = "Please try again in 60 seconds".into();
         let classified = Failure::new(&error);
         let now = Instant::now();
         let super::super::budget::Decision::Retry { at, delay, .. } =
-            super::super::budget::Budget::default().next(&classified, 5, false)
+            super::super::budget::Budget::default().next(&classified, 5)
         else {
             panic!("rate advice expected")
         };
         assert_eq!(at, now + std::time::Duration::from_secs(60));
-        assert!(delay.is_none());
+        assert_eq!(delay, Some(std::time::Duration::from_secs(60)));
     }
     let error = failure(None, None, None, None);
     let classified = Failure::new(&error);
     let now = Instant::now();
     let super::super::budget::Decision::Retry { at, .. } =
-        super::super::budget::Budget::default().next(&classified, 5, false)
+        super::super::budget::Budget::default().next(&classified, 5)
     else {
         panic!("socket backoff expected")
     };
-    assert!(at.duration_since(now) >= std::time::Duration::from_millis(180));
-    assert!(at.duration_since(now) < std::time::Duration::from_millis(220));
+    assert_eq!(at.duration_since(now), std::time::Duration::from_secs(60));
 }
 
 #[test]

@@ -315,7 +315,7 @@ async fn reports_incomplete_search() {
             let (fixture, server) = setup(remote, reply, false).await;
             if matches!(reply, anthropic::Reply::Truncated) {
                 let mut provider = fixture.provider.clone();
-                provider.request_max_retries = Some(0);
+                provider.request_max_retries = None;
                 provider.stream_max_retries = Some(1);
                 execute(
                     &fixture.client,

@@ -277,7 +277,7 @@ async fn failure_preserves_context() {
             .into_iter()
             .find(|provider| provider.id == fixture.session.config.provider)
             .unwrap();
-        provider.request_max_retries = Some(0);
+        provider.request_max_retries = None;
         provider.stream_max_retries = Some(5);
         fixture
             .client

@@ -98,19 +98,21 @@ pub struct Provider {
     #[serde(default)]
     pub models: Vec<Model>,
     pub default_model: String,
+    /// An optional ceiling on the shared HTTP and stream recovery budget.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_max_retries: Option<u64>,
+    /// An optional ceiling on the same recovery budget, capped at five retries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream_max_retries: Option<u64>,
     pub credential: Option<CredentialRef>,
 }
 
 impl Provider {
-    pub fn request_retries(&self) -> u64 {
-        self.request_max_retries.unwrap_or(4).min(100)
-    }
-    pub fn stream_retries(&self) -> u64 {
-        self.stream_max_retries.unwrap_or(5).min(100)
+    pub fn retry_limit(&self) -> u64 {
+        self.request_max_retries
+            .into_iter()
+            .chain(self.stream_max_retries)
+            .fold(5, u64::min)
     }
 }
 

@@ -39,7 +39,7 @@ async fn bounds_transient_failure_retries() {
             let server = Server::start(api, Reply::Failure).await;
             let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let mut provider = fixture.provider.clone();
-            provider.request_max_retries = Some(0);
+            provider.request_max_retries = None;
             provider.stream_max_retries = Some(5);
             execute(
                 &fixture.client,

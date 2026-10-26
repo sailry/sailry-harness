@@ -77,8 +77,7 @@ pub(super) async fn build(
             turn: Some(invocation.turn.id),
             session: invocation.turn.session,
             stop: stop.clone(),
-            limit: provider.stream_retries(),
-            persistent: matches!(purpose, Purpose::Main),
+            limit: provider.retry_limit(),
         }),
         ingress: ingress.clone(),
         turn: invocation.turn.id,
@@ -133,8 +132,7 @@ pub(super) async fn configured(
         turn: None,
         session,
         stop: stop.clone(),
-        limit: provider.stream_retries(),
-        persistent: false,
+        limit: provider.retry_limit(),
     }))
 }
 
@@ -247,16 +245,12 @@ async fn configure(
         )
     } else {
         crate::providers::login::validate(provider)?;
-        let model = Arc::new(authorization::Model {
-            ingress: ingress.clone(),
-            provider: provider.clone(),
-            config: config.clone(),
-            session,
-            delegated,
-            reasoning: resolved,
-            purpose,
-            stop: stop.clone(),
-        });
+        let model = Arc::new(
+            authorization::Model::new(
+                ingress, provider, config, session, delegated, resolved, purpose, stop,
+            )
+            .await?,
+        );
         if matches!(purpose, Purpose::Main) {
             let _ = model.preconnect().await;
         }
@@ -269,11 +263,9 @@ async fn configure(
     })
 }
 
-fn request_retry(provider: &Provider) -> adk_model::request_retry::RequestRetryConfig {
-    adk_model::request_retry::RequestRetryConfig {
-        max_retries: u32::try_from(provider.request_retries()).expect("bounded request retries"),
-        ..Default::default()
-    }
+fn request_retry() -> adk_model::request_retry::RequestRetryConfig {
+    // The outer model owns retries across HTTP and stream failures.
+    adk_model::request_retry::RequestRetryConfig::default()
 }
 
 fn native(
@@ -286,11 +278,12 @@ fn native(
     websocket: Option<adk_model::openai::WsOptions>,
 ) -> Result<registry::Built, Fault> {
     let effort = reasoning.effort;
-    let adapter = match provider
+    let injection = provider
         .binding
         .as_ref()
-        .and_then(|binding| binding.key_injection.as_ref())
-    {
+        .filter(|_| provider.authentication == Authentication::ApiKey)
+        .and_then(|binding| binding.key_injection.as_ref());
+    let adapter = match injection {
         Some(injection) => {
             use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
             if !matches!(
@@ -320,15 +313,7 @@ fn native(
         }
         None => adapter,
     };
-    let key = if provider
-        .binding
-        .as_ref()
-        .is_some_and(|binding| binding.key_injection.is_some())
-    {
-        ""
-    } else {
-        key
-    };
+    let key = if injection.is_some() { "" } else { key };
     let inner: Arc<dyn Llm> = match provider.api {
         ModelApi::Plugin => {
             return Err(Fault::new(
@@ -349,7 +334,7 @@ fn native(
             )?)
             .map_err(error)?
             .with_retry_config(RetryConfig::disabled())
-            .with_request_retry(request_retry(provider))
+            .with_request_retry(request_retry())
             .with_timeouts(timeouts())
             .map_err(error)?,
         ),
@@ -360,7 +345,7 @@ fn native(
             )
             .map_err(error)?
             .with_retry_config(RetryConfig::disabled())
-            .with_request_retry(request_retry(provider));
+            .with_request_retry(request_retry());
             if provider.authentication == Authentication::ApiKey {
                 client = client
                     .with_default_headers(hosted::headers())
@@ -395,7 +380,7 @@ fn native(
             let mut client = client
                 .map_err(error)?
                 .with_retry_config(RetryConfig::disabled())
-                .with_request_retry(request_retry(provider))
+                .with_request_retry(request_retry())
                 .with_response_recovery(true);
             if provider.authentication == Authentication::ApiKey {
                 client = client
@@ -423,7 +408,7 @@ fn native(
             let mut client = AnthropicClient::new(native)
                 .map_err(error)?
                 .with_retry_config(RetryConfig::disabled())
-                .with_request_retry(request_retry(provider));
+                .with_request_retry(request_retry());
             if provider.authentication == Authentication::ApiKey {
                 client = client.with_default_headers(hosted::headers());
             }
@@ -442,7 +427,7 @@ fn native(
             )
             .map_err(error)?
             .with_retry_config(RetryConfig::disabled())
-            .with_request_retry(request_retry(provider))
+            .with_request_retry(request_retry())
             .map_err(error)?;
             if let Some(thinking) = reasoning::gemini(effort)? {
                 native = native.with_thinking_config(thinking);
@@ -454,13 +439,47 @@ fn native(
 }
 
 pub(super) fn error(error: impl std::borrow::Borrow<adk_core::AdkError>) -> Fault {
+    use adk_core::{ErrorCategory, ErrorComponent};
+    use sailry_protocol::{FaultDetails, ModelFailure};
     let error = error.borrow();
     if let Some(fault) =
         std::error::Error::source(error).and_then(|source| source.downcast_ref::<Fault>())
     {
         return fault.clone();
     }
-    Fault::new(ErrorCode::Unavailable, error.message.clone())
+    let mut fault = Fault::new(ErrorCode::Unavailable, error.message.clone());
+    if error.component == ErrorComponent::Model {
+        let provider_code = error
+            .details
+            .metadata
+            .get("provider_error_code")
+            .and_then(serde_json::Value::as_str);
+        let reason = match provider_code {
+            Some("subscription_sharing_usage_limit_exceeded") => ModelFailure::SharedUsageLimit,
+            Some("subscription_sharing_usage_unavailable") => ModelFailure::SharedUsageUnavailable,
+            _ if matches!(
+                error.code,
+                "model.openai_responses.parse"
+                    | "model.openai_compat.parse"
+                    | "model.azure_openai.parse"
+                    | "model.http.decode"
+                    | "model.plugin.invalid_translation"
+            ) =>
+            {
+                ModelFailure::InvalidResponse
+            }
+            _ => match error.category {
+                ErrorCategory::Unauthorized | ErrorCategory::Forbidden => {
+                    ModelFailure::Unauthorized
+                }
+                ErrorCategory::RateLimited => ModelFailure::RateLimited,
+                ErrorCategory::Timeout => ModelFailure::Timeout,
+                _ => ModelFailure::Request,
+            },
+        };
+        fault.details = Some(FaultDetails::ModelRequest { reason });
+    }
+    fault
 }
 
 #[cfg(test)]
@@ -470,10 +489,13 @@ mod error_tests {
 
     #[test]
     fn retains_status_and_native_message() {
-        for (status, category) in [
-            (400, ErrorCategory::InvalidInput),
-            (401, ErrorCategory::Unauthorized),
-            (429, ErrorCategory::RateLimited),
+        use sailry_protocol::{FaultDetails, ModelFailure};
+        for (status, category, reason) in [
+            (400, ErrorCategory::InvalidInput, ModelFailure::Request),
+            (401, ErrorCategory::Unauthorized, ModelFailure::Unauthorized),
+            (429, ErrorCategory::RateLimited, ModelFailure::RateLimited),
+            (408, ErrorCategory::Timeout, ModelFailure::Timeout),
+            (503, ErrorCategory::Unavailable, ModelFailure::Request),
         ] {
             let mut failure = AdkError::new(
                 ErrorComponent::Model,
@@ -489,6 +511,7 @@ mod error_tests {
                 .metadata
                 .insert("body".into(), serde_json::json!("private metadata"));
             let fault = error(&failure);
+            assert_eq!(fault.details, Some(FaultDetails::ModelRequest { reason }));
             assert_eq!(fault.message, "Provider rejected the current input");
             assert!(!fault.message.contains("private"));
             let mut entry = crate::logging::Entry::new(
@@ -503,21 +526,67 @@ mod error_tests {
 
     #[test]
     fn preserves_shared_usage_codes() {
-        for code in [
-            "model.openai_responses.subscription_sharing_usage_limit_exceeded",
-            "model.openai_responses.subscription_sharing_usage_unavailable",
+        use sailry_protocol::{FaultDetails, ModelFailure};
+        for (code, reason) in [
+            (
+                "subscription_sharing_usage_limit_exceeded",
+                ModelFailure::SharedUsageLimit,
+            ),
+            (
+                "subscription_sharing_usage_unavailable",
+                ModelFailure::SharedUsageUnavailable,
+            ),
         ] {
-            let failure = AdkError::new(
+            let mut failure = AdkError::new(
                 ErrorComponent::Model,
                 ErrorCategory::Forbidden,
-                code,
+                "model.openai_responses.ws_error",
                 "Provider rejected the current input",
             );
-            assert_eq!(
-                error(failure).message,
-                "Provider rejected the current input"
-            );
+            failure
+                .details
+                .metadata
+                .insert("provider_error_code".into(), code.into());
+            let fault = error(failure);
+            assert_eq!(fault.details, Some(FaultDetails::ModelRequest { reason }));
+            assert_eq!(fault.message, "Provider rejected the current input");
         }
+    }
+
+    #[test]
+    fn preserves_execution_and_source_faults() {
+        use sailry_protocol::FaultDetails;
+        let failure = AdkError::agent("Max iterations (100) exceeded");
+        let fault = error(failure);
+        assert_eq!(fault.message, "Max iterations (100) exceeded");
+        assert!(fault.details.is_none());
+        for details in [
+            FaultDetails::ModelRecovery {
+                reason: sailry_protocol::conversation::recovery::Stop::RateLimited,
+            },
+            FaultDetails::StorageConflict,
+        ] {
+            let mut fault = Fault::new(ErrorCode::Busy, "Original failure");
+            fault.details = Some(details);
+            let failure = AdkError::model("Wrapper message").with_source(fault.clone());
+            assert_eq!(error(failure), fault);
+        }
+    }
+
+    #[test]
+    fn identifies_parse_failures_by_code() {
+        let failure = AdkError::new(
+            ErrorComponent::Model,
+            ErrorCategory::Internal,
+            "model.openai_responses.parse",
+            "Malformed upstream event",
+        );
+        assert_eq!(
+            error(failure).details,
+            Some(sailry_protocol::FaultDetails::ModelRequest {
+                reason: sailry_protocol::ModelFailure::InvalidResponse,
+            })
+        );
     }
 
     #[test]

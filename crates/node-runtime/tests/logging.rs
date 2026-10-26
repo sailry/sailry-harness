@@ -313,6 +313,7 @@ async fn observes_shared_lifecycles_without_payloads() {
     let retry_node = Node::start_empty(retry_profile.path().join("node"))
         .await
         .unwrap();
+    retry_node.set_model_retry_fixture(Duration::ZERO);
     let retry_controller = Link::controller(
         retry_profile.path().join("controller"),
         NetworkScope::default(),
@@ -371,10 +372,10 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert!(matches!(
         error.details.as_ref(),
         Some(FaultDetails::ModelRecovery {
-            reason: recovery::Stop::RateLimited
+            reason: recovery::Stop::AttemptsExhausted
         })
     ));
-    assert_eq!(rate_model.requests.lock().unwrap().len(), 1);
+    assert_eq!(rate_model.requests.lock().unwrap().len(), 6);
     retry_node.shutdown().await.unwrap();
     retry_controller.close().await.unwrap();
 
@@ -557,12 +558,16 @@ async fn observes_shared_lifecycles_without_payloads() {
             .iter()
             .any(|record| record["phase"] == "first_token")
     );
-    assert!(
-        !records
-            .iter()
-            .any(|record| record["turn"] == retry_turn.id.to_string()
-                && record["operation"] == "model_retry")
-    );
+    let recoveries: Vec<_> = records
+        .iter()
+        .filter(|record| {
+            record["turn"] == retry_turn.id.to_string() && record["operation"] == "model_retry"
+        })
+        .collect();
+    assert_eq!(recoveries.len(), 1);
+    assert_eq!(recoveries[0]["attempt"], 1);
+    assert_eq!(recoveries[0]["limit"], 5);
+    assert_eq!(recoveries[0]["wait_ms"], 60_000);
     let attempts: Vec<_> = records
         .iter()
         .filter(|record| {
@@ -595,12 +600,31 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert_eq!(failures[0]["cause_code"], "model.openai_compat.api_error");
     assert_eq!(failures[0]["cause_category"], "rate_limited");
     assert_eq!(failures[0]["upstream_status"], 429);
-    assert!(
-        !records
-            .iter()
-            .any(|record| record["turn"] == rate_turn.id.to_string()
-                && record["operation"] == "model_retry")
-    );
+    let attempts: Vec<_> = records
+        .iter()
+        .filter(|record| {
+            record["turn"] == rate_turn.id.to_string()
+                && record["operation"] == "model_attempt"
+                && record["phase"] == "failed"
+        })
+        .collect();
+    assert_eq!(attempts.len(), 6);
+    for (index, record) in attempts.iter().enumerate() {
+        assert_eq!(record["attempt"], index + 1);
+        assert_eq!(record["upstream_status"], 429);
+    }
+    let recoveries: Vec<_> = records
+        .iter()
+        .filter(|record| {
+            record["turn"] == rate_turn.id.to_string() && record["operation"] == "model_retry"
+        })
+        .collect();
+    assert_eq!(recoveries.len(), 5);
+    for (index, record) in recoveries.iter().enumerate() {
+        assert_eq!(record["attempt"], index + 1);
+        assert_eq!(record["limit"], 5);
+        assert_eq!(record["wait_ms"], 60_000);
+    }
     let parse: Vec<_> = records
         .iter()
         .filter(|record| {

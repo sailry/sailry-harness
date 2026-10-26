@@ -57,6 +57,7 @@ impl Fixture {
         directory: tempfile::TempDir,
         node: Node,
     ) -> Self {
+        node.set_model_retry_fixture(Duration::ZERO);
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let controller =

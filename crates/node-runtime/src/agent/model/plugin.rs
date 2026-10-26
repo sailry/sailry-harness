@@ -140,10 +140,7 @@ impl Llm for Model {
                 &self.declaration,
                 &credentials,
                 &stop,
-                transport::Limits {
-                    bytes: usize::MAX,
-                    retries: self.provider.request_retries(),
-                },
+                usize::MAX,
             )
             .await
             .map_err(transport::Failure::model)?;
@@ -584,10 +581,7 @@ async fn read_catalog(
             declaration,
             &credentials,
             stop,
-            transport::Limits {
-                bytes: DISCOVERY_BYTES,
-                retries: 0,
-            },
+            DISCOVERY_BYTES,
         )
         .await.map_err(transport::Failure::fault)?;
         observation = Some(guard);

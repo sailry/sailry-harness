@@ -415,12 +415,18 @@ that control frames do not extend. Any provider event ends SSE fallback eligibil
 including an acceptance event before text arrives. HTTP raw-byte and subsequent
 WebSocket frame reads have a 300-second idle deadline, including keepalives. Node
 does not regenerate an accepted WebSocket request after a delivery failure.
-Other uncommitted failures share one budget of five retries, including at most two
-timeout retries and one HTTP recovery after partial output. Recovery buffers the replacement
-privately until completion; committed responses and executed tools are never
-replayed. A server-requested delay of at most 60 seconds is honored; a longer
-delay is reported without an automatic retry. Exhaustion preserves canonical
-history for the existing retry and continuation actions.
+Retryable HTTP failures, response failures and connection errors share one budget
+of at most five retries after the initial model request. Each retry waits at least
+60 seconds, or the provider's longer Retry-After deadline. Explicit provider
+ceilings may reduce that shared budget; native SDKs and plugin transports do not
+add inner retry loops. Main and helper models use the same recovery policy, with
+their existing cancellation and request deadlines. Authentication, configuration,
+quota and explicit task-budget failures stop rather than replaying the request.
+Recovery buffers the replacement privately until completion; committed responses
+and executed tools are never replayed. Exhaustion preserves canonical history for
+the existing retry and continuation actions. Ordinary conversations do not impose
+a product model/tool-iteration limit; explicitly configured role budgets remain
+enforced by the ADK iteration configuration.
 
 ## Runtime behavior
 

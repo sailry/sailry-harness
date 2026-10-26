@@ -474,10 +474,7 @@ async fn bounds_requests_before_network_io() {
         &declaration,
         &credentials,
         &CancellationToken::new(),
-        transport::Limits {
-            bytes: usize::MAX,
-            retries: 0,
-        },
+        usize::MAX,
     )
     .await
     .err()
@@ -685,7 +682,7 @@ fn preserves_structured_stream_diagnostics() {
 }
 
 #[tokio::test]
-async fn retries_raw_http_without_retranslation() {
+async fn sends_one_observed_http_request() {
     use adk_core::model_observation as observed;
     use std::sync::{Arc, Mutex};
     use tokio::{
@@ -695,9 +692,9 @@ async fn retries_raw_http_without_retranslation() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     for statuses in [
         vec![Some(429_u16)],
-        vec![Some(503), Some(503), Some(503)],
-        vec![Some(503), Some(200)],
-        vec![None, Some(200)],
+        vec![Some(503)],
+        vec![Some(200)],
+        vec![None],
     ] {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/", listener.local_addr().unwrap());
@@ -748,10 +745,7 @@ async fn retries_raw_http_without_retranslation() {
                     &declaration,
                     &credentials,
                     &CancellationToken::new(),
-                    transport::Limits {
-                        bytes: usize::MAX,
-                        retries: 2,
-                    },
+                    usize::MAX,
                 )
                 .await?;
                 if response.status().is_success() {
@@ -760,12 +754,11 @@ async fn retries_raw_http_without_retranslation() {
                 Ok::<_, transport::Failure>(response)
             }),
         )
-        .await
-        .unwrap();
-        assert_eq!(
-            response.status().as_u16(),
-            statuses.last().copied().flatten().unwrap()
-        );
+        .await;
+        match response {
+            Ok(response) => assert_eq!(Some(response.status().as_u16()), statuses[0]),
+            Err(_) => assert_eq!(statuses[0], None),
+        }
         server.await.unwrap();
         let records = records.lock().unwrap();
         assert!(records.iter().all(|(identity, _)| *identity == call));

@@ -1,69 +1,5 @@
 use super::*;
 
-async fn advance_backoff(client: &Client, turn: &QueuedTurn, server: &Server, before: usize) {
-    let policy = adk_model::retry::RetryConfig::default().with_max_retries(1);
-    let mut updates = client.subscribe_conversation(turn.session).await.unwrap();
-    let mut projection =
-        sailry_client::conversation::Projection::new(client.target(), turn.session, 0);
-    tokio::time::timeout(crate::retry_fixture::budget(), async {
-        let attempt = 1_u32;
-        loop {
-            if projection.snapshot().is_some_and(|snapshot| {
-                snapshot
-                    .page
-                    .entries
-                    .iter()
-                    .filter(|entry| entry.turn == turn.id)
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| {
-                        matches!(part, Part::Resource(value)
-                            if value["type"] == "model_retry"
-                                && value["attempt"].as_u64() == Some(u64::from(attempt)))
-                    })
-            }) {
-                break;
-            }
-            if projection.apply(0, updates.next().await.unwrap()).unwrap()
-                == sailry_client::Apply::Recover
-            {
-                updates = client.subscribe_conversation(turn.session).await.unwrap();
-                projection =
-                    sailry_client::conversation::Projection::new(client.target(), turn.session, 0);
-            }
-        }
-        // Finish a real owner round trip after the observer's durable event.
-        // A missed timer registration leaves its real backoff in place.
-        let Output::Conversation(_) = client
-            .execute(client.prepare(Command::ReadConversation {
-                session: turn.session,
-                before: None,
-                limit: 10,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("history expected")
-        };
-        tokio::task::yield_now().await;
-        let requests = server
-            .requests
-            .lock()
-            .unwrap()
-            .iter()
-            .skip(before)
-            .filter(|request| request.path == "/responses")
-            .count();
-        // A real elapsed backoff may already have opened the next HTTP attempt.
-        if requests == attempt as usize {
-            tokio::time::pause();
-            tokio::time::advance(policy.initial_delay).await;
-            tokio::time::resume();
-        }
-    })
-    .await
-    .expect("retry observation deadline");
-}
-
 #[tokio::test]
 async fn requires_a_completed_answer() {
     let selected = Arc::new(std::sync::Mutex::new("completed"));
@@ -152,20 +88,13 @@ async fn requires_a_completed_answer() {
             } else {
                 Status::Failed
             };
-            let page = if matches!(outcome, "eof" | "done") {
-                let (_, page) = tokio::join!(
-                    advance_backoff(&fixture.client, &turn, &server, before),
-                    super::super::execution::finished_within(
-                        &fixture.client,
-                        &turn,
-                        status,
-                        crate::retry_fixture::budget(),
-                    )
-                );
-                page
-            } else {
-                super::super::execution::finished(&fixture.client, &turn, status).await
-            };
+            let page = super::super::execution::finished_within(
+                &fixture.client,
+                &turn,
+                status,
+                crate::retry_fixture::budget(),
+            )
+            .await;
             if outcome == "completed" {
                 assert_eq!(answer(&page, turn.id), "Authorized Codex response");
             } else {

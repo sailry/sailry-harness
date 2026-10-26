@@ -115,6 +115,18 @@ pub(super) fn generation(request: &discovery_support::Request, access: &str, too
     assert_eq!(body["model"], "fixture");
     assert_eq!(body["stream"], true);
     assert_eq!(body["max_tokens"], 512);
+    for tool in body["tools"].as_array().into_iter().flatten() {
+        if tool["name"] == "manage_mcp" {
+            let schema = &tool["input_schema"];
+            for keyword in ["oneOf", "allOf", "anyOf"] {
+                assert!(
+                    schema.get(keyword).is_none(),
+                    "OAuth must use the native schema adapter"
+                );
+            }
+            assert!(schema["not"]["not"]["oneOf"].is_array());
+        }
+    }
     let system = body["system"].as_array().unwrap();
     assert_eq!(
         system[0]["text"],

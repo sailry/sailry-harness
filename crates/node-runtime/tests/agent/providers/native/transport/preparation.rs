@@ -245,7 +245,7 @@ async fn owns_preconnections_during_preparation() {
                 assert_eq!(
                     super::super::retry::attempts(&page),
                     if outcome == "refused" {
-                        vec![0]
+                        vec![1]
                     } else {
                         vec![]
                     }

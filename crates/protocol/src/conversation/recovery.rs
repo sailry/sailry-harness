@@ -32,7 +32,7 @@ pub struct Retry {
     pub attempt: u64,
     #[serde(default, skip_serializing_if = "is_false")]
     pub fallback: bool,
-    /// None identifies the independent persistent connection recovery path.
+    /// The shared recovery ceiling captured for this request.
     pub limit: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delay_ms: Option<u64>,
@@ -53,8 +53,7 @@ fn is_false(value: &bool) -> bool {
 impl Retry {
     pub fn valid(&self) -> bool {
         (self.fallback && self.attempt == 0 && self.limit.is_some_and(|limit| limit <= 100))
-            || (!self.fallback
-                && self.attempt > 0
+            || (self.attempt > 0
                 && self
                     .limit
                     .is_none_or(|limit| limit <= 100 && self.attempt <= limit))
@@ -123,17 +122,17 @@ mod provider {
             "enabled": true, "models": [], "default_model": "fixture"
         }))
         .unwrap();
-        assert_eq!(
-            (provider.request_retries(), provider.stream_retries()),
-            (4, 5)
-        );
+        assert_eq!(provider.retry_limit(), 5);
         provider.request_max_retries = Some(0);
         provider.stream_max_retries = Some(101);
         let captured: Provider =
-            serde_json::from_value(serde_json::to_value(provider).unwrap()).unwrap();
-        assert_eq!(
-            (captured.request_retries(), captured.stream_retries()),
-            (0, 100)
-        );
+            serde_json::from_value(serde_json::to_value(&provider).unwrap()).unwrap();
+        assert_eq!(captured.retry_limit(), 0);
+        provider.request_max_retries = Some(100);
+        assert_eq!(provider.retry_limit(), 5);
+        provider.stream_max_retries = Some(3);
+        assert_eq!(provider.retry_limit(), 3);
+        provider.request_max_retries = Some(2);
+        assert_eq!(provider.retry_limit(), 2);
     }
 }

@@ -69,13 +69,18 @@ async fn retains_native_errors_and_status() {
                     reqwest::StatusCode::from_u16(status).unwrap(),
                 )
             );
-            assert!(matches!(fault.details,
-                Some(FaultDetails::ModelRecovery { reason }) if reason == if status == 400 {
-                    sailry_protocol::conversation::recovery::Stop::InvalidRequest
+            assert_eq!(
+                fault.details,
+                Some(if status == 400 {
+                    FaultDetails::ModelRecovery {
+                        reason: sailry_protocol::conversation::recovery::Stop::InvalidRequest,
+                    }
                 } else {
-                    sailry_protocol::conversation::recovery::Stop::AttemptsExhausted
-                }
-            ));
+                    FaultDetails::ModelRequest {
+                        reason: sailry_protocol::ModelFailure::Unauthorized,
+                    }
+                })
+            );
             assert!(!fault.message.contains(server::KEY));
             assert_eq!(server.requests.lock().unwrap().len(), 1);
             let statistics =

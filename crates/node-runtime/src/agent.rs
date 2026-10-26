@@ -541,7 +541,14 @@ async fn execute_with(
         ingress.agents.timeline(invocation.turn.id),
     );
     let bindings = approval::bindings(&invocation, &extensions.tools)?;
+    let limit = invocation
+        .child
+        .as_ref()
+        .and_then(|child| child.role.as_ref())
+        .and_then(|role| role.max_turns);
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
+        // ADK requires a numeric ceiling; only explicit role budgets constrain tasks.
+        .max_iterations(limit.unwrap_or(u32::MAX))
         .model(model.clone())
         .expose_tool_error_messages(true)
         .on_tool_error(plugins::failure_callback())
@@ -562,14 +569,6 @@ async fn execute_with(
     extensions.callbacks.sort_by_key(|(order, _)| *order);
     for (_, callback) in extensions.callbacks {
         agent = agent.before_model_callback(callback);
-    }
-    if let Some(limit) = invocation
-        .child
-        .as_ref()
-        .and_then(|child| child.role.as_ref())
-        .and_then(|role| role.max_turns)
-    {
-        agent = agent.max_iterations(limit);
     }
     if let Some(model) = metadata {
         agent = agent.max_output_tokens(model.output as i32);
@@ -682,7 +681,11 @@ async fn execute_with(
                 {
                     return Err(Fault::new(
                         ErrorCode::Unavailable,
-                        "model response reported an error",
+                        event
+                            .llm_response
+                            .error_message
+                            .clone()
+                            .unwrap_or_else(|| "model response reported an error".into()),
                     ));
                 }
                 if event.llm_response.interrupted && !stop.is_cancelled() {

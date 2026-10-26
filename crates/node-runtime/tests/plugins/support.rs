@@ -92,6 +92,7 @@ pub(super) async fn connect(
     directory: tempfile::TempDir,
     node: Node,
 ) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
+    node.set_model_retry_fixture(std::time::Duration::ZERO);
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();

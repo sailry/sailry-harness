@@ -18,6 +18,7 @@ pub fn image() -> Vec<u8> {
 pub struct Server {
     pub endpoint: String,
     pub requests: Arc<Mutex<Vec<(String, Value)>>>,
+    pub headers: Arc<Mutex<Vec<std::collections::BTreeMap<String, String>>>>,
     stop: CancellationToken,
 }
 
@@ -27,6 +28,9 @@ impl Server {
         let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let records = requests.clone();
+        let headers = Arc::new(Mutex::new(Vec::new()));
+        let captured_headers = headers.clone();
+        let base = endpoint.clone();
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         tokio::spawn(async move {
@@ -74,6 +78,17 @@ impl Server {
                 } else {
                     serde_json::from_slice(&bytes[offset..offset + length]).unwrap()
                 };
+                captured_headers.lock().unwrap().push(
+                    header
+                        .lines()
+                        .skip(1)
+                        .filter_map(|line| {
+                            line.split_once(':').map(|(key, value)| {
+                                (key.to_ascii_lowercase(), value.trim().to_owned())
+                            })
+                        })
+                        .collect(),
+                );
                 records
                     .lock()
                     .unwrap()
@@ -83,7 +98,12 @@ impl Server {
                         json!({"id":"vision", "object":"chat.completion", "created":0,"model":"vision-fixture","choices":[{"index":0,"message":{"role":"assistant","content":"One bright pixel"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":4,"total_tokens":9}})
                     }
                     "/v1/images/generations" => {
-                        json!({"data":[{"b64_json":if input["prompt"] == "Invalid artifact" { "aW52YWxpZA==" } else { PNG }}],"usage":{"input_tokens":50,"output_tokens":60,"total_tokens":110,"input_tokens_details":{"text_tokens":10,"image_tokens":40}}})
+                        let image = if input["prompt"] == "A pixel" {
+                            json!({"url":format!("{base}/generated.png")})
+                        } else {
+                            json!({"b64_json":if input["prompt"] == "Invalid artifact" { "aW52YWxpZA==" } else { PNG }})
+                        };
+                        json!({"data":[image],"usage":{"input_tokens":50,"output_tokens":60,"total_tokens":110,"input_tokens_details":{"text_tokens":10,"image_tokens":40}}})
                     }
                     "/v1/videos" => {
                         json!({"id":if input["prompt"] == "pending" { "pending" } else { "video_fixture" },"status":"queued"})
@@ -93,16 +113,21 @@ impl Server {
                     }
                     "/v1/videos/pending" => json!({"id":"pending","status":"in_progress"}),
                     "/v1/videos/video_fixture/content" => Value::Null,
+                    "/v1/generated.png" => Value::Null,
                     _ => panic!("unexpected media path: {path}"),
                 };
-                let body = if path.ends_with("/content") {
+                let body = if path.ends_with("generated.png") {
+                    image()
+                } else if path.ends_with("/content") {
                     b"\0\0\0\x18ftypmp42\0\0\0\0mp42isom".to_vec()
                 } else {
                     serde_json::to_vec(&value).unwrap()
                 };
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    if path.ends_with("/content") {
+                    if path.ends_with("generated.png") {
+                        "image/png"
+                    } else if path.ends_with("/content") {
                         "video/mp4"
                     } else {
                         "application/json"
@@ -117,6 +142,7 @@ impl Server {
         Self {
             endpoint,
             requests,
+            headers,
             stop,
         }
     }

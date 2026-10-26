@@ -24,7 +24,7 @@ async fn preserves_protocol_error_causes() {
             let turn = fixture.submit("Observe the protocol error").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             let run = page.runs.last().unwrap();
-            if advised {
+            if status == 429 {
                 assert_eq!(run.status, Status::Completed);
                 assert_eq!(completion::response(&page), server::ANSWER);
                 assert_eq!(super::retry::attempts(&page), [1]);
@@ -34,18 +34,15 @@ async fn preserves_protocol_error_causes() {
                 assert_eq!(fault.message, "Protocol failure; authorization [redacted]");
                 assert!(matches!(
                     fault.details,
-                    Some(sailry_protocol::FaultDetails::ModelRecovery { reason })
-                        if reason == if status == 429 {
-                            sailry_protocol::conversation::recovery::Stop::RateLimited
-                        } else {
-                            sailry_protocol::conversation::recovery::Stop::InvalidPrompt
-                        }
+                    Some(sailry_protocol::FaultDetails::ModelRecovery {
+                        reason: sailry_protocol::conversation::recovery::Stop::InvalidPrompt
+                    })
                 ));
                 assert!(super::retry::attempts(&page).is_empty());
             }
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
             let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), if advised { 2 } else { 1 });
+            assert_eq!(requests.len(), if status == 429 { 2 } else { 1 });
             assert!(
                 requests
                     .iter()
@@ -102,7 +99,7 @@ async fn switches_after_pre_event_protocol_errors() {
             page.runs
         );
         assert_eq!(completion::response(&page), server::ANSWER);
-        assert_eq!(super::retry::attempts(&page), [0]);
+        assert_eq!(super::retry::attempts(&page), [1]);
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(
             requests
@@ -402,7 +399,7 @@ async fn switches_before_repeating_requests() {
                     page.runs
                 );
                 assert!(text(&page).contains(server::ANSWER));
-                assert_eq!(super::retry::attempts(&page), [0]);
+                assert_eq!(super::retry::attempts(&page), [1]);
             }
             assert_eq!(server.upgrades.lock().unwrap().len(), 1);
             assert_eq!(
@@ -422,7 +419,7 @@ async fn switches_before_repeating_requests() {
 }
 
 #[tokio::test]
-async fn keeps_authentication_failures_retryable() {
+async fn stops_http_authentication_failures() {
     let reply = Reply::Dynamic(Arc::new(|index| {
         let bytes = if index == 0 {
             format!(
@@ -444,8 +441,14 @@ async fn keeps_authentication_failures_retryable() {
     let fixture = Fixture::empty(false, ModelApi::Responses, &server.endpoint).await;
     let turn = fixture.submit("Use the current authorization").await;
     let page = finished(&fixture.client, fixture.session.id, turn).await;
-    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-    assert_eq!(super::retry::attempts(&page), [0, 1]);
+    assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+    assert_eq!(super::retry::attempts(&page), [1]);
+    assert_eq!(
+        page.runs.last().unwrap().error.as_ref().unwrap().details,
+        Some(FaultDetails::ModelRequest {
+            reason: sailry_protocol::ModelFailure::Unauthorized,
+        })
+    );
     let reference = fixture.session.config.credential.as_ref().unwrap();
     let Output::Credentials(credentials) = execute(&fixture.client, Command::ListCredentials).await
     else {
@@ -499,13 +502,13 @@ async fn keeps_authentication_failures_retryable() {
         format!("Bearer {}", server::KEY)
     );
     let requests = server.requests.lock().unwrap().clone();
-    assert_eq!(requests.len(), 3);
+    assert_eq!(requests.len(), 2);
     assert_eq!(
         requests[0].headers["authorization"],
         format!("Bearer {}", server::KEY)
     );
     assert_eq!(
-        requests[2].headers["authorization"],
+        requests[1].headers["authorization"],
         format!("Bearer {renewed}")
     );
     let public = serde_json::to_string(&page).unwrap();
@@ -739,7 +742,7 @@ async fn remembers_repeated_refusals() {
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
             assert_eq!(
                 super::retry::attempts(&page),
-                if index == 0 { vec![] } else { vec![0] }
+                if index == 0 { vec![] } else { vec![1] }
             );
             completed.push((
                 server.upgrades.lock().unwrap().len(),
@@ -810,7 +813,7 @@ async fn falls_back_before_provider_acceptance() {
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(completion::response(&page), server::ANSWER);
-        assert_eq!(super::retry::attempts(&page), [0]);
+        assert_eq!(super::retry::attempts(&page), [1]);
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].body["type"], "response.create");

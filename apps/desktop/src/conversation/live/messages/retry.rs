@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn omits_headline_delay() {
         for (attempt, fallback, limit) in
-            [(4, false, Some(5)), (2, false, None), (0, true, Some(5))]
+            [(4, false, Some(5)), (2, false, None), (3, true, Some(5))]
         {
             let mut retry = Retry {
                 attempt,
@@ -181,7 +181,7 @@ mod tests {
             };
             let active = label(&retry, true);
             let settled = label(&retry, false);
-            for delay in [0, 1723, 5000] {
+            for delay in [0, 60_000, 120_000] {
                 retry.delay_ms = Some(delay);
                 assert_eq!(label(&retry, true), active);
                 assert_eq!(label(&retry, false), settled);
@@ -217,7 +217,7 @@ mod tests {
         }
         retry.error = Some("Responses WebSocket closed before completion".into());
         retry.fallback = true;
-        retry.attempt = 0;
+        retry.attempt = 3;
         assert_eq!(body(&retry), None);
     }
 

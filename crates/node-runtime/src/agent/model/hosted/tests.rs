@@ -388,3 +388,27 @@ fn filters_unreplayable_history() {
     assert!(body.get("include").is_none());
     assert!(body.get("previous_response_id").is_none());
 }
+
+#[test]
+fn applies_captured_anthropic_policy() {
+    let mut provider = provider();
+    provider.api = ModelApi::Anthropic;
+    provider.binding = Some(Box::new(sailry_protocol::conversation::presets::Binding {
+        policies: vec![sailry_protocol::conversation::presets::RequestPolicy {
+            models: vec!["fixture".into()],
+            reasoning_replay: None,
+            body: serde_json::from_value(json!({"thinking":{"clear_thinking":false}})).unwrap(),
+        }],
+        ..Default::default()
+    }));
+    let adapter = session_adapter(&provider, "fixture", SessionId::new(), false).unwrap();
+    provider.binding.as_mut().unwrap().policies.clear();
+    let mut body = json!({"model":"fixture","thinking":{"type":"enabled"}});
+    let mut headers = HeaderMap::new();
+    adapter(&mut body, &mut headers).unwrap();
+    assert_eq!(
+        body,
+        json!({"model":"fixture","thinking":{"type":"enabled","clear_thinking":false}})
+    );
+    assert!(headers.is_empty());
+}

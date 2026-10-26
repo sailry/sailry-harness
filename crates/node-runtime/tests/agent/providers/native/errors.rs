@@ -42,15 +42,18 @@ async fn retains_status_for_nonstandard_error_bodies() {
                 error.message.contains(&format!("HTTP {status}")),
                 "{error:?}"
             );
-            assert!(matches!(
+            assert_eq!(
                 error.details,
-                Some(sailry_protocol::FaultDetails::ModelRecovery { reason })
-                    if reason == if status == 429 {
-                        sailry_protocol::conversation::recovery::Stop::RateLimited
-                    } else {
-                        sailry_protocol::conversation::recovery::Stop::AttemptsExhausted
+                Some(if status == 429 {
+                    sailry_protocol::FaultDetails::ModelRecovery {
+                        reason: sailry_protocol::conversation::recovery::Stop::AttemptsExhausted,
                     }
-            ));
+                } else {
+                    sailry_protocol::FaultDetails::ModelRequest {
+                        reason: sailry_protocol::ModelFailure::Unauthorized,
+                    }
+                })
+            );
             let serialized = serde_json::to_string(&page).unwrap();
             assert!(serialized.contains(ECHO));
             assert!(serialized.contains("[redacted]"));
@@ -107,12 +110,16 @@ async fn bounds_shared_usage_failures() {
                     run.error.as_ref().unwrap().message,
                     format!("{MESSAGE}; authorization [redacted]")
                 );
-                assert!(matches!(
+                assert_eq!(
                     run.error.as_ref().unwrap().details,
-                    Some(sailry_protocol::FaultDetails::ModelRecovery {
-                        reason: sailry_protocol::conversation::recovery::Stop::AttemptsExhausted
+                    Some(sailry_protocol::FaultDetails::ModelRequest {
+                        reason: if code == "subscription_sharing_usage_limit_exceeded" {
+                            sailry_protocol::ModelFailure::SharedUsageLimit
+                        } else {
+                            sailry_protocol::ModelFailure::SharedUsageUnavailable
+                        }
                     })
-                ));
+                );
                 assert!(!serialized.contains(server::KEY));
                 assert_eq!(super::retry::attempts(&page), [1, 2, 3, 4, 5]);
                 for part in page.entries.iter().flat_map(|entry| &entry.parts) {

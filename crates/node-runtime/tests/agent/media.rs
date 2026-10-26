@@ -153,10 +153,26 @@ async fn restores_frozen_execution() {
         provider.id = ProviderId::new();
         provider.revision = 0;
         provider.endpoint = media.endpoint.clone();
+        let catalog = serde_json::to_vec(&json!({"version":1,"partners":[{
+            "id":"media-fixture","name":"Media fixture",
+            "routes":[{"protocol":"openai-chat-completions","endpoint":media.endpoint}],
+            "auth":{"kind":"api_key","data":{"header":"X-Media-Key","prefix":"Token "}}
+        }]}))
+        .unwrap();
+        node.with_storage(move |db| Box::pin(async move {
+            db.execute("INSERT INTO channel_presets(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [catalog]).await.map_err(crate::database_fixture::fault)?;
+            Ok(())
+        })).await.unwrap();
+        provider.preset = Some(sailry_protocol::conversation::presets::PresetRef {
+            source: sailry_protocol::conversation::presets::Source::Partner,
+            id: "media-fixture".into(),
+            route: None,
+        });
         let Output::Provider(provider) = client
-            .execute(client.prepare(Command::PutProvider {
+            .execute(client.prepare(Command::SaveProvider {
                 provider,
                 expected_revision: 0,
+                secret: Some(Secret::new("isolated-media-key".into())),
             }))
             .await
             .unwrap()
@@ -312,6 +328,20 @@ async fn restores_frozen_execution() {
         );
         assert!(root.join("assets/generated/video.mp4").is_file());
         let records = media.requests.lock().unwrap().clone();
+        let headers = media.headers.lock().unwrap().clone();
+        assert_eq!(headers.len(), records.len());
+        for ((path, _), headers) in records.iter().zip(headers) {
+            assert!(!headers.contains_key("authorization"));
+            assert!(!headers.contains_key("x-api-key"));
+            if path == "/v1/generated.png" {
+                assert!(
+                    !headers.contains_key("x-media-key"),
+                    "generated URLs must not receive provider credentials"
+                );
+            } else {
+                assert_eq!(headers["x-media-key"], "Token isolated-media-key", "{path}");
+            }
+        }
         assert_eq!(
             records
                 .iter()

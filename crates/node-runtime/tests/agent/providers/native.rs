@@ -89,6 +89,7 @@ impl Fixture {
             Node::start_empty(directory.path().join("node")).await
         }
         .unwrap();
+        node.set_model_retry_fixture(Duration::ZERO);
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -416,7 +417,7 @@ async fn bounds_transient_failure_retries() {
             let server = Server::start(api, Reply::Failure).await;
             let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let mut provider = fixture.provider.clone();
-            provider.request_max_retries = Some(0);
+            provider.request_max_retries = None;
             execute(
                 &fixture.client,
                 Command::PutProvider {

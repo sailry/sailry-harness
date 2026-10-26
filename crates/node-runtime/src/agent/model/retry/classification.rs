@@ -1,5 +1,5 @@
-//! Responses mappings follow openai/codex 61f34c35 (api_bridge and responses_error).
-//! HTTP errors and failed stream events deliberately have different semantics.
+//! Status/event mappings originate in openai/codex 61f34c35.
+//! Retryable failures use Sailry's shared model recovery policy.
 use super::*;
 use sailry_protocol::conversation::recovery::{Stop, Transport};
 use tokio::time::Instant;
@@ -59,7 +59,7 @@ impl Failure {
                 .is_some_and(|fault| {
                     matches!(fault.code, ErrorCode::Cancelled | ErrorCode::OutcomeUnknown)
                 });
-        let class = if local {
+        let mut class = if local {
             Class::Terminal(Stop::LocalFailure)
         } else if completed
             || (transport == Some(Transport::WebSocket)
@@ -68,6 +68,8 @@ impl Failure {
                 && event.is_none())
         {
             Class::Terminal(Stop::ResponseIncomplete)
+        } else if error.category == adk_core::ErrorCategory::ResourceExhausted {
+            Class::Terminal(Stop::LocalFailure)
         } else if let Some(status) = status.filter(|status| *status >= 400) {
             if status == 429 && code.is_none() && error.code == "model.plugin.quota" {
                 Class::Terminal(Stop::QuotaExceeded)
@@ -97,6 +99,16 @@ impl Failure {
             plugin(error)
         } else if matches!(
             error.category,
+            adk_core::ErrorCategory::Unauthorized
+                | adk_core::ErrorCategory::Forbidden
+                | adk_core::ErrorCategory::InvalidInput
+                | adk_core::ErrorCategory::Unsupported
+                | adk_core::ErrorCategory::NotFound
+                | adk_core::ErrorCategory::Conflict
+        ) {
+            Class::Terminal(Stop::LocalFailure)
+        } else if matches!(
+            error.category,
             adk_core::ErrorCategory::Unavailable
                 | adk_core::ErrorCategory::Timeout
                 | adk_core::ErrorCategory::RateLimited
@@ -118,6 +130,11 @@ impl Failure {
                 error.code,
                 "model.openai_responses.ws_handshake" | "model.openai_responses.unfinished_stream"
             );
+        if refused {
+            // A rejected WebSocket negotiation can still accept the same
+            // authenticated HTTP endpoint. The switch shares the retry budget.
+            class = Class::Backoff;
+        }
         let switch = refused
             || (before
                 && status.is_none()
@@ -163,6 +180,8 @@ fn http(status: u16, code: Option<&str>, kind: Option<&str>) -> Class {
         403 if code == Some("misalignment_policy_violation") => {
             Class::Terminal(Stop::PolicyViolation)
         }
+        401 | 403 => Class::Terminal(Stop::LocalFailure),
+        408 => Class::Backoff,
         429 => match (code, kind) {
             (Some("flex_unavailable"), _) => Class::Terminal(Stop::FlexUnavailable),
             (_, Some("usage_limit_reached")) => Class::Terminal(Stop::UsageLimitReached),
@@ -181,6 +200,7 @@ fn http(status: u16, code: Option<&str>, kind: Option<&str>) -> Class {
             _ => Class::Advice(Stop::RateLimited),
         },
         503 if code == Some("server_is_overloaded") => Class::Advice(Stop::ServerOverloaded),
+        400..=499 => Class::Terminal(Stop::InvalidRequest),
         _ => Class::Backoff,
     }
 }

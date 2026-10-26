@@ -25,15 +25,16 @@ pub(super) fn session_adapter(
     session: SessionId,
     encrypted: bool,
 ) -> Option<RequestAdapter> {
-    if provider.authentication != Authentication::ApiKey
-        || !matches!(
-            provider.api,
-            ModelApi::Responses | ModelApi::ChatCompletions
-        )
-    {
+    if provider.authentication != Authentication::ApiKey {
         return None;
     }
     let reasoning = adapter(provider, model);
+    if !matches!(
+        provider.api,
+        ModelApi::Responses | ModelApi::ChatCompletions
+    ) {
+        return reasoning;
+    }
     let session = session.to_string();
     let adapter: RequestAdapter = Arc::new(move |body, headers| {
         if let Some(adapter) = &reasoning {

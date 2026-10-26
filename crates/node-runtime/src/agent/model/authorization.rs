@@ -1,7 +1,7 @@
 //! Refreshes inline provider grants at each ADK generation, including tool continuations.
 use super::*;
 use crate::providers::login::Grant;
-use adk_core::{AdkError, LlmRequest, LlmResponseStream, Part};
+use adk_core::{AdkError, LlmRequest, LlmResponseStream, Part, SchemaAdapter};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::{Value, json};
@@ -31,14 +31,15 @@ fn observe(headers: &HeaderMap) {
 }
 
 pub(super) struct Model {
-    pub(super) ingress: Arc<Ingress>,
-    pub(super) provider: Provider,
-    pub(super) config: SessionConfig,
-    pub(super) session: sailry_protocol::SessionId,
-    pub(super) delegated: bool,
-    pub(super) reasoning: reasoning::Resolved,
-    pub(super) purpose: Purpose,
-    pub(super) stop: CancellationToken,
+    ingress: Arc<Ingress>,
+    provider: Provider,
+    config: SessionConfig,
+    session: sailry_protocol::SessionId,
+    delegated: bool,
+    reasoning: reasoning::Resolved,
+    purpose: Purpose,
+    stop: CancellationToken,
+    metadata: Arc<registry::Entry>,
 }
 
 struct Prepared {
@@ -51,31 +52,51 @@ struct Prepared {
 }
 
 impl Model {
+    pub(super) async fn new(
+        ingress: &Arc<Ingress>,
+        provider: &Provider,
+        config: &SessionConfig,
+        session: sailry_protocol::SessionId,
+        delegated: bool,
+        reasoning: reasoning::Resolved,
+        purpose: Purpose,
+        stop: &CancellationToken,
+    ) -> Result<Self, Fault> {
+        let (effective, authorized) = current(ingress, provider, config, stop).await?;
+        let metadata = pooled(
+            &ingress.model_clients,
+            &effective,
+            config,
+            session,
+            reasoning,
+            purpose,
+            &authorized,
+        )?;
+        metadata.authorize(authorized);
+        Ok(Self {
+            ingress: ingress.clone(),
+            provider: provider.clone(),
+            config: config.clone(),
+            session,
+            delegated,
+            reasoning,
+            purpose,
+            stop: stop.clone(),
+            metadata,
+        })
+    }
+
     async fn prepare(&self, request: &LlmRequest, stream: bool) -> Result<Prepared, AdkError> {
-        let reference = self.config.credential.clone().ok_or_else(|| {
-            failure(Fault::new(
-                ErrorCode::NotConfigured,
-                "provider sign-in is required",
-            ))
-        })?;
+        let (provider, authorized) =
+            current(&self.ingress, &self.provider, &self.config, &self.stop)
+                .await
+                .map_err(failure)?;
+        let reference = self
+            .config
+            .credential
+            .clone()
+            .expect("authorization requires a credential");
         let options = crate::providers::login::effective(&self.provider).map_err(failure)?;
-        let authorized = self
-            .ingress
-            .authorization(
-                reference.clone(),
-                self.provider.id,
-                self.provider.authentication,
-                &options,
-                &self.stop,
-            )
-            .await
-            .map_err(failure)?;
-        let mut provider = self.provider.clone();
-        provider.endpoint = authorized.grant.endpoint().to_owned();
-        #[cfg(any(test, feature = "test-support"))]
-        if let Some(endpoint) = self.ingress.authorization_endpoint.lock().unwrap().as_ref() {
-            provider.endpoint = endpoint.clone();
-        }
         let entry = pooled(
             &self.ingress.model_clients,
             &provider,
@@ -155,11 +176,12 @@ impl Model {
                 (adapter, stream)
             }
         };
-        let adapter = if self.provider.api == ModelApi::Responses {
-            super::hosted::responses(adapter, self.reasoning.encrypted)
-        } else {
-            adapter
-        };
+        let adapter = captured(
+            &self.provider,
+            &self.config.model,
+            adapter,
+            self.reasoning.encrypted,
+        );
         Ok(Prepared {
             entry,
             scope: Scope { adapter, observer },
@@ -188,10 +210,40 @@ impl Model {
     }
 }
 
+fn captured(
+    provider: &Provider,
+    model: &str,
+    authorized: RequestAdapter,
+    encrypted: bool,
+) -> RequestAdapter {
+    let adapter = if let Some(policy) = super::hosted::adapter(provider, model) {
+        Arc::new(move |body: &mut Value, headers: &mut HeaderMap| {
+            policy(body, headers)?;
+            authorized(body, headers)
+        }) as RequestAdapter
+    } else {
+        authorized
+    };
+    if provider.api == ModelApi::Responses {
+        super::hosted::responses(adapter, encrypted)
+    } else {
+        adapter
+    }
+}
+
 #[async_trait]
 impl Llm for Model {
     fn name(&self) -> &str {
         &self.config.model
+    }
+    fn schema_adapter(&self) -> &dyn SchemaAdapter {
+        self.metadata.schema_adapter()
+    }
+    fn uses_interactions_api(&self) -> bool {
+        self.metadata.uses_interactions_api()
+    }
+    fn max_cost_micro_usd(&self, request: &LlmRequest) -> Option<u64> {
+        self.metadata.max_cost_micro_usd(request)
     }
     async fn generate_content(
         &self,
@@ -209,6 +261,35 @@ impl Llm for Model {
         })
         .await
     }
+}
+
+async fn current(
+    ingress: &Arc<Ingress>,
+    provider: &Provider,
+    config: &SessionConfig,
+    stop: &CancellationToken,
+) -> Result<(Provider, crate::store::login::Authorization), Fault> {
+    let reference = config
+        .credential
+        .clone()
+        .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "provider sign-in is required"))?;
+    let options = crate::providers::login::effective(provider)?;
+    let authorized = ingress
+        .authorization(
+            reference,
+            provider.id,
+            provider.authentication,
+            &options,
+            stop,
+        )
+        .await?;
+    let mut provider = provider.clone();
+    provider.endpoint = authorized.grant.endpoint().to_owned();
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(endpoint) = ingress.authorization_endpoint.lock().unwrap().as_ref() {
+        provider.endpoint = endpoint.clone();
+    }
+    Ok((provider, authorized))
 }
 
 fn pooled(

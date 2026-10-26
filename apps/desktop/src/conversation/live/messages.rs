@@ -711,6 +711,18 @@ pub(crate) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
         }
         return "plugin_callback_failed";
     }
+    if let Some(sailry_protocol::FaultDetails::ModelRequest { reason }) = &error.details {
+        use sailry_protocol::ModelFailure;
+        return match reason {
+            ModelFailure::Request => "chat_model_failed",
+            ModelFailure::Unauthorized => "chat_model_unauthorized",
+            ModelFailure::RateLimited => "chat_model_rate_limited",
+            ModelFailure::Timeout => "chat_response_timeout",
+            ModelFailure::InvalidResponse => "chat_response_invalid",
+            ModelFailure::SharedUsageLimit => "chat_subscription_limit",
+            ModelFailure::SharedUsageUnavailable => "chat_subscription_unavailable",
+        };
+    }
     match error.message.as_str() {
         "context summary timed out" => return "chat_compact_timeout",
         "context summary did not reduce the conversation" => return "chat_compact_no_reduction",
@@ -721,121 +733,50 @@ pub(crate) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
         }
         _ => {}
     }
-    let (code, category) = model_failure(&error.message).unwrap_or_default();
-    match code {
-        "model.openai_responses.unauthorized" | "model.openai_responses.forbidden" => {
-            return "chat_model_unauthorized";
-        }
-        "model.openai_responses.rate_limited" => return "chat_model_rate_limited",
-        "model.openai_responses.subscription_sharing_usage_limit_exceeded" => {
-            return "chat_subscription_limit";
-        }
-        "model.openai_responses.subscription_sharing_usage_unavailable" => {
-            return "chat_subscription_unavailable";
-        }
-        "model.openai_responses.parse" => return "chat_response_invalid",
-        "model.response_timeout" => return "chat_response_timeout",
-        _ => {}
+    if error.code == sailry_protocol::ErrorCode::Unavailable {
+        return "turn_failed";
     }
-    match category {
-        Some("unauthorized" | "forbidden") => "chat_model_unauthorized",
-        Some("rate_limited") => "chat_model_rate_limited",
-        Some("timeout") => "chat_response_timeout",
-        _ if error.code == sailry_protocol::ErrorCode::Unavailable => "chat_model_failed",
-        _ => super::actions::error_key(error),
-    }
-}
-
-/// Splits Node's public model diagnostic into the ADK code and optional HTTP category.
-fn model_failure(message: &str) -> Option<(&str, Option<&str>)> {
-    let (code, rest) = message
-        .lines()
-        .next()?
-        .strip_prefix("Agent execution failed (")?
-        .split_once(')')?;
-    let category = rest
-        .strip_prefix("; HTTP ")
-        .and_then(|rest| rest.split_once("; "))
-        .map(|(_, category)| category);
-    Some((code, category))
+    super::actions::error_key(error)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use core::prelude::v1::test;
-    use sailry_protocol::{ErrorCode, Fault};
+    use sailry_protocol::{ErrorCode, Fault, FaultDetails, ModelFailure};
 
     #[test]
-    fn classifies_response_failures() {
-        for (code, status, key) in [
-            ("unauthorized", 401, "chat_model_unauthorized"),
-            ("forbidden", 403, "chat_model_unauthorized"),
-            ("rate_limited", 429, "chat_model_rate_limited"),
-        ] {
-            let message =
-                format!("Agent execution failed (model.openai_responses.{code}); HTTP {status}");
-            assert_eq!(
-                failure_key(&Fault::new(ErrorCode::Unavailable, message.clone())),
-                key
-            );
-            assert_eq!(
-                failure_key(&Fault::new(
-                    ErrorCode::Unavailable,
-                    format!("{message}\n\n{{\"message\":\"Provider explanation\"}}")
-                )),
-                key
-            );
-        }
-        for (message, key) in [
+    fn classifies_model_failures() {
+        for (reason, key) in [
+            (ModelFailure::Request, "chat_model_failed"),
+            (ModelFailure::Unauthorized, "chat_model_unauthorized"),
+            (ModelFailure::RateLimited, "chat_model_rate_limited"),
+            (ModelFailure::Timeout, "chat_response_timeout"),
+            (ModelFailure::InvalidResponse, "chat_response_invalid"),
+            (ModelFailure::SharedUsageLimit, "chat_subscription_limit"),
             (
-                "Agent execution failed (model.openai_responses.subscription_sharing_usage_limit_exceeded)",
-                "chat_subscription_limit",
-            ),
-            (
-                "Agent execution failed (model.openai_responses.subscription_sharing_usage_unavailable)",
+                ModelFailure::SharedUsageUnavailable,
                 "chat_subscription_unavailable",
             ),
         ] {
-            for message in [
-                message.to_string(),
-                format!("{message}; HTTP 429; rate_limited"),
-            ] {
-                assert_eq!(
-                    failure_key(&Fault::new(ErrorCode::Unavailable, message)),
-                    key
-                );
-            }
+            let mut fault = Fault::new(ErrorCode::Unavailable, "Provider explanation");
+            fault.details = Some(FaultDetails::ModelRequest { reason });
+            assert_eq!(failure_key(&fault), key);
+            assert_eq!(fault.message, "Provider explanation");
         }
-        assert_eq!(
-            failure_key(&Fault::new(
-                ErrorCode::Unavailable,
-                "Agent execution failed (model.openai_responses.parse)"
-            )),
-            "chat_response_invalid"
-        );
-        for (category, key) in [
-            ("unauthorized", "chat_model_unauthorized"),
-            ("forbidden", "chat_model_unauthorized"),
-            ("rate_limited", "chat_model_rate_limited"),
-            ("timeout", "chat_response_timeout"),
-            ("internal", "chat_model_failed"),
+    }
+
+    #[test]
+    fn leaves_untyped_failures_generic() {
+        for message in [
+            "unavailable",
+            "Max iterations (100) exceeded",
+            "Agent execution failed (model.openai_responses.unauthorized); HTTP 401",
         ] {
-            let message = format!(
-                "Agent execution failed (model.openai_compat.api_error); HTTP 400; {category}"
-            );
             assert_eq!(
                 failure_key(&Fault::new(ErrorCode::Unavailable, message)),
-                key
+                "turn_failed"
             );
         }
-        assert_eq!(
-            failure_key(&Fault::new(ErrorCode::Unavailable, "unavailable")),
-            "chat_model_failed"
-        );
-        assert_eq!(
-            failure_key(&Fault::new(ErrorCode::OutcomeUnknown, "unknown")),
-            "chat_execution_unknown"
-        );
     }
 }

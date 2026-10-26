@@ -14,6 +14,8 @@ const CAPACITY: usize = 128;
 pub(crate) struct Registry {
     entries: Mutex<BTreeMap<(SessionId, String), Arc<Entry>>>,
     pub(super) capabilities: Arc<transport::Capabilities>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) retry_wait: Mutex<Option<Duration>>,
 }
 
 pub(super) struct Built {
@@ -40,6 +42,11 @@ pub(super) struct Entry {
 }
 
 impl Registry {
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn set_retry_fixture(&self, delay: Duration) {
+        *self.retry_wait.lock().unwrap() = Some(delay);
+    }
+
     pub(super) fn get(
         &self,
         session: SessionId,

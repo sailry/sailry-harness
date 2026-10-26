@@ -23,7 +23,7 @@ pub(super) fn http(fixture: &Fixture) {
 async fn session_policy(fixture: &mut Fixture) {
     http(fixture);
     let mut provider = fixture.provider.clone();
-    provider.request_max_retries = Some(0);
+    provider.request_max_retries = None;
     let Output::Provider(provider) = execute(
         &fixture.client,
         Command::PutProvider {
@@ -126,7 +126,7 @@ fn unavailable(retry_after: &str) -> Script {
 }
 
 #[tokio::test]
-async fn honors_server_retry_delays() {
+async fn reports_minimum_and_longer_server_delays() {
     for remote in [false, true] {
         for date in [false, true] {
             let success = Script {
@@ -141,7 +141,7 @@ async fn honors_server_retry_delays() {
                         return success.clone();
                     }
                     let due =
-                        chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() + 4, 0)
+                        chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() + 90, 0)
                             .unwrap();
                     *deadline.lock().unwrap() = Some(std::time::SystemTime::from(due));
                     unavailable(&due.format("%a, %d %b %Y %H:%M:%S GMT").to_string())
@@ -166,13 +166,30 @@ async fn honors_server_retry_delays() {
                         requests[0].received_at < deadline,
                         "date fixture must still be in the future"
                     );
-                    assert!(requests[1].received_at >= deadline);
-                } else {
                     assert!(
-                        requests[1].received.duration_since(requests[0].received)
-                            >= Duration::from_secs(2)
+                        requests[1].received_at < deadline,
+                        "the service fixture elides recovery waiting"
                     );
+                } else {
+                    assert!(requests[1].received >= requests[0].received);
                 }
+            }
+            let retry = page
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .find_map(|part| {
+                    let Part::Resource(value) = part else {
+                        return None;
+                    };
+                    sailry_protocol::conversation::recovery::Retry::from_resource(value)
+                })
+                .unwrap();
+            let delay = retry.delay_ms.unwrap();
+            if date {
+                assert!(delay > 60_000 && delay <= 90_000);
+            } else {
+                assert_eq!(delay, 60_000);
             }
             let serialized = serde_json::to_string(&page).unwrap();
             assert!(serialized.contains(FAILURE));
@@ -193,6 +210,9 @@ async fn cancels_a_hinted_wait_without_replay() {
         )
         .await;
         let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
+        fixture
+            .node
+            .set_model_retry_fixture(Duration::from_secs(60));
         let turn = fixture.submit("Cancel the server retry wait").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -861,24 +881,24 @@ async fn bounds_classified_response_failures() {
 }
 
 #[tokio::test]
-async fn separates_raw_http_and_session_recovery() {
+async fn recovers_with_the_final_retry() {
     for remote in [false, true] {
         let success = Script {
             bytes: wire(&[completed()], true, true),
             ending: Ending::Close,
         };
-        let mut scripts = vec![unavailable("0"); 4];
+        let mut scripts = vec![unavailable("0"); 5];
         scripts.push(success);
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         http(&fixture);
-        let turn = fixture.submit("Recover inside the request layer").await;
+        let turn = fixture.submit("Recover on the final allowed attempt").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert!(attempts(&page).is_empty());
+        assert_eq!(attempts(&page), [1, 2, 3, 4, 5]);
         {
             let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 5);
+            assert_eq!(requests.len(), 6);
             assert!(
                 requests
                     .iter()
@@ -894,8 +914,8 @@ async fn separates_raw_http_and_session_recovery() {
 async fn maps_http_failures_before_session_recovery() {
     for remote in [false, true] {
         for (status, code, kind, retry) in [
-            (401, None, None, true),
-            (403, None, None, true),
+            (401, None, None, false),
+            (403, None, None, false),
             (400, None, None, false),
             (429, None, None, true),
             (429, None, Some("insufficient_quota"), false),
@@ -958,12 +978,15 @@ async fn ignores_standalone_errors_before_completion() {
 }
 
 #[tokio::test]
-async fn cancels_persistent_connection_wait() {
+async fn cancels_a_connection_wait() {
     for remote in [false, true] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
         drop(listener);
         let fixture = fixture(remote, ModelApi::Responses, &endpoint).await;
+        fixture
+            .node
+            .set_model_retry_fixture(Duration::from_secs(60));
         let turn = fixture.submit("Wait for the unavailable network").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -977,9 +1000,9 @@ async fn cancels_persistent_connection_wait() {
                     );
                 if let Some(retry) = retry {
                     assert_eq!(retry["attempt"], 1);
-                    assert!(retry["limit"].is_null());
+                    assert_eq!(retry["limit"], 5);
                     assert_eq!(retry["transport"], "http");
-                    assert!(retry["delay_ms"].as_u64().unwrap() <= 5000);
+                    assert_eq!(retry["delay_ms"], 60_000);
                     assert_eq!(page.runs.last().unwrap().status, Status::Running);
                     break;
                 }
@@ -987,7 +1010,7 @@ async fn cancels_persistent_connection_wait() {
             }
         })
         .await
-        .expect("persistent retry notification");
+        .expect("connection retry notification");
         execute(&fixture.client, Command::StopTurn { turn }).await;
         let page = tokio::time::timeout(
             Duration::from_secs(3),

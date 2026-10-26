@@ -96,11 +96,6 @@ pub(super) struct Credentials {
     pub(super) origin: Option<adk_core::ProviderOrigin>,
 }
 
-pub(super) struct Limits {
-    pub(super) bytes: usize,
-    pub(super) retries: u64,
-}
-
 pub(super) fn public(value: &str, credentials: &Credentials) -> Result<(), Fault> {
     if credentials
         .secrets
@@ -133,10 +128,9 @@ pub(super) async fn send(
     declaration: &Declaration,
     credentials: &Credentials,
     stop: &CancellationToken,
-    limits: Limits,
+    budget: usize,
 ) -> Result<(Response, adk_core::model_observation::AttemptGuard), Failure> {
-    let Limits { bytes, retries } = limits;
-    let budget = bytes.min(REQUEST_BYTES);
+    let budget = budget.min(REQUEST_BYTES);
     let endpoint = address(endpoint)?;
     let url = address(&prepared.url)?;
     let same_origin = url.origin() == endpoint.origin();
@@ -236,61 +230,38 @@ pub(super) async fn send(
         request = request.body(body);
     }
     let request = request.build().map_err(Failure::Network)?;
-    for attempt in 0..=retries {
-        let sent = request.try_clone().ok_or_else(invalid)?;
-        let observed = adk_core::model_observation::Attempt::start(
-            adk_core::model_observation::Transport::Http,
-            None,
-        );
-        let guard = observed.guard();
-        observed.prepared(sent.body().and_then(reqwest::Body::as_bytes));
-        let result = tokio::select! {
-            biased;
-            _ = stop.cancelled() => {
-                observed.finish(adk_core::model_observation::Outcome::Cancelled);
-                return Err(cancelled().into());
-            },
-            response = client.execute(sent) => response,
-        };
-        match &result {
-            Ok(response) => {
-                observed.headers(response.status().as_u16(), None);
-                if !response.status().is_success() {
-                    let status = response.status().as_u16();
-                    observed.fail(&super::response::classified(
-                        super::response::http_class(status),
-                        "model endpoint returned an unsuccessful HTTP status",
-                        None,
-                        Some(status),
-                        &[],
-                    ));
-                }
+    let observed = adk_core::model_observation::Attempt::start(
+        adk_core::model_observation::Transport::Http,
+        None,
+    );
+    let guard = observed.guard();
+    observed.prepared(request.body().and_then(reqwest::Body::as_bytes));
+    let result = tokio::select! {
+        biased;
+        _ = stop.cancelled() => {
+            observed.finish(adk_core::model_observation::Outcome::Cancelled);
+            return Err(cancelled().into());
+        },
+        response = client.execute(request) => response,
+    };
+    match &result {
+        Ok(response) => {
+            observed.headers(response.status().as_u16(), None);
+            if !response.status().is_success() {
+                observed.fail(&super::response::classified(
+                    super::response::http_class(response.status().as_u16()),
+                    "model endpoint returned an unsuccessful HTTP status",
+                    None,
+                    Some(response.status().as_u16()),
+                    &[],
+                ));
             }
-            Err(error) => observed.fail(&network_cause(error)),
         }
-        let retry = match &result {
-            Ok(response) => response.status().is_server_error(),
-            Err(error) => !error.is_builder(),
-        };
-        if attempt == retries || !retry {
-            return result
-                .map(|response| (response, guard))
-                .map_err(Failure::Network);
-        }
-        let at = result
-            .as_ref()
-            .ok()
-            .and_then(|response| deadline(response.headers()))
-            .unwrap_or_else(|| {
-                tokio::time::Instant::now() + super::super::retry::budget::backoff(attempt + 1)
-            });
-        tokio::select! {
-            biased;
-            _ = stop.cancelled() => return Err(cancelled().into()),
-            _ = tokio::time::sleep_until(at) => {},
-        }
+        Err(error) => observed.fail(&network_cause(error)),
     }
-    unreachable!("inclusive retry loop returns its last result")
+    result
+        .map(|response| (response, guard))
+        .map_err(Failure::Network)
 }
 
 pub(super) fn deadline(headers: &HeaderMap) -> Option<tokio::time::Instant> {

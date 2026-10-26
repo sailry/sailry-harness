@@ -1,4 +1,4 @@
-//! Session recovery follows Codex; raw HTTP retries remain owned by the transport.
+//! One bounded recovery policy owns model HTTP failures and stream interruptions.
 //! Only uncommitted attempts can recover; complete responses and tool work are never replayed.
 use super::*;
 use adk_core::{
@@ -21,7 +21,6 @@ pub(super) struct Model {
     pub session: SessionId,
     pub stop: CancellationToken,
     pub limit: u64,
-    pub persistent: bool,
 }
 
 #[async_trait]
@@ -54,7 +53,6 @@ impl Llm for Model {
         let session = self.session;
         let stop = self.stop.clone();
         let limit = self.limit;
-        let persistent = self.persistent;
         let mut identity = super::call::current().unwrap_or_default();
         identity.node = Some(ingress.node);
         identity.turn = turn;
@@ -146,40 +144,25 @@ impl Llm for Model {
                 }
                 let error = interrupted(error);
                 let failure = classification::Failure::new(&error);
-                let (attempt, finite, at, delay, fallback) =
-                    if failure.switch && ingress.model_clients.fallback(session) {
-                        budget.fallback();
-                        (0, Some(limit), tokio::time::Instant::now(), None, true)
-                    } else {
-                        match budget.next(&failure, limit, persistent) {
-                            budget::Decision::Stop(reason) => {
-                                recovery.entry.recovery_decision = Some(decision(reason));
-                                break Err(terminal(error, reason));
-                            }
-                            budget::Decision::Exhausted => {
-                                if failure.transport != Some(Transport::WebSocket)
-                                    || !ingress.model_clients.fallback(session)
-                                {
-                                    recovery.entry.recovery_decision = Some("attempts_exhausted");
-                                    break Err(terminal(error, Stop::AttemptsExhausted));
-                                }
-                                budget.fallback();
-                                (
-                                    0,
-                                    Some(limit),
-                                    failure.retry_at.unwrap_or_else(tokio::time::Instant::now),
-                                    None,
-                                    true,
-                                )
-                            }
-                            budget::Decision::Retry {
-                                attempt,
-                                limit,
-                                at,
-                                delay,
-                            } => (attempt, limit, at, delay, false),
-                        }
-                    };
+                let (attempt, finite, at, delay) = match budget.next(&failure, limit) {
+                    budget::Decision::Stop(reason) => {
+                        recovery.entry.recovery_decision = Some(decision(reason));
+                        break Err(terminal(error, reason));
+                    }
+                    budget::Decision::Exhausted => {
+                        recovery.entry.recovery_decision = Some("attempts_exhausted");
+                        break Err(terminal(error, Stop::AttemptsExhausted));
+                    }
+                    budget::Decision::Retry {
+                        attempt,
+                        limit,
+                        at,
+                        delay,
+                    } => (attempt, limit, at, delay),
+                };
+                let fallback = (failure.switch
+                    || (failure.transport == Some(Transport::WebSocket) && attempt == limit))
+                    && ingress.model_clients.fallback(session);
                 let notice = Retry {
                     attempt,
                     fallback,
@@ -222,9 +205,16 @@ impl Llm for Model {
                         break Err(error);
                     }
                 }
-                // Server advice keeps its original deadline. Codex starts local
-                // backoff after the recovery notification has been delivered.
+                // Start the minimum interval after publishing the retry state;
+                // a later server deadline keeps its original instant.
                 let at = delay.map_or(at, |delay| tokio::time::Instant::now() + delay);
+                #[cfg(any(test, feature = "test-support"))]
+                let at = ingress
+                    .model_clients
+                    .retry_wait
+                    .lock()
+                    .unwrap()
+                    .map_or(at, |delay| tokio::time::Instant::now() + delay);
                 let _waiting = turn
                     .and_then(|turn| ingress.agents.timeline(turn))
                     .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
@@ -368,9 +358,22 @@ fn interrupted(error: AdkError) -> AdkError {
 }
 
 fn terminal(error: AdkError, reason: Stop) -> AdkError {
+    if std::error::Error::source(&error)
+        .and_then(|source| source.downcast_ref::<Fault>())
+        .is_some_and(|fault| fault.details.is_some())
+    {
+        return error;
+    }
     let mut fault = super::error(&error);
     if !matches!(fault.code, ErrorCode::Cancelled | ErrorCode::OutcomeUnknown)
-        && fault.details.is_none()
+        && !matches!(
+            fault.details,
+            Some(sailry_protocol::FaultDetails::ModelRequest {
+                reason: sailry_protocol::ModelFailure::Unauthorized
+                    | sailry_protocol::ModelFailure::SharedUsageLimit
+                    | sailry_protocol::ModelFailure::SharedUsageUnavailable,
+            })
+        )
     {
         fault.details = Some(sailry_protocol::FaultDetails::ModelRecovery { reason });
     }
@@ -413,6 +416,8 @@ fn classify(entry: &mut crate::logging::Entry, error: &AdkError) {
     entry.reason = Some(match failure.class {
         classification::Class::Terminal(_) => "terminal",
         classification::Class::Backoff => "backoff",
+        classification::Class::Advice(Stop::RateLimited) => "rate_limited",
+        classification::Class::Advice(Stop::ServerOverloaded) => "server_overloaded",
         classification::Class::Advice(_) => "server_advice",
         classification::Class::Connection => "connection",
     });

@@ -61,6 +61,18 @@ mod faults {
     }
 
     #[test]
+    fn round_trips_execution_failure_details() {
+        let details = FaultDetails::ModelRequest {
+            reason: ModelFailure::Unauthorized,
+        };
+        let mut fault = Fault::new(ErrorCode::Busy, "Original failure");
+        fault.details = Some(details);
+        let encoded = serde_json::to_value(&fault).unwrap();
+        assert_eq!(serde_json::from_value::<Fault>(encoded).unwrap(), fault);
+        assert_eq!(crate::VERSION, 1);
+    }
+
+    #[test]
     fn round_trips_value_conflict() {
         let mut fault = Fault::new(ErrorCode::RevisionConflict, "plugin value changed");
         fault.details = Some(FaultDetails::PluginValueConflict);

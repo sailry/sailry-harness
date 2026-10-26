@@ -118,10 +118,19 @@ impl Media {
         let base = self.model.provider.endpoint.trim_end_matches('/');
         let (suffix, payload) = image::request(route, &self.model.model, &prompt);
         let endpoint = format!("{base}/{suffix}");
-        let mut request = client.post(endpoint).json(&payload);
-        if let Some(secret) = &credential {
-            request = request.bearer_auth(secret.expose());
-        }
+        let headers = crate::providers::headers(
+            self.model.provider.api,
+            credential.as_ref(),
+            self.model
+                .provider
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.key_injection.as_ref()),
+        )?;
+        let request = client
+            .post(endpoint)
+            .headers(headers.clone())
+            .json(&payload);
         let response = request.send().await.map_err(|_| uncertain())?;
         let response_bytes = body(
             response,
@@ -195,10 +204,9 @@ impl Media {
                     }
                 }
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                let mut request = client.get(format!("{base}/videos/{id}"));
-                if let Some(secret) = &credential {
-                    request = request.bearer_auth(secret.expose());
-                }
+                let request = client
+                    .get(format!("{base}/videos/{id}"))
+                    .headers(headers.clone());
                 let bytes = body(
                     request.send().await.map_err(|_| uncertain())?,
                     1024 * 1024,
@@ -213,10 +221,9 @@ impl Media {
             }
             self.record_usage(usage::generation(reported_usage.as_ref()), None)
                 .await?;
-            let mut request = client.get(format!("{base}/videos/{id}/content"));
-            if let Some(secret) = &credential {
-                request = request.bearer_auth(secret.expose());
-            }
+            let request = client
+                .get(format!("{base}/videos/{id}/content"))
+                .headers(headers);
             (
                 body(
                     request

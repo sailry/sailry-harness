@@ -16,10 +16,11 @@ pub(super) fn validate(event: &Event) -> Result<(), Fault> {
                 )
             })
     {
-        return Err(Fault::new(
-            ErrorCode::Unavailable,
-            "Model response was not completed",
-        ));
+        let mut fault = Fault::new(ErrorCode::Unavailable, "Model response was not completed");
+        fault.details = Some(sailry_protocol::FaultDetails::ModelRequest {
+            reason: sailry_protocol::ModelFailure::InvalidResponse,
+        });
+        return Err(fault);
     }
     Ok(())
 }

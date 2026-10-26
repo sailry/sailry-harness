@@ -47,6 +47,9 @@ pub enum FaultDetails {
     ModelRecovery {
         reason: crate::conversation::recovery::Stop,
     },
+    ModelRequest {
+        reason: ModelFailure,
+    },
     SystemDiagnostic(Box<crate::notification::SystemDiagnostic>),
     VersionMismatch {
         controller: Option<String>,
@@ -58,6 +61,18 @@ pub enum FaultDetails {
         tasks_active: bool,
         terminals_may_be_closed: bool,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelFailure {
+    Request,
+    Unauthorized,
+    RateLimited,
+    Timeout,
+    InvalidResponse,
+    SharedUsageLimit,
+    SharedUsageUnavailable,
 }
 
 impl Fault {
