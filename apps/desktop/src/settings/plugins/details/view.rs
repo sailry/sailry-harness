@@ -171,11 +171,17 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
         .into_any_element()
 }
 
+pub(super) fn official_repository(repository: &str) -> bool {
+    url::Url::parse(repository).is_ok_and(|url| {
+        let path = url.path().trim_end_matches('/');
+        let path = path.strip_suffix(".git").unwrap_or(path);
+        url.host_str() == Some("github.com") && path == "/sailry/sailry-plugins"
+    })
+}
+
 fn repository_owner(repository: &str) -> Option<String> {
     let url = url::Url::parse(repository).ok()?;
-    if url.host_str() == Some("github.com")
-        && url.path().trim_end_matches('/') == "/sailry/sailry-plugins"
-    {
+    if official_repository(repository) {
         return Some("Sailry".into());
     }
     url.path_segments()?
@@ -374,6 +380,10 @@ mod tests {
     fn identifies_repository_publishers() {
         assert_eq!(
             repository_owner("https://github.com/sailry/sailry-plugins/"),
+            Some("Sailry".into())
+        );
+        assert_eq!(
+            repository_owner("https://github.com/sailry/sailry-plugins.git"),
             Some("Sailry".into())
         );
         assert_eq!(

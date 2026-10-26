@@ -9,6 +9,7 @@ pub(in crate::settings) mod download;
 mod editor;
 mod inventory;
 pub(super) mod live;
+mod notes;
 use super::market;
 pub(in crate::settings) mod preparation;
 pub(in crate::settings) mod updates;

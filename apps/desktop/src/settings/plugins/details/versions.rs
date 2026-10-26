@@ -1,15 +1,16 @@
 use super::*;
-use gpui_kit::component::tag::Tag;
+use gpui_kit::component::{accordion::Accordion, tag::Tag};
+use sailry_protocol::plugin::catalog::ReleaseNotes;
 
-fn note_lines(text: &str) -> impl Iterator<Item = &str> {
-    text.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(|line| line.strip_prefix("- ").unwrap_or(line))
+fn current_notes<'a>(info: &'a Info, target: &'a Target) -> Option<&'a ReleaseNotes> {
+    info.release_notes.as_ref().or(match target {
+        Target::Catalog { entry, .. } => entry.release_notes.as_ref(),
+        Target::Installed(_) => None,
+    })
 }
 
 impl Details {
-    pub(super) fn versions(&self, info: &Info, cx: &App) -> AnyElement {
+    pub(super) fn versions(&self, info: &Info, cx: &mut Context<Self>) -> AnyElement {
         let installed = matches!(self.target, Target::Installed(_));
         let candidate = installed
             .then(|| self.updates.read(cx).candidate(&info.summary))
@@ -32,18 +33,7 @@ impl Details {
                 .into_any_element(),
             );
             if let Some(notes) = candidate.release_notes.as_ref() {
-                rows.push(
-                    v_flex()
-                        .px_3()
-                        .py_2()
-                        .gap_2()
-                        .text_sm()
-                        .children(
-                            note_lines(notes.text(&rust_i18n::locale()))
-                                .map(|line| div().child(line.to_owned())),
-                        )
-                        .into_any_element(),
-                );
+                rows.push(notes::view(notes));
             }
             let added = self.updates.read(cx).added_actions(info);
             let labels: Vec<_> = candidate
@@ -91,6 +81,9 @@ impl Details {
                 )
                 .into_any_element(),
             );
+            if let Some(notes) = blocked.release_notes.as_ref() {
+                rows.push(notes::view(notes));
+            }
         }
         rows.push(
             super::rows::row(
@@ -105,25 +98,66 @@ impl Details {
             )
             .into_any_element(),
         );
-        if !installed {
-            let notes = info.release_notes.as_ref().or(match &self.target {
-                Target::Catalog { entry, .. } => entry.release_notes.as_ref(),
-                _ => None,
-            });
-            if let Some(notes) = notes {
-                rows.push(
-                    v_flex()
-                        .px_3()
-                        .py_2()
-                        .gap_2()
-                        .text_sm()
-                        .children(
-                            note_lines(notes.text(&rust_i18n::locale()))
-                                .map(|line| div().child(line.to_owned())),
-                        )
-                        .into_any_element(),
-                );
-            }
+        if let Some(notes) = current_notes(info, &self.target) {
+            rows.push(notes::view(notes));
+        }
+        let history = if installed {
+            &self.history.versions
+        } else {
+            &info.versions
+        };
+        if !history.is_empty() {
+            let owner = cx.entity();
+            rows.push(
+                Accordion::new("plugin-version-history")
+                    .small()
+                    .w_full()
+                    .h_auto()
+                    .bordered(false)
+                    .item(|item| {
+                        item.title(tr("plugins_version_history"))
+                            .open(self.history.open)
+                            .child(v_flex().w_full().children(history.iter().map(|version| {
+                                v_flex()
+                                    .w_full()
+                                    .child(super::rows::row(
+                                        format!("plugin-history-{}", version.version),
+                                        IconName::Tag,
+                                        version.version.clone(),
+                                        version.compatibility.required().map(|required| {
+                                            compatibility::message(required, &self.binding, cx)
+                                                .to_string()
+                                        }),
+                                        div().when(version.compatibility.is_compatible(), |view| {
+                                            view.child(super::rows::tag(tr(
+                                                "plugins_version_compatible",
+                                            )))
+                                        }),
+                                        cx,
+                                    ))
+                                    .when_some(version.release_notes.as_ref(), |view, notes| {
+                                        view.child(notes::view(notes))
+                                    })
+                            })))
+                    })
+                    .on_toggle_click(move |open, _, cx| {
+                        owner.update(cx, |details, cx| {
+                            details.history.open = open.contains(&0);
+                            cx.notify();
+                        })
+                    })
+                    .into_any_element(),
+            );
+        } else if self.history.pending {
+            rows.push(
+                h_flex()
+                    .px_3()
+                    .py_2()
+                    .gap_2()
+                    .child(spinner::Spinner::new().small())
+                    .child(tr("plugins_version_history"))
+                    .into_any_element(),
+            );
         }
         super::rows::section("market_details_versions", None, rows, cx)
     }
@@ -133,16 +167,18 @@ impl Details {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
     #[test]
-    fn preserves_plain_release_notes() {
-        assert_eq!(
-            note_lines("- Improved tools\n\n<script>alert(1)</script>\nhttps://example.org")
-                .collect::<Vec<_>>(),
-            [
-                "Improved tools",
-                "<script>alert(1)</script>",
-                "https://example.org"
-            ]
-        );
+    fn keeps_installed_notes_with_their_version() {
+        let info: Info = serde_json::from_value(serde_json::json!({
+            "summary": {"name":"example", "revision":1, "digest":"capture", "settings_revision":0,
+                "version":"0.1.0"},
+            "release_notes": {"text":"Installed notes", "locales":{"zh-CN":"已安装版本说明"}},
+            "versions": [{"version":"0.2.0", "commit":"a".repeat(40), "release_notes":{"text":"Newer notes"}}],
+        })).unwrap();
+        let target = Target::Installed(info.summary.clone());
+        let notes = current_notes(&info, &target).unwrap();
+        assert_eq!(notes.text("zh-CN"), "已安装版本说明");
+        assert_eq!(notes.text("ja"), "Installed notes");
     }
 }

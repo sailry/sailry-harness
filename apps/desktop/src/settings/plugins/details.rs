@@ -9,6 +9,7 @@ use sailry_protocol::{
 };
 
 mod contents;
+mod history;
 mod permissions;
 use crate::settings::market::details::rows;
 mod versions;
@@ -42,6 +43,7 @@ pub(crate) struct Details {
     target: Target,
     info: Option<Info>,
     external: Option<sailry_protocol::plugin::catalog::Details>,
+    history: history::State,
     updates: Entity<updates::State>,
     tab: Tab,
     scroll: ScrollHandle,
@@ -177,6 +179,7 @@ fn mount(
             target,
             info,
             external: None,
+            history: Default::default(),
             error: None,
             required: None,
             stop,
@@ -206,9 +209,13 @@ fn mount(
             },
         );
     });
-    if details.read(cx).info.is_none() {
-        details.update(cx, |details, cx| details.load(cx));
-    }
+    details.update(cx, |details, cx| {
+        if details.info.is_none() {
+            details.load(cx);
+        } else {
+            details.load_history(cx);
+        }
+    });
     window.dispatch_action(
         Box::new(super::super::OpenDetails(details.clone().into())),
         cx,
@@ -405,6 +412,9 @@ impl Details {
                         details.error = Some(live::error_key(&error));
                     }
                     _ => details.error = Some("plugins_failed"),
+                }
+                if details.error.is_none() {
+                    details.load_history(cx);
                 }
                 cx.notify();
             });

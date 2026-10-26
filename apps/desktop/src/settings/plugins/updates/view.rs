@@ -437,12 +437,44 @@ impl Render for State {
                                 view.child(
                                     v_flex()
                                         .gap_2()
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .font_medium()
-                                                .child(tr("plugins_update_changes")),
-                                        )
+                                        .when(row.status != Status::Blocked, |view| {
+                                            view.when_some(
+                                                row.info.release_notes.as_ref(),
+                                                |view, notes| {
+                                                    view.child(
+                                                        div().font_medium().child(
+                                                            row.info
+                                                                .summary
+                                                                .version
+                                                                .clone()
+                                                                .unwrap_or_else(|| "—".into()),
+                                                        ),
+                                                    )
+                                                    .child(super::super::notes::view(notes))
+                                                },
+                                            )
+                                        })
+                                        .when_some(row.blocked.as_ref(), |view, blocked| {
+                                            view.when_some(
+                                                blocked.release_notes.as_ref(),
+                                                |view, notes| {
+                                                    view.child(
+                                                        div()
+                                                            .font_medium()
+                                                            .child(blocked.version.clone()),
+                                                    )
+                                                    .child(super::super::notes::view(notes))
+                                                },
+                                            )
+                                        })
+                                        .when(row.status != Status::Blocked, |view| {
+                                            view.child(
+                                                div()
+                                                    .text_sm()
+                                                    .font_medium()
+                                                    .child(tr("plugins_update_changes")),
+                                            )
+                                        })
                                         .children(
                                             [
                                                 ("plugins_update_tools", &row.changes.tools, false),

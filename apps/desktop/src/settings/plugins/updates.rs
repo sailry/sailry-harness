@@ -824,14 +824,19 @@ impl State {
     }
 }
 
-async fn prepare(binding: &Binding, current: &Summary, listing: Listing) -> Result<Info, Fault> {
-    let source = sailry_protocol::plugin::skills::Source {
+fn official_source(listing: &Listing) -> Result<sailry_protocol::plugin::skills::Source, Fault> {
+    Ok(sailry_protocol::plugin::skills::Source {
         repository: listing
             .repository
+            .clone()
             .ok_or_else(|| Fault::invalid("official plugin repository is unavailable"))?,
-        git_ref: Some("main".into()),
-        path: Some(listing.id),
-    };
+        git_ref: Some(listing.commit.clone().unwrap_or_else(|| "main".into())),
+        path: Some(listing.id.clone()),
+    })
+}
+
+async fn prepare(binding: &Binding, current: &Summary, listing: Listing) -> Result<Info, Fault> {
+    let source = official_source(&listing)?;
     let Output::PluginSource(selected) = binding
         .client
         .execute(
@@ -848,6 +853,10 @@ async fn prepare(binding: &Binding, current: &Summary, listing: Listing) -> Resu
     };
     if selected.info.summary.name != current.name
         || selected.info.summary.version != listing.version
+        || listing
+            .commit
+            .as_ref()
+            .is_some_and(|commit| *commit != selected.source.commit)
     {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
