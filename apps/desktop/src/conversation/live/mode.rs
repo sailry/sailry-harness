@@ -27,6 +27,18 @@ pub(super) fn icon(entry: &PluginMode) -> gpui_kit::component::Icon {
         .unwrap_or_else(|| mode::icon(entry.declaration.base()).into())
 }
 
+pub(super) fn description(
+    mode: &PluginMode,
+    metadata: &crate::plugins::metadata::Metadata,
+) -> Option<SharedString> {
+    metadata
+        .entries
+        .get(&mode.package.name)
+        .filter(|info| info.summary.reference() == mode.package)
+        .and_then(crate::plugins::metadata::description)
+        .map(SharedString::from)
+}
+
 impl View {
     pub(super) fn select_mode(
         &mut self,
@@ -236,18 +248,12 @@ impl View {
                             && active.declaration.id == entry.declaration.id
                     });
                     let entry = entry.clone();
-                    let description = metadata
-                        .read(cx)
-                        .entries
-                        .get(&entry.package.name)
-                        .filter(|info| info.summary.reference() == entry.package)
-                        .and_then(crate::plugins::metadata::description)
-                        .map(SharedString::from);
+                    let detail = description(&entry, metadata.read(cx));
                     menu.item(
                         crate::conversation::choice::row(
                             entry.key().into(),
                             label(&entry),
-                            description,
+                            detail,
                             icon(&entry),
                             selected,
                         )

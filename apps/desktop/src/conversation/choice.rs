@@ -32,7 +32,6 @@ pub(super) fn row(
 ) -> PopupMenuItem {
     PopupMenuItem::element(move |_, cx| {
         let selector = id.clone();
-        let content = id.clone();
         h_flex()
             .id(id.clone())
             .aria_label(match &description {
@@ -49,33 +48,45 @@ pub(super) fn row(
             .rounded(cx.theme().radius.min(px(8.)))
             .aria_selected(selected)
             .when(selected, |row| row.bg(cx.theme().secondary_active))
-            .child(
-                h_flex()
-                    .debug_selector(move || format!("{content}-content"))
-                    .flex_1()
-                    .max_w_96()
-                    .min_w_0()
-                    .gap_2()
-                    .child(icon.clone().size_4())
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .line_height(relative(1.25))
-                                    .child(label.clone()),
-                            )
-                            .children(description.as_ref().map(|description| {
-                                div()
-                                    .text_xs()
-                                    .line_height(relative(1.25))
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(description.clone())
-                            })),
-                    ),
-            )
+            .child(content(
+                id.clone(),
+                label.clone(),
+                description.clone(),
+                icon.clone(),
+                cx,
+            ))
     })
+}
+
+pub(super) fn content(
+    id: SharedString,
+    label: SharedString,
+    description: Option<SharedString>,
+    icon: Icon,
+    cx: &App,
+) -> Div {
+    h_flex()
+        .debug_selector(move || format!("{id}-content"))
+        .flex_1()
+        .w_full()
+        .max_w_96()
+        .min_w_0()
+        .gap_2()
+        .child(icon.size_4())
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_0p5()
+                .text_left()
+                .whitespace_normal()
+                .child(div().text_sm().line_height(relative(1.25)).child(label))
+                .children(description.map(|description| {
+                    div()
+                        .text_xs()
+                        .line_height(relative(1.25))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(description)
+                })),
+        )
 }
