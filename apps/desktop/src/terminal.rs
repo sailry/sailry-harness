@@ -99,6 +99,9 @@ pub(crate) struct View {
 impl View {
     pub fn new(binding: Binding, window: &mut Window, cx: &mut Context<Self>) -> Self {
         crate::feedback::observe(window, cx, |view: &Self, _| {
+            if view.connection.stopped() {
+                return Vec::new();
+            }
             view.message
                 .into_iter()
                 .chain(view.state.error.as_ref().map(failure).or_else(|| {
@@ -266,6 +269,24 @@ impl View {
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.focus.focus(window, cx);
+    }
+
+    pub(crate) fn release(
+        &mut self,
+        node: sailry_protocol::NodeId,
+        terminal: sailry_protocol::TerminalId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.binding.client.target() != node || self.binding.id != terminal {
+            return false;
+        }
+        self.connection.release();
+        self.message = None;
+        self.claim_pending = false;
+        self.composition = Default::default();
+        self.keyboard.release_all();
+        cx.notify();
+        true
     }
 
     fn update_screen(&mut self, state: ScreenView) {

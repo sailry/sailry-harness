@@ -204,11 +204,15 @@ impl Connection {
     pub fn closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
+
+    pub fn release(&self) {
+        self.stop.cancel();
+    }
 }
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.stop.cancel();
+        self.release();
     }
 }
 

@@ -2,7 +2,7 @@
 use crate::terminal::{Binding, Scope as TerminalScope, View};
 use gpui_kit::{component::*, *};
 use gpui_shell::{HostError, HostModule, HostValue};
-use sailry_protocol::{TerminalId, plugin, terminal::Status};
+use sailry_protocol::{NodeId, TerminalId, plugin, terminal::Status};
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
@@ -44,6 +44,21 @@ impl Terminals {
         self.focus.set(None);
     }
 
+    fn release(&self, node: NodeId, id: TerminalId, cx: &mut App) {
+        let mut released = false;
+        self.views.borrow_mut().retain(|_, (terminal, view)| {
+            if *terminal == id && view.update(cx, |view, cx| view.release(node, id, cx)) {
+                released = true;
+                false
+            } else {
+                true
+            }
+        });
+        if released && self.focus.get() == Some(id) {
+            self.focus.set(None);
+        }
+    }
+
     pub fn module(
         &self,
         module: HostModule,
@@ -54,8 +69,11 @@ impl Terminals {
         let mounted = self.clone();
         let mounted_host = host.clone();
         let focus = self.focus.clone();
+        let release = self.clone();
+        let release_host = host.clone();
+        let release_node = scope.as_ref().map(|scope| scope.binding.client.target());
         let declarations = format!(
-            "{}\nexport function focusTerminal(terminal:string):void;",
+            "{}\nexport function focusTerminal(terminal:string):void;\nexport function releaseTerminal(terminal:string):void;",
             module.declared().unwrap_or_default()
         );
         module
@@ -67,6 +85,20 @@ impl Terminals {
                     .map_err(|_| HostError::new("invalid terminal ID"))?;
                 focus.set(Some(id));
                 Ok(HostValue::Null)
+            })
+            .function("releaseTerminal", move |args| {
+                release_host.check()?;
+                let node = release_node
+                    .ok_or_else(|| HostError::new("terminal release requires a captured scope"))?;
+                let id = args
+                    .string(0)?
+                    .parse::<TerminalId>()
+                    .map_err(|_| HostError::new("invalid terminal ID"))?;
+                gpui_shell::with_current_app(|cx| {
+                    release.release(node, id, cx);
+                    HostValue::Null
+                })
+                .ok_or_else(|| HostError::new("terminal release requires an active view"))
             })
             .component("Terminal", move |args, window, cx| {
                 let id = args

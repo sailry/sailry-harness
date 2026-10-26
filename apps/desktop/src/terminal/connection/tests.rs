@@ -114,9 +114,14 @@ async fn respects_terminal_lifecycle() {
     .into_iter()
     .enumerate()
     {
-        for (case, (close, delay_close)) in [(true, false), (true, true), (false, false)]
-            .into_iter()
-            .enumerate()
+        for (case, (close, delay_close, release)) in [
+            (true, false, false),
+            (true, true, false),
+            (false, false, false),
+            (false, false, true),
+        ]
+        .into_iter()
+        .enumerate()
         {
             let controller = Client::new(transport.clone());
             let root = directory.path().join(format!("project-{lane}-{case}"));
@@ -190,7 +195,11 @@ async fn respects_terminal_lifecycle() {
             let revision = screens.borrow().snapshot.as_ref().unwrap().info.revision;
             assert!(connection.enqueue(Command::InputTerminal {
                 terminal: info.id,
-                revision: if close { revision } else { revision + 100 },
+                revision: if close || release {
+                    revision
+                } else {
+                    revision + 100
+                },
                 input: terminal::Input::Text {
                     text: "ignored".into()
                 }
@@ -217,16 +226,20 @@ async fn respects_terminal_lifecycle() {
                     .await
                     .unwrap();
             }
+            if release {
+                connection.release();
+            }
             held.release.cancel();
             let result = tokio::time::timeout(Duration::from_secs(10), results.recv())
                 .await
                 .unwrap();
-            if close {
+            if close || release {
                 assert!(
                     result.is_none(),
-                    "closed terminal commands must not report input failures"
+                    "released terminal commands must not report input failures"
                 );
-                assert!(connection.closed());
+                assert!(connection.stopped());
+                assert_eq!(connection.closed(), close);
                 assert!(!connection.enqueue(Command::ResizeTerminal {
                     terminal: info.id,
                     revision,
@@ -241,6 +254,33 @@ async fn respects_terminal_lifecycle() {
                     !connection.closed(),
                     "an active terminal conflict must remain visible"
                 );
+            }
+            if !close {
+                if release {
+                    let Output::TerminalSnapshot(snapshot) = controller
+                        .execute(controller.prepare(Command::InspectTerminal { terminal: info.id }))
+                        .await
+                        .unwrap()
+                    else {
+                        panic!("terminal snapshot expected")
+                    };
+                    assert_eq!(snapshot.info.status, terminal::Status::Running);
+                    let (restored, mut recovered, _) =
+                        Connection::start(&binding, appearance.clone());
+                    tokio::time::timeout(Duration::from_secs(10), async {
+                        while recovered.borrow().snapshot.is_none() {
+                            recovered.changed().await.unwrap();
+                        }
+                    })
+                    .await
+                    .unwrap();
+                    let recovered = recovered.borrow();
+                    let recovered = recovered.snapshot.as_ref().unwrap();
+                    assert_eq!(recovered.info.id, snapshot.info.id);
+                    assert_eq!(recovered.info.status, terminal::Status::Running);
+                    assert!(recovered.sequence >= snapshot.sequence);
+                    drop(restored);
+                }
                 controller
                     .execute(controller.prepare(Command::CloseTerminal {
                         worktree,

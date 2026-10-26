@@ -546,6 +546,14 @@ Knowledge retrieval is a shared Node service rather than a bundled feature plugi
 
 Optional `guides: true` adds dashed hierarchy guides to resource rows, following `indent` and `skip_depth`; it defaults to false and leaves tree interactions and the branch variant unchanged.
 
+`Terminal.new(id, {terminal})` mounts a terminal from the surface's captured Node
+and resource scope. `releaseTerminal(terminal)` from `sailry` synchronously stops
+that surface's mounted input and screen observation without closing the Node
+terminal or replaying input. Release the binding before dispatching an explicit
+close, and keep the component unmounted while the close is pending or uncertain.
+A confirmed failure can mount it again under the same component ID to recover
+the retained Node screen. `focusTerminal(terminal)` focuses a mounted terminal.
+
 ## Conversation component
 
 `Conversation.new("chat")` embeds a resource panel's captured session and Node with independent focus and draft state. Declare both `conversation.read` and `conversation.control`. The native message list, composer, approvals, questions, model selection and history are shared with database and SSH assistants.
