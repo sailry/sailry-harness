@@ -30,6 +30,10 @@ impl Fixture {
         let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
+        node.set_model_transport_fixture(adk_model::openai::WsOptions {
+            enabled: std::sync::Arc::new(|| false),
+            ..Default::default()
+        });
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

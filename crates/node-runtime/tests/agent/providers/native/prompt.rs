@@ -94,6 +94,12 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
     let profile = fixture.node.profile().to_owned();
     fixture.node.shutdown().await.unwrap();
     let node = Node::start_empty(profile).await.unwrap();
+    if fixture.provider.api == ModelApi::Responses {
+        node.set_model_transport_fixture(adk_model::openai::WsOptions {
+            enabled: std::sync::Arc::new(|| false),
+            ..Default::default()
+        });
+    }
     let client = Client::new(if remote {
         fixture.controller.handle().remote(node.link().address())
     } else {
@@ -174,12 +180,23 @@ fn users(api: ModelApi, body: &Value) -> Vec<String> {
         .collect()
 }
 
-fn ordered_tools(body: &Value) -> Value {
+fn ordered_tools(api: ModelApi, body: &Value) -> Value {
     let mut tools = body["tools"].clone();
-    for tool in tools.as_array_mut().unwrap() {
-        if let Some(declarations) = tool["functionDeclarations"].as_array_mut() {
-            declarations.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
+    match api {
+        ModelApi::Gemini => {
+            for tool in tools.as_array_mut().unwrap() {
+                if let Some(declarations) = tool["functionDeclarations"].as_array_mut() {
+                    declarations
+                        .sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
+                }
+            }
         }
+        ModelApi::DeepSeek => tools.as_array_mut().unwrap().sort_by(|left, right| {
+            left["function"]["name"]
+                .as_str()
+                .cmp(&right["function"]["name"].as_str())
+        }),
+        _ => unreachable!(),
     }
     tools
 }
@@ -255,16 +272,21 @@ async fn preserves_native_roles_across_resume() {
                 assert_policy(api, &request.body, index == 2, true);
                 assert_eq!(
                     instruction(api, &request.body),
-                    instruction(api, &requests[0].body)
+                    instruction(api, &requests[0].body),
+                    "{api:?}, remote={remote}, request={index}"
                 );
-                if api == ModelApi::Gemini && index == 2 {
-                    // The SDK does not persist its HashMap order across Node restarts.
+                if matches!(api, ModelApi::Gemini | ModelApi::DeepSeek) && index == 2 {
+                    // These SDKs do not persist HashMap iteration across Node restarts.
                     assert_eq!(
-                        ordered_tools(&request.body),
-                        ordered_tools(&requests[0].body)
+                        ordered_tools(api, &request.body),
+                        ordered_tools(api, &requests[0].body),
+                        "{api:?}, remote={remote}, request={index}"
                     );
                 } else {
-                    assert_eq!(request.body["tools"], requests[0].body["tools"]);
+                    assert_eq!(
+                        request.body["tools"], requests[0].body["tools"],
+                        "{api:?}, remote={remote}, request={index}"
+                    );
                 }
             }
             assert!(requests[1].body.to_string().contains("工具内容 🙂"));

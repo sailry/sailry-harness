@@ -519,12 +519,13 @@ async fn offers_bundled_updates_on_catalog_failure() {
         catalog.obsolete.store(true, Ordering::SeqCst);
         *catalog.version.lock().unwrap() = None;
         let invalid = check(&client, std::slice::from_ref(&updated.summary)).await;
-        assert!(invalid.reports.is_empty());
-        assert_eq!(invalid.failures.len(), 1);
-        assert_eq!(invalid.failures[0].error.code, ErrorCode::InvalidRequest);
+        assert!(invalid.failures.is_empty());
         assert_eq!(
-            invalid.failures[0].error.message,
-            "invalid official plugin identity or manifest"
+            invalid.reports,
+            [plugin::updates::Report {
+                current: updated.summary.clone(),
+                ..online.reports[0].clone()
+            }]
         );
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {

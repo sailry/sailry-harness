@@ -100,11 +100,14 @@ pub(super) async fn respond_reasoning(
 ) -> std::io::Result<()> {
     use std::sync::atomic::Ordering;
     let messages = body["messages"].as_array().unwrap();
-    let active = messages.iter().any(|message| {
-        message["content"]
-            .as_str()
-            .is_some_and(|text| text.contains("Active goal: "))
-    });
+    let policy = messages
+        .iter()
+        .rev()
+        .filter(|message| message["role"] == "user")
+        .filter_map(|message| message["content"].as_str())
+        .find(|text| text.starts_with("Node context\n") && text.contains("\n\nWork mode\n"))
+        .expect("current goal policy expected");
+    let active = policy.contains("Active goal: ");
     let start = messages
         .iter()
         .rposition(|message| message["role"] == "user")

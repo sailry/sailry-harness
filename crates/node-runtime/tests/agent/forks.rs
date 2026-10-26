@@ -202,7 +202,18 @@ async fn resumes_without_tool_replay() {
             .await
             .unwrap();
         assert_eq!(matches.matches[0].turn, first);
-        assert_eq!(matches.matches[0].entry, original.entries[0].id);
+        let input = original
+            .entries
+            .iter()
+            .find(|entry| {
+                entry.turn == first
+                    && entry.author == "user"
+                    && entry.parts.iter().any(
+                        |part| matches!(part, Part::Text(text) if text == "Original first 中文 🙂"),
+                    )
+            })
+            .unwrap();
+        assert_eq!(matches.matches[0].entry, input.id);
         let mut updates = client.subscribe_conversation(branch.id).await.unwrap();
         let mut projection =
             sailry_client::conversation::Projection::new(client.target(), branch.id, 0);

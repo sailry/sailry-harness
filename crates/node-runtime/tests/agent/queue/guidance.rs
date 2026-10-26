@@ -834,21 +834,29 @@ async fn retains_recipient_capture() {
             .await
             .unwrap();
         let selected = held(&fixture, "Do not replace captured tools".into()).await;
-        fixture
-            .client
-            .execute(guide(&fixture, selected.id, active.id, 1))
-            .await
-            .unwrap();
+        let request = guide(&fixture, selected.id, active.id, 1);
+        let accepted = fixture.client.execute(request.clone()).await.unwrap();
         let queue = fixture.queue().await;
         let replacement = queue
             .items
             .iter()
-            .find(|item| item.turn == selected.id && item.guidance == Some(active.id))
+            .find(|item| {
+                item.guidance == Some(active.id) && item.preview == "Do not replace captured tools"
+            })
             .unwrap();
+        assert_ne!(replacement.turn, selected.id);
         let saved = read(&fixture.client, replacement.turn).await;
         assert_eq!(saved.turn.config, active.config);
         assert_eq!(saved.turn.plugins, active.plugins);
+        assert_eq!(saved.turn.roles, active.roles);
         assert_eq!(saved.message.text, "Do not replace captured tools");
+        let original = read(&fixture.client, selected.id).await;
+        assert_ne!(original.turn.plugins, active.plugins);
+        let page = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(status(&page, selected.id), Status::Cancelled);
+        assert_eq!(status(&page, active.id), Status::Running);
+        assert_eq!(fixture.client.execute(request).await.unwrap(), accepted);
+        assert_eq!(fixture.queue().await, queue);
 
         let Output::Session(other) = fixture
             .client

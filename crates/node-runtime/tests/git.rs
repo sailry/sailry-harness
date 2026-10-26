@@ -245,6 +245,10 @@ async fn handles_repository_boundaries() {
     for index in 0..MAX_GIT_ENTRIES {
         std::fs::write(root.join(format!("file-{index}")), "").unwrap();
     }
+    // The index stamp invalidates the cached worktree-only snapshot.
+    let mut index = repository.index().unwrap();
+    assert!(index.is_empty());
+    index.write().unwrap();
     let listing = status(&client, id).await;
     assert!(listing.truncated);
     assert_eq!(listing.entries.len(), MAX_GIT_ENTRIES);
