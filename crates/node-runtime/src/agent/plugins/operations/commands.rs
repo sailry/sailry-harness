@@ -12,15 +12,45 @@ pub(super) async fn retain(
     commands: &crate::process::background::Commands,
     session: sailry_protocol::SessionId,
     id: sailry_protocol::RequestId,
-    _command: &str,
-    _output: &Output,
+    command: &str,
+    output: &Output,
     value: &mut Value,
 ) {
     let Ok(retained) = commands.retained(session, id) else {
         return;
     };
+    let command = match output {
+        Output::CommandOutput(snapshot) => snapshot.info.command.clone(),
+        _ => command.to_owned(),
+    };
+    let finished = match output {
+        Output::CommandResult(_) => true,
+        Output::CommandOutput(snapshot) => {
+            !matches!(snapshot.info.status, Status::Running | Status::Stopping)
+        }
+        _ => return,
+    };
     let projected = tokio::task::spawn_blocking(move || {
-        retained.preview(id).unwrap_or_else(|| json!({"id":id}))
+        let mut metadata = retained.preview(id).unwrap_or_else(|| json!({"id":id}));
+        if finished && crate::process::output::model::is_cargo(&command) {
+            for (name, stream) in [
+                ("stdout", sailry_protocol::process::OutputStream::Stdout),
+                ("stderr", sailry_protocol::process::OutputStream::Stderr),
+            ] {
+                if let Some(text) = retained.text(stream) {
+                    let normalized = crate::process::output::model::normalize(&text);
+                    if let Some(text) = crate::process::output::model::cargo(&command, &normalized)
+                    {
+                        metadata[name] = json!(sailry_protocol::process::Capture {
+                            text,
+                            truncated: true,
+                            invalid_utf8: false,
+                        });
+                    }
+                }
+            }
+        }
+        metadata
     })
     .await;
     value["sailry_command"] = projected.unwrap_or_else(|_| json!({"id":id}));

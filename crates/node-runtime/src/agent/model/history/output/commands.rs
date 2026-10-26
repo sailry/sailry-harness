@@ -4,7 +4,7 @@ pub(super) use crate::process::output::model::normalize;
 pub(super) fn project(
     original: &Value,
     source: &Value,
-    _arguments: Option<&Value>,
+    arguments: Option<&Value>,
 ) -> Option<Value> {
     let mut changed = false;
     let mut result = original.clone();
@@ -18,6 +18,13 @@ pub(super) fn project(
         result.as_object_mut()?.remove("sailry_command");
         changed = true;
     }
+    let command = arguments
+        .and_then(|arguments| arguments["command"].as_str())
+        .or_else(|| {
+            original
+                .pointer("/data/info/command")
+                .and_then(Value::as_str)
+        });
     for stream in ["stdout", "stderr"] {
         let Some(text) = result
             .pointer(&format!("/data/{stream}/text"))
@@ -25,7 +32,11 @@ pub(super) fn project(
         else {
             continue;
         };
-        let reduced = normalize(text);
+        let normalized = normalize(text);
+        let reduced = command
+            .and_then(|command| crate::process::output::model::cargo(command, &normalized))
+            .filter(|text| text.len() < normalized.len())
+            .unwrap_or(normalized);
         if reduced.len() < text.len() {
             result["data"][stream]["text"] = json!(reduced);
             changed = true;

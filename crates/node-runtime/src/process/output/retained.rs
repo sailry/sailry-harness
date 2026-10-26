@@ -255,6 +255,21 @@ impl Retained {
         (stdout.is_some() || stderr.is_some())
             .then(|| serde_json::json!({"id":id,"stdout":stdout,"stderr":stderr}))
     }
+
+    pub(crate) fn text(&self, stream: OutputStream) -> Option<String> {
+        let stream = self.stream(stream).lock().unwrap();
+        if stream.error.is_some() || stream.total > stream.retained as u64 {
+            return None;
+        }
+        let path = stream
+            .writer
+            .as_ref()
+            .map(|writer| writer.path())
+            .or_else(|| stream.path.as_deref().map(std::path::Path::new))?;
+        let mut bytes = Vec::with_capacity(stream.retained);
+        File::open(path).ok()?.read_to_end(&mut bytes).ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
 }
 
 #[cfg(test)]

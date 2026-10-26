@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 mod commands;
 mod files;
+mod git;
 #[cfg(test)]
 mod tests;
 
@@ -66,7 +67,9 @@ fn project_with(contents: &mut [Content]) {
                 calls.get(id).map(|(_, arguments)| arguments),
             ),
             Some("web_page") => bounded(original, &source),
-            Some(kind) if kind.starts_with("git_") => bounded(original, &source),
+            Some(kind) if kind.starts_with("git_") => {
+                git::project(original, &source).or_else(|| bounded(original, &source))
+            }
             _ if function_response.name.starts_with("mcp_") => bounded(original, &source),
             _ => None,
         };
