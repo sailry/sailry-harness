@@ -8,7 +8,7 @@
 
 <p align="center"><strong>你掌舵，AI 远航</strong></p>
 
-<p align="center">用你自己的模型，在你自己的机器上，让智能体调用文件、终端、Git、SSH 和数据库，桌面和手机都能接着干。</p>
+<p align="center">Rust + GPUI 原生打造，启动快、占用低。智能体用你自己的模型和机器，直接操作文件、终端、Git、SSH 和数据库。</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License"></a>

@@ -8,7 +8,7 @@
 
 <p align="center"><strong>You steer. Agents sail</strong></p>
 
-<p align="center">Bring your own models and machines. Agents work with your files, terminals, Git, SSH and databases, and you pick up from desktop or phone.</p>
+<p align="center">A native workspace built with Rust and GPUI: fast to start, light on memory. Agents work with your files, terminals, Git, SSH and databases, on your own models and machines.</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License"></a>
