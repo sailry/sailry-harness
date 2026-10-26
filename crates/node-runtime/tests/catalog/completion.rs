@@ -32,6 +32,7 @@ fn provider() -> Provider {
             efforts: vec![Effort::Default],
             capabilities: None,
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort: Effort::Default,
         }],
     }
@@ -74,6 +75,7 @@ async fn fills_missing_choices() {
         assert_eq!(original.models[0].efforts, [Effort::Default]);
         let mut custom = provider();
         custom.endpoint = "https://gateway.example/v1".into();
+        custom.models[0].compaction_tokens = Some(200_000);
         custom.models[0].efforts = vec![Effort::High];
         custom.models[0].default_effort = Effort::High;
         let custom = save(&fixture.client, custom).await;

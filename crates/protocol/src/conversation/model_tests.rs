@@ -14,6 +14,23 @@ fn missing_capabilities_are_disabled() {
     assert!(model.efforts.is_empty());
     assert!(!model.custom_efforts);
     assert_eq!(model.default_effort, crate::Effort::Default);
+    assert_eq!(model.compaction_tokens, None);
+}
+
+#[test]
+fn preserves_configured_compaction_threshold() {
+    let value = json!({
+        "id": "fixture",
+        "context": 1_050_000,
+        "output": 128_000,
+        "compaction_tokens": 200_000,
+    });
+    let model: Model = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(model.compaction_tokens, Some(200_000));
+    assert_eq!(
+        serde_json::to_value(model).unwrap()["compaction_tokens"],
+        value["compaction_tokens"]
+    );
 }
 
 #[test]

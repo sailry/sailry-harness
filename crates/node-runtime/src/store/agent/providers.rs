@@ -93,6 +93,7 @@ pub(in crate::store) async fn validate(
             || model.output == 0
             || model.output > model.context
             || model.output > i32::MAX as u32
+            || model.compaction_tokens == Some(0)
         {
             return Err(sailry_protocol::Fault::invalid(
                 "model configuration is invalid or unsupported",

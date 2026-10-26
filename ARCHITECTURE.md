@@ -333,7 +333,11 @@ and third-party billing analysis remain outside that boundary.
 Context observations pair provider-reported input and output tokens with the
 admitted model's frozen context limit; a later model change does not relabel an
 old observation. Pending-content estimates can trigger early compaction but are
-not provider token measurements. Before another request, compaction can summarize
+not provider token measurements. Automatic compaction uses the lower of 80% of
+the context window, the remaining input capacity after output reserve, and an
+absolute threshold of 262,144 tokens. Each provider's model configuration may
+override that threshold; admitted turns retain their captured value.
+Before another request, compaction can summarize
 a completed historical prefix while preserving the current input and complete
 tool exchanges. Summary requests use the effective summary output token limit;
 input estimates guide prefix selection without rejecting a request. A failed

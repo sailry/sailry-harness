@@ -140,6 +140,7 @@ struct Summarizer {
     turn: TurnId,
     context: Option<u64>,
     budget: Option<u64>,
+    trigger: Option<u32>,
     output: Option<i32>,
     instruction: Option<Instruction>,
     stop: CancellationToken,
@@ -191,7 +192,16 @@ impl Summarizer {
             context: metadata
                 .map(|model| u64::from(model.context))
                 .filter(|context| *context > 0),
-            budget: metadata.and_then(|model| budget(model.context, model.output)),
+            budget: metadata.and_then(|model| {
+                policy::resolve(
+                    &model.id,
+                    model.context,
+                    model.output,
+                    model.compaction_tokens,
+                )
+                .map(|policy| policy.trigger_tokens)
+            }),
+            trigger: metadata.and_then(|model| model.compaction_tokens),
             output: metadata.map(|model| model.output as i32),
             instruction: (invocation.turn.kind == sailry_protocol::conversation::RunKind::Task
                 && !invocation.automatic
@@ -223,6 +233,7 @@ impl Summarizer {
                 .unwrap_or_else(|| self.model.name()),
             self.context?.try_into().ok()?,
             self.output.unwrap_or(4096) as u32,
+            self.trigger,
         )
     }
 
@@ -268,8 +279,9 @@ impl Summarizer {
     }
 }
 
+#[cfg(test)]
 fn budget(context: u32, output: u32) -> Option<u64> {
-    policy::resolve("", context, output).map(|policy| policy.trigger_tokens)
+    policy::resolve("", context, output, None).map(|policy| policy.trigger_tokens)
 }
 
 struct Prepared {

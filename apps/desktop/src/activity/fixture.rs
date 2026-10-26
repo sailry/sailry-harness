@@ -79,6 +79,7 @@ impl Fixture {
                     generates: vec![],
                     efforts: vec![],
                     custom_efforts: false,
+                    compaction_tokens: None,
                     default_effort: Effort::Default,
                 }],
             };

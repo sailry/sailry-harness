@@ -35,6 +35,7 @@ fn fixture() -> (Provider, SessionConfig) {
             efforts: vec![Effort::Low, Effort::High],
             capabilities: None,
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort: Effort::Low,
         }],
     };

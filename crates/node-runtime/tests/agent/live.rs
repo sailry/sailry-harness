@@ -50,6 +50,7 @@ async fn completes_file_task() {
             efforts: vec![Effort::Low],
             capabilities: None,
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort: Effort::Low,
         }];
         let Output::Provider(provider) = client

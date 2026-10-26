@@ -108,6 +108,7 @@ mod tests {
             efforts: vec![],
             capabilities: None,
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort: Effort::Default,
         };
         let provider = Provider {

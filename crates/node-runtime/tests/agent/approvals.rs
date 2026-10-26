@@ -67,6 +67,7 @@ pub(super) async fn prepare_model(
         efforts: Vec::new(),
         capabilities: None,
         custom_efforts: false,
+        compaction_tokens: None,
         default_effort: sailry_protocol::Effort::Default,
     }];
     client

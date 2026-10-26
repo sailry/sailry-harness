@@ -75,6 +75,7 @@ impl Model {
                 .unwrap_or_default(),
             efforts,
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort,
         }
     }

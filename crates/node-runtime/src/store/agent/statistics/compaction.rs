@@ -41,7 +41,12 @@ pub(super) async fn budget(db: &Connection, session: SessionId) -> Result<Option
             .iter()
             .find(|model| model.id == config.model)
             .and_then(|model| {
-                crate::agent::compaction_budget(&model.id, model.context, model.output)
+                crate::agent::compaction_budget(
+                    &model.id,
+                    model.context,
+                    model.output,
+                    model.compaction_tokens,
+                )
             })
     }))
 }

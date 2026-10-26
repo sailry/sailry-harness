@@ -404,6 +404,7 @@ impl Fixture {
                 generates: vec![],
                 efforts: Vec::new(),
                 custom_efforts: false,
+                compaction_tokens: None,
                 default_effort: sailry_protocol::Effort::Default,
             }],
         };

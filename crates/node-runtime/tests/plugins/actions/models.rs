@@ -44,6 +44,7 @@ async fn requires_explicit_models() {
                 efforts: vec![Effort::Low, Effort::High],
                 capabilities: None,
                 custom_efforts: false,
+                compaction_tokens: None,
                 default_effort: Effort::High,
             }],
         };

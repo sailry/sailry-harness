@@ -213,6 +213,7 @@ mod tests {
                     .unwrap(),
                 ),
                 custom_efforts: false,
+                compaction_tokens: None,
                 default_effort: Effort::Low,
             }],
         };

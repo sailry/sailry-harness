@@ -130,6 +130,7 @@ impl Fixture {
             efforts: vec![effort],
             capabilities: None,
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort: effort,
         });
         provider.default_model = "fixture-a".into();

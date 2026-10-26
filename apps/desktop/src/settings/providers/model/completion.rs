@@ -72,6 +72,7 @@ impl Draft {
         );
         let mut model = completed.model;
         model.custom_efforts = current.custom_efforts;
+        model.compaction_tokens = current.compaction_tokens;
         if model
             .capabilities
             .as_ref()

@@ -327,6 +327,7 @@ pub struct Model {
     pub display_name: Option<String>,
     pub context: u32,
     pub output: u32,
+    pub compaction_tokens: Option<u32>,
     pub capabilities: Option<sailry_protocol::conversation::discovery::Capabilities>,
     pub vision: bool,
     pub tools: bool,
@@ -364,6 +365,7 @@ impl Model {
                 sailry_protocol::Effort::High,
             ],
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort: sailry_protocol::Effort::Medium,
         }
     }

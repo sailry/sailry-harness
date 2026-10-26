@@ -124,6 +124,9 @@ pub struct Model {
     pub display_name: Option<String>,
     pub context: u32,
     pub output: u32,
+    /// Absolute automatic compaction threshold; omission uses the Node default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_tokens: Option<u32>,
     /// Native tri-state metadata, separate from the automatic capability summaries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<discovery::Capabilities>,

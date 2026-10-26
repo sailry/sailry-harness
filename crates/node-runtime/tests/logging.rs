@@ -91,6 +91,7 @@ async fn session_api(
             efforts: Vec::new(),
             capabilities: None,
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort: Effort::Default,
         }],
         default_model: "fixture-a".into(),

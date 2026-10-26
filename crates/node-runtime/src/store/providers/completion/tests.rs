@@ -112,6 +112,7 @@ fn cached_metadata_completes_summaries() {
 #[test]
 fn preserves_explicit_choices_and_limits() {
     let mut model = model();
+    model.compaction_tokens = Some(200_000);
     model.efforts = vec![Effort::High];
     model.default_effort = Effort::High;
     model.custom_efforts = true;
@@ -124,5 +125,6 @@ fn preserves_explicit_choices_and_limits() {
     assert_eq!(model.efforts, [Effort::High]);
     assert_eq!(model.default_effort, Effort::High);
     assert!(model.custom_efforts);
+    assert_eq!(model.compaction_tokens, Some(200_000));
     assert_eq!((model.context, model.output), (8192, 2048));
 }

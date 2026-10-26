@@ -89,6 +89,7 @@ fn resolve(
         completed.default_effort = model.default_effort;
     }
     completed.custom_efforts = model.custom_efforts;
+    completed.compaction_tokens = model.compaction_tokens;
     *model = completed;
 }
 

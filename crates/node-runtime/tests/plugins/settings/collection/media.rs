@@ -124,6 +124,7 @@ async fn retains_frozen_fallbacks_after_updates() {
             efforts: vec![],
             capabilities: None,
             custom_efforts: false,
+            compaction_tokens: None,
             default_effort: Effort::Default,
         }];
         let Output::Provider(fallback) = execute(

@@ -195,9 +195,11 @@ async fn uses_reported_tokens() {
 #[tokio::test]
 async fn earlier_token_boundary() {
     for remote in [false, true] {
-        for (context, output, boundary) in
-            [(1_050_000, 128_000, 840_000), (200_000, 64_000, 136_000)]
-        {
+        for (context, output, configured, boundary) in [
+            (1_050_000, 128_000, None, 262_144),
+            (200_000, 64_000, None, 136_000),
+            (1_050_000, 128_000, Some(200_000), 200_000),
+        ] {
             // Leave room for the pending tool result before reaching the boundary.
             // The fixture reports ten output tokens on each model response.
             let server = Server::loop_usage(
@@ -213,6 +215,23 @@ async fn earlier_token_boundary() {
             .await;
             let fixture = Fixture::files(remote, &server).await;
             model(&fixture, context, output, false).await;
+            if let Some(tokens) = configured {
+                let mut provider =
+                    configuration::snapshot(&fixture.client).await.providers[0].clone();
+                provider.models[0].compaction_tokens = Some(tokens);
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::PutProvider {
+                        expected_revision: provider.revision,
+                        provider,
+                    }))
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(
+                statistics(&fixture).await.budget.unwrap().trigger_tokens,
+                boundary as u64
+            );
             evidence(&fixture, 1000);
             let (_, _, page) = submit(
                 &fixture.client,

@@ -72,6 +72,7 @@ fn enforces_native_bounds_and_choices() {
         efforts: vec![Effort::Default, Effort::Budget(1024)],
         capabilities: None,
         custom_efforts: false,
+        compaction_tokens: None,
         default_effort: Effort::Budget(1024),
     };
     assert!(model.validate_reasoning(ModelApi::Anthropic).is_ok());

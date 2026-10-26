@@ -41,6 +41,7 @@ impl Draft {
             display_name: completed.display_name,
             context: completed.context,
             output: completed.output,
+            compaction_tokens: completed.compaction_tokens,
             capabilities: completed.capabilities,
             vision: completed.vision,
             tools: completed.tools,

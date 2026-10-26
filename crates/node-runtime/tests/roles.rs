@@ -251,6 +251,7 @@ async fn validates_fixed_models() {
                 efforts: vec![sailry_protocol::Effort::Low, sailry_protocol::Effort::High],
                 capabilities: None,
                 custom_efforts: false,
+                compaction_tokens: None,
                 default_effort: sailry_protocol::Effort::High,
             }],
         };

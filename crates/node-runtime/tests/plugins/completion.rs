@@ -58,6 +58,7 @@ async fn configure_model(client: &Client, endpoint: String, api: conversation::M
             generates: vec![],
             capabilities: None,
             custom_efforts: false,
+            compaction_tokens: None,
             efforts: if api == conversation::ModelApi::DeepSeek {
                 vec![Effort::High, Effort::Max, Effort::Disabled]
             } else {

@@ -76,6 +76,7 @@ pub(super) async fn configured(fixture: &Fixture, options: Option<Options>) -> P
             ..Default::default()
         }),
         custom_efforts: false,
+        compaction_tokens: None,
         default_effort: Effort::Default,
     }];
     let Output::Provider(provider) = fixture

@@ -250,6 +250,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str) -> conversation::P
                     generates: Vec::new(),
                     efforts: Vec::new(),
                     custom_efforts: false,
+                    compaction_tokens: None,
                     default_effort: Effort::Default,
                 }],
                 default_model: "fixture".into(),

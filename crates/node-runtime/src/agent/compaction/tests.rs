@@ -80,6 +80,7 @@ fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarizer, Arc<Mode
             turn: TurnId::new(),
             context: Some(16_000),
             budget: Some(12800),
+            trigger: None,
             output: Some(2048),
             instruction: None,
             stop: CancellationToken::new(),
@@ -97,9 +98,9 @@ mod budget {
             (16_000, 2_048, 12_800),
             (128_000, 16_384, 102_400),
             (200_000, 64_000, 136_000),
-            (1_050_000, 128_000, 840_000),
+            (1_050_000, 128_000, 262_144),
             (128_001, 16_384, 102_400),
-            (u32::MAX, 128_000, 3_435_973_836),
+            (u32::MAX, 128_000, 262_144),
         ] {
             let threshold = super::super::budget(context, output);
             assert_eq!(threshold, Some(expected));
@@ -119,7 +120,7 @@ mod budget {
             summarizer.context = Some(u64::from(context));
             summarizer.output = Some(output as i32);
             summarizer.budget = super::super::budget(context, output);
-            let policy = policy::resolve(summarizer.model.name(), context, output).unwrap();
+            let policy = policy::resolve(summarizer.model.name(), context, output, None).unwrap();
             assert_eq!(summarizer.policy(), Some(policy.clone()));
             assert_eq!(
                 summarizer.summary_output(),
@@ -502,6 +503,7 @@ async fn discards_cancelled_summary() {
         turn: TurnId::new(),
         context: None,
         budget: None,
+        trigger: None,
         output: None,
         instruction: None,
         stop: stop.clone(),
