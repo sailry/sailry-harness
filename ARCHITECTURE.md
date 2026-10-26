@@ -519,10 +519,10 @@ Delegated work uses the same ADK engine and history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
-Build is the default work mode and delegates only on an explicit user request.
-Plan retains the core read-only policy and reviewed transition into Build.
+Standard is the default work mode and delegates only on an explicit user request.
+Plan retains the core read-only policy and reviewed transition into Standard.
 Host packages may declare additional modes through validated conversation options;
-the delegation package contributes Multitask's autonomous coordination instructions.
+the delegation package contributes Flagship's autonomous coordination instructions.
 Node maps each selected declaration to an effective core mode without increasing
 tool permission, and freezes its package and options with the sent turn. Child
 tasks inherit those effective restrictions. Controllers compose the common selector

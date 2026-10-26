@@ -1,6 +1,6 @@
 use super::super::mode as plugin_mode;
 use super::*;
-use crate::conversation::{mode, permission};
+use crate::conversation::{choice, mode, permission};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement;
 
@@ -106,9 +106,6 @@ impl View {
                     .flex_shrink_0()
                     .rounded_full()
                     .icon(IconName::Settings2)
-                    .when(!self.icon_context, |button| {
-                        button.label(tr("composer_settings"))
-                    })
                     .tooltip(hint.clone())
                     .accessibility_label(hint)
                     .debug_selector(|| "composer-settings".into()),
@@ -146,11 +143,11 @@ impl View {
                         tr(mode::label(mode)),
                         tr(mode::description(mode))
                     ))
-                    .child(option(
-                        mode::label(mode),
-                        mode::description(mode),
-                        mode::icon(mode),
-                        active.is_none() && current == mode,
+                    .child(choice::content(
+                        mode::label(mode).into(),
+                        tr(mode::label(mode)),
+                        Some(tr(mode::description(mode))),
+                        mode::icon(mode).into(),
                         cx,
                     ))
                     .selected(active.is_none() && current == mode)
@@ -171,26 +168,42 @@ impl View {
                 let selected = active.as_ref().is_some_and(|active| {
                     active.package == entry.package && active.declaration.id == entry.declaration.id
                 });
-                Button::new(SharedString::from(format!(
+                let id = SharedString::from(format!(
                     "mode-{}-{}",
                     entry.package.name, entry.declaration.id
-                )))
-                .ghost()
-                .w_full()
-                .justify_start()
-                .icon(plugin_mode::icon(&entry))
-                .label(plugin_mode::label(&entry))
-                .selected(selected)
-                .toggled(selected)
-                .disabled(
-                    self.config.is_none()
-                        || self.configuration_blocked()
-                        || (self.session.is_some() && !self.connected()),
-                )
-                .on_click(cx.listener(move |view, _, window, cx| {
-                    view.select_plugin_mode(&entry, window, cx);
-                    let _ = panel.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
-                }))
+                ));
+                let label = plugin_mode::label(&entry);
+                let description =
+                    plugin_mode::description(&entry, self.contribution_metadata.read(cx));
+                let accessible = match &description {
+                    Some(description) => format!("{label}: {description}"),
+                    None => label.to_string(),
+                };
+                Button::new(id.clone())
+                    .ghost()
+                    .h_auto()
+                    .py_2()
+                    .w_full()
+                    .accessibility_label(accessible)
+                    .child(choice::content(
+                        id,
+                        label,
+                        description,
+                        plugin_mode::icon(&entry),
+                        cx,
+                    ))
+                    .selected(selected)
+                    .toggled(selected)
+                    .disabled(
+                        self.config.is_none()
+                            || self.configuration_blocked()
+                            || (self.session.is_some() && !self.connected()),
+                    )
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.select_plugin_mode(&entry, window, cx);
+                        let _ =
+                            panel.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
+                    }))
             }))
     }
 
@@ -218,11 +231,11 @@ impl View {
                             tr(permission::label(mode)),
                             tr(permission::description(mode))
                         ))
-                        .child(option(
-                            permission::label(mode),
-                            permission::description(mode),
-                            permission::icon(mode),
-                            current == mode,
+                        .child(choice::content(
+                            permission::label(mode).into(),
+                            tr(permission::label(mode)),
+                            Some(tr(permission::description(mode))),
+                            permission::icon(mode).into(),
                             cx,
                         ))
                         .selected(current == mode)
@@ -373,57 +386,5 @@ fn row_text(key: &'static str, label: SharedString, icon: Icon, indicator: Optio
                 .items_center()
                 .debug_selector(move || format!("{key}-indicator"))
                 .children(indicator.map(|icon| icon.size_4())),
-        )
-}
-
-fn option(
-    key: &'static str,
-    description: &'static str,
-    icon: IconName,
-    selected: bool,
-    cx: &App,
-) -> Div {
-    h_flex()
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .child(
-            div()
-                .flex_shrink_0()
-                .debug_selector(move || format!("{key}-icon"))
-                .child(Icon::new(icon).size_4()),
-        )
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .gap_0p5()
-                .text_left()
-                .whitespace_normal()
-                .child(
-                    div()
-                        .text_sm()
-                        .line_height(relative(1.25))
-                        .debug_selector(move || format!("{key}-label"))
-                        .child(tr(key)),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .line_height(relative(1.25))
-                        .text_color(cx.theme().muted_foreground)
-                        .debug_selector(move || format!("{key}-description"))
-                        .child(tr(description)),
-                ),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .debug_selector(move || format!("{key}-indicator"))
-                .child(
-                    Icon::new(IconName::Check)
-                        .small()
-                        .when(!selected, |icon| icon.opacity(0.)),
-                ),
         )
 }

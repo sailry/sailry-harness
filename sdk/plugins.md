@@ -698,12 +698,12 @@ Host packages can contribute `conversation_modes` to the common mode selector:
 The named `conversation_options` field must be a string with an empty default and
 an enum containing `""` and the IDs of modes using that field. Each package can
 declare up to 16 distinct modes. `permissions.write: false` requires the effective
-Plan mode; `true` uses Build and still needs the session's ordinary tool permission.
+Plan mode; `true` uses Standard and still needs the session's ordinary tool permission.
 Stricter inherited Plan restrictions remain valid. Instructions configure the main
 coordinator; delegated children keep their task, role and captured restrictions.
 Node validates the selected declaration before configuration or turn admission.
 Exactly one package mode may be selected. Changing modes uses the existing session
-revision; returning to Build or Plan clears active mode options while preserving
+revision; returning to Standard or Plan clears active mode options while preserving
 other choices. Disabled modes reject new admission; removed declarations become
 inactive without deleting stored options or rewriting captures. Turn instructions
 come from the captured package, including packages that provide only modes.
@@ -713,8 +713,8 @@ and the effective `mode: 'code' | 'plan'`. A package with `conversation.control`
 select its declared mode with `setComposerOption(cursor, 'mode', {package, id})`,
 or select the builtins with `'code'` or `'plan'`. The host atomically clears other
 active mode choices. A mode cannot replace a captured assistant with another
-revision of the same package. Build handles tasks directly and permits delegation
-when the user explicitly requests it; the delegation package's Multitask mode owns
+revision of the same package. Standard handles tasks directly and permits delegation
+when the user explicitly requests it; the delegation package's Flagship mode owns
 the optional autonomous coordination policy. Retained `proactive` values do not
 select that mode.
 

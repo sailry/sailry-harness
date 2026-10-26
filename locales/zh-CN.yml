@@ -1221,10 +1221,10 @@ composer_context_usage: "%{used} / %{limit}"
 composer_context_thousand: "%{value}K"
 composer_context_million: "%{value}M"
 composer_context_unknown: 上下文用量待更新
-composer_mode_code: "构建"
+composer_mode_code: "标准"
 composer_mode_plan: "计划"
-composer_mode_code_description: 编写代码、修改文件并验证结果
-composer_mode_plan_description: 分析需求、制定方案，不修改文件
+composer_mode_code_description: "处理代码、文件和资料，适合大多数任务"
+composer_mode_plan_description: "规划项目与方案，不运行代码或写入文件"
 composer_branch_main: main
 composer_branch_preview: preview/ui
 composer_context: 上下文 —
