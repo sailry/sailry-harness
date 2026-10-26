@@ -35,6 +35,21 @@ pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((
 mod tests;
 mod web_search;
 
+pub(super) fn commentary(value: &Value) -> Option<String> {
+    if value["type"] != "message" || value["phase"] != "commentary" {
+        return None;
+    }
+    Some(
+        value["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|part| part["type"] == "output_text")
+            .filter_map(|part| part["text"].as_str())
+            .collect(),
+    )
+}
+
 pub(super) async fn append(
     database: &mut Database,
     session: SessionId,
@@ -548,11 +563,11 @@ pub(crate) async fn project(
                     }
                     adk_core::Part::Thinking { thinking, .. } => Part::Thinking(thinking.clone()),
                     // Approval and question indices address canonical content parts.
-                    // Hide provider commentary without shifting later tool calls.
+                    // One provider part remains one projected part.
                     adk_core::Part::ServerToolCall { server_tool_call }
                         if server_tool_call["type"] == "message"
                             && server_tool_call["phase"] == "commentary" => {
-                        Part::Resource(serde_json::json!({"type": "provider_context"}))
+                        Part::Text(commentary(server_tool_call).unwrap_or_default())
                     }
                     adk_core::Part::ServerToolCall { server_tool_call } => {
                         web_search::call(server_tool_call, displays.get("web_search")).unwrap_or_else(|| {

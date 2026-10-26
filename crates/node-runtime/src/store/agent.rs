@@ -419,6 +419,9 @@ impl Ingress {
             .filter_map(|part| match part {
                 adk_core::Part::Text { text } => Some(Part::Text(text.clone())),
                 adk_core::Part::Thinking { thinking, .. } => Some(Part::Thinking(thinking.clone())),
+                adk_core::Part::ServerToolCall { server_tool_call } => {
+                    history::commentary(server_tool_call).map(Part::Text)
+                }
                 _ => None,
             })
             .collect();

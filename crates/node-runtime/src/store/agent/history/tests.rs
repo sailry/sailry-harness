@@ -243,3 +243,40 @@ async fn bounds_conflicts_without_partial_history() {
         Err(broadcast::error::TryRecvError::Empty)
     ));
 }
+
+#[tokio::test]
+async fn preserves_commentary_part_indices() {
+    let fixture = Fixture::new().await;
+    let mut event = AdkEvent::new("commentary");
+    event.set_content(adk_core::Content {
+        role:"model".into(),
+        parts:vec![
+            adk_core::Part::ServerToolCall {server_tool_call:serde_json::json!({
+                "type":"message","phase":"commentary",
+                "content":[{"type":"output_text","text":"Reading "},{"type":"output_text","text":"the source"}]
+            })},
+            adk_core::Part::FunctionCall {id:Some("call".into()),name:"read_file".into(),
+                args:serde_json::json!({"path":"source.rs"}),thought_signature:None},
+        ],
+    });
+    let entry = project(&fixture.database.connection, 1, TurnId::new(), &event)
+        .await
+        .unwrap();
+    assert_eq!(entry.parts.len(), 2);
+    assert_eq!(entry.parts[0], Part::Text("Reading the source".into()));
+    assert!(matches!(&entry.parts[1],Part::ToolCall {id:Some(id),..} if id == "call"));
+}
+
+#[test]
+fn projects_commentary_deltas() {
+    let value = serde_json::json!({
+        "type":"message","phase":"commentary","content":[{"type":"output_text","text":"Inspecting"}]
+    });
+    assert_eq!(
+        commentary(&value).map(Part::Text),
+        Some(Part::Text("Inspecting".into()))
+    );
+    assert!(commentary(&serde_json::json!({
+        "type":"message","phase":"final_answer","content":[{"type":"output_text","text":"Answer"}]
+    })).is_none());
+}
