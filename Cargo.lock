@@ -14751,6 +14751,7 @@ dependencies = [
 name = "sailry-mobile-bridge"
 version = "0.1.0"
 dependencies = [
+ "adk-model",
  "base64 0.22.1",
  "blake3",
  "flutter_rust_bridge",

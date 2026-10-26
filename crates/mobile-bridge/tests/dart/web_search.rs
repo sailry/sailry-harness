@@ -3,6 +3,7 @@ use super::{configuration::support, tools};
 use sailry_client::Client;
 use sailry_node_runtime::Node;
 use sailry_protocol::{conversation::ModelApi, *};
+use std::sync::Arc;
 
 #[test]
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]
@@ -42,6 +43,10 @@ fn check(api: ModelApi) {
             .map_or(&server.endpoint, |server| &server.endpoint),
         "ffi-web-search",
     ));
+    node.set_model_transport_fixture(adk_model::openai::WsOptions {
+        enabled: Arc::new(|| false),
+        ..Default::default()
+    });
     let client = Client::new(node.local());
     let selected = runtime.block_on(async {
         let Output::Plugin(package) = client

@@ -148,7 +148,7 @@ jobs:
             --directory "$RUNNER_TEMP/recovered-arm" --binary target/release/sailry-release
       - name: Preserve recovered ARM packages
         if: inputs.signed_arm_from != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages-aarch64-apple-darwin
           path: ${{ runner.temp }}/recovered-arm/*
@@ -193,7 +193,7 @@ jobs:
             rm SHA256SUMS
           )
           printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages-${{ matrix.target }}
           path: |

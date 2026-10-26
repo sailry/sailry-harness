@@ -531,9 +531,11 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             message,
             *amend,
             options,
-            expected_index,
-            expected_head.as_deref(),
-            expected_branch.as_deref(),
+            crate::git::commit::Expected {
+                index: expected_index,
+                head: expected_head.as_deref(),
+                branch: expected_branch.as_deref(),
+            },
         )
         .map(|(id, follow_up)| Output::GitCommitCreated { id, follow_up }),
         _ => Err(Fault::new(

@@ -30,15 +30,19 @@ fn observe(headers: &HeaderMap) {
     });
 }
 
+pub(super) struct Context {
+    pub session: sailry_protocol::SessionId,
+    pub delegated: bool,
+    pub reasoning: reasoning::Resolved,
+    pub purpose: Purpose,
+    pub stop: CancellationToken,
+}
+
 pub(super) struct Model {
     ingress: Arc<Ingress>,
     provider: Provider,
     config: SessionConfig,
-    session: sailry_protocol::SessionId,
-    delegated: bool,
-    reasoning: reasoning::Resolved,
-    purpose: Purpose,
-    stop: CancellationToken,
+    context: Context,
     metadata: Arc<registry::Entry>,
 }
 
@@ -56,20 +60,16 @@ impl Model {
         ingress: &Arc<Ingress>,
         provider: &Provider,
         config: &SessionConfig,
-        session: sailry_protocol::SessionId,
-        delegated: bool,
-        reasoning: reasoning::Resolved,
-        purpose: Purpose,
-        stop: &CancellationToken,
+        context: Context,
     ) -> Result<Self, Fault> {
-        let (effective, authorized) = current(ingress, provider, config, stop).await?;
+        let (effective, authorized) = current(ingress, provider, config, &context.stop).await?;
         let metadata = pooled(
             &ingress.model_clients,
             &effective,
             config,
-            session,
-            reasoning,
-            purpose,
+            context.session,
+            context.reasoning,
+            context.purpose,
             &authorized,
         )?;
         metadata.authorize(authorized);
@@ -77,20 +77,20 @@ impl Model {
             ingress: ingress.clone(),
             provider: provider.clone(),
             config: config.clone(),
-            session,
-            delegated,
-            reasoning,
-            purpose,
-            stop: stop.clone(),
+            context,
             metadata,
         })
     }
 
     async fn prepare(&self, request: &LlmRequest, stream: bool) -> Result<Prepared, AdkError> {
-        let (provider, authorized) =
-            current(&self.ingress, &self.provider, &self.config, &self.stop)
-                .await
-                .map_err(failure)?;
+        let (provider, authorized) = current(
+            &self.ingress,
+            &self.provider,
+            &self.config,
+            &self.context.stop,
+        )
+        .await
+        .map_err(failure)?;
         let reference = self
             .config
             .credential
@@ -101,9 +101,9 @@ impl Model {
             &self.ingress.model_clients,
             &provider,
             &self.config,
-            self.session,
-            self.reasoning,
-            self.purpose,
+            self.context.session,
+            self.context.reasoning,
+            self.context.purpose,
             &authorized,
         )
         .map_err(failure)?;
@@ -141,7 +141,7 @@ impl Model {
                 (adapter, true)
             }
             Grant::ChatGptOAuth { .. } => {
-                let session = self.session;
+                let session = self.context.session;
                 let adapter: RequestAdapter = Arc::new(move |body, headers| {
                     headers.extend(base.clone());
                     codex::adapt(body, headers, session)
@@ -154,7 +154,7 @@ impl Model {
                 (adapter, stream)
             }
             Grant::Copilot { .. } => {
-                let initiator = if !self.delegated
+                let initiator = if !self.context.delegated
                     && request.contents.last().is_some_and(|content| {
                         content.role == "user"
                             && !content
@@ -180,7 +180,7 @@ impl Model {
             &self.provider,
             &self.config.model,
             adapter,
-            self.reasoning.encrypted,
+            self.context.reasoning.encrypted,
         );
         Ok(Prepared {
             entry,
@@ -202,7 +202,7 @@ impl Model {
             .prepare(&LlmRequest::new(&self.config.model, vec![]), true)
             .await?;
         if let Some(client) = prepared.entry.responses.clone() {
-            prepared.entry.preconnect(&self.stop, async move {
+            prepared.entry.preconnect(&self.context.stop, async move {
                 let _ = REQUEST.scope(prepared.scope, client.preconnect()).await;
             });
         }

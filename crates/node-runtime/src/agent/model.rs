@@ -247,7 +247,16 @@ async fn configure(
         crate::providers::login::validate(provider)?;
         let model = Arc::new(
             authorization::Model::new(
-                ingress, provider, config, session, delegated, resolved, purpose, stop,
+                ingress,
+                provider,
+                config,
+                authorization::Context {
+                    session,
+                    delegated,
+                    reasoning: resolved,
+                    purpose,
+                    stop: stop.clone(),
+                },
             )
             .await?,
         );

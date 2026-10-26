@@ -92,10 +92,8 @@ pub(super) fn node(
             }
             if view
                 .update(cx, |view, cx| {
-                    if !defaults {
-                        if view.binding.client.target() != node {
-                            return;
-                        }
+                    if !defaults && view.binding.client.target() != node {
+                        return;
                     }
                     if !defaults
                         && let Some(snapshot) = &next.snapshot

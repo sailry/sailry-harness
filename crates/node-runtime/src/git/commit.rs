@@ -4,20 +4,24 @@ use git2::Repository;
 use sailry_protocol::{ErrorCode, Fault, GitCommitOptions};
 use std::path::Path;
 
+pub(crate) struct Expected<'a> {
+    pub index: &'a str,
+    pub head: Option<&'a str>,
+    pub branch: Option<&'a str>,
+}
+
 pub(crate) fn create(
     root: &Path,
     environment: &crate::process::Environment,
     message: &str,
     amend: bool,
     options: &GitCommitOptions,
-    expected_index: &str,
-    expected_head: Option<&str>,
-    expected_branch: Option<&str>,
+    expected: Expected<'_>,
 ) -> Result<(String, Option<Fault>), Fault> {
     if message.trim().is_empty() || message.len() > 16 * 1024 || message.contains('\0') {
         return Err(Fault::invalid("invalid Git commit message"));
     }
-    actions::check(root, expected_index, expected_head, expected_branch)?;
+    actions::check(root, expected.index, expected.head, expected.branch)?;
     let mut args = vec!["commit".into(), "--message".into(), message.into()];
     if amend {
         args.push("--amend".into());
@@ -55,7 +59,8 @@ pub(crate) fn create(
             let remote = options.push_remote.as_ref().unwrap();
             let repository = Repository::open(root).map_err(fault)?;
             actions::remote_name(&repository, remote)?;
-            let branch = expected_branch
+            let branch = expected
+                .branch
                 .ok_or_else(|| Fault::invalid("publishing requires an attached branch"))?;
             cli::run(
                 root,

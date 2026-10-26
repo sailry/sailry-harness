@@ -133,7 +133,7 @@ jobs:
       - name: Save native libraries
         if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
         continue-on-error: true
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/sherpa-onnx-prebuilt
@@ -150,7 +150,7 @@ jobs:
           python3 .workflow-tools/scripts/ci.py cache-usage
       - name: Compilation timings
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: timings-${{ matrix.target }}
           path: target/cargo-timings/*.html
@@ -182,7 +182,7 @@ jobs:
             rm SHA256SUMS
           )
           printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: host-macos-${{ matrix.target }}
           path: |
@@ -234,7 +234,7 @@ jobs:
         uses: ./.workflow-tools/.github/actions/rust-cache
       - name: Linux native build tools
         continue-on-error: true
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/host-sysroots
@@ -271,7 +271,7 @@ jobs:
           printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
       - name: Verify installation and systemd lifecycle
         run: sudo python3 scripts/check-host-install.py '${{ steps.package.outputs.directory }}'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: host-${{ matrix.target }}
           path: |

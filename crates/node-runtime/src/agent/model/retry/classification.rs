@@ -170,37 +170,40 @@ fn rate_delay(message: &str) -> Option<std::time::Duration> {
 
 fn http(status: u16, code: Option<&str>, kind: Option<&str>) -> Class {
     match status {
-        400 => Class::Terminal(match code {
-            Some("invalid_prompt") => Stop::InvalidPrompt,
-            Some("cyber_policy" | "bio_policy" | "misalignment_policy_violation") => {
-                Stop::PolicyViolation
-            }
-            _ => Stop::InvalidRequest,
-        }),
-        403 if code == Some("misalignment_policy_violation") => {
-            Class::Terminal(Stop::PolicyViolation)
-        }
-        401 | 403 => Class::Terminal(Stop::LocalFailure),
-        408 => Class::Backoff,
-        429 => match (code, kind) {
-            (Some("flex_unavailable"), _) => Class::Terminal(Stop::FlexUnavailable),
-            (_, Some("usage_limit_reached")) => Class::Terminal(Stop::UsageLimitReached),
-            (_, Some("usage_not_included")) => Class::Terminal(Stop::UsageNotIncluded),
-            (_, Some("insufficient_quota")) => Class::Terminal(Stop::QuotaExceeded),
-            (
-                Some(
-                    "insufficient_quota"
-                    | "credit_balance_exhausted"
-                    | "organization_spend_limit_exceeded"
-                    | "project_spend_limit_exceeded"
-                    | "organization_usage_limit_exceeded",
-                ),
-                _,
-            ) => Class::Terminal(Stop::QuotaExceeded),
-            _ => Class::Advice(Stop::RateLimited),
+        400..=499 => match status {
+            400 => Class::Terminal(match code {
+                Some("invalid_prompt") => Stop::InvalidPrompt,
+                Some("cyber_policy" | "bio_policy" | "misalignment_policy_violation") => {
+                    Stop::PolicyViolation
+                }
+                _ => Stop::InvalidRequest,
+            }),
+            401 => Class::Terminal(Stop::LocalFailure),
+            403 => Class::Terminal(match code {
+                Some("misalignment_policy_violation") => Stop::PolicyViolation,
+                _ => Stop::LocalFailure,
+            }),
+            408 => Class::Backoff,
+            429 => match (code, kind) {
+                (Some("flex_unavailable"), _) => Class::Terminal(Stop::FlexUnavailable),
+                (_, Some("usage_limit_reached")) => Class::Terminal(Stop::UsageLimitReached),
+                (_, Some("usage_not_included")) => Class::Terminal(Stop::UsageNotIncluded),
+                (_, Some("insufficient_quota")) => Class::Terminal(Stop::QuotaExceeded),
+                (
+                    Some(
+                        "insufficient_quota"
+                        | "credit_balance_exhausted"
+                        | "organization_spend_limit_exceeded"
+                        | "project_spend_limit_exceeded"
+                        | "organization_usage_limit_exceeded",
+                    ),
+                    _,
+                ) => Class::Terminal(Stop::QuotaExceeded),
+                _ => Class::Advice(Stop::RateLimited),
+            },
+            _ => Class::Terminal(Stop::InvalidRequest),
         },
         503 if code == Some("server_is_overloaded") => Class::Advice(Stop::ServerOverloaded),
-        400..=499 => Class::Terminal(Stop::InvalidRequest),
         _ => Class::Backoff,
     }
 }

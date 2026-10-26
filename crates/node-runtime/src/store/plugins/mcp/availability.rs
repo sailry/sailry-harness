@@ -25,9 +25,7 @@ pub(in crate::store::plugins) async fn project(
     };
     for server in &mut info.mcp {
         server.allowed = saved.mcp_allowed.get(&server.name).copied().unwrap_or(true);
-        server.availability = if !installed {
-            Availability::Unavailable
-        } else if !info.summary.compatibility.is_compatible() {
+        server.availability = if !installed || !info.summary.compatibility.is_compatible() {
             Availability::Unavailable
         } else if !info.summary.enabled {
             Availability::PackageDisabled
@@ -274,8 +272,19 @@ mod tests {
         let mut disabled = disabled;
         disabled.summary.enabled = false;
         assert_eq!(
-            project(&db, host.profile(), disabled).await.unwrap().mcp[0].availability,
+            project(&db, host.profile(), disabled.clone())
+                .await
+                .unwrap()
+                .mcp[0]
+                .availability,
             Availability::PackageDisabled
+        );
+        disabled.summary.compatibility = plugin::Compatibility::RequiresNewer {
+            required: "999.0.0".into(),
+        };
+        assert_eq!(
+            project(&db, host.profile(), disabled).await.unwrap().mcp[0].availability,
+            Availability::Unavailable
         );
     }
 }
