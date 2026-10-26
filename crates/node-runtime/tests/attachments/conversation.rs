@@ -190,7 +190,7 @@ async fn results(client: &Client, page: &Page, turn: Option<TurnId>) -> Vec<serd
     if let Some(turn) = turn {
         page.entries.retain(|entry| entry.turn == turn);
     }
-    server::tool_details(client, &page)
+    server::details::tool_details(client, &page)
         .await
         .into_iter()
         .map(|(_, detail)| detail.result.unwrap())

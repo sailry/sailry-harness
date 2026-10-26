@@ -114,6 +114,7 @@ mod web;
 #[path = "agent/worktrees.rs"]
 mod worktrees;
 
+use agent_support::details::{tool_calls, tool_detail, tool_details};
 use agent_support::*;
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope, Transport};

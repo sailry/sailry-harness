@@ -73,7 +73,7 @@ async fn keeps_compatible_pdf_turns_usable() {
                 original.runs
             );
             assert!(
-                server::tool_details(&client, &original)
+                server::details::tool_details(&client, &original)
                     .await
                     .iter()
                     .any(|(name, detail)| {
@@ -226,7 +226,7 @@ async fn reads_visible_document_attachments() {
                 .status,
             Status::Queued
         );
-        let results: Vec<_> = server::tool_details(&client, &history)
+        let results: Vec<_> = server::details::tool_details(&client, &history)
             .await
             .into_iter()
             .map(|(name, detail)| {
