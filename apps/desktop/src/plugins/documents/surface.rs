@@ -86,7 +86,7 @@ impl Render for Surface {
                         cx.emit(Request {
                             context: surface.host.context().clone(),
                             write: surface.write,
-                            stop: surface.host.stop_token(),
+                            stop: Arc::new(surface.host.stop_token().child_token()),
                             operation: Operation::Save {
                                 id: surface.document,
                             },
