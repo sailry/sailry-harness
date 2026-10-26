@@ -95,7 +95,8 @@ pub(in crate::store) async fn needs_connections(
             && crate::plugins::Host::bundled_newer(&summary.name, summary.version.as_deref())
                 .unwrap_or(false)
         {
-            let candidate = host.install_bundled(&summary.name)?;
+            let candidate =
+                host.inspect_bundled(&summary.name, sailry_link::CancellationToken::new())?;
             if super::connectors::needs_migration(db, &candidate).await? {
                 return Ok(true);
             }

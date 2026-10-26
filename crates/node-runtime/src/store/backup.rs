@@ -751,9 +751,15 @@ async fn publish(
     )?;
     let target = target.to_owned();
     let stop = cancel.clone();
-    let staged = tokio::task::spawn_blocking(move || stage(archive, source, &stop))
+    let mut staged = tokio::task::spawn_blocking(move || stage(archive, source, &stop))
         .await
         .map_err(io_fault)??;
+    backup::cancelled(cancel)?;
+    staged.upgrade = super::database::upgrade_backup(
+        &staged.directory.path().join("storage/node.turso"),
+        staged.record.node,
+    )
+    .await?;
     backup::cancelled(cancel)?;
     validate_profile(staged.directory.path(), staged.record.node).await?;
     backup::cancelled(cancel)?;
@@ -774,6 +780,7 @@ struct Staged {
     directory: tempfile::TempDir,
     manifest: backup::archive::Manifest,
     record: sailry_protocol::backup::Record,
+    upgrade: Option<PathBuf>,
 }
 
 fn stage(
@@ -811,6 +818,7 @@ fn stage(
         directory,
         manifest,
         record,
+        upgrade: None,
     })
 }
 
@@ -848,6 +856,14 @@ fn finish(
         &staged.manifest,
         cancel,
     )?;
+    if let Some(backup) = &staged.upgrade {
+        let relative = backup
+            .strip_prefix(staged.directory.path())
+            .map_err(backup::io)?;
+        let retained = parent.join(&name).join(relative);
+        crate::profile::private_directory(retained.parent().unwrap()).map_err(storage_error)?;
+        super::database::schema::backup::copy(backup, &retained).map_err(storage_error)?;
+    }
     backup::cancelled(cancel)?;
     target_path(target.to_str().unwrap(), None)?;
     if identity != crate::files::path::identity::directory(&crate::files::path::root(parent)?)? {

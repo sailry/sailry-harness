@@ -1,5 +1,5 @@
 //! Synchronize the current native schema without importing another database format.
-pub(super) mod backup;
+pub(in crate::store) mod backup;
 mod definition;
 mod plan;
 #[cfg(test)]
@@ -22,7 +22,6 @@ pub(super) struct Schema {
     state: State,
     expected: Objects,
     path: PathBuf,
-    plugins: Option<crate::plugins::Host>,
 }
 
 enum State {
@@ -78,8 +77,12 @@ impl Schema {
         Ok(())
     }
 
-    pub(super) async fn plugins(&self, connection: &Connection) -> Result<(), Error> {
-        if let Some(host) = &self.plugins {
+    pub(super) async fn plugins(
+        &self,
+        connection: &Connection,
+        plugins: Option<&crate::plugins::Host>,
+    ) -> Result<(), Error> {
+        if let Some(host) = plugins {
             crate::store::plugins::distribution::initialize(connection, host).await?;
         }
         if matches!(self.state, State::Current) {
@@ -126,9 +129,6 @@ pub(super) async fn prepare(
         if plan.is_empty() {
             verify_objects(connection, path, &expected).await?;
             let defaults_changed = upgrades::needed(connection).await?;
-            if !defaults_changed {
-                super::validation::startup(connection).await?;
-            }
             let connections_changed = if let Some(host) = plugins {
                 crate::store::providers::authentication::needs_binding(connection).await?
                     || crate::store::plugins::distribution::needs_connections(connection, host)
@@ -154,7 +154,6 @@ pub(super) async fn prepare(
         state,
         expected,
         path: path.to_owned(),
-        plugins: plugins.cloned(),
     })
 }
 

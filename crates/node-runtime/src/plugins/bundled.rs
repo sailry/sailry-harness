@@ -183,7 +183,7 @@ impl Host {
         self.stage(name, |staged| package::write_embedded(staged, files))
     }
 
-    pub(super) fn inspect_bundled(
+    pub(crate) fn inspect_bundled(
         &self,
         name: &str,
         stop: sailry_link::CancellationToken,

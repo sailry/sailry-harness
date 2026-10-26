@@ -2,32 +2,39 @@
 use super::{APPLICATION_ID, connect, driver, engine, record, schema};
 use crate::{Error, store};
 use sailry_protocol::{NodeId, terminal};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use turso::{Connection, Database};
 
-pub(super) async fn open(
+#[cfg(test)]
+mod tests;
+
+pub(super) async fn upgrade(
     path: &Path,
     node: NodeId,
     plugins: Option<&crate::plugins::Host>,
-) -> Result<(Database, Connection), Error> {
+) -> Result<(Database, Connection, Option<PathBuf>), Error> {
     let mut handle = engine(path).await?;
     let mut connection = connect(&handle).await?;
     let schema = schema::prepare(&connection, path, node, plugins).await?;
+    let mut backup = None;
     if schema.needs_update() {
         driver::checkpoint(&connection).await?;
         drop(connection);
         drop(handle);
         let preview = schema::backup::preview(path)?;
         {
+            let resources = rehearsal(plugins, node)?;
             let preview_handle = engine(preview.path()).await?;
             let mut preview_connection = connect(&preview_handle).await?;
             let transaction = preview_connection.transaction().await?;
             schema.initialize(&transaction).await?;
-            schema.plugins(&transaction).await?;
+            schema
+                .plugins(&transaction, resources.as_ref().map(|(_, host)| host))
+                .await?;
             transaction.commit().await?;
             driver::checkpoint(&preview_connection).await?;
         }
-        schema::backup::save(path)?;
+        backup = Some(schema::backup::save(path)?);
         handle = engine(path).await?;
         connection = connect(&handle).await?;
     }
@@ -59,7 +66,18 @@ pub(super) async fn open(
         }
         Err(error) => return Err(error.into()),
     }
-    schema.plugins(&transaction).await?;
+    schema.plugins(&transaction, plugins).await?;
+    transaction.commit().await?;
+    Ok((handle, connection, backup))
+}
+
+pub(super) async fn open(
+    path: &Path,
+    node: NodeId,
+    plugins: Option<&crate::plugins::Host>,
+) -> Result<(Database, Connection), Error> {
+    let (handle, mut connection, _) = upgrade(path, node, plugins).await?;
+    let transaction = connection.transaction().await?;
     store::plugins::connectors::login::recover(&transaction)
         .await
         .map_err(|error| Error::Worker(error.message))?;
@@ -97,4 +115,28 @@ pub(super) async fn open(
     }
     transaction.commit().await?;
     Ok((handle, connection))
+}
+
+fn rehearsal(
+    plugins: Option<&crate::plugins::Host>,
+    node: NodeId,
+) -> Result<Option<(crate::backup::archive::Snapshot, crate::plugins::Host)>, Error> {
+    let Some(host) = plugins else {
+        return Ok(None);
+    };
+    let profile = host
+        .profile()
+        .ok_or_else(|| Error::Worker("plugin storage is unavailable".into()))?;
+    let mut snapshot = crate::backup::archive::Snapshot::new(profile, node)
+        .map_err(|error| Error::Worker(error.message))?;
+    if profile.join("plugins/packages").try_exists()? {
+        snapshot
+            .capture(
+                &["plugins/packages".into()],
+                &sailry_link::CancellationToken::new(),
+            )
+            .map_err(|error| Error::Worker(error.message))?;
+    }
+    let host = crate::plugins::Host::new(Some(snapshot.directory.path().to_owned()));
+    Ok(Some((snapshot, host)))
 }

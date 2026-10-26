@@ -1442,3 +1442,18 @@ pub(super) async fn validate_backup(db: &Connection, node: NodeId) -> Result<(),
     }
     Ok(())
 }
+
+pub(super) async fn upgrade_backup(
+    path: &Path,
+    node: NodeId,
+) -> Result<Option<std::path::PathBuf>, Fault> {
+    let (handle, connection, backup) = startup::upgrade(path, node, None)
+        .await
+        .map_err(storage_error)?;
+    driver::checkpoint(&connection)
+        .await
+        .map_err(storage_error)?;
+    drop(connection);
+    drop(handle);
+    Ok(backup)
+}
