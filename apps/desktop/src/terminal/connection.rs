@@ -1,3 +1,5 @@
+mod queue;
+
 use sailry_client::{Client, terminal::View};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
@@ -27,7 +29,7 @@ pub(crate) struct Binding {
 }
 
 pub(super) struct Connection {
-    input: mpsc::Sender<Command>,
+    input: Arc<queue::Queue>,
     stop: CancellationToken,
     retry: Arc<Notify>,
     waiting: Arc<AtomicBool>,
@@ -126,7 +128,8 @@ impl Connection {
                 screens.send_modify(|view| view.error = None);
             }
         });
-        let (input, mut commands) = mpsc::channel::<Command>(64);
+        let input = Arc::new(queue::Queue::default());
+        let commands = input.clone();
         let (completed, results) = mpsc::channel(16);
         let client = binding.client.clone();
         let scope = binding.scope.clone();
@@ -137,7 +140,7 @@ impl Connection {
                 let command = tokio::select! {
                     biased;
                     _ = input_stop.cancelled() => break,
-                    command = commands.recv() => match command { Some(command) => command, None => break },
+                    command = commands.next() => command,
                 };
                 let report = !matches!(command, Command::InputTerminal { .. });
                 let mut request = client.prepare(command);
@@ -163,12 +166,11 @@ impl Connection {
                         break;
                     }
                 }
-                if result.is_err() {
-                    // Do not deliver a queued tail after a disconnect or ownership conflict.
-                    while commands.try_recv().is_ok() {}
-                }
+                // Do not deliver a queued tail after a disconnect or ownership conflict.
+                commands.complete(result.is_ok());
                 if (report || result.is_err()) && completed.send(result).await.is_err() { break; }
             }
+            commands.close();
         });
         (
             Self {
@@ -194,7 +196,11 @@ impl Connection {
     }
 
     pub fn enqueue(&self, command: Command) -> bool {
-        !self.closed() && !self.stopped() && self.input.try_send(command).is_ok()
+        !self.closed() && !self.stopped() && self.input.enqueue(command)
+    }
+
+    pub fn reset_resize(&self) {
+        self.input.reset_resize();
     }
 
     pub fn stopped(&self) -> bool {
@@ -207,6 +213,7 @@ impl Connection {
 
     pub fn release(&self) {
         self.stop.cancel();
+        self.input.close();
     }
 }
 

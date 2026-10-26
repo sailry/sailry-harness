@@ -102,17 +102,12 @@ pub(super) fn prepare(
     // Every mounted controller must track its pane geometry, including unfocused splits.
     if view.controlling() && bounds.size.width > px(0.) && bounds.size.height > px(0.) {
         let revision = view.state.snapshot.as_ref().unwrap().info.revision;
-        if view.resize.as_ref() != Some(&viewport)
-            && view
-                .connection
-                .enqueue(sailry_protocol::Command::ResizeTerminal {
-                    terminal: view.binding.id,
-                    revision,
-                    viewport: viewport.clone(),
-                })
-        {
-            view.resize = Some(viewport);
-        }
+        view.connection
+            .enqueue(sailry_protocol::Command::ResizeTerminal {
+                terminal: view.binding.id,
+                revision,
+                viewport,
+            });
         let appearance = crate::theme::terminal(cx);
         if view.appearance.as_ref() != Some(&appearance)
             && view

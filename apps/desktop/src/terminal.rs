@@ -78,7 +78,6 @@ pub(crate) struct View {
     search: search::Search,
     drag_point: Point<Pixels>,
     autoscroll: Option<Task<()>>,
-    resize: Option<protocol::Viewport>,
     appearance: Option<protocol::Appearance>,
     mouse: mouse::State,
     message: Option<&'static str>,
@@ -248,7 +247,6 @@ impl View {
             },
             drag_point: point(px(0.), px(0.)),
             autoscroll: None,
-            resize: None,
             appearance: None,
             mouse: Default::default(),
             message: None,
@@ -310,7 +308,7 @@ impl View {
     }
 
     fn controlling(&self) -> bool {
-        self.state.connected
+        (self.state.connected || self.state.recovering)
             && self.state.snapshot.as_ref().is_some_and(|snapshot| {
                 snapshot.info.owner == Some(self.binding.caller)
                     && snapshot.info.status == protocol::Status::Running
@@ -392,7 +390,7 @@ impl View {
         };
         if self.controlling() {
             self.report_focus(true, cx);
-            self.resize = None;
+            self.connection.reset_resize();
             self.appearance = None;
             cx.notify();
             return;
@@ -596,7 +594,7 @@ impl View {
         if self.state.error.is_some() {
             return Some("terminal_unavailable");
         }
-        if !self.state.connected || self.state.snapshot.is_none() {
+        if !(self.state.connected || self.state.recovering) || self.state.snapshot.is_none() {
             return Some("terminal_connecting");
         }
         let snapshot = self.state.snapshot.as_ref().unwrap();

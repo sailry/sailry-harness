@@ -4,12 +4,15 @@ use sailry_node_runtime::Node;
 use sailry_protocol::{ErrorCode, Output, Request, Topic, Update, terminal};
 use std::{sync::Mutex, time::Duration};
 
+mod resize;
+
 struct Held {
     inner: Arc<dyn Transport>,
     entered: CancellationToken,
     release: CancellationToken,
     screen: CancellationToken,
     delay_close: bool,
+    reject_resize: AtomicBool,
     commands: Mutex<Vec<Command>>,
 }
 
@@ -32,6 +35,13 @@ impl Transport for Held {
                     | Command::SetTerminalAppearance { .. }
             ) {
                 self.commands.lock().unwrap().push(request.command.clone());
+                if matches!(request.command, Command::ResizeTerminal { .. })
+                    && self.reject_resize.swap(false, Ordering::AcqRel)
+                {
+                    self.entered.cancel();
+                    self.release.cancelled().await;
+                    return Err(Fault::new(ErrorCode::Unavailable, "fixture resize failed"));
+                }
                 if matches!(request.command, Command::InputTerminal { .. }) {
                     self.entered.cancel();
                     self.release.cancelled().await;
@@ -169,6 +179,7 @@ async fn respects_terminal_lifecycle() {
                 release: CancellationToken::new(),
                 screen: CancellationToken::new(),
                 delay_close,
+                reject_resize: AtomicBool::new(false),
                 commands: Mutex::new(Vec::new()),
             });
             let binding = Binding {

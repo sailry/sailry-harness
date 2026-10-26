@@ -47,9 +47,9 @@ pub(super) fn project_viewport<'alloc>(
             let blinking = check(snapshot.cursor_blinking(), "read Ghostty cursor blinking")?;
             let visual_style = check(snapshot.cursor_visual_style(), "read Ghostty cursor style")?;
             Some(Cursor {
-                column: position.x,
-                row: position.y,
-                at_wide_tail: position.at_wide_tail,
+                column: position.x.min(columns.saturating_sub(1)),
+                row: position.y.min(row_count.saturating_sub(1)),
+                at_wide_tail: position.at_wide_tail && position.x < columns && position.x > 0,
                 blinking,
                 style: match visual_style {
                     CursorVisualStyle::Bar => CursorStyle::Bar,
@@ -107,7 +107,7 @@ pub(super) fn project_viewport<'alloc>(
                         if let Some(span) =
                             project_cell(column, wide, text, style, raw, hyperlink, &colors)?
                         {
-                            push_span(&mut spans, span)?;
+                            push_span(&mut spans, span, columns)?;
                         }
                     }
                     column = column
@@ -208,7 +208,7 @@ pub(super) fn project_history_line(
             None
         };
         if let Some(span) = project_cell(column, wide, text, style, raw, hyperlink, colors)? {
-            push_span(&mut spans, span)?;
+            push_span(&mut spans, span, columns)?;
         }
     }
     Ok(Line { spans, wrapped })
@@ -280,7 +280,12 @@ pub(super) fn project_cell(
     }))
 }
 
-pub(super) fn push_span(spans: &mut Vec<Span>, span: Span) -> Result<(), Fault> {
+pub(super) fn push_span(spans: &mut Vec<Span>, mut span: Span, columns: u16) -> Result<(), Fault> {
+    if span.columns == 2 && span.column.checked_add(2).is_none_or(|end| end > columns) {
+        span.columns = 1;
+        span.text = " ".into();
+        span.hyperlink = None;
+    }
     let mergeable = span.columns == 1 && span.text.is_ascii();
     if mergeable && let Some(previous) = spans.last_mut() {
         let previous_end = previous
@@ -460,6 +465,45 @@ pub(super) fn empty_screen(viewport: &Viewport, appearance: &Appearance) -> Scre
         features: Default::default(),
         graphics: Default::default(),
     }
+}
+
+pub(super) fn sanitize(screen: &mut Screen) -> Result<(), Fault> {
+    if screen.validate().is_ok() {
+        return Ok(());
+    }
+    let columns = screen.columns;
+    for line in screen.rows.iter_mut().chain(&mut screen.scrollback) {
+        let mut end = 0;
+        line.spans.retain_mut(|span| {
+            if span.column < end || span.columns == 0 || span.column >= columns {
+                return false;
+            }
+            if span
+                .column
+                .checked_add(span.columns)
+                .is_none_or(|end| end > columns)
+            {
+                span.columns = columns - span.column;
+                span.text = " ".repeat(usize::from(span.columns));
+                span.hyperlink = None;
+            }
+            end = span.column + span.columns;
+            true
+        });
+    }
+    if let Some(cursor) = &mut screen.cursor {
+        if cursor.column >= screen.columns || cursor.row as usize >= screen.rows.len() {
+            cursor.at_wide_tail = false;
+        }
+        cursor.column = cursor.column.min(screen.columns.saturating_sub(1));
+        cursor.row = cursor.row.min(screen.rows.len().saturating_sub(1) as u16);
+    }
+    if screen.validate().is_err() {
+        screen.graphics = Default::default();
+    }
+    screen
+        .validate()
+        .map_err(|error| fail(format!("Ghostty projected screen is invalid: {error}")))
 }
 
 pub(super) fn ghostty_color(color: Rgb) -> RgbColor {

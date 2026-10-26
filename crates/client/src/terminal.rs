@@ -11,13 +11,17 @@ use tokio::sync::watch;
 pub struct View {
     pub snapshot: Option<Arc<Snapshot>>,
     pub connected: bool,
+    pub recovering: bool,
     pub error: Option<Fault>,
 }
 
 struct Closing(watch::Sender<View>);
 impl Drop for Closing {
     fn drop(&mut self) {
-        self.0.send_modify(|view| view.connected = false);
+        self.0.send_modify(|view| {
+            view.connected = false;
+            view.recovering = false;
+        });
     }
 }
 
@@ -57,27 +61,26 @@ impl Client {
                             updates.send_replace(View {
                                 snapshot: projection.snapshot().cloned().map(Arc::new),
                                 connected: true,
+                                recovering: false,
                                 error: None,
                             });
                             delay = Duration::from_millis(250);
                         }
                         Ok(Apply::Ignored) => {}
-                        Ok(Apply::Recover) => {
-                            break Fault::new(
-                                ErrorCode::Unavailable,
-                                "terminal screen requires recovery",
-                            );
-                        }
-                        Err(error) => break error,
+                        Ok(Apply::Recover) => break None,
+                        Err(error) => break Some(error),
                     }
                 },
-                Err(error) => error,
+                Err(error) => Some(error),
             };
             updates.send_modify(|view| {
                 view.connected = false;
-                view.error = Some(failure.clone());
+                view.recovering = failure.is_none();
+                view.error = failure.clone();
             });
-            if !matches!(failure.code, ErrorCode::Unavailable | ErrorCode::Busy) {
+            if let Some(failure) = failure
+                && !matches!(failure.code, ErrorCode::Unavailable | ErrorCode::Busy)
+            {
                 return Err(failure);
             }
             tokio::select! {

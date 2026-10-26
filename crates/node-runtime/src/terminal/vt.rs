@@ -327,6 +327,9 @@ impl Vt {
         self.active_screen = active_screen;
         self.history_rows = current_history_rows;
         self.history_anchor = history_anchor;
+        if self.screen.validate().is_err() {
+            return Ok(None);
+        }
 
         Ok(Some(ScreenUpdate::Patch {
             patch: Patch {
@@ -433,7 +436,7 @@ impl Vt {
         self.active_screen = active_screen;
         self.history_rows = history_rows;
         self.history_anchor = history_anchor;
-        Ok(())
+        sanitize(&mut self.screen)
     }
 }
 

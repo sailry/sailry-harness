@@ -1,5 +1,7 @@
 use super::*;
 
+mod narrowing;
+
 mod cursor {
     use super::*;
 

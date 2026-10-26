@@ -132,7 +132,7 @@ fn recovers_screen_after_gaps() {
 }
 
 #[test]
-fn rejects_invalid_frames() {
+fn rejects_foreign_targets() {
     let initial = snapshot();
     let mut projection = Projection::new(initial.node, initial.info.id, 1);
     let mut invalid = initial.clone();
@@ -145,21 +145,93 @@ fn rejects_invalid_frames() {
         ErrorCode::WrongTarget
     );
     let mut invalid = initial.clone();
-    invalid.screen.rows[0].spans.push(terminal::Span {
-        column: 79,
-        columns: 2,
-        text: "宽".into(),
-        style: terminal::TextStyle::default(),
-        hyperlink: None,
-    });
+    invalid.node = NodeId([2; 32]);
+    invalid.screen.columns = 0;
     assert_eq!(
-        projection
-            .apply(1, Update::TerminalSnapshot(invalid))
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest
+        projection.apply(1, frame(&invalid, 4)).unwrap_err().code,
+        ErrorCode::WrongTarget
     );
     assert!(projection.snapshot().is_none());
+}
+
+#[test]
+fn recovers_malformed_frames() {
+    let initial = snapshot();
+    for history in [false, true] {
+        let mut invalid = initial.clone();
+        invalid.sequence += 1;
+        let lines = if history {
+            &mut invalid.screen.scrollback
+        } else {
+            &mut invalid.screen.rows
+        };
+        lines[0].spans.push(terminal::Span {
+            column: 79,
+            columns: 2,
+            text: "宽".into(),
+            style: Default::default(),
+            hyperlink: None,
+        });
+        let screen = &invalid.screen;
+        let patch = terminal::Patch {
+            dropped_scrollback_rows: initial.screen.scrollback.len() as u32,
+            appended_scrollback: screen.scrollback.clone(),
+            columns: screen.columns,
+            rows: screen.rows.clone(),
+            cursor: screen.cursor,
+            foreground: screen.foreground,
+            background: screen.background,
+            cursor_color: screen.cursor_color,
+            bracketed_paste: screen.bracketed_paste,
+            mouse_tracking: screen.mouse_tracking,
+            alternate: screen.alternate,
+            features: screen.features.clone(),
+            graphics: Some(screen.graphics.clone()),
+        };
+        for update in [
+            Update::TerminalSnapshot(invalid.clone()),
+            frame(&invalid, invalid.sequence),
+            Update::TerminalFrame(terminal::Frame {
+                node: invalid.node,
+                info: invalid.info.clone(),
+                sequence: invalid.sequence,
+                screen: ScreenUpdate::Patch { patch },
+            }),
+        ] {
+            let mut projection = Projection::new(initial.node, initial.info.id, 1);
+            projection
+                .apply(1, Update::TerminalSnapshot(initial.clone()))
+                .unwrap();
+            assert_eq!(projection.apply(1, update).unwrap(), Apply::Recover);
+            assert_eq!(projection.snapshot(), Some(&initial));
+            assert_eq!(
+                projection.apply(1, frame(&initial, 4)).unwrap(),
+                Apply::Recover
+            );
+            projection.reconnect(2).unwrap();
+            let mut recovered = initial.clone();
+            recovered.sequence = 5;
+            assert_eq!(
+                projection
+                    .apply(2, Update::TerminalSnapshot(recovered.clone()))
+                    .unwrap(),
+                Apply::Applied
+            );
+            assert_eq!(projection.snapshot(), Some(&recovered));
+            assert_eq!(
+                projection.apply(2, frame(&recovered, 6)).unwrap(),
+                Apply::Applied
+            );
+        }
+        let mut projection = Projection::new(initial.node, initial.info.id, 1);
+        assert_eq!(
+            projection
+                .apply(1, Update::TerminalSnapshot(invalid))
+                .unwrap(),
+            Apply::Recover
+        );
+        assert!(projection.snapshot().is_none());
+    }
 }
 
 #[test]
@@ -245,7 +317,7 @@ fn rejects_invalid_images() {
         height: 9000,
         png: "".into(),
     });
-    assert!(validate(&initial.screen).is_err());
+    assert!(initial.screen.validate().is_err());
     initial.screen.graphics.images.clear();
     initial
         .screen
@@ -263,5 +335,5 @@ fn rejects_invalid_images() {
             cell: [8, 16],
             z: 0,
         });
-    assert!(validate(&initial.screen).is_err());
+    assert!(initial.screen.validate().is_err());
 }

@@ -8,6 +8,9 @@ mod activity;
 #[cfg(unix)]
 #[path = "terminal/environment.rs"]
 mod environment;
+#[path = "terminal/recovery.rs"]
+#[cfg(unix)]
+mod recovery;
 #[path = "terminal/reopen.rs"]
 mod reopen;
 #[path = "terminal/resize.rs"]

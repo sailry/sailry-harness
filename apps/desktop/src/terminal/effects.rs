@@ -13,7 +13,7 @@ impl View {
         if self.closed() {
             self.message = None;
             self.claim_pending = false;
-            self.resize = None;
+            self.connection.reset_resize();
             self.appearance = None;
             self.composition = Default::default();
             self.keyboard.release_all();
