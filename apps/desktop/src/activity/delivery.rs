@@ -35,60 +35,42 @@ impl Shell {
         if self.activity.pending {
             return;
         }
-        let mut nodes = BTreeMap::<NodeId, Vec<sailry_protocol::NotificationId>>::new();
-        for notice in self.activity.inbox.notices() {
-            if notice.read == remove
-                && let Target::Notification(id) = notice.id.target
-            {
-                nodes.entry(notice.id.node).or_default().push(id);
-            }
-        }
-        if nodes.is_empty() {
+        let batch = self.activity.inbox.prepare(if remove {
+            sailry_client::activity::Change::DismissRead
+        } else {
+            sailry_client::activity::Change::ReadAll
+        });
+        if batch.is_empty() {
             return;
         }
-        let mut requests = Vec::new();
-        let mut unavailable = false;
-        for (node, ids) in nodes {
-            let client = self.live.as_ref().and_then(|live| {
-                live.transport_for(node)
-                    .map(|transport| live.client_for(transport))
-            });
-            if let Some(client) = client {
-                let request = client.prepare(if remove {
-                    Command::DismissReadNotifications { ids }
-                } else {
-                    Command::MarkNotificationsRead { ids }
-                });
-                requests.push((client, request));
-            } else {
-                unavailable = true;
-            }
-        }
+        let clients: BTreeMap<_, _> = batch
+            .nodes()
+            .filter_map(|node| {
+                self.live.as_ref().and_then(|live| {
+                    live.transport_for(node)
+                        .map(|transport| (node, std::sync::Arc::new(live.client_for(transport))))
+                })
+            })
+            .collect();
         self.activity.pending = true;
         let job = cx
             .global::<crate::backend::Services>()
             .runtime
             .spawn(async move {
-                let mut completed = 0;
-                let mut failed = unavailable;
-                let mut unknown = false;
-                for (client, request) in requests {
-                    match client.execute(request).await {
-                        Ok(sailry_protocol::Output::NotificationsUpdated) => completed += 1,
-                        Err(error) => {
-                            failed = true;
-                            unknown |= error.code == sailry_protocol::ErrorCode::OutcomeUnknown;
-                        }
-                        _ => failed = true,
-                    }
-                }
-                (completed, failed, unknown)
+                let report = batch.run(&clients).await;
+                (batch, report)
             });
         cx.spawn_in(window, async move |shell, cx| {
             let result = job.await;
             let _ = shell.update_in(cx, |shell, window, cx| {
                 shell.activity.pending = false;
-                let (completed, failed, unknown) = result.unwrap_or((0, true, true));
+                let (completed, failed, unknown) = match result {
+                    Ok((batch, report)) => {
+                        shell.activity.inbox.complete(&batch, &report);
+                        (report.completed, report.failed(), report.unknown())
+                    }
+                    Err(_) => (0, true, true),
+                };
                 let key = if unknown {
                     "notification_update_unknown"
                 } else if failed && completed > 0 {

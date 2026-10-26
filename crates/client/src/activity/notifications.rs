@@ -5,6 +5,9 @@ use sailry_protocol::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod batch;
+pub use batch::{Batch, Change, Report};
+
 const LIMIT: usize = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -65,6 +68,7 @@ impl Notice {
 pub struct Inbox {
     notices: Vec<Notice>,
     cursors: BTreeMap<(NodeId, bool), u64>,
+    pending: BTreeMap<Change, Vec<sailry_protocol::Request>>,
 }
 
 impl Inbox {

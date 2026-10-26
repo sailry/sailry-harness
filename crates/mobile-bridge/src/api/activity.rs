@@ -43,18 +43,35 @@ impl Controller {
 
     pub async fn mark_notifications_read(&self) -> Result<(), String> {
         self.check()?;
-        let ids: Vec<_> = self
+        let batch = self
             .inbox
             .lock()
             .await
-            .notices()
-            .iter()
-            .filter(|notice| !notice.read)
-            .map(|notice| notice.id)
+            .prepare(sailry_client::activity::Change::ReadAll);
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let peers = self.handle.peers().await.map_err(error)?;
+        let clients = batch
+            .nodes()
+            .filter_map(|node| {
+                peers
+                    .iter()
+                    .find(|address| address.id.as_bytes() == &node.0)
+                    .map(|address| {
+                        (
+                            node,
+                            std::sync::Arc::new(sailry_client::Client::new(
+                                self.handle.remote(address.clone()),
+                            )),
+                        )
+                    })
+            })
             .collect();
-        for id in ids {
-            self.mark_notification_read(serde_json::to_string(&id).map_err(error)?)
-                .await?;
+        let report = batch.run(&clients).await;
+        self.inbox.lock().await.complete(&batch, &report);
+        if let Some(fault) = report.fault() {
+            return Err(error(fault));
         }
         Ok(())
     }

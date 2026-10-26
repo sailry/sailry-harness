@@ -3,7 +3,7 @@ mod notifications;
 #[cfg(test)]
 mod tests;
 pub(crate) use notifications::Feed;
-pub use notifications::{Id, Inbox, Kind, Notice, Target};
+pub use notifications::{Batch, Change, Id, Inbox, Kind, Notice, Report, Target};
 
 use sailry_protocol::{Session, TerminalId, activity::Waiting, conversation::Status};
 
