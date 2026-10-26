@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn reads_head_without_scanning_worktree() {
+async fn head_does_not_scan_worktree() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("repository");
     let repository = Repository::init(&root).unwrap();
