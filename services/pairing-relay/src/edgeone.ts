@@ -2,7 +2,7 @@ import { BlobObjects } from "./blob";
 import { cleanup } from "./cleanup";
 import { generation, TTL_MS } from "./contract";
 import { Exchange } from "./exchange";
-import { handle, json } from "./http";
+import { handle, json, report } from "./http";
 import type { ManagedObjects } from "./objects";
 
 interface Context { request: Request; clientIp?: string }
@@ -29,12 +29,14 @@ export async function serve(context: Context, objects: ManagedObjects): Promise<
     // Unknown routes never cause storage writes or maintenance work.
     if (request.method === "POST" && /^\/v1\/codes(?:\/redeem|\/cancel)?$/.test(url.pathname) && !url.search)
       await cleanup(objects, Date.now());
-    return await handle(request, new Exchange(objects), context.clientIp ?? "unknown");
-  } catch { return json(503, { error: "unavailable" }); }
+    // EdgeOne's Node wrapper shadows `body` with its own parsed value; a copy
+    // restores the standard stream that bounded body reading requires.
+    return await handle(new Request(request), new Exchange(objects), context.clientIp ?? "unknown");
+  } catch (error) { report(error); return json(503, { error: "unavailable" }); }
 }
 
 export default async function onRequest(context: Context): Promise<Response> {
   // Construct in the request scope: deployed SDK credentials are platform-owned.
   try { return await serve(context, new BlobObjects()); }
-  catch { return json(503, { error: "unavailable" }); }
+  catch (error) { report(error); return json(503, { error: "unavailable" }); }
 }

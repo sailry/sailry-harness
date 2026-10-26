@@ -229,4 +229,19 @@ describe("EdgeOne handler", () => {
     for (let index = 0; index < 2; index++) expect((await serve({ request: new Request("https://pair.example/internal/cleanup") }, store)).status).toBe(204);
     expect((await serve({ request: new Request("https://pair.example/unknown") }, store)).status).toBe(404);
   });
+
+  it("reads bodies shadowed by the platform wrapper", async () => {
+    // The deployed Node wrapper preloads a clone and replaces `body` with parsed JSON.
+    const shadowed = async (body: object) => {
+      const request = new Request("https://pair.example/v1/codes", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const parsed: unknown = await request.clone().json();
+      Object.defineProperty(request, "body", { get: () => parsed, configurable: true });
+      return request;
+    };
+    const store = blob();
+    expect((await serve({ request: await shadowed({}), clientIp: "192.0.2.1" }, store)).status).toBe(400);
+    const published = await serve({ request: await shadowed({ request_id: requestId(), ticket: "opaque" }), clientIp: "192.0.2.1" }, store);
+    expect(published.status).toBe(201);
+  });
 });

@@ -18,8 +18,14 @@ export async function handle(request: Request, registry: Exchange, source: strin
     if (error instanceof BodyError) return json(error.status, { error: "invalid_body" });
     if (error instanceof SyntaxError) return json(400, { error: "invalid_json" });
     // Never reflect bodies, tickets or storage diagnostics into an HTTP response.
+    report(error);
     return json(503, { error: "unavailable" });
   }
+}
+
+/** Logs only the failure class and message to the platform's private function log. */
+export function report(error: unknown): void {
+  console.error("pairing request unavailable:", error instanceof Error ? `${error.name}: ${error.message}` : typeof error);
 }
 
 export class BodyError extends Error { constructor(readonly status: number) { super("invalid body"); } }
