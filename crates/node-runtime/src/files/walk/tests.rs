@@ -56,7 +56,7 @@ fn matches_names_without_reading_contents() {
 fn directs_metadata_reads_to_git() {
     let root = directory();
     let error = collect(root.path(), ".git", &control()).err().unwrap();
-    assert_eq!(error.code,ErrorCode::PermissionDenied);
+    assert_eq!(error.code, ErrorCode::PermissionDenied);
     assert!(error.message.contains("Git branches tool"));
     assert!(error.message.contains("remote names and URLs"));
 }

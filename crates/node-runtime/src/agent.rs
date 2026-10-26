@@ -654,7 +654,11 @@ async fn execute_with(
         .append(
             ingress,
             &invocation,
-            if invocation.child.is_some() { "parent" } else { "user" },
+            if invocation.child.is_some() {
+                "parent"
+            } else {
+                "user"
+            },
         )
         .await?;
     let mut runner_span = diagnostics.span(Phase::Runner, None);

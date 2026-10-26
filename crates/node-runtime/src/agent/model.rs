@@ -85,7 +85,12 @@ pub(super) async fn build(
             .message
             .attachments
             .iter()
-            .chain(invocation.followups.iter().flat_map(|input| &input.message.attachments))
+            .chain(
+                invocation
+                    .followups
+                    .iter()
+                    .flat_map(|input| &input.message.attachments),
+            )
             .copied()
             .collect(),
         vision: metadata.is_none_or(|model| model.vision)

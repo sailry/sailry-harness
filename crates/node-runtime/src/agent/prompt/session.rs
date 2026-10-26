@@ -123,7 +123,12 @@ impl Session {
                 .message
                 .references
                 .iter()
-                .chain(invocation.followups.iter().flat_map(|input| &input.message.references))
+                .chain(
+                    invocation
+                        .followups
+                        .iter()
+                        .flat_map(|input| &input.message.references),
+                )
                 .filter_map(|reference| match &reference.target {
                     Target::File(path) => Some(Scope::File(path.clone())),
                     Target::Directory(path) => Some(Scope::Directory(path.clone())),

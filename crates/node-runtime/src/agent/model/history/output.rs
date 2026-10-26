@@ -53,10 +53,10 @@ fn project_with(contents: &mut [Content]) {
         let kind = original.get("kind").and_then(Value::as_str);
         let data = original.get("data").unwrap_or(original);
         let candidate = if original.get("sailry_guide_loaded").is_some_and(|guide| {
-                guide["path"].is_string()
-                    && guide["path"] == data["path"]
-                    && guide["revision"] == data["revision"]
-            }) {
+            guide["path"].is_string()
+                && guide["path"] == data["path"]
+                && guide["revision"] == data["revision"]
+        }) {
             Some(json!({
                 "text":format!("Project guide already loaded: {}. For requested current text, use read_command with output, offset and limit", data["path"].as_str().unwrap()),
                 "path":data["path"], "revision":data["revision"],

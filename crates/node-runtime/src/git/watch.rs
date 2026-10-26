@@ -48,9 +48,7 @@ impl WatchFilter {
     fn refresh(&mut self) -> Result<(), Fault> {
         self.repository = match open(&self.root) {
             Ok(repository) => Some(repository),
-            Err(error)
-                if error.code == ErrorCode::NotFound && !self.root.join(".git").exists() =>
-            {
+            Err(error) if error.code == ErrorCode::NotFound && !self.root.join(".git").exists() => {
                 None
             }
             Err(error) => return Err(error),
@@ -84,7 +82,10 @@ impl WatchFilter {
             if relative.as_os_str().is_empty() {
                 return true;
             }
-            if relative.extension().is_some_and(|extension| extension == "lock") {
+            if relative
+                .extension()
+                .is_some_and(|extension| extension == "lock")
+            {
                 return false;
             }
             matches!(
@@ -115,9 +116,9 @@ impl WatchFilter {
         {
             return true;
         }
-        self.repository.as_ref().is_some_and(|repository| {
-            !repository.status_should_ignore(relative).unwrap_or(false)
-        })
+        self.repository
+            .as_ref()
+            .is_some_and(|repository| !repository.status_should_ignore(relative).unwrap_or(false))
     }
 }
 

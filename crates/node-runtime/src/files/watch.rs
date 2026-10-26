@@ -150,7 +150,9 @@ impl Watches {
                 .map_err(|_| unavailable())?;
             for metadata in crate::git::Git::watch_roots(&root)? {
                 if !metadata.starts_with(&root) {
-                    backend.watch(&metadata, RecursiveMode::Recursive).map_err(|_| unavailable())?;
+                    backend
+                        .watch(&metadata, RecursiveMode::Recursive)
+                        .map_err(|_| unavailable())?;
                 }
             }
             if let Some(git) = &self.1 {
@@ -353,7 +355,13 @@ mod tests {
         let node = NodeId([1; 32]);
         let worktree = WorktreeId::new();
         let mut first = watches
-            .subscribe(root.clone(), node, worktree, false, CancellationToken::new())
+            .subscribe(
+                root.clone(),
+                node,
+                worktree,
+                false,
+                CancellationToken::new(),
+            )
             .unwrap();
         let second = watches
             .subscribe(root.clone(), node, worktree, true, CancellationToken::new())
@@ -443,7 +451,13 @@ mod tests {
         let node = NodeId([1; 32]);
         let worktree = WorktreeId::new();
         let mut events = watches
-            .subscribe(root.clone(), node, worktree, false, CancellationToken::new())
+            .subscribe(
+                root.clone(),
+                node,
+                worktree,
+                false,
+                CancellationToken::new(),
+            )
             .unwrap();
         let active = watches.0.lock().unwrap().roots[&root].upgrade().unwrap();
         events.next().await.unwrap();

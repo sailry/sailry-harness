@@ -335,12 +335,23 @@ fn rejects_invalid_options() {
 #[test]
 fn explains_invalid_patterns() {
     let root = directory();
-    let error = search(root.path(), &FileSearch {
-        regex:true,query:"[".into(),..options()
-    }, &control()).unwrap_err();
-    assert_eq!(error.code,ErrorCode::InvalidRequest);
+    let error = search(
+        root.path(),
+        &FileSearch {
+            regex: true,
+            query: "[".into(),
+            ..options()
+        },
+        &control(),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
     assert!(error.message.contains("invalid file search pattern"));
-    assert!(error.message.contains("unclosed character class"),"{}",error.message);
+    assert!(
+        error.message.contains("unclosed character class"),
+        "{}",
+        error.message
+    );
 }
 
 #[test]
