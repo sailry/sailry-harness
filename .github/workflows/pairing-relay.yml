@@ -1,0 +1,70 @@
+name: Pairing relay
+
+# Deployments are explicit: an existing relay deployment is never replaced implicitly.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: EdgeOne environment
+        type: choice
+        options:
+          - preview
+          - production
+        default: preview
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pairing-relay-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to EdgeOne
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/pairing-relay
+    steps:
+      - name: Check deployment settings
+        working-directory: .
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+        run: |
+          if [ -z "$EDGEONE_API_TOKEN" ]; then
+            echo "::error::Secret EDGEONE_API_TOKEN is not set"
+            exit 1
+          fi
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '22.22.1'
+      - name: Install pnpm
+        run: npm install --global pnpm@10.31.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test
+        run: pnpm test
+      - name: Bundle EdgeOne handler
+        run: pnpm build:edgeone
+      # Without a directory argument the CLI builds this project (edgeone.json
+      # install/build commands, cloud-functions and schedules) into .edgeone and
+      # uploads that output. Passing a directory would upload it unbuilt.
+      - name: Deploy
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+          EDGEONE_RELAY_PROJECT: ${{ vars.EDGEONE_RELAY_PROJECT || 'sailry-pairing-relay' }}
+          DEPLOY_ENV: ${{ inputs.environment }}
+        run: >-
+          pnpm dlx edgeone@1.6.46 makers deploy
+          --name "$EDGEONE_RELAY_PROJECT"
+          --token "$EDGEONE_API_TOKEN"
+          --env "$DEPLOY_ENV"
+          --area global
+          --skip-ai-gateway-sync

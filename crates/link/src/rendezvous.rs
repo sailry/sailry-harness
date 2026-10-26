@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{EndpointAddr, Invitation, LinkHandle};
 
-pub const DEFAULT_SERVICE: &str = "https://link.sailry.dev";
+pub const DEFAULT_SERVICE: &str = "https://sailry.link.dux.plus";
 
 const MAX_RESPONSE: usize = 12 * 1024;
 

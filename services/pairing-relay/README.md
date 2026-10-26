@@ -120,9 +120,39 @@ service; system-wide installation and other platforms require separate acceptanc
 
 ## Cloudflare and EdgeOne
 
+EdgeOne Pages is the primary deployment at `https://sailry.link.dux.plus`, the
+client default (`sailry_link::rendezvous::DEFAULT_SERVICE`). The domain is
+ICP-filed, so the project uses the global acceleration area, which includes
+mainland China. Cloudflare at `link.sailry.dev` remains for older clients until
+it is retired. The two relays have separate storage: a PIN published on one
+cannot be redeemed on the other, so both devices must use the same relay, which
+in practice means compatible client versions or the same explicit service URL.
+
 Cloudflare: `wrangler.toml` provisions the `PairingCodes` SQLite Durable Object
 binding when explicitly deployed. Development namespaces use the current v1
 contract. Do not replace an existing deployment or convert its data implicitly.
+
+EdgeOne deploys only through the manual `Pairing relay` workflow
+(`.github/workflows/pairing-relay.yml`), which defaults to the preview
+environment. It runs typecheck, tests and the bundle check, then
+`edgeone makers deploy` from this directory without a path argument. The CLI
+then builds the project locally into `.edgeone`, including `cloud-functions`
+and the `edgeone.json` schedule, and uploads that output. Configure the
+repository secret `EDGEONE_API_TOKEN` and optionally the variable
+`EDGEONE_RELAY_PROJECT` (default `sailry-pairing-relay`). Console prerequisites:
+
+1. Create an API token in the EdgeOne Pages console. The CLI creates the project
+   on first deploy; an existing project must be a direct-upload project.
+2. Blob storage needs no binding. The SDK creates the `sailry-pairing-v1`
+   namespace on first use; the console shows it read-only after a request.
+3. Add the custom domain `sailry.link.dux.plus` to the project, then create the
+   CNAME record EdgeOne provides in DNSPod for `dux.plus` (plus any ownership
+   TXT record it requests).
+4. Enable an HTTPS certificate for the domain (EdgeOne free certificate or an
+   uploaded one) and confirm `https://sailry.link.dux.plus/healthz` returns
+   `{"ok":true}` before promoting a production deployment.
+5. Confirm the `expire-pairing-codes` schedule appears in the project after
+   deployment.
 
 Both targets run `src/exchange.ts`, using native storage only: Durable Object/
 SQLite on Cloudflare and Blob on EdgeOne. No Redis, external database or

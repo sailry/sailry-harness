@@ -5,6 +5,6 @@
   "outputDirectory": "public",
   "cloudFunctions": { "nodejs": { "maxDuration": 60 } },
   "schedules": [
-    { "name": "expire-pairing-codes", "cron": "* * * * *", "path": "/internal/cleanup" }
+    { "name": "expire-pairing-codes", "cron": "* * * * *", "method": "GET", "path": "/internal/cleanup" }
   ]
 }
