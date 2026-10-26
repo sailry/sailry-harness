@@ -39,7 +39,19 @@ async fn retains_foreground_streams_and_canonical_results() {
         }))],gate.clone()).await;
         let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         planning::configure(&mut fixture, WorkMode::Code).await;
-        let turn = approvals::submit(&fixture.client, fixture.session.id).await;
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "Write the requested file".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        let turn = turn.id;
         let projected = projected(&server).await;
         assert!(
             projected["data"]["stdout"]["text"]

@@ -99,6 +99,9 @@ async fn invalidates_pricing_and_metadata() {
         .await
         .unwrap();
     assert_eq!(database.usage.scans.load(Ordering::Relaxed), 2);
+    let transaction = crate::store::database::conflict::begin(&database.connection)
+        .await
+        .unwrap();
     crate::store::database::record(
         &database.connection,
         database.node,
@@ -106,6 +109,9 @@ async fn invalidates_pricing_and_metadata() {
     )
     .await
     .unwrap();
+    crate::store::database::conflict::commit(transaction)
+        .await
+        .unwrap();
     database
         .usage
         .read(&database.connection, database.node, &query())

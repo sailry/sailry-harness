@@ -76,7 +76,12 @@ async fn finalizes_terminal_and_cancelled_streams() {
                     Status::Completed
                 }
             );
-            assert!(page.entries.iter().all(|entry| !entry.parts.is_empty()));
+            assert!(
+                page.entries
+                    .iter()
+                    .filter(|entry| !is_context(entry))
+                    .all(|entry| !entry.parts.is_empty())
+            );
             let stats = statistics(&client, session.id).await;
             let observations = &stats.observations;
             assert_eq!(observations.calls, 1);
@@ -120,6 +125,7 @@ async fn finalizes_terminal_and_cancelled_streams() {
                             .page
                             .entries
                             .iter()
+                            .filter(|entry| !is_context(entry))
                             .all(|entry| !entry.parts.is_empty())
                     );
                     assert_eq!(snapshot.statistics.observations, *observations);

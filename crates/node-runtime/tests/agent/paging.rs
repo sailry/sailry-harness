@@ -257,7 +257,24 @@ async fn restore_stream(remote: bool) {
     assert_eq!(raw.page.entries.len(), 100);
     let complete = client.read_conversation(session.id, None, 1).await.unwrap();
     assert!(complete.missing.is_empty());
-    assert_eq!(complete.page.entries.len(), 155);
+    assert_eq!(
+        complete
+            .page
+            .entries
+            .iter()
+            .filter(|entry| !is_context(entry))
+            .count(),
+        155
+    );
+    assert_eq!(
+        complete
+            .page
+            .entries
+            .iter()
+            .filter(|entry| is_context(entry))
+            .count(),
+        1
+    );
     assert_eq!(
         complete.page.questions,
         [question::Question {
@@ -291,7 +308,15 @@ async fn restore_stream(remote: bool) {
     super::observed(&mut initial, |view| {
         if let Some(snapshot) = &view.snapshot {
             assert!(snapshot.missing.is_empty());
-            assert_eq!(snapshot.page.entries.len(), 155);
+            assert_eq!(
+                snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .filter(|entry| !is_context(entry))
+                    .count(),
+                155
+            );
         }
         view.connected
     })
@@ -372,7 +397,14 @@ async fn restore_stream(remote: bool) {
     let all = view.borrow().snapshot.clone().unwrap();
     assert!(all.missing.is_empty());
     assert_eq!(all.page.runs.len(), 26);
-    assert_eq!(all.page.entries.len(), 205);
+    assert_eq!(
+        all.page
+            .entries
+            .iter()
+            .filter(|entry| !is_context(entry))
+            .count(),
+        205
+    );
     assert_totals(&all.statistics, 26, 77);
     assert_eq!(all.page.questions, complete.page.questions);
     assert_eq!(view.borrow().calls.len(), 51);
@@ -397,7 +429,14 @@ async fn restore_stream(remote: bool) {
     let all = view.borrow().snapshot.clone().unwrap();
     assert!(all.missing.is_empty());
     assert_eq!(all.page.next_before, None);
-    assert_eq!(all.page.entries.len(), 207);
+    assert_eq!(
+        all.page
+            .entries
+            .iter()
+            .filter(|entry| !is_context(entry))
+            .count(),
+        207
+    );
     assert_totals(&all.statistics, 27, 78);
     assert_eq!(
         all.page.as_ref(),

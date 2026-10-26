@@ -161,7 +161,8 @@ async fn omits_unchanged_cli_index_paths() {
             )],
         )
         .await;
-        let scope = &created[0];
+        let captured = captured(&fixture, created[0].clone()).await;
+        let scope = &captured;
         success(scope);
         let paths: BTreeSet<_> = scope["files"]
             .as_array()
@@ -298,7 +299,8 @@ async fn covers_the_full_filtered_scope() {
             )],
         )
         .await;
-        let scope = &created[0];
+        let captured = captured(&fixture, created[0].clone()).await;
+        let scope = &captured;
         success(scope);
         let files: BTreeSet<_> = scope["files"]
             .as_array()

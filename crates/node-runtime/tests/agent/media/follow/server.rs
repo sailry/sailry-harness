@@ -131,6 +131,14 @@ async fn respond(
         }
     };
     let header = std::str::from_utf8(&bytes[..end]).unwrap();
+    if header.starts_with("GET ") {
+        stream
+            .write_all(
+                b"HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .await?;
+        return stream.shutdown().await;
+    }
     let path = header
         .lines()
         .next()

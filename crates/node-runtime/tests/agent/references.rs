@@ -111,7 +111,7 @@ async fn reads_history_with_and_without_mentions() {
             ("read_session".into(), json!({"session":source.id,"limit":1})),
             ("read_session".into(), json!({"session":source.id,"before":second,"revision":page.revision,"limit":1})),
             ("read_session".into(), json!({"session":source.id,"turn":first,"revision":page.revision,"limit":1})),
-            ("read_session".into(), json!({"session":source.id,"turn":first,"revision":page.revision,"before_entry":cursor,"limit":1})),
+            ("read_session".into(), json!({"session":source.id,"turn":first,"revision":page.revision,"before_entry":cursor,"limit":2})),
             ("read_session".into(), json!({"session":source.id,"limit":100_000})),
             ("search_session".into(), json!({"session":source.id,"text":"shared editor"})),
             ("read_session".into(), json!({"session":forbidden})),
@@ -212,7 +212,14 @@ async fn reads_history_with_and_without_mentions() {
         assert_eq!(results[6]["matches"].as_array().unwrap().len(), 1);
         assert_eq!(results[6]["matches"][0]["turn"], first.to_string());
         assert_eq!(results[7]["error"]["code"], "not_found");
-        assert_eq!(view.calls[7].result(&captured), Some(&results[7]));
+        let detail = client
+            .tool_detail(view.calls[7].detail_reference(&captured).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            view.calls[7].with_detail(detail).result(&captured),
+            Some(&results[7])
+        );
         {
             let requests = reader.requests.lock().unwrap();
             assert_eq!(requests.len(), 9);

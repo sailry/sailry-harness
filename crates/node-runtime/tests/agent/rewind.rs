@@ -83,7 +83,14 @@ async fn recovers_subscribers_after_rewind() {
             .unwrap()
             .page;
         assert_eq!(before.runs.len(), 24);
-        assert_eq!(before.entries.len(), 51);
+        assert_eq!(
+            before
+                .entries
+                .iter()
+                .filter(|entry| !is_context(entry))
+                .count(),
+            51
+        );
         assert_eq!(before.approvals.len(), 1);
         let Output::Session(branch) = client
             .execute(client.prepare(Command::ForkConversation {
@@ -156,7 +163,15 @@ async fn recovers_subscribers_after_rewind() {
         .await;
         let restored = view.borrow().snapshot.clone().unwrap();
         assert_eq!(restored.page.runs.len(), 1);
-        assert_eq!(restored.page.entries, before.entries[..5]);
+        assert_eq!(
+            restored.page.entries,
+            before
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == first)
+                .cloned()
+                .collect::<Vec<_>>()
+        );
         assert_eq!(restored.page.approvals, before.approvals);
         assert!(restored.missing.is_empty());
         assert_eq!(view.borrow().calls.len(), 1);
@@ -280,7 +295,14 @@ async fn recovers_subscribers_after_rewind() {
         let resumed = history(&other, session.id).await;
         assert_eq!(resumed.runs.len(), 2);
         assert_eq!(resumed.revision, 2);
-        assert_eq!(resumed.entries.len(), 7);
+        assert_eq!(
+            resumed
+                .entries
+                .iter()
+                .filter(|entry| !is_context(entry))
+                .count(),
+            7
+        );
         assert_eq!(*view.borrow().snapshot.as_ref().unwrap().page, resumed);
         let body = server.requests.lock().unwrap().last().unwrap().clone();
         let contents: Vec<_> = body["messages"]

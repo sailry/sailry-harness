@@ -161,8 +161,16 @@ async fn preserves_valid_updates() {
         assert!(
             view.calls[1..3]
                 .iter()
-                .all(|call| call.progress.is_none() && call.result(&page).is_some())
+                .all(|call| call.progress.is_none() && call.response.is_some())
         );
+        for call in &view.calls[1..3] {
+            let detail = fixture
+                .client
+                .tool_detail(call.detail_reference(&page).unwrap())
+                .await
+                .unwrap();
+            assert!(call.with_detail(detail).result(&page).is_some());
+        }
         assert_eq!(server.requests.lock().unwrap().len(), 5);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

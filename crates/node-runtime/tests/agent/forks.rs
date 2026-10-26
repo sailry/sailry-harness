@@ -106,7 +106,14 @@ async fn resumes_without_tool_replay() {
             .unwrap();
         let original = finished(&client, session.id, first).await;
         assert_eq!(original.runs[0].status, Status::Completed);
-        assert_eq!(original.entries.len(), 8);
+        assert_eq!(
+            original
+                .entries
+                .iter()
+                .filter(|entry| !is_context(entry))
+                .count(),
+            8
+        );
         assert_eq!(original.approvals.len(), 1);
         assert_eq!(original.approvals[0].state, ApprovalState::Approved);
         assert_eq!(original.questions.len(), 1);
@@ -209,7 +216,14 @@ async fn resumes_without_tool_replay() {
         assert_eq!(branched.runs.len(), 2);
         assert_eq!(branched.runs.last().unwrap().status, Status::Completed);
         assert_eq!(branched.runs.last().unwrap().origin, None);
-        assert_eq!(branched.entries.len(), 10);
+        assert_eq!(
+            branched
+                .entries
+                .iter()
+                .filter(|entry| !is_context(entry))
+                .count(),
+            10
+        );
         assert_eq!(server.requests.lock().unwrap().len(), 4);
         let body = server.requests.lock().unwrap().last().unwrap().clone();
         let contents: Vec<_> = body["messages"]

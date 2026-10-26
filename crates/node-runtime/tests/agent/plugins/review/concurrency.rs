@@ -42,7 +42,20 @@ async fn roles(fixture: &mut Fixture, servers: &[(&str, &Server)]) -> Vec<role::
             }),
             max_turns: Some(5),
             skills: vec![],
-            tools: None,
+            tools: Some(
+                [
+                    "review_scope",
+                    "read_review_change",
+                    "report_finding",
+                    "review_complete",
+                ]
+                .into_iter()
+                .map(|name| plugin::conversation::Tool::Package {
+                    package: PACKAGE.into(),
+                    name: name.into(),
+                })
+                .collect(),
+            ),
             instructions: "Report the requested review evidence".into(),
         };
         let Output::Role(role) = execute(

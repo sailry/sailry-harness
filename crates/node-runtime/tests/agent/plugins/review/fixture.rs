@@ -100,8 +100,24 @@ pub(super) fn failure(result: &Value, code: &str) {
 
 pub(super) async fn scope(fixture: &Fixture, target: Value) -> Value {
     let result = call(fixture, "review_scope", json!({"target":target})).await;
+    captured(fixture, result).await
+}
+
+pub(super) async fn captured(fixture: &Fixture, mut result: Value) -> Value {
     success(&result);
-    result
+    for _ in 0..100 {
+        if result["status"] != "capturing" {
+            return result;
+        }
+        result = call(
+            fixture,
+            "review_scope",
+            json!({"review_id":result["review_id"]}),
+        )
+        .await;
+        success(&result);
+    }
+    panic!("review capture did not finish: {result}");
 }
 
 pub(super) fn write(root: &Path, path: &str, text: impl AsRef<[u8]>) {

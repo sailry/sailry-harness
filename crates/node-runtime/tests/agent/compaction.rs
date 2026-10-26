@@ -72,7 +72,12 @@ async fn incorporates_previous_summaries() {
             assert_eq!(
                 page.entries
                     .iter()
-                    .filter(|entry| entry.author == "system")
+                    .filter(|entry| {
+                        entry
+                            .parts
+                            .iter()
+                            .any(|part| matches!(part, Part::Compaction(_)))
+                    })
                     .count(),
                 index.saturating_sub(2)
             );
