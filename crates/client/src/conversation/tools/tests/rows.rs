@@ -212,7 +212,7 @@ fn uses_captured_child_titles_and_role_names() {
     let mut page = page();
     let mut child = sailry_protocol::conversation::Child {
         run: page.runs[0].clone(),
-        origin: sailry_protocol::conversation::Delegation {
+        origin: sailry_protocol::Delegation {
             session: page.session,
             turn: page.runs[0].turn,
             entry: page.entries[0].id.clone(),
