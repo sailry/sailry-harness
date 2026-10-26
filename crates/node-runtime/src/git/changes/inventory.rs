@@ -1,6 +1,8 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use cap_std::fs::Metadata;
@@ -12,6 +14,64 @@ use super::{hash, stale};
 use crate::git::{Control, fault, index, io_error, path, valid_path};
 
 const MAX_SCAN_ENTRIES: usize = 100_000;
+const CACHE_IDLE: Duration = Duration::from_secs(5);
+const CACHE_ENTRIES: usize = 8;
+
+#[derive(Default)]
+pub(crate) struct Cache {
+    entries: Mutex<VecDeque<Cached>>,
+    #[cfg(test)]
+    pub(super) scans: std::sync::atomic::AtomicUsize,
+}
+
+struct Cached {
+    root: PathBuf,
+    capture: Arc<Capture>,
+    expires: Instant,
+}
+
+impl Cache {
+    fn get(&self, root: &Path, snapshot: &GitChangeSnapshot) -> Option<Arc<Capture>> {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let now = Instant::now();
+        entries.retain(|entry| entry.expires > now);
+        let position = entries
+            .iter()
+            .position(|entry| entry.root == root && entry.capture.snapshot == *snapshot)?;
+        let mut entry = entries.remove(position)?;
+        entry.expires = now + CACHE_IDLE;
+        let capture = entry.capture.clone();
+        entries.push_back(entry);
+        Some(capture)
+    }
+
+    fn save(&self, root: &Path, capture: Capture) -> Arc<Capture> {
+        #[cfg(test)]
+        self.scans
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let capture = Arc::new(capture);
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        entries.retain(|entry| {
+            entry.expires > Instant::now()
+                && (entry.root != root || entry.capture.snapshot != capture.snapshot)
+        });
+        while entries.len() >= CACHE_ENTRIES {
+            entries.pop_front();
+        }
+        entries.push_back(Cached {
+            root: root.to_owned(),
+            capture: capture.clone(),
+            expires: Instant::now() + CACHE_IDLE,
+        });
+        capture
+    }
+}
 
 pub(super) struct Capture {
     pub snapshot: GitChangeSnapshot,
@@ -192,7 +252,8 @@ pub(super) fn start(
     repository: &Repository,
     target: GitChangeTarget,
     control: &Control,
-) -> Result<Capture, Fault> {
+    cache: &Cache,
+) -> Result<Arc<Capture>, Fault> {
     let target = match target {
         GitChangeTarget::Worktree { scope } => GitChangeState::Worktree {
             scope,
@@ -212,7 +273,7 @@ pub(super) fn start(
             head: resolve(repository, &head)?.id().to_string(),
         },
     };
-    capture(root, repository, target, control)
+    capture(root, repository, target, control).map(|capture| cache.save(root, capture))
 }
 
 pub(super) fn restore(
@@ -220,13 +281,64 @@ pub(super) fn restore(
     repository: &Repository,
     snapshot: &GitChangeSnapshot,
     control: &Control,
-) -> Result<Capture, Fault> {
+    cache: &Cache,
+    full: bool,
+) -> Result<Arc<Capture>, Fault> {
     super::digest(&snapshot.metadata_revision)?;
+    validate_target(repository, snapshot, control)?;
+    if !full && let Some(capture) = cache.get(root, snapshot) {
+        return Ok(capture);
+    }
     let capture = capture(root, repository, snapshot.target.clone(), control)?;
     if capture.snapshot != *snapshot {
         return Err(stale());
     }
-    Ok(capture)
+    validate_target(repository, snapshot, control)?;
+    Ok(cache.save(root, capture))
+}
+
+fn validate_target(
+    repository: &Repository,
+    snapshot: &GitChangeSnapshot,
+    control: &Control,
+) -> Result<(), Fault> {
+    control.check()?;
+    let GitChangeState::Worktree {
+        head: expected_head,
+        index_revision,
+        ..
+    } = &snapshot.target
+    else {
+        return Ok(());
+    };
+    if head(repository)? != *expected_head || index::revision(repository)? != *index_revision {
+        return Err(stale());
+    }
+    Ok(())
+}
+
+pub(super) fn validate(
+    root: &Path,
+    repository: &Repository,
+    snapshot: &GitChangeSnapshot,
+    candidate: &Candidate,
+    control: &Control,
+) -> Result<(), Fault> {
+    validate_target(repository, snapshot, control)?;
+    let GitChangeState::Worktree { scope, .. } = &snapshot.target else {
+        return Ok(());
+    };
+    if *scope != GitDiffScope::Staged {
+        let expected = match &candidate.new {
+            Some(Resource::Working(stamp)) => Some(stamp),
+            None => None,
+            _ => return Err(stale()),
+        };
+        if stamp(root, &candidate.entry.path)?.as_ref() != expected {
+            return Err(stale());
+        }
+    }
+    Ok(())
 }
 
 fn capture(

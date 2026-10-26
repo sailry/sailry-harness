@@ -9,6 +9,36 @@ struct Capture(Arc<Mutex<Vec<serde_json::Value>>>);
 #[derive(Default)]
 struct Fields(serde_json::Map<String, serde_json::Value>);
 
+#[test]
+fn expires_read_waits_without_uncertain_effects() {
+    let request = RequestId::new();
+    let read = Command::ReadGitChange {
+        worktree: WorktreeId::new(),
+        snapshot: GitChangeSnapshot {
+            target: GitChangeState::Worktree {
+                scope: GitDiffScope::All,
+                head: None,
+                index_revision: "a".repeat(64),
+            },
+            metadata_revision: "b".repeat(64),
+        },
+        path: "file.rs".into(),
+        expected_metadata_revision: "c".repeat(64),
+        expected_revision: None,
+        offset: 0,
+        limit: 500,
+    };
+    assert!(!read.durable());
+    assert_eq!(
+        interrupted(read.durable(), request, true).code,
+        ErrorCode::Expired
+    );
+    assert_eq!(
+        interrupted(true, request, true).code,
+        ErrorCode::OutcomeUnknown
+    );
+}
+
 impl Visit for Fields {
     fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {

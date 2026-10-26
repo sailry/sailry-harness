@@ -7,6 +7,7 @@ use super::{Control, open};
 
 mod contents;
 mod inventory;
+pub(super) use inventory::Cache;
 #[cfg(test)]
 mod tests;
 
@@ -22,13 +23,25 @@ pub(super) fn list(
     cursor: Option<GitChangesCursor>,
     limit: usize,
     control: &Control,
+    cache: &Cache,
 ) -> Result<GitChanges, Fault> {
     validate_page(0, limit)?;
     let repository = open(root)?;
     let (capture, after) = match (target, cursor) {
-        (Some(target), None) => (inventory::start(root, &repository, target, control)?, None),
+        (Some(target), None) => (
+            inventory::start(root, &repository, target, control, cache)?,
+            None,
+        ),
         (None, Some(cursor)) => {
-            let capture = inventory::restore(root, &repository, &cursor.snapshot, control)?;
+            // A cursor without a path is the explicit final inventory verification.
+            let capture = inventory::restore(
+                root,
+                &repository,
+                &cursor.snapshot,
+                control,
+                cache,
+                cursor.after_path.is_none(),
+            )?;
             if let Some(path) = &cursor.after_path {
                 super::valid_path(path)?;
                 if !capture.entries.contains_key(path) {
@@ -100,6 +113,7 @@ pub(super) fn read(
     expected_metadata: &str,
     mut page: Page<'_>,
     control: &Control,
+    cache: &Cache,
 ) -> Result<GitChange, Fault> {
     validate_page(page.offset, page.limit)?;
     page.limit = page.limit.min(MAX_GIT_LINES);
@@ -114,7 +128,7 @@ pub(super) fn read(
         ));
     }
     let repository = open(root)?;
-    let capture = inventory::restore(root, &repository, &snapshot, control)?;
+    let capture = inventory::restore(root, &repository, &snapshot, control, cache, false)?;
     let candidate = capture
         .entries
         .get(path)
@@ -122,9 +136,9 @@ pub(super) fn read(
     if candidate.entry.metadata_revision != expected_metadata {
         return Err(stale());
     }
+    inventory::validate(root, &repository, &snapshot, candidate, control)?;
     let result = contents::read(root, &repository, &snapshot, candidate, page, control)?;
-    // Detect branch, index, or stat changes during the saved-buffer read and diff.
-    inventory::restore(root, &repository, &snapshot, control)?;
+    inventory::validate(root, &repository, &snapshot, candidate, control)?;
     Ok(result)
 }
 
@@ -136,6 +150,7 @@ pub(super) fn context(
     side: GitContextSide,
     page: Page<'_>,
     control: &Control,
+    cache: &Cache,
 ) -> Result<GitContext, Fault> {
     validate_page(page.offset, page.limit)?;
     super::valid_path(path)?;
@@ -145,7 +160,7 @@ pub(super) fn context(
             .ok_or_else(|| Fault::invalid("Git context requires the content revision"))?,
     )?;
     let repository = open(root)?;
-    let capture = inventory::restore(root, &repository, &snapshot, control)?;
+    let capture = inventory::restore(root, &repository, &snapshot, control, cache, false)?;
     let candidate = capture
         .entries
         .get(path)
@@ -153,8 +168,9 @@ pub(super) fn context(
     if candidate.entry.metadata_revision != expected_metadata {
         return Err(stale());
     }
+    inventory::validate(root, &repository, &snapshot, candidate, control)?;
     let result = contents::context(root, &repository, &snapshot, candidate, side, page, control)?;
-    inventory::restore(root, &repository, &snapshot, control)?;
+    inventory::validate(root, &repository, &snapshot, candidate, control)?;
     Ok(result)
 }
 

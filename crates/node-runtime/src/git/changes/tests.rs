@@ -10,6 +10,7 @@ struct Fixture {
     directory: tempfile::TempDir,
     repository: Repository,
     control: Control,
+    cache: Cache,
 }
 
 impl Fixture {
@@ -23,6 +24,7 @@ impl Fixture {
                 cancelled: sailry_link::CancellationToken::new(),
                 deadline: Instant::now() + Duration::from_secs(30),
             },
+            cache: Cache::default(),
         }
     }
 
@@ -103,6 +105,7 @@ impl Fixture {
             None,
             limit,
             &self.control,
+            &self.cache,
         )
         .unwrap()
     }
@@ -132,6 +135,7 @@ impl Fixture {
                 limit,
             },
             &self.control,
+            &self.cache,
         )
     }
 }
@@ -148,6 +152,7 @@ fn resolves_long_revision_expressions() {
         None,
         1,
         &fixture.control,
+        &fixture.cache,
     )
     .unwrap();
     let GitChangeState::Commit { revision, .. } = result.snapshot.target else {
@@ -180,6 +185,7 @@ fn enumerates_every_page_without_bodies() {
             Some(cursor),
             1_000_000,
             &fixture.control,
+            &fixture.cache,
         )
         .unwrap();
     }
@@ -201,6 +207,7 @@ fn freezes_commit_and_first_parent() {
         None,
         10,
         &fixture.control,
+        &fixture.cache,
     )
     .unwrap();
     assert_eq!(
@@ -221,6 +228,7 @@ fn freezes_commit_and_first_parent() {
         }),
         10,
         &fixture.control,
+        &fixture.cache,
     )
     .unwrap();
     assert_eq!(repeated, scope);
@@ -237,6 +245,7 @@ fn freezes_commit_and_first_parent() {
         None,
         10,
         &fixture.control,
+        &fixture.cache,
     )
     .unwrap();
     assert_eq!(
@@ -290,7 +299,8 @@ fn preserves_literal_paths_and_line_mapping() {
                     offset: 0,
                     limit: 100
                 },
-                &fixture.control
+                &fixture.control,
+                &fixture.cache,
             )
             .is_err()
         );
@@ -361,6 +371,7 @@ fn rejects_same_stat_content_changes() {
         }),
         500,
         &fixture.control,
+        &fixture.cache,
     )
     .unwrap();
     assert_eq!(repeated.snapshot, scope.snapshot);
@@ -381,6 +392,24 @@ fn rejects_changed_working_metadata_and_index() {
     fixture.write("file.rs", "after\n");
     let scope = fixture.working(500);
     fixture.write("another.rs", "new\n");
+    assert!(fixture.read(&scope, "file.rs", None, 0, 500).is_ok());
+    assert_eq!(
+        list(
+            &fixture.root(),
+            None,
+            Some(GitChangesCursor {
+                snapshot: scope.snapshot.clone(),
+                after_path: None
+            }),
+            500,
+            &fixture.control,
+            &fixture.cache,
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::RevisionConflict
+    );
+    fixture.write("file.rs", "changed target\n");
     assert_eq!(
         fixture
             .read(&scope, "file.rs", None, 0, 500)
@@ -399,6 +428,87 @@ fn rejects_changed_working_metadata_and_index() {
             .code,
         ErrorCode::RevisionConflict
     );
+    let scope = fixture.working(500);
+    fixture.commit();
+    assert_eq!(
+        fixture
+            .read(&scope, "file.rs", None, 0, 500)
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+}
+
+#[test]
+fn reuses_inventory_for_content_pages() {
+    use std::sync::atomic::Ordering;
+    let fixture = Fixture::new();
+    fixture.write("file.rs", "one\ntwo\nthree\n");
+    let scope = fixture.working(1);
+    let first = fixture.read(&scope, "file.rs", None, 0, 1).unwrap();
+    fixture
+        .read(&scope, "file.rs", Some(&first.revision), 1, 1)
+        .unwrap();
+    context(
+        &fixture.root(),
+        scope.snapshot.clone(),
+        "file.rs",
+        &scope.entries[0].metadata_revision,
+        GitContextSide::New,
+        Page {
+            expected_revision: Some(&first.revision),
+            offset: 1,
+            limit: 1,
+        },
+        &fixture.control,
+        &fixture.cache,
+    )
+    .unwrap();
+    assert_eq!(fixture.cache.scans.load(Ordering::Relaxed), 1);
+    list(
+        &fixture.root(),
+        None,
+        Some(GitChangesCursor {
+            snapshot: scope.snapshot.clone(),
+            after_path: None,
+        }),
+        500,
+        &fixture.control,
+        &fixture.cache,
+    )
+    .unwrap();
+    assert_eq!(fixture.cache.scans.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn checks_cached_inventory_target() {
+    for commit in [false, true] {
+        let fixture = Fixture::new();
+        fixture.write("first.rs", "first\n");
+        fixture.write("second.rs", "second\n");
+        let scope = fixture.working(1);
+        let cursor = scope.next.unwrap();
+        if commit {
+            fixture.commit();
+        } else {
+            let mut index = fixture.repository.index().unwrap();
+            index.add_path(Path::new("first.rs")).unwrap();
+            index.write().unwrap();
+        }
+        assert_eq!(
+            list(
+                &fixture.root(),
+                None,
+                Some(cursor),
+                1,
+                &fixture.control,
+                &fixture.cache,
+            )
+            .unwrap_err()
+            .code,
+            ErrorCode::RevisionConflict
+        );
+    }
 }
 
 #[cfg(unix)]
@@ -461,6 +571,7 @@ fn excludes_unchanged_index_entries_from_both_writers() {
                 }),
                 500,
                 &fixture.control,
+                &fixture.cache,
             )
             .unwrap_err()
             .code,
@@ -526,7 +637,8 @@ fn discovers_restored_mtime_changes() {
                 after_path: None,
             }),
             500,
-            &fixture.control
+            &fixture.control,
+            &fixture.cache,
         )
         .unwrap_err()
         .code,
@@ -607,6 +719,7 @@ fn separates_index_and_working_sides() {
             None,
             500,
             &fixture.control,
+            &fixture.cache,
         )
         .unwrap();
         let content = fixture.read(&inventory, "file.rs", None, 0, 500).unwrap();
@@ -654,6 +767,7 @@ fn marks_unsupported_paths_as_incomplete() {
         None,
         500,
         &fixture.control,
+        &fixture.cache,
     )
     .unwrap();
     assert!(inventory.entries.is_empty());

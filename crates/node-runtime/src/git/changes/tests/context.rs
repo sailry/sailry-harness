@@ -24,6 +24,7 @@ fn page(
             limit: 1,
         },
         &fixture.control,
+        &fixture.cache,
     )
 }
 
@@ -50,6 +51,7 @@ fn preserves_index_sides_and_line_endings() {
             None,
             100,
             &fixture.control,
+            &fixture.cache,
         )
         .unwrap();
         let diff = fixture.read(&scope, "file.txt", None, 0, 100).unwrap();
@@ -109,6 +111,8 @@ fn keeps_live_guards_and_explicit_skips() {
     let scope = fixture.working(100);
     let diff = fixture.read(&scope, "file.txt", None, 0, 100).unwrap();
     fixture.write("other.txt", "concurrent change");
+    assert!(page(&fixture, &scope, &diff.revision, GitContextSide::New, 0).is_ok());
+    fixture.write("file.txt", "changed target\n");
     assert_eq!(
         page(&fixture, &scope, &diff.revision, GitContextSide::New, 0)
             .unwrap_err()

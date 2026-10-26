@@ -9,8 +9,8 @@ mod cli;
 pub(crate) mod commit;
 pub(crate) mod credentials;
 mod diff;
-mod history;
 mod head;
+mod history;
 mod ignore;
 pub(crate) mod index;
 mod inspection;
@@ -18,6 +18,7 @@ mod management;
 pub(crate) mod merge;
 mod output;
 mod revision;
+mod scans;
 mod status;
 mod watch;
 pub(crate) mod worktrees;
@@ -65,6 +66,8 @@ pub(crate) struct Git {
     output: output::Journal,
     environment: Arc<crate::process::Environment>,
     statuses: Arc<Mutex<BTreeMap<PathBuf, StatusSlot>>>,
+    changes: Arc<changes::Cache>,
+    scans: Arc<scans::Scans>,
 }
 
 impl Git {
@@ -73,6 +76,8 @@ impl Git {
             output: Default::default(),
             environment,
             statuses: Default::default(),
+            changes: Default::default(),
+            scans: Default::default(),
         }
     }
 
@@ -241,17 +246,39 @@ impl Git {
     ) -> Result<(Output, path::identity::Identity), Fault> {
         let output = self.output.clone();
         let environment = self.environment.clone();
+        let captures = self.changes.clone();
         let deadline = if matches!(command, Command::ListGitRemoteTags { .. }) {
             Duration::from_secs(125)
         } else {
             Duration::from_secs(5)
         };
+        let expires = Instant::now() + deadline;
+        let permit = if matches!(
+            &command,
+            Command::InspectGit { .. }
+                | Command::ListGitChanges { .. }
+                | Command::ReadGitChange { .. }
+                | Command::ReadGitContext { .. }
+        ) {
+            let gate = self.scans.root(&root);
+            Some(tokio::select! {
+                biased;
+                _ = closed.cancelled() => return Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
+                permit = tokio::time::timeout_at(expires.into(), gate.acquire_owned()) =>
+                    permit.map_err(|_| Fault::new(ErrorCode::Busy, "Git read deadline exceeded"))?
+                        .map_err(|_| Fault::new(ErrorCode::Unavailable, "Git inspection is unavailable"))?,
+            })
+        } else {
+            None
+        };
         let cancelled = closed.child_token();
         let _guard = cancelled.clone().drop_guard();
         let worker = tokio::task::spawn_blocking(move || {
+            // A timed-out observer cannot release an executing libgit2 scan.
+            let _permit = permit;
             let control = Control {
                 cancelled,
-                deadline: Instant::now() + deadline,
+                deadline: expires,
             };
             control.check()?;
             let retained = path::root(&root)?;
@@ -327,7 +354,8 @@ impl Git {
                     cursor,
                     limit,
                     ..
-                } => changes::list(&root, target, cursor, limit, &control).map(Output::GitChanges),
+                } => changes::list(&root, target, cursor, limit, &control, &captures)
+                    .map(Output::GitChanges),
                 Command::ReadGitChange {
                     snapshot,
                     path,
@@ -347,6 +375,7 @@ impl Git {
                         limit,
                     },
                     &control,
+                    &captures,
                 )
                 .map(Output::GitChange),
                 Command::ReadGitContext {
@@ -370,6 +399,7 @@ impl Git {
                         limit,
                     },
                     &control,
+                    &captures,
                 )
                 .map(Output::GitContext),
                 Command::ReadGitShow {
@@ -400,7 +430,7 @@ impl Git {
         // an executing libgit2 call still cannot be preempted.
         tokio::select! {
             _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
-            result = tokio::time::timeout(deadline, worker) => result
+            result = tokio::time::timeout_at(expires.into(), worker) => result
                 .map_err(|_| Fault::new(ErrorCode::Busy, "Git read deadline exceeded"))?
                 .map_err(|_| Fault::new(ErrorCode::Internal, "Git worker failed"))?,
         }
