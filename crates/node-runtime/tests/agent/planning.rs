@@ -369,27 +369,28 @@ async fn rejects_mutations_before_approval() {
                                 .contains("planning")),
                 "{page:?}"
             );
-            let requests = server.requests.lock().unwrap();
-            let system = |request: &Value| {
-                request["messages"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter(|message| message["role"] == "system")
-                    .cloned()
-                    .collect::<Vec<_>>()
-            };
-            for request in requests.iter() {
-                assert!(tool_names(request).contains(&name.as_str()));
-                assert_eq!(request["tools"], requests[0]["tools"]);
-                assert_eq!(system(request), system(&requests[0]));
+            {
+                let requests = server.requests.lock().unwrap();
+                let system = |request: &Value| {
+                    request["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|message| message["role"] == "system")
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                for request in requests.iter() {
+                    assert!(tool_names(request).contains(&name.as_str()));
+                    assert_eq!(request["tools"], requests[0]["tools"]);
+                    assert_eq!(system(request), system(&requests[0]));
+                }
+                assert!(
+                    requests.last().unwrap()["messages"]
+                        .to_string()
+                        .contains("planning")
+                );
             }
-            assert!(
-                requests.last().unwrap()["messages"]
-                    .to_string()
-                    .contains("planning")
-            );
-            drop(requests);
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();
         }

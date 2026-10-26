@@ -147,7 +147,7 @@ async fn reads_history_with_and_without_mentions() {
         else {
             panic!("session expected")
         };
-        let turn = submit(
+        submit(
             &client,
             &target,
             format!("Summarize conversation {} and continue its task", source.id).into(),

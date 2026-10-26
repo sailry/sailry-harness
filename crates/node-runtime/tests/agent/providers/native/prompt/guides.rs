@@ -40,20 +40,21 @@ async fn shared_turns_append_changed_guides_once() {
                 "{page:?}"
             );
         }
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 3);
-        for (index, request) in requests.iter().enumerate() {
-            let captured = request.body.to_string();
-            assert_eq!(captured.matches(ROOT_RULE).count(), 1);
-            assert_eq!(captured.matches(NESTED_RULE).count(), 1);
-            assert_eq!(captured.matches(changed).count(), usize::from(index > 0));
-            assert_eq!(
-                instruction(ModelApi::ChatCompletions, &request.body),
-                instruction(ModelApi::ChatCompletions, &requests[0].body)
-            );
-            assert_eq!(request.body["tools"], requests[0].body["tools"]);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            for (index, request) in requests.iter().enumerate() {
+                let captured = request.body.to_string();
+                assert_eq!(captured.matches(ROOT_RULE).count(), 1);
+                assert_eq!(captured.matches(NESTED_RULE).count(), 1);
+                assert_eq!(captured.matches(changed).count(), usize::from(index > 0));
+                assert_eq!(
+                    instruction(ModelApi::ChatCompletions, &request.body),
+                    instruction(ModelApi::ChatCompletions, &requests[0].body)
+                );
+                assert_eq!(request.body["tools"], requests[0].body["tools"]);
+            }
         }
-        drop(requests);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }
