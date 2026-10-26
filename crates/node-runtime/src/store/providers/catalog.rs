@@ -6,6 +6,7 @@ use super::super::{
 use crate::providers::catalog::{Download, metadata};
 use sailry_link::Admission;
 use sailry_protocol::{conversation::catalog, *};
+use std::collections::BTreeMap;
 use tokio::sync::{broadcast, oneshot};
 use turso::{Connection, params, transaction::TransactionBehavior};
 mod lookup;
@@ -103,6 +104,72 @@ pub(crate) async fn page(db: &Connection, query: &catalog::Query) -> Result<cata
     })
 }
 
+async fn replace(db: &Connection, entries: &[metadata::Entry]) -> Result<(), Fault> {
+    let mut previous = BTreeMap::new();
+    {
+        let mut statement = db
+            .prepare("SELECT provider,id,body FROM model_catalog")
+            .await
+            .map_err(storage_error)?;
+        let mut rows = statement.query(()).await.map_err(storage_error)?;
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            previous.insert(
+                (
+                    row.get::<String>(0).map_err(storage_error)?,
+                    row.get::<String>(1).map_err(storage_error)?,
+                ),
+                row.get::<Vec<u8>>(2).map_err(storage_error)?,
+            );
+        }
+    }
+    let mut update = db
+        .prepare("UPDATE model_catalog SET body=?1 WHERE provider=?2 AND id=?3")
+        .await
+        .map_err(storage_error)?;
+    let mut insert = db
+        .prepare("INSERT INTO model_catalog(provider,id,body) VALUES(?1,?2,?3)")
+        .await
+        .map_err(storage_error)?;
+    // Keep unchanged rows and indexed keys in place. Deleting the entire catalog
+    // makes each replacement INSERT seek through MVCC-shadowed index entries.
+    for entry in entries {
+        match previous.remove(&(entry.provider.clone(), entry.id.clone())) {
+            Some(body) if body == entry.body => {}
+            Some(_) => {
+                update
+                    .execute(params![
+                        entry.body.as_slice(),
+                        entry.provider.as_str(),
+                        entry.id.as_str()
+                    ])
+                    .await
+                    .map_err(storage_error)?;
+            }
+            None => {
+                insert
+                    .execute(params![
+                        entry.provider.as_str(),
+                        entry.id.as_str(),
+                        entry.body.as_slice()
+                    ])
+                    .await
+                    .map_err(storage_error)?;
+            }
+        }
+    }
+    let mut delete = db
+        .prepare("DELETE FROM model_catalog WHERE provider=?1 AND id=?2")
+        .await
+        .map_err(storage_error)?;
+    for (provider, id) in previous.into_keys() {
+        delete
+            .execute(params![provider, id])
+            .await
+            .map_err(storage_error)?;
+    }
+    Ok(())
+}
+
 impl Database {
     pub(in crate::store) async fn cache_catalog(
         &mut self,
@@ -135,26 +202,7 @@ impl Database {
             models: download.entries.len() as u32,
             bytes: download.bytes,
         };
-        transaction
-            .execute("DELETE FROM model_catalog", ())
-            .await
-            .map_err(storage_error)?;
-        {
-            let mut insert = transaction
-                .prepare("INSERT INTO model_catalog(provider,id,body) VALUES(?1,?2,?3)")
-                .await
-                .map_err(storage_error)?;
-            for entry in &download.entries {
-                insert
-                    .execute(params![
-                        entry.provider.as_str(),
-                        entry.id.as_str(),
-                        entry.body.as_slice()
-                    ])
-                    .await
-                    .map_err(storage_error)?;
-            }
-        }
+        replace(&transaction, &download.entries).await?;
         transaction.execute("INSERT INTO model_catalog_status(id,body) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET body=excluded.body", [encode(&status)?]).await.map_err(storage_error)?;
         let mut updates = super::completion::refresh(&transaction, node).await?;
         updates.extend(
