@@ -192,6 +192,25 @@ fn subscriber(
     )
 }
 
+/// Safe process-wide failure output for isolated integration test binaries.
+#[cfg(feature = "test-support")]
+pub fn test_subscriber() -> impl tracing::Subscriber + Send + Sync {
+    tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .event_format(format::Safe::new(Application::Host))
+            .with_writer(tracing_subscriber::fmt::writer::TestWriter::with_stderr)
+            .with_ansi(false)
+            .with_filter(filter_fn(|metadata| {
+                metadata.target() == "sailry"
+                    && (*metadata.level() <= tracing::Level::WARN
+                        || (*metadata.level() == tracing::Level::DEBUG
+                            && metadata
+                                .module_path()
+                                .is_some_and(|path| path.starts_with("sailry_link::network::"))))
+            })),
+    )
+}
+
 impl Guard {
     pub fn dropped_lines(&self) -> usize {
         self.counter.dropped_lines()

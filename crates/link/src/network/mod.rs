@@ -1,4 +1,5 @@
 mod connection;
+mod diagnostics;
 mod frame;
 mod outgoing;
 mod pairing;
@@ -11,7 +12,7 @@ use std::{
     collections::{BTreeSet, HashMap},
     net::SocketAddr,
     sync::{Arc, RwLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use iroh::{
@@ -423,10 +424,14 @@ impl Core {
     }
 
     async fn wait<T>(&self, future: impl std::future::Future<Output = T>) -> Result<T, Fault> {
+        let started = Instant::now();
         tokio::select! {
             biased;
             _ = self.stop.cancelled() => Err(network("closed")),
-            result = tokio::time::timeout(IO_TIMEOUT, future) => result.map_err(network),
+            result = tokio::time::timeout(IO_TIMEOUT, future) => result.map_err(|error| {
+                diagnostics::timeout(started);
+                network(error)
+            }),
         }
     }
 }

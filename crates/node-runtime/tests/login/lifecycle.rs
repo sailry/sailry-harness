@@ -249,6 +249,14 @@ async fn cancels_pending_http() {
         );
         let (_, retry) = begin(&fixture.client, &provider).await;
         assert_ne!(retry.id, attempt.id);
+        let mut stream = fixture.client.subscribe_login(retry.id).await.unwrap();
+        tokio::select! {
+            biased;
+            update = terminal(&mut stream) => {
+                panic!("retry finished before pending HTTP: {:?}", update.state);
+            }
+            () = server.wait_requests(2) => {}
+        }
         fixture
             .client
             .execute(
@@ -258,6 +266,8 @@ async fn cancels_pending_http() {
             )
             .await
             .unwrap();
+        assert_eq!(terminal(&mut stream).await.state, login::State::Cancelled);
+        server.wait_closed(2).await;
         fixture.close().await;
     }
 }

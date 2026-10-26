@@ -292,6 +292,10 @@ export function uncertain({step}) {
 
 #[tokio::test]
 async fn bounds_the_frozen_message_before_each_continuation() {
+    // A global subscriber also observes Link's spawned server tasks. Only safe
+    // failures and Link's quiet interruption diagnostics reach test stderr.
+    tracing::subscriber::set_global_default(sailry_node_runtime::logging::test_subscriber())
+        .unwrap();
     for remote in [false, true] {
         let server = Server::tools(vec![(plugin_tool(PACKAGE, "prefix"), json!({}))]).await;
         let fixture = process::Fixture::packages(remote, &server, &[]).await;

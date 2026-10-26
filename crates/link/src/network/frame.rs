@@ -1,8 +1,10 @@
 use iroh::endpoint::{RecvStream, SendStream};
 use sailry_protocol::{ErrorCode, Fault, MAX_FRAME_BYTES, Receipt, Request, Update};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::time::Instant;
 use zeroize::Zeroize;
 
+use super::diagnostics;
 use crate::Response;
 
 mod snapshots;
@@ -68,13 +70,18 @@ pub(super) async fn read_reply(stream: &mut RecvStream) -> Result<Reply, Fault> 
 }
 
 pub(super) async fn write(stream: &mut SendStream, value: &impl Serialize) -> Result<(), Fault> {
+    let started = Instant::now();
     let bytes = zeroize::Zeroizing::new(serde_json::to_vec(value).map_err(invalid)?);
     length(bytes.len())?;
+    let limit = 4 + bytes.len();
     stream
         .write_all(&(bytes.len() as u32).to_be_bytes())
         .await
-        .map_err(network)?;
-    stream.write_all(&bytes).await.map_err(network)
+        .map_err(|error| diagnostics::write(error, "write_prefix", started, 0, limit))?;
+    stream
+        .write_all(&bytes)
+        .await
+        .map_err(|error| diagnostics::write(error, "write_payload", started, 4, limit))
 }
 
 pub(super) async fn read<T: DeserializeOwned>(stream: &mut RecvStream) -> Result<T, Fault> {
@@ -85,8 +92,12 @@ pub(super) async fn read_limited<T: DeserializeOwned>(
     stream: &mut RecvStream,
     maximum: usize,
 ) -> Result<T, Fault> {
+    let started = Instant::now();
     let mut prefix = [0; 4];
-    stream.read_exact(&mut prefix).await.map_err(network)?;
+    stream
+        .read_exact(&mut prefix)
+        .await
+        .map_err(|error| diagnostics::exact(error, "read_prefix", started, 0, 4))?;
     let size = u32::from_be_bytes(prefix) as usize;
     // Verify untrusted length before allocating payload memory.
     length(size)?;
@@ -94,7 +105,10 @@ pub(super) async fn read_limited<T: DeserializeOwned>(
         return Err(invalid("frame exceeds protocol limit"));
     }
     let mut bytes = zeroize::Zeroizing::new(vec![0; size]);
-    stream.read_exact(&mut bytes).await.map_err(network)?;
+    stream
+        .read_exact(&mut bytes)
+        .await
+        .map_err(|error| diagnostics::exact(error, "read_payload", started, 4, 4 + size))?;
     serde_json::from_slice(&bytes).map_err(invalid)
 }
 
@@ -123,12 +137,15 @@ impl Reader {
         &mut self,
         stream: &mut RecvStream,
     ) -> Result<T, Fault> {
+        let started = Instant::now();
         while self.prefix_read < self.prefix.len() {
             let count = stream
                 .read(&mut self.prefix[self.prefix_read..])
                 .await
-                .map_err(network)?
-                .ok_or_else(|| network("unexpected EOF"))?;
+                .map_err(|error| {
+                    diagnostics::read(error, "read_prefix", started, self.prefix_read, 4)
+                })?
+                .ok_or_else(|| diagnostics::eof("read_prefix", started, self.prefix_read, 4))?;
             self.prefix_read += count;
         }
         let size = u32::from_be_bytes(self.prefix) as usize;
@@ -138,8 +155,18 @@ impl Reader {
             let count = stream
                 .read(&mut self.payload[self.payload_read..])
                 .await
-                .map_err(network)?
-                .ok_or_else(|| network("unexpected EOF"))?;
+                .map_err(|error| {
+                    diagnostics::read(
+                        error,
+                        "read_payload",
+                        started,
+                        4 + self.payload_read,
+                        4 + size,
+                    )
+                })?
+                .ok_or_else(|| {
+                    diagnostics::eof("read_payload", started, 4 + self.payload_read, 4 + size)
+                })?;
             self.payload_read += count;
         }
         let value = serde_json::from_slice(&self.payload).map_err(invalid);

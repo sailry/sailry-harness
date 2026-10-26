@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use sailry_protocol::{ErrorCode, Fault, NodeId};
 use tokio::task::JoinSet;
 
 use super::{
-    Core, MAX_STREAMS,
+    Core, MAX_STREAMS, diagnostics,
     frame::{self, Call, Reply, network},
 };
 
@@ -26,7 +26,15 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection, peer: NodeId)
                 let Ok((send, recv)) = stream else { break; };
                 let core = core.clone();
                 let subscriptions = subscriptions.clone();
-                streams.spawn(async move { let _ = request(core, peer, send, recv, subscriptions).await; });
+                streams.spawn(async move {
+                    let started = Instant::now();
+                    let stop = core.stop.clone();
+                    if let Err(error) = request(core, peer, send, recv, subscriptions).await
+                        && !stop.is_cancelled()
+                    {
+                        diagnostics::request(&error, started);
+                    }
+                });
             }
         }
     }
