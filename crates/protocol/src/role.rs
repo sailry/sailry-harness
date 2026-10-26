@@ -75,6 +75,9 @@ pub struct Profile {
     pub model: Option<Model>,
     pub max_turns: Option<u32>,
     pub skills: Vec<String>,
+    /// None selects the standard delegated catalog; an explicit list mounts only these tools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<crate::plugin::conversation::Tool>>,
     pub instructions: String,
 }
 
@@ -122,6 +125,18 @@ impl Profile {
         {
             return Err(crate::Fault::invalid(
                 "role must reference distinct nonempty skills",
+            ));
+        }
+        if let Some(tools) = &self.tools
+            && (tools.len() > 128
+                || tools.iter().enumerate().any(|(index, tool)| {
+                    !tool.valid()
+                        || matches!(tool, crate::plugin::conversation::Tool::Plugin { .. })
+                        || tools[..index].contains(tool)
+                }))
+        {
+            return Err(crate::Fault::invalid(
+                "role tools must be distinct valid builtins, package tools or model capabilities",
             ));
         }
         Ok(())

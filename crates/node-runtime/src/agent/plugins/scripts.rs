@@ -27,20 +27,7 @@ pub(super) async fn bind(
                 .flat_map(|extension| &extension.tools)
                 .filter(|tool| {
                     tool.valid()
-                        && (invocation.turn.config.mode != sailry_protocol::WorkMode::Plan
-                            || tool.handler.as_ref().is_some_and(|handler| {
-                                matches!(
-                                    handler.operation,
-                                    Some(
-                                        tool::Operation::DelegateAgent
-                                            | tool::Operation::GuideAgent
-                                            | tool::Operation::WaitAgent
-                                    )
-                                ) || policy::read_only(
-                                    handler,
-                                    &package.extension.as_ref().unwrap().actions,
-                                )
-                            }))
+                        && super::selection::declared(invocation, package, tool)
                         && crate::plugins::conversation::selects(
                             invocation.turn.config.assistant.as_ref(),
                             &invocation.plugins,
@@ -219,7 +206,7 @@ pub(super) async fn bind(
             } else if invocation.turn.config.mode == sailry_protocol::WorkMode::Plan
                 && operation.is_none()
             {
-                // Private Code workflows are managed, but plain handlers still need Plan filtering.
+                // Plain handlers still pass through the runtime's Plan authority check.
                 ToolRegistration::new(script, declaration.presentation)
             } else {
                 ToolRegistration::managed(script)

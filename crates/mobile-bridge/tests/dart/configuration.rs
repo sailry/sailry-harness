@@ -91,6 +91,7 @@ async fn role(client: &Client, provider: &Provider, key: &str) {
                 }),
                 max_turns: Some(12),
                 skills: vec!["fixture/review".into()],
+                tools: None,
                 instructions: "Preserve the original instructions\n完整内容 🙂".into(),
             },
         }))

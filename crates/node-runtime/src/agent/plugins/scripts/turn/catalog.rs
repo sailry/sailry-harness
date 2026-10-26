@@ -183,6 +183,7 @@ mod tests {
             model: None,
             max_turns: None,
             skills: vec![],
+            tools: None,
             instructions: format!("{}Complete role instructions", "🙂".repeat(1025)),
         };
         let instructions = profile.instructions.clone();

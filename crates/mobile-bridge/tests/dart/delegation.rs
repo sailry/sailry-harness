@@ -64,6 +64,7 @@ fn recovers_and_stops_children() {
             }),
             max_turns: Some(5),
             skills: vec![],
+            tools: None,
             instructions: "Frozen child instructions\n完整角色 🙂".into(),
         };
         let Output::Role(role) = client

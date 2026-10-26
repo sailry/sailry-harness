@@ -20,6 +20,7 @@ fn profile(key: &str) -> role::Profile {
         model: None,
         max_turns: Some(16),
         skills: vec![],
+        tools: None,
         instructions: "Report concrete findings".into(),
     }
 }

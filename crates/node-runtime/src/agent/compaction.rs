@@ -449,8 +449,10 @@ impl Summarizer {
                 ));
             }
             text.push_str(&verbatim);
+            let context = super::prompt::session::retain(events, &mut text);
             let mut event = Event::new(self.turn.to_string());
             event.author = "system".into();
+            event.actions.state_delta.extend(context);
             event.actions.compaction = Some(EventCompaction {
                 start_timestamp: first.timestamp,
                 end_timestamp: last.timestamp,

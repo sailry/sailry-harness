@@ -227,6 +227,7 @@ mod tests {
             model: None,
             max_turns: None,
             skills: vec![],
+            tools: None,
             instructions: "Inspect".into(),
         };
         let rendered = output(Output::Role(profile.clone())).unwrap();

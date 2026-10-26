@@ -81,6 +81,7 @@ pub(super) async fn setup(
         }),
         max_turns: Some(5),
         skills: vec![],
+        tools: None,
         instructions: "Frozen review instructions".into(),
     };
     let Output::Role(role) = client

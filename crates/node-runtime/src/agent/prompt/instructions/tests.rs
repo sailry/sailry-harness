@@ -91,7 +91,7 @@ async fn loads_only_relevant_guides() {
         ("资料/AGENTS.md", "资料"),
         ("资料/nested/AGENTS.md", "资料/nested"),
     ] {
-        assert!(instruction.contains(&format!("Guide: {path}\nScope: {scope}\n")));
+        assert!(instruction.contains(&format!("Guide: {path}\nScope: {scope}\nRevision: ")));
     }
     assert!(instruction.find("Root rule").unwrap() < instruction.find("Directory rule").unwrap());
     assert!(instruction.find("Directory rule").unwrap() < instruction.find("Nested rule").unwrap());
@@ -141,7 +141,8 @@ async fn selects_first_existing_guide() {
     }
     for (index, filename) in FILENAMES.iter().enumerate() {
         let instruction = fixture.load(&[], CancellationToken::new()).await.unwrap();
-        assert!(instruction.contains(&format!("Guide: {filename}\nScope: .\nSelected {filename}")));
+        assert!(instruction.contains(&format!("Guide: {filename}\nScope: .\nRevision: ")));
+        assert!(instruction.contains(&format!("Selected {filename}")));
         for ignored in &FILENAMES[index + 1..] {
             assert!(!instruction.contains(&format!("Selected {ignored}")));
         }

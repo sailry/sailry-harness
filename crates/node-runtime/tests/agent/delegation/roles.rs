@@ -67,6 +67,7 @@ async fn inherits_parent_model() {
                     model: None,
                     max_turns: Some(2),
                     skills: vec![],
+                    tools: None,
                     instructions: format!(
                         "Inherited role instruction {}Full child instruction tail",
                         "🙂".repeat(1024)

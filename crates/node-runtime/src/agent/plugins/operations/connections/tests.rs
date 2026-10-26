@@ -80,26 +80,3 @@ fn captures_only_admitted_public_names() {
             .is_empty()
     );
 }
-
-#[test]
-fn filters_mutations_in_plan() {
-    use sailry_protocol::WorkMode;
-    for (operation, planning) in [
-        (Operation::SaveDatabaseConnection, false),
-        (Operation::SaveSshConnection, false),
-        (Operation::ExecuteDatabase, false),
-        (Operation::ListDatabaseConnections, true),
-        (Operation::ListSshConnections, true),
-        (Operation::BrowseDatabase, true),
-        (Operation::QueryDatabase, true),
-        (Operation::RunSsh, true),
-        (Operation::TransferSsh, true),
-    ] {
-        assert_eq!(
-            supports_mode(operation, WorkMode::Plan),
-            planning,
-            "{operation:?}"
-        );
-        assert!(supports_mode(operation, WorkMode::Code), "{operation:?}");
-    }
-}

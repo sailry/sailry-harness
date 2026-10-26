@@ -42,6 +42,7 @@ async fn roles(fixture: &mut Fixture, servers: &[(&str, &Server)]) -> Vec<role::
             }),
             max_turns: Some(5),
             skills: vec![],
+            tools: None,
             instructions: "Report the requested review evidence".into(),
         };
         let Output::Role(role) = execute(

@@ -514,7 +514,14 @@ pub(crate) async fn project(
             .and_then(|metadata| metadata["searchEntryPoint"]["renderedContent"].as_str())
             .filter(|html| !html.is_empty())
             .map(str::to_owned),
-        parts: { let mut projected = Vec::new(); for value in event
+        parts: if event.author == "system"
+            && event
+                .provider_metadata
+                .contains_key(crate::agent::CONTEXT_METADATA)
+        {
+            Vec::new()
+        } else {
+            { let mut projected = Vec::new(); for value in event
             .content()
             .into_iter()
             .flat_map(|content| &content.parts)
@@ -646,7 +653,8 @@ pub(crate) async fn project(
                     .into_iter()
                     .map(|reference| Ok(Part::Reference(reference))),
             )
-            .collect::<Result<_, Fault>>()?,
+            .collect::<Result<_, Fault>>()?
+        },
         usage: event
             .llm_response
             .usage_metadata

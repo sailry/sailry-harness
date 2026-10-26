@@ -119,6 +119,7 @@ impl Fixture {
             read_only: false,
             appearance: None,
             skills: vec![],
+            tools: None,
             max_turns: None,
             model: Some(role::Model {
                 provider: provider.id,

@@ -778,6 +778,7 @@ async fn isolates_delegated_children() {
             }),
             max_turns: Some(5),
             skills: vec![],
+            tools: None,
             instructions: "Use the requested tool".into(),
         };
         let Output::Role(role) = execute(

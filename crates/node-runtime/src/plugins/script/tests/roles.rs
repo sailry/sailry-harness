@@ -14,6 +14,7 @@ fn lists_safe_exact_catalog_revisions() {
         model: None,
         max_turns: None,
         skills: vec![],
+        tools: None,
         instructions: "Inspect".into(),
     };
     let result=run(bundle("import {listRoles} from 'sailry/sdk'; export async function run() { return listRoles(); }"),"run",json!({}),context(),NodeId([1;32]),CancellationToken::new(),move |request| {

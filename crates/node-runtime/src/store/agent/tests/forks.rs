@@ -45,6 +45,7 @@ async fn preserves_frozen_roles() {
         model: None,
         max_turns: Some(8),
         skills: vec![],
+        tools: None,
         instructions: "Frozen instructions 中文 🙂".into(),
     };
     let Output::Role(mut role) = command(

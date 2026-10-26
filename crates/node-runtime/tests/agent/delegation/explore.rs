@@ -4,6 +4,7 @@ use sailry_protocol::plugin;
 
 mod dispatch;
 mod hooks;
+mod output;
 
 async fn execute(client: &Client, command: Command) -> Output {
     client.execute(client.prepare(command)).await.unwrap()
@@ -19,6 +20,16 @@ async fn select(fixture: &mut Fixture, fixed: bool) -> role::Profile {
         .unwrap();
     if fixed {
         role.model = fixture.role.model.clone();
+        role.tools = Some(vec![
+            plugin::conversation::Tool::Package {
+                package: "files".into(),
+                name: "read_file".into(),
+            },
+            plugin::conversation::Tool::Package {
+                package: dispatch::PACKAGE.into(),
+                name: "inspect".into(),
+            },
+        ]);
         let revision = role.revision;
         let Output::Role(saved) = execute(
             &fixture.client,

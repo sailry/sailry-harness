@@ -157,14 +157,22 @@ async fn starts_one_coding_turn() {
         );
         for (index, request) in requests.iter().enumerate() {
             let planning = index == 0;
+            assert!(tool_names(request).contains(&plugin_tool("files", "write_file").as_str()));
+            assert_eq!(request["tools"], requests[0]["tools"]);
+            let latest = request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|message| {
+                    message["role"] == "user"
+                        && message["content"]
+                            .as_str()
+                            .is_some_and(|text| text.starts_with("Node context"))
+                })
+                .unwrap();
             assert_eq!(
-                tool_names(request).contains(&plugin_tool("files", "write_file").as_str()),
-                !planning
-            );
-            assert_eq!(
-                request["messages"]
-                    .to_string()
-                    .contains("This is a planning turn"),
+                latest.to_string().contains("This is a planning turn"),
                 planning
             );
             let schema = request["tools"]
@@ -174,13 +182,12 @@ async fn starts_one_coding_turn() {
                 .find(|tool| tool["function"]["name"] == "ask_user")
                 .unwrap();
             let kinds = &schema["function"]["parameters"]["properties"]["input"]["anyOf"];
-            assert_eq!(
+            assert!(
                 kinds
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|kind| kind["properties"]["kind"]["enum"] == json!(["plan"])),
-                planning
+                    .any(|kind| kind["properties"]["kind"]["enum"] == json!(["plan"]))
             );
         }
         assert!(

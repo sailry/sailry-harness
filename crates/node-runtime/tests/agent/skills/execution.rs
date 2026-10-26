@@ -368,6 +368,7 @@ async fn injects_frozen_roles() {
             model: None,
             max_turns: Some(2),
             skills: vec!["example:analysis".into()],
+            tools: None,
             instructions: "Keep {literal_role_state} unchanged".into(),
         };
         let Output::Role(role) = execute(

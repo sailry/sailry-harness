@@ -105,6 +105,19 @@ async fn permits_reads_and_rejects_resource_writes() {
             },
             Action::ReadFiles,
         ),
+        (
+            Command::ReadToolOutput {
+                turn,
+                output: sailry_protocol::tool::OutputReference {
+                    call: "captured-call".into(),
+                    revision: "a".repeat(64),
+                },
+                stream: None,
+                offset: 0,
+                limit: 100,
+            },
+            Action::ReadCommands,
+        ),
     ] {
         check_action(db, turn, &command, Some(&action))
             .await

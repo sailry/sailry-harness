@@ -21,6 +21,7 @@ pub(crate) use model::plugin::{
 };
 mod plugins;
 mod prompt;
+pub(crate) use prompt::session::METADATA as CONTEXT_METADATA;
 mod question;
 mod references;
 mod review;
@@ -391,6 +392,7 @@ async fn execute_with(
         return Ok(Outcome::default());
     }
     let content = attachments::input(ingress, &invocation).await?;
+    let mut prompt_session = prompt::Session::load(ingress, &invocation).await?;
     let resources = Arc::new(crate::plugins::resources::Resources::new(
         ingress.plugins.clone(),
         invocation
@@ -423,21 +425,14 @@ async fn execute_with(
             .and_then(|provider| provider.binding.as_ref())
             .and_then(|binding| binding.adapter.as_ref())
             .is_none_or(|adapter| adapter.capabilities.tools);
-    let mut instruction = prompt::instruction(
-        invocation.turn.config.mode,
-        invocation.turn.config.permission,
-        invocation.child.is_some(),
-    );
-    instruction.push_str("\n\n");
-    instruction.push_str(&prompt::workflow(
+    let mut instruction = prompt::baseline().to_owned();
+    let workflow = prompt::workflow(
         &invocation.plugins,
         &invocation.turn.config,
         invocation.child.is_some(),
-    )?);
+    )?;
     let personal = prompt::personal(ingress, invocation.worktree, &stop).await?;
     if !personal.is_empty() {
-        instruction.push_str("\n\n");
-        instruction.push_str(&personal);
         ingress.agents.context_source(
             invocation.turn.id,
             sailry_protocol::conversation::observation::CategoryKind::Injected,
@@ -474,11 +469,7 @@ async fn execute_with(
     )
     .await?;
     let completion = extensions.completion.clone();
-    instruction.push_str("\n\n");
-    instruction.push_str(&prompt::environment(ingress, &invocation, &stop).await);
-    extensions.tools.retain(|registration| {
-        !planning || registration.managed || registration.tool.is_read_only()
-    });
+    let environment = prompt::environment(ingress, &invocation, &stop).await;
     for captured in &invocation.instructions {
         if tool_capable
             && extensions.tools.iter().any(|registration| {
@@ -509,18 +500,25 @@ async fn execute_with(
     instruction.push_str(
         &references::capabilities::instruction(&invocation, &resources, &extensions.tools).await?,
     );
-    if invocation.child.is_none() {
-        instruction.push_str("\n\n");
-        instruction.push_str(prompt::recipient(false));
-    }
-    if let Some(policy) = title::instruction(
+    instruction.push_str("\n\n");
+    instruction.push_str(prompt::recipient(invocation.child.is_some()));
+    let mut policy = format!(
+        "{}\n\n{workflow}",
+        prompt::policy(
+            invocation.turn.config.mode,
+            invocation.turn.config.permission,
+            invocation.child.is_some(),
+        )
+    );
+    if let Some(title) = title::instruction(
         invocation.title.as_deref(),
         tool_capable,
         invocation.child.is_some(),
     ) {
-        instruction.push_str("\n\n");
-        instruction.push_str(&policy);
+        policy.push_str("\n\n");
+        policy.push_str(&title);
     }
+    let instruction = prompt_session.instruction(instruction);
     let (compact, compaction_config, compact_tool) = compaction::bind(
         ingress,
         model::build(ingress, &invocation, &stop, model::Purpose::Helper).await?,
@@ -528,13 +526,28 @@ async fn execute_with(
         stop.clone(),
         instruction.clone(),
     );
-    let preamble = prompt::bind(
-        ingress,
-        &invocation,
-        instruction.clone(),
-        &extensions.tools,
-        stop.clone(),
-    );
+    if tool_capable {
+        extensions
+            .tools
+            .push(catalog::Registration::managed(compact_tool));
+        if invocation.child.is_none() {
+            extensions.tools.extend([
+                title::bind(invocation.turn.session.to_string(), stop.clone()),
+                catalog::Registration::managed(Arc::new(question::Question {
+                    ingress: ingress.clone(),
+                    turn: invocation.turn.id,
+                    session: invocation.turn.session.to_string(),
+                    stop: stop.clone(),
+                    planning: reviewing,
+                })),
+            ]);
+        }
+    }
+    let declarations = prompt_session.declarations(&extensions.tools);
+    prompt_session
+        .append(ingress, &invocation, policy, environment, personal, &stop)
+        .await?;
+    let preamble = prompt::bind(instruction.clone(), declarations);
     let mut catalog = catalog::Catalog::new(
         invocation.turn.session.to_string(),
         stop.clone(),
@@ -574,21 +587,6 @@ async fn execute_with(
         agent = agent.max_output_tokens(model.output as i32);
     }
     if tool_capable {
-        extensions
-            .tools
-            .push(catalog::Registration::managed(compact_tool));
-        if invocation.child.is_none() {
-            extensions.tools.extend([
-                title::bind(invocation.turn.session.to_string(), stop.clone()),
-                catalog::Registration::managed(Arc::new(question::Question {
-                    ingress: ingress.clone(),
-                    turn: invocation.turn.id,
-                    session: invocation.turn.session.to_string(),
-                    stop: stop.clone(),
-                    planning: reviewing,
-                })),
-            ]);
-        }
         agent = agent
             .parallelize_agent_delegations(true)
             .tool_execution_strategy(adk_core::ToolExecutionStrategy::Auto);

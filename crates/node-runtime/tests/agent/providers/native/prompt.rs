@@ -1,6 +1,8 @@
 use super::*;
 use serde_json::{Value, json};
 
+#[path = "prompt/guides.rs"]
+mod guides;
 #[path = "prompt/personal.rs"]
 mod personal;
 
@@ -115,6 +117,9 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
         Status::Completed,
         "{page:?}"
     );
+    assert!(page.entries.iter().all(|entry| entry.parts.iter().all(|part| {
+        !matches!(part, Part::Text(text) if text.contains("Node context") || text.contains(ROOT_RULE) || text.contains(PERSONAL_FIRST))
+    })));
     fixture.controller.close().await.unwrap();
     node.shutdown().await.unwrap();
 }
@@ -172,34 +177,39 @@ fn users(api: ModelApi, body: &Value) -> Vec<String> {
 fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
     let system = instruction(api, body);
     assert_eq!(system.matches(BASE.trim()).count(), 1, "{api:?}");
-    assert_eq!(system.matches(ROOT_RULE).count(), 1, "{api:?}");
-    let personal = if resumed {
-        PERSONAL_NEXT
-    } else {
-        PERSONAL_FIRST
-    };
-    let previous = if resumed {
-        PERSONAL_FIRST
-    } else {
-        PERSONAL_NEXT
-    };
-    assert_eq!(system.matches(personal).count(), 1, "{api:?}");
-    assert!(!system.contains(previous), "{api:?}");
-    assert!(!system.contains(CONTROLLER_RULE), "{api:?}");
-    assert_eq!(
-        system.matches(NESTED_RULE).count(),
-        usize::from(nested),
-        "{api:?}"
-    );
+    for dynamic in [
+        ROOT_RULE,
+        NESTED_RULE,
+        PERSONAL_FIRST,
+        PERSONAL_NEXT,
+        CONTROLLER_RULE,
+        "This turn uses Ask permission",
+        "Work mode\n",
+        "Node environment",
+    ] {
+        assert!(!system.contains(dynamic), "{api:?}: {dynamic}");
+    }
+    let history = body.to_string();
+    for (context, expected) in [
+        (ROOT_RULE, 1),
+        (NESTED_RULE, usize::from(nested)),
+        (PERSONAL_FIRST, 1),
+        (PERSONAL_NEXT, usize::from(resumed)),
+        (CONTROLLER_RULE, 0),
+    ] {
+        assert_eq!(
+            history.matches(context).count(),
+            expected,
+            "{api:?}: {context}"
+        );
+    }
     let users = users(api, body);
     assert!(
         users.iter().all(|text| !text.contains(BASE.trim())),
         "{api:?}"
     );
     assert!(
-        users.iter().all(|text| !text.contains(PERSONAL_FIRST)
-            && !text.contains(PERSONAL_NEXT)
-            && !text.contains(CONTROLLER_RULE)),
+        users.iter().all(|text| !text.contains(CONTROLLER_RULE)),
         "{api:?}"
     );
     for (task, expected) in [(FIRST, 1), (SECOND, usize::from(resumed))] {
@@ -233,6 +243,11 @@ async fn preserves_native_roles_across_resume() {
             assert_eq!(requests.len(), 3, "{api:?}, remote={remote}");
             for (index, request) in requests.iter().enumerate() {
                 assert_policy(api, &request.body, index == 2, true);
+                assert_eq!(
+                    instruction(api, &request.body),
+                    instruction(api, &requests[0].body)
+                );
+                assert_eq!(request.body["tools"], requests[0].body["tools"]);
             }
             assert!(requests[1].body.to_string().contains("工具内容 🙂"));
             assert!(requests[2].body.to_string().contains(server::ANSWER));
@@ -258,6 +273,8 @@ async fn loads_rules_at_openai_tool_boundary() {
             assert_eq!(requests.len(), 3, "{api:?}, remote={remote}");
             for (index, request) in requests.iter().enumerate() {
                 assert_policy(api, request, index == 2, index > 0);
+                assert_eq!(instruction(api, request), instruction(api, &requests[0]));
+                assert_eq!(request["tools"], requests[0]["tools"]);
             }
             assert!(requests[1].to_string().contains("工具内容 🙂"));
         }

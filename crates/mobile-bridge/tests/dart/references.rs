@@ -32,6 +32,7 @@ fn delegates_and_restores_context() {
                     model: None,
                     max_turns: Some(5),
                     skills: vec![],
+                    tools: None,
                     instructions: "Inspect the supplied references".into(),
                 },
             }))

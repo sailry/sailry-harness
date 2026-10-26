@@ -54,10 +54,6 @@ pub(in crate::agent::plugins) fn handles(operation: Operation) -> bool {
     )
 }
 
-pub(super) fn supports_mode(operation: Operation, mode: sailry_protocol::WorkMode) -> bool {
-    mode != sailry_protocol::WorkMode::Plan || operation.read_only() || ssh(operation)
-}
-
 pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
         Operation::ListDatabaseConnections => "List public database connection configuration",

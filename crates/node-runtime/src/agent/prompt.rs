@@ -5,25 +5,35 @@ mod instructions;
 mod modes;
 mod personal;
 mod role;
+pub(crate) mod session;
 pub(super) use environment::capture as environment;
 pub(super) use modes::workflow;
 pub(super) use personal::capture as personal;
 pub(super) use role::bind;
+pub(in crate::agent) use session::{Session, observe};
+
+pub(super) fn baseline() -> &'static str {
+    include_str!("prompt.txt").trim()
+}
 
 // Workflow references: Pi 428a12bc775145afa342530a9eaa652efb3e4422,
 // packages/coding-agent/src/core/system-prompt.ts; OpenCode
 // f03046d9f558bc54a090363fea48441b05f522bf, packages/opencode/src/session/
 // system.ts and prompt/{gpt-astra,codex,default}.txt. Sailry's text is original:
 // it preserves Node tool declarations and mode/permission ownership.
+#[cfg(test)]
 pub(super) fn instruction(mode: WorkMode, permission: Permission, child: bool) -> String {
-    let mode = if mode == WorkMode::Plan && child {
+    format!("{}\n\n{}", baseline(), policy(mode, permission, child))
+}
+
+pub(super) fn policy(mode: WorkMode, permission: Permission, child: bool) -> &'static str {
+    if mode == WorkMode::Plan && child {
         "This delegated task is read-only. Gather evidence with read-only tools, make no changes and run no tools with side effects, then report your findings."
     } else if mode == WorkMode::Plan {
         "This is a planning turn. Explore with read-only tools and produce a concrete plan for requested multi-step work; answer pure questions directly. Explain the relevant background, recommend one approach, identify key files and reusable existing functions by path, and give implementation steps, verification, risks and open questions. Scale detail to complexity. Do not implement changes or run tools with side effects. An ordinary text or choice answer cannot change work mode."
     } else {
         super::approval::instruction(permission)
-    };
-    format!("{}\n\n{mode}", include_str!("prompt.txt").trim())
+    }
 }
 
 pub(super) fn recipient(child: bool) -> &'static str {

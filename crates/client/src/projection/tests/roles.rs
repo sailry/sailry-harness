@@ -16,6 +16,7 @@ fn updates_identity_and_order() {
         model: None,
         max_turns: None,
         skills: vec![],
+        tools: None,
         instructions: String::new(),
     };
     let mut other = role.clone();

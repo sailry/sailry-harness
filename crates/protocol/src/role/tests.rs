@@ -12,6 +12,7 @@ fn profile() -> Profile {
         model: None,
         max_turns: Some(16),
         skills: Vec::new(),
+        tools: None,
         instructions: "Check the requested behavior 中文 🙂".into(),
     }
 }
@@ -75,6 +76,43 @@ fn validates_configuration() {
     assert!(value.validate().is_err());
     value.skills = vec![String::new()];
     assert!(value.validate().is_err());
+}
+
+#[test]
+fn validates_tool_selections() {
+    use crate::plugin::conversation::Tool;
+    let mut value = profile();
+    value.tools = Some(vec![
+        Tool::Package {
+            package: "files".into(),
+            name: "read_file".into(),
+        },
+        Tool::Package {
+            package: "commands".into(),
+            name: "read_command".into(),
+        },
+    ]);
+    value.validate().unwrap();
+    let encoded = serde_json::to_value(&value).unwrap();
+    assert_eq!(serde_json::from_value::<Profile>(encoded).unwrap(), value);
+    let duplicate = value.tools.as_ref().unwrap()[0].clone();
+    value.tools.as_mut().unwrap().push(duplicate);
+    assert!(value.validate().is_err());
+    value.tools = Some(vec![Tool::Plugin {
+        name: "read".into(),
+        server: None,
+    }]);
+    assert!(value.validate().is_err());
+    value.tools = Some(vec![]);
+    value.validate().unwrap();
+    let mut encoded = serde_json::to_value(profile()).unwrap();
+    encoded.as_object_mut().unwrap().remove("tools");
+    assert!(
+        serde_json::from_value::<Profile>(encoded)
+            .unwrap()
+            .tools
+            .is_none()
+    );
 }
 
 #[test]

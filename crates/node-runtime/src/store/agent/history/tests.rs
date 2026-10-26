@@ -58,6 +58,26 @@ fn captured() -> AdkEvent {
     event
 }
 
+#[tokio::test]
+async fn hides_canonical_runtime_context() {
+    let fixture = Fixture::new().await;
+    let mut event = AdkEvent::new("context");
+    event.author = "system".into();
+    event
+        .provider_metadata
+        .insert(crate::agent::CONTEXT_METADATA.into(), "context".into());
+    event.set_content(adk_core::Content::new("user").with_text("Captured runtime policy"));
+    let original = event.clone();
+    let entry = project(&fixture.database.connection, 1, TurnId::new(), &event)
+        .await
+        .unwrap();
+    assert!(entry.parts.is_empty());
+    assert_eq!(
+        serde_json::to_value(event).unwrap(),
+        serde_json::to_value(original).unwrap()
+    );
+}
+
 async fn advance(connection: &Connection) -> u64 {
     let transaction = conflict::begin(connection).await.unwrap();
     let sequence = counters::next(&transaction, counters::Namespace::AgentEvents)

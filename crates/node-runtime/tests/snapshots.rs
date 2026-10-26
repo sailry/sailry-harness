@@ -92,6 +92,7 @@ async fn configure(client: &Client) -> SessionConfig {
                     model: None,
                     max_turns: None,
                     skills: vec![],
+                    tools: None,
                     instructions: "x".repeat(16 * 1024 - suffix.len()) + suffix,
                 },
             },

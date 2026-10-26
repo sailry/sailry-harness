@@ -598,6 +598,7 @@ async fn writer(fixture: &mut Fixture, child: &models::Server) {
         }),
         max_turns: Some(5),
         skills: Vec::new(),
+        tools: None,
         instructions: "Use the files tool to complete the delegated task".into(),
     };
     let Output::Role(role) = fixture

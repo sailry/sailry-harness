@@ -51,32 +51,48 @@ fn project_with(contents: &mut [Content]) {
         }
         let source = json!({"call":id,"revision":blake3::hash(original.to_string().as_bytes()).to_hex().to_string()});
         let kind = original.get("kind").and_then(Value::as_str);
-        let candidate = match kind {
-            Some("file_lines") => files::lines(original, &source),
-            Some("search_results") => files::search(
-                original,
-                calls
-                    .get(id)
-                    .filter(|(name, _)| name == &function_response.name)
-                    .map(|(_, arguments)| arguments),
-                &source,
-            ),
-            Some("command_result" | "command_output") => commands::project(
-                original,
-                &source,
-                calls.get(id).map(|(_, arguments)| arguments),
-            ),
-            Some("web_page") => bounded(original, &source),
-            Some(kind) if kind.starts_with("git_") => {
-                git::project(original, &source).or_else(|| bounded(original, &source))
+        let data = original.get("data").unwrap_or(original);
+        let candidate = if original.get("sailry_guide_loaded").is_some_and(|guide| {
+                guide["path"].is_string()
+                    && guide["path"] == data["path"]
+                    && guide["revision"] == data["revision"]
+            }) {
+            Some(json!({
+                "text":format!("Project guide already loaded: {}. For requested current text, use read_command with output, offset and limit", data["path"].as_str().unwrap()),
+                "path":data["path"], "revision":data["revision"],
+                "already_loaded":true, "output":source,
+            }))
+        } else {
+            match kind {
+                Some("file_lines") => files::lines(original, &source),
+                Some("search_results") => files::search(
+                    original,
+                    calls
+                        .get(id)
+                        .filter(|(name, _)| name == &function_response.name)
+                        .map(|(_, arguments)| arguments),
+                    &source,
+                ),
+                Some("command_result" | "command_output") => commands::project(
+                    original,
+                    &source,
+                    calls.get(id).map(|(_, arguments)| arguments),
+                ),
+                Some("web_page") => bounded(original, &source),
+                Some(kind) if kind.starts_with("git_") => {
+                    git::project(original, &source).or_else(|| bounded(original, &source))
+                }
+                _ if function_response.name.starts_with("mcp_") => bounded(original, &source),
+                _ => None,
             }
-            _ if function_response.name.starts_with("mcp_") => bounded(original, &source),
-            _ => None,
         };
-        if let Some(candidate) = candidate
-            && candidate.to_string().len() < original.to_string().len()
-        {
-            function_response.response = candidate;
+        if let Some(mut candidate) = candidate {
+            if let Some(context) = original.get("sailry_context") {
+                candidate["sailry_context"] = context.clone();
+            }
+            if candidate.to_string().len() < original.to_string().len() {
+                function_response.response = candidate;
+            }
         }
     }
 }

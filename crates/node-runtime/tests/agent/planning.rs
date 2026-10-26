@@ -161,13 +161,8 @@ async fn freezes_child_mode() {
         let mut delegated = 0;
         for request in requests {
             let names = tool_names(&request);
-            assert!(
-                !names.contains(&plugin_tool("files", "write_file").as_str())
-                    && !names.contains(&plugin_tool("commands", "run_command").as_str())
-            );
-            for name in ["create_worktree", "register_worktree", "remove_worktree"] {
-                assert!(!names.contains(&plugin_tool("worktrees", name).as_str()));
-            }
+            assert!(names.contains(&plugin_tool("files", "write_file").as_str()));
+            assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));
             let messages = request["messages"].to_string();
             if messages.contains("You are a delegated child") {
                 delegated += 1;
@@ -246,12 +241,10 @@ async fn restores_frozen_tools() {
             ] {
                 assert!(names.contains(&name), "missing {name}: {names:?}");
             }
-            assert!(
-                !names.contains(&plugin_tool("files", "write_file").as_str())
-                    && !names.contains(&plugin_tool("commands", "run_command").as_str())
-            );
+            assert!(names.contains(&plugin_tool("files", "write_file").as_str()));
+            assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));
             for name in ["create_worktree", "register_worktree", "remove_worktree"] {
-                assert!(!names.contains(&plugin_tool("worktrees", name).as_str()));
+                assert!(names.contains(&plugin_tool("worktrees", name).as_str()));
             }
             assert!(
                 request["messages"]
@@ -305,14 +298,44 @@ async fn rejects_mutations_before_approval() {
                 json!({"command": "printf changed > forbidden.txt"}),
             ),
         ] {
-            let server = Server::tools(vec![(name.clone(), args)]).await;
+            let server = Server::scripted_tools(vec![]).await;
             let mut fixture = Fixture::packages(
                 remote,
                 &server,
                 &["files", "git", "worktrees", "delegation", "commands"],
             )
             .await;
+            configure(&mut fixture, WorkMode::Code).await;
+            let Output::QueuedTurn(initial) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SubmitTurn {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    message: "Inspect the available tools".into(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("turn expected")
+            };
+            finished(&fixture.client, fixture.session.id, initial.id).await;
+            server.replace_tools(vec![(name.clone(), args)]);
             configure(&mut fixture, WorkMode::Plan).await;
+            let mut config = fixture.session.config.clone();
+            config.permission = Permission::Ask;
+            let Output::Session(session) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("session expected")
+            };
+            fixture.session = session;
             let Output::QueuedTurn(turn) = fixture
                 .client
                 .execute(fixture.client.prepare(Command::SubmitTurn {
@@ -328,10 +351,35 @@ async fn rejects_mutations_before_approval() {
             let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
             assert!(!fixture.root.join("forbidden.txt").exists());
             assert!(page.approvals.is_empty());
-            assert!(page.runs[0].status != Status::Running);
-            for request in server.requests.lock().unwrap().iter() {
-                assert!(!tool_names(request).contains(&name.as_str()));
+            assert!(page.runs.iter().all(|run| run.status != Status::Running));
+            assert!(
+                page.runs.iter().any(|run| run.error.as_ref().is_some_and(|error| error.message.contains("planning")))
+                    || page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
+                        matches!(part, Part::ToolResult { name: tool, result, .. } if tool == &name && result.to_string().contains("planning"))
+                    }),
+                "{page:?}"
+            );
+            let requests = server.requests.lock().unwrap();
+            let system = |request: &Value| {
+                request["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|message| message["role"] == "system")
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            for request in requests.iter() {
+                assert!(tool_names(request).contains(&name.as_str()));
+                assert_eq!(request["tools"], requests[0]["tools"]);
+                assert_eq!(system(request), system(&requests[0]));
             }
+            assert!(
+                requests.last().unwrap()["messages"]
+                    .to_string()
+                    .contains("planning")
+            );
+            drop(requests);
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();
         }

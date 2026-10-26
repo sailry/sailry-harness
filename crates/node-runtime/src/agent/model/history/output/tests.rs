@@ -164,3 +164,41 @@ fn strips_ansi_and_folds_progress_without_changing_raw() {
     assert_eq!(value(&request[0])["data"]["stdout"]["text"], normalized);
     assert_eq!(value(&canonical[0])["data"]["stdout"]["text"], raw);
 }
+
+#[test]
+fn reuses_only_the_loaded_guide_revision() {
+    let body = "Current guide instructions\n".repeat(200);
+    let output = json!({
+        "kind":"file_lines",
+        "data":{"path":"AGENTS.md","revision":"current","size":body.len(),"offset":0,"next_offset":null,
+            "lines":[{"number":1,"text":body}]},
+        "sailry_guide_loaded":{"path":"AGENTS.md","revision":"current"},
+    });
+    let canonical = vec![response("plugin_files_read", output.clone())];
+    let mut request = canonical.clone();
+    project(&mut request);
+    assert_eq!(value(&request[0])["already_loaded"], true);
+    assert!(
+        value(&request[0])["text"]
+            .as_str()
+            .unwrap()
+            .contains("read_command with output")
+    );
+    assert_eq!(value(&canonical[0]), &output);
+    let mut changed = output;
+    changed["data"]["revision"] = json!("changed");
+    changed["sailry_context"] = json!("Newly discovered guide context");
+    let mut request = vec![response("plugin_files_read", changed)];
+    project(&mut request);
+    assert!(value(&request[0]).get("already_loaded").is_none());
+    assert!(
+        value(&request[0])["text"]
+            .as_str()
+            .unwrap()
+            .contains("Current guide instructions")
+    );
+    assert_eq!(
+        value(&request[0])["sailry_context"],
+        "Newly discovered guide context"
+    );
+}

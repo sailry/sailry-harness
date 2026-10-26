@@ -68,6 +68,11 @@ async fn freezes_current_turn_and_refreshes_next() {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 3);
             assert_policy(ModelApi::ChatCompletions, &requests[2], true, false);
+            assert_eq!(
+                instruction(ModelApi::ChatCompletions, &requests[2]),
+                instruction(ModelApi::ChatCompletions, &requests[0])
+            );
+            assert_eq!(requests[2]["tools"], requests[0]["tools"]);
         }
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();

@@ -175,6 +175,7 @@ async fn reject_role(fixture: &process::Fixture, session: &Session) -> Session {
                 model: None,
                 max_turns: None,
                 skills: vec![],
+                tools: None,
                 instructions: "Review the notes".into(),
             },
             expected_revision: 0,

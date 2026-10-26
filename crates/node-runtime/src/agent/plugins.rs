@@ -9,6 +9,7 @@ mod management;
 mod model_tools;
 mod operations;
 mod scripts;
+mod selection;
 
 #[derive(Default)]
 pub(super) struct Contribution {
@@ -47,6 +48,8 @@ pub(super) async fn bind(
             .and_then(|binding| binding.adapter.as_ref())
             .is_none_or(|adapter| adapter.capabilities.tools);
     let mut bound = Contribution::default();
+    let mut skill_instruction = String::new();
+    let mut connection_diagnostics = String::new();
     if !restricted || invocation.turn.config.assistant.is_some() {
         bound.tools.extend(model_tools::bind(ingress, invocation)?);
     }
@@ -70,7 +73,7 @@ pub(super) async fn bind(
             invocation.turn.id,
         )?;
         bound.tools.extend(tools);
-        bound.instruction.push_str(&instruction);
+        skill_instruction = instruction;
     }
     let assistant = invocation
         .turn
@@ -107,13 +110,24 @@ pub(super) async fn bind(
         bound.tools.extend(scripts.tools);
         bound.callbacks.extend(scripts.callbacks);
         bound.instruction.push_str(&scripts.instruction);
-        bound.instruction.push_str(&diagnostics);
+        connection_diagnostics = diagnostics;
     }
     assistants::apply(invocation, &mut bound)?;
-    if invocation.turn.config.mode == sailry_protocol::WorkMode::Plan {
-        bound
+    selection::apply(invocation, &mut bound)?;
+    if bound
+        .tools
+        .iter()
+        .any(|entry| skills::NAMES.contains(&entry.tool.name()))
+    {
+        bound.instruction.push_str(&skill_instruction);
+    }
+    if invocation.child.is_none()
+        || bound
             .tools
-            .retain(|registration| registration.managed || registration.tool.is_read_only());
+            .iter()
+            .any(|entry| entry.tool.name().starts_with("mcp_"))
+    {
+        bound.instruction.push_str(&connection_diagnostics);
     }
     if invocation.child.is_none() {
         bound

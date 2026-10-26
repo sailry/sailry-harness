@@ -8,6 +8,38 @@ use std::{
 };
 
 const FILENAMES: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"];
+const PREAMBLE: &str = "Project instructions\nThese guides are already loaded; do not reread them with a shell. They apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.";
+
+pub(in crate::agent) struct Guide {
+    pub path: String,
+    pub revision: String,
+    text: String,
+}
+
+impl Guide {
+    pub fn key(&self) -> String {
+        key(&self.path)
+    }
+
+    pub fn identity(&self) -> serde_json::Value {
+        serde_json::json!({"path": self.path, "revision": self.revision, "content": self.render()})
+    }
+
+    pub fn render(&self) -> String {
+        let scope = self.path.rsplit_once('/').map_or(".", |(parent, _)| parent);
+        format!(
+            "{PREAMBLE}\n\nGuide: {}\nScope: {scope}\nRevision: {}\n{}",
+            self.path, self.revision, self.text
+        )
+    }
+}
+
+pub(in crate::agent) fn key(path: &str) -> String {
+    format!(
+        "sailry.context.guide:{}",
+        blake3::hash(path.as_bytes()).to_hex()
+    )
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Scope {
@@ -15,19 +47,19 @@ pub(super) enum Scope {
     Directory(String),
 }
 
-pub(super) async fn load(
+pub(in crate::agent) async fn capture(
     ingress: &Ingress,
     worktree: WorktreeId,
     scopes: &[Scope],
     stop: &CancellationToken,
-) -> Result<String, Fault> {
+) -> Result<Vec<Guide>, Fault> {
     let directories = candidates(scopes)?;
     let root = tokio::select! {
         biased;
         _ = stop.cancelled() => return Err(cancelled()),
         root = ingress.worktree_root(worktree) => root?,
     };
-    load_from(&ingress.files, root, worktree, directories, stop).await
+    collect(&ingress.files, root, worktree, directories, stop).await
 }
 
 fn candidates(scopes: &[Scope]) -> Result<Vec<String>, Fault> {
@@ -46,14 +78,14 @@ fn candidates(scopes: &[Scope]) -> Result<Vec<String>, Fault> {
     Ok(directories.into_iter().collect())
 }
 
-async fn load_from(
+async fn collect(
     files: &Files,
     root: PathBuf,
     worktree: WorktreeId,
     directories: Vec<String>,
     stop: &CancellationToken,
-) -> Result<String, Fault> {
-    let mut instruction = String::new();
+) -> Result<Vec<Guide>, Fault> {
+    let mut guides = Vec::new();
     for directory in directories {
         for filename in FILENAMES {
             let path = if directory.is_empty() {
@@ -65,22 +97,34 @@ async fn load_from(
                 continue;
             };
             if !file.text.trim().is_empty() {
-                if instruction.is_empty() {
-                    instruction.push_str(
-                        "Project instructions\nThese guides are already loaded; do not reread them with a shell. They apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.",
-                    );
-                }
-                let scope = if directory.is_empty() {
-                    "."
-                } else {
-                    &directory
-                };
-                instruction.push_str(&format!("\n\nGuide: {path}\nScope: {scope}\n{}", file.text));
+                guides.push(Guide {
+                    path,
+                    revision: file
+                        .revision
+                        .ok_or_else(|| Fault::invalid("project guide has no content revision"))?,
+                    text: file.text,
+                });
             }
             break;
         }
     }
-    Ok(instruction)
+    Ok(guides)
+}
+
+#[cfg(test)]
+async fn load_from(
+    files: &Files,
+    root: PathBuf,
+    worktree: WorktreeId,
+    directories: Vec<String>,
+    stop: &CancellationToken,
+) -> Result<String, Fault> {
+    Ok(collect(files, root, worktree, directories, stop)
+        .await?
+        .iter()
+        .map(Guide::render)
+        .collect::<Vec<_>>()
+        .join("\n\n"))
 }
 
 pub(super) async fn read(

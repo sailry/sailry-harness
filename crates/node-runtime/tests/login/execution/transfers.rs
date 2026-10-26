@@ -72,6 +72,7 @@ async fn rejects_rotating_grant_copies() {
                     }),
                     max_turns: None,
                     skills: vec![],
+                    tools: None,
                     instructions: "Review the task".into(),
                 }],
                 providers: vec![provider.clone()],

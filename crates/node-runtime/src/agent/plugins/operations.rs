@@ -39,6 +39,7 @@ pub(super) fn bind(
                 continue;
             };
             if !declaration.valid()
+                || !super::selection::declared(invocation, package, declaration)
                 || !crate::plugins::conversation::selects(
                     invocation.turn.config.assistant.as_ref(),
                     &invocation.plugins,
@@ -133,9 +134,6 @@ pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: O
     match operation {
         Operation::ReadComputer | Operation::ControlComputer => false,
         Operation::WriteArtifact => invocation.child.is_none(),
-        operation if connections::handles(operation) => {
-            connections::supports_mode(operation, invocation.turn.config.mode)
-        }
         operation if !operation.current() => false,
         operation if code::handles(operation) => ingress.code_index.enabled(),
         Operation::SearchWeb => {
@@ -231,7 +229,15 @@ impl Tool for HostOperation {
         if output.get("error").is_some() {
             Ok(output)
         } else {
-            Ok(output.get("data").cloned().unwrap_or(Value::Null))
+            let mut data = output.get("data").cloned().unwrap_or(Value::Null);
+            for key in ["sailry_context", "sailry_guide_loaded"] {
+                if let Some(value) = output.get(key)
+                    && data.is_object()
+                {
+                    data[key] = value.clone();
+                }
+            }
+            Ok(data)
         }
     }
 }
@@ -575,9 +581,22 @@ impl HostOperation {
                 }
             }
             let mut cancellation = code::Cancellation::new(&self.ingress, self.caller, &request);
-            let result = self.dispatch(context.as_ref(), request).await;
+            let mut result = self.dispatch(context.as_ref(), request).await;
             if let Some(cancellation) = cancellation.as_mut() {
                 cancellation.finish();
+            }
+            if let Ok(output) = &mut result
+                && let Some(worktree) = self.context.worktree
+            {
+                crate::agent::prompt::observe(
+                    &self.ingress,
+                    worktree,
+                    self.operation,
+                    context.as_ref(),
+                    output,
+                    &self.stop,
+                )
+                .await?;
             }
             result
         };
