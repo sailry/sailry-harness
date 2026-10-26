@@ -6,7 +6,7 @@ use gpui_kit::component::{
     scroll::ScrollableElement,
 };
 use gpui_kit::prelude::FluentBuilder as _;
-use sailry_client::conversation::tools::Call;
+use sailry_client::conversation::{children, tools::Call};
 use sailry_protocol::{
     ApprovalId,
     conversation::{Approval, ApprovalState, Decision, Page},
@@ -71,9 +71,8 @@ impl View {
                                 .gap_2()
                                 .child(crate::ui::identicon::child(
                                     &approval.session.to_string(),
-                                    self.child(approval.session).is_some_and(|child| {
-                                        subagents::is_running(child.run.status)
-                                    }),
+                                    self.child(approval.session)
+                                        .is_some_and(|child| children::active(child.run.status)),
                                     cx,
                                 ))
                                 .child(

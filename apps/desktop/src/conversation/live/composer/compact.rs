@@ -1,3 +1,4 @@
+use super::super::mode as plugin_mode;
 use super::*;
 use crate::conversation::{mode, permission};
 use gpui_kit::component::popover::Popover;
@@ -14,11 +15,11 @@ impl View {
         let active = self.selected_plugin_mode(cx);
         let label = active
             .as_ref()
-            .map(|mode| mode.label())
+            .map(plugin_mode::label)
             .unwrap_or_else(|| tr(mode::label(current)));
         let icon = active
             .as_ref()
-            .map(|mode| mode.icon())
+            .map(plugin_mode::icon)
             .unwrap_or_else(|| mode::icon(current).into());
         let owner = self.composer_settings.downgrade();
         Button::new("composer-mode-page")
@@ -87,7 +88,7 @@ impl View {
         let mode = self.current_mode();
         let mode_label = self
             .selected_plugin_mode(cx)
-            .map(|mode| mode.label())
+            .map(|mode| plugin_mode::label(&mode))
             .unwrap_or_else(|| tr(mode::label(mode)));
         let hint = format!(
             "{} · {} · {}",
@@ -177,8 +178,8 @@ impl View {
                 .ghost()
                 .w_full()
                 .justify_start()
-                .icon(entry.icon())
-                .label(entry.label())
+                .icon(plugin_mode::icon(&entry))
+                .label(plugin_mode::label(&entry))
                 .selected(selected)
                 .toggled(selected)
                 .disabled(

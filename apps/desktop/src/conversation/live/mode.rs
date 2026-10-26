@@ -9,7 +9,7 @@ use sailry_protocol::plugin;
 use sailry_client::conversation::modes as selection;
 pub(super) use selection::Mode as PluginMode;
 
-fn label(mode: &PluginMode) -> SharedString {
+pub(super) fn label(mode: &PluginMode) -> SharedString {
     mode.declaration
         .display
         .label(&rust_i18n::locale())
@@ -17,7 +17,7 @@ fn label(mode: &PluginMode) -> SharedString {
         .into()
 }
 
-fn icon(entry: &PluginMode) -> gpui_kit::component::Icon {
+pub(super) fn icon(entry: &PluginMode) -> gpui_kit::component::Icon {
     entry
         .declaration
         .display
