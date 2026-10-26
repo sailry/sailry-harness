@@ -17,7 +17,7 @@ pub struct OutputPage {
     pub total_bytes: u64,
     pub next_offset: Option<usize>,
     pub text: String,
-    /// The retention bound was reached; later bytes are unavailable here.
+    /// Some observed bytes are unavailable from the retained output.
     pub truncated: bool,
     pub invalid_utf8: bool,
 }

@@ -53,6 +53,52 @@ fn pages_complete_unicode_after_finish() {
 }
 
 #[test]
+fn pages_large_output_without_truncation() {
+    let retained = Retained::default();
+    let chunk = vec![b'x'; PAGE];
+    let mut expected = blake3::Hasher::new();
+    let mut total = 0;
+    for _ in 0..=(32 * 1024 * 1024 / PAGE) {
+        retained.append(OutputStream::Stdout, &chunk);
+        expected.update(&chunk);
+        total += chunk.len();
+    }
+    let suffix = b"\nlast failure\n";
+    retained.append(OutputStream::Stdout, suffix);
+    expected.update(suffix);
+    total += suffix.len();
+    retained.finish();
+    // Model reduction stays bounded independently of complete raw retention.
+    assert!(retained.text(OutputStream::Stdout).is_none());
+    let mut actual = blake3::Hasher::new();
+    let mut offset = 0;
+    let last = loop {
+        let page = retained
+            .page(info(), OutputStream::Stdout, offset, PAGE)
+            .unwrap();
+        assert!(!page.truncated && !page.invalid_utf8);
+        assert_eq!(page.total_bytes, total as u64);
+        assert!(page.text.len() <= PAGE);
+        actual.update(page.text.as_bytes());
+        let end = offset + page.text.len();
+        if let Some(next) = page.next_offset {
+            assert_eq!(next, end);
+            assert!(next > offset);
+            offset = next;
+        } else {
+            assert_eq!(end, total);
+            break page.text;
+        }
+    };
+    assert!(last.ends_with(std::str::from_utf8(suffix).unwrap()));
+    assert_eq!(actual.finalize(), expected.finalize());
+    let preview = retained.preview(info().id).unwrap();
+    let preview = preview["stdout"]["text"].as_str().unwrap();
+    assert!(preview.ends_with(std::str::from_utf8(suffix).unwrap()));
+    assert!(!preview.contains("complete retained output is unavailable"));
+}
+
+#[test]
 fn preserves_raw_and_reports_unavailable_retention() {
     let mut stream = Stream::default();
     stream.append(b"\x1b[31m1%\r2%\rDone\x1b[0m\n");

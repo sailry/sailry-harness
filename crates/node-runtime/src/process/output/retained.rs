@@ -9,7 +9,7 @@ use std::{
     sync::Mutex,
 };
 
-const LIMIT: usize = 32 * 1024 * 1024;
+const MODEL_LIMIT: usize = 32 * 1024 * 1024;
 const PAGE: usize = 32 * 1024;
 const HEAD: usize = 8 * 1024;
 const TAIL: usize = 24 * 1024;
@@ -58,16 +58,15 @@ impl Stream {
             self.tail.drain(..discard);
             self.tail.extend_from_slice(bytes);
         }
-        let count = bytes.len().min(LIMIT - self.retained);
-        if count == 0 || self.error.is_some() {
+        if bytes.is_empty() || self.error.is_some() {
             return;
         }
         let Some(writer) = &mut self.writer else {
             self.error = Some("command output retention is closed".into());
             return;
         };
-        match writer.write_all(&bytes[..count]) {
-            Ok(()) => self.retained += count,
+        match writer.write_all(bytes) {
+            Ok(()) => self.retained += bytes.len(),
             Err(error) => {
                 self.error = Some(error.to_string());
                 self.writer.take();
@@ -258,7 +257,10 @@ impl Retained {
 
     pub(crate) fn text(&self, stream: OutputStream) -> Option<String> {
         let stream = self.stream(stream).lock().unwrap();
-        if stream.error.is_some() || stream.total > stream.retained as u64 {
+        if stream.error.is_some()
+            || stream.total > stream.retained as u64
+            || stream.retained > MODEL_LIMIT
+        {
             return None;
         }
         let path = stream
