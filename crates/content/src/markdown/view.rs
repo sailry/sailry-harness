@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 use gpui_kit::{
     App, ClipboardItem, Context, DispatchPhase, ElementId, Entity, FocusHandle, Focusable, Global,
-    IntoElement, KeyBinding, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point,
-    Render, RenderOnce, ScrollHandle, SharedString, Window, canvas, div, point, prelude::*, px,
+    IntoElement, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, Render,
+    RenderOnce, ScrollHandle, SharedString, Window, canvas, div, point, prelude::*, px,
 };
 
 use super::render::{OnFile, OnImage, OnLink};
@@ -37,53 +37,10 @@ pub struct State {
     hover_links: bool,
     underline_links: bool,
     hovered_link: Option<Cursor>,
-    scroll: Option<Viewport>,
+    scroll: Option<ScrollHandle>,
     pub(super) typography: Option<super::typography::Typography>,
     pub(super) foreground: Option<gpui_kit::Hsla>,
     pub(super) strong_color: Option<gpui_kit::Hsla>,
-}
-
-#[derive(Clone)]
-enum Viewport {
-    Scroll(ScrollHandle),
-    List(ListState),
-}
-
-impl Viewport {
-    fn bounds(&self) -> gpui_kit::Bounds<Pixels> {
-        match self {
-            Self::Scroll(handle) => handle.bounds(),
-            Self::List(handle) => handle.viewport_bounds(),
-        }
-    }
-    fn scroll_by(&self, delta: f32) -> bool {
-        match self {
-            Self::Scroll(handle) => {
-                let before = handle.offset();
-                let next = point(
-                    before.x,
-                    (before.y - px(delta)).clamp(-handle.max_offset().y, px(0.)),
-                );
-                if next == before {
-                    return false;
-                }
-                handle.set_offset(next);
-            }
-            Self::List(handle) => {
-                let before = handle.scroll_px_offset_for_scrollbar();
-                let next = point(
-                    before.x,
-                    (before.y - px(delta)).clamp(-handle.max_offset_for_scrollbar().y, px(0.)),
-                );
-                if next == before {
-                    return false;
-                }
-                handle.pause_following_tail();
-                handle.set_offset_from_scrollbar(next);
-            }
-        }
-        true
-    }
 }
 
 impl State {
@@ -275,7 +232,15 @@ impl State {
         }
         // Move the nearest supplied viewport directly. Synthetic wheel events
         // would bubble into conversation and window scrollers at an inner edge.
-        let scrolled = scroll.scroll_by(delta);
+        let before = scroll.offset();
+        let next = point(
+            before.x,
+            (before.y - px(delta)).clamp(-scroll.max_offset().y, px(0.)),
+        );
+        let scrolled = next != before;
+        if scrolled {
+            scroll.set_offset(next);
+        }
         let selected = self.selection;
         // Even at the final scroll offset, use this frame's newly mounted
         // layouts so the last visible line participates in the selection.
@@ -325,8 +290,7 @@ impl Render for State {
                 }
             }
         });
-        // A virtual list holds its layout borrow while rendering its children.
-        // Query and mutate the supplied viewport only after that paint ends.
+        // Query and mutate the supplied viewport only after its paint ends.
         if self.dragging && self.scroll.is_some() {
             let entity = cx.weak_entity();
             window.on_next_frame(move |_, cx| {
@@ -440,7 +404,7 @@ pub struct View {
     on_image: Option<OnImage>,
     on_file: Option<OnFile>,
     on_selection: Option<OnSelection>,
-    scroll: Option<Viewport>,
+    scroll: Option<ScrollHandle>,
     typography: Option<super::typography::Typography>,
     foreground: Option<gpui_kit::Hsla>,
     strong_color: Option<gpui_kit::Hsla>,
@@ -505,11 +469,7 @@ impl View {
     }
     /// The containing vertical viewport, retained by its existing owner.
     pub fn scroll_handle(mut self, handle: ScrollHandle) -> Self {
-        self.scroll = Some(Viewport::Scroll(handle));
-        self
-    }
-    pub fn list_state(mut self, state: ListState) -> Self {
-        self.scroll = Some(Viewport::List(state));
+        self.scroll = Some(handle);
         self
     }
 
