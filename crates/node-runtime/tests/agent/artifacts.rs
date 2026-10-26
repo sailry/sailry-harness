@@ -119,14 +119,11 @@ async fn submit(fixture: &process::Fixture, text: &str) -> TurnId {
     turn.id
 }
 
-fn cards(page: &Page) -> Vec<artifact::Summary> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| {
-            let Part::ToolResult { result, .. } = part else {
-                return None;
-            };
+async fn cards(client: &Client, page: &Page) -> Vec<artifact::Summary> {
+    results(client, page)
+        .await
+        .into_iter()
+        .filter_map(|result| {
             let content: tool::Content =
                 serde_json::from_value(result.get("sailry_content")?.clone()).ok()?;
             Some(content.blocks)
@@ -395,7 +392,7 @@ async fn supports_bound_connections() {
                 Status::Completed,
                 "{page:?}"
             );
-            let documents = cards(&page);
+            let documents = cards(&fixture.client, &page).await;
             let document = documents.last().unwrap();
             let capture = fixture
                 .client
@@ -438,20 +435,11 @@ async fn supports_bound_connections() {
                 "{page:?}"
             );
             for name in ["read", "list", "revisions"] {
-                let result = page
-                    .entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .find_map(|part| {
-                        if let Part::ToolResult {
-                            name: tool, result, ..
-                        } = part
-                            && *tool == plugin_tool(PACKAGE, name)
-                        {
-                            Some(result)
-                        } else {
-                            None
-                        }
+                let result = tool_details(&fixture.client, &page)
+                    .await
+                    .into_iter()
+                    .find_map(|(tool, detail)| {
+                        (tool == plugin_tool(PACKAGE, name)).then_some(detail.result.unwrap())
                     })
                     .unwrap();
                 assert!(result.get("error").is_none(), "{result:?}");
@@ -486,7 +474,7 @@ async fn reads_inherited_publications() {
         let package = install(&fixture, 0, "<html><body>History template</body></html>").await;
         let first = submit(&fixture, "Write the first revision").await;
         let page = finished(&fixture.client, fixture.session.id, first).await;
-        let original = cards(&page).remove(0);
+        let original = cards(&fixture.client, &page).await.remove(0);
         let Output::Session(branch) = fixture
             .client
             .execute(fixture.client.prepare(Command::ForkConversation {
@@ -625,7 +613,12 @@ async fn reads_inherited_publications() {
         )]);
         let attempt = submit(&fixture, "Attempt to rewrite the inherited document").await;
         let page = finished(&fixture.client, branch.id, attempt).await;
-        assert!(page.entries.iter().filter(|entry| entry.turn == attempt).flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::ToolResult { result, .. } if result.get("error").is_some())));
+        assert!(
+            results(&fixture.client, &page)
+                .await
+                .iter()
+                .any(|result| result.get("error").is_some())
+        );
         assert_eq!(
             fixture
                 .client
@@ -780,7 +773,7 @@ async fn preserves_documents_when_stopped() {
         install(&fixture, 0, "<html><body>Template</body></html>").await;
         let turn = submit(&fixture, "Write the document, then ask for a choice").await;
         let (page, _) = questions::pending(&fixture.client, fixture.session.id).await;
-        let documents = cards(&page);
+        let documents = cards(&fixture.client, &page).await;
         assert_eq!(documents.len(), 1);
         let saved = fixture
             .client
@@ -794,7 +787,7 @@ async fn preserves_documents_when_stopped() {
             .unwrap();
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
-        assert_eq!(cards(&page), documents);
+        assert_eq!(cards(&fixture.client, &page).await, documents);
         assert_eq!(
             fixture
                 .client
@@ -910,7 +903,10 @@ async fn persists_plan_documents_and_conflicts() {
         let original = first.items[0].clone();
         assert_eq!(original.revision, 1);
         assert_eq!(original.package, first_package.summary.reference());
-        assert_eq!(cards(&page).as_slice(), std::slice::from_ref(&original));
+        assert_eq!(
+            cards(&fixture.client, &page).await.as_slice(),
+            std::slice::from_ref(&original)
+        );
         assert!(
             page.approvals
                 .iter()
@@ -1015,7 +1011,8 @@ async fn persists_plan_documents_and_conflicts() {
             content
         );
         assert_eq!(
-            cards(&page)
+            cards(&fixture.client, &page)
+                .await
                 .iter()
                 .map(|card| card.revision)
                 .collect::<Vec<_>>(),
@@ -1043,18 +1040,11 @@ async fn persists_plan_documents_and_conflicts() {
         )]);
         let inspected = submit(&fixture, "Read the previous document revision").await;
         let page = finished(&fixture.client, fixture.session.id, inspected).await;
-        let result = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| {
-                if let Part::ToolResult { name, result, .. } = part
-                    && *name == plugin_tool(PACKAGE, "read")
-                {
-                    Some(result)
-                } else {
-                    None
-                }
+        let result = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .find_map(|(name, detail)| {
+                (name == plugin_tool(PACKAGE, "read")).then_some(detail.result.unwrap())
             })
             .unwrap();
         assert_eq!(result["html"], content.html);
@@ -1067,8 +1057,15 @@ async fn persists_plan_documents_and_conflicts() {
         )]);
         let rejected = submit(&fixture, "Attempt an outdated edit").await;
         let page = finished(&fixture.client, fixture.session.id, rejected).await;
-        assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part|matches!(part,
-            Part::ToolResult {result,..} if result.pointer("/error/code")==Some(&json!("revision_conflict")))));
+        assert!(
+            tool_details(&fixture.client, &page)
+                .await
+                .iter()
+                .any(|(_, detail)| {
+                    let result = detail.result.as_ref().unwrap();
+                    result.pointer("/error/code") == Some(&json!("revision_conflict"))
+                })
+        );
         assert_eq!(
             fixture
                 .client
@@ -1284,7 +1281,8 @@ async fn restores_revisions_and_removes_session_files() {
         };
         assert!(snapshot.artifacts.items.is_empty());
         assert_eq!(
-            cards(&snapshot.page)
+            cards(&client, &snapshot.page)
+                .await
                 .iter()
                 .map(|value| value.revision)
                 .collect::<Vec<_>>(),

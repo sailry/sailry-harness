@@ -2,6 +2,7 @@ use super::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
+pub(in crate::store::agent) mod canonical;
 mod citations;
 mod credentials;
 mod interrupted;
@@ -9,6 +10,7 @@ mod settled;
 pub(super) use interrupted::retain;
 pub(in crate::store) mod output;
 pub(super) mod pages;
+pub(in crate::store) mod tools;
 // Canonical telemetry remains available to statistics without consuming chat or prompt pages.
 pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((
     json_extract(e.body,'$.author')='system'
@@ -510,8 +512,6 @@ pub(crate) async fn project(
     event: &AdkEvent,
 ) -> Result<Entry, Fault> {
     let references = super::references::project(event)?;
-    let presentations = super::presentation::read(event)?;
-    let groupings = super::presentation::groupings(event)?;
     let displays = super::presentation::displays(event)?;
     let failures = super::presentation::failures(event)?;
     Ok(Entry {
@@ -570,36 +570,31 @@ pub(crate) async fn project(
                         Part::Text(commentary(server_tool_call).unwrap_or_default())
                     }
                     adk_core::Part::ServerToolCall { server_tool_call } => {
-                        web_search::call(server_tool_call, displays.get("web_search")).unwrap_or_else(|| {
+                        web_search::call(server_tool_call, displays.get("web_search")).map(tools::Raw::part).unwrap_or_else(|| {
                             Part::Resource(
                                 serde_json::to_value(part).expect("ADK content is serializable"),
                             )
                         })
                     }
-                    adk_core::Part::FunctionCall { id, name, args, .. } => Part::ToolCall {
-                        id: id.clone(),
-                        name: name.clone(),
-                        arguments: credentials::project(db, turn, name, args).await?,
-                        presentation: presentations.get(name).copied().unwrap_or_default(),
-                        grouping: groupings.get(name).copied().unwrap_or_default(),
-                        display: displays.get(name).cloned().map(Box::new),
+                    adk_core::Part::FunctionCall { .. } => {
+                        tools::raw(db, turn, sequence, event, index).await?
+                            .ok_or_else(|| Fault::invalid("tool call projection is missing"))?.part()
                     },
                     adk_core::Part::ServerToolResponse {
                         server_tool_response,
-                    } => web_search::response(server_tool_response).unwrap_or_else(|| {
+                    } if server_tool_response["type"] == "anthropic_message" => {
+                        Part::Resource(serde_json::json!({"type":"provider_context"}))
+                    },
+                    adk_core::Part::ServerToolResponse {
+                        server_tool_response,
+                    } => tools::raw(db, turn, sequence, event, index).await?.map(tools::Raw::part).unwrap_or_else(|| {
                         Part::Resource(
                             serde_json::to_value(part).expect("ADK content is serializable"),
                         )
                     }),
-                    adk_core::Part::FunctionResponse {
-                        id,
-                        function_response,
-                        ..
-                    } => Part::ToolResult {
-                        id: id.clone(),
-                        name: function_response.name.clone(),
-                        result: function_response.response.clone(),
-                        images: super::images::project(db, turn, event, index, function_response).await?,
+                    adk_core::Part::FunctionResponse { .. } => {
+                        tools::raw(db, turn, sequence, event, index).await?
+                            .ok_or_else(|| Fault::invalid("tool result projection is missing"))?.part()
                     },
                     part => Part::Resource(
                         serde_json::to_value(part).expect("ADK content is serializable"),
@@ -613,7 +608,7 @@ pub(crate) async fn project(
                     .flat_map(|content| &content.parts)
                     .filter_map(|part| match part {
                         adk_core::Part::ServerToolCall { server_tool_call } => {
-                            web_search::result(server_tool_call).map(Ok)
+                            web_search::result(server_tool_call, displays.get("web_search")).map(|raw| Ok(raw.part()))
                         }
                         _ => None,
                     }),
@@ -629,8 +624,8 @@ pub(crate) async fn project(
                         .join("\n"),
                 ))
             }))
-            .chain(super::elicitation::project(event)?.into_iter().map(Ok))
-            .chain(super::review::project(event)?.into_iter().map(Ok))
+            .chain(super::elicitation::project(event)?.into_iter().map(|raw| Ok(raw.part())))
+            .chain(super::review::project(event)?.into_iter().map(|raw| Ok(raw.part())))
             .chain(failures.into_iter().map(|failure| {
                 Ok(Part::Resource(serde_json::json!({
                     "type":"tool_failed", "index":failure.index, "id":failure.id,

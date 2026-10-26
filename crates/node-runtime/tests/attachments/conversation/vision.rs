@@ -175,7 +175,12 @@ async fn preserves_images_across_model_changes() {
         .await;
         let history = run(&client, &inspect).await;
         assert_eq!(last_status(&history, inspect.id), Status::Completed);
-        assert!(history.entries.iter().filter(|entry| entry.turn == inspect.id).flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::ToolResult { result, .. } if result.to_string().contains("One bright pixel"))));
+        assert!(
+            results(&client, &history, Some(inspect.id))
+                .await
+                .iter()
+                .any(|result| result.to_string().contains("One bright pixel"))
+        );
         {
             let requests = companion.requests.lock().unwrap();
             assert_eq!(requests.len(), companion_before + 1);

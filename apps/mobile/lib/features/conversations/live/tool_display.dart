@@ -7,11 +7,7 @@ typedef OutputLoader =
     Future<Map<String, dynamic>?> Function(String entry, int index);
 
 bool toolFailed(Map<String, dynamic> call) =>
-    call['failure'] != null &&
-    !const [
-      'cancelled',
-      'outcome_unknown',
-    ].contains(object(call['failure'])['code']);
+    object(call['row'])['failed'] == true;
 
 String capturedLabel(BuildContext context, Object? value) {
   final label = object(value);

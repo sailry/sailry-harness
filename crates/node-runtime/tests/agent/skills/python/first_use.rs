@@ -1,41 +1,18 @@
 use super::*;
-use sailry_protocol::tool::{Alias, AliasKind, InputFormat};
 use std::path::PathBuf;
 
-fn assert_alias(page: &Page, name: &str, command: &str, python: &Path) {
-    let (arguments, display) = page
-        .entries
+async fn assert_alias(client: &Client, page: &Page, name: &str, command: &str, python: &Path) {
+    let calls = tool_calls(client, page).await;
+    let (_, detail) = calls
         .iter()
-        .flat_map(|entry| &entry.parts)
-        .find_map(|part| {
-            if let Part::ToolCall {
-                name: called,
-                arguments,
-                display,
-                ..
-            } = part
-                && called == name
-            {
-                Some((arguments, display.as_ref().unwrap()))
-            } else {
-                None
-            }
-        })
+        .find(|(called, _)| called == name)
         .expect("command call expected");
-    assert_eq!(arguments["command"], command);
-    let input = display.input.as_ref().unwrap();
-    assert_eq!(
-        input.summary.as_ref().unwrap().format,
-        Some(InputFormat::Command)
-    );
-    assert_eq!(
-        input.content.as_ref().unwrap().read(arguments),
-        Some(command)
-    );
-    assert!(display.aliases.contains(&Alias {
-        path: python.to_str().unwrap().into(),
-        kind: AliasKind::Python,
-    }));
+    assert_eq!(detail.arguments["command"], command);
+    let input = &detail.resolved.as_ref().unwrap().input;
+    assert_eq!(input.content.as_ref().unwrap().text, command);
+    let summary = &input.summary.as_ref().unwrap().text;
+    assert!(summary.contains("python"));
+    assert!(!summary.contains(python.to_str().unwrap()));
 }
 
 #[tokio::test]
@@ -67,15 +44,15 @@ async fn captures_bundled_alias_before_execution() {
         let (pending, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
         assert_eq!(approval.source, ApprovalSource::User);
         assert_eq!(approval.state, ApprovalState::Pending);
-        assert_alias(&pending, &name, &command, &python);
+        assert_alias(&fixture.client, &pending, &name, &command, &python).await;
         assert!(!fixture.root.join("executed.txt").exists());
         assert!(!fixture.node.profile().join("python").exists());
-        assert!(process::results(&pending).is_empty());
+        assert!(process::results(&fixture.client, &pending).await.is_empty());
         process::decide(&fixture.client, &approval, Decision::Approve).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_alias(&page, &name, &command, &python);
-        let results = process::results(&page);
+        assert_alias(&fixture.client, &page, &name, &command, &python).await;
+        let results = process::results(&fixture.client, &page).await;
         assert_eq!(results.len(), 1);
         assert_eq!(
             results[0].outcome,

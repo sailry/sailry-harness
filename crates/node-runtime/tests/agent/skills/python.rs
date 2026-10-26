@@ -56,7 +56,7 @@ async fn missing_python_preserves_skills_and_ordinary_commands() {
         .await;
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        let loaded = results(&page);
+        let loaded = results(&client, &page).await;
         assert!(
             loaded[0]["content"]
                 .as_str()
@@ -64,7 +64,7 @@ async fn missing_python_preserves_skills_and_ordinary_commands() {
                 .contains("Complete end")
         );
         assert!(loaded[0]["python"].is_null());
-        let commands = process::results(&page);
+        let commands = process::results(&client, &page).await;
         assert_eq!(commands.len(), 1);
         assert_eq!(
             commands[0].outcome,
@@ -145,13 +145,13 @@ async fn runs_in_the_managed_session_scope() {
         };
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        let loaded = results(&page);
+        let loaded = results(&client, &page).await;
         assert_eq!(loaded[0]["directory"], captured.to_str().unwrap());
         let python = loaded[0]["python"]
             .as_str()
             .expect("managed interpreter returned");
         assert!(std::path::Path::new(python).starts_with(runtime.canonicalize().unwrap()));
-        let commands = process::results(&page);
+        let commands = process::results(&client, &page).await;
         assert_eq!(commands.len(), 1);
         assert_eq!(
             commands[0].outcome,
@@ -205,7 +205,7 @@ async fn runs_in_the_managed_session_scope() {
         };
         let page = finished(&client, session.id, next.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let commands = process::results(&page);
+        let commands = process::results(&client, &page).await;
         assert_eq!(commands.len(), 2);
         assert_eq!(
             commands[1].outcome,

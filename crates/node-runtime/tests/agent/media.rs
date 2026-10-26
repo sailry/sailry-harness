@@ -269,15 +269,7 @@ async fn restores_frozen_execution() {
                 .iter()
                 .all(|name| name.starts_with(&plugin_tool("media", "")))
         );
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
-            })
-            .collect();
+        let results: Vec<_> = results(&client, &page).await;
         assert_eq!(results.len(), 5);
         assert_eq!(results[0]["text"], "One bright pixel", "{results:?}");
         assert_eq!(

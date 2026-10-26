@@ -48,11 +48,20 @@ impl View {
             .iter()
             .enumerate()
             .map(|(position, (call, page, connected))| {
+                let reference = call.detail_reference(page);
+                self.request_details(reference.clone(), false, cx);
+                let hydrated = self.detailed(call, page);
+                let call = &hydrated;
+                let loaded = call.detail.is_some();
+                let failed = reference
+                    .as_ref()
+                    .is_some_and(|reference| self.detail_failed.borrow().contains(reference));
                 let approval = call.approval.as_ref().unwrap();
                 let id = approval.id;
                 let details = details(call, page);
                 let access = details.access.clone();
                 let disabled = busy
+                    || !loaded
                     || !self.connected()
                     || !connected
                     || !page
@@ -102,10 +111,12 @@ impl View {
                             .font_medium()
                             .debug_selector(move || format!("live-approval-title-{id}"))
                             .child(
-                                call.display(page)
-                                    .map(|display| {
+                                call.row(page)
+                                    .label
+                                    .as_ref()
+                                    .map(|label| {
                                         SharedString::from(
-                                            display.label(&rust_i18n::locale()).to_owned(),
+                                            label.label(&rust_i18n::locale()).to_owned(),
                                         )
                                     })
                                     .unwrap_or_else(|| {
@@ -189,6 +200,19 @@ impl View {
                             )
                         },
                     )
+                    .when(!loaded, |row| {
+                        row.child(if failed {
+                            crate::feedback::retry(format!("approval-details-retry-{id}"))
+                                .disabled(!self.connected() || !connected)
+                                .on_click(cx.listener(move |view, _, _, cx| {
+                                    view.request_details(reference.clone(), true, cx);
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        } else {
+                            gpui_kit::component::spinner::Spinner::new().into_any_element()
+                        })
+                    })
                     .child(self.decision_controls(approval, position == 0, disabled, access, cx))
                     .debug_selector(move || format!("live-approval-request-{id}"))
                     .into_any_element()
@@ -249,49 +273,50 @@ pub(super) struct Details {
 }
 
 pub(super) fn details(call: &Call, page: &Page) -> Details {
-    let arguments = call.arguments(page).unwrap_or(&serde_json::Value::Null);
     let access = call.approval.as_ref().and_then(|approval| {
         (approval.access == Some(sailry_protocol::process::Access::Unrestricted))
             .then(|| tr("approval_unrestricted"))
     });
-    let Some(display) = call.display(page) else {
+    let Some(display) = call.summary(page).and_then(|_| call.resolved()) else {
         return Details {
             access,
             ..Default::default()
         };
     };
-    let read = |field: &Option<sailry_protocol::tool::Field>| {
-        field
-            .as_ref()
-            .and_then(|field| field.read(arguments))
-            .map(str::to_owned)
-    };
     let description: Option<SharedString> = display
         .approval
-        .iter()
-        .find_map(|prompt| prompt.render(arguments, &rust_i18n::locale()))
+        .first()
+        .map(|prompt| prompt.label(&rust_i18n::locale()).to_owned())
         .or_else(|| {
-            let input = display.input.as_ref()?;
-            read(&input.target).or_else(|| read(&input.summary))
+            display
+                .input
+                .target
+                .as_ref()
+                .or(display.input.summary.as_ref())
+                .map(|field| field.text.clone())
         })
         .map(Into::into);
     let code = display
         .input
+        .summary
         .as_ref()
-        .and_then(|input| input.summary.as_ref())
-        .is_some_and(|field| field.code && field.read(arguments) == description.as_deref());
+        .is_some_and(|field| field.code && Some(field.text.as_str()) == description.as_deref());
     Details {
-        prompt: description
-            .clone()
-            .or_else(|| Some(display.label(&rust_i18n::locale()).to_owned().into())),
+        prompt: description.clone().or_else(|| {
+            display
+                .label
+                .as_ref()
+                .map(|label| label.label(&rust_i18n::locale()).to_owned().into())
+        }),
         context: display
             .input
+            .context
             .as_ref()
-            .and_then(|input| read(&input.context)),
+            .map(|field| field.text.clone()),
         notices: display
             .approval
             .iter()
-            .filter_map(|prompt| prompt.render(arguments, &rust_i18n::locale()))
+            .map(|prompt| prompt.label(&rust_i18n::locale()).to_owned())
             .filter(|notice| Some(notice.as_str()) != description.as_deref())
             .map(Into::into)
             .collect(),

@@ -189,18 +189,27 @@ pub(crate) async fn claimed(node: &Node, approval: &Approval) -> (RequestId, boo
     (request.parse().unwrap(), claimed)
 }
 
-pub(crate) fn results(page: &Page, turn: TurnId) -> Vec<(Option<String>, String, Value)> {
-    page.entries
-        .iter()
-        .filter(|entry| entry.turn == turn)
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult {
-                id, name, result, ..
-            } => Some((id.clone(), name.clone(), result.clone())),
-            _ => None,
-        })
-        .collect()
+pub(crate) async fn results(
+    client: &Client,
+    page: &Page,
+    turn: TurnId,
+) -> Vec<(Option<String>, String, Value)> {
+    let mut results = Vec::new();
+    for entry in page.entries.iter().filter(|entry| entry.turn == turn) {
+        for (index, part) in entry.parts.iter().enumerate() {
+            if let Part::ToolResult { id, name, .. } = part {
+                results.push((
+                    id.clone(),
+                    name.clone(),
+                    tool_detail(client, page, entry, index)
+                        .await
+                        .result
+                        .unwrap(),
+                ));
+            }
+        }
+    }
+    results
 }
 
 #[tokio::test]
@@ -421,7 +430,7 @@ async fn remembers_across_turns_and_restart() {
             assert!(consumed);
             assert!(requests.insert(request));
             assert!(approvals.insert(approval.id));
-            let results = results(&page, turn);
+            let results = results(&fixture.client, &page, turn).await;
             assert_eq!(results.len(), 1);
             assert!(results[0].2.get("error").is_none(), "{:?}", results[0]);
         }

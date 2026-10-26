@@ -222,16 +222,11 @@ async fn resumes_input() {
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
             assert_eq!(page.questions.len(), 1);
-            let output: Vec<_> = page
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| match part {
-                    Part::ToolResult { name, result, .. } if name == &alias("native", "read") => {
-                        Some(result)
-                    }
-                    _ => None,
-                })
+            let output: Vec<_> = tool_details(&fixture.client, &page)
+                .await
+                .into_iter()
+                .filter(|(name, _)| name == &alias("native", "read"))
+                .map(|(_, detail)| detail.result.unwrap())
                 .collect();
             assert_eq!(output.len(), 1, "{output:?}");
             if cancel {

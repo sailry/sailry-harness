@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 mod content;
 pub use content::{Block, Content, Diff, File, Table, Text};
+pub mod detail;
 mod display;
 mod output;
 mod result;

@@ -22,7 +22,7 @@ impl View {
             || latest.turn != card.receipt.turn || latest.origin.is_some()
             || !matches!(latest.status, Status::Running | Status::Completed | Status::Failed)
             || !self.history.calls.iter().any(|call| {
-                call.turn == card.receipt.turn && call.content.as_ref().is_some_and(|content| {
+                call.turn == card.receipt.turn && self.detailed(call, &snapshot.page).content().is_some_and(|content| {
                     matches!(content.blocks.get(usize::from(card.receipt.block)), Some(sailry_protocol::tool::Block::Card(value)) if value == card)
                 })
             }) { return None }

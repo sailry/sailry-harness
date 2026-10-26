@@ -320,9 +320,13 @@ async fn keeps_review_across_stop_and_restart() {
                 resolved.questions[0].state,
                 State::Answered(Answer::Text(String::new()))
             );
-            assert!(resolved.entries.iter().any(|entry| entry.parts.iter().any(|part| {
-                matches!(part,Part::ToolResult{name,result,..} if name == "plan_review" && result["status"] == "answered")
-            })));
+            assert!(
+                tool_details(&resumed, &resolved)
+                    .await
+                    .iter()
+                    .any(|(name, detail)| name == "plan_review"
+                        && detail.result.as_ref().unwrap()["status"] == "answered")
+            );
             assert!(
                 page.entries
                     .iter()

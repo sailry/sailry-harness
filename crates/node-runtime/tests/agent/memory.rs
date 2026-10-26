@@ -100,18 +100,14 @@ async fn preserves_reads_in_plan() {
             panic!("turn expected")
         };
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
-        super::evaluation::trajectory(&page, &calls);
+        super::evaluation::trajectory(&fixture.client, &page, &calls).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
         assert!(page.approvals.is_empty());
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .filter(|entry| entry.author != "plan_review")
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
-            })
+        let results: Vec<_> = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(name, _)| name != "plan_review")
+            .map(|(_, detail)| detail.result.unwrap())
             .collect();
         assert_eq!(results.len(), 2, "{page:?}");
         let text = results[0]["entries"][0]["parts"][0]["text"]
@@ -255,22 +251,14 @@ async fn curates_scoped_memory() {
             panic!("turn expected");
         };
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        super::evaluation::trajectory(&page, &calls);
+        super::evaluation::trajectory(&fixture.client, &page, &calls).await;
         assert_eq!(
             page.runs[0].status,
             Status::Completed,
             "{:?}",
             page.runs[0].error
         );
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
-            })
-            .collect();
+        let results: Vec<_> = results(&fixture.client, &page).await;
         assert_eq!(results.len(), 8);
         assert_eq!(
             results[0]["updated"][0]["project"],
@@ -389,15 +377,7 @@ async fn applies_tool_settings() {
                 assert_eq!(prompt.contains(&id.to_string()), enabled);
             }
             if enabled {
-                let results: Vec<_> = page
-                    .entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .filter_map(|part| match part {
-                        Part::ToolResult { result, .. } => Some(result),
-                        _ => None,
-                    })
-                    .collect();
+                let results: Vec<_> = results(&fixture.client, &page).await;
                 assert_eq!(results.len(), 2);
                 assert!(results[0].to_string().contains("body_truncated"));
                 assert_eq!(results[1]["entries"].as_array().unwrap().len(), 0);
@@ -475,15 +455,7 @@ async fn consolidates_with_scoped_authority() {
             "{:?}",
             page.runs[0].error
         );
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
-            })
-            .collect();
+        let results: Vec<_> = results(&fixture.client, &page).await;
         assert_eq!(results[1]["error"]["code"], "invalid_request");
         assert!(results[3]["updated"].is_array());
         assert_eq!(page.approvals.len(), 2);
@@ -577,15 +549,7 @@ async fn rejects_unread_replacement() {
                 "{:?}",
                 page.runs[0].error
             );
-            let results: Vec<_> = page
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| match part {
-                    Part::ToolResult { result, .. } => Some(result),
-                    _ => None,
-                })
-                .collect();
+            let results: Vec<_> = results(&fixture.client, &page).await;
             assert_eq!(results.len(), 3);
             assert_eq!(
                 results

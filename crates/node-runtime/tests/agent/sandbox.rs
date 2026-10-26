@@ -52,16 +52,10 @@ async fn explains_sandbox_failures_to_the_agent() {
         permission(&mut fixture, Permission::Full).await;
         let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let results = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { result, .. } if result["kind"] == "command_result" => {
-                    Some(result)
-                }
-                _ => None,
-            })
+        let results = results(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|result| result["kind"] == "command_result")
             .collect::<Vec<_>>();
         assert_eq!(results.len(), 2, "{page:?}");
         assert!(
@@ -100,7 +94,7 @@ async fn confines_default_commands_under_every_permission() {
             let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            let outputs = process::results(&page);
+            let outputs = process::results(&fixture.client, &page).await;
             assert_eq!(outputs.len(), 2, "{page:?}");
             assert!(
                 outputs
@@ -213,9 +207,17 @@ async fn escape_requires_consent_in_ask_and_project() {
                 "outside"
             );
             assert!(!fixture.directory.path().join("denied.txt").exists());
-            assert_eq!(process::results(&page).len(), 1);
-            assert_eq!(process::results(&page)[0].stdout.text, "allowed");
-            assert_eq!(process::results(&page)[0].outcome, Outcome::Exited(0));
+            assert_eq!(process::results(&fixture.client, &page).await.len(), 1);
+            assert_eq!(
+                process::results(&fixture.client, &page).await[0]
+                    .stdout
+                    .text,
+                "allowed"
+            );
+            assert_eq!(
+                process::results(&fixture.client, &page).await[0].outcome,
+                Outcome::Exited(0)
+            );
             assert_eq!(page.approvals[0].choice, Some(ApprovalChoice::Once));
             assert_eq!(
                 page.approvals[1].reason.as_deref(),
@@ -261,7 +263,7 @@ async fn unrestricted_commands_run_automatically_in_full() {
             .await
             .unwrap()
             .unwrap();
-        let outputs = process::results(&page);
+        let outputs = process::results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 2, "{page:?}");
         assert!(
             outputs
@@ -336,7 +338,7 @@ async fn rejects_outside_working_directory() {
         let result = approvals::rules::results(&page, turn).pop().unwrap().2;
         assert_eq!(result["isError"], true);
         assert_eq!(result["error"]["code"], "permission_denied");
-        assert!(process::results(&page).is_empty());
+        assert!(process::results(&fixture.client, &page).await.is_empty());
         assert_eq!(page.approvals[0].source, ApprovalSource::Sandbox);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

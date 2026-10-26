@@ -127,18 +127,7 @@ async fn reads_bound_worktree() {
             "{:?}",
             page.runs[0].error
         );
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let results: Vec<_> = results(&client, &page).await;
         assert_eq!(results.len(), calls.len());
         assert_eq!(results[0]["data"]["entries"][0]["name"], "资料.txt");
         assert_eq!(

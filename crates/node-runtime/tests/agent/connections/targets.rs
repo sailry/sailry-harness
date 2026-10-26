@@ -68,9 +68,12 @@ async fn rejects_retargeting_while_approval_is_pending() {
         assert_ne!(next.id, approval.id);
         assert_eq!(count(&original), 0);
         assert_eq!(count(&other), 0);
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(
-            |part| matches!(part,Part::ToolResult{result,..} if result["error"]["code"]=="conflict")
-        ));
+        assert!(
+            results(&client, &page)
+                .await
+                .iter()
+                .any(|result| result["error"]["code"] == "conflict")
+        );
         client
             .execute(client.prepare(Command::ResolveApproval {
                 session: session.id,

@@ -120,18 +120,13 @@ pub(super) async fn decide(
     (request, response)
 }
 
-pub(super) fn results(page: &Page) -> Vec<Completion> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| {
-            if let Part::ToolResult { result, .. } = part
-                && let Ok(Output::CommandResult(result)) = serde_json::from_value(result.clone())
-            {
-                Some(result)
-            } else {
-                None
-            }
+pub(super) async fn results(client: &Client, page: &Page) -> Vec<Completion> {
+    super::results(client, page)
+        .await
+        .into_iter()
+        .filter_map(|value| match serde_json::from_value(value) {
+            Ok(Output::CommandResult(result)) => Some(result),
+            _ => None,
         })
         .collect()
 }
@@ -185,7 +180,7 @@ async fn reuses_turn_scratch() {
         }
         let page = finished(&fixture.client, session, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 2);
         assert_eq!(output[0].outcome, Outcome::Exited(0));
         assert_eq!(output[1].outcome, Outcome::Exited(0));
@@ -248,7 +243,7 @@ async fn bounds_approved_results() {
         decide(&fixture.client, &third, Decision::Deny).await;
         let page = finished(&fixture.client, session, turn).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 2);
         assert_eq!(output[0].outcome, Outcome::Exited(7));
         assert_eq!(output[0].stdout.text, "输出中文 🙂");
@@ -503,7 +498,7 @@ async fn orders_batch_results() {
             1,
             "fixture must emit a single batch"
         );
-        assert!(results(&page).is_empty());
+        assert!(results(&fixture.client, &page).await.is_empty());
         assert!(!fixture.root.join("first.txt").exists());
         decide(&fixture.client, &first, Decision::Approve).await;
         let running = tokio::time::timeout(Duration::from_secs(5), async {
@@ -519,16 +514,19 @@ async fn orders_batch_results() {
         })
         .await
         .unwrap();
-        assert!(results(&running).is_empty());
+        assert!(results(&fixture.client, &running).await.is_empty());
         assert_eq!(running.approvals.len(), 1);
         let (page, second) = approvals::pending(&fixture.client, session).await;
         assert_ne!(first.id, second.id);
         assert_eq!(
-            results(&page).len(),
+            results(&fixture.client, &page).await.len(),
             1,
             "first result must be durable before second approval"
         );
-        assert_eq!(results(&page)[0].stdout.text, "first");
+        assert_eq!(
+            results(&fixture.client, &page).await[0].stdout.text,
+            "first"
+        );
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("first.txt")).unwrap(),
             "first"
@@ -550,7 +548,7 @@ async fn orders_batch_results() {
             .filter(|part| matches!(part, Part::ToolResult { .. }))
             .count();
         assert_eq!((calls, responses), (3, 3));
-        assert_eq!(results(&page).len(), 1);
+        assert_eq!(results(&fixture.client, &page).await.len(), 1);
         assert!(!fixture.root.join("second.txt").exists());
         fixture.node.shutdown().await.unwrap();
     }

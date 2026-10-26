@@ -218,7 +218,7 @@ async fn delegates_from_private_workspaces() {
             );
             let expected = std::fs::canonicalize(&root).unwrap();
             for page in [&parent, &child_page] {
-                let outputs = results(page);
+                let outputs = results(&client, page).await;
                 let cwd = outputs
                     .iter()
                     .find_map(|output| output.pointer("/stdout/text").and_then(Value::as_str))

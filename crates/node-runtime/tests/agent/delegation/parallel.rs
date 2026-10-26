@@ -76,7 +76,7 @@ async fn freezes_config_and_history() {
             "{:?}",
             page.runs[0].error
         );
-        let output = results(&page);
+        let output = results(&client, &page).await;
         assert_eq!(output.len(), 2, "{output:?}");
         assert_eq!(page.children.len(), 2);
         assert!(
@@ -124,18 +124,21 @@ async fn freezes_config_and_history() {
             );
         }
         let mut histories = Vec::new();
+        let mut captured = Vec::new();
+        for entry in &page.entries {
+            for (index, part) in entry.parts.iter().enumerate() {
+                if let Part::ToolResult { id, .. } = part {
+                    let detail = tool_detail(&client, &page, entry, index).await;
+                    captured.push((id.as_ref().unwrap(), detail.result.unwrap()));
+                }
+            }
+        }
         for result in &output {
-            let call_id = page
-                .entries
+            let call_id = captured
                 .iter()
-                .flat_map(|entry| &entry.parts)
-                .find_map(|part| match part {
-                    Part::ToolResult {
-                        id, result: value, ..
-                    } if value == result => id.as_ref(),
-                    _ => None,
-                })
-                .unwrap();
+                .find(|(_, value)| value == result)
+                .unwrap()
+                .0;
             let (entry, index) = page.entries.iter().find_map(|entry| {
                 entry.parts.iter()
                     .position(|part| matches!(part, Part::ToolCall { id: Some(id), .. } if id == call_id))

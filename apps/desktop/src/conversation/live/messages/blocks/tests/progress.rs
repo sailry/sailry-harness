@@ -24,17 +24,19 @@ fn updates_preserve_failures() {
             search_suggestions: None,
             parts: vec![
                 Part::ToolCall {
-                    display: None,
                     presentation: sailry_protocol::tool::Presentation::Progress,
                     grouping: Default::default(),
                     id: Some(format!("call-{index}")),
                     name: "update_plan".into(),
-                    arguments: args.clone(),
+                    summary: Default::default(),
                 },
                 Part::ToolResult {
                     id: Some(format!("call-{index}")),
                     name: "update_plan".into(),
-                    result: json!({"progress": args}),
+                    summary: Box::new(sailry_protocol::tool::detail::Summary {
+                        progress: Some(serde_json::from_value(args).unwrap()),
+                        ..Default::default()
+                    }),
                     images: vec![],
                 },
                 Part::Thinking(format!("reasoning-{index}")),
@@ -46,17 +48,20 @@ fn updates_preserve_failures() {
     failed.sequence = 4;
     failed.parts = vec![
         Part::ToolCall {
-            display: None,
             presentation: sailry_protocol::tool::Presentation::Progress,
             grouping: Default::default(),
             id: Some("bad".into()),
             name: "update_plan".into(),
-            arguments: json!({}),
+            summary: Default::default(),
         },
         Part::ToolResult {
             id: Some("bad".into()),
             name: "update_plan".into(),
-            result: json!({"error": "invalid plan"}),
+            summary: Box::new(sailry_protocol::tool::detail::Summary {
+                diagnostics: true,
+                has_details: true,
+                ..Default::default()
+            }),
             images: vec![],
         },
     ];
@@ -77,13 +82,7 @@ fn updates_preserve_failures() {
         .entries
         .iter()
         .map(|entry| {
-            let Part::ToolCall {
-                id,
-                name,
-                arguments,
-                ..
-            } = &entry.parts[0]
-            else {
+            let Part::ToolCall { id, name, .. } = &entry.parts[0] else {
                 unreachable!()
             };
             Call {
@@ -101,9 +100,13 @@ fn updates_preserve_failures() {
                     entry: entry.id.clone(),
                     index: 1,
                 }),
-                progress: serde_json::from_value(arguments.clone()).ok(),
+                progress: match &entry.parts[1] {
+                    Part::ToolResult { summary, .. } => summary.progress.clone(),
+                    _ => None,
+                },
                 content: None,
                 resolved: None,
+                detail: None,
                 state: State::Returned,
                 failure: None,
                 approval: None,

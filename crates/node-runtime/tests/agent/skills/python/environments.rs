@@ -147,7 +147,7 @@ async fn run(stale: bool) {
         };
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        let loaded = results(&page);
+        let loaded = results(&client, &page).await;
         assert_eq!(loaded[0]["python"], python.to_str().unwrap());
         assert_eq!(
             turn.plugins
@@ -157,7 +157,7 @@ async fn run(stale: bool) {
                 .digest,
             installed.summary.digest,
         );
-        let commands = process::results(&page);
+        let commands = process::results(&client, &page).await;
         assert_eq!(commands.len(), 1);
         assert_eq!(
             commands[0].outcome,
@@ -171,41 +171,17 @@ async fn run(stale: bool) {
             commands[0].stderr.text
         );
         let record: Value = serde_json::from_str(&commands[0].stdout.text).unwrap();
-        let (arguments, display) = page
-            .entries
+        let calls = tool_calls(&client, &page).await;
+        let (_, detail) = calls
             .iter()
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| {
-                if let Part::ToolCall {
-                    name,
-                    arguments,
-                    display,
-                    ..
-                } = part
-                    && *name == plugin_tool("commands", "run_command")
-                {
-                    Some((arguments, display.as_ref().unwrap()))
-                } else {
-                    None
-                }
-            })
+            .find(|(name, _)| *name == plugin_tool("commands", "run_command"))
             .unwrap();
-        assert_eq!(arguments["command"], command);
-        assert_eq!(
-            display
-                .input
-                .as_ref()
-                .unwrap()
-                .summary
-                .as_ref()
-                .unwrap()
-                .format,
-            Some(sailry_protocol::tool::InputFormat::Command)
-        );
-        assert!(display.aliases.contains(&sailry_protocol::tool::Alias {
-            path: python.to_str().unwrap().into(),
-            kind: sailry_protocol::tool::AliasKind::Python,
-        }));
+        assert_eq!(detail.arguments["command"], command);
+        let input = &detail.resolved.as_ref().unwrap().input;
+        let summary = &input.summary.as_ref().unwrap().text;
+        assert!(summary.contains("python"));
+        assert!(!summary.contains(python.to_str().unwrap()));
+        assert_eq!(input.content.as_ref().unwrap().text, command);
         assert_eq!(record["environment"], environment.to_str().unwrap());
         assert_eq!(record["base"], runtime.to_str().unwrap());
         assert_eq!(record["readonly"], 2);

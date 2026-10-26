@@ -1,6 +1,22 @@
 use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
+fn canonical(results: Vec<serde_json::Value>) -> AdkEvent {
+    let mut event = AdkEvent::new("asset-tools");
+    event.author = "assistant".into();
+    let mut content = adk_core::Content::new("model");
+    content.parts = results
+        .into_iter()
+        .map(|response| adk_core::Part::FunctionResponse {
+            id: None,
+            annotations: None,
+            function_response: adk_core::FunctionResponseData::new("document_export", response),
+        })
+        .collect();
+    event.set_content(content);
+    event
+}
+
 fn query() -> Query {
     Query {
         kind: None,
@@ -208,25 +224,30 @@ async fn preserves_literal_references_without_indexing_writes() {
         Part::ToolResult {
             id: None,
             name: crate::plugins::tools::alias("files", "write_file"),
-            result: serde_json::to_value(Output::FileWritten(FileWritten {
-                path: path.into(),
-                revision: "written".into(),
-                size: 7,
-            }))
-            .unwrap(),
+            summary: Default::default(),
             images: vec![],
         },
         Part::ToolResult {
             id: None,
             name: crate::plugins::tools::alias("files", "write_file"),
-            result: serde_json::json!({"error": "failed", "path": "missing.txt"}),
+            summary: Default::default(),
             images: vec![],
         },
     ];
-    assert_eq!(
-        extract::items(&entry, Some("/project")),
-        [Target::File { path: path.into() }]
+    let mut items = extract::items(&entry, Some("/project"));
+    extract::publications(
+        &mut items,
+        &canonical(vec![
+            serde_json::to_value(Output::FileWritten(FileWritten {
+                path: path.into(),
+                revision: "written".into(),
+                size: 7,
+            }))
+            .unwrap(),
+            serde_json::json!({"error":"failed","path":"missing.txt"}),
+        ]),
     );
+    assert_eq!(items, [Target::File { path: path.into() }]);
 }
 
 #[tokio::test]
@@ -235,19 +256,31 @@ async fn project_writes_are_not_outputs() {
     fixture.completed(&["fixture"]).await;
     let mut entry = fixture.read(None, 1).await.page.entries[0].clone();
     entry.parts = (0..3_000)
-        .map(|index| Part::ToolResult {
+        .map(|_| Part::ToolResult {
             id: None,
             name: crate::plugins::tools::alias("files", "write_file"),
-            result: serde_json::to_value(Output::FileWritten(FileWritten {
-                path: format!("src/module_{index}.rs"),
-                revision: "written".into(),
-                size: 7,
-            }))
-            .unwrap(),
+            summary: Default::default(),
             images: vec![],
         })
         .collect();
     assert!(extract::items(&entry, Some("/project")).is_empty());
+    let mut items = Vec::new();
+    extract::publications(
+        &mut items,
+        &canonical(
+            (0..3_000)
+                .map(|index| {
+                    serde_json::to_value(Output::FileWritten(FileWritten {
+                        path: format!("src/module_{index}.rs"),
+                        revision: "written".into(),
+                        size: 7,
+                    }))
+                    .unwrap()
+                })
+                .collect(),
+        ),
+    );
+    assert!(items.is_empty());
     entry.parts.push(Part::Text("Changed [Source](src/main.rs).\n\n[Data](output/data.json)\n\n[Script](output/stats.py)\n\n[Log](output/execution.log)".into()));
     assert_eq!(
         extract::items(&entry, Some("/project")),
@@ -301,10 +334,16 @@ async fn ignores_document_write_receipts() {
         entry.parts = vec![Part::ToolResult {
             id: None,
             name,
-            result: serde_json::to_value(output).unwrap(),
+            summary: Default::default(),
             images: vec![],
         }];
         assert!(extract::items(&entry, Some("/project")).is_empty());
+        let mut items = Vec::new();
+        extract::publications(
+            &mut items,
+            &canonical(vec![serde_json::to_value(output).unwrap()]),
+        );
+        assert!(items.is_empty());
     }
 }
 
@@ -312,30 +351,30 @@ async fn ignores_document_write_receipts() {
 async fn indexes_valid_plugin_files() {
     let mut fixture = Fixture::new().await;
     fixture.completed(&["fixture"]).await;
-    let mut entry = fixture.read(None, 1).await.page.entries[0].clone();
+    let entry = fixture.read(None, 1).await.page.entries[0].clone();
     let content = serde_json::json!({
         "sailry_content": {"version": 1, "blocks": [
             {"kind": "file", "path": "output/report.pdf", "mime": "application/pdf"}
         ]}
     });
     for result in [content.clone(), serde_json::json!({"output": content})] {
-        entry.parts = vec![Part::ToolResult {
-            id: None,
-            name: "document_export".into(),
-            result,
-            images: vec![],
-        }];
+        let mut items = extract::items(&entry, Some("/project"));
+        extract::publications(&mut items, &canonical(vec![result]));
         assert_eq!(
-            extract::items(&entry, Some("/project")),
+            items,
             [Target::File {
                 path: "output/report.pdf".into()
             }]
         );
     }
-    if let Part::ToolResult { result, .. } = &mut entry.parts[0] {
-        result["output"]["sailry_content"]["blocks"][0]["path"] = "../private.pdf".into();
-    }
-    assert!(extract::items(&entry, Some("/project")).is_empty());
+    let mut items = Vec::new();
+    extract::publications(
+        &mut items,
+        &canonical(vec![serde_json::json!({
+            "sailry_content":{"version":1,"blocks":[{"kind":"file","path":"../private.pdf","mime":"application/pdf"}]}
+        })]),
+    );
+    assert!(items.is_empty());
 }
 
 #[tokio::test]

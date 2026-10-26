@@ -223,7 +223,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                 "{stage}"
             );
             assert!(!instruction.contains("<selected_skill>"));
-            assert!(results(&page).is_empty());
+            assert!(results(&fixture.client, &page).await.is_empty());
         }
         assert!(
             selected
@@ -282,7 +282,7 @@ async fn edits_catalog_and_applies_future_capture() {
         let original = session.roles.clone();
         let turn = submit(&client, &session, "Add a catalog definition").await;
         let page = finished(&client, session.id, turn.id).await;
-        let output = results(&page);
+        let output = results(&client, &page).await;
         assert_eq!(output.len(), 2, "{output:?}");
         assert_eq!(output[0]["revision"], "1", "{output:?}");
         assert_eq!(
@@ -308,7 +308,7 @@ async fn edits_catalog_and_applies_future_capture() {
         ]);
         let turn = submit(&client, &session, "Edit the catalog definition").await;
         let page = finished(&client, session.id, turn.id).await;
-        let output = results(&page);
+        let output = results(&client, &page).await;
         assert_eq!(output[output.len() - 2]["revision"], "2");
         assert_eq!(output.last().unwrap()["error"]["code"], "revision_conflict");
         let edited = catalog(&client)
@@ -359,7 +359,7 @@ async fn edits_catalog_and_applies_future_capture() {
             .await
             .unwrap();
         let page = finished(&client, session.id, applying.id).await;
-        let output = results(&page);
+        let output = results(&client, &page).await;
         let applied = output.last().unwrap();
         assert_eq!(applied["session"], session.id.to_string());
         assert_eq!(applied["revision"], (session.revision + 1).to_string());
@@ -383,7 +383,7 @@ async fn edits_catalog_and_applies_future_capture() {
             .unwrap();
         let page = finished(&client, session.id, queued.id).await;
         assert_eq!(
-            results(&page).last().unwrap()["error"]["code"],
+            results(&client, &page).await.last().unwrap()["error"]["code"],
             "invalid_request"
         );
         assert_eq!(queued.roles, original);

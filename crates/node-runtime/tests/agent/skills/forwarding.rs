@@ -92,7 +92,10 @@ async fn uses_destination_inventory() {
         assert_eq!(turn.plugins, [installed.summary.reference()]);
         let page = finished(&destination, imported.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        assert_eq!(results(&page)[0]["content"], "Guide 2.0.0 中文 🙂");
+        assert_eq!(
+            results(&destination, &page).await[0]["content"],
+            "Guide 2.0.0 中文 🙂"
+        );
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         assert!(
             server

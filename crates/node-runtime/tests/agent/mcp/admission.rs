@@ -153,7 +153,10 @@ async fn refreshes_next_input() {
                     .status,
                 Status::Completed
             );
-            assert_eq!(results(&page).last().unwrap()["output"]["version"], version);
+            assert_eq!(
+                results(&fixture.client, &page).await.last().unwrap()["output"]["version"],
+                version
+            );
         }
         {
             let requests = model.requests.lock().unwrap();

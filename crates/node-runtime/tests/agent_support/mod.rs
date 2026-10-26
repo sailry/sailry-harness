@@ -15,6 +15,8 @@ mod browser;
 pub mod compaction;
 mod connection_results;
 mod delegation;
+mod details;
+pub use details::{tool_calls, tool_detail, tool_details};
 mod goals;
 mod memory;
 pub mod phases;

@@ -46,7 +46,7 @@ export function bounded({step,outcome}) {
             Status::Completed,
             "{page:?}"
         );
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 4, "{page:?}");
         assert_eq!(output[0]["absent"], true);
         assert_eq!(output[0]["stable"], true);
@@ -118,7 +118,7 @@ export function revoke({step}) {return call(step===0 ? 'original' : 'replayed');
         };
         release.cancel();
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 1, "{page:?}");
         assert_eq!(output[0]["isError"], true);
         assert_ne!(

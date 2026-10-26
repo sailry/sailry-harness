@@ -5,10 +5,11 @@ use crate::conversation::{
 };
 use gpui_kit::component::collapsible::Collapsible;
 use gpui_kit::prelude::FluentBuilder as _;
-use sailry_client::conversation::tools::{Call, State};
+use sailry_client::conversation::tools::{Call, RowState, State};
 use sailry_protocol::conversation::{ApprovalState, Page};
 
 mod content;
+mod details;
 mod inspector;
 pub(super) mod output;
 pub(super) mod progress;
@@ -23,6 +24,15 @@ impl View {
         continuing: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let Some(snapshot) = &self.history.snapshot else {
+            return v_flex().into_any_element();
+        };
+        let hydrated: Vec<_> = calls
+            .iter()
+            .map(|call| self.detailed(call, &snapshot.page))
+            .collect();
+        let calls: Vec<_> = hydrated.iter().collect();
+        let calls = calls.as_slice();
         let Some(first) = calls.first() else {
             return v_flex().into_any_element();
         };
@@ -140,6 +150,10 @@ impl View {
             v_flex().into_any_element()
         };
         let content_id = format!("live-{turn}-{key}-content");
+        let references = calls
+            .iter()
+            .filter_map(|call| call.detail_reference(page))
+            .collect();
         Collapsible::new()
             .open(open)
             .w_full()
@@ -153,9 +167,9 @@ impl View {
                     open,
                     cx,
                 )
-                .on_click(
-                    cx.listener(move |view, _, _, cx| view.expand(turn, key.clone(), !open, cx)),
-                ),
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    view.expand_tools(turn, key.clone(), !open, references.clone(), cx)
+                })),
             )
             .content(
                 disclosure::body(content, cx)
@@ -185,6 +199,7 @@ impl View {
                     return self.activity(call, format!("live-{turn}-{key}"), summary, cx);
                 }
                 let has_result = has_content(call, page);
+                let references = call.detail_reference(page).into_iter().collect::<Vec<_>>();
                 let open = has_result
                     && self
                         .expanded
@@ -206,7 +221,7 @@ impl View {
                         )
                         .on_click(cx.listener(move |view, _, _, cx| {
                             if has_result {
-                                view.expand(turn, key.clone(), !open, cx);
+                                view.expand_tools(turn, key.clone(), !open, references.clone(), cx);
                             }
                         })),
                     )
@@ -233,6 +248,27 @@ impl View {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let key = format!("{}-{}", call.turn, call.source.key());
+        if let Some(progress) = &call.progress {
+            return progress::render(
+                &key,
+                progress,
+                continuing || call.state == State::Running,
+                self.history.connected && progress::active(page, call.turn),
+                cx,
+            );
+        }
+        if call.detail.is_none() && call.details(page) {
+            let references = call.detail_reference(page).into_iter().collect::<Vec<_>>();
+            self.request_details(references, false, cx);
+            return div()
+                .p_2()
+                .children(
+                    call.detail_reference(page)
+                        .filter(|reference| self.detail_loading.borrow().contains(reference))
+                        .map(|_| gpui_kit::component::spinner::Spinner::new()),
+                )
+                .into_any_element();
+        }
         let approval = call.approval.as_ref().map(|approval| approval.state);
         let denied = approval == Some(ApprovalState::Denied);
         let result = call.result(page).filter(|_| !denied);
@@ -244,7 +280,7 @@ impl View {
         let card = result.map(|result| {
             let selector = format!("live-tool-result-{key}");
             let images = call.images(page);
-            if let Some(content) = &call.content
+            if let Some(content) = call.content()
                 && output::failure(call.failure.as_ref(), Some(result)).is_none()
             {
                 return div()
@@ -475,9 +511,10 @@ impl Summary {
 }
 
 fn summary(call: &Call, page: &Page) -> Summary {
-    let display = call.display(page);
-    let icon = display
-        .and_then(|display| display.icon.as_ref())
+    let row = call.row(page);
+    let icon = row
+        .icon
+        .as_ref()
         .map(crate::assets::icons::icon)
         .or_else(|| surface::tool_icon(&call.name))
         .unwrap_or_else(|| {
@@ -487,93 +524,39 @@ fn summary(call: &Call, page: &Page) -> Summary {
                 IconName::Settings2
             })
         });
-    let target = call
-        .arguments(page)
-        .and_then(|arguments| arguments["path"].as_str())
-        .and_then(|value| value.lines().next())
-        .filter(|value| !value.is_empty())
-        .map(|value| SharedString::from(value.to_owned()))
-        .unwrap_or_default();
-    let denied = call
-        .approval
+    let mut detail = row
+        .detail
         .as_ref()
-        .is_some_and(|approval| approval.state == ApprovalState::Denied);
-    let failure_code = call.failure.as_ref().and_then(|failure| failure.code);
-    let failed = output::is_error(call.failure.as_ref(), call.result(page));
-    let state = if denied {
-        Some(approvals::label(ApprovalState::Denied))
-    } else if let Some(code) = failure_code
-        && matches!(
-            code,
-            sailry_protocol::ErrorCode::Cancelled | sailry_protocol::ErrorCode::OutcomeUnknown
-        )
-    {
-        Some(if code == sailry_protocol::ErrorCode::Cancelled {
-            "turn_cancelled"
-        } else {
-            "tool_interrupted"
-        })
-    } else if failed {
-        Some("tool_failed")
-    } else if call
-        .approval
-        .as_ref()
-        .is_some_and(|approval| approval.state == ApprovalState::Pending)
-    {
-        Some("approval_pending")
-    } else {
-        match call.state {
-            State::Waiting | State::Running => None,
-            State::Cancelled => Some("turn_cancelled"),
-            State::NotExecuted => Some("tool_not_executed"),
-            State::Interrupted => Some("tool_interrupted"),
-            State::Returned => None,
-        }
-    };
-    let declared = call
-        .resolved
-        .as_ref()
-        .and_then(|resolved| resolved.input.summary.as_ref())
-        .and_then(|field| Some((field, field.text.lines().next()?)))
-        .map(|(field, text)| {
+        .map(|field| {
             if field.code {
-                Detail::mono(SharedString::from(text.to_owned()))
+                Detail::mono(SharedString::from(field.text.clone()))
             } else {
-                Detail::plain(SharedString::from(text.to_owned()))
+                Detail::plain(SharedString::from(field.text.clone()))
             }
-        });
-    let mut detail = declared.unwrap_or_else(|| Detail::plain(target));
+        })
+        .unwrap_or_default();
     detail.secondary = true;
-    detail.state = if call.state == State::Returned && !denied {
-        detail.state.or_else(|| state.map(tr))
-    } else {
-        state.map(tr)
-    };
-    detail.failed = !denied && failed;
-    detail.warning = !detail.failed
-        && matches!(
-            state,
-            Some("approval_rejected" | "turn_cancelled" | "tool_interrupted" | "tool_not_executed")
-        );
-    detail.hide_caret = !has_content(call, page);
-    detail.pending = call
-        .approval
-        .as_ref()
-        .is_some_and(|approval| approval.state == ApprovalState::Pending);
-    detail.running = call.state == State::Running
-        && !denied
-        && !failed
-        && call
-            .approval
-            .as_ref()
-            .is_none_or(|approval| approval.state != ApprovalState::Pending);
-    if detail.running {
-        detail.state = None;
-    }
+    detail.state = row.state.map(|state| {
+        tr(match state {
+            RowState::Denied => "approval_rejected",
+            RowState::Cancelled => "turn_cancelled",
+            RowState::Interrupted => "tool_interrupted",
+            RowState::Failed => "tool_failed",
+            RowState::Pending => "approval_pending",
+            RowState::NotExecuted => "tool_not_executed",
+        })
+    });
+    detail.failed = row.failed;
+    detail.warning = row.warning;
+    detail.hide_caret = !row.has_details;
+    detail.pending = row.pending;
+    detail.running = row.running;
     Summary {
         icon,
-        label: display
-            .map(|display| SharedString::from(display.label(&rust_i18n::locale()).to_owned()))
+        label: row
+            .label
+            .as_ref()
+            .map(|label| SharedString::from(label.label(&rust_i18n::locale()).to_owned()))
             .unwrap_or_else(|| {
                 if call.progress.is_some() {
                     tr("task_progress")
@@ -594,7 +577,7 @@ fn expandable(calls: &[&Call], page: &Page) -> bool {
 }
 
 fn activity_path(call: &Call) -> Option<&str> {
-    let resolved = call.resolved.as_ref()?;
+    let resolved = call.resolved()?;
     resolved
         .output
         .as_ref()
@@ -660,7 +643,7 @@ fn preparation(
         if call.name != "load_skill" || call.state != State::Running {
             return None;
         }
-        let skill = call.arguments(page)?.get("skill")?.as_str()?;
+        let skill = call.summary(page)?.resource.as_deref()?;
         let (package, _) = skill.split_once(':')?;
         python.package(package).map(|progress| progress.stage)
     })

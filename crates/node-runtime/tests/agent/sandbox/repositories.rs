@@ -50,7 +50,7 @@ async fn protects_metadata_across_both_paths() {
         let config = std::fs::read(fixture.root.join(".git/config")).unwrap();
         let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let outputs = process::results(&page);
+        let outputs = process::results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 3, "{page:?}");
         assert!(
             outputs

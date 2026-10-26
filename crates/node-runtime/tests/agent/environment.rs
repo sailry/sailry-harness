@@ -129,7 +129,7 @@ async fn freezes_login_until_restart() {
         for second in [false, true] {
             login.select(second);
             let page = run(&client, &session).await;
-            let foreground = process::results(&page);
+            let foreground = process::results(&client, &page).await;
             assert_eq!(foreground.len(), 1);
             assert_eq!(
                 foreground[0].outcome,
@@ -168,7 +168,10 @@ async fn freezes_login_until_restart() {
             Client::new(node.local())
         };
         let page = run(&client, &session).await;
-        assert_eq!(process::results(&page)[0].stdout.text, "second:unset:unset");
+        assert_eq!(
+            process::results(&client, &page).await[0].stdout.text,
+            "second:unset:unset"
+        );
         assert_eq!(
             background(&client, session.id, page.runs.last().unwrap().turn)
                 .await
@@ -268,18 +271,7 @@ async fn shares_login_with_stdio() {
         let turn = approvals::submit(&client, session.id).await;
         let page = finished(&client, session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let results: Vec<_> = results(&client, &page).await;
         assert_eq!(results.len(), 1);
         assert_eq!(
             results[0]["output"]["secret_hash"],
@@ -330,18 +322,25 @@ async fn shares_login_with_stdio() {
             std::fs::read_to_string(login.home.join("mcp-launches")).unwrap(),
             "firstsecond"
         );
-        let result = page
+        let entry = page
             .entries
             .iter()
-            .filter(|entry| entry.turn == turn)
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
+            .find(|entry| {
+                entry.turn == turn
+                    && entry
+                        .parts
+                        .iter()
+                        .any(|part| matches!(part, Part::ToolResult { .. }))
             })
+            .unwrap();
+        let index = entry
+            .parts
+            .iter()
+            .position(|part| matches!(part, Part::ToolResult { .. }))
+            .unwrap();
+        let result = tool_detail(&client, &page, entry, index)
+            .await
+            .result
             .unwrap();
         assert_eq!(
             result["output"]["secret_hash"],

@@ -126,18 +126,7 @@ async fn workflow(capture: bool) {
         })
         .await
         .expect("managed browser workflow deadline");
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let results: Vec<_> = results(client, &page).await;
         assert_eq!(
             page.runs.last().unwrap().status,
             Status::Completed,
@@ -145,12 +134,19 @@ async fn workflow(capture: bool) {
         );
         assert_eq!(results.len(), count, "{results:?}");
         for part in page.entries.iter().flat_map(|entry| &entry.parts) {
-            if let Part::ToolCall { name, display, .. } = part {
+            if let Part::ToolCall { name, summary, .. } = part {
                 assert!(name.starts_with(&plugin_tool("external-browser", "browser_")));
-                let display = display.as_ref().expect("packaged browser display");
-                assert!(display.label.starts_with("External browser"));
+                let display = summary.resolved.as_ref().expect("packaged browser display");
+                assert!(
+                    display
+                        .label
+                        .as_ref()
+                        .unwrap()
+                        .label
+                        .starts_with("External browser")
+                );
                 assert_eq!(
-                    display.icon,
+                    summary.icon,
                     Some(sailry_protocol::plugin::desktop::Icon::Name(
                         "reicon:map/globe".into()
                     ))
@@ -362,11 +358,13 @@ async fn requires_provisioning_authority() {
             let page = finished(&fixture.client, fixture.session, fixture.turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
             assert!(
-                page.entries
+                tool_details(&fixture.client, &page)
+                    .await
                     .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| matches!(part,
-                Part::ToolResult { result, .. } if result.get("error").is_some()))
+                    .any(|(_, detail)| {
+                        let result = detail.result.as_ref().unwrap();
+                        result.get("error").is_some()
+                    })
             );
             assert!(!fixture.profile().join("tools/chromium").exists());
             fixture.shutdown().await;

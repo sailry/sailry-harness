@@ -172,8 +172,8 @@ async fn executes_retained_import() {
         .await;
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        super::super::evaluation::trajectory(&page, &calls);
-        let output = results(&page);
+        super::super::evaluation::trajectory(&client, &page, &calls).await;
+        let output = results(&client, &page).await;
         assert_eq!(output[0]["content"], github::body("first"));
         assert_eq!(output[1]["content"], "Guide first 中文 🙂");
         assert_eq!(
@@ -181,7 +181,7 @@ async fn executes_retained_import() {
             "x"
         );
         assert!(
-            process::results(&page)[0]
+            process::results(&client, &page).await[0]
                 .stdout
                 .text
                 .contains("script first")

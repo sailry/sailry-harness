@@ -67,9 +67,9 @@ async fn runs_from_skill_and_project_directories() {
         }
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        let loaded = results(&page);
+        let loaded = results(&client, &page).await;
         assert_eq!(loaded[0]["directory"], skill_directory.to_str().unwrap());
-        let commands = process::results(&page);
+        let commands = process::results(&client, &page).await;
         assert_eq!(commands.len(), 2);
         assert!(
             commands
@@ -184,7 +184,7 @@ async fn scripts_require_approval() {
             assert_eq!(count.exists(), allow);
             if allow {
                 assert_eq!(fs::read_to_string(count).unwrap(), "x");
-                let output = process::results(&page);
+                let output = process::results(&client, &page).await;
                 assert_eq!(output.len(), 1);
                 assert!(output[0].stdout.text.contains("script output 中文 🙂"));
             }
@@ -255,49 +255,38 @@ async fn loads_complete_resources() {
         };
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        super::super::evaluation::trajectory(&page, &calls);
-        let output = results(&page);
+        super::super::evaluation::trajectory(&client, &page, &calls).await;
+        let output = results(&client, &page).await;
         assert_eq!(output.len(), 5);
         assert_eq!(output[0]["content"], body);
         assert_eq!(output[1]["content"], "Guide 1.0.0 中文 🙂");
         assert!(output[2].get("error").is_some());
         assert_eq!(output[3]["error"]["code"], "invalid_request");
         assert_eq!(output[4]["error"]["code"], "invalid_request");
-        let captured: Vec<_> = page
+        let presentations: Vec<_> = page
             .entries
             .iter()
             .flat_map(|entry| &entry.parts)
             .filter_map(|part| match part {
-                Part::ToolCall {
-                    name,
-                    arguments,
-                    presentation,
-                    display,
-                    ..
-                } => Some((name, arguments, presentation, display)),
+                Part::ToolCall { presentation, .. } => Some(*presentation),
                 _ => None,
             })
             .collect();
+        let captured = tool_calls(&client, &page).await;
         assert_eq!(captured.len(), calls.len());
-        for ((name, arguments, presentation, display), (expected, _)) in captured.iter().zip(&calls)
+        for (((name, detail), presentation), (expected, _)) in
+            captured.iter().zip(presentations).zip(&calls)
         {
-            assert_eq!(*name, expected);
-            assert_eq!(**presentation, sailry_protocol::tool::Presentation::Summary);
-            let display = display.as_ref().unwrap();
-            assert!(display.valid());
+            assert_eq!(name, expected);
+            assert_eq!(presentation, sailry_protocol::tool::Presentation::Summary);
+            let display = detail.resolved.as_ref().unwrap();
             assert_eq!(
-                display
-                    .input
-                    .as_ref()
-                    .unwrap()
-                    .summary
-                    .as_ref()
-                    .unwrap()
-                    .read(arguments),
-                arguments["skill"].as_str()
+                display.input.summary.as_ref().unwrap().text,
+                detail.arguments["skill"].as_str().unwrap()
             );
-            assert!(display.input.as_ref().unwrap().content.is_none());
-            assert_ne!(display.label("zh-CN"), display.label("en"));
+            assert!(display.input.content.is_none());
+            let label = display.label.as_ref().unwrap();
+            assert_ne!(label.label("zh-CN"), label.label("en"));
         }
         assert!(page.approvals.is_empty());
         let requests = server.requests.lock().unwrap().clone();
@@ -424,7 +413,7 @@ async fn injects_frozen_roles() {
         .await;
         execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
         let page = finished(&client, session.id, turn.id).await;
-        let output = results(&page);
+        let output = results(&client, &page).await;
         assert_eq!(output[0]["status"], "completed", "{output:?}");
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);

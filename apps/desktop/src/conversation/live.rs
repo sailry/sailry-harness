@@ -146,6 +146,10 @@ pub(crate) struct View {
     sent: BTreeMap<TurnId, outgoing::Message>,
     navigation: navigation::Navigation,
     expanded: BTreeMap<(TurnId, String), bool>,
+    detail_loading:
+        std::cell::RefCell<std::collections::BTreeSet<sailry_protocol::tool::detail::Reference>>,
+    detail_failed:
+        std::cell::RefCell<std::collections::BTreeSet<sailry_protocol::tool::detail::Reference>>,
     changes: BTreeMap<TurnId, Entity<messages::changes::Card>>,
     editing: Option<messages::Editing>,
     texts: std::cell::RefCell<BTreeMap<String, Entity<crate::content::markdown::State>>>,
@@ -417,6 +421,8 @@ impl View {
             sent: BTreeMap::new(),
             navigation: navigation::Navigation::new(cx),
             expanded: BTreeMap::new(),
+            detail_loading: Default::default(),
+            detail_failed: Default::default(),
             changes: BTreeMap::new(),
             editing: None,
             texts: Default::default(),
@@ -532,7 +538,11 @@ impl View {
                 && (run.status == Status::Running
                     || run.status == Status::Stopping
                         && !page.queue.paused
-                        && page.queue.items.iter().any(|item| item.guidance == Some(run.turn)))
+                        && page
+                            .queue
+                            .items
+                            .iter()
+                            .any(|item| item.guidance == Some(run.turn)))
         })
     }
 

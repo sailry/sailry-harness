@@ -140,15 +140,7 @@ async fn new_turn_installation_preserves_admitted_resources() {
                 .status,
             Status::Completed
         );
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
-            })
-            .collect();
+        let results: Vec<_> = results(&client, &page).await;
         assert_eq!(results.len(), 2);
         assert!(results[0]["content"].as_str().unwrap().contains("Document"));
         assert!(

@@ -101,13 +101,10 @@ async fn observe(
     snapshot
 }
 
-fn results(page: &Page) -> Vec<(&str, &Value)> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { name, result, .. } => Some((name.as_str(), result)),
-            _ => None,
-        })
+async fn results(client: &Client, page: &Page) -> Vec<(String, Value)> {
+    tool_details(client, page)
+        .await
+        .into_iter()
+        .map(|(name, detail)| (name, detail.result.unwrap()))
         .collect()
 }

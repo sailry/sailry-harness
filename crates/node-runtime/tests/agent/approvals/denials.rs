@@ -31,7 +31,10 @@ async fn preserves_reasons_without_crossing_turns() {
         let approval = pending(&fixture.client, fixture.session.id).await;
         process::decide(&fixture.client, &approval, Decision::Deny).await;
         let original = completed(&fixture.client, fixture.session.id, first.id).await;
-        let first_result = results(&original, first.id).pop().unwrap();
+        let first_result = results(&fixture.client, &original, first.id)
+            .await
+            .pop()
+            .unwrap();
         assert!(
             first_result.2["error"]
                 .as_str()
@@ -65,7 +68,10 @@ async fn preserves_reasons_without_crossing_turns() {
         )
         .await;
         let denied = completed(&fixture.client, fixture.session.id, second.id).await;
-        let second_result = results(&denied, second.id).pop().unwrap();
+        let second_result = results(&fixture.client, &denied, second.id)
+            .await
+            .pop()
+            .unwrap();
         assert_eq!(first_result.0, second_result.0);
         assert_eq!(first_result.1, second_result.1);
         assert_eq!(
@@ -96,13 +102,28 @@ async fn preserves_reasons_without_crossing_turns() {
         assert_eq!(approval.source, ApprovalSource::User);
         process::decide(&fixture.client, &approval, Decision::Approve).await;
         let page = completed(&fixture.client, fixture.session.id, third.id).await;
-        let third_result = results(&page, third.id).pop().unwrap();
+        let third_result = results(&fixture.client, &page, third.id)
+            .await
+            .pop()
+            .unwrap();
         assert_eq!(first_result.0, third_result.0);
         assert_eq!(first_result.1, third_result.1);
         assert!(third_result.2.get("error").is_none());
         assert!(third_result.2.get("isError").is_none());
-        assert_eq!(results(&page, first.id).pop().unwrap(), first_result);
-        assert_eq!(results(&page, second.id).pop().unwrap(), second_result);
+        assert_eq!(
+            results(&fixture.client, &page, first.id)
+                .await
+                .pop()
+                .unwrap(),
+            first_result
+        );
+        assert_eq!(
+            results(&fixture.client, &page, second.id)
+                .await
+                .pop()
+                .unwrap(),
+            second_result
+        );
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("effect.txt")).unwrap(),
             "Approved only in the third turn"

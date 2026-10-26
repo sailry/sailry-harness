@@ -19,40 +19,7 @@ String rawText(Object? value) =>
 /// Images and publications already occupy their existing answer rows.
 /// Only sections rendered inside the tool disclosure need a body here.
 bool hasToolContent(Map<String, dynamic> call) {
-  if (call['failure'] != null) return true;
-  final resolved = object(call['resolved']);
-  if (objects(resolved['diagnostics']).isNotEmpty) return true;
-  if (object(resolved['command']).isNotEmpty) return true;
-  final output = object(call['output']);
-  final body = object(output['body']);
-  if (call['output_deferred'] == true ||
-      text(output['preview']).isNotEmpty ||
-      objects(output['notices']).isNotEmpty ||
-      (output['paths'] is List && (output['paths'] as List).isNotEmpty) ||
-      object(output['table']).isNotEmpty ||
-      text(body['text']).isNotEmpty ||
-      text(body['path']).isNotEmpty ||
-      body['empty'] != null) {
-    return true;
-  }
-  final texts = call['texts'] is List ? call['texts'] as List : const [];
-  for (final (index, block) in objects(
-    object(call['content'])['blocks'],
-  ).indexed) {
-    switch (block['kind']) {
-      case 'text':
-        if ((index < texts.length && text(texts[index]).isNotEmpty) ||
-            objects(block['notices']).isNotEmpty) {
-          return true;
-        }
-        break;
-      case 'notice':
-      case 'table':
-      case 'diff':
-        return true;
-    }
-  }
-  return false;
+  return object(call['row'])['has_details'] == true;
 }
 
 class ToolContent extends StatelessWidget {

@@ -91,18 +91,7 @@ export function broken() {throw new Error('formatting failed');}
         }
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let results: Vec<_> = results(&fixture.client, &page).await;
         assert_eq!(results.len(), 2);
         for result in &results {
             assert_eq!(result["error"], json!(fault));

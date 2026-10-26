@@ -134,8 +134,8 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
                 }
                 if call.name == "compact_context"
                     && let Some(summary) = call
-                        .result(page)
-                        .and_then(|result| result["summary_id"].as_str())
+                        .summary(page)
+                        .and_then(|summary| summary.summary_id.as_deref())
                     && page.entries.iter().any(|entry| {
                         entry.id == summary
                             && entry

@@ -72,7 +72,7 @@ async fn commits_results_without_duplicate_turns() {
             );
             assert_eq!(page.runs[0].status, Status::Completed);
             assert!(page.queue.items.is_empty());
-            let outputs = results(&page);
+            let outputs = results(&fixture.client, &page).await;
             assert_eq!(outputs.len(), if kind == "resume" { 2 } else { 1 });
             let controlled = &outputs[0].1["goal"];
             if kind == "clear" {
@@ -140,7 +140,7 @@ async fn rejects_stale_targets_and_paused_updates() {
             panic!("turn expected")
         };
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let outputs = results(&page);
+        let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 3);
         for (index, (_, result)) in outputs.iter().enumerate() {
             assert_eq!(result["isError"], true);

@@ -7,21 +7,7 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
         match part {
             Part::Attachment(value) => push(&mut items, Target::Attachment(value.clone())),
             Part::Image(value) => push(&mut items, Target::Image(value.clone())),
-            Part::ToolResult { result, images, .. } => {
-                if let Some(content) = sailry_protocol::tool::Presentation::Content.content(result)
-                {
-                    for block in content.blocks {
-                        match block {
-                            sailry_protocol::tool::Block::File(file) => {
-                                push(&mut items, Target::File { path: file.path });
-                            }
-                            sailry_protocol::tool::Block::Artifact { artifact: document } => {
-                                push(&mut items, Target::Document(document));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+            Part::ToolResult { images, .. } => {
                 for image in images {
                     push(&mut items, Target::Image(image.clone()));
                 }
@@ -38,6 +24,37 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
         }
     }
     items
+}
+
+pub(super) fn publications(items: &mut Vec<Target>, event: &AdkEvent) {
+    for part in event
+        .content()
+        .into_iter()
+        .flat_map(|content| &content.parts)
+    {
+        let adk_core::Part::FunctionResponse {
+            function_response, ..
+        } = part
+        else {
+            continue;
+        };
+        let Some(content) =
+            sailry_protocol::tool::Presentation::Content.content(&function_response.response)
+        else {
+            continue;
+        };
+        for block in content.blocks {
+            match block {
+                sailry_protocol::tool::Block::File(file) => {
+                    push(items, Target::File { path: file.path })
+                }
+                sailry_protocol::tool::Block::Artifact { artifact } => {
+                    push(items, Target::Document(artifact))
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 fn markdown(items: &mut Vec<Target>, text: &str, root: Option<&str>, input: bool) {

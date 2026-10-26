@@ -693,6 +693,16 @@ pub enum Command {
         before: Option<u64>,
         limit: u16,
     },
+    ReadToolDetail {
+        session: SessionId,
+        turn: crate::TurnId,
+        entry: String,
+        index: usize,
+        call: Option<String>,
+        expected_revision: String,
+        cursor: Option<usize>,
+        limit: usize,
+    },
     ListConversationAssets {
         session: SessionId,
         query: crate::conversation::assets::Query,
@@ -1620,6 +1630,7 @@ impl Command {
                 | Self::ReadActivity { .. }
                 | Self::ReadTurnCapture { .. }
                 | Self::ReadTurn { .. }
+                | Self::ReadToolDetail { .. }
                 | Self::SearchConversation { .. }
                 | Self::ListConversationAssets { .. }
                 | Self::ListFileCheckpoints { .. }
@@ -1916,6 +1927,7 @@ pub enum Output {
     CommandOutput(crate::process::Snapshot),
     CommandOutputPage(crate::process::OutputPage),
     ToolOutput(crate::tool::OutputPage),
+    ToolDetail(crate::tool::detail::Page),
     Provider(crate::conversation::Provider),
     Providers(Vec<crate::conversation::Provider>),
     ProviderKey(Option<crate::Secret>),

@@ -129,13 +129,25 @@ fn render<'a>(
 ) -> Pin<Box<dyn Future<Output = acp::Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let parent = opened.session.lock().await.id;
-        let mut presentation = opened.presentation.lock().await;
         let view = receiver.borrow().clone();
         let Some(snapshot) = &view.snapshot else {
             return Ok(());
         };
         let session = acp::SessionId::new(parent.to_string());
         let page = &snapshot.page;
+        let mut calls = Vec::with_capacity(view.calls.len());
+        for call in view.calls.iter() {
+            let detail = adapter
+                .client
+                .tool_detail(
+                    call.detail_reference(page)
+                        .ok_or_else(|| invalid("tool detail identity is unavailable"))?,
+                )
+                .await
+                .map_err(|error| fault(error, None))?;
+            calls.push(call.with_detail(detail));
+        }
+        let mut presentation = opened.presentation.lock().await;
         if source != parent {
             if let Some(question) = page.questions.iter().find(|question| {
                 question.state == sailry_protocol::conversation::question::State::Pending
@@ -183,7 +195,7 @@ fn render<'a>(
             )?;
         }
         let mut permissions = Vec::new();
-        for call in view.calls.iter() {
+        for call in &calls {
             let id = call_id(source, call);
             let title = title(call, page);
             let context = json!({"node":adapter.client.target(),"session":source,"turn":call.turn,"source":call.source,
@@ -495,6 +507,16 @@ async fn decide(
     let Some(page) = history else {
         return Ok(());
     };
+    let detail = adapter
+        .client
+        .tool_detail(
+            call.detail_reference(&page)
+                .ok_or_else(|| invalid("approval tool detail identity is unavailable"))?,
+        )
+        .await
+        .map_err(|error| fault(error, None))?;
+    let hydrated = call.with_detail(detail);
+    let call = &hydrated;
     let tool = acp::ToolCallUpdate::new(
         call_id(*source, call),
         acp::ToolCallUpdateFields::new()

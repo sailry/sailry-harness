@@ -242,10 +242,9 @@ fn preserves_reply_before_closing_interactions() {
             Part::ToolCall {
                 id: Some("closing".into()),
                 name: name.into(),
-                arguments: serde_json::json!({}),
+                summary: Default::default(),
                 presentation: Default::default(),
                 grouping: Default::default(),
-                display: None,
             },
             Part::Resource(serde_json::json!({"type":"tool_started","id":"closing","name":name})),
         ];
@@ -256,7 +255,7 @@ fn preserves_reply_before_closing_interactions() {
             Part::ToolResult {
                 id: Some("closing".into()),
                 name: name.into(),
-                result: serde_json::json!({"status":"accepted"}),
+                summary: Default::default(),
                 images: vec![],
             },
             Part::Resource(serde_json::json!({"type":"provider_context"})),

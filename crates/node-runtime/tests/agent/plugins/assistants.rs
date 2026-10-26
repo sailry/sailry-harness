@@ -320,10 +320,14 @@ fn model(request: &Value) {
     }
 }
 
-fn note(page: &Page) {
-    assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
-        matches!(part, Part::ToolResult { name, result, .. } if *name == alias("read_note") && result["value"] == "Package-owned note")
-    }));
+async fn note(client: &Client, page: &Page) {
+    assert!(
+        tool_details(client, page)
+            .await
+            .iter()
+            .any(|(name, detail)| *name == alias("read_note")
+                && detail.result.as_ref().unwrap()["value"] == "Package-owned note")
+    );
     assert!(page.entries.iter().any(|entry| {
         entry.author == "user"
             && entry
@@ -487,7 +491,7 @@ async fn scope() {
         let turn = submit(&fixture.client, &session, false).await;
         let page = finished(&fixture.client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        note(&page);
+        note(&fixture.client, &page).await;
         usage(
             &fixture.client,
             &session,
@@ -495,24 +499,21 @@ async fn scope() {
             5,
         )
         .await;
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
-            matches!(part, Part::ToolResult { name, result, .. }
-                if name == "load_skill" && result["content"].as_str().is_some_and(|text| text.contains("Read references/guide.md")))
+        let details = tool_details(&fixture.client, &page).await;
+        assert!(details.iter().any(|(name, detail)| {
+            name == "load_skill"
+                && detail.result.as_ref().unwrap()["content"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("Read references/guide.md"))
         }));
         assert!(
-            page.entries
+            details
                 .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| {
-                    matches!(part, Part::ToolResult { name, result, .. }
-                if name == "read_skill_resource" && result["content"] == "Review guide")
-                })
+                .any(|(name, detail)| name == "read_skill_resource"
+                    && detail.result.as_ref().unwrap()["content"] == "Review guide")
         );
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
-            if let Part::ToolResult { name, result, .. } = part && name == &plugin_tool("files", "read_file") {
-                matches!(serde_json::from_value::<Output>(result.clone()), Ok(Output::FileLines(content)) if content.lines.len() == 1 && content.lines[0].text == "Assistant scratch file")
-            } else { false }
-        }));
+        assert!(details.iter().any(|(name, detail)| name == &plugin_tool("files", "read_file")
+            && matches!(serde_json::from_value::<Output>(detail.result.as_ref().unwrap().clone()), Ok(Output::FileLines(content)) if content.lines.len() == 1 && content.lines[0].text == "Assistant scratch file")));
         model(&server.requests.lock().unwrap()[0]);
         let Output::Session(saved) = execute(
             &fixture.client,
@@ -568,7 +569,7 @@ async fn recovery() {
         execute(&fixture.client, Command::StartQueuedTurn { turn: turn.id }).await;
         let page = finished(&fixture.client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        note(&page);
+        note(&fixture.client, &page).await;
         usage(
             &fixture.client,
             &session,

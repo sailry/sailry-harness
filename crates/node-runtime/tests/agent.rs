@@ -247,6 +247,14 @@ async fn history(client: &Client, session: SessionId) -> Page {
     page.page
 }
 
+async fn results(client: &Client, page: &Page) -> Vec<serde_json::Value> {
+    tool_details(client, page)
+        .await
+        .into_iter()
+        .map(|(_, detail)| detail.result.unwrap())
+        .collect()
+}
+
 async fn finished(client: &Client, session: SessionId, turn: TurnId) -> Page {
     finished_within(client, session, turn, COMPLETION_BUDGET).await
 }

@@ -797,12 +797,12 @@ async fn continues_without_repeating_completed_tools() {
                 .filter(|part| matches!(part, Part::ToolResult { .. }))
                 .count()
         };
-        assert_eq!(results(&failed), 1);
+        assert_eq!(results(&fixture.client, &failed).await, 1);
         let resumed = fixture.submit("Continue from the completed work").await;
         let page = finished(&fixture.client, fixture.session.id, resumed).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert!(completion::response(&page).ends_with(RECOVERED));
-        assert_eq!(results(&page), 1);
+        assert_eq!(results(&fixture.client, &page).await, 1);
         assert_eq!(server.requests.lock().unwrap().len(), 8);
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),

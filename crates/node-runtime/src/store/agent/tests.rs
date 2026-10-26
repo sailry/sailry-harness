@@ -92,10 +92,31 @@ mod credentials {
             .iter()
             .find(|entry| entry.id == event.id)
             .unwrap();
-        assert!(
-            matches!(&entry.parts[0], Part::ToolCall { arguments, .. } if arguments == &serde_json::json!({"name":"Host fixture"}))
-        );
-        assert!(matches!(&entry.parts[1], Part::ToolCall { arguments, .. } if arguments == &args));
+        for (index, expected) in [
+            (0, serde_json::json!({"name":"Host fixture"})),
+            (1, args.clone()),
+        ] {
+            let Part::ToolCall { id, summary, .. } = &entry.parts[index] else {
+                panic!("canonical call expected")
+            };
+            let detail = history::tools::page(
+                &fixture.database.connection,
+                tool::detail::Reference {
+                    session: history.page.session,
+                    turn,
+                    entry: entry.id.clone(),
+                    index,
+                    call: id.clone(),
+                    revision: summary.revision.clone(),
+                },
+                None,
+                tool::detail::MAX_DETAIL_PAGE_BYTES,
+            )
+            .await
+            .unwrap();
+            let detail: tool::detail::Detail = serde_json::from_str(&detail.text).unwrap();
+            assert_eq!(detail.arguments, expected);
+        }
         assert_eq!(
             entry.parts[2],
             Part::Text("User literal private-marker".into())

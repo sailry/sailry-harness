@@ -114,6 +114,7 @@ impl Client {
             }
         }
         history.missing.clear();
+        self.details.reconcile(&history.page);
         Ok(history)
     }
 }

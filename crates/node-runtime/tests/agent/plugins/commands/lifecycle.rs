@@ -98,7 +98,7 @@ async fn preserves_frozen_transforms_and_known_results() {
         .await;
         execute(&fixture, Command::StartQueuedTurn { turn: turn.id }).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let result = results(&page);
+        let result = results(&fixture.client, &page).await;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["output"]["kind"], "command_result", "{page:?}");
         assert_eq!(
@@ -191,7 +191,7 @@ async fn guards_prepared_escape_before_claiming() {
                 let turn = rules::submit(&fixture.client, &fixture.session).await;
                 assert!(turn.plugins.contains(&installed.summary.reference()));
                 let page = rules::completed(&fixture.client, fixture.session.id, turn.id).await;
-                let result = results(&page);
+                let result = results(&fixture.client, &page).await;
                 assert_eq!(result.len(), 1);
                 assert_eq!(page.approvals.len(), 1);
                 let approval = &page.approvals[0];

@@ -22,7 +22,7 @@ async fn preserves_outputs_and_restores_cell_edits() {
         );
         assert_eq!(page.approvals.len(), 1);
         assert_eq!(page.approvals[0].source, ApprovalSource::Project);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output[0]["kind"], "notebook_page");
         assert_eq!(output[0]["data"]["cells"][0]["value"], notebook["cells"][0]);
         assert_eq!(output[1]["kind"], "file_written");

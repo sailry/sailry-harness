@@ -112,7 +112,7 @@ async fn rejects_batches_without_partial_writes() {
             Status::Completed,
             "{page:?}"
         );
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 6);
         assert!(
             output.iter().all(|result| result["isError"] == true),
@@ -165,7 +165,7 @@ async fn preserves_large_edit_checkpoints() {
         );
         assert_eq!(page.approvals.len(), 1);
         assert_eq!(page.approvals[0].source, ApprovalSource::Project);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 3);
         assert_eq!(output[0]["data"]["lines"][0]["number"], 12001);
         assert_eq!(output[0]["data"]["revision"], revision);
@@ -286,7 +286,7 @@ async fn explores_names_and_lines_in_plan() {
         .await
         .unwrap();
         assert!(page.approvals.is_empty());
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 2);
         assert_eq!(output[0]["data"]["paths"][0], "note.txt");
         assert_eq!(output[1]["data"]["lines"][0]["text"], "Second\n");

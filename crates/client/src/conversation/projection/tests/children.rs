@@ -21,12 +21,11 @@ fn setup() -> (Projection, Snapshot, Child) {
         citations: vec![],
         search_suggestions: None,
         parts: vec![Part::ToolCall {
-            display: None,
             presentation: Default::default(),
             grouping: Default::default(),
             id: Some("call".into()),
             name: "third_party_delegate".into(),
-            arguments: serde_json::json!({"task":"Review"}),
+            summary: Default::default(),
         }],
     });
     let child = Child {
@@ -214,10 +213,10 @@ fn validates_worktree_selection() {
     let (mut projection, mut snapshot, mut child) = setup();
     let target = WorktreeId::new();
     let page = Arc::make_mut(&mut snapshot.page);
-    let Part::ToolCall { arguments, .. } = &mut page.entries.last_mut().unwrap().parts[0] else {
+    let Part::ToolCall { summary, .. } = &mut page.entries.last_mut().unwrap().parts[0] else {
         panic!("delegation call expected")
     };
-    arguments["worktree"] = serde_json::json!(target);
+    summary.delegation.worktree = Some(target);
     child.run.worktree = target;
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
@@ -267,10 +266,10 @@ fn preserves_reused_and_guided_runs() {
     call.id = "reuse-call".into();
     call.sequence = 2;
     call.turn = parent.turn;
-    let Part::ToolCall { arguments, .. } = &mut call.parts[0] else {
+    let Part::ToolCall { summary, .. } = &mut call.parts[0] else {
         panic!("delegation call expected")
     };
-    *arguments = serde_json::json!({"session":first.run.session,"task":"Continue"});
+    summary.delegation.session = Some(first.run.session);
     let page = Arc::make_mut(&mut snapshot.page);
     page.runs[0].status = Status::Completed;
     page.runs.push(parent.clone());
@@ -327,12 +326,11 @@ fn preserves_reused_and_guided_runs() {
 fn hydrates_reuse_without_founding_call() {
     let (_, mut snapshot, mut child) = setup();
     child.run.worktree = WorktreeId::new();
-    let Part::ToolCall { arguments, .. } =
-        &mut Arc::make_mut(&mut snapshot.page).entries[0].parts[0]
+    let Part::ToolCall { summary, .. } = &mut Arc::make_mut(&mut snapshot.page).entries[0].parts[0]
     else {
         panic!("delegation call expected")
     };
-    *arguments = serde_json::json!({"session":child.run.session,"task":"Continue"});
+    summary.delegation.session = Some(child.run.session);
     Arc::make_mut(&mut snapshot.page)
         .children
         .push(child.clone());
@@ -378,18 +376,23 @@ fn rejects_changed_reuse_ownership() {
         );
         assert_eq!(projection.snapshot().unwrap(), &snapshot);
     }
-    for value in [
-        serde_json::Value::Null,
-        serde_json::json!("invalid"),
-        serde_json::json!(SessionId::new()),
+    for selection in [
+        sailry_protocol::tool::detail::Delegation {
+            invalid: true,
+            ..Default::default()
+        },
+        sailry_protocol::tool::detail::Delegation {
+            session: Some(SessionId::new()),
+            ..Default::default()
+        },
     ] {
         let mut forged = snapshot.clone();
-        let Part::ToolCall { arguments, .. } =
+        let Part::ToolCall { summary, .. } =
             &mut Arc::make_mut(&mut forged.page).entries[0].parts[0]
         else {
             panic!("delegation call expected")
         };
-        arguments["session"] = value;
+        summary.delegation = selection;
         assert!(
             projection
                 .apply(1, Update::ConversationSnapshot(Box::new(forged)))

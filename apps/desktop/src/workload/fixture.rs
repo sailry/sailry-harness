@@ -163,12 +163,42 @@ pub(super) async fn turns(client: &Client, session: &Session, prefix: &str, coun
                     )
                 {
                     assert_eq!(run.status, Status::Completed, "{:?}", run.error);
-                    assert!(projection.snapshot().unwrap().page.entries.iter()
-                        .filter(|entry| entry.turn == turn.id)
-                        .flat_map(|entry| &entry.parts)
-                        .any(|part| matches!(part, sailry_protocol::conversation::Part::ToolResult { name, result, .. }
-                            if name == &crate::agent_fixture::plugin_tool("files", "read_file") && result.to_string().contains("Tool output fixture"))),
-                        "completed turn must include the actual file tool result");
+                    let page = &projection.snapshot().unwrap().page;
+                    let mut found = false;
+                    for entry in page.entries.iter().filter(|entry| entry.turn == turn.id) {
+                        for (index, part) in entry.parts.iter().enumerate() {
+                            if let sailry_protocol::conversation::Part::ToolResult {
+                                id,
+                                name,
+                                summary,
+                                ..
+                            } = part
+                                && name == &crate::agent_fixture::plugin_tool("files", "read_file")
+                            {
+                                let detail = client
+                                    .tool_detail(sailry_protocol::tool::detail::Reference {
+                                        session: page.session,
+                                        turn: entry.turn,
+                                        entry: entry.id.clone(),
+                                        index,
+                                        call: id.clone(),
+                                        revision: summary.revision.clone(),
+                                    })
+                                    .await
+                                    .unwrap();
+                                found |= detail
+                                    .result
+                                    .as_ref()
+                                    .unwrap()
+                                    .to_string()
+                                    .contains("Tool output fixture");
+                            }
+                        }
+                    }
+                    assert!(
+                        found,
+                        "completed turn must include the actual file tool result"
+                    );
                     break;
                 }
             }

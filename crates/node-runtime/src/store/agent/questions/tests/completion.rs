@@ -90,12 +90,43 @@ async fn preserves_canonical_identity() {
             .parts
             .contains(&Part::Text("The complete plan 中文 🙂".into()))
     }));
-    assert!(page.entries.iter().any(|entry| {
-        entry.parts.iter().any(|part| {
-            matches!(part, Part::ToolResult {name,result,..}
-        if name == review::TOOL && result == &serde_json::json!({"status":"answered","answer":""}))
-        })
-    }));
+    let entry =
+        page.entries
+            .iter()
+            .find(|entry| {
+                entry.parts.iter().any(
+                    |part| matches!(part, Part::ToolResult { name, .. } if name == review::TOOL),
+                )
+            })
+            .unwrap();
+    let index = entry
+        .parts
+        .iter()
+        .position(|part| matches!(part, Part::ToolResult { name, .. } if name == review::TOOL))
+        .unwrap();
+    let Part::ToolResult { id, summary, .. } = &entry.parts[index] else {
+        unreachable!()
+    };
+    let detail = history::tools::page(
+        &fixture.database.connection,
+        tool::detail::Reference {
+            session: page.session,
+            turn: entry.turn,
+            entry: entry.id.clone(),
+            index,
+            call: id.clone(),
+            revision: summary.revision.clone(),
+        },
+        None,
+        tool::detail::MAX_DETAIL_PAGE_BYTES,
+    )
+    .await
+    .unwrap();
+    let detail: tool::detail::Detail = serde_json::from_str(&detail.text).unwrap();
+    assert_eq!(
+        detail.result,
+        Some(serde_json::json!({"status":"answered","answer":""}))
+    );
 }
 
 #[tokio::test]

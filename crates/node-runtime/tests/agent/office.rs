@@ -101,19 +101,18 @@ async fn scripts_use_node_environment() {
         let ready =
             finished_within(&client, session.id, preparing.id, Duration::from_secs(120)).await;
         assert_eq!(ready.runs.last().unwrap().status, Status::Completed);
-        let python = ready
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| match part {
-                Part::ToolResult { result, .. } => {
-                    result.get("python").and_then(|value| value.as_str())
-                }
-                _ => None,
+        let python = results(&client, &ready)
+            .await
+            .into_iter()
+            .find_map(|result| {
+                result
+                    .get("python")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned)
             })
             .expect("managed Python returned");
         assert!(
-            std::path::Path::new(python).starts_with(node.profile().join("python/environments"))
+            std::path::Path::new(&python).starts_with(node.profile().join("python/environments"))
         );
         let command = format!(
             "\"$SAILRY_PYTHON\" verify.py '{}'",
@@ -182,15 +181,10 @@ async fn scripts_use_node_environment() {
         ] {
             assert!(!names.contains(&removed.as_str()));
         }
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == turn.id)
-            .flat_map(|e| &e.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { name, result, .. } => Some((name, result)),
-                _ => None,
-            })
+        let results: Vec<_> = tool_details(&client, &page)
+            .await
+            .into_iter()
+            .map(|(name, detail)| (name, detail.result.unwrap()))
             .collect();
         assert_eq!(results.len(), 5, "Office tool results: {results:?}");
         for (_, result) in &results {
@@ -209,7 +203,7 @@ async fn scripts_use_node_environment() {
                 installed.join("skills").join(skill).to_str().unwrap()
             );
         }
-        assert_eq!(results[4].0, &plugin_tool("commands", "run_command"));
+        assert_eq!(results[4].0, plugin_tool("commands", "run_command"));
         let Output::CommandResult(completion) =
             serde_json::from_value(results[4].1.clone()).unwrap()
         else {

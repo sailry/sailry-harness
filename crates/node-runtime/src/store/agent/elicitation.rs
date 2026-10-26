@@ -66,25 +66,23 @@ pub(super) async fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) ->
     Ok(())
 }
 
-pub(super) fn project(event: &AdkEvent) -> Result<Vec<Part>, Fault> {
+pub(super) fn project(event: &AdkEvent) -> Result<Vec<history::tools::Raw>, Fault> {
     if let Some(input) = input(event)? {
-        return Ok(vec![Part::ToolCall {
-            display: None,
-            presentation: Default::default(),
-            grouping: Default::default(),
-            id: Some(event.id.clone()),
-            name: TOOL.into(),
-            arguments: serde_json::to_value(input.spec).map_err(storage_error)?,
-        }]);
+        return Ok(vec![history::tools::Raw::new(
+            Some(event.id.clone()),
+            TOOL.into(),
+            serde_json::to_value(input.spec).map_err(storage_error)?,
+        )]);
     }
     if let Some(result) = event.provider_metadata.get(RESULT) {
         let result: Value = serde_json::from_str(result).map_err(storage_error)?;
-        return Ok(vec![Part::ToolResult {
-            id: result["id"].as_str().map(str::to_owned),
-            name: TOOL.into(),
-            result: result["response"].clone(),
-            images: Vec::new(),
-        }]);
+        let mut raw = history::tools::Raw::new(
+            result["id"].as_str().map(str::to_owned),
+            TOOL.into(),
+            Value::Null,
+        );
+        raw.result = Some(result["response"].clone());
+        return Ok(vec![raw]);
     }
     Ok(Vec::new())
 }

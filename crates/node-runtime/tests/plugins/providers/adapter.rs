@@ -410,33 +410,35 @@ export async function echo(input) {
             .unwrap()
             .clone();
         assert!(original.parts.contains(&Part::Text(message.into())));
-        let calls = page
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == turn.id)
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolCall { id, arguments, .. } => Some((id, arguments)),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let mut calls = Vec::new();
+        let mut results = Vec::new();
+        for entry in page.entries.iter().filter(|entry| entry.turn == turn.id) {
+            for (index, part) in entry.parts.iter().enumerate() {
+                match part {
+                    Part::ToolCall { id, .. } => calls.push((
+                        id.clone(),
+                        crate::model_fixture::tool_detail(&client, &page, entry, index)
+                            .await
+                            .arguments,
+                    )),
+                    Part::ToolResult { id, .. } => results.push((
+                        id.clone(),
+                        crate::model_fixture::tool_detail(&client, &page, entry, index)
+                            .await
+                            .result
+                            .unwrap(),
+                    )),
+                    _ => {}
+                }
+            }
+        }
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].0.as_deref(), Some("call-fixture-0"));
-        assert!(adk_core::invalid_tool_arguments_reason(calls[0].1).is_some());
+        assert!(adk_core::invalid_tool_arguments_reason(&calls[0].1).is_some());
         assert_eq!(calls[0].1[adk_core::INVALID_TOOL_ARGUMENTS_KEY]["raw"], "{");
         assert_eq!(calls[1].0.as_deref(), Some("call-fixture-1"));
-        assert_eq!(calls[1].1, &json!({"query":"corrected"}));
+        assert_eq!(calls[1].1, json!({"query":"corrected"}));
         assert!(calls.iter().all(|(_, arguments)| arguments.is_object()));
-        let results = page
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == turn.id)
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { id, result, .. } => Some((id, result)),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].0.as_deref(), Some("call-fixture-0"));
         assert!(

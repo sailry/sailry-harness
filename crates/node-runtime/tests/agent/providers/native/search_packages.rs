@@ -64,11 +64,12 @@ fn label(page: &Page, turn: TurnId) -> &str {
         .filter(|entry| entry.turn == turn)
         .flat_map(|entry| &entry.parts)
         .find_map(|part| match part {
-            Part::ToolCall {
-                name,
-                display: Some(display),
-                ..
-            } if name == "web_search" => Some(display.label.as_str()),
+            Part::ToolCall { name, summary, .. } if name == "web_search" => summary
+                .resolved
+                .as_ref()?
+                .label
+                .as_ref()
+                .map(|label| label.label.as_str()),
             _ => None,
         })
         .expect("search display expected")

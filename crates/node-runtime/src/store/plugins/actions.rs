@@ -544,6 +544,7 @@ impl Database {
                 | Command::ReadConversation { session, .. }
                 | Command::ReadTurnCapture { session, .. }
                 | Command::ReadTurn { session, .. }
+                | Command::ReadToolDetail { session, .. }
                 | Command::SearchConversation { session, .. }
                 | Command::ListConversationAssets { session, .. } => {
                     (Some(Action::ReadConversation), None, Some(*session))

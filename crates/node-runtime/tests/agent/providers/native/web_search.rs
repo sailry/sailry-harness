@@ -1,7 +1,7 @@
 use super::*;
 use crate::agent_support::{Server as SearchServer, web_search as source};
 
-fn citations(page: &Page) {
+async fn citations(client: &Client, page: &Page) {
     let entry = page
         .entries
         .iter()
@@ -27,8 +27,14 @@ fn citations(page: &Page) {
     assert!(matches!(&entry.parts[1], Part::Text(text) if text == source::FIRST));
     assert!(matches!(&entry.parts[2], Part::Text(text) if text == source::SECOND));
     assert!(
-        matches!(entry.parts.last().unwrap(), Part::ToolResult { name, result, .. }
-        if name == "web_search" && result["status"] == "completed")
+        matches!(entry.parts.last().unwrap(), Part::ToolResult { name, .. } if name == "web_search")
+    );
+    assert_eq!(
+        tool_detail(client, page, entry, entry.parts.len() - 1)
+            .await
+            .result
+            .unwrap()["status"],
+        "completed"
     );
 }
 
@@ -66,7 +72,7 @@ async fn combines_search_and_tools() {
                 "{:?}",
                 page.runs
             );
-            citations(&page);
+            citations(&fixture.client, &page).await;
             {
                 let requests = server.requests.lock().unwrap();
                 assert_eq!(requests.len(), if tools { 2 } else { 1 });
@@ -171,7 +177,7 @@ async fn freezes_queued_settings() {
             "{:?}",
             page.runs
         );
-        citations(&page);
+        citations(&fixture.client, &page).await;
         fixture.client.execute(start).await.unwrap();
         let turn = fixture.submit("Continue without search").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
@@ -308,7 +314,7 @@ async fn supports_compatible_endpoints() {
         let turn = fixture.submit("Find the fixture source").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        citations(&page);
+        citations(&fixture.client, &page).await;
         assert!(
             server.requests.lock().unwrap()[0]["tools"]
                 .as_array()
@@ -383,7 +389,7 @@ async fn delivers_text_before_native_response_completes() {
             "{:?}",
             page.runs
         );
-        citations(&page);
+        citations(&fixture.client, &page).await;
         assert_eq!(text(&page).matches(source::FIRST).count(), 1);
         drop(updates);
         fixture.controller.close().await.unwrap();

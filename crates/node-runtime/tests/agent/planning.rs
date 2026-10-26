@@ -353,10 +353,20 @@ async fn rejects_mutations_before_approval() {
             assert!(page.approvals.is_empty());
             assert!(page.runs.iter().all(|run| run.status != Status::Running));
             assert!(
-                page.runs.iter().any(|run| run.error.as_ref().is_some_and(|error| error.message.contains("planning")))
-                    || page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
-                        matches!(part, Part::ToolResult { name: tool, result, .. } if tool == &name && result.to_string().contains("planning"))
-                    }),
+                page.runs.iter().any(|run| run
+                    .error
+                    .as_ref()
+                    .is_some_and(|error| error.message.contains("planning")))
+                    || tool_details(&fixture.client, &page)
+                        .await
+                        .iter()
+                        .any(|(tool, detail)| tool == &name
+                            && detail
+                                .result
+                                .as_ref()
+                                .unwrap()
+                                .to_string()
+                                .contains("planning")),
                 "{page:?}"
             );
             let requests = server.requests.lock().unwrap();

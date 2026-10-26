@@ -195,7 +195,7 @@ async fn confirms_project_commands() {
                 ApprovalSource::User
             ]
         );
-        let output = results(&page);
+        let output = results(&resumed, &page).await;
         assert_eq!(output.len(), 1);
         assert_eq!(output[0].outcome, Outcome::Exited(0));
         assert_eq!(
@@ -255,7 +255,10 @@ async fn preserves_queued_full_command_authority() {
         assert_eq!(page.approvals[0].state, ApprovalState::Approved);
         assert!(!page.approvals[0].can_remember);
         assert_eq!(page.approvals[0].choice, None);
-        assert_eq!(results(&page)[0].outcome, Outcome::Exited(0));
+        assert_eq!(
+            results(&fixture.client, &page).await[0].outcome,
+            Outcome::Exited(0)
+        );
         assert_eq!(
             fixture.client.execute(request).await.unwrap(),
             Output::QueuedTurn(turn)

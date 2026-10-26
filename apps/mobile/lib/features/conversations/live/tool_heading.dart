@@ -40,8 +40,9 @@ class ToolHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final waiting = pending ?? pendingTool(call);
-    final active = (running ?? call['state'] == 'running') && !waiting;
+    final row = object(call['row']);
+    final waiting = pending ?? (row['pending'] == true || pendingTool(call));
+    final active = (running ?? row['running'] == true) && !waiting;
     final ownFailure = toolFailed(call);
     final hasFailure =
         !waiting && call['state'] != 'running' && (failed ?? ownFailure);
@@ -67,11 +68,11 @@ class ToolHeading extends StatelessWidget {
                 'interrupted' => 'conversationToolInterrupted',
                 _ => 'conversationToolWaiting',
               });
-    final summary = text(object(object(resolved['input'])['summary'])['text']);
+    final summary = text(object(row['detail'])['text']);
     final target = summary.isEmpty ? null : summary;
     final label = [
-      resolved['label'] != null
-          ? capturedLabel(context, resolved['label'])
+      row['label'] != null
+          ? capturedLabel(context, row['label'])
           : toolLabel(text(call['name']), translate: context.tr),
       if (target != null) target.split('\n').first,
     ].join(' ');

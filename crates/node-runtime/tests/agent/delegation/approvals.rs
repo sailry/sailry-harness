@@ -101,7 +101,7 @@ async fn isolates_call_identity() {
         assert!(
             root.join("written.txt").exists(),
             "approved child results: {:?}",
-            results(&first_history)
+            results(&client, &first_history).await
         );
         assert_eq!(
             std::fs::read_to_string(root.join("written.txt")).unwrap(),
@@ -111,7 +111,7 @@ async fn isolates_call_identity() {
             let page = history(&client, child.id).await;
             assert_eq!(page.runs[0].status, Status::Completed);
             assert_eq!(
-                results(&page)[0]["data"]["lines"][0]["text"],
+                results(&client, &page).await[0]["data"]["lines"][0]["text"],
                 "Read 中文 🙂"
             );
             assert_eq!(page.approvals.len(), 1);

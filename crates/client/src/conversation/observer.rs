@@ -201,6 +201,7 @@ impl Client {
                                                         .expect("requested turn range"),
                                                 ));
                                             }
+                                            self.details.reconcile(&snapshot.page);
                                             updates.send_modify(|view| {
                                                 view.replace(
                                                     Arc::new(snapshot.clone()),

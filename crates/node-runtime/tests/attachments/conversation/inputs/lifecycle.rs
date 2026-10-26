@@ -76,9 +76,12 @@ async fn verifies_after_approval() {
             page.runs[0].status == Status::Completed
         })
         .await;
-        assert!(history.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
-            matches!(part, Part::ToolResult { result, .. } if result["error"]["code"] == "revision_conflict")
-        }));
+        assert!(
+            results(&client, &history, None)
+                .await
+                .iter()
+                .any(|result| result["error"]["code"] == "revision_conflict")
+        );
         assert!(!fixture.root.join("unexpected.txt").exists());
         assert_eq!(server.requests.lock().unwrap().len(), 2);
     }

@@ -23,6 +23,9 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         Command::ReadTurn { session, turn, .. } => ("read_turn", Some(*session), Some(*turn)),
         Command::ReadCommandPage { session, .. } => ("read_command_page", Some(*session), None),
         Command::ReadToolOutput { turn, .. } => ("read_tool_output", None, Some(*turn)),
+        Command::ReadToolDetail { session, turn, .. } => {
+            ("read_tool_detail", Some(*session), Some(*turn))
+        }
         Command::ReadSession { session } => ("read_session", Some(*session), None),
         Command::ReadPluginCallback { .. } => ("read_plugin_callback", None, None),
         Command::ReadPluginValue { .. } => ("read_plugin_value", None, None),
@@ -67,6 +70,7 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
                 | Command::ReadTurn { .. }
                 | Command::ReadCommandPage { .. }
                 | Command::ReadToolOutput { .. }
+                | Command::ReadToolDetail { .. }
                 | Command::ReadSession { .. }
                 | Command::ReadPluginCallback { .. }
                 | Command::ReadPluginValue { .. }

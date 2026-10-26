@@ -79,8 +79,32 @@ fn rejects_inconsistent_questions() {
     let (mut projection, mut snapshot, run, _) = fixture();
     let question = question(&run);
     Arc::make_mut(&mut snapshot.page).entries.push(Entry {
-        sequence: 1, id: question.entry.clone(), turn: run.turn, author: "assistant".into(), branch: String::new(), timestamp_ms: 1, usage: None, citations: vec![], search_suggestions: None,
-        parts: vec![Part::ToolCall { display: None, presentation: Default::default(), grouping: Default::default(), id: Some("call".into()), name: "ask_user".into(), arguments: serde_json::json!({"prompt": "Pick", "input": {"kind": "choice", "multiple": false, "allow_other": false, "options": ["one", "two"]}}) }],
+        sequence: 1,
+        id: question.entry.clone(),
+        turn: run.turn,
+        author: "assistant".into(),
+        branch: String::new(),
+        timestamp_ms: 1,
+        usage: None,
+        citations: vec![],
+        search_suggestions: None,
+        parts: vec![Part::ToolCall {
+            presentation: Default::default(),
+            grouping: Default::default(),
+            id: Some("call".into()),
+            name: "ask_user".into(),
+            summary: Box::new(sailry_protocol::tool::detail::Summary {
+                question: Some(Box::new(Spec {
+                    prompt: "Pick".into(),
+                    input: Input::Choice {
+                        multiple: false,
+                        allow_other: false,
+                        options: vec!["one".into(), "two".into()],
+                    },
+                })),
+                ..Default::default()
+            }),
+        }],
     });
     projection
         .apply(1, Update::ConversationSnapshot(Box::new(snapshot.clone())))
@@ -136,9 +160,12 @@ fn validates_plan_answers() {
         let (mut projection, mut snapshot, run, _) = fixture();
         let mut question = question(&run);
         let input = if kind == "plan" {
-            serde_json::json!({"kind": "plan"})
+            Input::Plan
         } else {
-            serde_json::json!({"kind": "text", "multiline": true, "max_bytes": 64})
+            Input::Text {
+                multiline: true,
+                max_bytes: 64,
+            }
         };
         Arc::make_mut(&mut snapshot.page).entries.push(Entry {
             sequence: 1,
@@ -151,12 +178,17 @@ fn validates_plan_answers() {
             citations: vec![],
             search_suggestions: None,
             parts: vec![Part::ToolCall {
-                display: None,
                 presentation: Default::default(),
                 grouping: Default::default(),
                 id: Some("call".into()),
                 name: "ask_user".into(),
-                arguments: serde_json::json!({"prompt": "Review", "input": input}),
+                summary: Box::new(sailry_protocol::tool::detail::Summary {
+                    question: Some(Box::new(Spec {
+                        prompt: "Review".into(),
+                        input,
+                    })),
+                    ..Default::default()
+                }),
             }],
         });
         projection
@@ -198,12 +230,14 @@ fn review_entry(question: &Question, spec: Spec) -> Entry {
         citations: vec![],
         search_suggestions: None,
         parts: vec![Part::ToolCall {
-            display: None,
             presentation: Default::default(),
             grouping: Default::default(),
             id: Some("review".into()),
             name: "plan_review".into(),
-            arguments: serde_json::to_value(spec).unwrap(),
+            summary: Box::new(sailry_protocol::tool::detail::Summary {
+                question: Some(Box::new(spec)),
+                ..Default::default()
+            }),
         }],
     }
 }

@@ -123,16 +123,13 @@ pub(super) async fn locate(
     Ok((call.into(), 0))
 }
 
-pub(super) fn project(event: &AdkEvent) -> Result<Vec<Part>, Fault> {
+pub(super) fn project(event: &AdkEvent) -> Result<Vec<history::tools::Raw>, Fault> {
     if let Some(spec) = spec(event) {
-        return Ok(vec![Part::ToolCall {
-            display: None,
-            presentation: sailry_protocol::tool::Presentation::Summary,
-            grouping: Default::default(),
-            id: Some(event.id.clone()),
-            name: TOOL.into(),
-            arguments: serde_json::to_value(spec).map_err(storage_error)?,
-        }]);
+        return Ok(vec![history::tools::Raw::new(
+            Some(event.id.clone()),
+            TOOL.into(),
+            serde_json::to_value(spec).map_err(storage_error)?,
+        )]);
     }
     let Some(recorded) = event.provider_metadata.get(RESULT) else {
         return Ok(Vec::new());
@@ -152,10 +149,7 @@ pub(super) fn project(event: &AdkEvent) -> Result<Vec<Part>, Fault> {
             ));
         }
     };
-    Ok(vec![Part::ToolResult {
-        id: Some(call),
-        name: TOOL.into(),
-        result,
-        images: Vec::new(),
-    }])
+    let mut raw = history::tools::Raw::new(Some(call), TOOL.into(), Value::Null);
+    raw.result = Some(result);
+    Ok(vec![raw])
 }

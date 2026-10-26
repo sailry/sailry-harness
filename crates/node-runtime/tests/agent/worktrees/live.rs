@@ -74,10 +74,13 @@ async fn delegates_checkout() {
                             Part::ToolCall { name, .. } => {
                                 println!("{model} remote={remote} call={name}")
                             }
-                            Part::ToolResult { name, result, .. } => println!(
-                                "{model} remote={remote} result={name} error={}",
-                                result.get("error").is_some()
-                            ),
+                            Part::ToolResult { name, .. } => {
+                                let detail = tool_detail(&client, &page, entry, index).await;
+                                println!(
+                                    "{model} remote={remote} result={name} error={}",
+                                    detail.result.as_ref().unwrap().get("error").is_some()
+                                );
+                            }
                             _ => {}
                         }
                     }
@@ -136,17 +139,13 @@ async fn delegates_checkout() {
         ] {
             assert!(calls.contains(&name), "missing real model call: {name}");
         }
-        let tree: Worktree = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| match part {
-                Part::ToolResult { name, result, .. }
-                    if name == &plugin_tool("worktrees", "create_worktree") =>
-                {
-                    serde_json::from_value(result["data"].clone()).ok()
-                }
-                _ => None,
+        let tree: Worktree = tool_details(&client, &page)
+            .await
+            .into_iter()
+            .find_map(|(name, detail)| {
+                (name == plugin_tool("worktrees", "create_worktree"))
+                    .then(|| serde_json::from_value(detail.result.unwrap()["data"].clone()).ok())
+                    .flatten()
             })
             .expect("real model must create a registered worktree");
         assert_ne!(tree.id, session.worktree);
@@ -155,13 +154,13 @@ async fn delegates_checkout() {
         assert_eq!(page.children[0].run.status, Status::Completed);
         assert_eq!(child_pages[0].runs[0].worktree, tree.id);
         assert!(
-            page.entries
+            tool_calls(&client, &page)
+                .await
                 .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| {
-                    matches!(part, Part::ToolCall { name, arguments, .. }
-                if name == &crate::agent_support::plugin_tool("delegation", "spawn_agent") && arguments["worktree"] == json!(tree.id))
-                })
+                .any(
+                    |(name, detail)| name == &plugin_tool("delegation", "spawn_agent")
+                        && detail.arguments["worktree"] == json!(tree.id)
+                )
         );
         for name in [
             plugin_tool("files", "read_file"),

@@ -119,15 +119,16 @@ async fn tools() {
             let turn = submit(&fixture.client, &session, false).await;
             let page = finished(&fixture.client, session.id, turn.id).await;
             assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-            note(&page);
+            note(&fixture.client, &page).await;
             assert!(
-                page.entries
+                tool_details(&fixture.client, &page)
+                    .await
                     .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| {
-                        matches!(part, Part::ToolResult { name, result, .. } if name == &mcp
-                    && result["output"]["version"] == "Resource assistant"
-                    && result["output"]["value"] == "Resource read")
+                    .any(|(name, detail)| {
+                        let result = detail.result.as_ref().unwrap();
+                        name == &mcp
+                            && result["output"]["version"] == "Resource assistant"
+                            && result["output"]["value"] == "Resource read"
                     })
             );
             let request = server.requests.lock().unwrap()[0].clone();

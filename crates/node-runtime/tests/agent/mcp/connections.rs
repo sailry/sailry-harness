@@ -75,7 +75,10 @@ async fn replaces_changed_connections() {
             let (_, turn) = submit(&fixture, false).await;
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            assert_eq!(results(&page).last().unwrap()["output"]["version"], "first");
+            assert_eq!(
+                results(&fixture.client, &page).await.last().unwrap()["output"]["version"],
+                "first"
+            );
             assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
             assert_eq!(*original.get_or_insert(pid(&data)), pid(&data));
             fixture
@@ -90,7 +93,7 @@ async fn replaces_changed_connections() {
         let (_, turn) = submit(&fixture, false).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(
-            results(&page).last().unwrap()["output"]["version"],
+            results(&fixture.client, &page).await.last().unwrap()["output"]["version"],
             "second"
         );
         assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");

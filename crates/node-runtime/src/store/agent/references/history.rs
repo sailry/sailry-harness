@@ -165,15 +165,21 @@ async fn read(db: &Connection, options: Read) -> Result<Value, Fault> {
             return Err(Fault::invalid("turn reads use before_entry"));
         }
         projection::turn(
+            db,
+            options.session,
             history::pages::turn(db, options.session, turn, options.before_entry, limit).await?,
         )
+        .await
     } else {
         if options.before_entry.is_some() {
             return Err(Fault::invalid("entry cursor requires a turn"));
         }
         projection::conversation(
+            db,
+            options.session,
             history::pages::read(db, options.session, options.before, limit).await?,
         )
+        .await
     }
 }
 

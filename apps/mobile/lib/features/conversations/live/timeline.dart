@@ -33,6 +33,7 @@ import 'turn_actions.dart';
 import 'turn_changes.dart';
 import 'files.dart';
 import 'artifacts.dart';
+import 'publications.dart';
 import '../../resources/artifact/submission.dart';
 
 /// Renders complete Rust Client projections. Call association and streaming
@@ -383,7 +384,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                       )[reference['index'] as int],
                       continuing: continuingTools && row == last,
                       title: text(
-                        object(object(value['data'])['arguments'])['title'],
+                        object(object(value['data'])['summary'])['title'],
                         text(
                           objects(page['children'])[reference['index']
                               as int]['name'],
@@ -464,27 +465,38 @@ class _LiveTimelineState extends State<LiveTimeline> {
             answer: answerParts,
             phase: phase,
           ),
-          PublishedFiles(
-            key: ValueKey('files-${run['turn']}'),
-            files: publishedFiles(calls, run['turn'] as String),
-            host: host,
-            worktree: turnWorktree(page, session, run['turn']),
+          PublicationDetails(
+            key: ValueKey('publications-${run['turn']}'),
+            calls: calls.where((call) => call['turn'] == run['turn']).toList(),
             enabled: connected,
-            documents: _documents,
-          ),
-          PublishedArtifacts(
-            key: ValueKey('artifacts-${run['turn']}'),
-            artifacts: publishedArtifacts(
-              calls,
-              run['turn'] as String,
-              session['id'] as String,
-              origin: run['origin'] as String?,
+            load: widget.toolOutput,
+            builder: (context, published) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PublishedFiles(
+                  key: ValueKey('files-${run['turn']}'),
+                  files: publishedFiles(published, run['turn'] as String),
+                  host: host,
+                  worktree: turnWorktree(page, session, run['turn']),
+                  enabled: connected,
+                  documents: _documents,
+                ),
+                PublishedArtifacts(
+                  key: ValueKey('artifacts-${run['turn']}'),
+                  artifacts: publishedArtifacts(
+                    published,
+                    run['turn'] as String,
+                    session['id'] as String,
+                    origin: run['origin'] as String?,
+                  ),
+                  host: host,
+                  enabled: connected,
+                  session: session['id'] as String,
+                  actions: widget.artifactActions,
+                  changes: widget.artifactChanges,
+                ),
+              ],
             ),
-            host: host,
-            enabled: connected,
-            session: session['id'] as String,
-            actions: widget.artifactActions,
-            changes: widget.artifactChanges,
           ),
           if (!active &&
               !noticeTurn(run) &&

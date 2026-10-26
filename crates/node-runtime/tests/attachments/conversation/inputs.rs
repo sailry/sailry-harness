@@ -108,18 +108,7 @@ async fn reads_copies_and_restores_receipts() {
             "{:?}",
             history.runs
         );
-        let results: Vec<_> = history
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let results = results(&client, &history, None).await;
         assert_eq!(results.len(), 4);
         let Output::CommandResult(first) = serde_json::from_value(results[0].clone()).unwrap()
         else {
@@ -281,19 +270,7 @@ async fn defers_native_support_checks() {
         let session = configure(&client, session, provider, Permission::Full).await;
         let next = queue(&client, &session, "Inspect the previous input".into()).await;
         let next_page = run(&client, &next).await;
-        let result = next_page
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == next.id)
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .unwrap();
+        let result = results(&client, &next_page, Some(next.id)).await.remove(0);
         assert_eq!(result["error"]["code"], "invalid_request", "{result:?}");
         assert!(!result.to_string().contains("attachment is unavailable"));
     }

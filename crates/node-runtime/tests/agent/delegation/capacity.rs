@@ -60,7 +60,8 @@ async fn isolates_parent_budgets() {
             let page = finished(&fixture.client, fixture.parents[index].id, turn.id).await;
             assert_eq!(status(&page, turn.id), Status::Completed);
             assert!(
-                results(&page)
+                results(&fixture.client, &page)
+                    .await
                     .iter()
                     .all(|value| value["status"] == "queued")
             );
@@ -80,9 +81,12 @@ async fn isolates_parent_budgets() {
                     .iter()
                     .find(|entry| entry.id == child.origin.entry)
                     .unwrap();
-                let Part::ToolCall { arguments, .. } = &entry.parts[child.origin.index] else {
+                let Part::ToolCall { .. } = &entry.parts[child.origin.index] else {
                     panic!("origin call expected")
                 };
+                let arguments = tool_detail(&fixture.client, &page, entry, child.origin.index)
+                    .await
+                    .arguments;
                 let input =
                     sailry_protocol::conversation::Input::from(arguments["task"].as_str().unwrap());
                 assert!(inputs.insert(child.run.turn, input).is_none());
@@ -261,7 +265,7 @@ async fn failures_release_slots() {
             page.children.len(),
             2,
             "tool results: {:?}; declared tools: {:?}",
-            results(&page),
+            results(&fixture.client, &page).await,
             fixture
                 .parent
                 .requests

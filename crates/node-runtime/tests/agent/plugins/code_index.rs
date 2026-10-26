@@ -80,16 +80,12 @@ fn schemas(server: &Server) {
     }
 }
 
-fn result<'a>(page: &'a Page, name: &str) -> &'a Value {
+async fn result(client: &Client, page: &Page, name: &str) -> Value {
     let alias = plugin_tool("code", name);
-    let value = page
-        .entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .find_map(|part| match part {
-            Part::ToolResult { name, result, .. } if name == &alias => Some(result),
-            _ => None,
-        })
+    let value = tool_details(client, page)
+        .await
+        .into_iter()
+        .find_map(|(name, detail)| (name == alias).then_some(detail.result.unwrap()))
         .unwrap_or_else(|| panic!("missing result for {name}"));
     assert!(value.get("error").is_none(), "{value:?}");
     value
@@ -182,7 +178,7 @@ async fn executes_in_existing_worktrees() {
 
             let revision = blake3::hash(SOURCE.as_bytes()).to_hex().to_string();
             for name in ["code_search", "code_outline", "code_context"] {
-                let output = result(&page, name);
+                let output = result(&fixture.client, &page, name).await;
                 assert!(
                     output["symbols"].as_array().unwrap().iter().any(|symbol| {
                         symbol["name"] == "observed_symbol"
@@ -195,10 +191,10 @@ async fn executes_in_existing_worktrees() {
                 assert_eq!(output["partial"], false, "{output:?}");
                 assert_eq!(output["truncated"], false, "{output:?}");
             }
-            let outline = result(&page, "code_outline");
+            let outline = result(&fixture.client, &page, "code_outline").await;
             assert_eq!(outline["status"], "parsed");
             assert_eq!(outline["file_revision"], revision);
-            let context = result(&page, "code_context");
+            let context = result(&fixture.client, &page, "code_context").await;
             let snippets = context["snippets"].as_array().unwrap();
             assert_eq!(snippets.len(), 1, "{context:?}");
             assert_eq!(snippets[0]["file_revision"], revision);
@@ -238,7 +234,7 @@ async fn searches_empty_conversation_worktrees() {
         );
         schemas(&server);
         for name in ["code_search", "code_context"] {
-            let output = result(&page, name);
+            let output = result(&fixture.client, &page, name).await;
             assert!(
                 output["symbols"].as_array().unwrap().is_empty(),
                 "{output:?}"
@@ -247,7 +243,7 @@ async fn searches_empty_conversation_worktrees() {
             assert_eq!(output["truncated"], false, "{output:?}");
         }
         assert!(
-            result(&page, "code_context")["snippets"]
+            result(&fixture.client, &page, "code_context").await["snippets"]
                 .as_array()
                 .unwrap()
                 .is_empty()

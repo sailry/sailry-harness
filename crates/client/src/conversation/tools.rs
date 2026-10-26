@@ -5,9 +5,11 @@ use sailry_protocol::{
 };
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 pub mod display;
 mod presentation;
+mod row;
+pub use row::{Row, RowState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -61,6 +63,8 @@ pub struct Call {
     pub content: Option<sailry_protocol::tool::Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved: Option<display::Resolved>,
+    #[serde(skip)]
+    pub detail: Option<Arc<sailry_protocol::tool::detail::Detail>>,
 }
 
 impl Call {
@@ -127,34 +131,76 @@ impl Call {
                 .is_some_and(|spec| spec.prompt.is_empty() && matches!(spec.input, Input::Plan))
     }
 
-    pub fn display<'a>(&self, page: &'a Page) -> Option<&'a sailry_protocol::tool::Display> {
-        match self.source.part(page)? {
-            Part::ToolCall { display, .. } => display.as_deref().filter(|display| display.valid()),
+    pub fn summary<'a>(
+        &self,
+        page: &'a Page,
+    ) -> Option<&'a sailry_protocol::tool::detail::Summary> {
+        let reference = self.response.as_ref().unwrap_or(&self.source);
+        let entry = page
+            .entries
+            .iter()
+            .find(|entry| entry.id == reference.entry && entry.turn == self.turn)?;
+        match entry.parts.get(reference.index)? {
+            Part::ToolCall {
+                id, name, summary, ..
+            }
+            | Part::ToolResult {
+                id, name, summary, ..
+            } if *id == self.id && *name == self.name => Some(summary),
             _ => None,
         }
+    }
+    pub fn detail_reference(
+        &self,
+        page: &Page,
+    ) -> Option<sailry_protocol::tool::detail::Reference> {
+        let source = self.response.as_ref().unwrap_or(&self.source);
+        Some(sailry_protocol::tool::detail::Reference {
+            session: page.session,
+            turn: self.turn,
+            entry: source.entry.clone(),
+            index: source.index,
+            call: self.id.clone(),
+            revision: self.summary(page)?.revision.clone(),
+        })
+    }
+    pub fn with_detail(&self, detail: Arc<sailry_protocol::tool::detail::Detail>) -> Self {
+        let mut call = self.clone();
+        call.detail = Some(detail);
+        call
+    }
+    pub fn resolved(&self) -> Option<&display::Resolved> {
+        self.detail
+            .as_ref()
+            .and_then(|detail| detail.resolved.as_ref())
+            .or(self.resolved.as_ref())
+    }
+    pub fn content(&self) -> Option<&sailry_protocol::tool::Content> {
+        self.detail
+            .as_ref()
+            .and_then(|detail| detail.content.as_ref())
     }
     pub fn question_spec(
         &self,
         page: &Page,
     ) -> Option<sailry_protocol::conversation::question::Spec> {
         self.question.as_ref()?;
-        let spec: sailry_protocol::conversation::question::Spec =
-            serde_json::from_value(self.arguments(page)?.clone()).ok()?;
+        let Part::ToolCall { summary, .. } = self.source.part(page)? else {
+            return None;
+        };
+        let spec = summary.question.as_deref()?.clone();
         spec.validate().ok()?;
         Some(spec)
     }
-    pub fn arguments<'a>(&self, page: &'a Page) -> Option<&'a Value> {
-        match self.source.part(page)? {
-            Part::ToolCall { arguments, .. } => Some(arguments),
-            _ => None,
-        }
+    pub fn arguments<'a>(&'a self, page: &Page) -> Option<&'a Value> {
+        self.summary(page)?;
+        self.detail.as_ref().map(|detail| &detail.arguments)
     }
 
-    pub fn result<'a>(&self, page: &'a Page) -> Option<&'a Value> {
-        match self.response.as_ref()?.part(page)? {
-            Part::ToolResult { result, .. } => Some(result),
-            _ => None,
-        }
+    pub fn result<'a>(&'a self, page: &Page) -> Option<&'a Value> {
+        self.response.as_ref()?;
+        self.summary(page)?;
+        self.detail.as_ref()?.result.as_ref()
     }
 
     pub fn images<'a>(&self, page: &'a Page) -> &'a [sailry_protocol::conversation::Image] {
@@ -202,6 +248,7 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
                         progress: None,
                         content: None,
                         resolved: None,
+                        detail: None,
                         question: page
                             .questions
                             .iter()
@@ -259,6 +306,7 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
                             progress: None,
                             content: None,
                             resolved: None,
+                            detail: None,
                         });
                     }
                 }
@@ -267,13 +315,18 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
         }
     }
     for call in &mut calls {
-        call.failure = presentation::failure(call, page);
+        call.failure = call
+            .summary(page)
+            .and_then(|summary| summary.failure.clone());
         if call.presentation == sailry_protocol::tool::Presentation::Progress {
             call.grouping = sailry_protocol::tool::Grouping::Standalone;
         }
-        call.progress = progress(call, page);
-        call.content = content(call, page);
-        call.resolved = display::resolve(call, page);
+        call.progress = call
+            .summary(page)
+            .and_then(|summary| summary.progress.clone());
+        call.resolved = call
+            .summary(page)
+            .and_then(|summary| summary.resolved.clone());
         if matches!(call.state, State::Waiting | State::Running) {
             call.state = match page
                 .runs
@@ -311,56 +364,6 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
         }
     }
     calls
-}
-
-fn content(call: &Call, page: &Page) -> Option<sailry_protocol::tool::Content> {
-    if call.state != State::Returned {
-        return None;
-    }
-    let content = call.presentation.content(call.result(page)?)?;
-    if call.failure.is_some()
-        && !content.blocks.iter().all(|block| {
-            matches!(
-                block,
-                sailry_protocol::tool::Block::Text(_)
-                    | sailry_protocol::tool::Block::Notice { .. }
-                    | sailry_protocol::tool::Block::Card(_)
-            )
-        })
-    {
-        return None;
-    }
-    let images = call.images(page);
-    content
-        .blocks
-        .iter()
-        .all(|block| match block {
-            sailry_protocol::tool::Block::Image { index } => {
-                images.iter().any(|image| image.index == *index)
-            }
-            sailry_protocol::tool::Block::Card(card) => {
-                card.receipt.session == page.session && card.receipt.turn == call.turn
-            }
-            _ => true,
-        })
-        .then_some(content)
-}
-
-fn progress(call: &Call, page: &Page) -> Option<sailry_protocol::conversation::progress::Progress> {
-    use sailry_protocol::conversation::progress::Progress;
-    if call.presentation != sailry_protocol::tool::Presentation::Progress
-        || call.state != State::Returned
-    {
-        return None;
-    }
-    let arguments: Progress = serde_json::from_value(call.arguments(page)?.clone()).ok()?;
-    arguments.validate().ok()?;
-    let result = call.result(page)?.as_object()?;
-    if result.len() != 1 {
-        return None;
-    }
-    let progress: Progress = serde_json::from_value(result.get("progress")?.clone()).ok()?;
-    (progress == arguments).then_some(progress)
 }
 
 #[cfg(test)]

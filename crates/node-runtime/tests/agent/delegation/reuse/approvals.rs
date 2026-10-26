@@ -168,16 +168,9 @@ async fn isolates_repeated_call_identity() {
                 Some(Part::ToolCall { id: Some(id), name, .. })
                     if id == "call-fixture-0" && name == &plugin_tool("delegation", "spawn_agent")
             ));
-            let returned: Vec<_> = parent
-                .entries
-                .iter()
-                .filter(|entry| entry.turn == parent_turn)
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| match part {
-                    Part::ToolResult { result, .. } => Some(result),
-                    _ => None,
-                })
-                .collect();
+            let mut page = parent.clone();
+            page.entries.retain(|entry| entry.turn == parent_turn);
+            let returned = results(&fixture.client, &page).await;
             assert_eq!(returned.len(), 1);
             assert_eq!(returned[0]["session"], json!(child.id));
             assert_eq!(returned[0]["turn"], json!(child_turn));

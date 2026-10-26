@@ -194,20 +194,13 @@ async fn reads_history_with_and_without_mentions() {
                 .summary
                 .is_none()
         );
-        let results = captured
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == turn)
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { name, result, .. }
-                    if ["list_sessions", "read_session", "search_session"]
-                        .contains(&name.as_str()) =>
-                {
-                    Some(result.clone())
-                }
-                _ => None,
+        let results = tool_details(&client, &captured)
+            .await
+            .into_iter()
+            .filter(|(name, _)| {
+                ["list_sessions", "read_session", "search_session"].contains(&name.as_str())
             })
+            .map(|(_, detail)| detail.result.unwrap())
             .collect::<Vec<_>>();
         assert_eq!(results.len(), 8, "{results:?}");
         assert_eq!(results[0]["sessions"].as_array().unwrap().len(), 1);
@@ -278,11 +271,22 @@ async fn reads_history_with_and_without_mentions() {
             },
         )
         .await;
-        assert!(history(&client, selected.id).await.entries.iter().any(|entry| {
-            entry.turn == selected_turn && entry.parts.iter().any(|part| {
-                matches!(part, Part::ToolResult {name,result,..} if name == "read_session" && result.to_string().contains("First decision"))
-            })
-        }));
+        let mut selected_history = history(&client, selected.id).await;
+        selected_history
+            .entries
+            .retain(|entry| entry.turn == selected_turn);
+        assert!(
+            tool_details(&client, &selected_history)
+                .await
+                .iter()
+                .any(|(name, detail)| name == "read_session"
+                    && detail
+                        .result
+                        .as_ref()
+                        .unwrap()
+                        .to_string()
+                        .contains("First decision"))
+        );
         let Output::Session(current) = client
             .execute(client.prepare(Command::ReadSession { session: target.id }))
             .await

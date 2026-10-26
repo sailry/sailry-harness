@@ -385,18 +385,16 @@ pub enum Part {
     ToolCall {
         id: Option<String>,
         name: String,
-        arguments: Value,
+        summary: Box<crate::tool::detail::Summary>,
         #[serde(default)]
         presentation: crate::tool::Presentation,
         #[serde(default)]
         grouping: crate::tool::Grouping,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        display: Option<Box<crate::tool::Display>>,
     },
     ToolResult {
         id: Option<String>,
         name: String,
-        result: Value,
+        summary: Box<crate::tool::detail::Summary>,
         images: Vec<Image>,
     },
     /// Retains non-text content for consumers that support that resource kind.

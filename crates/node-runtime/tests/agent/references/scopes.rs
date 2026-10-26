@@ -124,17 +124,9 @@ async fn reads_unassigned_history_in_resource_sessions() {
             },
         )
         .await;
-        let results = history(&client, target.id)
-            .await
-            .entries
-            .into_iter()
-            .filter(|entry| entry.turn == turn)
-            .flat_map(|entry| entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let mut page = history(&client, target.id).await;
+        page.entries.retain(|entry| entry.turn == turn);
+        let results = results(&client, &page).await;
         assert_eq!(results.len(), 7, "{results:?}");
         assert_eq!(results[0]["sessions"].as_array().unwrap().len(), 1);
         assert_eq!(results[0]["sessions"][0]["session"], source.id.to_string());

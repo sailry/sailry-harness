@@ -56,10 +56,7 @@ fn check(page: &Page, question: &Question) -> Result<(), Fault> {
         ));
     }
     if let Some(entry) = page.entries.iter().find(|entry| entry.id == question.entry) {
-        let Some(Part::ToolCall {
-            name, arguments, ..
-        }) = entry.parts.get(question.index)
-        else {
+        let Some(Part::ToolCall { name, summary, .. }) = entry.parts.get(question.index) else {
             return Err(sailry_protocol::Fault::invalid(
                 "question does not reference a canonical tool call",
             ));
@@ -74,8 +71,10 @@ fn check(page: &Page, question: &Question) -> Result<(), Fault> {
                 "question references another turn or tool",
             ));
         }
-        let spec: Spec = serde_json::from_value(arguments.clone())
-            .map_err(|_| sailry_protocol::Fault::invalid("question has invalid arguments"))?;
+        let spec: &Spec = summary
+            .question
+            .as_deref()
+            .ok_or_else(|| sailry_protocol::Fault::invalid("question has invalid input"))?;
         spec.validate()?;
         if name == "ask_user" && spec.prompt.is_empty() {
             return Err(sailry_protocol::Fault::invalid("question prompt is empty"));

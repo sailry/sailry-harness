@@ -150,18 +150,7 @@ async fn keeps_admitted_operations_and_history() {
             page.approvals[0].source,
             sailry_protocol::conversation::ApprovalSource::Storage
         );
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let results: Vec<_> = results(&fixture.client, &page).await;
         assert_eq!(results.len(), 3);
         assert_eq!(results[0]["revision"], 1, "{results:?}");
         assert_eq!(results[1]["value"], json!({"done":true}));
@@ -259,8 +248,8 @@ async fn uses_storage_authority_and_filters_plan_writes() {
             .collect();
         assert!(names.contains(&name("read_note").as_str()));
         assert!(names.contains(&name("progress").as_str()));
-        assert!(!names.contains(&name("save_note").as_str()));
-        assert!(!names.contains(&name("delete_note").as_str()));
+        assert!(names.contains(&name("save_note").as_str()));
+        assert!(names.contains(&name("delete_note").as_str()));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

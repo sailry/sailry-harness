@@ -68,17 +68,6 @@ async fn enable(client: &Client, mut session: Session, mut provider: Provider) -
     session
 }
 
-fn results(page: &Page) -> Vec<Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
 async fn run(client: &Client, session: &Session) -> Page {
     let Output::QueuedTurn(turn) = execute(
         client,
@@ -143,7 +132,7 @@ async fn creates_registered_checkout() {
         provider.endpoint = server.endpoint.clone();
         let session = enable(&client, session, provider).await;
         let page = run(&client, &session).await;
-        let values = results(&page);
+        let values = results(&client, &page).await;
         assert_eq!(values.len(), 3);
         assert!(values[0].get("error").is_none(), "{values:?}");
         let tree: Worktree = serde_json::from_value(values[0]["data"].clone()).unwrap();
@@ -315,7 +304,7 @@ async fn scopes_reads_and_removal() {
         provider.endpoint = server.endpoint.clone();
         let session = enable(&client, session, provider).await;
         let page = run(&client, &session).await;
-        let values = results(&page);
+        let values = results(&client, &page).await;
         assert_eq!(values.len(), 7, "{values:?}");
         for i in [0, 1, 2, 5, 6] {
             assert!(values[i].get("error").is_none(), "{values:?}");
@@ -438,16 +427,16 @@ async fn isolates_child_writes() {
         provider.endpoint = parent.endpoint.clone();
         let session = enable(&client, session, provider).await;
         let page = run(&client, &session).await;
-        let values = results(&page);
+        let values = results(&client, &page).await;
         assert_eq!(values[0]["status"], "completed", "{values:?}");
         assert_eq!(values[3]["error"]["code"], "conflict");
         let child_id: SessionId = serde_json::from_value(values[0]["session"].clone()).unwrap();
         let child_page = history(&client, child_id).await;
         assert_eq!(
-            results(&child_page)[1]["data"]["lines"][0]["text"],
+            results(&client, &child_page).await[1]["data"]["lines"][0]["text"],
             "isolated child",
             "{:?}",
-            results(&child_page)
+            results(&client, &child_page).await
         );
         assert_eq!(child_page.runs[0].worktree, tree.id);
         assert_eq!(page.children[0].run.worktree, tree.id);
@@ -466,7 +455,7 @@ async fn isolates_child_writes() {
         {
             use sailry_protocol::process::{Access, Outcome};
             for (page, text) in [(&page, "protected"), (&child_page, "child-command")] {
-                let outputs = super::process::results(page);
+                let outputs = super::process::results(&client, page).await;
                 assert_eq!(outputs.len(), 1, "{page:?}");
                 assert_eq!(outputs[0].outcome, Outcome::Exited(0), "{outputs:?}");
                 assert_eq!(outputs[0].stdout.text, text);
@@ -626,7 +615,7 @@ async fn runs_parallel_checkouts() {
         provider.endpoint = parent.endpoint.clone();
         let session = enable(&client, session, provider).await;
         let page = run(&client, &session).await;
-        let values = results(&page);
+        let values = results(&client, &page).await;
         assert_eq!(values.len(), 2);
         assert!(
             values.iter().all(|value| value["status"] == "completed"),

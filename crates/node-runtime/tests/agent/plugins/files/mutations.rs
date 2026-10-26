@@ -30,7 +30,7 @@ async fn excludes_managed_paths_from_captured_tools() {
             Status::Completed,
             "{page:?}"
         );
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 10, "{output:?}");
         for result in &output[..8] {
             assert_eq!(result["error"]["code"], "permission_denied", "{result:?}");
@@ -75,7 +75,7 @@ async fn uses_dedicated_revision_checked_actions() {
             Status::Completed,
             "{page:?}"
         );
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 8, "{output:?}");
         assert_eq!(output[0]["kind"], "directory_created");
         assert_eq!(output[1]["kind"], "directory_created");
@@ -136,7 +136,7 @@ async fn asks_before_deleting_a_file() {
         );
         assert_eq!(page.approvals.len(), 1);
         assert_eq!(page.approvals[0].state, ApprovalState::Denied);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 1);
         assert_eq!(
             output[0]["error"],

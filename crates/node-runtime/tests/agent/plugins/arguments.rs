@@ -60,7 +60,7 @@ export function flow() { throw new Error('unexpected flow execution'); }
             Status::Completed,
             "{page:?}"
         );
-        let outputs = results(&page);
+        let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 4, "{outputs:?}");
         for output in &outputs[..2] {
             assert_eq!(output["isError"], true);
@@ -75,21 +75,10 @@ export function flow() { throw new Error('unexpected flow execution'); }
             assert!(!output.to_string().contains(PRIVATE));
             assert!(!output.to_string().contains("unexpected"));
         }
-        assert_eq!(outputs[2], &valid);
-        assert_eq!(outputs[3], &json!({"query":"default"}));
+        assert_eq!(outputs[2], valid);
+        assert_eq!(outputs[3], json!({"query":"default"}));
         assert!(page.approvals.is_empty());
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
-}
-
-fn results(page: &Page) -> Vec<&Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result),
-            _ => None,
-        })
-        .collect()
 }

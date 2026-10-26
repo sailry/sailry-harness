@@ -456,7 +456,7 @@ async fn settles_batch_before_handoff() {
         );
         assert_eq!(parent_page.children[0].run.turn, recipient.turn);
         assert_eq!(parent_page.children[1].run.turn, guided.id);
-        let returned = results(&parent_page);
+        let returned = results(&fixture.client, &parent_page).await;
         assert_eq!(returned.len(), 1);
         assert_eq!(returned[0]["session"], json!(child.id));
         assert_eq!(returned[0]["turn"], json!(guided.id));
@@ -662,7 +662,10 @@ async fn interrupts_awaited_child_response() {
         assert_eq!(status(&page, recipient.turn), Status::Continued);
         assert_eq!(status(&page, guided.id), Status::Completed);
         let page = finished(&fixture.client, fixture.session.id, parent.id).await;
-        assert_eq!(results(&page)[0]["turn"], json!(guided.id));
+        assert_eq!(
+            results(&fixture.client, &page).await[0]["turn"],
+            json!(guided.id)
+        );
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
         fixture.close().await;
     }

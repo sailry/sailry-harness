@@ -117,8 +117,15 @@ async fn agent_name_survives_restart() {
         assert_eq!(read(&fixture.client, fixture.session.id).await, TITLE);
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert!(page.approvals.is_empty());
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part,
-            Part::ToolResult { name, result, .. } if name == "set_session_title" && result == &json!({"title": TITLE}))));
+        assert!(
+            tool_details(&fixture.client, &page)
+                .await
+                .iter()
+                .any(|(name, detail)| {
+                    let result = detail.result.as_ref().unwrap();
+                    name == "set_session_title" && result == &json!({"title": TITLE})
+                })
+        );
         send(&fixture, "Continue the task").await;
         policy(server.requests.lock().unwrap().last().unwrap(), Some(TITLE));
         assert_eq!(read(&fixture.client, fixture.session.id).await, TITLE);

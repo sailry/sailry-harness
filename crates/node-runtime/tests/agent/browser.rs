@@ -144,7 +144,7 @@ async fn routes_through_controller() {
             } else {
                 finished(&client, session.id, turn.id).await
             };
-            super::evaluation::trajectory(&page, &calls);
+            super::evaluation::trajectory(&client, &page, &calls).await;
             assert_eq!(
                 page.runs.last().unwrap().status,
                 Status::Completed,
@@ -177,18 +177,11 @@ async fn routes_through_controller() {
             } else {
                 assert_eq!(page.approvals.len(), mutating.len());
             }
-            let results: Vec<_> = page
-                .entries
-                .iter()
-                .filter(|entry| entry.author != "plan_review")
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| {
-                    if let Part::ToolResult { result, .. } = part {
-                        Some(result)
-                    } else {
-                        None
-                    }
-                })
+            let results: Vec<_> = tool_details(&client, &page)
+                .await
+                .into_iter()
+                .filter(|(name, _)| name != "plan_review")
+                .map(|(_, detail)| detail.result.unwrap())
                 .collect();
             assert_eq!(results.len(), count);
             assert!(
@@ -284,24 +277,18 @@ async fn publishes_controller_artifact() {
         let expected = json!({
             "tab":7,"mime_type":"image/jpeg","width":2,"height":2,"path":path
         });
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult {
-                    name: tool,
-                    result,
-                    images,
-                    ..
-                } if tool == &name => {
-                    assert!(images.is_empty());
-                    Some(result)
+        let results: Vec<_> = tool_details(&client, &page)
+            .await
+            .into_iter()
+            .filter_map(|(tool, detail)| {
+                if tool != name {
+                    return None;
                 }
-                _ => None,
+                assert!(detail.images.is_empty());
+                detail.result
             })
             .collect();
-        assert_eq!(results, vec![&expected]);
+        assert_eq!(results, vec![expected]);
         assert!(
             !serde_json::to_string(&page)
                 .unwrap()

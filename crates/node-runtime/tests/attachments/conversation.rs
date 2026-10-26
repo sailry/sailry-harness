@@ -185,6 +185,18 @@ async fn page(client: &Client, session: SessionId) -> Page {
     history.page
 }
 
+async fn results(client: &Client, page: &Page, turn: Option<TurnId>) -> Vec<serde_json::Value> {
+    let mut page = page.clone();
+    if let Some(turn) = turn {
+        page.entries.retain(|entry| entry.turn == turn);
+    }
+    server::tool_details(client, &page)
+        .await
+        .into_iter()
+        .map(|(_, detail)| detail.result.unwrap())
+        .collect()
+}
+
 async fn run(client: &Client, turn: &QueuedTurn) -> Page {
     client
         .execute(client.prepare(Command::StartQueuedTurn { turn: turn.id }))

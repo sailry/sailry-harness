@@ -32,7 +32,7 @@ struct Truncation {
 struct Page {
     session: SessionId,
     revision: u64,
-    entries: Vec<Entry>,
+    entries: Vec<Value>,
     runs: Vec<Turn>,
     next_before: Option<TurnId>,
 }
@@ -49,25 +49,28 @@ struct Conversation {
 struct Continuation {
     revision: u64,
     run: Turn,
-    entries: Vec<Entry>,
+    entries: Vec<Value>,
     next_before: Option<u64>,
     #[serde(flatten)]
     truncation: Truncation,
 }
 
-pub(super) fn conversation(history: History) -> Result<Value, Fault> {
+pub(super) async fn conversation(
+    db: &Connection,
+    session: SessionId,
+    history: History,
+) -> Result<Value, Fault> {
     let mut truncation = Truncation::default();
+    let mut entries = Vec::new();
+    for entry in history.page.entries {
+        entries.push(bounded_entry(db, session, entry, &mut truncation).await?);
+    }
     let mut response = Conversation {
         missing: history.missing.into_iter().collect(),
         page: Page {
             session: history.page.session,
             revision: history.page.revision,
-            entries: history
-                .page
-                .entries
-                .into_iter()
-                .map(|entry| bounded_entry(entry, &mut truncation))
-                .collect::<Result<_, _>>()?,
+            entries,
             runs: history
                 .page
                 .runs
@@ -82,11 +85,19 @@ pub(super) fn conversation(history: History) -> Result<Value, Fault> {
         response.truncation.truncated = true;
         if response.page.entries.len() > 1 {
             let entry = response.page.entries.remove(0);
-            response.missing.insert(entry.turn);
-            response.truncation.truncated_entries.remove(&entry.id);
+            response
+                .missing
+                .insert(serde_json::from_value(entry["turn"].clone()).map_err(storage_error)?);
+            response
+                .truncation
+                .truncated_entries
+                .remove(entry["id"].as_str().unwrap_or_default());
         } else if response.page.runs.len() > 1 {
             let run = response.page.runs.remove(0);
-            response.page.entries.retain(|entry| entry.turn != run.turn);
+            response
+                .page
+                .entries
+                .retain(|entry| entry["turn"] != run.turn.to_string());
             response.missing.remove(&run.turn);
             response.truncation.truncated_inputs.remove(&run.turn);
             response.page.next_before = Some(response.page.runs[0].turn);
@@ -99,16 +110,20 @@ pub(super) fn conversation(history: History) -> Result<Value, Fault> {
     serde_json::to_value(response).map_err(storage_error)
 }
 
-pub(super) fn turn(history: TurnHistory) -> Result<Value, Fault> {
+pub(super) async fn turn(
+    db: &Connection,
+    session: SessionId,
+    history: TurnHistory,
+) -> Result<Value, Fault> {
     let mut truncation = Truncation::default();
+    let mut entries = Vec::new();
+    for entry in history.entries {
+        entries.push(bounded_entry(db, session, entry, &mut truncation).await?);
+    }
     let mut response = Continuation {
         revision: history.revision,
         run: bounded_run(history.run, &mut truncation),
-        entries: history
-            .entries
-            .into_iter()
-            .map(|entry| bounded_entry(entry, &mut truncation))
-            .collect::<Result<_, _>>()?,
+        entries,
         next_before: history.next_before,
         truncation,
     };
@@ -119,9 +134,12 @@ pub(super) fn turn(history: TurnHistory) -> Result<Value, Fault> {
             ));
         }
         let entry = response.entries.remove(0);
-        response.truncation.truncated_entries.remove(&entry.id);
+        response
+            .truncation
+            .truncated_entries
+            .remove(entry["id"].as_str().unwrap_or_default());
         response.truncation.truncated = true;
-        response.next_before = Some(response.entries[0].sequence);
+        response.next_before = response.entries[0]["sequence"].as_u64();
     }
     serde_json::to_value(response).map_err(storage_error)
 }
@@ -160,39 +178,80 @@ fn bounded_run(mut run: Run, truncation: &mut Truncation) -> Turn {
     }
 }
 
-fn bounded_entry(mut entry: Entry, truncation: &mut Truncation) -> Result<Entry, Fault> {
+async fn bounded_entry(
+    db: &Connection,
+    session: SessionId,
+    mut entry: Entry,
+    truncation: &mut Truncation,
+) -> Result<Value, Fault> {
     let mut parts = Vec::new();
     let mut bytes = 0;
     let mut trimmed = false;
-    for mut part in entry.parts {
-        let encoded = serde_json::to_string(&part).map_err(storage_error)?;
+    let source = if entry
+        .parts
+        .iter()
+        .any(|part| matches!(part, Part::ToolCall { .. } | Part::ToolResult { .. }))
+    {
+        Some(history::canonical::event(db, session, entry.turn, &entry.id).await?)
+    } else {
+        None
+    };
+    for (index, part) in entry.parts.iter().enumerate() {
+        let mut value = serde_json::to_value(part).map_err(storage_error)?;
+        if matches!(part, Part::ToolCall { .. } | Part::ToolResult { .. }) {
+            let source = source.as_ref().expect("canonical tool entry selected");
+            let raw = history::tools::raw(db, source.turn, source.sequence, &source.event, index)
+                .await?
+                .ok_or_else(|| {
+                    Fault::new(ErrorCode::NotFound, "history tool value is unavailable")
+                })?;
+            let data = value["data"]
+                .as_object_mut()
+                .expect("tool part serializes an object");
+            data.remove("summary");
+            if matches!(part, Part::ToolCall { .. }) {
+                data.insert("arguments".into(), raw.arguments);
+                if let Some(display) = raw.display {
+                    data.insert(
+                        "display".into(),
+                        serde_json::to_value(display).map_err(storage_error)?,
+                    );
+                }
+            } else {
+                data.insert("result".into(), raw.result.unwrap_or(Value::Null));
+            }
+        }
+        let encoded = serde_json::to_string(&value).map_err(storage_error)?;
         if encoded.len() > PART_BYTES {
             trimmed = true;
-            match &mut part {
-                Part::Text(text) | Part::Thinking(text) => {
-                    trim(text, PART_BYTES / 2);
+            match part {
+                Part::Text(_) | Part::Thinking(_) => {
+                    let mut text = value["data"].as_str().unwrap_or_default().to_owned();
+                    trim(&mut text, PART_BYTES / 2);
+                    value["data"] = Value::String(text);
                 }
-                Part::ToolResult { result, images, .. } => {
-                    *result = serde_json::json!({"truncated":true,"preview":prefix(&serde_json::to_string(result).map_err(storage_error)?, PART_BYTES / 2)});
-                    images.clear();
+                Part::ToolResult { .. } => {
+                    value["data"]["result"] = serde_json::json!({"truncated":true,"preview":prefix(&serde_json::to_string(&value["data"]["result"]).map_err(storage_error)?, PART_BYTES / 2)});
+                    value["data"]["images"] = serde_json::json!([]);
                 }
                 _ => {
-                    part = Part::Resource(serde_json::json!({
+                    value = serde_json::to_value(Part::Resource(serde_json::json!({
                         "type":"truncated_history_part",
                         "preview":prefix(&encoded, PART_BYTES / 2),
-                    }));
+                    })))
+                    .map_err(storage_error)?;
                 }
             }
         }
-        let size = serde_json::to_vec(&part).map_err(storage_error)?.len();
+        let size = serde_json::to_vec(&value).map_err(storage_error)?.len();
         if bytes + size > ENTRY_BYTES || parts.len() == 32 {
             trimmed = true;
             break;
         }
         bytes += size;
-        parts.push(part);
+        parts.push(value);
     }
-    entry.parts = parts;
+    entry.parts.clear();
     if let Some(html) = &mut entry.search_suggestions {
         trimmed |= trim(html, PART_BYTES / 2);
     }
@@ -204,6 +263,8 @@ fn bounded_entry(mut entry: Entry, truncation: &mut Truncation) -> Result<Entry,
         truncation.truncated = true;
         truncation.truncated_entries.insert(entry.id.clone());
     }
+    let mut entry = serde_json::to_value(entry).map_err(storage_error)?;
+    entry["parts"] = Value::Array(parts);
     Ok(entry)
 }
 

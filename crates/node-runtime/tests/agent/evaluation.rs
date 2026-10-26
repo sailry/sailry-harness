@@ -8,19 +8,29 @@ use adk_eval::{
 use sailry_protocol::conversation::{Page, Part};
 use serde_json::Value;
 
-pub(super) fn trajectory(page: &Page, expected: &[(String, Value)]) {
-    let actual: Vec<_> = page
+pub(super) async fn trajectory(
+    client: &sailry_client::Client,
+    page: &Page,
+    expected: &[(String, Value)],
+) {
+    let mut actual = Vec::new();
+    for entry in page
         .entries
         .iter()
         .filter(|entry| entry.author != "plan_review")
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolCall {
-                name, arguments, ..
-            } => Some(ToolUse::new(name).with_args(arguments.clone())),
-            _ => None,
-        })
-        .collect();
+    {
+        for (index, part) in entry.parts.iter().enumerate() {
+            if let Part::ToolCall { name, .. } = part {
+                actual.push(
+                    ToolUse::new(name).with_args(
+                        super::tool_detail(client, page, entry, index)
+                            .await
+                            .arguments,
+                    ),
+                );
+            }
+        }
+    }
     let expected: Vec<_> = expected
         .iter()
         .map(|(name, args)| ToolUse::new(name).with_args(args.clone()))

@@ -17,19 +17,6 @@ async fn submit(client: &Client, session: &Session, message: &str) -> TurnId {
     };
     turn.id
 }
-fn results(page: &Page) -> Vec<&Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| {
-            if let Part::ToolResult { result, .. } = part {
-                Some(result)
-            } else {
-                None
-            }
-        })
-        .collect()
-}
 fn completed(page: &Page, turn: TurnId) {
     let run = page.runs.iter().find(|run| run.turn == turn).unwrap();
     assert_eq!(run.status, Status::Completed, "{page:?}");
@@ -141,7 +128,7 @@ async fn reconciles_changed_entries_without_restarting_turns() {
                 if let Some((request, _)) = &held {
                     rejected(&fixture.client, request).await;
                 }
-                let outputs = results(&page);
+                let outputs = results(&fixture.client, &page).await;
                 let changed = outputs[1].get("context").unwrap_or(outputs[1]);
                 assert_eq!(changed["saved"], false);
                 assert_eq!(
@@ -308,7 +295,7 @@ async fn merges_writes_from_independent_sessions() {
             release.cancel();
             let page = finished(&fixture.client, session.id, *turn).await;
             completed(&page, *turn);
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             assert_eq!(output.len(), 1, "{page:?}");
             assert_eq!(
                 output[0]["updated"].as_array().map(Vec::len),
@@ -333,7 +320,7 @@ async fn merges_writes_from_independent_sessions() {
             assert_eq!(page.approvals.len(), 1);
             assert_eq!(page.approvals[0].state, ApprovalState::Approved);
             assert_eq!(page.approvals[0].source, ApprovalSource::Storage);
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             assert_eq!(output.len(), 1, "{page:?}");
             assert!(output[0].get("isError").is_none(), "{output:?}");
             let id: MemoryId =

@@ -28,7 +28,7 @@ impl View {
                 && run.origin.unwrap_or(run.session) == artifact.session
         }) && self.history.calls.iter().any(|call| {
             call.turn == artifact.turn
-                && call.content.as_ref().is_some_and(|content| {
+                && self.detailed(call, &snapshot.page).content().is_some_and(|content| {
                     content.blocks.iter().any(|block| {
                         matches!(block, sailry_protocol::tool::Block::Artifact { artifact: value } if value == artifact)
                     })

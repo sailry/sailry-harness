@@ -11,16 +11,17 @@ fn review() -> Page {
     page.entries[0].author = "plan_review".into();
     let id = page.entries[0].id.clone();
     page.entries[0].parts[0] = Part::ToolCall {
-        display: None,
         presentation: Default::default(),
         grouping: Default::default(),
         id: Some(id.clone()),
         name: "plan_review".into(),
-        arguments: serde_json::to_value(Spec {
-            prompt: String::new(),
-            input: Input::Plan,
-        })
-        .unwrap(),
+        summary: input_summary(
+            serde_json::to_value(Spec {
+                prompt: String::new(),
+                input: Input::Plan,
+            })
+            .unwrap(),
+        ),
     };
     page.questions.push(Question {
         id: QuestionId::new(),
@@ -67,8 +68,8 @@ fn excludes_unowned_and_nonsynthetic_completion() {
                 }
             }
             "prompt" => {
-                if let Part::ToolCall { arguments, .. } = &mut page.entries[0].parts[0] {
-                    arguments["prompt"] = json!("Model plan question");
+                if let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] {
+                    summary.question.as_mut().unwrap().prompt = "Model plan question".into();
                 }
             }
             "failed" => page.runs[0].status = Status::Failed,
@@ -90,7 +91,7 @@ fn canonical_result_closes_pending_review() {
     result.parts[0] = Part::ToolResult {
         id: Some(page.questions[0].entry.clone()),
         name: "plan_review".into(),
-        result: json!({"status":"cancelled"}),
+        summary: Box::new(Default::default()),
         images: Vec::new(),
     };
     page.entries.push(result);
@@ -98,10 +99,10 @@ fn canonical_result_closes_pending_review() {
     assert_eq!(page.questions[0].state, QuestionState::Pending);
     assert_eq!(call.state, State::Returned);
     assert!(call.question_pending(&page).is_none());
-    assert_eq!(call.result(&page).unwrap()["status"], "cancelled");
+    assert!(call.result(&page).is_none());
     page.questions[0].state = QuestionState::Cancelled;
     let call = &collect(&page)[0];
     assert_eq!(call.state, State::Returned);
     assert!(call.question_pending(&page).is_none());
-    assert_eq!(call.result(&page).unwrap()["status"], "cancelled");
+    assert!(call.result(&page).is_none());
 }

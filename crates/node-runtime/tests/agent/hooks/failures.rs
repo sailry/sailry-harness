@@ -73,18 +73,7 @@ async fn retains_empty_completion_and_hook_failure() {
             ErrorCode::Unavailable,
             "the model ended its turn without an answer: no text, data or tool call, only thinking or whitespace (finish reason: Stop); retry the run, or check the model's output limit and safety settings",
         );
-        let results = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
+        let results = results(&fixture.client, &page).await;
         assert_eq!(results.len(), 1);
         assert!(results[0].to_string().contains("canonical file result"));
         assert!(!results[0].to_string().contains("turn_end hook failed"));
@@ -146,7 +135,7 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
             ErrorCode::OutcomeUnknown,
             "MCP task termination could not be confirmed",
         );
-        let commands = process::results(&page);
+        let commands = process::results(&fixture.client, &page).await;
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].outcome, Outcome::Exited(0));
         assert_eq!(
@@ -162,9 +151,12 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
         assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
         assert!(page.questions.is_empty());
         assert_eq!(server.requests.lock().unwrap().len(), 3);
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
-            matches!(part, Part::ToolResult {result, ..} if result["error"]["code"] == "outcome_unknown")
-        }));
+        assert!(
+            results(&fixture.client, &page)
+                .await
+                .iter()
+                .any(|result| result["error"]["code"] == "outcome_unknown")
+        );
         assert_eq!(
             fixture.client.execute(request).await.unwrap(),
             Output::QueuedTurn(turn)

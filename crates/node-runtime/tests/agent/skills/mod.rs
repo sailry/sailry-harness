@@ -133,17 +133,6 @@ async fn fixture(
     (directory, node, controller, client, session)
 }
 
-fn results(page: &Page) -> Vec<Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
 mod execution;
 mod forwarding;
 mod management;

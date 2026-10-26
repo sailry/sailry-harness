@@ -113,18 +113,7 @@ async fn reports_errors_and_rejects_partial_transactions() {
             panic!("turn expected")
         };
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let outputs: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let outputs: Vec<_> = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 4);
         // The final handler attempts a forbidden durable SDK command; its native
         // permission classification must survive JavaScript and ADK projection.

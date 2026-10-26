@@ -11,8 +11,7 @@ pub(super) struct Group {
 pub(super) fn grouped(call: &Call, page: &Page) -> bool {
     call.details(page)
         && call
-            .resolved
-            .as_ref()
+            .resolved()
             .and_then(|resolved| resolved.output.as_ref())
             .is_some_and(|output| match output.paths.as_slice() {
                 [] => false,
@@ -26,8 +25,7 @@ fn paths(calls: &[&Call]) -> Vec<SharedString> {
     let mut seen = std::collections::BTreeSet::new();
     for call in calls {
         let Some(output) = call
-            .resolved
-            .as_ref()
+            .resolved()
             .and_then(|resolved| resolved.output.as_ref())
         else {
             continue;
@@ -117,7 +115,7 @@ pub(super) fn render(
     result: &Value,
     cx: &mut Context<View>,
 ) -> Option<AnyElement> {
-    call.resolved.as_ref()?.output.as_ref()?;
+    call.resolved()?.output.as_ref()?;
     let output = call.output(page)?;
     if let Some(data) = &output.table {
         let content = sailry_protocol::tool::Content {
@@ -208,8 +206,7 @@ pub(super) fn render(
         actions.push(view.copy_result(key, copy));
     }
     let path = call
-        .resolved
-        .as_ref()
+        .resolved()
         .and_then(|resolved| resolved.input.target.as_ref())
         .map(|path| path.text.as_str())
         .filter(|path| !path.is_empty())

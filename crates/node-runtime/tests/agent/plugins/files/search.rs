@@ -44,7 +44,7 @@ async fn explores_without_shell_approval() {
             "{page:?}"
         );
         assert!(page.approvals.is_empty(), "{page:?}");
-        let outputs = results(&page);
+        let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 7, "{outputs:?}");
         assert_eq!(outputs[0]["data"]["next_offset"], 2);
         assert_eq!(outputs[0]["data"]["matches"][0]["matched"], false);

@@ -133,18 +133,7 @@ async fn explores_history_without_shell_approval() {
             })
             .await
             .unwrap();
-            let output: Vec<_> = page
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| {
-                    if let Part::ToolResult { result, .. } = part {
-                        Some(result)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let output: Vec<_> = results(&fixture.client, &page).await;
             assert_eq!(output.len(), 2, "{page:?}");
             assert_eq!(output[0]["kind"], "git_file");
             assert_eq!(output[0]["data"]["text"], "2: Second\n");

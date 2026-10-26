@@ -33,17 +33,19 @@ fn history() -> (TurnId, View) {
             search_suggestions: None,
             parts: vec![
                 Part::ToolCall {
-                    display: None,
                     presentation: Default::default(),
                     grouping: Default::default(),
                     id: Some(id.clone()),
                     name: name.into(),
-                    arguments: json!({}),
+                    summary: Default::default(),
                 },
                 Part::ToolResult {
                     id: Some(id.clone()),
                     name: name.into(),
-                    result: json!({"status": "compacted", "summary_id": "summary"}),
+                    summary: Box::new(sailry_protocol::tool::detail::Summary {
+                        summary_id: Some("summary".into()),
+                        ..Default::default()
+                    }),
                     images: vec![],
                 },
             ],
@@ -58,6 +60,7 @@ fn history() -> (TurnId, View) {
             progress: None,
             content: None,
             resolved: None,
+            detail: None,
             source: Reference {
                 entry: id.clone(),
                 index: 0,

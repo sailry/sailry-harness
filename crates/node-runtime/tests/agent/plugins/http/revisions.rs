@@ -175,7 +175,15 @@ async fn preserves_unchanged_edits_for_captured_tools() {
                 matches!(result.unwrap(), Output::PluginHttp(response) if response.status == 200)
             );
             if !changed {
-                assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::ToolResult { result, .. } if result["data"]["document"]["id"] == "0:0")));
+                assert!(
+                    tool_details(&fixture.client, &page)
+                        .await
+                        .iter()
+                        .any(|(_, detail)| {
+                            let result = detail.result.as_ref().unwrap();
+                            result["data"]["document"]["id"] == "0:0"
+                        })
+                );
             }
             assert_eq!(
                 resource.requests.lock().unwrap().len(),

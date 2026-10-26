@@ -95,7 +95,7 @@ async fn standalone_credentials() {
         .await;
         let page = finished(&fixture.client, fixture.session.id, queued.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(
             output[0]["output"]["secret_hash"],
             json!(blake3::hash(original.as_bytes()).as_bytes())
@@ -109,7 +109,7 @@ async fn standalone_credentials() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(
-            results(&page).last().unwrap()["output"]["secret_hash"],
+            results(&fixture.client, &page).await.last().unwrap()["output"]["secret_hash"],
             json!(blake3::hash(replacement.as_bytes()).as_bytes())
         );
         fixture.node.shutdown().await.unwrap();
@@ -177,10 +177,15 @@ async fn recovers_frozen_approval() {
             .iter()
             .find(|entry| entry.id == first.entry)
             .unwrap();
-        let Part::ToolCall { arguments, .. } = &call.parts[first.index] else {
+        let Part::ToolCall { .. } = &call.parts[first.index] else {
             panic!("approval call expected")
         };
-        assert_eq!(arguments["value"], content);
+        assert_eq!(
+            tool_detail(&fixture.client, &page, call, first.index)
+                .await
+                .arguments["value"],
+            content
+        );
         for part in page.entries.iter().flat_map(|entry| &entry.parts) {
             if let Part::ToolCall {
                 name, presentation, ..
@@ -196,7 +201,7 @@ async fn recovers_frozen_approval() {
                 );
             }
         }
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output[0]["output"]["version"], "old version 中文 🙂");
         assert_eq!(
             output[0]["output"]["root"],
@@ -304,7 +309,7 @@ async fn lost_results_prevent_replay() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert_eq!(page.approvals[0].source, ApprovalSource::Full);
-        let result = results(&page);
+        let result = results(&fixture.client, &page).await;
         assert_eq!(result[0]["error"]["code"], "outcome_unknown");
         let data = fixture.node.profile().join("plugins/data/example");
         assert_eq!(fs::read_to_string(data.join("effects")).unwrap(), "once");

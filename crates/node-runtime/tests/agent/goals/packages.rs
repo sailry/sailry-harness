@@ -93,14 +93,17 @@ async fn retains_captured_code_and_history_after_removal() {
         execute(&fixture, Command::StartQueuedTurn { turn: queued.id }).await;
         let page = finished(&fixture.client, fixture.session.id, queued.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let saved = results(&page)
+        let saved = results(&fixture.client, &page)
+            .await
             .iter()
             .find(|(tool, _)| *tool == plugin_tool(name, "create_goal"))
             .unwrap()
             .1
             .clone();
         assert_eq!(saved["goal"]["description"], "Evidence original");
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part,Part::ToolCall {display:Some(display),..} if display.label == "Record original")));
+        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part,
+            Part::ToolCall {summary,..} if summary.resolved.as_ref().and_then(|resolved| resolved.label.as_ref())
+                .is_some_and(|label| label.label == "Record original"))));
         execute(
             &fixture,
             Command::RemovePlugin {

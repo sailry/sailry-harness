@@ -125,17 +125,6 @@ async fn submit(fixture: &process::Fixture, queued: bool) -> (Request, QueuedTur
     (request, turn)
 }
 
-fn results(page: &Page) -> Vec<Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
 async fn present(path: &Path) {
     tokio::time::timeout(Duration::from_secs(10), async {
         while !fs::read(path).is_ok_and(|bytes| !bytes.is_empty()) {

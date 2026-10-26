@@ -235,15 +235,7 @@ async fn resolves_exact_calls() {
                 ApprovalState::Denied
             ]
         );
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
-            })
-            .collect();
+        let results: Vec<_> = results(&other, &page).await;
         assert_eq!(results.len(), 3);
         assert_eq!(results[1]["error"]["code"], "revision_conflict");
         assert!(!root.join("denied.txt").exists());

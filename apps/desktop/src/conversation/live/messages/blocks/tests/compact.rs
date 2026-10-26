@@ -11,6 +11,7 @@ fn call(index: usize) -> Call {
         progress: None,
         content: None,
         resolved: None,
+        detail: None,
         source: Reference {
             entry: "entry".into(),
             index,

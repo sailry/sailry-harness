@@ -261,7 +261,7 @@ async fn isolates_failed_discovery() {
                 }
                 let page = finished(&fixture.client, fixture.session.id, turn.id).await;
                 assert_eq!(page.runs[0].status, Status::Completed);
-                let output = results(&page);
+                let output = results(&fixture.client, &page).await;
                 if method == "tools/list" {
                     assert!(
                         output[0]["content"]

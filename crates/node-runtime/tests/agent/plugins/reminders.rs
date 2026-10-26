@@ -61,17 +61,6 @@ async fn schedules(client: &Client, context: &plugin::Context) -> Vec<jobs::Sche
     schedules
 }
 
-fn results(page: &Page) -> Vec<&Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result),
-            _ => None,
-        })
-        .collect()
-}
-
 async fn submit(fixture: &process::Fixture) -> TurnId {
     let Output::QueuedTurn(turn) = fixture
         .client
@@ -142,7 +131,7 @@ async fn shares_project_records_with_management() {
         let turn = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 7, "{page:?}");
         assert_eq!(output[0]["items"].as_array().unwrap().len(), 1);
         assert_eq!(output[0]["items"][0]["id"], json!(current));
@@ -272,9 +261,12 @@ async fn revoked_mutation_leaves_no_record_or_schedule() {
         assert_eq!(page.approvals.len(), 1);
         assert_eq!(page.approvals[0].state, ApprovalState::Approved);
         assert_eq!(page.approvals[0].source, ApprovalSource::Storage);
-        assert_eq!(results(&page).len(), 1);
-        assert_eq!(results(&page)[0]["isError"], true);
-        assert_eq!(results(&page)[0]["error"]["code"], "not_configured");
+        assert_eq!(results(&fixture.client, &page).await.len(), 1);
+        assert_eq!(results(&fixture.client, &page).await[0]["isError"], true);
+        assert_eq!(
+            results(&fixture.client, &page).await[0]["error"]["code"],
+            "not_configured"
+        );
         let Output::Plugin(enabled) = fixture
             .client
             .execute(fixture.client.prepare(Command::SetPluginEnabled {

@@ -20,6 +20,7 @@ class DeferredOutput extends ChangeNotifier {
       source['index'],
       response['entry'],
       response['index'],
+      call['revision'],
     );
     if (_identity == identity) return;
     _identity = identity;
@@ -32,13 +33,14 @@ class DeferredOutput extends ChangeNotifier {
     required bool expanded,
     required bool enabled,
     OutputLoader? load,
+    bool publication = false,
   }) async {
     bind(call);
     if (_disposed ||
         !expanded ||
         !enabled ||
-        call['details'] != true ||
-        call['output_deferred'] != true ||
+        (publication ? call['published'] != true : call['details'] != true) ||
+        (!publication && call['output_deferred'] != true) ||
         _value != null ||
         _loading != null ||
         load == null) {

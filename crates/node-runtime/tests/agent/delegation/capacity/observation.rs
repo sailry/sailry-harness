@@ -11,7 +11,7 @@ async fn preserves_admitted_work_after_wait_expiry() {
         let parent = fixture.push(0).await;
         let page = finished(&fixture.client, fixture.parents[0].id, parent.id).await;
         assert_eq!(status(&page, parent.id), Status::Completed);
-        let values = results(&page);
+        let values = results(&fixture.client, &page).await;
         assert_eq!(values.len(), 3);
         let runs = fixture.wait(3, 1).await;
         for value in &values {
@@ -39,7 +39,7 @@ async fn preserves_admitted_work_after_wait_expiry() {
         let waiting = fixture.push(0).await;
         let page = finished(&fixture.client, fixture.parents[0].id, waiting.id).await;
         assert_eq!(status(&page, waiting.id), Status::Completed);
-        let values = results(&page);
+        let values = results(&fixture.client, &page).await;
         let value = values.last().unwrap();
         assert_eq!(value["admitted"], true);
         assert_eq!(value["pending"], true);
@@ -93,7 +93,11 @@ async fn preserves_admitted_work_after_wait_expiry() {
         let collected = fixture.push(0).await;
         let page = finished(&fixture.client, fixture.parents[0].id, collected.id).await;
         assert_eq!(status(&page, collected.id), Status::Completed);
-        let value = results(&page).last().unwrap().clone();
+        let value = results(&fixture.client, &page)
+            .await
+            .last()
+            .unwrap()
+            .clone();
         assert_eq!(value["status"], "completed");
         assert_eq!(value["response"], "Deferred child answer");
         assert!(value.get("pending").is_none());

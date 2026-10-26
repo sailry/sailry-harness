@@ -27,10 +27,10 @@ async fn restores_consent_history() {
                     .find(|entry| entry.id == pending.entry)
                     .unwrap()
                     .parts[pending.index];
-                let Part::ToolCall { arguments, .. } = part else {
+                let Part::ToolCall { summary, .. } = part else {
                     panic!("MCP input expected")
                 };
-                let spec: question::Spec = serde_json::from_value(arguments.clone()).unwrap();
+                let spec = summary.question.as_ref().unwrap().as_ref().clone();
                 assert!(
                     matches!(spec.input, question::Input::Url { ref url, .. } if url == "https://example.invalid/continue?task=fixture")
                 );
@@ -52,7 +52,7 @@ async fn restores_consent_history() {
             assert_eq!(page.questions[0].state, State::Answered(Answer::Opened));
             assert_eq!(page.questions[1].state, State::Declined);
             assert_eq!(page.questions[2].state, State::Cancelled);
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             let native: Vec<_> = output
                 .iter()
                 .filter_map(|value| value.get("output"))

@@ -113,7 +113,7 @@ async fn failures_settle_background_child() {
             );
             assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
             assert_eq!(parent.children[0].run.status, Status::Cancelled);
-            let response = results(&parent);
+            let response = results(&fixture.client, &parent).await;
             assert_eq!(response.len(), 1);
             assert_eq!(response[0]["session"], json!(child.id));
             assert!(!response[0].to_string().contains("hook failed"));

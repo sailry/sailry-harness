@@ -1,8 +1,38 @@
 use super::*;
 use core::prelude::v1::test;
-use serde_json::json;
+use sailry_protocol::tool::{
+    LocalText,
+    detail::{Input, Resolved, Text},
+};
 
-fn sample(display: Option<serde_json::Value>) -> (Call, Page) {
+fn display(approval: Vec<&str>, summary: Option<&str>, code: bool) -> Resolved {
+    Resolved {
+        label: Some(LocalText {
+            label: "Example".into(),
+            locales: Default::default(),
+        }),
+        input: Input {
+            summary: summary.map(|text| Text {
+                text: text.into(),
+                code,
+            }),
+            ..Default::default()
+        },
+        output: None,
+        approval: approval
+            .into_iter()
+            .map(|label| LocalText {
+                label: label.into(),
+                locales: Default::default(),
+            })
+            .collect(),
+        status: None,
+        command: None,
+        diagnostics: Vec::new(),
+    }
+}
+
+fn sample(display: Option<Resolved>) -> (Call, Page) {
     let turn = sailry_protocol::TurnId::new();
     let call = Call {
         terminal_interaction: false,
@@ -22,7 +52,8 @@ fn sample(display: Option<serde_json::Value>) -> (Call, Page) {
         question: None,
         progress: None,
         content: None,
-        resolved: None,
+        resolved: display.clone(),
+        detail: None,
     };
     let page = Page {
         session: sailry_protocol::SessionId::new(),
@@ -37,10 +68,12 @@ fn sample(display: Option<serde_json::Value>) -> (Call, Page) {
             parts: vec![sailry_protocol::conversation::Part::ToolCall {
                 id: call.id.clone(),
                 name: call.name.clone(),
-                arguments: json!({"name":"**Task**\n```text\n🙂", "text":"Unrelated write body"}),
                 presentation: Default::default(),
                 grouping: Default::default(),
-                display: display.map(|display| serde_json::from_value(display).unwrap()),
+                summary: Box::new(sailry_protocol::tool::detail::Summary {
+                    resolved: display,
+                    ..Default::default()
+                }),
             }],
             citations: vec![],
             search_suggestions: None,
@@ -59,12 +92,11 @@ fn sample(display: Option<serde_json::Value>) -> (Call, Page) {
 
 #[test]
 fn uses_descriptions_without_input_fields() {
-    let (call, page) = sample(Some(json!({
-        "label":"Example", "approval":[{
-            "message":{"label":"Create %{name}"},
-            "values":{"name":{"source":"arguments", "path":"/name"}},
-        }],
-    })));
+    let (call, page) = sample(Some(display(
+        vec!["Create **Task**\n```text\n🙂"],
+        None,
+        false,
+    )));
     let details = details(&call, &page);
     assert_eq!(
         details.description.as_deref(),
@@ -76,16 +108,15 @@ fn uses_descriptions_without_input_fields() {
 
 #[test]
 fn never_uses_argument_payloads_as_descriptions() {
-    for display in [None, Some(json!({"label":"Example"}))] {
+    for display in [None, Some(display(Vec::new(), None, false))] {
         let (call, page) = sample(display);
         assert!(details(&call, &page).description.is_none());
     }
-    let (call, page) = sample(Some(json!({
-        "label":"Example", "input":{
-            "summary":{"path":"/name", "code":true},
-            "content":{"path":"/text"},
-        },
-    })));
+    let (call, page) = sample(Some(display(
+        Vec::new(),
+        Some("**Task**\n```text\n🙂"),
+        true,
+    )));
     assert_eq!(
         details(&call, &page).description.as_deref(),
         Some("**Task**\n```text\n🙂")
@@ -95,14 +126,11 @@ fn never_uses_argument_payloads_as_descriptions() {
 
 #[test]
 fn omits_missing_optional_notices() {
-    let (call, page) = sample(Some(json!({
-        "label":"Command", "input":{"summary":{"path":"/name"}},
-        "approval":[
-            {"message":{"label":"%{command}"},"values":{"command":{"source":"arguments","path":"/name"}}},
-            {"message":{"label":"%{description}"},"values":{"description":{"source":"arguments","path":"/description"}},
-             "when":{"all":[{"value":{"source":"arguments","path":"/description"},"equals":null,"negate":true}]}},
-        ],
-    })));
+    let (call, page) = sample(Some(display(
+        vec!["**Task**\n```text\n🙂"],
+        Some("**Task**\n```text\n🙂"),
+        false,
+    )));
     let details = details(&call, &page);
     assert_eq!(
         details.description.as_deref(),
@@ -112,9 +140,26 @@ fn omits_missing_optional_notices() {
 }
 
 #[test]
+fn uses_complete_context_after_loading() {
+    let (call, page) = sample(Some(display(vec!["Bounded"], Some("Bounded"), true)));
+    let description = "Canonical command 中文🙂\n".repeat(4000);
+    let call = call.with_detail(Arc::new(sailry_protocol::tool::detail::Detail {
+        arguments: serde_json::json!({"command": description}),
+        result: None,
+        resolved: Some(display(vec![&description], Some(&description), true)),
+        content: None,
+        images: Vec::new(),
+    }));
+    assert_eq!(
+        details(&call, &page).description.as_deref(),
+        Some(description.as_str())
+    );
+}
+
+#[test]
 fn uses_captured_access_without_display() {
     use sailry_protocol::{conversation::ApprovalSource, process::Access};
-    let (mut call, mut page) = sample(None);
+    let (mut call, page) = sample(None);
     call.approval = Some(Approval {
         id: ApprovalId::new(),
         session: page.session,
@@ -131,23 +176,11 @@ fn uses_captured_access_without_display() {
         choice: None,
         reason: None,
     });
-    let sailry_protocol::conversation::Part::ToolCall { arguments, .. } =
-        &mut page.entries[0].parts[0]
-    else {
-        unreachable!()
-    };
-    arguments["access"] = json!("workspace");
     assert_eq!(
         details(&call, &page).access.as_deref(),
         Some("Full filesystem and network access")
     );
     call.approval.as_mut().unwrap().access = Some(Access::Workspace);
-    let sailry_protocol::conversation::Part::ToolCall { arguments, .. } =
-        &mut page.entries[0].parts[0]
-    else {
-        unreachable!()
-    };
-    arguments["access"] = json!("unrestricted");
     assert!(details(&call, &page).access.is_none());
 }
 

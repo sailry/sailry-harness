@@ -7,7 +7,14 @@ use serde_json::{Value, json};
 use tokio::sync::watch;
 
 #[derive(Clone)]
-pub(super) struct Observations(watch::Sender<BTreeMap<String, Value>>);
+pub(super) struct Observations(watch::Sender<BTreeMap<String, Observation>>);
+
+#[derive(Clone)]
+struct Observation {
+    history: sailry_client::conversation::View,
+    client: std::sync::Arc<sailry_client::Client>,
+    prefix: String,
+}
 
 impl Default for Observations {
     fn default() -> Self {
@@ -28,12 +35,29 @@ impl Observations {
         );
         let sender = self.0.clone();
         let publish = move |chat: &Entity<Chat>, cx: &App| {
-            let value = snapshot(chat.read(cx).tool_history(), &prefix);
+            let chat = chat.read(cx);
+            let history = chat.tool_history();
             sender.send_if_modified(|values| {
-                if values.get(&id) == Some(&value) {
+                if values.get(&id).is_some_and(|previous| {
+                    previous.history.connected == history.connected
+                        && std::sync::Arc::ptr_eq(&previous.history.calls, &history.calls)
+                        && previous
+                            .history
+                            .snapshot
+                            .as_ref()
+                            .map(|snapshot| snapshot.sequence)
+                            == history.snapshot.as_ref().map(|snapshot| snapshot.sequence)
+                }) {
                     false
                 } else {
-                    values.insert(id.clone(), value);
+                    values.insert(
+                        id.clone(),
+                        Observation {
+                            history: history.clone(),
+                            client: chat.binding().client,
+                            prefix: prefix.clone(),
+                        },
+                    );
                     true
                 }
             });
@@ -58,7 +82,16 @@ impl Observations {
                     if stop.is_cancelled() {
                         return Err(HostError::new("plugin view is closed"));
                     }
-                    let value = receiver.borrow_and_update().clone();
+                    let observed = receiver.borrow_and_update().clone();
+                    let mut value = BTreeMap::new();
+                    for (id, observed) in observed {
+                        let snapshot = tokio::select! {
+                            biased;
+                            _ = stop.cancelled() => return Err(HostError::new("plugin view is closed")),
+                            value = snapshot(&observed) => value?,
+                        };
+                        value.insert(id, snapshot);
+                    }
                     let bytes = serde_json::to_vec(&value)
                         .map_err(|error| HostError::new(error.to_string()))?;
                     let cursor = blake3::hash(&bytes).to_hex().to_string();
@@ -78,22 +111,47 @@ impl Observations {
     }
 }
 
-fn snapshot(history: &sailry_client::conversation::View, prefix: &str) -> Value {
+async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
+    let history = &observation.history;
     let Some(snapshot) = &history.snapshot else {
-        return json!({"connected":history.connected,"calls":[]});
+        return Ok(json!({"connected":history.connected,"calls":[]}));
     };
     let page = &snapshot.page;
-    let calls = history.calls.iter().filter_map(|call| {
-        let name = call.name.strip_prefix(prefix)?;
-        let arguments = call.arguments(page)?;
-        let source = page.entries.iter().find(|entry|entry.id == call.source.entry)?;
-        let response = call.response.as_ref().and_then(|response|page.entries.iter().find(|entry|entry.id == response.entry));
-        let result = call.result(page).map(|value| {
-            serde_json::from_value(value.clone()).ok().and_then(|output|public_output(output).ok()).unwrap_or_else(||value.clone())
+    let mut calls = Vec::new();
+    for call in history.calls.iter() {
+        let Some(name) = call.name.strip_prefix(&observation.prefix) else {
+            continue;
+        };
+        let Some(reference) = call.detail_reference(page) else {
+            continue;
+        };
+        let detail = observation
+            .client
+            .tool_detail(reference)
+            .await
+            .map_err(|error| HostError::new(error.message))?;
+        let Some(source) = page
+            .entries
+            .iter()
+            .find(|entry| entry.id == call.source.entry)
+        else {
+            continue;
+        };
+        let response = call
+            .response
+            .as_ref()
+            .and_then(|response| page.entries.iter().find(|entry| entry.id == response.entry));
+        let result = detail.result.as_ref().map(|value| {
+            serde_json::from_value(value.clone())
+                .ok()
+                .and_then(|output| public_output(output).ok())
+                .unwrap_or_else(|| value.clone())
         });
-        Some(json!({"key":format!("{}:{}",call.turn,call.source.key()),"name":name,"arguments":arguments,
-            "state":call.state,"timestamp_ms":source.timestamp_ms,"result":result,"sequence":response.map(|entry|entry.sequence.to_string())}))
-    }).collect::<Vec<_>>();
-    json!({"connected":history.connected,"session":page.session,"revision":page.revision.to_string(),
-        "latest":page.entries.iter().map(|entry|entry.sequence).max().map(|value|value.to_string()),"calls":calls})
+        calls.push(json!({"key":format!("{}:{}",call.turn,call.source.key()),"name":name,"arguments":detail.arguments,
+            "state":call.state,"timestamp_ms":source.timestamp_ms,"result":result,"sequence":response.map(|entry|entry.sequence.to_string())}));
+    }
+    Ok(
+        json!({"connected":history.connected,"session":page.session,"revision":page.revision.to_string(),
+        "latest":page.entries.iter().map(|entry|entry.sequence).max().map(|value|value.to_string()),"calls":calls}),
+    )
 }

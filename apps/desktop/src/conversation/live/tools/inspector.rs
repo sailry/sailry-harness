@@ -11,15 +11,5 @@ pub(super) fn copy(call: &Call, page: &Page) -> Option<String> {
     {
         return None;
     }
-    let source = call.response.as_ref()?;
-    let entry = page
-        .entries
-        .iter()
-        .find(|entry| entry.id == source.entry && entry.turn == call.turn)?;
-    match entry.parts.get(source.index)? {
-        sailry_protocol::conversation::Part::ToolResult {
-            id, name, result, ..
-        } if *id == call.id && *name == call.name => Some(output::raw(result)),
-        _ => None,
-    }
+    call.result(page).map(output::raw)
 }

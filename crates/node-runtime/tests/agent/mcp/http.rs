@@ -400,7 +400,7 @@ async fn expired_calls_prevent_replay() {
             process::decide(&fixture.client, &approval, Decision::Approve).await;
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             if expired {
                 assert_eq!(output[0]["error"]["code"], "outcome_unknown");
             } else {
@@ -450,7 +450,7 @@ async fn isolates_redirect_failures() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(
-            results(&page)[0]["content"]
+            results(&fixture.client, &page).await[0]["content"]
                 .as_str()
                 .unwrap()
                 .contains("Complete skill beside MCP")
@@ -489,7 +489,7 @@ async fn closes_sessions_between_turns() {
             assert_eq!(run.status, Status::Completed);
             assert!(run.error.is_none(), "{:?}", run.error);
             assert_eq!(
-                results(&page).last().unwrap()["output"]["value"],
+                results(&fixture.client, &page).await.last().unwrap()["output"]["value"],
                 "retained result"
             );
             assert_eq!(http.count("initialize"), round);

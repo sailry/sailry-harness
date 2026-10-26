@@ -3,6 +3,9 @@ use sailry_protocol::tool::Block;
 
 impl View {
     pub(super) fn published_files(&self, turn: TurnId, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(snapshot) = &self.history.snapshot else {
+            return Vec::new();
+        };
         let mut paths = std::collections::HashSet::new();
         let mut documents = std::collections::HashSet::new();
         let mut cards = Vec::new();
@@ -13,7 +16,14 @@ impl View {
             .rev()
             .filter(|call| call.turn == turn)
         {
-            let Some(content) = &call.content else {
+            if call
+                .summary(&snapshot.page)
+                .is_some_and(|summary| summary.published)
+            {
+                self.request_details(call.detail_reference(&snapshot.page), false, cx);
+            }
+            let call = self.detailed(call, &snapshot.page);
+            let Some(content) = call.content() else {
                 continue;
             };
             for (index, block) in content.blocks.iter().enumerate() {

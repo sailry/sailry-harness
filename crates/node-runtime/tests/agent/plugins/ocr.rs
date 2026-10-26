@@ -54,18 +54,7 @@ async fn lifecycle_keeps_definitions_and_configuration() {
         process::decide(&fixture.client, &remove, Decision::Approve).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        let results: Vec<&Value> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let results: Vec<&Value> = results(&fixture.client, &page).await;
         assert_eq!(results.len(), 4, "{results:?}");
         assert_eq!(
             results[0]["models"].as_array().unwrap().len(),

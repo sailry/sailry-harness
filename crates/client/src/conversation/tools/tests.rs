@@ -5,11 +5,15 @@ use sailry_protocol::{
 };
 use serde_json::json;
 
-mod content;
-mod display;
-mod presentation;
-mod progress;
 mod questions;
+mod rows;
+
+fn input_summary(value: Value) -> Box<sailry_protocol::tool::detail::Summary> {
+    Box::new(sailry_protocol::tool::detail::Summary {
+        question: Some(Box::new(serde_json::from_value(value).unwrap())),
+        ..Default::default()
+    })
+}
 
 #[test]
 fn projects_closing_interactions_for_controllers() {
@@ -46,17 +50,19 @@ fn entry(sequence: u64, turn: TurnId, branch: &str, result: bool) -> Entry {
             Part::ToolResult {
                 id: Some("call".into()),
                 name: "read_file".into(),
-                result: json!({"text":"中文 🙂"}),
+                summary: Box::new(Default::default()),
                 images: vec![],
             }
         } else {
             Part::ToolCall {
-                display: None,
                 presentation: Default::default(),
                 grouping: Default::default(),
                 id: Some("call".into()),
                 name: "read_file".into(),
-                arguments: json!({"path":"source.rs"}),
+                summary: Box::new(sailry_protocol::tool::detail::Summary {
+                    path: Some("source.rs".into()),
+                    ..Default::default()
+                }),
             }
         }],
     }
@@ -105,36 +111,41 @@ fn references_results() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].source.key(), "event-1-0");
     assert_eq!(calls[0].state, State::Returned);
-    assert_eq!(calls[0].arguments(&page).unwrap()["path"], "source.rs");
-    assert_eq!(calls[0].result(&page).unwrap()["text"], "中文 🙂");
+    assert!(calls[0].arguments(&page).is_none());
+    assert!(calls[0].result(&page).is_none());
 }
 
 #[test]
 fn retains_localized_display_without_a_live_package() {
     let mut page = page();
-    let display = serde_json::from_value(json!({
-        "label":"Read", "locales":{"zh-CN":"读取"},
-        "input":{"summary":{"path":"/path"}}
+    let label = serde_json::from_value(json!({
+        "label":"Read", "locales":{"zh-CN":"读取"}
     }))
     .unwrap();
-    if let Part::ToolCall { display: saved, .. } = &mut page.entries[0].parts[0] {
-        *saved = Some(display);
+    if let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] {
+        summary.resolved = Some(display::Resolved {
+            label: Some(label),
+            input: display::Input {
+                summary: Some(display::Text {
+                    text: "source.rs".into(),
+                    code: true,
+                }),
+                ..Default::default()
+            },
+            output: None,
+            approval: vec![],
+            status: None,
+            command: None,
+            diagnostics: vec![],
+        });
     }
     let restored: Page = serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
     let calls = collect(&restored);
-    assert_eq!(calls[0].display(&restored).unwrap().label("zh-CN"), "读取");
-    assert_eq!(calls[0].display(&restored).unwrap().label("en"), "Read");
+    let row = calls[0].row(&restored);
+    assert_eq!(row.label.as_ref().unwrap().label("zh-CN"), "读取");
+    assert_eq!(row.label.as_ref().unwrap().label("en"), "Read");
     assert_eq!(
-        calls[0]
-            .display(&restored)
-            .unwrap()
-            .input
-            .as_ref()
-            .unwrap()
-            .summary
-            .as_ref()
-            .unwrap()
-            .read(calls[0].arguments(&restored).unwrap()),
+        row.detail.as_ref().map(|field| field.text.as_str()),
         Some("source.rs")
     );
 }
@@ -246,12 +257,13 @@ fn retains_unconsumed_answers() {
     use sailry_protocol::conversation::question::{Answer, Question, State as QuestionState};
     let mut page = page();
     page.entries[0].parts[0] = Part::ToolCall {
-        display: None,
         presentation: Default::default(),
         grouping: Default::default(),
         id: Some("call".into()),
         name: "ask_user".into(),
-        arguments: json!({"prompt": "Describe", "input": {"kind": "text", "multiline": true, "max_bytes": 100}}),
+        summary: input_summary(
+            json!({"prompt": "Describe", "input": {"kind": "text", "multiline": true, "max_bytes": 100}}),
+        ),
     };
     let question = Question {
         id: sailry_protocol::QuestionId::new(),
@@ -279,12 +291,13 @@ fn started_question_retains_pending_input() {
     use sailry_protocol::conversation::question::{Question, State as QuestionState};
     let mut page = page();
     page.entries[0].parts[0] = Part::ToolCall {
-        display: None,
         presentation: Default::default(),
         grouping: Default::default(),
         id: Some("call".into()),
         name: "ask_user".into(),
-        arguments: json!({"prompt":"Describe", "input":{"kind":"text", "multiline":true, "max_bytes":100}}),
+        summary: input_summary(
+            json!({"prompt":"Describe", "input":{"kind":"text", "multiline":true, "max_bytes":100}}),
+        ),
     };
     let question = Question {
         id: sailry_protocol::QuestionId::new(),

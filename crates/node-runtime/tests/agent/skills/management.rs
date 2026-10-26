@@ -220,7 +220,7 @@ async fn permissions_and_empty_inventory() {
             if allow {
                 assert!(view.calls[2].details(&page));
             }
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             assert_eq!(output[0]["skills"], json!([]));
             assert_eq!(output[1]["source"]["commit"], fixture.next.source.commit);
             assert_eq!(
@@ -325,7 +325,7 @@ async fn preserves_identity_and_rejects_feature_packages() {
         let turn = fixture.submit().await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(
             output[0]["error"]["code"],
             json!(ErrorCode::PermissionDenied)
@@ -381,7 +381,13 @@ async fn planning_exposes_only_reads() {
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
-        assert_eq!(results(&page)[1]["skills"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            results(&fixture.client, &page).await[1]["skills"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         for request in fixture.server.requests.lock().unwrap().iter() {
             let names = names(request);
             assert!(names.contains(&"manage_skills"));
@@ -459,7 +465,7 @@ async fn keeps_admitted_resources() {
         assert!(turn.plugins.contains(&installed.summary.reference()));
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output[0]["revision"], 2);
         assert_eq!(output[1]["content"], "Guide first 中文 🙂");
         assert_eq!(output[2], json!({"skills":[]}));

@@ -69,7 +69,7 @@ export function command({step,outcome}) {
                     Access::Unrestricted
                 })
             );
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             assert_eq!(output.len(), 1, "{page:?}");
             let completion: sailry_protocol::process::Completion =
                 serde_json::from_value(output[0].clone()).unwrap();
@@ -82,7 +82,12 @@ export function command({step,outcome}) {
                 fixture.directory.path().join("flow-outside.txt").exists(),
                 !enabled
             );
-            assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::ToolCall { arguments: original, .. } if original == &arguments)));
+            assert!(
+                tool_calls(&fixture.client, &page)
+                    .await
+                    .iter()
+                    .any(|(_, detail)| detail.arguments == arguments)
+            );
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();
         }

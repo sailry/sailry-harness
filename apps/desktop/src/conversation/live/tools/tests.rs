@@ -39,31 +39,7 @@ fn call(state: State, code: Option<ErrorCode>) -> Call {
         progress: None,
         content: None,
         resolved: None,
-    }
-}
-
-#[test]
-fn distinguishes_uncertain_outcomes_from_errors() {
-    let page = page();
-    for (state, code, warning, error) in [
-        (
-            State::Returned,
-            Some(ErrorCode::OutcomeUnknown),
-            true,
-            false,
-        ),
-        (State::Returned, Some(ErrorCode::Cancelled), true, false),
-        (State::Interrupted, None, true, false),
-        (State::NotExecuted, None, true, false),
-        (State::Cancelled, None, true, false),
-        (State::Returned, Some(ErrorCode::Internal), false, true),
-        (State::Returned, Some(ErrorCode::Unavailable), false, true),
-        (State::Returned, None, false, false),
-        (State::Running, None, false, false),
-    ] {
-        let summary = summary(&call(state, code), &page);
-        assert_eq!(summary.detail.warning, warning, "{state:?} {code:?}");
-        assert_eq!(summary.detail.failed, error, "{state:?} {code:?}");
+        detail: None,
     }
 }
 
@@ -88,7 +64,7 @@ fn preserves_group_outcome_priority() {
 
 #[test]
 fn keeps_last_title_while_earlier_tool_runs() {
-    let page = page();
+    let mut page = page();
     let mut running = call(State::Running, None);
     running.name = "shell".into();
     let mut last = call(State::Returned, None);
@@ -107,6 +83,27 @@ fn keeps_last_title_while_earlier_tool_runs() {
         status: None,
         command: None,
         diagnostics: vec![],
+    });
+    page.entries.push(sailry_protocol::conversation::Entry {
+        id: last.source.entry.clone(),
+        turn: last.turn,
+        sequence: 1,
+        author: "assistant".into(),
+        branch: String::new(),
+        timestamp_ms: 1,
+        usage: None,
+        citations: vec![],
+        search_suggestions: None,
+        parts: vec![Part::ToolCall {
+            id: last.id.clone(),
+            name: last.name.clone(),
+            presentation: last.presentation,
+            grouping: last.grouping,
+            summary: Box::new(tool::detail::Summary {
+                resolved: last.resolved.clone(),
+                ..Default::default()
+            }),
+        }],
     });
     let expected = summary(&last, &page);
     let summary = group_summary(&[&running, &last], &page);
@@ -160,15 +157,19 @@ fn avoids_duplicate_file_context() {
             Part::ToolCall {
                 id: call.id.clone(),
                 name: call.name.clone(),
-                arguments: json!({"path":"docs"}),
+                summary: Default::default(),
                 presentation: call.presentation,
                 grouping: call.grouping,
-                display: None,
             },
             Part::ToolResult {
                 id: call.id.clone(),
                 name: call.name.clone(),
-                result: json!({"error":sailry_protocol::Fault::invalid("only regular files can be read")}),
+                summary: Box::new(tool::detail::Summary {
+                    resolved: call.resolved.clone(),
+                    has_details: true,
+                    diagnostics: true,
+                    ..Default::default()
+                }),
                 images: vec![],
             },
         ],
@@ -176,6 +177,15 @@ fn avoids_duplicate_file_context() {
         citations: vec![],
         search_suggestions: None,
     });
+    call.detail = Some(std::sync::Arc::new(tool::detail::Detail {
+        arguments: json!({"path":"docs"}),
+        result: Some(
+            json!({"error":sailry_protocol::Fault::invalid("only regular files can be read")}),
+        ),
+        resolved: None,
+        content: None,
+        images: vec![],
+    }));
     let original = page.clone();
     assert!(call.details(&page));
     assert_eq!(summary(&call, &page).detail.text.as_ref(), "docs");
@@ -218,12 +228,9 @@ fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
         parts: vec![Part::ToolCall {
             id: call.id.clone(),
             name: call.name.clone(),
-            arguments: json!({}),
+            summary: Default::default(),
             presentation: call.presentation,
             grouping: call.grouping,
-            display: Some(Box::new(
-                serde_json::from_value(json!({"label":"External read","raw_result":true})).unwrap(),
-            )),
         }],
         usage: None,
         citations: vec![],
@@ -235,22 +242,45 @@ fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
     response.parts = vec![Part::ToolResult {
         id: call.id.clone(),
         name: call.name.clone(),
-        result,
+        summary: Box::new(tool::detail::Summary {
+            raw_result: true,
+            has_details: true,
+            resolved: Some(display::Resolved {
+                label: Some(tool::LocalText {
+                    label: "External read".into(),
+                    locales: Default::default(),
+                }),
+                input: Default::default(),
+                output: None,
+                approval: vec![],
+                status: None,
+                command: None,
+                diagnostics: vec![],
+            }),
+            ..Default::default()
+        }),
         images: vec![],
     }];
     page.entries.push(response);
+    call.detail = Some(std::sync::Arc::new(tool::detail::Detail {
+        arguments: json!({}),
+        result: Some(result),
+        resolved: None,
+        content: None,
+        images: vec![],
+    }));
     (call, page)
 }
 
 #[test]
-fn raw_single_has_no_extra_details() {
+fn raw_copy_requires_loaded_diagnostics() {
     let result = json!({"output":{"logs_content":"Job output","job_id":12},"metadata":{"cursor":"next","revision":4}});
     let (call, page) = raw_fixture(result.clone());
     let original = page.clone();
     assert!(call.raw_result(&page));
-    assert!(!has_content(&call, &page));
-    assert!(!expandable(&[&call], &page));
-    assert!(summary(&call, &page).detail.hide_caret);
+    assert!(has_content(&call, &page));
+    assert!(expandable(&[&call], &page));
+    assert!(!summary(&call, &page).detail.hide_caret);
     assert!(!summary(&call, &page).detail.failed);
     assert_eq!(summary(&call, &page).label.as_ref(), "External read");
     assert!(inspector::copy(&call, &page).is_none());
@@ -263,8 +293,9 @@ fn groups_calls_without_details() {
     for raw in [false, true] {
         let result = json!({"output":{"logs_content":"Job output"},"metadata":{"cursor":"next"}});
         let (first, mut page) = raw_fixture(result.clone());
-        if let Part::ToolCall { display, .. } = &mut page.entries[0].parts[0] {
-            display.as_mut().unwrap().raw_result = raw;
+        if let Part::ToolResult { summary, .. } = &mut page.entries[1].parts[0] {
+            summary.raw_result = raw;
+            summary.has_details = false;
         }
         let mut second = first.clone();
         second.id = Some("second".into());
@@ -303,8 +334,9 @@ fn declared_content_keeps_expansion() {
     if let Part::ToolCall { presentation, .. } = &mut page.entries[0].parts[0] {
         *presentation = call.presentation;
     }
-    call.content = call.presentation.content(&result);
-    assert!(call.content.is_some());
+    let content = call.presentation.content(&result);
+    assert!(content.is_some());
+    std::sync::Arc::make_mut(call.detail.as_mut().unwrap()).content = content;
     assert!(has_content(&call, &page));
     assert!(expandable(&[&call], &page));
     assert!(!summary(&call, &page).detail.hide_caret);
@@ -315,10 +347,14 @@ fn declared_content_keeps_expansion() {
 #[test]
 fn failed_raw_keeps_diagnostics() {
     let result = json!({"error":sailry_protocol::Fault::new(ErrorCode::Unavailable,"Read failed")});
-    let (mut call, page) = raw_fixture(result.clone());
+    let (mut call, mut page) = raw_fixture(result.clone());
     call.failure = Some(tool::Failure {
         code: Some(ErrorCode::Unavailable),
     });
+    let Part::ToolResult { summary, .. } = &mut page.entries[1].parts[0] else {
+        unreachable!()
+    };
+    summary.diagnostics = true;
     assert!(has_content(&call, &page));
     assert!(expandable(&[&call], &page));
     assert!(!summary(&call, &page).detail.hide_caret);

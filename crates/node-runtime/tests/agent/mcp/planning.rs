@@ -19,7 +19,10 @@ async fn exposes_readonly_tools() {
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
-        assert_eq!(results(&page)[0]["output"]["version"], "planning fixture");
+        assert_eq!(
+            results(&fixture.client, &page).await[0]["output"]["version"],
+            "planning fixture"
+        );
         let data = fixture.node.profile().join("plugins/data/example");
         assert!(!data.join("effects").exists());
         let requests = model.requests.lock().unwrap().clone();

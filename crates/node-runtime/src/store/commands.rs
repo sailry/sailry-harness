@@ -690,6 +690,36 @@ pub(super) fn execute<'a>(
                 None,
             ))
         }),
+        Command::ReadToolDetail {
+            session,
+            turn,
+            entry,
+            index,
+            call,
+            expected_revision,
+            cursor,
+            limit,
+        } => defer(move || async move {
+            Ok((
+                Output::ToolDetail(
+                    super::agent::history::tools::page(
+                        db,
+                        sailry_protocol::tool::detail::Reference {
+                            session: *session,
+                            turn: *turn,
+                            entry: entry.clone(),
+                            index: *index,
+                            call: call.clone(),
+                            revision: expected_revision.clone(),
+                        },
+                        *cursor,
+                        *limit,
+                    )
+                    .await?,
+                ),
+                None,
+            ))
+        }),
         Command::ListConversationAssets { session, query } => defer(move || async move {
             Ok((
                 Output::ConversationAssets(super::agent::assets::read(db, *session, query).await?),

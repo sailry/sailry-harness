@@ -98,7 +98,8 @@ pub(in crate::store) async fn read(
                 Err(error) => return Err(storage_error(error)),
             }
         };
-        let items = extract::items(&entry, root.as_deref());
+        let mut items = extract::items(&entry, root.as_deref());
+        extract::publications(&mut items, &event);
         if !items.is_empty() {
             page.groups.push(Group {
                 sequence,

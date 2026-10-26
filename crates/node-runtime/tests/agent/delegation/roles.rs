@@ -134,7 +134,7 @@ async fn inherits_parent_model() {
                 .await
                 .unwrap();
             let page = finished(&client, session.id, turn.id).await;
-            let output = results(&page);
+            let output = results(&client, &page).await;
             assert_eq!(output[0]["status"], "completed", "{output:?}");
             assert_eq!(output[0]["response"], "answer-fixture-a");
             let requests = server.requests.lock().unwrap().clone();
@@ -321,7 +321,7 @@ async fn validates_role_requirements() {
             };
             let page = finished(&client, session.id, turn.id).await;
             assert_eq!(page.runs[0].status, Status::Completed);
-            let output = results(&page);
+            let output = results(&client, &page).await;
             assert!(output[0].get("error").is_some(), "{output:?}");
             let view = super::super::progress::observe(&client, session.id).await;
             assert_eq!(view.calls.len(), 1);
@@ -346,7 +346,7 @@ async fn validates_role_requirements() {
                 let children = children(&client, session.id, 1).await;
                 let page = history(&client, children[0].id).await;
                 assert_eq!(page.runs[0].status, Status::Failed);
-                assert_eq!(results(&page).len(), 1);
+                assert_eq!(results(&client, &page).await.len(), 1);
                 assert!(
                     !page.runs[0]
                         .error

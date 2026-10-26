@@ -73,16 +73,18 @@ async fn keeps_compatible_pdf_turns_usable() {
                 original.runs
             );
             assert!(
-                original
-                    .entries
+                server::tool_details(&client, &original)
+                    .await
                     .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| {
-                        matches!(part, Part::ToolResult { name, result, .. }
-                        if name == &tool && result["kind"] == "office_content"
-                        && result["data"]["sections"].as_array().unwrap().iter().any(|section| {
-                            section["text"].as_str().unwrap().contains("PDF acceptance")
-                        }))
+                    .any(|(name, detail)| {
+                        let result = detail.result.as_ref().unwrap();
+                        name == &tool
+                            && result["kind"] == "office_content"
+                            && result["data"]["sections"].as_array().unwrap().iter().any(
+                                |section| {
+                                    section["text"].as_str().unwrap().contains("PDF acceptance")
+                                },
+                            )
                     })
             );
             let next = queue(
@@ -224,16 +226,12 @@ async fn reads_visible_document_attachments() {
                 .status,
             Status::Queued
         );
-        let results: Vec<_> = history
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { name, result, .. } => {
-                    assert_eq!(name, &tool);
-                    Some(result)
-                }
-                _ => None,
+        let results: Vec<_> = server::tool_details(&client, &history)
+            .await
+            .into_iter()
+            .map(|(name, detail)| {
+                assert_eq!(name, tool);
+                detail.result.unwrap()
             })
             .collect();
         assert_eq!(results.len(), 3);
@@ -277,16 +275,9 @@ async fn reads_visible_document_attachments() {
         )
         .await;
         let history = run(&client, &next).await;
-        let result = history
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == next.id)
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
-            })
-            .unwrap();
+        let result = super::results(&client, &history, Some(next.id))
+            .await
+            .remove(0);
         assert_eq!(result["kind"], "office_content");
         assert!(
             result["data"]["sections"]
@@ -319,19 +310,7 @@ async fn reads_visible_document_attachments() {
         ]);
         let fork_turn = queue(&client, &fork, "Read the retained attachment".into()).await;
         let fork_page = run(&client, &fork_turn).await;
-        let fork_results: Vec<_> = fork_page
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == fork_turn.id)
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { result, .. } = part {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let fork_results = super::results(&client, &fork_page, Some(fork_turn.id)).await;
         assert_eq!(fork_results.len(), 2);
         assert_eq!(fork_results[0]["kind"], "office_content");
         assert_eq!(fork_results[1]["error"]["code"], "not_found");
@@ -352,8 +331,12 @@ async fn reads_visible_document_attachments() {
             .unwrap();
         let removed = queue(&client, &session, "Read a removed attachment".into()).await;
         let removed_page = run(&client, &removed).await;
-        assert!(removed_page.entries.iter().filter(|entry|entry.turn==removed.id)
-            .flat_map(|entry|&entry.parts).any(|part|matches!(part,Part::ToolResult{result,..} if result["error"]["code"]=="not_found")));
+        assert!(
+            super::results(&client, &removed_page, Some(removed.id))
+                .await
+                .iter()
+                .any(|result| result["error"]["code"] == "not_found")
+        );
         assert_eq!(
             client
                 .execute(client.prepare(Command::ReadOffice {

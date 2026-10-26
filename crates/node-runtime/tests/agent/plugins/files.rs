@@ -145,17 +145,6 @@ async fn submit(fixture: &process::Fixture) -> QueuedTurn {
     turn
 }
 
-fn results(page: &Page) -> Vec<&Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result),
-            _ => None,
-        })
-        .collect()
-}
-
 async fn checkpoints(client: &Client, session: SessionId, turn: TurnId) -> Vec<checkpoint::File> {
     let Output::FileCheckpoints(page) = execute(
         client,
@@ -224,7 +213,7 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
                 .all(|approval| approval.source == ApprovalSource::Project
                     && approval.state == ApprovalState::Approved)
         );
-        let outputs = results(&page);
+        let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 3);
         assert_eq!(outputs[0]["kind"], "file_written");
         assert_eq!(outputs[1]["kind"], "file_written");
@@ -483,7 +472,7 @@ async fn preserves_maximum_escaped_text() {
             std::fs::read_to_string(fixture.root.join("escaped.txt")).unwrap(),
             text
         );
-        let outputs = results(&page);
+        let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs[0]["kind"], "file_written");
         assert_eq!(outputs[1]["kind"], "file_lines");
@@ -554,7 +543,7 @@ async fn confines_arguments_and_preserves_large_office_results() {
             "{page:?}"
         );
         assert!(page.approvals.is_empty());
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 6);
         assert_eq!(output[0]["kind"], "directory");
         assert_eq!(output[1]["data"]["lines"][0]["number"], 1);
@@ -649,9 +638,12 @@ export function save(args) {{
             std::fs::read_to_string(fixture.root.join("prepared.txt")).unwrap(),
             after
         );
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
-            matches!(part, Part::ToolCall {name,arguments:original,..} if name == &tool && original == &arguments)
-        }));
+        assert!(
+            tool_calls(&fixture.client, &page)
+                .await
+                .iter()
+                .any(|(name, detail)| name == &tool && detail.arguments == arguments)
+        );
         let files = checkpoints(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "prepared.txt");

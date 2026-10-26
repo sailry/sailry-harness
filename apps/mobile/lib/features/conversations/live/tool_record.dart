@@ -110,15 +110,27 @@ class _ToolRecordState extends State<ToolRecord> {
 
   @override
   Widget build(BuildContext context) {
-    final call = widget.call;
+    final detail = _output.value;
+    final call = {
+      ...widget.call,
+      if (detail != null) ...{
+        'resolved': detail['resolved'],
+        'content': detail['content'],
+        'texts': detail['texts'],
+      },
+    };
     final source = object(call['source']);
     final arguments = object(
-      toolPart(widget.page, call['source'])['arguments'],
+      detail?['arguments'] ??
+          object(toolPart(widget.page, call['source'])['summary'])['question'],
     );
-    final result = toolPart(widget.page, call['response']);
+    final result = {
+      ...toolPart(widget.page, call['response']),
+      if (detail != null) 'result': detail['result'],
+    };
     final images = objects(result['images']);
     final resolved = object(call['resolved']);
-    final showResult = result.containsKey('result');
+    final showResult = detail != null;
     final approval = object(call['approval']);
     final question = object(call['question']);
     final pendingApproval = approval['state'] == 'pending';
@@ -179,7 +191,7 @@ class _ToolRecordState extends State<ToolRecord> {
                       documents: widget.documents,
                       call: call,
                       result: result,
-                      output: _output.value,
+                      output: detail == null ? null : object(detail['output']),
                       host: widget.host,
                       worktree: turnWorktree(
                         widget.page,

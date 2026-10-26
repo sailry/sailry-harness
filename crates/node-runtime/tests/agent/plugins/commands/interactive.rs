@@ -59,7 +59,7 @@ async fn writes_to_pipes_and_pty() {
                 "{:?}",
                 page.runs
             );
-            let result = results(&page);
+            let result = results(&fixture.client, &page).await;
             let id: RequestId = serde_json::from_value(result[0]["data"]["id"].clone()).unwrap();
             tokio::time::timeout(Duration::from_secs(5), async {
                 loop {
@@ -114,7 +114,7 @@ async fn writes_to_pipes_and_pty() {
                 page.runs
             );
             assert_eq!(
-                results(&page).last().unwrap()["kind"],
+                results(&fixture.client, &page).await.last().unwrap()["kind"],
                 "command_input_accepted"
             );
             tokio::time::timeout(Duration::from_secs(5), async {

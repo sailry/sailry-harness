@@ -207,7 +207,7 @@ async fn inherits_assistant_and_reuses_frozen_context() {
         execute(&fixture.client, Command::StartQueuedTurn { turn: first.id }).await;
         let parent_page = finished(&fixture.client, fixture.session.id, first.id).await;
         assert_eq!(parent_page.runs[0].status, Status::Completed);
-        let output = results(&parent_page);
+        let output = results(&fixture.client, &parent_page).await;
         assert_eq!(output.len(), 1);
         assert_eq!(output[0]["status"], "completed", "{output:?}");
         assert_eq!(output[0]["response"], "answer-fixture-a");
@@ -297,7 +297,7 @@ async fn inherits_assistant_and_reuses_frozen_context() {
                 .iter()
                 .all(|run| run.status == Status::Completed)
         );
-        let output = results(&parent_page);
+        let output = results(&fixture.client, &parent_page).await;
         assert_eq!(output.len(), 2);
         assert_eq!(output[1]["session"], json!(child.id));
         assert_eq!(output[1]["status"], "completed", "{output:?}");

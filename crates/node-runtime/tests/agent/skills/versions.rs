@@ -65,7 +65,7 @@ async fn retains_admitted_versions() {
             execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
             let page = finished(&client, session.id, turn.id).await;
             assert_eq!(
-                results(&page).last().unwrap()["content"],
+                results(&client, &page).await.last().unwrap()["content"],
                 format!("Guide {version} 中文 🙂")
             );
             assert_eq!(

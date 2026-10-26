@@ -128,7 +128,7 @@ async fn manages_only_standalone_inventory() {
             "{:?}",
             page.runs
         );
-        let outputs = results(&page);
+        let outputs = results(&fixture.client, &page).await;
         assert_eq!(outputs.len(), 6);
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
         assert_eq!(view.calls.len(), 6);
@@ -244,7 +244,10 @@ async fn planning_exposes_only_inventory() {
             page.runs
         );
         assert!(page.approvals.is_empty());
-        assert_eq!(results(&page)[0], json!({"servers":[]}));
+        assert_eq!(
+            results(&fixture.client, &page).await[0],
+            json!({"servers":[]})
+        );
         for request in model.requests.lock().unwrap().iter() {
             let names: Vec<_> = request["tools"]
                 .as_array()

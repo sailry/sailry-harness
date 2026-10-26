@@ -61,16 +61,11 @@ pub(super) async fn verify(fixture: &Fixture, child: &Session, package: &plugin:
     assert!(page.questions.is_empty());
     assert!(!page.runs.is_empty());
     assert!(page.runs.iter().all(|run| run.status == Status::Completed));
-    let inspected: Vec<_> = page
-        .entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { name, result, .. } if name == &plugin_tool(PACKAGE, "inspect") => {
-                Some(result)
-            }
-            _ => None,
-        })
+    let inspected: Vec<_> = tool_details(&fixture.client, &page)
+        .await
+        .into_iter()
+        .filter(|(name, _)| name == &plugin_tool(PACKAGE, "inspect"))
+        .map(|(_, detail)| detail.result.unwrap())
         .collect();
     assert_eq!(inspected.len(), page.runs.len(), "{page:?}");
     for result in inspected {
@@ -299,7 +294,7 @@ async fn rejects_captured_mutating_requests() {
             Status::Completed,
             "{parent:?}"
         );
-        let delegated = &results(&parent)[0];
+        let delegated = &results(&fixture.client, &parent).await[0];
         assert_eq!(delegated["admitted"], true);
         assert_eq!(delegated["pending"], true);
         assert_eq!(delegated["status"], "queued");

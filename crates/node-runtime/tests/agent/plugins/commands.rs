@@ -51,17 +51,6 @@ fn scope(fixture: &Fixture, info: &plugin::Info) -> plugin::Context {
     }
 }
 
-fn results(page: &Page) -> Vec<&Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result),
-            _ => None,
-        })
-        .collect()
-}
-
 #[tokio::test]
 async fn reuses_approved_arguments() {
     for remote in [false, true] {
@@ -86,31 +75,20 @@ async fn reuses_approved_arguments() {
         let (_, third) = approvals::pending(&fixture.client, fixture.session.id).await;
         process::decide(&fixture.client, &third, Decision::Deny).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let call = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| match part {
-                Part::ToolCall {
-                    display: Some(display),
-                    arguments,
-                    ..
-                } => Some((display, arguments)),
-                _ => None,
-            })
-            .unwrap();
+        let calls = tool_calls(&fixture.client, &page).await;
+        let call = &calls[0].1;
         assert_eq!(
-            call.0
-                .input
+            call.resolved
                 .as_ref()
                 .unwrap()
+                .input
                 .content
                 .as_ref()
                 .unwrap()
-                .read(call.1),
-            Some(command)
+                .text,
+            command
         );
-        let output = process::results(&page);
+        let output = process::results(&fixture.client, &page).await;
         assert_eq!(output.len(), 2, "{page:?}");
         assert_eq!(output[0].outcome, Outcome::Exited(7));
         assert_eq!(output[0].stdout.text, "stdout");
@@ -126,10 +104,10 @@ async fn reuses_approved_arguments() {
         );
         assert!(calls[1].diagnostics(&page));
         assert!(calls[1].details(&page));
-        assert_eq!(results(&page)[1]["isError"], true);
-        for value in results(&page).into_iter().take(2) {
+        assert_eq!(results(&fixture.client, &page).await[1]["isError"], true);
+        for value in results(&fixture.client, &page).await.into_iter().take(2) {
             let content = sailry_protocol::tool::Presentation::Content
-                .content(value)
+                .content(&value)
                 .unwrap();
             assert!(
                 content
@@ -138,7 +116,11 @@ async fn reuses_approved_arguments() {
                     .all(|block| matches!(block, sailry_protocol::tool::Block::Text(_)))
             );
         }
-        assert!(results(&page)[0].get("isError").is_none());
+        assert!(
+            results(&fixture.client, &page).await[0]
+                .get("isError")
+                .is_none()
+        );
         assert!(!fixture.root.join("denied.txt").exists());
         let approval = first.id;
         let id: String = fixture
@@ -246,7 +228,7 @@ async fn retains_background_processes_and_scopes_public_actions() {
         );
         assert!(!approval.can_remember);
         assert!(approvals::rules::claimed(&fixture.node, approval).await.1);
-        let result = results(&page);
+        let result = results(&fixture.client, &page).await;
         assert_eq!(result[0]["kind"], "command_started", "{page:?}");
         let id: RequestId = serde_json::from_value(result[0]["data"]["id"].clone()).unwrap();
         assert_eq!(result[1]["kind"], "commands");
@@ -346,7 +328,7 @@ async fn retains_background_processes_and_scopes_public_actions() {
             panic!()
         };
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let result = results(&page);
+        let result = results(&fixture.client, &page).await;
         assert_eq!(result[4]["kind"], "command_output", "{page:?}");
         assert_eq!(result[4]["data"]["info"]["id"], json!(id));
         assert_eq!(result[5]["kind"], "command_output");
@@ -400,7 +382,7 @@ async fn retains_background_processes_and_scopes_public_actions() {
 }
 
 #[tokio::test]
-async fn plan_mode_excludes_process_writes() {
+async fn plan_mode_preserves_process_declarations() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
         let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
@@ -427,7 +409,7 @@ async fn plan_mode_excludes_process_writes() {
                 .any(|tool| tool["function"]["name"] == name("read_command"))
         );
         for name in [name("run_command"), name("stop_command")] {
-            assert!(!tools.iter().any(|tool| tool["function"]["name"] == name));
+            assert!(tools.iter().any(|tool| tool["function"]["name"] == name));
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
@@ -461,7 +443,7 @@ async fn rejects_invalid_inputs_with_typed_errors() {
             panic!("turn expected")
         };
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 2);
         for result in output {
             assert_eq!(result["error"]["code"], "invalid_request", "{result}");

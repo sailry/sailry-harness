@@ -120,7 +120,7 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
         .iter()
         .find(|entry| entry.id == child.origin.entry)
         .ok_or_else(|| sailry_protocol::Fault::invalid("child has no canonical delegation call"))?;
-    let Some(Part::ToolCall { arguments, .. }) = entry.parts.get(child.origin.index) else {
+    let Some(Part::ToolCall { summary, .. }) = entry.parts.get(child.origin.index) else {
         return Err(sailry_protocol::Fault::invalid(
             "child references another turn or tool",
         ));
@@ -130,29 +130,24 @@ fn check(page: &Page, child: &Child) -> Result<(), Fault> {
             "child references another turn or tool",
         ));
     }
-    let session = arguments
-        .get("session")
-        .map(|value| serde_json::from_value::<SessionId>(value.clone()))
-        .transpose()
-        .map_err(|_| sailry_protocol::Fault::invalid("child delegation session is invalid"))?;
+    if summary.delegation.invalid {
+        return Err(sailry_protocol::Fault::invalid(
+            "child delegation selection is invalid",
+        ));
+    }
+    let session = summary.delegation.session;
     if session.is_some_and(|session| session != child.run.session) {
         return Err(sailry_protocol::Fault::invalid(
             "child session differs from its delegation",
         ));
     }
-    let worktree = arguments
-        .get("worktree")
-        .filter(|value| !value.is_null())
-        .map(|value| serde_json::from_value::<WorktreeId>(value.clone()))
-        .transpose()
-        .map_err(|_| sailry_protocol::Fault::invalid("child delegation worktree is invalid"))?
-        .unwrap_or_else(|| {
-            if session.is_some() {
-                child.run.worktree
-            } else {
-                parent.worktree
-            }
-        });
+    let worktree = summary.delegation.worktree.unwrap_or_else(|| {
+        if session.is_some() {
+            child.run.worktree
+        } else {
+            parent.worktree
+        }
+    });
     if child.run.worktree != worktree {
         return Err(sailry_protocol::Fault::invalid(
             "child worktree differs from its delegation",

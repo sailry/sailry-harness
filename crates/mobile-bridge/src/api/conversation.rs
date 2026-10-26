@@ -11,6 +11,7 @@ mod tools;
 
 #[frb(opaque)]
 pub struct ConversationUpdates {
+    client: Arc<Client>,
     receiver: Mutex<watch::Receiver<View>>,
     current: watch::Receiver<View>,
     stop: CancellationToken,
@@ -23,12 +24,14 @@ impl ConversationUpdates {
         let (sender, receiver) = watch::channel(View::default());
         let (older, requests) = tokio::sync::mpsc::channel(8);
         let cancellation = stop.clone();
+        let watcher = client.clone();
         let task = tokio::spawn(async move {
-            let _ = client
+            let _ = watcher
                 .watch_conversation(session, sender, cancellation, requests)
                 .await;
         });
         Self {
+            client,
             current: receiver.clone(),
             receiver: Mutex::new(receiver),
             stop,
@@ -50,11 +53,16 @@ impl ConversationUpdates {
     }
 
     /// Resolve selected output without blocking the pending update reader.
-    pub fn tool_output(&self, entry: String, index: u32) -> Result<String, String> {
+    pub async fn tool_output(&self, entry: String, index: u32) -> Result<String, String> {
         if self.stop.is_cancelled() {
             return Err("conversation subscription is closed".into());
         }
-        tools::output(&self.current.borrow(), &entry, index as usize)
+        let current = self.current.borrow().clone();
+        tokio::select! {
+            biased;
+            _ = self.stop.cancelled() => Err("conversation subscription is closed".into()),
+            result = tools::output(&self.client, &current, &entry, index as usize) => result,
+        }
     }
 
     pub fn close(&self) {

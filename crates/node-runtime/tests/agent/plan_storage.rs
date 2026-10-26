@@ -209,15 +209,11 @@ async fn rejects_hidden_writes() {
             };
             assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
             assert!(page.approvals.is_empty());
-            let results: Vec<_> = page
-                .entries
-                .iter()
-                .filter(|entry| entry.author != "plan_review")
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| match part {
-                    Part::ToolResult { result, .. } => Some(result),
-                    _ => None,
-                })
+            let results: Vec<_> = tool_details(&fixture.client, &page)
+                .await
+                .into_iter()
+                .filter(|(name, _)| name != "plan_review")
+                .map(|(_, detail)| detail.result.unwrap())
                 .collect();
             assert_eq!(results.len(), names.len(), "{page:?}");
             for result in results.iter().skip(usize::from(mode == WorkMode::Code)) {

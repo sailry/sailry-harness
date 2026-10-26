@@ -22,16 +22,11 @@ async fn client(node: &Node, directory: &std::path::Path, remote: bool) -> (Clie
     )
 }
 
-fn pages(page: &Page) -> Vec<Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } if result.get("content").is_some() => {
-                Some(result.clone())
-            }
-            _ => None,
-        })
+async fn pages(client: &Client, page: &Page) -> Vec<Value> {
+    results(client, page)
+        .await
+        .into_iter()
+        .filter(|result| result.get("content").is_some())
         .collect()
 }
 
@@ -92,7 +87,7 @@ async fn binds_anonymous_reads_without_native_search() {
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
-        let pages = pages(&page);
+        let pages = pages(&client, &page).await;
         assert_eq!(pages.len(), 4, "{page:?}");
         assert_eq!(pages[0]["content"], server::TEXT);
         assert_eq!(pages[1]["content"], server::JSON);

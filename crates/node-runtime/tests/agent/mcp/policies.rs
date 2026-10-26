@@ -531,7 +531,8 @@ async fn projects_only_selected_images() {
                 .contains("\"kind\":\"computer\"")
         );
         assert!(
-            results(&page)
+            results(&fixture.client, &page)
+                .await
                 .iter()
                 .all(|result| result["output"]["nested"]
                     == json!({"kind":"computer","data":{"untouched":true}}))
@@ -678,7 +679,8 @@ async fn holds_sent_calls_until_cleanup() {
             );
             if mode == "sent_error" {
                 assert!(
-                    results(&page)
+                    results(&fixture.client, &page)
+                        .await
                         .iter()
                         .any(|result| result["error"]["code"] == "outcome_unknown")
                 );

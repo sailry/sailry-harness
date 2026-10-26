@@ -114,17 +114,6 @@ async fn value(
     value
 }
 
-fn results(page: &Page) -> Vec<&Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result),
-            _ => None,
-        })
-        .collect()
-}
-
 #[tokio::test]
 async fn approves_once_and_commits_each_step() {
     for remote in [false, true] {
@@ -148,13 +137,12 @@ export function sequence({arguments:args,step,outcome}) {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(page.approvals.len(), 1);
         assert!(
-            page.entries
+            tool_calls(&fixture.client, &page)
+                .await
                 .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| matches!(part,
-            Part::ToolCall { arguments:actual, .. } if actual == &arguments))
+                .any(|(_, detail)| detail.arguments == arguments)
         );
-        let result = results(&page);
+        let result = results(&fixture.client, &page).await;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["revision"], 2);
         assert_eq!(result[0]["value"], "approved twice");
@@ -196,7 +184,7 @@ export function broken({step}) {
         let turn = submit(&fixture, "Exercise declared operations".into()).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 4, "{page:?}");
         for result in &output[..2] {
             assert_eq!(
@@ -273,7 +261,7 @@ export function uncertain({step}) {
             .unwrap();
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 1);
         assert_eq!(output[0]["error"], json!(fault));
         assert_eq!(output[0]["isError"], true);
@@ -314,7 +302,7 @@ export function prefix({message,step,state}) {
         let turn = submit(&fixture, message).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 1, "{page:?}");
         assert_eq!(output[0]["first"], "🙂漢ab");
         assert_eq!(output[0]["second"], "🙂漢ab");

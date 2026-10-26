@@ -61,17 +61,6 @@ async fn schedules(client: &Client, context: &plugin::Context) -> Vec<jobs::Sche
     schedules
 }
 
-fn results(page: &Page) -> Vec<&Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result),
-            _ => None,
-        })
-        .collect()
-}
-
 async fn submit(fixture: &process::Fixture, message: &str) -> TurnId {
     let Output::Session(session) = fixture
         .client
@@ -169,7 +158,7 @@ async fn shares_scope_and_config_with_management() {
             .unwrap();
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 7, "{page:?}");
         assert_eq!(output[0]["items"].as_array().unwrap().len(), 1);
         assert_eq!(output[0]["items"][0]["id"], json!(current));
@@ -288,9 +277,12 @@ async fn revoked_creation_leaves_no_record_or_schedule() {
         assert_eq!(page.approvals.len(), 1);
         assert_eq!(page.approvals[0].state, ApprovalState::Approved);
         assert_eq!(page.approvals[0].source, ApprovalSource::Storage);
-        assert_eq!(results(&page).len(), 1);
-        assert_eq!(results(&page)[0]["isError"], true);
-        assert_eq!(results(&page)[0]["error"]["code"], "not_configured");
+        assert_eq!(results(&fixture.client, &page).await.len(), 1);
+        assert_eq!(results(&fixture.client, &page).await[0]["isError"], true);
+        assert_eq!(
+            results(&fixture.client, &page).await[0]["error"]["code"],
+            "not_configured"
+        );
         let Output::Plugin(enabled) = fixture
             .client
             .execute(fixture.client.prepare(Command::SetPluginEnabled {
@@ -401,7 +393,7 @@ async fn due_task_runs_after_the_controller_disconnects() {
             .unwrap();
         let turn = submit(&fixture, prompt).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 1, "{page:?}");
         assert_eq!(output[0]["name"], "Scheduled review", "{output:?}");
         let id = output[0]["id"].clone();
@@ -445,7 +437,7 @@ async fn due_task_runs_after_the_controller_disconnects() {
                 .iter()
                 .all(|run| run.status == Status::Completed)
         );
-        assert!(results(&history).is_empty());
+        assert!(results(&client, &history).await.is_empty());
         assert_eq!(history.runs.len(), 1);
         assert_eq!(
             text(&history),

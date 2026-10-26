@@ -146,14 +146,11 @@ async fn seed_provider(fixture: &process::Fixture, session: &Session, provider: 
     ));
 }
 
-fn result<'a>(page: &'a Page, tool: &str) -> &'a Value {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .find_map(|part| match part {
-            Part::ToolResult { name, result, .. } if name == tool => Some(result),
-            _ => None,
-        })
+async fn result(client: &Client, page: &Page, tool: &str) -> Value {
+    tool_details(client, page)
+        .await
+        .into_iter()
+        .find_map(|(name, detail)| (name == tool).then_some(detail.result.unwrap()))
         .unwrap_or_else(|| panic!("missing result {tool}: {page:?}"))
 }
 
@@ -407,20 +404,26 @@ async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
         "{page:?}"
     );
     assert_eq!(
-        result(&page, &inspect),
-        &json!({
+        result(&fixture.client, &page, &inspect).await,
+        json!({
             "version":"1.0.0","package":PROVIDER,"session":session.id,"worktree":session.worktree,
             "label":"Captured label","text":"Assistant scratch file","note":"Provider-owned note"
         })
     );
-    assert_eq!(result(&page, &read)["value"], "Provider-owned note");
-    assert_eq!(result(&page, &run)["kind"], "command_result");
     assert_eq!(
-        result(&page, &run)["data"]["outcome"],
+        result(&fixture.client, &page, &read).await["value"],
+        "Provider-owned note"
+    );
+    assert_eq!(
+        result(&fixture.client, &page, &run).await["kind"],
+        "command_result"
+    );
+    assert_eq!(
+        result(&fixture.client, &page, &run).await["data"]["outcome"],
         json!({"kind":"exited","data":0})
     );
-    note(&page);
-    assert!(result(&page, "load_skill")["error"].is_object());
+    note(&fixture.client, &page).await;
+    assert!(result(&fixture.client, &page, "load_skill").await["error"].is_object());
     assert_eq!(
         std::fs::read_to_string(scratch.join("imported.txt")).unwrap(),
         "imported"
@@ -508,14 +511,11 @@ async fn retains_admitted_handler_and_settings() {
                 Status::Completed,
                 "{page:?}"
             );
-            let results: Vec<_> = page
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| match part {
-                    Part::ToolResult { name, result, .. } if name == &tool => Some(result),
-                    _ => None,
-                })
+            let results: Vec<_> = tool_details(&fixture.client, &page)
+                .await
+                .into_iter()
+                .filter(|(name, _)| name == &tool)
+                .map(|(_, detail)| detail.result.unwrap())
                 .collect();
             let result = results.last().unwrap();
             assert_eq!(result["version"], version, "{result:?}");

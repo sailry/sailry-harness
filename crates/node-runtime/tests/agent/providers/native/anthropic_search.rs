@@ -149,13 +149,11 @@ async fn round_trips_sources_with_tools() {
             );
             citations(&page);
             assert!(
-                page.entries
+                tool_calls(&fixture.client, &page)
+                    .await
                     .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| {
-                        matches!(part, Part::ToolCall { name, arguments, .. }
-                    if name == "web_search" && arguments["query"] == "fixture source 🙂")
-                    })
+                    .any(|(name, detail)| name == "web_search"
+                        && detail.arguments["query"] == "fixture source 🙂")
             );
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), if tools { 2 } else { 1 });
@@ -197,13 +195,11 @@ async fn resumes_paused_search() {
             &serde_json::json!(anthropic::blocks(&requests[0], anthropic::Reply::Pause).0)
         );
         assert!(
-            page.entries
+            tool_details(&fixture.client, &page)
+                .await
                 .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| {
-                    matches!(part, Part::ToolResult { name, result, .. } if name == "web_search"
-                && result["sources"][0]["url"] == source::URI)
-                })
+                .any(|(name, detail)| name == "web_search"
+                    && detail.result.as_ref().unwrap()["sources"][0]["url"] == source::URI)
         );
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
@@ -332,10 +328,13 @@ async fn reports_incomplete_search() {
                 assert_eq!(page.runs.last().unwrap().status, Status::Failed);
             } else {
                 assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-                assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
-                    matches!(part, Part::ToolResult { name, result, .. } if name == "web_search"
-                        && result.get("error").is_some())
-                }));
+                assert!(
+                    tool_details(&fixture.client, &page)
+                        .await
+                        .iter()
+                        .any(|(name, detail)| name == "web_search"
+                            && detail.result.as_ref().unwrap().get("error").is_some())
+                );
             }
             let retries: Vec<_> = page
                 .entries

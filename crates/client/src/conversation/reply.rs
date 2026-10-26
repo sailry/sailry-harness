@@ -40,16 +40,15 @@ mod tests {
                 Part::ToolCall {
                     id: Some("closing".into()),
                     name: name.into(),
-                    arguments: json!({}),
+                    summary: Default::default(),
                     presentation: Default::default(),
                     grouping: Default::default(),
-                    display: None,
                 },
                 Part::Resource(json!({"type":"tool_started","id":"closing","name":name})),
                 Part::ToolResult {
                     id: Some("closing".into()),
                     name: name.into(),
-                    result: json!({"status":"accepted"}),
+                    summary: Default::default(),
                     images: vec![],
                 },
                 Part::Resource(json!({"type":"provider_context"})),
@@ -66,7 +65,7 @@ mod tests {
             Part::ToolResult {
                 id: Some("read".into()),
                 name: "read_file".into(),
-                result: json!({}),
+                summary: Default::default(),
                 images: vec![],
             },
             Part::Text("Final answer".into()),

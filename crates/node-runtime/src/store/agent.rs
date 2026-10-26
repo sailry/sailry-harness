@@ -12,7 +12,7 @@ pub(in crate::store) mod continuation;
 pub(in crate::store) mod delegation;
 pub(crate) mod elicitation;
 mod feed;
-mod history;
+pub(in crate::store) mod history;
 mod images;
 mod permissions;
 pub(in crate::store) mod plugins;

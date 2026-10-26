@@ -132,21 +132,10 @@ async fn chooses_one_declared_search_and_executes_fallback() {
                         .count(),
                     1
                 );
-                let output = page
-                    .entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .find_map(|part| {
-                        if let Part::ToolResult {
-                            name: tool, result, ..
-                        } = part
-                            && tool == &name
-                        {
-                            Some(result)
-                        } else {
-                            None
-                        }
-                    })
+                let output = tool_details(&fixture.client, &page)
+                    .await
+                    .into_iter()
+                    .find_map(|(tool, detail)| (tool == name).then_some(detail.result.unwrap()))
                     .expect("fallback result expected");
                 assert_eq!(output["driver"], "exa", "{output}");
                 assert_eq!(output["untrusted"], true);

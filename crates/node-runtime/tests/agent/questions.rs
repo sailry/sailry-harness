@@ -339,15 +339,7 @@ async fn answers_and_cancels() {
             assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
             assert_eq!(page.questions.len(), 4);
             assert!(page.approvals.is_empty());
-            let results: Vec<_> = page
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| match part {
-                    Part::ToolResult { result, .. } => Some(result.clone()),
-                    _ => None,
-                })
-                .collect();
+            let results: Vec<_> = results(&other, &page).await;
             assert_eq!(
                 results,
                 vec![

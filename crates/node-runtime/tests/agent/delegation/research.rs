@@ -77,7 +77,10 @@ async fn loads_the_skill_without_expanding_authority() {
         let turn = fixture.push("Delegate the research").await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert_eq!(results(&page)[0]["status"], "completed");
+        assert_eq!(
+            results(&fixture.client, &page).await[0]["status"],
+            "completed"
+        );
         let child = children(&fixture.client, fixture.session.id, 1)
             .await
             .pop()

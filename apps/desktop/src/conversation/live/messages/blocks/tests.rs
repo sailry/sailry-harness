@@ -145,24 +145,23 @@ fn retains_text_boundaries() {
     let turn = TurnId::new();
     let parts = vec![
         Part::ToolCall {
-            display: None,
             presentation: Default::default(),
             grouping: Default::default(),
             id: Some("a".into()),
             name: "read_file".into(),
-            arguments: serde_json::json!({}),
+            summary: Default::default(),
         },
         Part::ToolResult {
             id: Some("a".into()),
             name: "read_file".into(),
-            result: serde_json::json!("result"),
+            summary: Default::default(),
             images: vec![],
         },
         Part::Text("between tools".into()),
         Part::ToolResult {
             id: None,
             name: "external".into(),
-            result: serde_json::json!("orphan result"),
+            summary: Default::default(),
             images: vec![],
         },
         Part::Thinking("reasoning".into()),
@@ -219,6 +218,7 @@ fn retains_text_boundaries() {
                 progress: None,
                 content: None,
                 resolved: None,
+                detail: None,
                 source: reference(0),
                 response: Some(reference(1)),
                 state: State::Returned,
@@ -236,6 +236,7 @@ fn retains_text_boundaries() {
                 progress: None,
                 content: None,
                 resolved: None,
+                detail: None,
                 source: reference(3),
                 response: Some(reference(3)),
                 state: State::Returned,

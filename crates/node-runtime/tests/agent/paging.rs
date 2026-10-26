@@ -4,6 +4,8 @@ use sailry_link::CancellationToken;
 use serde_json::json;
 use tokio::sync::{mpsc, watch};
 
+#[path = "paging/details.rs"]
+mod details;
 #[path = "paging/removal.rs"]
 mod removal;
 #[path = "paging/seek.rs"]

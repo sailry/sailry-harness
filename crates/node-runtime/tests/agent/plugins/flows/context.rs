@@ -100,7 +100,7 @@ export function explain({step,outcome,state}) {
                 Status::Completed,
                 "{page:?}"
             );
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             assert_eq!(output.len(), 1, "{page:?}");
             assert_eq!(output[0]["isError"], true);
             assert!(output[0].get("saved").is_none());

@@ -144,7 +144,7 @@ async fn disables_confinement_for_existing_sessions() {
                 .await
                 .unwrap()
                 .unwrap();
-            let results = process::results(&page);
+            let results = process::results(&fixture.client, &page).await;
             assert_eq!(results.len(), 1, "{page:?}");
             assert_eq!(results[0].outcome, Outcome::Exited(0));
             assert_eq!(results[0].stdout.text, std::env::var("HOME").unwrap());
@@ -167,8 +167,16 @@ async fn disables_confinement_for_existing_sessions() {
             page.entries.retain(|entry| entry.turn == turn.id);
             assert_eq!(page.approvals[0].access, Some(Access::Workspace));
             assert_eq!(page.approvals[0].source, ApprovalSource::Sandbox);
-            assert_eq!(process::results(&page)[0].outcome, Outcome::Exited(0));
-            assert_eq!(process::results(&page)[0].stdout.text, "confined");
+            assert_eq!(
+                process::results(&fixture.client, &page).await[0].outcome,
+                Outcome::Exited(0)
+            );
+            assert_eq!(
+                process::results(&fixture.client, &page).await[0]
+                    .stdout
+                    .text,
+                "confined"
+            );
             assert!(!fixture.directory.path().join("allowed.txt").exists());
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();

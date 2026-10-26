@@ -149,18 +149,11 @@ async fn reads_figma_with_private_pat_and_approval() {
                 .status,
             Status::Completed
         );
-        let results: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult {
-                    name: actual,
-                    result,
-                    ..
-                } if actual == &name => Some(result),
-                _ => None,
-            })
+        let results: Vec<_> = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(actual, _)| actual == &name)
+            .map(|(_, detail)| detail.result.unwrap())
             .collect();
         assert_eq!(results.len(), 3, "{results:?}");
         assert_eq!(results[0]["data"], data);
@@ -169,7 +162,7 @@ async fn reads_figma_with_private_pat_and_approval() {
         assert_eq!(results[0]["depth"], 2);
         assert_eq!(
             results[1],
-            &json!({"error":format!("Tool '{name}' execution denied by confirmation policy")})
+            json!({"error":format!("Tool '{name}' execution denied by confirmation policy")})
         );
         assert_eq!(results[2]["data"]["nodes"]["1:2"], serde_json::Value::Null);
         assert_eq!(results[2]["partial"], true);
@@ -373,9 +366,15 @@ async fn applies_approval_and_turn_cancellation() {
                     .await
                     .unwrap();
             } else {
-                assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part,
-                    Part::ToolResult { result, .. } if result["status"] == 201 && result["body"] == "saved"
-                )));
+                assert!(
+                    tool_details(&fixture.client, &page)
+                        .await
+                        .iter()
+                        .any(|(_, detail)| {
+                            let result = detail.result.as_ref().unwrap();
+                            result["status"] == 201 && result["body"] == "saved"
+                        })
+                );
             }
             assert_eq!(http.requests.lock().unwrap().len(), 1);
             fixture.node.shutdown().await.unwrap();

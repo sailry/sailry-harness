@@ -190,6 +190,7 @@ fn read(command: &Command) -> bool {
             | Command::ReadSession { .. }
             | Command::ReadConversation { .. }
             | Command::ReadTurn { .. }
+            | Command::ReadToolDetail { .. }
             | Command::ReadTurnCapture { .. }
             | Command::ReadQueuedTurn { .. }
             | Command::ListConversationAssets { .. }

@@ -61,16 +61,15 @@ async fn escape_rejects_remembering_after_restart() {
             .iter()
             .find(|entry| entry.id == approval.entry)
             .unwrap();
-        let Part::ToolCall {
-            name, arguments, ..
-        } = &entry.parts[approval.index]
-        else {
+        let Part::ToolCall { name, .. } = &entry.parts[approval.index] else {
             panic!("canonical tool call expected")
         };
         assert_eq!(name, &plugin_tool("commands", "run_command"));
         assert_eq!(
-            arguments,
-            &json!({"access":"unrestricted","command":"touch second.txt","description":"Create the next fixture"})
+            tool_detail(&fixture.client, &page, entry, approval.index)
+                .await
+                .arguments,
+            json!({"access":"unrestricted","command":"touch second.txt","description":"Create the next fixture"})
         );
         process::decide(&fixture.client, &approval, Decision::Deny).await;
         let page = completed(&fixture.client, fixture.session.id, turn.id).await;

@@ -65,7 +65,7 @@ async fn retains_project_connections_across_turns() {
         let turn = submit(&fixture).await;
         let mut page = finished(&fixture.client, fixture.session.id, turn).await;
         page.entries.retain(|entry| entry.turn == turn);
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 4, "{output:?}");
         assert_eq!(output[0].as_array().unwrap().len(), 1);
         assert_eq!(output[0][0]["id"], host.id.to_string());
@@ -132,7 +132,10 @@ async fn retains_project_connections_across_turns() {
         approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(results(&page), vec![&json!([]), &json!([])]);
+        assert_eq!(
+            results(&fixture.client, &page).await,
+            vec![json!([]), json!([])]
+        );
         assert_eq!(
             ssh_profiles(&fixture.client)
                 .await

@@ -206,7 +206,7 @@ async fn freezes_server_choices() {
         let page = finished(&fixture.client, fixture.session.id, queued.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(
-            results(&page).len(),
+            results(&fixture.client, &page).await.len(),
             1,
             "admitted work retains its configuration"
         );

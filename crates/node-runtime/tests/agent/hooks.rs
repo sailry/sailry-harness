@@ -224,7 +224,10 @@ async fn orders_callbacks_in_worktree_scope() {
             Status::Completed,
             "{page:?}"
         );
-        assert_eq!(process::results(&page)[0].outcome, Outcome::Exited(0));
+        assert_eq!(
+            process::results(&fixture.client, &page).await[0].outcome,
+            Outcome::Exited(0)
+        );
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("order.txt")).unwrap(),
             "before\nbefore-second\ntool\nafter\nafter-second\nend\nend-second\n"
@@ -420,13 +423,24 @@ async fn reports_failures_without_replaying_tools() {
             if phase == "before" {
                 assert!(!fixture.root.join("actual.txt").exists());
                 assert!(!fixture.root.join("later.txt").exists());
-                assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part|matches!(part,Part::ToolResult {result,..} if result.to_string().contains("before_tool hook failed"))));
+                assert!(
+                    tool_details(&fixture.client, &page)
+                        .await
+                        .iter()
+                        .any(|(_, detail)| {
+                            let result = detail.result.as_ref().unwrap();
+                            result.to_string().contains("before_tool hook failed")
+                        })
+                );
             } else {
                 assert_eq!(
                     std::fs::read_to_string(fixture.root.join("actual.txt")).unwrap(),
                     "once"
                 );
-                assert_eq!(process::results(&page)[0].outcome, Outcome::Exited(0));
+                assert_eq!(
+                    process::results(&fixture.client, &page).await[0].outcome,
+                    Outcome::Exited(0)
+                );
                 let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
                 assert_eq!(run.status, Status::Failed);
                 assert!(
@@ -497,7 +511,15 @@ async fn cancels_and_bounds_hook_processes() {
                     Status::Cancelled
                 );
             } else {
-                assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part|matches!(part,Part::ToolResult {result,..} if result.to_string().contains("TimedOut"))));
+                assert!(
+                    tool_details(&fixture.client, &page)
+                        .await
+                        .iter()
+                        .any(|(_, detail)| {
+                            let result = detail.result.as_ref().unwrap();
+                            result.to_string().contains("TimedOut")
+                        })
+                );
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
             assert!(!fixture.root.join("late.txt").exists());

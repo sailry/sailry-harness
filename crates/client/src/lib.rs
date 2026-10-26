@@ -44,6 +44,7 @@ pub struct Client {
     git: Option<Arc<git::Reads>>,
     observers: Option<Arc<Observers>>,
     usage_scope: Option<(sailry_protocol::plugin::Context, bool)>,
+    details: Arc<conversation::details::Cache>,
 }
 
 impl Client {
@@ -60,6 +61,7 @@ impl Client {
             git: None,
             observers: None,
             usage_scope: None,
+            details: Arc::default(),
         }
     }
     /// Share Git reads between views belonging to the same controller.
@@ -81,6 +83,7 @@ impl Client {
             git: self.git.clone(),
             observers: self.observers.clone(),
             usage_scope: Some((context, false)),
+            details: self.details.clone(),
         }
     }
 
@@ -92,6 +95,7 @@ impl Client {
             git: self.git.clone(),
             observers: self.observers.clone(),
             usage_scope: Some((context, true)),
+            details: self.details.clone(),
         }
     }
 

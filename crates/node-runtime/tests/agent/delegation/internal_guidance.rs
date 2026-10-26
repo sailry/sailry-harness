@@ -106,7 +106,8 @@ async fn main_direction_reaches_running_child() {
         assert_eq!(status(&parent, active.id), Status::Continued);
         assert_eq!(status(&parent, directed.id), Status::Running);
         assert!(
-            results(&parent)
+            results(&fixture.client, &parent)
+                .await
                 .iter()
                 .any(|result| result["recipient"] == json!(first.turn)
                     && result["turn"] == json!(child_direction.turn.id))
@@ -162,7 +163,7 @@ async fn main_direction_reaches_running_child() {
             Status::Completed
         );
         assert_eq!(status(&parent, directed.id), Status::Completed);
-        let returned = results(&parent);
+        let returned = results(&fixture.client, &parent).await;
         let final_child = returned
             .iter()
             .find(|result| result["status"] == "completed" && result["session"] == json!(child.id))
@@ -302,7 +303,8 @@ async fn stop_preserves_child_direction_without_replay() {
         let parent = finished(&fixture.client, fixture.session.id, inspection.id).await;
         assert_eq!(status(&parent, inspection.id), Status::Completed);
         assert!(
-            results(&parent)
+            results(&fixture.client, &parent)
+                .await
                 .iter()
                 .any(|result| result["session"] == json!(child.id)
                     && result["turn"] == json!(queued.turn.id)
@@ -340,7 +342,10 @@ async fn continues_after_background_answer() {
         assert_eq!(parent.children[0].run.status, Status::Running);
         assert!(!parent.queue.paused);
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
-        assert_eq!(results(&parent)[0]["session"], json!(child.id));
+        assert_eq!(
+            results(&fixture.client, &parent).await[0]["session"],
+            json!(child.id)
+        );
         fixture.parent.replace_tools(vec![(
             plugin_tool("delegation", "guide_agent"),
             json!({"session":child.id,"message":"Keep the final child evidence"}),
@@ -355,15 +360,25 @@ async fn continues_after_background_answer() {
                 .iter()
                 .any(|child| child.run.status == Status::Running)
         );
-        let guidance = parent
+        let entry = parent
             .entries
             .iter()
-            .filter(|entry| entry.turn == directed.id)
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
+            .find(|entry| {
+                entry.turn == directed.id
+                    && entry
+                        .parts
+                        .iter()
+                        .any(|part| matches!(part, Part::ToolResult { .. }))
             })
+            .unwrap();
+        let index = entry
+            .parts
+            .iter()
+            .position(|part| matches!(part, Part::ToolResult { .. }))
+            .unwrap();
+        let guidance = tool_detail(&fixture.client, &parent, entry, index)
+            .await
+            .result
             .unwrap();
         assert_eq!(guidance["session"], json!(child.id));
         assert!(guidance["recipient"].is_string());
@@ -429,15 +444,25 @@ async fn continues_after_background_answer() {
             child.run.status,
             Status::Queued | Status::Running | Status::Stopping
         )));
-        let waited = parent
+        let entry = parent
             .entries
             .iter()
-            .filter(|entry| entry.turn == waiting.id)
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| match part {
-                Part::ToolResult { result, .. } => Some(result),
-                _ => None,
+            .find(|entry| {
+                entry.turn == waiting.id
+                    && entry
+                        .parts
+                        .iter()
+                        .any(|part| matches!(part, Part::ToolResult { .. }))
             })
+            .unwrap();
+        let index = entry
+            .parts
+            .iter()
+            .position(|part| matches!(part, Part::ToolResult { .. }))
+            .unwrap();
+        let waited = tool_detail(&fixture.client, &parent, entry, index)
+            .await
+            .result
             .unwrap();
         assert_eq!(waited["session"], json!(child.id));
         assert_eq!(waited["status"], "completed");
@@ -596,13 +621,13 @@ async fn synchronous_spawn_waits_for_child() {
         let parent = history(&fixture.client, fixture.session.id).await;
         assert_eq!(status(&parent, active.id), Status::Running);
         assert_eq!(parent.children[0].run.status, Status::Running);
-        assert!(results(&parent).is_empty());
+        assert!(results(&fixture.client, &parent).await.is_empty());
         assert_eq!(fixture.parent.requests.lock().unwrap().len(), 1);
         release.cancel();
         let parent = finished(&fixture.client, fixture.session.id, active.id).await;
         assert_eq!(status(&parent, active.id), Status::Completed);
         assert_eq!(parent.children[0].run.status, Status::Completed);
-        let output = results(&parent);
+        let output = results(&fixture.client, &parent).await;
         assert_eq!(output[0]["session"], json!(child.id));
         assert_eq!(output[0]["status"], "completed");
         assert_eq!(output[0]["response"], "Final child evidence");
@@ -640,7 +665,10 @@ async fn default_background_child_inherits_permissions() {
                 .parts
                 .contains(&Part::Text("Parent-only private context".into()))
         }));
-        assert_eq!(results(&parent)[0]["session"], json!(child.id));
+        assert_eq!(
+            results(&fixture.client, &parent).await[0]["session"],
+            json!(child.id)
+        );
         fixture.close().await;
     }
 }

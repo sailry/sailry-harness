@@ -108,17 +108,6 @@ pub(super) async fn setup(
     (session, provider, role)
 }
 
-fn results(page: &Page) -> Vec<Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { result, .. } => Some(result.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
 async fn children(client: &Client, parent: SessionId, count: usize) -> Vec<Session> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {

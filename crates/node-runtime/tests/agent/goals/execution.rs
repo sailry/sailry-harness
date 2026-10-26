@@ -68,7 +68,8 @@ async fn continues_without_controller_input() {
                 .all(|run| run.status == Status::Completed)
         );
         assert_eq!(
-            results(&snapshot.page)
+            results(&fixture.client, &snapshot.page)
+                .await
                 .iter()
                 .filter(|(name, _)| *name == plugin_tool("files", "read_file"))
                 .count(),
@@ -122,7 +123,7 @@ async fn continues_model_only_work_until_explicit_completion() {
                     .all(|part| !matches!(part, Part::ToolCall { .. }))
             );
         }
-        assert_eq!(results(&snapshot.page).len(), 2);
+        assert_eq!(results(&fixture.client, &snapshot.page).await.len(), 2);
         assert_eq!(server.requests.lock().unwrap().len(), 6);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

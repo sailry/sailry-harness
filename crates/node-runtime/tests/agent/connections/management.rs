@@ -134,20 +134,6 @@ async fn submit(fixture: &process::Fixture) -> TurnId {
     turn.id
 }
 
-fn results(page: &Page) -> Vec<&Value> {
-    page.entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| {
-            if let Part::ToolResult { result, .. } = part {
-                Some(result)
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
 async fn databases(client: &Client) -> Vec<database::Profile> {
     let Output::DatabaseProfiles(profiles) = client
         .execute(client.prepare(Command::ListDatabases))
@@ -270,7 +256,7 @@ async fn saves_native_credentials_without_public_secrets() {
                 expected["passphrase"] = Value::Null;
             }
             assert_eq!(stored_credential(&fixture, profiles[0].id).await, expected);
-            let results = results(&page);
+            let results = results(&fixture.client, &page).await;
             assert_eq!(results.len(), 4, "{results:?}");
             assert_eq!(results[3]["data"][0]["id"], profiles[0].id.to_string());
             assert_eq!(
@@ -387,7 +373,7 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
         approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 6, "{output:?}");
         assert_eq!(
             output[2]["error"]["code"], "revision_conflict",
@@ -428,20 +414,11 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
         approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;
-        let output: Vec<_> = page
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == turn)
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { name, result, .. } = part
-                    && name == &tool("ssh_save_connection")
-                {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
+        let output: Vec<_> = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(name, _)| name == &tool("ssh_save_connection"))
+            .map(|(_, detail)| detail.result.unwrap())
             .collect();
         assert_eq!(output.len(), 1, "{output:?}");
         assert_eq!(
@@ -542,9 +519,9 @@ async fn bundled_tools_keep_saved_id() {
             "{:?}",
             page.runs[0].error
         );
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 4, "{output:?}");
-        assert_eq!(output[0], &json!({"kind":"database_profiles", "data":[]}));
+        assert_eq!(output[0], json!({"kind":"database_profiles", "data":[]}));
         let profiles = databases(&fixture.client).await;
         assert_eq!(profiles.len(), 1);
         assert_eq!(
@@ -607,7 +584,10 @@ async fn bundled_writes_initialize_only_after_approval() {
             assert_eq!(profiles.len(), 1);
             let profile = &profiles[0];
             assert!(!profile.read_only);
-            assert_eq!(results(&page)[0]["data"]["id"], profile.id.to_string());
+            assert_eq!(
+                results(&fixture.client, &page).await[0]["data"]["id"],
+                profile.id.to_string()
+            );
             assert_eq!(
                 profile.connection,
                 database::Connection::Sqlite {
@@ -640,7 +620,7 @@ async fn bundled_writes_initialize_only_after_approval() {
                 "{:?}",
                 page.runs[0].error
             );
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             assert_eq!(output.len(), 3, "{output:?}");
             assert_eq!(output[0]["data"]["id"], profile.id.to_string());
             if approve {
@@ -788,9 +768,9 @@ async fn creates_and_queries_in_one_turn() {
             "{:?}",
             page.runs[0].error
         );
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 9, "{output:?}");
-        assert_eq!(output[0], &json!([]));
+        assert_eq!(output[0], json!([]));
         assert_eq!(output[1]["id"], profile.id.to_string());
         assert_eq!(output[1]["credentials_required"], false);
         assert_eq!(output[2]["isError"], true, "{output:?}");
@@ -799,7 +779,7 @@ async fn creates_and_queries_in_one_turn() {
             output[4]["error"]["code"], "permission_denied",
             "{output:?}"
         );
-        assert_eq!(output[5], &json!([]), "{output:?}");
+        assert_eq!(output[5], json!([]), "{output:?}");
         assert_eq!(
             output[6]["error"]["code"], "permission_denied",
             "{output:?}"
@@ -812,55 +792,48 @@ async fn creates_and_queries_in_one_turn() {
             .iter()
             .flat_map(|entry| &entry.parts)
             .filter_map(|part| {
-                let Part::ToolCall { name, display, .. } = part else {
+                let Part::ToolCall { name, summary, .. } = part else {
                     return None;
                 };
                 (name == &tool("database_query")).then(|| {
-                    &display
+                    summary
+                        .resolved
                         .as_ref()
                         .unwrap()
                         .input
-                        .as_ref()
-                        .unwrap()
                         .summary
                         .as_ref()
-                        .unwrap()
-                        .names
+                        .map(|field| field.text.as_str())
                 })
             })
             .collect();
         assert_eq!(query_names.len(), 3);
-        for names in &query_names[..2] {
-            assert_eq!(
-                names.get(&profile.id.to_string()).unwrap(),
-                "Created SQLite"
-            );
+        for name in &query_names[..2] {
+            assert_eq!(*name, Some("Created SQLite"));
         }
-        assert!(!query_names[2].contains_key(&foreign.to_string()));
+        assert_ne!(query_names[2], Some("Created SQLite"));
         let other_names =
             page.entries
                 .iter()
                 .flat_map(|entry| &entry.parts)
                 .find_map(|part| {
-                    let Part::ToolCall { name, display, .. } = part else {
+                    let Part::ToolCall { name, summary, .. } = part else {
                         return None;
                     };
                     (name == &agent_support::plugin_tool(&other.summary.name, "database_query"))
                         .then(|| {
-                            &display
+                            summary
+                                .resolved
                                 .as_ref()
                                 .unwrap()
                                 .input
-                                .as_ref()
-                                .unwrap()
                                 .summary
                                 .as_ref()
-                                .unwrap()
-                                .names
+                                .map(|field| field.text.as_str())
                         })
                 })
                 .unwrap();
-        assert!(!other_names.contains_key(&profile.id.to_string()));
+        assert_ne!(other_names, Some("Created SQLite"));
         assert_eq!(
             databases(&fixture.client)
                 .await
@@ -890,7 +863,7 @@ async fn relative_saves_preserve_scope_and_plan() {
         approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 2, "{output:?}");
         assert_eq!(output[0]["error"]["code"], "invalid_request", "{output:?}");
         assert_eq!(
@@ -923,20 +896,11 @@ async fn relative_saves_preserve_scope_and_plan() {
         approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;
-        let output: Vec<_> = page
-            .entries
-            .iter()
-            .filter(|entry| entry.turn == turn)
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| {
-                if let Part::ToolResult { name, result, .. } = part
-                    && name == &tool("database_save_connection")
-                {
-                    Some(result)
-                } else {
-                    None
-                }
-            })
+        let output: Vec<_> = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(name, _)| name == &tool("database_save_connection"))
+            .map(|(_, detail)| detail.result.unwrap())
             .collect();
         assert_eq!(output.len(), 1, "{output:?}");
         assert_eq!(
@@ -1008,7 +972,7 @@ async fn preserves_credentials_and_reports_missing() {
             "{:?}",
             page.runs[0].error
         );
-        let output = results(&page);
+        let output = results(&fixture.client, &page).await;
         assert_eq!(output.len(), 6, "{output:?}");
         assert_eq!(output[0][0]["credentials_required"], false);
         assert_eq!(output[1]["revision"], 2);
@@ -1179,29 +1143,24 @@ async fn requires_exact_first_use_consent() {
                 .iter()
                 .flat_map(|entry| &entry.parts)
                 .find_map(|part| {
-                    let Part::ToolCall { name, display, .. } = part else {
+                    let Part::ToolCall { name, summary, .. } = part else {
                         return None;
                     };
                     (name == &tool("ssh_run")).then(|| {
-                        &display
+                        summary
+                            .resolved
                             .as_ref()
                             .unwrap()
                             .input
-                            .as_ref()
-                            .unwrap()
                             .summary
                             .as_ref()
-                            .unwrap()
-                            .names
+                            .map(|field| field.text.as_str())
                     })
                 })
                 .unwrap();
-            assert_eq!(
-                run_names.get(&profile.id.to_string()).unwrap(),
-                "Created SSH"
-            );
+            assert_eq!(run_names, Some("Created SSH"));
             let saved = ssh_profiles(&fixture.client).await.pop().unwrap();
-            let output = results(&page);
+            let output = results(&fixture.client, &page).await;
             assert_eq!(output.len(), 5, "{output:?}");
             assert_eq!(output[3]["error"]["code"], "invalid_request");
             assert_eq!(output[4]["error"]["code"], "invalid_request");
@@ -1214,7 +1173,7 @@ async fn requires_exact_first_use_consent() {
                     "approved"
                 );
                 assert!(peer.authentication.load(Ordering::SeqCst) > 0);
-                assert_eq!(results(&page)[1]["stdout"], "ready");
+                assert_eq!(results(&fixture.client, &page).await[1]["stdout"], "ready");
             } else {
                 assert!(saved.host_key.is_none());
                 assert_eq!(saved.revision, 1);

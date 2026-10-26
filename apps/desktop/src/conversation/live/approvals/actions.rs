@@ -94,6 +94,16 @@ impl View {
         {
             return None;
         }
+        let call = history.calls.iter().find(|call| {
+            call.approval
+                .as_ref()
+                .is_some_and(|value| value == approval)
+                && call.turn == approval.turn
+                && call.source.entry == approval.entry
+                && call.source.index == approval.index
+        })?;
+        let reference = call.detail_reference(&snapshot.page)?;
+        self.binding.client.cached_tool_detail(&reference)?;
         Some(approval)
     }
 

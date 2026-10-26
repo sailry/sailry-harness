@@ -81,6 +81,7 @@ fn call(run: &Run, returned: bool) -> Call {
         progress: None,
         content: None,
         resolved: None,
+        detail: None,
     }
 }
 

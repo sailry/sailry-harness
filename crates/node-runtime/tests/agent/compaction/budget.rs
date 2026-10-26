@@ -20,20 +20,21 @@ fn summaries(page: &Page) -> usize {
         .count()
 }
 
-fn original_evidence(fixture: &Fixture, page: &Page) {
-    let files: Vec<_> = page
-        .entries
-        .iter()
-        .flat_map(|entry| &entry.parts)
-        .filter_map(|part| match part {
-            Part::ToolResult { name, result, .. } if name == &plugin_tool("files", "read_file") => {
-                let Output::FileLines(file) = serde_json::from_value(result.clone()).unwrap()
+async fn original_evidence(fixture: &Fixture, page: &Page) {
+    let files: Vec<_> = tool_details(&fixture.client, page)
+        .await
+        .into_iter()
+        .filter_map(|(name, detail)| {
+            if name == plugin_tool("files", "read_file") {
+                let Output::FileLines(file) =
+                    serde_json::from_value(detail.result.unwrap()).unwrap()
                 else {
                     panic!("file content expected")
                 };
                 Some(file)
+            } else {
+                None
             }
-            _ => None,
         })
         .collect();
     assert_eq!(files.len(), 6);
@@ -280,7 +281,7 @@ async fn earlier_token_boundary() {
                 assert!(!content.contains("Evidence 1"));
                 assert!(!content.contains("Evidence 2"));
             }
-            original_evidence(&fixture, &page);
+            original_evidence(&fixture, &page).await;
             let statistics = statistics(&fixture).await;
             assert_eq!(statistics.context_tokens, Some(110));
             assert_eq!(statistics.responses, 8);
@@ -339,7 +340,7 @@ async fn pending_tool_growth() {
             } else {
                 assert!(messages(requests.last().unwrap()).contains("Evidence 1"));
             }
-            original_evidence(&fixture, &page);
+            original_evidence(&fixture, &page).await;
             let statistics = statistics(&fixture).await;
             let responses = 7 + summary_count as u64;
             assert_eq!(statistics.context_tokens, Some(110));
@@ -418,7 +419,7 @@ async fn retains_low_usage_summary() {
             assert_eq!(request["messages"][0], requests[0]["messages"][0]);
         }
         assert!(messages(requests.last().unwrap()).contains("Evidence 6"));
-        original_evidence(&fixture, &page);
+        original_evidence(&fixture, &page).await;
         let statistics = statistics(&fixture).await;
         assert_eq!(statistics.context_tokens, Some(110));
         assert_eq!(statistics.responses, 8);

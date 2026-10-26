@@ -515,34 +515,54 @@ async fn executes_unrestricted_calls_in_full_mode() {
                 .find(|entry| entry.id == approval.entry)
                 .unwrap();
             let Part::ToolCall {
-                id,
-                name,
-                arguments: captured,
-                ..
+                id, name, summary, ..
             } = &entry.parts[approval.index]
             else {
                 panic!("approved command call expected")
             };
             assert_eq!(name, &models::plugin_tool("commands", "run_command"));
-            assert_eq!(captured, &arguments);
+            let captured = fixture
+                .client
+                .tool_detail(sailry_protocol::tool::detail::Reference {
+                    session: page.session,
+                    turn: entry.turn,
+                    entry: entry.id.clone(),
+                    index: approval.index,
+                    call: id.clone(),
+                    revision: summary.revision.clone(),
+                })
+                .await
+                .unwrap();
+            assert_eq!(captured.arguments, arguments);
             assert!(calls.insert(id.as_ref().unwrap()));
-            let results = page
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter_map(|part| match part {
-                    Part::ToolResult {
+            let mut results = Vec::new();
+            for entry in &page.entries {
+                for (index, part) in entry.parts.iter().enumerate() {
+                    if let Part::ToolResult {
                         id: result_id,
                         name: result_name,
-                        result,
+                        summary,
                         ..
-                    } if result_id == id => {
+                    } = part
+                        && result_id == id
+                    {
                         assert_eq!(result_name, name);
-                        Some(result)
+                        let detail = fixture
+                            .client
+                            .tool_detail(sailry_protocol::tool::detail::Reference {
+                                session: page.session,
+                                turn: entry.turn,
+                                entry: entry.id.clone(),
+                                index,
+                                call: result_id.clone(),
+                                revision: summary.revision.clone(),
+                            })
+                            .await
+                            .unwrap();
+                        results.push(detail.result.as_ref().unwrap().clone());
                     }
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
+                }
+            }
             assert_eq!(results.len(), 1);
             let Output::CommandResult(completion) =
                 serde_json::from_value(results[0].clone()).unwrap()
@@ -557,7 +577,7 @@ async fn executes_unrestricted_calls_in_full_mode() {
             assert!(editor.updates.iter().any(|update| {
                 update["update"]["toolCallId"] == native
                     && update["update"]["status"] == "completed"
-                    && update["update"]["rawOutput"] == *results[0]
+                    && update["update"]["rawOutput"] == results[0]
                     && update["_meta"]["sailry"]["session"] == json!(approval.session)
                     && update["_meta"]["sailry"]["source"]
                         == json!({"entry": approval.entry, "index": approval.index})

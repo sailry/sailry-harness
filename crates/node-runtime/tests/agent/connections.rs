@@ -248,14 +248,22 @@ async fn scopes_database_approvals() {
             .unwrap();
         let page = finished(&client, session.id, turn.id).await;
         assert_eq!(page.approvals.len(), 2);
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::ToolResult {result,..} if result["error"]["code"]=="permission_denied")));
+        assert!(
+            tool_details(&client, &page)
+                .await
+                .iter()
+                .any(|(_, detail)| {
+                    let result = detail.result.as_ref().unwrap();
+                    result["error"]["code"] == "permission_denied"
+                })
+        );
         assert_eq!(
             page.runs[0].status,
             Status::Completed,
             "{:?}",
             page.runs[0].error
         );
-        assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part| match part {Part::ToolResult {result,..} => matches!(serde_json::from_value::<Output>(result.clone()),Ok(Output::DatabaseOutcome(database::Outcome::Query(result))) if result.rows==vec![vec![database::Value::Integer(7)]]),_=>false}));
+        assert!(results(&client, &page).await.into_iter().any(|result| matches!(serde_json::from_value::<Output>(result),Ok(Output::DatabaseOutcome(database::Outcome::Query(result))) if result.rows==vec![vec![database::Value::Integer(7)]])));
         let projected = super::progress::observe(&client, session.id).await;
         let query = projected
             .calls
@@ -398,7 +406,15 @@ async fn rechecks_sharing_after_approval() {
                 .unwrap(),
             0
         );
-        assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part| matches!(part,Part::ToolResult {result,..} if result["error"]["code"]=="permission_denied")));
+        assert!(
+            tool_details(&client, &page)
+                .await
+                .iter()
+                .any(|(_, detail)| {
+                    let result = detail.result.as_ref().unwrap();
+                    result["error"]["code"] == "permission_denied"
+                })
+        );
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }

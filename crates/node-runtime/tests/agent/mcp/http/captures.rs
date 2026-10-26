@@ -232,14 +232,11 @@ async fn fences_retired_protected_slots() {
         )
         .await;
         let page = complete(&fixture, queued.id).await;
-        let result = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { name, result, .. } if name == &http_tool => Some(result),
-                _ => None,
-            })
+        let result = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(name, _)| name == &http_tool)
+            .map(|(_, detail)| detail.result.unwrap())
             .next_back()
             .unwrap();
         assert_eq!(result["isError"], true, "{result}");

@@ -44,9 +44,9 @@ async fn save(
     state
 }
 
-fn verify(page: &Page, label: &str, secret: &str) {
+async fn verify(client: &Client, page: &Page, label: &str, secret: &str) {
     assert!(!serde_json::to_string(page).unwrap().contains(secret));
-    let results = results(page);
+    let results = results(client, page).await;
     let result = &results.last().unwrap()["output"];
     assert_eq!(result["settings"], json!({"label":label}));
     assert_eq!(
@@ -95,8 +95,8 @@ async fn releases_frozen_projections() {
             "{:?}",
             page.runs
         );
-        verify(&page, "Original 中文 🙂", first_secret);
-        let original = results(&page)[0]["output"]["settings_path"]
+        verify(&fixture.client, &page, "Original 中文 🙂", first_secret).await;
+        let original = results(&fixture.client, &page).await[0]["output"]["settings_path"]
             .as_str()
             .unwrap()
             .to_owned();
@@ -105,11 +105,12 @@ async fn releases_frozen_projections() {
         assert_eq!(next.plugins, [second.package]);
         assert_eq!(next.revision, queued.revision);
         let page = finished(&fixture.client, fixture.session.id, next.id).await;
-        verify(&page, "Updated", second_secret);
-        let updated = results(&page).last().unwrap()["output"]["settings_path"]
-            .as_str()
-            .unwrap()
-            .to_owned();
+        verify(&fixture.client, &page, "Updated", second_secret).await;
+        let updated =
+            results(&fixture.client, &page).await.last().unwrap()["output"]["settings_path"]
+                .as_str()
+                .unwrap()
+                .to_owned();
         assert!(!Path::new(&original).exists());
         fixture.node.shutdown().await.unwrap();
         assert!(!Path::new(&updated).exists());
@@ -192,7 +193,7 @@ async fn imports_execution_node_configuration() {
         assert_eq!(turn.plugins, [destination.package]);
         let page = finished(&target.client, target.session.id, turn.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        verify(&page, "Destination", "target-private-token");
+        verify(&target.client, &page, "Destination", "target-private-token").await;
         assert!(
             !serde_json::to_string(&page)
                 .unwrap()

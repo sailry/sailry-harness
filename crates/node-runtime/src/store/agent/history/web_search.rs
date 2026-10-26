@@ -1,38 +1,34 @@
-use sailry_protocol::{ErrorCode, Fault, conversation::Part};
+use super::tools::Raw;
+use sailry_protocol::{ErrorCode, Fault};
 use serde_json::{Value, json};
 
-pub(super) fn call(
-    value: &Value,
-    display: Option<&sailry_protocol::tool::Display>,
-) -> Option<Part> {
+pub(super) fn call(value: &Value, display: Option<&sailry_protocol::tool::Display>) -> Option<Raw> {
     if value["name"] == "web_search" && value.get("input").is_some() {
-        return Some(Part::ToolCall {
-            presentation: sailry_protocol::tool::Presentation::Summary,
-            grouping: Default::default(),
-            display: display.cloned().map(Box::new),
-            id: Some(value["id"].as_str()?.to_owned()),
-            name: "web_search".into(),
-            arguments: value["input"].clone(),
-        });
+        let mut raw = Raw::new(
+            Some(value["id"].as_str()?.to_owned()),
+            "web_search".into(),
+            value["input"].clone(),
+        );
+        raw.display = display.cloned();
+        return Some(raw);
     }
     if value["type"] != "web_search_call" {
         return None;
     }
-    Some(Part::ToolCall {
-        presentation: sailry_protocol::tool::Presentation::Summary,
-        grouping: Default::default(),
-        display: display.cloned().map(Box::new),
-        id: Some(value["id"].as_str()?.to_owned()),
-        name: "web_search".into(),
-        arguments: value.get("action").cloned().unwrap_or(Value::Null),
-    })
+    let mut raw = Raw::new(
+        Some(value["id"].as_str()?.to_owned()),
+        "web_search".into(),
+        value.get("action").cloned().unwrap_or(Value::Null),
+    );
+    raw.display = display.cloned();
+    Some(raw)
 }
 
-pub(super) fn response(value: &Value) -> Option<Part> {
+pub(super) fn response(value: &Value) -> Option<Raw> {
     if value["type"] == "anthropic_message" {
         // Keep the original part index without sending encrypted model context
         // or a duplicate native transcript to controller caches.
-        return Some(Part::Resource(json!({"type": "provider_context"})));
+        return None;
     }
     if value["type"] != "web_search_tool_result" {
         return None;
@@ -47,19 +43,17 @@ pub(super) fn response(value: &Value) -> Option<Part> {
         }).collect();
         json!({"sources": sources})
     };
-    Some(Part::ToolResult {
-        id: Some(id.into()),
-        name: "web_search".into(),
-        result,
-        images: Vec::new(),
-    })
+    let mut raw = Raw::new(Some(id.into()), "web_search".into(), Value::Null);
+    raw.result = Some(result);
+    Some(raw)
 }
 
 /// Derived results follow the original parts to preserve approval/call indices.
-pub(super) fn result(value: &Value) -> Option<Part> {
-    let Part::ToolCall { id, name, .. } = call(value, None)? else {
-        return None;
-    };
+pub(super) fn result(
+    value: &Value,
+    display: Option<&sailry_protocol::tool::Display>,
+) -> Option<Raw> {
+    let mut raw = call(value, display)?;
     let result = match value["status"].as_str()? {
         "completed" => value.clone(),
         "failed" => {
@@ -67,10 +61,6 @@ pub(super) fn result(value: &Value) -> Option<Part> {
         }
         _ => return None,
     };
-    Some(Part::ToolResult {
-        id,
-        name,
-        result,
-        images: Vec::new(),
-    })
+    raw.result = Some(result);
+    Some(raw)
 }

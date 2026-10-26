@@ -29,7 +29,7 @@ async fn deduplicates_requests_and_preserves_history() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
         assert!(page.approvals.is_empty());
-        let canonical = results(&page);
+        let canonical = results(&fixture.client, &page).await;
         assert_eq!(canonical.len(), 1);
         assert_eq!(canonical[0]["output"], output);
         assert_eq!(
@@ -56,7 +56,7 @@ async fn deduplicates_requests_and_preserves_history() {
         let (_, turn) = submit(&fixture, false).await;
         let restored = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(restored.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(results(&restored), canonical);
+        assert_eq!(results(&fixture.client, &restored).await, canonical);
         assert_eq!(
             projected(model.requests.lock().unwrap().last().unwrap()),
             expected

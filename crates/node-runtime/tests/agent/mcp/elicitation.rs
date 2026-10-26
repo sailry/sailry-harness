@@ -45,14 +45,11 @@ async fn preserves_resumed_batches() {
             .iter()
             .find(|entry| entry.id == first.entry)
             .unwrap();
-        let Part::ToolCall {
-            name, arguments, ..
-        } = &entry.parts[first.index]
-        else {
+        let Part::ToolCall { name, summary, .. } = &entry.parts[first.index] else {
             panic!("input call expected")
         };
         assert_eq!(name, "mcp_elicitation");
-        let spec: question::Spec = serde_json::from_value(arguments.clone()).unwrap();
+        let spec = summary.question.as_ref().unwrap().as_ref().clone();
         let question::Input::Form { fields } = spec.input else {
             panic!("form expected")
         };
@@ -140,16 +137,11 @@ async fn preserves_resumed_batches() {
         assert_eq!(page.questions.len(), 3);
         assert_eq!(page.questions[1].state, State::Declined);
         assert_eq!(page.questions[2].state, State::Cancelled);
-        let output: Vec<_> = page
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::ToolResult { name, result, .. } if name == &alias("native", "read") => {
-                    Some(result)
-                }
-                _ => None,
-            })
+        let output: Vec<_> = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(name, _)| name == &alias("native", "read"))
+            .map(|(_, detail)| detail.result.unwrap())
             .collect();
         assert_eq!(
             output[0]["output"],
