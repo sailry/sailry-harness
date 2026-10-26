@@ -86,6 +86,7 @@ fn isolates_caller_cancellation() {
         blocker.await.unwrap();
         assert_eq!(status(second.await).kind, RepositoryKind::Unborn);
         // Losing the last caller also releases its join slot, without retaining cancellation.
+        git.invalidate(&root);
         let (release, blocker) = hold();
         let mut abandoned =
             Box::pin(git.inspect(root.clone(), command.clone(), CancellationToken::new()));
@@ -135,15 +136,19 @@ fn separates_reads_across_writes() {
         let (resume, separator) = hold();
         // The mutation worker clears join slots before and after physical changes.
         git.invalidate(&root);
-        let mut after = Box::pin(git.inspect(root.clone(), command, CancellationToken::new()));
+        let mut after =
+            Box::pin(git.inspect(root.clone(), command.clone(), CancellationToken::new()));
         pending(after.as_mut()).await;
         release.send(()).unwrap();
         blocker.await.unwrap();
         assert!(status(before.await).entries.is_empty());
+        let mut joined = Box::pin(git.inspect(root.clone(), command, CancellationToken::new()));
+        pending(joined.as_mut()).await;
         std::fs::write(root.join("new.txt"), "after the original scan").unwrap();
         resume.send(()).unwrap();
         separator.await.unwrap();
         let result = status(after.await);
+        assert_eq!(status(joined.await), result);
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].path, "new.txt");
     });
@@ -171,8 +176,196 @@ async fn releases_completed_and_failed_scans() {
     let retained = original.clone();
     assert!(status(original.await).entries.is_empty());
     std::fs::write(root.join("fresh.txt"), "fresh scan").unwrap();
+    let cached = status(
+        git.inspect(root.clone(), command.clone(), CancellationToken::new())
+            .await,
+    );
+    assert!(
+        cached.entries.is_empty(),
+        "successful scans now remain cached"
+    );
+    git.invalidate(&root);
     let fresh = status(git.inspect(root, command, CancellationToken::new()).await);
     assert_eq!(fresh.entries.len(), 1);
     assert_eq!(fresh.entries[0].path, "fresh.txt");
     assert!(status(retained.await).entries.is_empty());
+}
+
+#[tokio::test]
+async fn expires_without_extending_hits() {
+    let (_directory, root, git, command) = fixture();
+    let before = tokio::time::Instant::now();
+    let original = status(
+        git.inspect(root.clone(), command.clone(), CancellationToken::new())
+            .await,
+    );
+    let expires = {
+        let slots = git.statuses.lock().unwrap();
+        let Some(StatusSlot::Complete(cached)) = slots.get(&root) else {
+            panic!("successful scan should be cached")
+        };
+        cached.expires
+    };
+    assert!(expires >= before + STATUS_TTL);
+    std::fs::write(root.join("fresh.txt"), "after the cached scan").unwrap();
+    // A corrupt index makes a redundant full scan fail, even if its output were unchanged.
+    let index = root.join(".git/index");
+    std::fs::write(&index, "invalid index fixture").unwrap();
+    assert_eq!(
+        status(
+            git.clone()
+                .inspect(root.clone(), command.clone(), CancellationToken::new())
+                .await
+        ),
+        original
+    );
+    {
+        let mut slots = git.statuses.lock().unwrap();
+        let Some(StatusSlot::Complete(cached)) = slots.get_mut(&root) else {
+            panic!("cache hit should retain the successful scan")
+        };
+        assert_eq!(cached.expires, expires, "hits must not slide the TTL");
+        // Set the existing clock boundary directly instead of sleeping in the fixture.
+        cached.expires = tokio::time::Instant::now();
+    }
+    assert!(
+        git.inspect(root.clone(), command.clone(), CancellationToken::new())
+            .await
+            .is_err()
+    );
+    assert!(!git.statuses.lock().unwrap().contains_key(&root));
+    std::fs::remove_file(index).unwrap();
+    let fresh = status(git.inspect(root, command, CancellationToken::new()).await);
+    assert_eq!(fresh.entries.len(), 1);
+    assert_eq!(fresh.entries[0].path, "fresh.txt");
+}
+
+#[tokio::test]
+async fn invalidates_only_the_selected_root() {
+    let (_directory, root, git, command) = fixture();
+    let (_other_directory, other, _, _) = fixture();
+    for root in [&root, &other] {
+        assert!(
+            status(
+                git.inspect(root.clone(), command.clone(), CancellationToken::new())
+                    .await
+            )
+            .entries
+            .is_empty()
+        );
+        std::fs::write(root.join("new.txt"), "changed after inspection").unwrap();
+    }
+    git.invalidate(&root);
+    let changed = status(
+        git.inspect(root, command.clone(), CancellationToken::new())
+            .await,
+    );
+    assert_eq!(changed.entries.len(), 1);
+    assert!(
+        status(git.inspect(other, command, CancellationToken::new()).await)
+            .entries
+            .is_empty()
+    );
+}
+
+#[test]
+fn invalidation_prevents_late_publication() {
+    let (_directory, root, git, command) = fixture();
+    runtime().block_on(async {
+        let (release, blocker) = hold();
+        let mut stale =
+            Box::pin(git.inspect(root.clone(), command.clone(), CancellationToken::new()));
+        pending(stale.as_mut()).await;
+        git.invalidate(&root);
+        release.send(()).unwrap();
+        blocker.await.unwrap();
+        assert!(status(stale.await).entries.is_empty());
+        assert!(!git.statuses.lock().unwrap().contains_key(&root));
+        std::fs::write(root.join("new.txt"), "after the invalidated scan").unwrap();
+        let fresh = status(git.inspect(root, command, CancellationToken::new()).await);
+        assert_eq!(fresh.entries.len(), 1);
+    });
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rejects_replaced_cached_roots() {
+    let (_directory, root, git, command) = fixture();
+    assert!(
+        status(
+            git.inspect(root.clone(), command.clone(), CancellationToken::new())
+                .await
+        )
+        .entries
+        .is_empty()
+    );
+    let moved = tempfile::tempdir().unwrap();
+    let retained = moved.path().join("original");
+    std::fs::rename(&root, &retained).unwrap();
+    Repository::init(&root).unwrap();
+    std::fs::write(root.join("replacement.txt"), "different checkout").unwrap();
+    assert_eq!(
+        git.inspect(root.clone(), command.clone(), CancellationToken::new())
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    let fresh = status(git.inspect(root, command, CancellationToken::new()).await);
+    assert_eq!(fresh.entries.len(), 1);
+    assert_eq!(fresh.entries[0].path, "replacement.txt");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rejects_cached_metadata_symlinks() {
+    use std::os::unix::fs::symlink;
+    let (_directory, root, git, command) = fixture();
+    status(
+        git.inspect(root.clone(), command.clone(), CancellationToken::new())
+            .await,
+    );
+    let outside = tempfile::tempdir().unwrap();
+    let metadata = outside.path().join("metadata");
+    std::fs::rename(root.join(".git"), &metadata).unwrap();
+    symlink(&metadata, root.join(".git")).unwrap();
+    let error = git
+        .inspect(root.clone(), command.clone(), CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
+    std::fs::remove_file(root.join(".git")).unwrap();
+    std::fs::rename(metadata, root.join(".git")).unwrap();
+    assert_eq!(
+        status(git.inspect(root, command, CancellationToken::new()).await).kind,
+        RepositoryKind::Unborn
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn reuses_confined_parents_and_missing_paths() {
+    use std::os::unix::fs::symlink;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root.join("nested/deep")).unwrap();
+    std::fs::write(root.join("nested/deep/first.txt"), "first").unwrap();
+    std::fs::write(root.join("nested/deep/second.txt"), "second").unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    symlink(outside.path(), root.join("escape")).unwrap();
+    let mut parents = EntryParents::new(path::root(&root).unwrap());
+    parents.check("nested/deep/first.txt", false).unwrap();
+    let retained = path::identity::directory(parents.stack[2].1.as_ref().unwrap()).unwrap();
+    parents.check("nested/deep/second.txt", false).unwrap();
+    assert_eq!(parents.stack.len(), 3);
+    assert_eq!(
+        path::identity::directory(parents.stack[2].1.as_ref().unwrap()).unwrap(),
+        retained
+    );
+    parents.check("missing/deep/first.txt", false).unwrap();
+    parents.check("missing/deep/second.txt", false).unwrap();
+    assert!(parents.stack[1].1.is_none());
+    assert!(parents.check("escape/private.txt", false).is_err());
+    assert!(parents.check(".sailry/worktrees/id/file", false).is_err());
+    assert!(parents.check("../outside", false).is_err());
 }

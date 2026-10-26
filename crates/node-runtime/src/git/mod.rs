@@ -10,6 +10,7 @@ pub(crate) mod commit;
 pub(crate) mod credentials;
 mod diff;
 mod history;
+mod head;
 mod ignore;
 pub(crate) mod index;
 mod inspection;
@@ -18,6 +19,7 @@ pub(crate) mod merge;
 mod output;
 mod revision;
 mod status;
+mod watch;
 pub(crate) mod worktrees;
 
 use std::{
@@ -38,14 +40,31 @@ use sailry_link::CancellationToken;
 use sailry_protocol::*;
 
 use crate::files::path;
+pub(crate) use watch::WatchFilter;
 
 type StatusRead = BoxFuture<'static, Result<Output, Fault>>;
+const STATUS_TTL: Duration = Duration::from_secs(1);
+
+#[derive(Clone)]
+struct CachedStatus {
+    output: Output,
+    root: path::identity::Identity,
+    expires: tokio::time::Instant,
+}
+
+enum StatusSlot {
+    Pending {
+        read: WeakShared<StatusRead>,
+        generation: Arc<()>,
+    },
+    Complete(CachedStatus),
+}
 
 #[derive(Clone)]
 pub(crate) struct Git {
     output: output::Journal,
     environment: Arc<crate::process::Environment>,
-    statuses: Arc<Mutex<BTreeMap<PathBuf, WeakShared<StatusRead>>>>,
+    statuses: Arc<Mutex<BTreeMap<PathBuf, StatusSlot>>>,
 }
 
 impl Git {
@@ -55,6 +74,30 @@ impl Git {
             environment,
             statuses: Default::default(),
         }
+    }
+
+    pub(crate) fn watch_roots(root: &Path) -> Result<Vec<PathBuf>, Fault> {
+        let repository = match open(root) {
+            Ok(repository) => repository,
+            Err(error) if error.code == ErrorCode::NotFound && !root.join(".git").exists() => {
+                return Ok(Vec::new());
+            }
+            Err(error) => return Err(error),
+        };
+        let mut roots = vec![
+            repository.path().to_path_buf(),
+            repository.commondir().to_path_buf(),
+        ];
+        roots.sort_unstable();
+        roots.dedup();
+        for root in &roots {
+            path::root(root)?;
+        }
+        Ok(roots)
+    }
+
+    pub(crate) fn watch_filter(root: &Path) -> Result<WatchFilter, Fault> {
+        WatchFilter::new(root)
     }
 
     pub(crate) fn record(command: &Command, result: &sailry_link::Response) {
@@ -108,7 +151,9 @@ impl Git {
                 result = read => result,
             };
         }
-        self.inspect_once(root, command, closed).await
+        self.inspect_once(root, command, closed, None)
+            .await
+            .map(|(output, _)| output)
     }
 
     fn status(&self, root: PathBuf, command: Command) -> Shared<StatusRead> {
@@ -116,23 +161,67 @@ impl Git {
             .statuses
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        // Retain only a running observation. The next read after completion always
-        // inspects disk again, even while another caller still holds its old result.
-        statuses.retain(|_, read| read.upgrade().is_some_and(|read| read.peek().is_none()));
-        if let Some(read) = statuses.get(&root).and_then(WeakShared::upgrade) {
-            return read;
-        }
+        let now = tokio::time::Instant::now();
+        statuses.retain(|_, slot| match slot {
+            StatusSlot::Pending { read, .. } => read.upgrade().is_some(),
+            StatusSlot::Complete(cached) => now < cached.expires,
+        });
+        let cached = match statuses.get(&root) {
+            Some(StatusSlot::Pending { read, .. }) => {
+                if let Some(read) = read.upgrade() {
+                    return read;
+                }
+                None
+            }
+            Some(StatusSlot::Complete(cached)) => Some(cached.clone()),
+            None => None,
+        };
         let git = self.clone();
         let source = root.clone();
+        let generation = Arc::new(());
+        let current = generation.clone();
         let read = async move {
-            // Caller cancellation ends only that observation. The existing worker's
-            // drop guard cancels I/O when the last shared future is released.
-            git.inspect_once(source, command, CancellationToken::new())
-                .await
+            let expires = cached.as_ref().map(|cached| cached.expires);
+            // Pending slots stay weak: the last observer still cancels its worker.
+            let result = git
+                .inspect_once(source.clone(), command, CancellationToken::new(), cached)
+                .await;
+            let mut statuses = git
+                .statuses
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            // A write may have replaced this slot while its scan was running.
+            if matches!(statuses.get(&source), Some(StatusSlot::Pending { generation, .. })
+                if Arc::ptr_eq(generation, &current))
+            {
+                match &result {
+                    Ok((output, root)) => {
+                        statuses.insert(
+                            source,
+                            StatusSlot::Complete(CachedStatus {
+                                output: output.clone(),
+                                root: *root,
+                                expires: expires
+                                    .unwrap_or_else(|| tokio::time::Instant::now() + STATUS_TTL),
+                            }),
+                        );
+                    }
+                    Err(_) => {
+                        statuses.remove(&source);
+                    }
+                }
+            }
+            result.map(|(output, _)| output)
         }
         .boxed()
         .shared();
-        statuses.insert(root, read.downgrade().expect("new status read is pending"));
+        statuses.insert(
+            root,
+            StatusSlot::Pending {
+                read: read.downgrade().expect("new status read is pending"),
+                generation,
+            },
+        );
         read
     }
 
@@ -148,7 +237,8 @@ impl Git {
         root: PathBuf,
         command: Command,
         closed: CancellationToken,
-    ) -> Result<Output, Fault> {
+        cached: Option<CachedStatus>,
+    ) -> Result<(Output, path::identity::Identity), Fault> {
         let output = self.output.clone();
         let environment = self.environment.clone();
         let deadline = if matches!(command, Command::ListGitRemoteTags { .. }) {
@@ -165,6 +255,27 @@ impl Git {
             };
             control.check()?;
             let retained = path::root(&root)?;
+            let identity = path::identity::directory(&retained)?;
+            if let Some(cached) = cached {
+                if identity != cached.root {
+                    return Err(Fault::new(
+                        ErrorCode::Conflict,
+                        "worktree root changed since Git inspection",
+                    ));
+                }
+                match open(&root) {
+                    Ok(_) => {}
+                    Err(error)
+                        if error.code == ErrorCode::NotFound
+                            && matches!(&cached.output, Output::GitStatus(status)
+                                if status.kind == RepositoryKind::Directory)
+                            && !root.join(".git").exists() => {}
+                    Err(error) => return Err(error),
+                }
+                check_root(&retained, &root)?;
+                control.check()?;
+                return Ok((cached.output, identity));
+            }
             let result = match command {
                 Command::ReadGitStash { commit, .. } => {
                     actions::stash_position(&root, &commit)?;
@@ -192,6 +303,7 @@ impl Git {
                 Command::InspectGit { .. } => {
                     status::inspect(&root, &control).map(Output::GitStatus)
                 }
+                Command::ReadGitHead { .. } => head::read(&root).map(Output::GitHead),
                 Command::ListGitBranches { .. } => {
                     branches::list(&root, &control).map(Output::GitBranches)
                 }
@@ -282,7 +394,7 @@ impl Git {
             };
             check_root(&retained, &root)?;
             control.check()?;
-            result
+            result.map(|output| (output, identity))
         });
         // Use the runtime blocking pool. Queued work checks cancellation before I/O;
         // an executing libgit2 call still cannot be preempted.
@@ -371,27 +483,60 @@ fn check_entry(root: &Path, value: &str) -> Result<(), Fault> {
 }
 
 fn check_entry_kind(root: &Path, value: &str, gitlink: bool) -> Result<(), Fault> {
-    use cap_fs_ext::DirExt;
-    let parts = path::components(value, false)?;
-    let mut dir = path::root(root)?;
-    for part in &parts[..parts.len() - 1] {
-        dir = match dir.open_dir_nofollow(part) {
-            Ok(dir) => dir,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(io_error(error)),
-        };
-    }
-    match dir.symlink_metadata(parts[parts.len() - 1]) {
-        Ok(metadata)
-            if metadata.is_file() || metadata.is_symlink() || gitlink && metadata.is_dir() =>
-        {
-            Ok(())
+    EntryParents::new(path::root(root)?).check(value, gitlink)
+}
+
+struct EntryParents {
+    stack: Vec<(String, Option<Dir>)>,
+}
+
+impl EntryParents {
+    fn new(root: Dir) -> Self {
+        Self {
+            stack: vec![(String::new(), Some(root))],
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error(error)),
-        _ => Err(Fault::invalid(
-            "Git file inspection requires a regular file or symlink",
-        )),
+    }
+
+    fn check(&mut self, value: &str, gitlink: bool) -> Result<(), Fault> {
+        use cap_fs_ext::DirExt;
+        let parts = path::components(value, false)?;
+        let parents = &parts[..parts.len() - 1];
+        let shared = parents
+            .iter()
+            .zip(self.stack.iter().skip(1))
+            .take_while(|(name, (retained, _))| **name == retained.as_str())
+            .count();
+        self.stack.truncate(shared + 1);
+        for name in &parents[shared..] {
+            let dir = match &self.stack.last().expect("root is retained").1 {
+                Some(parent) => match parent.open_dir_nofollow(name) {
+                    Ok(dir) => {
+                        #[cfg(windows)]
+                        path::identity::directory(&dir)?;
+                        Some(dir)
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(io_error(error)),
+                },
+                None => None,
+            };
+            self.stack.push(((*name).to_owned(), dir));
+        }
+        let Some(dir) = &self.stack.last().expect("root is retained").1 else {
+            return Ok(());
+        };
+        match dir.symlink_metadata(parts[parts.len() - 1]) {
+            Ok(metadata)
+                if metadata.is_file() || metadata.is_symlink() || gitlink && metadata.is_dir() =>
+            {
+                Ok(())
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(io_error(error)),
+            _ => Err(Fault::invalid(
+                "Git file inspection requires a regular file or symlink",
+            )),
+        }
     }
 }
 

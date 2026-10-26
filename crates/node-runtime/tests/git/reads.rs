@@ -1,6 +1,57 @@
 use super::*;
 
 #[tokio::test]
+async fn reads_head_without_scanning_worktree() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("repository");
+    let repository = Repository::init(&root).unwrap();
+    repository.set_head("refs/heads/main").unwrap();
+    std::fs::write(root.join("tracked.txt"), "original\n").unwrap();
+    commit(&repository);
+    let commit = repository.head().unwrap().target().unwrap();
+    let node = Node::start_empty(directory.path().join("node")).await.unwrap();
+    let local = Client::new(node.local());
+    let worktree = worktree(&local, &root).await;
+    let controller = Link::controller(directory.path().join("client"), NetworkScope::default())
+        .await
+        .unwrap();
+    let peer = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let remote = Client::new(controller.handle().remote(peer));
+    // Status/index enumeration fails on this fixture; a HEAD-only read still succeeds.
+    std::fs::write(repository.path().join("index"), "invalid index fixture").unwrap();
+    for client in [&local, &remote] {
+        let Output::GitHead(head) = client
+            .execute(client.prepare(Command::ReadGitHead { worktree }))
+            .await
+            .unwrap()
+        else {
+            panic!("Git HEAD expected")
+        };
+        assert_eq!(head.kind, RepositoryKind::Ready);
+        assert_eq!(head.branch.as_deref(), Some("main"));
+        assert_eq!(head.head, Some(commit.to_string()));
+    }
+    repository.set_head_detached(commit).unwrap();
+    for client in [&local, &remote] {
+        let Output::GitHead(head) = client
+            .execute(client.prepare(Command::ReadGitHead { worktree }))
+            .await
+            .unwrap()
+        else {
+            panic!("Git HEAD expected")
+        };
+        assert_eq!(head.branch, None);
+        assert_eq!(head.head, Some(commit.to_string()));
+    }
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn failed_inspections_recover_without_caching_a_directory() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("repository");

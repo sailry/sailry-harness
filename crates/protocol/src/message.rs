@@ -1052,6 +1052,9 @@ pub enum Command {
     InspectGit {
         worktree: WorktreeId,
     },
+    ReadGitHead {
+        worktree: WorktreeId,
+    },
     ListGitBranches {
         worktree: WorktreeId,
     },
@@ -1675,6 +1678,7 @@ impl Command {
                 | Self::CancelFileTransfer { .. }
                 | Self::SearchFiles { .. }
                 | Self::InspectGit { .. }
+                | Self::ReadGitHead { .. }
                 | Self::ListGitBranches { .. }
                 | Self::ResolveGitRevision { .. }
                 | Self::ListWorktrees { .. }
@@ -2003,6 +2007,7 @@ pub enum Output {
         path: String,
     },
     GitStatus(crate::GitStatus),
+    GitHead(crate::GitHead),
     GitBranches(crate::GitBranches),
     GitRevision {
         commit: String,

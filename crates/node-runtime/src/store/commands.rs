@@ -902,6 +902,7 @@ pub(super) fn execute<'a>(
         | Command::RequestComputerPermission { .. }
         | Command::StopHostProcess { .. }
         | Command::InspectGit { .. }
+        | Command::ReadGitHead { .. }
         | Command::ReadGitStash { .. }
         | Command::ReadGitOutput { .. }
         | Command::ListGitRemoteTags { .. }

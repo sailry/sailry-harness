@@ -118,6 +118,7 @@ pub(crate) fn is_read(command: &Command) -> bool {
     matches!(
         command,
         Command::InspectGit { .. }
+            | Command::ReadGitHead { .. }
             | Command::ListGitBranches { .. }
             | Command::ListWorktrees { .. }
             | Command::ReadGitDiff { .. }

@@ -122,6 +122,7 @@ pub(super) fn route(command: &Command) -> Route {
         | Command::ReadNotebook { .. }
         | Command::SearchFiles { .. }
         | Command::InspectGit { .. }
+        | Command::ReadGitHead { .. }
         | Command::ReadGitStash { .. }
         | Command::ReadGitOutput { .. }
         | Command::ListGitRemoteTags { .. }

@@ -132,7 +132,7 @@ impl View {
         self.repository.stop = Some(stop.clone());
         let current = stop.clone();
         let client = self.binding.client.clone();
-        let request = client.prepare(Command::InspectGit { worktree });
+        let request = client.prepare(Command::ReadGitHead { worktree });
         let request_id = request.id;
         let job = self.binding.runtime.spawn(async move {
             tokio::select! {
@@ -150,27 +150,27 @@ impl View {
                     return;
                 }
                 let result = match result {
-                    Ok(Some(Ok(Output::GitStatus(status)))) => Ok(status),
+                    Ok(Some(Ok(Output::GitHead(head)))) => Ok(head),
                     Ok(Some(Err(error))) => Err(error),
                     Ok(None) => return,
                     _ => Err(sailry_protocol::Fault::new(
                         sailry_protocol::ErrorCode::Internal,
-                        "Git inspection returned no status",
+                        "Git inspection returned no HEAD",
                     )),
                 };
                 if !view
                     .repository
                     .inspection
-                    .finish(generation, result.as_ref().ok().map(|status| status.kind))
+                    .finish(generation, result.as_ref().ok().map(|head| head.kind))
                 {
                     return;
                 }
                 view.repository.task = None;
                 match result {
-                    Ok(status) => {
-                        view.binding.branch = status
+                    Ok(head) => {
+                        view.binding.branch = head
                             .branch
-                            .or_else(|| status.head.map(|head| head.chars().take(8).collect()))
+                            .or_else(|| head.head.map(|head| head.chars().take(8).collect()))
                             .unwrap_or_else(|| tr("composer_branch_none").to_string())
                             .into();
                     }
@@ -187,7 +187,7 @@ impl View {
                         report.request = Some(request_id);
                         report.worktree = Some(worktree);
                         report.session = view.session.as_ref().map(|session| session.id);
-                        report.operation = Some("InspectGit".into());
+                        report.operation = Some("ReadGitHead".into());
                         let client = view.binding.client.clone();
                         view.binding.runtime.spawn(async move {
                             let _ = client.report_diagnostic(report).await;

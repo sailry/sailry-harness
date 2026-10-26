@@ -42,6 +42,7 @@ impl Ingress {
                 | Command::ReadNotebook { worktree, .. }
                 | Command::SearchFiles { worktree, .. }
                 | Command::InspectGit { worktree }
+                | Command::ReadGitHead { worktree }
                 | Command::ReadGitStash { worktree, .. }
                 | Command::ReadGitOutput { worktree }
                 | Command::ListGitRemoteTags { worktree, .. }
@@ -127,6 +128,7 @@ impl Ingress {
         } else if matches!(
             request.command,
             Command::InspectGit { .. }
+                | Command::ReadGitHead { .. }
                 | Command::ReadGitStash { .. }
                 | Command::ReadGitOutput { .. }
                 | Command::ListGitRemoteTags { .. }

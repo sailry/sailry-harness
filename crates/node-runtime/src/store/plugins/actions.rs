@@ -483,6 +483,7 @@ impl Database {
                     (Some(action), Some(worktree), None)
                 }
                 Command::InspectGit { worktree }
+                | Command::ReadGitHead { worktree }
                 | Command::ReadGitLog { worktree, .. }
                 | Command::ReadGitShow { worktree, .. }
                 | Command::ReadGitBlame { worktree, .. }

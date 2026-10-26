@@ -310,6 +310,13 @@ pub struct GitStatus {
     pub omitted_paths: usize,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitHead {
+    pub kind: RepositoryKind,
+    pub branch: Option<String>,
+    pub head: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GitDiffScope {

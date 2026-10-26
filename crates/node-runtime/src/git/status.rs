@@ -1,6 +1,8 @@
 //! Bounded candidate scanning and classification adapted from sailry-code
 //! 67ae9fa0 sailry-git/src/action_read/status.rs (Apache-2.0).
-use super::{Control, fault, io_error, open, path, valid_path};
+use super::{Control, EntryParents, fault, io_error, open, path, valid_path};
+use cap_fs_ext::DirExt;
+use cap_std::fs::Dir;
 use git2::{ObjectType, Oid, Repository, Status, StatusOptions};
 use sailry_protocol::*;
 use std::{collections::BTreeSet, path::Path};
@@ -58,9 +60,10 @@ pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault
         budget: 20_000,
         truncated: false,
     };
+    let retained = path::root(root)?;
     scan_index(&repository, &mut scan, control)?;
-    scan_workdir(root, &repository, &mut scan, control)?;
     scan_head(&repository, &mut scan, control)?;
+    scan_workdir(&retained, &repository, &mut scan, control)?;
     // A single status pass avoids rebuilding HEAD/index comparisons for every file.
     let mut options = StatusOptions::new();
     options
@@ -71,22 +74,17 @@ pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault
         .disable_pathspec_match(true)
         .renames_head_to_index(false)
         .renames_index_to_workdir(false);
-    let mut readable = 0;
     for value in &scan.paths {
         control.check()?;
-        if super::check_entry(root, value).is_err() {
-            scan.omitted_paths += 1;
-        } else {
-            options.pathspec(value);
-            readable += 1;
-        }
+        options.pathspec(value);
     }
     // An empty pathspec means the entire worktree, not an empty selection.
-    if readable == 0 {
+    if scan.paths.is_empty() {
         options.pathspec(".git");
     }
     let statuses = repository.statuses(Some(&mut options)).map_err(fault)?;
     let mut entries = Vec::new();
+    let mut parents = EntryParents::new(retained);
     for candidate in statuses.iter() {
         control.check()?;
         let Some(value) = candidate
@@ -96,17 +94,16 @@ pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault
         else {
             continue;
         };
-        if super::check_entry(root, value).is_err() {
-            scan.omitted_paths += 1;
+        let Some(entry) = classify(value.to_owned(), candidate.status()) else {
             continue;
-        }
-        if let Some(entry) = classify(value.to_owned(), candidate.status()) {
-            if entries.len() == MAX_GIT_ENTRIES {
-                scan.truncated = true;
-                scan.omitted_paths += 1;
-            } else {
-                entries.push(entry);
-            }
+        };
+        if entries.len() == MAX_GIT_ENTRIES {
+            scan.truncated = true;
+            scan.omitted_paths += 1;
+        } else if parents.check(value, false).is_err() {
+            scan.omitted_paths += 1;
+        } else {
+            entries.push(entry);
         }
     }
     statistics(&repository, &mut entries, control)?;
@@ -152,63 +149,71 @@ impl Candidates {
 
 // Retain directory capabilities while enumerating; never descend through symlinks.
 fn scan_workdir(
-    root: &Path,
+    root: &Dir,
     repository: &Repository,
     scan: &mut Candidates,
     control: &Control,
 ) -> Result<(), Fault> {
-    let mut pending = vec![String::new()];
-    while let Some(prefix) = pending.pop() {
+    let mut pending = vec![(
+        String::new(),
+        root.try_clone().map_err(io_error)?,
+        root.entries().map_err(io_error)?,
+    )];
+    while let Some((prefix, dir, children)) = pending.last_mut() {
         control.check()?;
+        let Some(child) = children.next() else {
+            pending.pop();
+            continue;
+        };
         if !scan.has_budget() {
             scan.truncated = true;
             break;
         }
-        let dir = path::descend(path::root(root)?, &path::components(&prefix, true)?)?;
-        for child in dir.entries().map_err(io_error)? {
-            control.check()?;
-            if !scan.has_budget() {
-                scan.truncated = true;
-                break;
-            }
-            let child = child.map_err(io_error)?;
-            let name = child.file_name();
-            let Some(name) = name.to_str() else {
-                scan.scanned_entries += 1;
+        let child = child.map_err(io_error)?;
+        let name = child.file_name();
+        let Some(name) = name.to_str() else {
+            scan.scanned_entries += 1;
+            scan.omitted_paths += 1;
+            continue;
+        };
+        if name.eq_ignore_ascii_case(".git") {
+            continue;
+        }
+        let value = if prefix.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let kind = child.file_type().map_err(io_error)?;
+        // Tracked paths are retained from the index and HEAD even under an ignored directory.
+        let ignore_path = if kind.is_dir() {
+            format!("{value}/")
+        } else {
+            value.clone()
+        };
+        if repository
+            .status_should_ignore(Path::new(&ignore_path))
+            .map_err(fault)?
+        {
+            continue;
+        }
+        if kind.is_dir() {
+            scan.scanned_entries += 1;
+            if valid_path(&value).is_err() {
                 scan.omitted_paths += 1;
                 continue;
-            };
-            if name.eq_ignore_ascii_case(".git") {
-                continue;
             }
-            let value = if prefix.is_empty() {
-                name.to_owned()
-            } else {
-                format!("{prefix}/{name}")
-            };
-            let kind = child.file_type().map_err(io_error)?;
-            // Tracked paths are retained from the index and HEAD even under an ignored directory.
-            let ignore_path = if kind.is_dir() {
-                format!("{value}/")
-            } else {
-                value.clone()
-            };
-            if repository
-                .status_should_ignore(Path::new(&ignore_path))
-                .map_err(fault)?
-            {
-                continue;
-            }
-            if kind.is_dir() {
-                scan.scanned_entries += 1;
-                if valid_path(&value).is_ok() {
-                    pending.push(value);
-                } else {
-                    scan.omitted_paths += 1;
-                }
-            } else {
-                scan.observe_bytes(value.as_bytes());
-            }
+            let child = dir.open_dir_nofollow(name).map_err(io_error)?;
+            #[cfg(windows)]
+            path::identity::directory(&child)?;
+            let children = child.entries().map_err(io_error)?;
+            pending.push((value, child, children));
+        } else if kind.is_file() || kind.is_symlink() {
+            scan.observe_bytes(value.as_bytes());
+        } else {
+            scan.scanned_entries += 1;
+            scan.omitted_paths += 1;
+            scan.paths.remove(&value);
         }
     }
     Ok(())
