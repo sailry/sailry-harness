@@ -35,11 +35,13 @@ fn preserves_explicit_kind() {
             finished_ms: None,
             origin: None,
             continuation: None,
+            joined: None,
             notice: false,
             notices: Vec::new(),
             input: None,
         };
         let body = serde_json::to_value(&run).unwrap();
+        assert!(body.get("joined").is_none());
         assert_eq!(body["kind"], name);
         assert_eq!(serde_json::from_value::<Run>(body).unwrap(), run);
     }

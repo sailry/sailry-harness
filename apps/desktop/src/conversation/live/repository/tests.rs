@@ -17,6 +17,7 @@ fn run() -> Run {
         finished_ms: None,
         origin: None,
         continuation: None,
+        joined: None,
         notice: false,
         notices: vec![],
         input: None,

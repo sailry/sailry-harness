@@ -292,45 +292,57 @@ impl View {
         if run.kind == sailry_protocol::conversation::RunKind::Compaction {
             return self.compaction_turn(run, &snapshot.page, cx);
         }
-        let automatic = run.continuation.is_some() || run.notice;
-
-        let sent_ms = snapshot
-            .page
-            .entries
-            .iter()
-            .find(|entry| entry.turn == turn && entry.author == "user")
-            .map(|entry| entry.timestamp_ms);
-        let input = sailry_client::conversation::turns::input(&snapshot.page, turn);
-        let mut prompt = input
-            .as_ref()
-            .map(|input| input.message.text.clone())
-            .unwrap_or_default();
-        let mut references = input
-            .as_ref()
-            .map(|input| input.message.references.clone())
-            .unwrap_or_default();
-        let mut attachments: Vec<_> = input
-            .as_ref()
+        let users: Vec<_> = sailry_client::conversation::turns::group(&snapshot.page, turn)
             .into_iter()
-            .flat_map(|input| &input.attachments)
-            .map(attachments::images::ImageSource::from)
+            .filter(|run| run.continuation.is_none() && !run.notice)
+            .filter_map(|run| {
+                let turn = run.turn;
+                let sent_ms = snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .find(|entry| entry.turn == turn && entry.author == "user")
+                    .map(|entry| entry.timestamp_ms);
+                let input = sailry_client::conversation::turns::input(&snapshot.page, turn);
+                let mut prompt = input
+                    .as_ref()
+                    .map(|input| input.message.text.clone())
+                    .unwrap_or_default();
+                let mut references = input
+                    .as_ref()
+                    .map(|input| input.message.references.clone())
+                    .unwrap_or_default();
+                let mut attachments: Vec<_> = input
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|input| &input.attachments)
+                    .map(attachments::images::ImageSource::from)
+                    .collect();
+                // Admission and canonical user content arrive independently.
+                if sent_ms.is_none()
+                    && run.input.is_none()
+                    && let Some(outgoing) = self
+                        .outgoing
+                        .as_ref()
+                        .filter(|outgoing| outgoing.turn == Some(turn))
+                        .or_else(|| self.sent.get(&turn))
+                {
+                    prompt = outgoing.input.text.clone();
+                    references = outgoing.input.references.clone();
+                    attachments = outgoing.attachments.clone();
+                }
+                if prompt.is_empty() && attachments.is_empty() && references.is_empty() {
+                    return None;
+                }
+                Some(
+                    Message::new()
+                        .alignment(MessageAlignment::End)
+                        .footer(self.user_footer(turn, &prompt, sent_ms, cx))
+                        .content(self.user_content(turn, prompt, &references, attachments, cx)),
+                )
+            })
             .collect();
-        // Admission and canonical user content arrive independently. Keep the
-        // local prompt in its admitted turn until the user event replaces it.
-        if sent_ms.is_none()
-            && run.input.is_none()
-            && let Some(outgoing) = self
-                .outgoing
-                .as_ref()
-                .filter(|outgoing| outgoing.turn == Some(turn))
-                .or_else(|| self.sent.get(&turn))
-        {
-            prompt = outgoing.input.text.clone();
-            references = outgoing.input.references.clone();
-            attachments = outgoing.attachments.clone();
-        }
         let blocks = blocks::collect(turn, &self.history);
-        let user_footer = self.user_footer(turn, &prompt, sent_ms, cx);
         let phase = self
             .history
             .connected
@@ -636,27 +648,8 @@ impl View {
                 MessageGroup::new()
                     .gap(px(10.))
                     .pb(px(28.))
-                    .when(
-                        !automatic
-                            && (!prompt.is_empty()
-                                || !attachments.is_empty()
-                                || !references.is_empty()),
-                        |group| {
-                            group.child(
-                                Message::new()
-                                    .alignment(MessageAlignment::End)
-                                    .footer(user_footer)
-                                    .content(self.user_content(
-                                        turn,
-                                        prompt,
-                                        &references,
-                                        attachments,
-                                        cx,
-                                    )),
-                            )
-                        },
-                    )
-                    .child(
+                    .children(users)
+                    .when(run.joined.is_none(), |group| group.child(
                         Message::new()
                             .header(
                                 MessageHeader::new().content_inset(false).w_full().child(
@@ -673,7 +666,7 @@ impl View {
                             )
                             .content(crate::theme::messages::assistant(content, cx))
                             .when(!frame::active(run.status), |message| message.footer(footer)),
-                    ),
+                    )),
             )
             .into_any_element()
     }

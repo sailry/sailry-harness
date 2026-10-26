@@ -81,7 +81,13 @@ pub(super) async fn build(
         }),
         ingress: ingress.clone(),
         turn: invocation.turn.id,
-        current: invocation.message.attachments.clone(),
+        current: invocation
+            .message
+            .attachments
+            .iter()
+            .chain(invocation.followups.iter().flat_map(|input| &input.message.attachments))
+            .copied()
+            .collect(),
         vision: metadata.is_none_or(|model| model.vision)
             && provider
                 .binding

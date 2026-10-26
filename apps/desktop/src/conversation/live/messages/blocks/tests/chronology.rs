@@ -86,6 +86,7 @@ fn history() -> (TurnId, View) {
                     finished_ms: Some(2),
                     origin: None,
                     continuation: None,
+                    joined: None,
                     notice: false,
                     notices: Vec::new(),
                     input: None,
@@ -191,6 +192,18 @@ fn keeps_reused_calls_independent() {
     drop(blocks);
     let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
     page.children.last_mut().unwrap().run.status = Status::Running;
+    let blocks = collect(turn, &history);
+    assert!(
+        matches!(&blocks[0], Block::Children(children) if children[0].run.turn == source && children[1].run.turn == reused)
+    );
+    drop(blocks);
+    let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
+    let mut joined = page.children.last().unwrap().clone();
+    joined.run.turn = TurnId::new();
+    joined.run.sequence = 12;
+    joined.run.status = Status::Continued;
+    joined.run.joined = Some(source);
+    page.children.push(joined);
     let blocks = collect(turn, &history);
     assert!(
         matches!(&blocks[0], Block::Children(children) if children[0].run.turn == source && children[1].run.turn == reused)

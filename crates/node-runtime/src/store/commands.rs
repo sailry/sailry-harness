@@ -787,6 +787,7 @@ pub(super) fn execute<'a>(
         | Command::RemoveQueuedTurn { .. }
         | Command::SendQueuedTurn { .. }
         | Command::GuideQueuedTurn { .. }
+        | Command::WithdrawGuidance { .. }
         | Command::MoveQueuedTurn { .. }
         | Command::SetQueuePaused { .. } => {
             defer(move || async move { super::agent::queue::execute(db, caller, request).await })

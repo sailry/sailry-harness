@@ -881,6 +881,11 @@ pub enum Command {
         recipient: crate::TurnId,
         expected_revision: u64,
     },
+    /// Keeps the queued input while withdrawing its pending guidance intent.
+    WithdrawGuidance {
+        turn: crate::TurnId,
+        expected_revision: u64,
+    },
     MoveQueuedTurn {
         session: SessionId,
         expected_revision: u64,

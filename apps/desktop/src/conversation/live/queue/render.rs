@@ -121,6 +121,27 @@ impl Panel {
         let remove = self
             .remove_button(turn, revision, cx)
             .disabled(self.blocked() || item.guidance.is_some());
+        let withdraw = item.guidance.is_some().then(|| {
+            Button::new(format!("live-queue-withdraw-{turn}"))
+                .rounded_full()
+                .ghost()
+                .small()
+                .label(tr("queue_withdraw"))
+                .disabled(self.blocked())
+                .debug_selector(move || format!("queue-withdraw-{turn}"))
+                .on_click(cx.listener(move |panel, _, window, cx| {
+                    cx.stop_propagation();
+                    panel.execute(
+                        Command::WithdrawGuidance {
+                            turn,
+                            expected_revision: revision,
+                        },
+                        window,
+                        cx,
+                    );
+                }))
+                .into_any_element()
+        });
         presentation::row(
             format!("live-queue-row-{turn}"),
             key,
@@ -131,6 +152,7 @@ impl Panel {
                 .then_some(edit.into_any_element())
                 .into_iter()
                 .chain(guide)
+                .chain(withdraw)
                 .chain((!self.child && !item.notice).then_some(send.into_any_element()))
                 .chain([remove.into_any_element()]),
             cx,

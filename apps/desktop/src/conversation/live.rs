@@ -526,16 +526,14 @@ impl View {
 
     /// The running task that accepts guidance at its next model boundary.
     fn recipient(&self) -> Option<&sailry_protocol::conversation::Run> {
-        self.history
-            .snapshot
-            .as_ref()?
-            .page
-            .runs
-            .iter()
-            .find(|run| {
-                run.status == Status::Running
-                    && run.kind == sailry_protocol::conversation::RunKind::Task
-            })
+        let page = &self.history.snapshot.as_ref()?.page;
+        page.runs.iter().find(|run| {
+            run.kind == sailry_protocol::conversation::RunKind::Task
+                && (run.status == Status::Running
+                    || run.status == Status::Stopping
+                        && !page.queue.paused
+                        && page.queue.items.iter().any(|item| item.guidance == Some(run.turn)))
+        })
     }
 
     fn active_run(&self) -> Option<&sailry_protocol::conversation::Run> {

@@ -451,6 +451,7 @@ pub(super) async fn admit(
             worktree,
             provider,
             message,
+            followups: Vec::new(),
             child: Some(Child { role }),
             plugins,
             plugin_settings,

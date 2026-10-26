@@ -160,7 +160,7 @@ impl Panel {
             .as_ref()
             .map(|snapshot| &snapshot.page.queue);
         let connected = view.connected();
-        let guidance_blocked = view.busy() || view.outgoing.is_some();
+        let guidance_blocked = view.busy();
         let recipient = view.recipient().map(|run| run.turn);
         let outgoing = view.queued_outgoing();
         let represented = view.transcript_pending().map(|item| item.turn);
@@ -202,7 +202,9 @@ impl Panel {
         !self.child
             || matches!(
                 command,
-                Command::ReadQueuedTurn { .. } | Command::RemoveQueuedTurn { .. }
+                Command::ReadQueuedTurn { .. }
+                    | Command::RemoveQueuedTurn { .. }
+                    | Command::WithdrawGuidance { .. }
             )
     }
 

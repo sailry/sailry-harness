@@ -146,3 +146,56 @@ fn correlates_only_exact_present_request() {
         super::super::super::turns::pending(&queue, sailry_protocol::RequestId::new()).is_none()
     );
 }
+
+#[test]
+fn guides_in_queue_order_until_canonical_input() {
+    let (_, mut snapshot, mut first, _) = fixture();
+    first.status = Status::Queued;
+    first.sequence = 2;
+    first.input = Some(sailry_protocol::conversation::SentInput {
+        message: "First guide".into(),
+        attachments: Vec::new(),
+    });
+    let mut second = first.clone();
+    second.turn = TurnId::new();
+    second.sequence = 3;
+    second.input.as_mut().unwrap().message = "Second guide".into();
+    let page = Arc::make_mut(&mut snapshot.page);
+    page.runs.extend([first.clone(), second.clone()]);
+    let mut item = pending().items.remove(0);
+    item.turn = second.turn;
+    item.guidance = Some(page.runs[0].turn);
+    let mut other = item.clone();
+    other.turn = first.turn;
+    page.queue.items = vec![item, other];
+    let selected = super::super::super::turns::guided(page);
+    assert_eq!(
+        selected.iter().map(|run| run.turn).collect::<Vec<_>>(),
+        [second.turn, first.turn]
+    );
+    assert_eq!(
+        selected[0].input.as_ref().unwrap().message.text,
+        "Second guide"
+    );
+    page.entries.push(Entry {
+        sequence: 1,
+        id: "guided-user".into(),
+        turn: second.turn,
+        author: "user".into(),
+        branch: String::new(),
+        timestamp_ms: 0,
+        usage: None,
+        citations: Vec::new(),
+        search_suggestions: None,
+        parts: vec![Part::Text("Second guide".into())],
+    });
+    assert_eq!(
+        super::super::super::turns::guided(page)
+            .iter()
+            .map(|run| run.turn)
+            .collect::<Vec<_>>(),
+        [first.turn]
+    );
+    page.queue.items[1].guidance = None;
+    assert!(super::super::super::turns::guided(page).is_empty());
+}

@@ -571,7 +571,11 @@ mod controller {
             .collect();
         assert_eq!(
             order,
-            [(first, Some(active)), (second, None), (waiting, None)]
+            [
+                (first, Some(active)),
+                (second, Some(active)),
+                (waiting, None)
+            ]
         );
         let controls = handoff(&mut fixture, active).await;
         assert_eq!(
@@ -592,5 +596,50 @@ mod controller {
             .unwrap();
         assert_eq!(next.turn.id, first);
         assert_eq!(next.message.text, "Use the second file");
+        assert_eq!(next.followups.len(), 1);
+        assert_eq!(next.followups[0].turn.id, second);
+        assert_eq!(next.followups[0].message.text, "Keep the tests");
+        let joined = runs::get(&fixture.database.connection, second)
+            .await
+            .unwrap();
+        assert_eq!(joined.joined, Some(first));
+        assert_eq!(joined.status, Status::Continued);
+        assert_eq!(
+            read(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap()
+                .items
+                .iter()
+                .map(|item| item.turn)
+                .collect::<Vec<_>>(),
+            [waiting]
+        );
+    }
+
+    #[tokio::test]
+    async fn accepts_input_during_handoff() {
+        let mut fixture = Fixture::new().await;
+        let (active, first) = admitted(&mut fixture).await;
+        let controls = handoff(&mut fixture, active).await;
+        let last = guide(&mut fixture, active, "Late boundary input").await;
+        assert_eq!(
+            finish(
+                &mut fixture,
+                &controls,
+                active,
+                Status::Cancelled,
+                None,
+                None
+            )
+            .await,
+            Status::Continued
+        );
+        let next = runs::claim_guidance(&mut fixture.database, active, &fixture.events)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.turn.id, first);
+        assert_eq!(next.followups[0].turn.id, last);
+        assert_eq!(next.followups[0].message.text, "Late boundary input");
     }
 }

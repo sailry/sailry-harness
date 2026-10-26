@@ -18,6 +18,7 @@ pub(crate) const INPUT_PART: &str = "sailry.context.input_part";
 pub(crate) struct Sessions {
     ingress: Arc<Ingress>,
     turn: TurnId,
+    input_turn: TurnId,
     input_source: &'static str,
     references: Vec<reference::Reference>,
     notices: Vec<sailry_protocol::conversation::background::Notice>,
@@ -34,6 +35,7 @@ impl Sessions {
         Self {
             ingress,
             turn,
+            input_turn: turn,
             input_source: "user",
             references: Vec::new(),
             notices: Vec::new(),
@@ -63,6 +65,11 @@ impl Sessions {
 
     pub(crate) fn with_input_source(mut self, source: &'static str) -> Self {
         self.input_source = source;
+        self
+    }
+
+    pub(crate) fn with_input_turn(mut self, turn: TurnId) -> Self {
+        self.input_turn = turn;
         self
     }
 
@@ -263,7 +270,7 @@ impl SessionService for Sessions {
         if event.author == "user" {
             event
                 .provider_metadata
-                .insert(INPUT_TURN.into(), self.turn.to_string());
+                .insert(INPUT_TURN.into(), self.input_turn.to_string());
             event
                 .provider_metadata
                 .insert(INPUT_SOURCE.into(), self.input_source.into());
@@ -302,7 +309,11 @@ impl SessionService for Sessions {
         self.ingress
             .submit(Job::Agent(Box::new(Operation::Append {
                 session,
-                turn: self.turn,
+                turn: if event.author == "user" {
+                    self.input_turn
+                } else {
+                    self.turn
+                },
                 event,
                 reply,
             })))

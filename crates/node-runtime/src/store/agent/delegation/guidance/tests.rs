@@ -97,7 +97,7 @@ async fn captures_input_and_call_ancestry() {
         .find(|run| run.turn == source.id)
         .unwrap();
     assert_eq!(queued.status, Status::Queued);
-    assert!(queued.input.is_none());
+    assert_eq!(queued.input.as_ref().unwrap().message, message);
     assert!(
         queued_guidance(&fixture.database.connection, source.id)
             .await
@@ -119,17 +119,16 @@ async fn captures_input_and_call_ancestry() {
         message
     );
     let duplicate = prepare(&fixture, &child, "Another guide".into());
-    assert_eq!(
-        execute(&mut fixture, duplicate).await.unwrap_err().code,
-        ErrorCode::Conflict
-    );
+    let Output::QueuedTurn(second) = execute(&mut fixture, duplicate).await.unwrap() else {
+        panic!("turn expected")
+    };
     assert_eq!(
         queue::read(&fixture.database.connection, child.turn.session)
             .await
             .unwrap()
             .items
             .len(),
-        1
+        2
     );
     assert!(
         queue::guidance::yield_run(&mut fixture.database, child.turn.id, &fixture.events)
@@ -163,6 +162,9 @@ async fn captures_input_and_call_ancestry() {
     );
     assert_eq!(next.turn.id, source.id);
     assert_eq!(next.message, message);
+    assert_eq!(next.followups.len(), 1);
+    assert_eq!(next.followups[0].turn.id, second.id);
+    assert_eq!(next.followups[0].message.text, "Another guide");
     let claimed = history::pages::read(&fixture.database.connection, child.turn.session, None, 20)
         .await
         .unwrap();
@@ -186,10 +188,12 @@ async fn captures_input_and_call_ancestry() {
     );
     assert_eq!(next.child.unwrap().role, Some(role));
     let summaries = fixture.read(None, 20).await.page.children;
-    assert_eq!(summaries.len(), 2);
+    assert_eq!(summaries.len(), 3);
     assert_eq!(summaries[0].run.status, Status::Cancelled);
     assert_eq!(summaries[1].run.status, Status::Running);
     assert_eq!(summaries[0].origin, summaries[1].origin);
+    assert_eq!(summaries[2].run.joined, Some(source.id));
+    assert_eq!(summaries[2].run.status, Status::Continued);
 }
 
 #[tokio::test]

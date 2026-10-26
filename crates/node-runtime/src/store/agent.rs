@@ -292,6 +292,7 @@ pub(crate) struct Invocation {
     pub provider: Option<Provider>,
     pub media: super::media::Models,
     pub message: Input,
+    pub followups: Vec<sailry_protocol::conversation::QueuedMessage>,
     pub child: Option<Child>,
     pub plugins: Vec<plugin::Info>,
     pub plugin_settings:

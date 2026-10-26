@@ -53,12 +53,6 @@ pub(in crate::store) async fn guide(
             ));
         }
     }
-    if queue::guidance::pending(db, run.turn).await?.is_some() {
-        return Err(Fault::new(
-            ErrorCode::Conflict,
-            "child already has pending guidance",
-        ));
-    }
     let turn = queue::guidance::inherit(db, caller, request, &run, message).await?;
     follow(db, run.turn, turn.id).await?;
     queue::guidance::tag(db, turn.id, run.turn).await?;

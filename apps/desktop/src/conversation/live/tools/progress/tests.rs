@@ -15,6 +15,7 @@ fn isolates_turn_activity() {
         error: None,
         origin: None,
         continuation: None,
+        joined: None,
         notice: false,
         notices: Vec::new(),
         input: None,

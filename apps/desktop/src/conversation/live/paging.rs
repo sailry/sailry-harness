@@ -112,7 +112,11 @@ impl View {
                             )
                         })
                         .filter(|run| {
-                            (run.status != Status::Queued || child)
+                            (run.status != Status::Queued
+                                || child
+                                    && !snapshot.page.queue.items.iter().any(|item| {
+                                        item.turn == run.turn && item.guidance.is_some()
+                                    }))
                                 && (run.status != Status::Cancelled
                                     || child
                                     || run.kind == RunKind::Compaction
@@ -142,6 +146,13 @@ impl View {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+        if let Some(snapshot) = &self.history.snapshot {
+            for run in sailry_client::conversation::turns::guided(&snapshot.page) {
+                if !rows.contains(&run.turn) {
+                    rows.push(run.turn);
+                }
+            }
+        }
         if let Some(outgoing) = &self.outgoing
             && !outgoing.turn.is_some_and(|turn| rows.contains(&turn))
         {

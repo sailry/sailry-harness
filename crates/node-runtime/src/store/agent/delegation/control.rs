@@ -73,7 +73,7 @@ pub(in crate::store) async fn owned(
         ));
     }
     let body: Vec<u8> = {
-        let mut statement = db.prepare("SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 ORDER BY CASE json_extract(a.body,'$.status') WHEN 'running' THEN 0 WHEN 'stopping' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
+        let mut statement = db.prepare("SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.joined') IS NULL ORDER BY CASE json_extract(a.body,'$.status') WHEN 'running' THEN 0 WHEN 'stopping' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
         let row = statement
             .query_row([child.to_string()])
             .await

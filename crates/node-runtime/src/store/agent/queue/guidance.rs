@@ -10,10 +10,13 @@ pub(in crate::store) async fn recipient(
     expected_revision: Option<u64>,
 ) -> Result<Run, Fault> {
     let run = runs::get(db, turn).await?;
-    if run.kind != RunKind::Task || run.status != Status::Running {
+    let handing_off = run.status == Status::Stopping
+        && !read(db, run.session).await?.paused
+        && pending(db, turn).await?.is_some();
+    if run.kind != RunKind::Task || !(run.status == Status::Running || handing_off) {
         return Err(Fault::new(
             ErrorCode::Conflict,
-            "guidance requires a running task recipient",
+            "guidance requires an active task recipient",
         ));
     }
     if let Some(revision) = expected_revision {
@@ -63,7 +66,11 @@ async fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<boo
         && provider(source.turn).await? == provider(target.turn).await?)
 }
 
-async fn compatible(db: &Connection, source: &Run, target: &Run) -> Result<(), Fault> {
+pub(in crate::store::agent) async fn compatible(
+    db: &Connection,
+    source: &Run,
+    target: &Run,
+) -> Result<(), Fault> {
     if !same_capture(db, source, target).await? {
         return Err(Fault::new(
             ErrorCode::Conflict,
@@ -87,6 +94,19 @@ pub(in crate::store) async fn tag(
     }
     let target = recipient(db, target, None).await?;
     compatible(db, &source, &target).await?;
+    let items = read(db, source.session).await?.items;
+    let mut others = items.iter().filter(|item| item.turn != source.turn);
+    let before = if let Some(last) = items
+        .iter()
+        .rposition(|item| item.turn != source.turn && item.guidance == Some(target.turn))
+    {
+        items[last + 1..]
+            .iter()
+            .find(|item| item.turn != source.turn)
+            .map(|item| item.turn)
+    } else {
+        others.next().map(|item| item.turn)
+    };
     db.execute(
         "UPDATE agent_pending SET recipient=?2,revision=revision+1 WHERE turn=?1",
         params![source.turn.to_string(), target.turn.to_string()],
@@ -94,12 +114,7 @@ pub(in crate::store) async fn tag(
     .await
     .map_err(storage_error)?;
     runs::start(db, source.turn).await?;
-    let first = read(db, source.session)
-        .await?
-        .items
-        .first()
-        .map(|item| item.turn);
-    reorder(db, source.session, source.turn, first).await?;
+    reorder(db, source.session, source.turn, before).await?;
     pause(db, source.session, false).await
 }
 
@@ -124,8 +139,18 @@ pub(super) async fn select(
             "guidance belongs to another execution scope",
         ));
     }
-    // Retargeting never discards the previous pending input.
-    clear(db, source.session, None).await?;
+    let recipients: std::collections::BTreeSet<_> = read(db, source.session)
+        .await?
+        .items
+        .into_iter()
+        .filter_map(|item| item.guidance)
+        .collect();
+    for recipient in recipients {
+        let run = runs::get(db, recipient).await?;
+        if !matches!(run.status, Status::Running | Status::Stopping) {
+            clear(db, source.session, Some(recipient)).await?;
+        }
+    }
     let mut changed = Vec::new();
     let selected = if same_capture(db, &source, &target).await? {
         source.turn
@@ -159,6 +184,9 @@ pub(super) async fn select(
         turn.id
     };
     tag(db, selected, target.turn).await?;
+    if !changed.iter().any(|run| run.turn == selected) {
+        changed.push(runs::get(db, selected).await?);
+    }
     Ok((source.session, changed))
 }
 
@@ -217,24 +245,8 @@ pub(in crate::store) async fn guide(
     super::super::super::sessions::writable(
         &super::super::super::commands::session(db, target.session).await?,
     )?;
-    let earlier = pending(db, target.turn).await?;
     let turn = inherit(db, caller, request, &target, message).await?;
-    if let Some(earlier) = earlier {
-        // Later guidance waits directly behind the input already selected for this boundary.
-        let next = read(db, target.session)
-            .await?
-            .items
-            .iter()
-            .skip_while(|item| item.turn != earlier)
-            .nth(1)
-            .map(|item| item.turn)
-            .filter(|next| *next != turn.id);
-        if next.is_some() {
-            reorder(db, target.session, turn.id, next).await?;
-        }
-    } else {
-        tag(db, turn.id, target.turn).await?;
-    }
+    tag(db, turn.id, target.turn).await?;
     Ok((
         Output::QueuedTurn(turn.clone()),
         Some(super::super::activity::queued(db, turn).await?),

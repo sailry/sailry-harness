@@ -1604,6 +1604,7 @@ chat_child_unavailable: 子会话尚不可用，请重试
 chat_child_guide: 引导
 chat_queue_guide: 引导
 queue_guided: 等待插入
+queue_withdraw: 撤回
 subagent_running: 运行中
 queue_add: 加入示例队列
 queue_count: "%{count} 条待发送"

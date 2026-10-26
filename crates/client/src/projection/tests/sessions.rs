@@ -107,6 +107,7 @@ fn descendant_activity_follows_events_and_recovery() {
         finished_ms: None,
         origin: None,
         continuation: None,
+        joined: None,
         notice: false,
         notices: Vec::new(),
         input: None,

@@ -147,7 +147,10 @@ impl View {
             .adaptive_width()
             .on_resize(move |_, cx| {
                 _ = resizing.update(cx, |view, cx| {
-                    if let Some(index) = view.rows.iter().position(|id| *id == turn) {
+                    let row = view.history.snapshot.as_ref().map_or(turn, |snapshot| {
+                        sailry_client::conversation::turns::owner(&snapshot.page, turn)
+                    });
+                    if let Some(index) = view.rows.iter().position(|id| *id == row) {
                         view.scroller.update(cx, |scroller, cx| {
                             scroller.remeasure_items(index..index + 1, cx)
                         });

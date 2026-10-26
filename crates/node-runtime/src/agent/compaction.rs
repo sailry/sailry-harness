@@ -205,6 +205,9 @@ impl Summarizer {
             output: metadata.map(|model| model.output as i32),
             instruction: (invocation.turn.kind == sailry_protocol::conversation::RunKind::Task
                 && !invocation.automatic
+                // A guidance batch obtains its latest instruction from the
+                // attributed canonical inputs, including joined turns.
+                && invocation.followups.is_empty()
                 && !invocation.message.text.is_empty())
             .then(|| Instruction {
                 source: if invocation.child.is_some() {

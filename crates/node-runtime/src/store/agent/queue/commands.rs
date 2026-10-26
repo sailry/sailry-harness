@@ -56,6 +56,7 @@ pub(in crate::store) async fn execute(
             ).await
             .map_err(storage_error)?;
             bump(db, run.session).await?;
+            changed.push(run.clone());
             run.session
         }
         Command::RemoveQueuedTurn {
@@ -108,6 +109,43 @@ pub(in crate::store) async fn execute(
                     .await?;
             changed.extend(runs);
             session
+        }
+        Command::WithdrawGuidance {
+            turn,
+            expected_revision,
+        } => {
+            let run = check_item(db, *turn, *expected_revision).await?;
+            let session = super::super::super::commands::session(db, run.session).await?;
+            if session.delegation.is_some()
+                && !super::super::delegation::queued_guidance(db, run.turn).await?
+            {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "child queued input is read-only",
+                ));
+            }
+            let affected = db
+                .execute(
+                    "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL",
+                    [turn.to_string()],
+                )
+                .await
+                .map_err(storage_error)?;
+            if affected == 0 {
+                return Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "queued input has no pending guidance",
+                ));
+            }
+            db.execute(
+                "UPDATE agent_runs SET ready=0 WHERE turn=?1",
+                [turn.to_string()],
+            )
+            .await
+            .map_err(storage_error)?;
+            bump(db, run.session).await?;
+            changed.push(run.clone());
+            run.session
         }
         Command::MoveQueuedTurn {
             session,

@@ -282,6 +282,7 @@ pub(super) fn lifecycle(command: &Command) -> bool {
             | Command::StartQueuedTurn { .. }
             | Command::SendQueuedTurn { .. }
             | Command::GuideQueuedTurn { .. }
+            | Command::WithdrawGuidance { .. }
             | Command::MoveQueuedTurn { .. }
             | Command::SetQueuePaused { .. }
     )

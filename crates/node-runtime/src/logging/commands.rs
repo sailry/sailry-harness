@@ -9,6 +9,7 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         Command::SubmitTask { session, .. } => ("submit_task", Some(*session), None),
         Command::GuideTurn { recipient, .. } => ("guide_turn", None, Some(*recipient)),
         Command::GuideQueuedTurn { turn, .. } => ("guide_queued_turn", None, Some(*turn)),
+        Command::WithdrawGuidance { turn, .. } => ("withdraw_guidance", None, Some(*turn)),
         Command::StopTurn { turn } => ("stop_turn", None, Some(*turn)),
         Command::ResolveQuestion { session, .. } => ("resolve_question", Some(*session), None),
         Command::ResolveApproval { session, .. } => ("resolve_approval", Some(*session), None),

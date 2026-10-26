@@ -1,5 +1,6 @@
 use super::*;
 
+mod guidance;
 mod input;
 pub(super) use input::{capture, hydrate};
 
@@ -128,6 +129,7 @@ async fn insert(
         finished_ms: None,
         origin: None,
         continuation: None,
+        joined: None,
         notice: false,
         notices: Vec::new(),
         input: None,
@@ -354,7 +356,7 @@ async fn claim_with(
         .unchecked_transaction()
         .await
         .map_err(storage_error)?;
-    let mut query = transaction.prepare("SELECT a.body,a.provider,t.caller,r.worktree FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND json_extract(a.body,'$.status')='queued' AND ((?1 IS NULL AND NOT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns child ON child.id=d.turn WHERE child.session=t.session)) OR (?1 IS NOT NULL AND p.recipient=?1)) AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").await.map_err(storage_error)?;
+    let mut query = transaction.prepare("SELECT a.body,a.provider,t.caller,r.worktree,p.recipient FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND json_extract(a.body,'$.status')='queued' AND ((?1 IS NULL AND NOT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns child ON child.id=d.turn WHERE child.session=t.session)) OR (?1 IS NOT NULL AND p.recipient=?1)) AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").await.map_err(storage_error)?;
     let row = (match (async {
         let row = query
             .query_row([recipient.map(|turn| turn.to_string())])
@@ -365,6 +367,7 @@ async fn claim_with(
                 row.get::<Option<Vec<u8>>>(1)?,
                 row.get::<Vec<u8>>(2)?,
                 row.get::<String>(3)?,
+                row.get::<Option<String>>(4)?,
             ))
         })(&row);
         mapped
@@ -377,7 +380,7 @@ async fn claim_with(
     })
     .map_err(storage_error)?;
     drop(query);
-    let Some((body, provider, caller, worktree)) = row else {
+    let Some((body, provider, caller, worktree, selected)) = row else {
         transaction.rollback().await.map_err(storage_error)?;
         return Ok(None);
     };
@@ -403,6 +406,14 @@ async fn claim_with(
         return Box::pin(claim_with(database, recipient, events)).await;
     }
     let queued = super::queue::message(&transaction, run.turn).await?;
+    let (followups, joined) = guidance::claim(
+        &transaction,
+        &run,
+        selected
+            .map(|turn| turn.parse().map_err(storage_error))
+            .transpose()?,
+    )
+    .await?;
     let plugins = if queued.turn.kind == RunKind::Task {
         crate::store::agent::plugins::packages(&transaction, &queued.turn.plugins).await?
     } else {
@@ -467,6 +478,7 @@ async fn claim_with(
         turn: queued.turn,
         provider,
         message: queued.message,
+        followups,
         child: if recipient.is_some() {
             super::delegation::child(&transaction, run.turn).await?
         } else {
@@ -498,6 +510,11 @@ async fn claim_with(
     let queue = super::queue::read(&transaction, run.session).await?;
     let envelope = changed(&transaction, database.node, run.session).await?;
     let child = super::children::get(&transaction, &run).await?;
+    let mut joined_children = Vec::with_capacity(joined.len());
+    for joined in joined {
+        let child = super::children::get(&transaction, &joined).await?;
+        joined_children.push((joined, child));
+    }
     let publication = publication.lock().await;
     crate::store::database::conflict::commit(transaction).await?;
     publication.send(events, envelope);
@@ -519,6 +536,14 @@ async fn claim_with(
     diagnostic.status = Some(run.status);
     diagnostic.emit();
     super::feed::run(database, run).await;
+    for (run, child) in joined_children {
+        super::feed::run(database, run).await;
+        if let Some(child) = child {
+            database
+                .feeds
+                .publish(database.node, child.origin.session, Change::Child(child));
+        }
+    }
     super::background::publish(database, background).await;
     if let Some(child) = child {
         database

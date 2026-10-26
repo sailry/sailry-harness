@@ -50,7 +50,7 @@ pub(in crate::store) async fn read(db: &Connection, session: SessionId) -> Resul
     // queue admission would hide its outcome from Node subscribers.
     let body: Option<Vec<u8>> = {
         let mut statement = db.prepare("SELECT a.body FROM conversation_turns h JOIN turns t ON t.id=h.turn JOIN agent_runs a ON a.turn=t.id
-         WHERE h.session=?1 ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,(json_extract(a.body,'$.status')='queued'),t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
+         WHERE h.session=?1 AND json_extract(a.body,'$.joined') IS NULL ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,(json_extract(a.body,'$.status')='queued'),t.rowid DESC LIMIT 1").await.map_err(storage_error)?;
         match statement.query_row([session.to_string()]).await {
             Ok(row) => {
                 let mapped: turso::Result<_> = row.get(0);

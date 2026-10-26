@@ -12,6 +12,58 @@ pub fn pending(queue: &Queue, request: RequestId) -> Option<&Pending> {
         .find(|item| item.request == Some(request))
 }
 
+/// Pending guidance follows queue order until its canonical user entry arrives.
+pub fn guided(page: &Page) -> Vec<&Run> {
+    page.queue
+        .items
+        .iter()
+        .filter(|item| item.guidance.is_some())
+        .filter_map(|item| {
+            page.runs.iter().find(|run| {
+                run.turn == item.turn
+                    && run.status == Status::Queued
+                    && run.input.is_some()
+                    && !page
+                        .entries
+                        .iter()
+                        .any(|entry| entry.turn == run.turn && entry.author == "user")
+            })
+        })
+        .collect()
+}
+
+/// Joined inputs share their response's row while retaining their source turns.
+pub fn owner(page: &Page, turn: TurnId) -> TurnId {
+    page.runs
+        .iter()
+        .find(|run| run.turn == turn)
+        .and_then(|run| run.joined)
+        .filter(|owner| page.runs.iter().any(|run| run.turn == *owner))
+        .unwrap_or(turn)
+}
+
+/// Canonical user order supplies the input order within one response.
+pub fn group(page: &Page, turn: TurnId) -> Vec<&Run> {
+    let mut runs: Vec<_> = page
+        .runs
+        .iter()
+        .filter(|run| run.turn == turn || run.joined == Some(turn))
+        .collect();
+    runs.sort_by_key(|run| {
+        let sequence = page
+            .entries
+            .iter()
+            .find(|entry| entry.turn == run.turn && entry.author == "user")
+            .map(|entry| entry.sequence);
+        (
+            run.turn != turn,
+            sequence.is_none(),
+            sequence.unwrap_or(run.sequence),
+        )
+    });
+    runs
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct InputView {
     #[serde(flatten)]
@@ -86,6 +138,9 @@ pub fn input(page: &Page, turn: TurnId) -> Option<SentInput> {
 }
 
 pub fn visible(run: &Run, page: &Page, drafts: &[Draft]) -> bool {
+    if owner(page, run.turn) != run.turn {
+        return false;
+    }
     run.continuation.is_none()
         || run.status != Status::Continued
         || page

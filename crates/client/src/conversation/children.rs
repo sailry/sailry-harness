@@ -34,7 +34,10 @@ pub fn rank(child: &Child) -> (bool, bool, u64) {
 
 pub fn latest<'a>(children: impl IntoIterator<Item = &'a Child>) -> Vec<&'a Child> {
     let mut selected = BTreeMap::<SessionId, &Child>::new();
-    for child in children {
+    for child in children
+        .into_iter()
+        .filter(|child| child.run.joined.is_none())
+    {
         let current = selected.entry(child.run.session).or_insert(child);
         if rank(child) > rank(current) {
             *current = child;
@@ -59,7 +62,7 @@ pub fn running(children: &[Child], parent: Option<SessionId>) -> Vec<&Child> {
 pub fn selected(children: &[Child], session: SessionId) -> Option<&Child> {
     children
         .iter()
-        .filter(|child| child.run.session == session)
+        .filter(|child| child.run.session == session && child.run.joined.is_none())
         .max_by_key(|child| rank(child))
 }
 

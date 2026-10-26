@@ -11,6 +11,7 @@ mod controls;
 mod delegation;
 mod diagnostics;
 mod guidance;
+mod inputs;
 mod mcp;
 pub(crate) use mcp::check::run as check_mcp;
 pub(crate) mod media;
@@ -391,7 +392,8 @@ async fn execute_with(
         compaction::manual(ingress, &invocation, model, stop).await?;
         return Ok(Outcome::default());
     }
-    let content = attachments::input(ingress, &invocation).await?;
+    let inputs = inputs::Batch::capture(ingress, &invocation).await?;
+    let (input_turn, input_references, content) = inputs.current();
     let mut prompt_session = prompt::Session::load(ingress, &invocation).await?;
     let resources = Arc::new(crate::plugins::resources::Resources::new(
         ingress.plugins.clone(),
@@ -497,9 +499,6 @@ async fn execute_with(
             &extensions.instruction,
         );
     }
-    instruction.push_str(
-        &references::capabilities::instruction(&invocation, &resources, &extensions.tools).await?,
-    );
     instruction.push_str("\n\n");
     instruction.push_str(prompt::recipient(invocation.child.is_some()));
     let mut policy = format!(
@@ -509,6 +508,9 @@ async fn execute_with(
             invocation.turn.config.permission,
             invocation.child.is_some(),
         )
+    );
+    policy.push_str(
+        &references::capabilities::instruction(&invocation, &resources, &extensions.tools).await?,
     );
     if let Some(title) = title::instruction(
         invocation.title.as_deref(),
@@ -602,6 +604,7 @@ async fn execute_with(
     let agent = agent.build().map_err(model::error)?;
     let sessions = Arc::new(
         crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
+            .with_input_turn(input_turn)
             .with_input_source(if invocation.child.is_some() {
                 "parent"
             } else if invocation.notice {
@@ -612,7 +615,7 @@ async fn execute_with(
                 "user"
             })
             .with_notices(invocation.notices.clone(), invocation.notice_input.clone())
-            .with_references(invocation.message.references.clone())
+            .with_references(input_references)
             .with_groupings(catalog.groupings())
             .with_displays(catalog.displays())
             .with_connection_context(bindings.clone(), invocation.connections.resources())
@@ -647,6 +650,13 @@ async fn execute_with(
     if stop.is_cancelled() {
         return Ok(Outcome::default());
     }
+    inputs
+        .append(
+            ingress,
+            &invocation,
+            if invocation.child.is_some() { "parent" } else { "user" },
+        )
+        .await?;
     let mut runner_span = diagnostics.span(Phase::Runner, None);
     let mut events = runner
         .run(user, session_id, content)

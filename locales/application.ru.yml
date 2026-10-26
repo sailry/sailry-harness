@@ -1475,6 +1475,7 @@ chat_child_unavailable: "Подсессия недоступна; попробу
 chat_child_guide: "Направить"
 chat_queue_guide: "Направить"
 queue_guided: "Следующим"
+queue_withdraw: "Отозвать"
 subagent_running: "Выполняется"
 queue_add: "Добавить в очередь предварительного просмотра"
 queue_count: "%{count} в стадии рассмотрения"

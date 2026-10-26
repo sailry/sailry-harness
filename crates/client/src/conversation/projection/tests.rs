@@ -28,6 +28,7 @@ fn fixture() -> (Projection, Snapshot, Run, Draft) {
         finished_ms: None,
         origin: None,
         continuation: None,
+        joined: None,
         notice: false,
         notices: Vec::new(),
         input: None,

@@ -10,7 +10,12 @@ pub(in crate::agent) async fn instruction(
 ) -> Result<String, Fault> {
     let mut result = String::new();
     let mut loaded = BTreeSet::new();
-    for reference in &invocation.message.references {
+    for reference in invocation.message.references.iter().chain(
+        invocation
+            .followups
+            .iter()
+            .flat_map(|input| &input.message.references),
+    ) {
         match &reference.target {
             Target::Plugin(name) => {
                 let names: Vec<_> = tools

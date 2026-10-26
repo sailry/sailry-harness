@@ -152,6 +152,7 @@ fn queued_activity(session: &Session, turn: &QueuedTurn) -> sailry_protocol::act
             finished_ms: None,
             origin: None,
             continuation: None,
+            joined: None,
             input: None,
             notice: false,
             notices: Vec::new(),

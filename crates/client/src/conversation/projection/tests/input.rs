@@ -213,3 +213,67 @@ fn preserves_queued_child_input_through_claim() {
         Some(original)
     );
 }
+
+#[test]
+fn groups_joined_inputs_before_their_response() {
+    use crate::conversation::turns;
+
+    let (_, mut snapshot, mut primary, _) = fixture();
+    primary.sequence = 3;
+    primary.input = Some(SentInput {
+        message: "Primary guide".into(),
+        attachments: Vec::new(),
+    });
+    let mut first = primary.clone();
+    first.turn = TurnId::new();
+    first.sequence = 1;
+    first.joined = Some(primary.turn);
+    first.status = Status::Continued;
+    first.input.as_mut().unwrap().message = "Earlier admitted guide".into();
+    let mut second = first.clone();
+    second.turn = TurnId::new();
+    second.sequence = 2;
+    second.input.as_mut().unwrap().message = "Later admitted guide".into();
+    let page = Arc::make_mut(&mut snapshot.page);
+    page.runs = vec![first.clone(), second.clone(), primary.clone()];
+    for (index, run) in [&primary, &second, &first].into_iter().enumerate() {
+        page.entries.push(Entry {
+            sequence: index as u64 + 1,
+            id: format!("batch-user-{index}"),
+            turn: run.turn,
+            author: "user".into(),
+            branch: String::new(),
+            timestamp_ms: 0,
+            parts: vec![Part::Text(run.input.as_ref().unwrap().message.text.clone())],
+            citations: Vec::new(),
+            search_suggestions: None,
+            usage: None,
+        });
+    }
+    assert_eq!(
+        turns::group(page, primary.turn)
+            .iter()
+            .map(|run| run.turn)
+            .collect::<Vec<_>>(),
+        [primary.turn, second.turn, first.turn]
+    );
+    assert_eq!(page.runs[0].turn, first.turn);
+    assert_eq!(
+        turns::input(page, first.turn).unwrap().message.text,
+        "Earlier admitted guide"
+    );
+    assert!(turns::visible(&primary, page, &[]));
+    assert!(!turns::visible(&first, page, &[]));
+    assert_eq!(turns::owner(page, first.turn), primary.turn);
+
+    page.runs.retain(|run| run.turn != primary.turn);
+    assert!(turns::visible(&first, page, &[]));
+    assert_eq!(turns::owner(page, first.turn), first.turn);
+    assert_eq!(
+        turns::group(page, first.turn)
+            .iter()
+            .map(|run| run.turn)
+            .collect::<Vec<_>>(),
+        [first.turn]
+    );
+}

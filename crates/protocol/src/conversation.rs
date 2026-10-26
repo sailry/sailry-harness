@@ -200,6 +200,9 @@ pub struct Run {
     /// Package-owned automatic input, distinct from inherited history ownership.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continuation: Option<Continuation>,
+    /// Primary turn that delivered this guidance input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub joined: Option<TurnId>,
     #[serde(default)]
     pub notice: bool,
     #[serde(default)]

@@ -78,7 +78,14 @@ impl View {
         let Some(target) = &self.reveal else {
             return false;
         };
-        let Some(index) = self.rows.iter().position(|turn| *turn == target.turn) else {
+        let row = self
+            .history
+            .snapshot
+            .as_ref()
+            .map_or(target.turn, |snapshot| {
+                sailry_client::conversation::turns::owner(&snapshot.page, target.turn)
+            });
+        let Some(index) = self.rows.iter().position(|turn| *turn == row) else {
             return false;
         };
         if !self.history.snapshot.as_ref().is_some_and(|snapshot| {

@@ -72,29 +72,6 @@ impl Panel {
             extract: false,
             attachments: Vec::new(),
         };
-        if let Command::GuideQueuedTurn {
-            turn, recipient, ..
-        } = attempt.request.command
-            && let Some(item) = self.queue.items.iter().find(|item| item.turn == turn)
-        {
-            let input = sailry_protocol::conversation::Input {
-                text: item.preview.clone(),
-                attachments: item
-                    .attachments
-                    .iter()
-                    .map(|attachment| attachment.id)
-                    .collect(),
-                references: Vec::new(),
-            };
-            let attachments = item.attachments.clone();
-            let request = attempt.request.id;
-            let shown = self.owner.update(cx, |view, cx| {
-                view.show_guidance(turn, recipient, request, input, attachments, cx)
-            });
-            if !matches!(shown, Ok(true)) {
-                return;
-            }
-        }
         self.retry = Some(attempt);
         self.sync_guidance(cx);
         self.retry(window, cx);
@@ -124,11 +101,6 @@ impl Panel {
                 return Ok(captured);
             }
             let (turn, expected_revision) = match read_request.command {
-                Command::GuideQueuedTurn {
-                    turn,
-                    expected_revision,
-                    ..
-                } => (turn, expected_revision),
                 Command::RemoveQueuedTurn {
                     turn,
                     expected_revision,
@@ -159,15 +131,6 @@ impl Panel {
                         let valid = panel.update_in(cx, |panel, _, cx| {
                             if extract && super::super::references::inline::content(&message.text, &message.references).is_err() { return false; }
                             if let Some(attempt) = &mut panel.retry { attempt.message = Some(message.clone()); }
-                            let _ = panel.owner.update(cx, |view, cx| {
-                                if let Some(outgoing) = &mut view.outgoing
-                                    && outgoing.request == Some(attempt.request.id)
-                                {
-                                    outgoing.input = message.clone();
-                                }
-                                view.sync_rows(cx);
-                                cx.notify();
-                            });
                             true
                         });
                         if !matches!(valid, Ok(true)) {
@@ -238,19 +201,6 @@ impl Panel {
                                 view.references.selected = message.references;
                                 view.input.update(cx, |input, cx| input.set_value(content, window, cx));
                                 view.restore_attachments(attachments, cx);
-                                cx.notify();
-                            });
-                        }
-                        if let Command::GuideQueuedTurn {recipient,..} = attempt.request.command
-                            && let Some(item) = update.queue.items.iter().find(|item| item.guidance == Some(recipient))
-                        {
-                            let _ = panel.owner.update(cx, |view,cx| {
-                                if let Some(outgoing) = &mut view.outgoing
-                                    && outgoing.request == Some(attempt.request.id) {
-                                        outgoing.turn=Some(item.turn);
-                                        if let Some(guidance) = &mut outgoing.guidance {guidance.revision=Some(update.queue.revision);}
-                                    }
-                                view.sync_rows(cx);
                                 cx.notify();
                             });
                         }

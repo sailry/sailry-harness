@@ -580,6 +580,7 @@ impl Database {
                 | Command::StartQueuedTurn { turn }
                 | Command::EditQueuedTurn { turn, .. }
                 | Command::RemoveQueuedTurn { turn, .. }
+                | Command::WithdrawGuidance { turn, .. }
                 | Command::SendQueuedTurn { turn, .. }
                 | Command::ReadQueuedTurn { turn } => {
                     let session = context

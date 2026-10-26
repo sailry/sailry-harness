@@ -584,6 +584,31 @@ async fn preserves_latest_instruction_without_model_attribution() {
 }
 
 #[tokio::test]
+async fn retains_latest_joined_input() {
+    let (summarizer, _) = summarizer(vec![complete("Both inputs were considered")], false);
+    let mut events = history();
+    let mut joined = events[0].clone();
+    joined.id = "joined-user".into();
+    joined.provider_metadata.insert(
+        crate::store::agent::INPUT_TURN.into(),
+        TurnId::new().to_string(),
+    );
+    joined.set_content(Content::new("user").with_text("Also retain this later instruction"));
+    events.insert(1, joined);
+    let summary = summarizer.summarize_events(&events).await.unwrap().unwrap();
+    assert_eq!(
+        latest(std::slice::from_ref(&summary)).unwrap().text,
+        "Also retain this later instruction"
+    );
+    assert!(
+        summary.actions.compaction.unwrap().compacted_content.parts[0]
+            .text()
+            .unwrap()
+            .ends_with("Also retain this later instruction")
+    );
+}
+
+#[tokio::test]
 async fn preserves_large_verbatim_instructions() {
     let (mut summarizer, model) = summarizer(vec![complete("Summary")], false);
     summarizer.instruction = Some(Instruction {

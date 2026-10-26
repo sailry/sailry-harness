@@ -20,6 +20,7 @@ fn child(parent: SessionId, session: SessionId, status: Status, sequence: u64) -
             finished_ms: None,
             origin: None,
             continuation: None,
+            joined: None,
             notice: false,
             notices: vec![],
             input: None,

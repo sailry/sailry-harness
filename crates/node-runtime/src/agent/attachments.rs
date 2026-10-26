@@ -63,23 +63,38 @@ pub(crate) fn id(uri: &str) -> Result<AttachmentId, Fault> {
 }
 
 pub(super) async fn input(ingress: &Ingress, invocation: &Invocation) -> Result<Content, Fault> {
+    message(
+        ingress,
+        invocation.turn.id,
+        &invocation.message,
+        invocation.notice_input.as_deref(),
+    )
+    .await
+}
+
+pub(super) async fn message(
+    ingress: &Ingress,
+    turn: TurnId,
+    message: &sailry_protocol::conversation::Input,
+    notice: Option<&str>,
+) -> Result<Content, Fault> {
     let mut content = Content::new("user");
-    if let Some(notice) = &invocation.notice_input {
-        content = content.with_text(notice.clone());
+    if let Some(notice) = notice {
+        content = content.with_text(notice);
     }
-    if !invocation.message.references.is_empty() {
+    if !message.references.is_empty() {
         // The canonical user event retains this context; projection uses its typed metadata.
         content = content.with_text(format!(
             "User-selected references (plugin and skill targets are explicit capability requests; other targets are context identifiers, not contents. Use read_file/list_directory for paths and read_session for conversations before describing them):\n{}",
-            serde_json::to_string(&invocation.message.references)
+            serde_json::to_string(&message.references)
                 .map_err(|error| sailry_protocol::Fault::invalid(error.to_string()))?
         ));
     }
-    if !invocation.message.text.is_empty() {
-        content = content.with_text(invocation.message.text.clone());
+    if !message.text.is_empty() {
+        content = content.with_text(message.text.clone());
     }
-    for id in &invocation.message.attachments {
-        let attachment = ingress.attachment(invocation.turn.id, *id).await?;
+    for id in &message.attachments {
+        let attachment = ingress.attachment(turn, *id).await?;
         content.parts.push(Part::FileData {
             mime_type: attachment.spec.media_type,
             file_uri: format!("{PREFIX}{id}"),

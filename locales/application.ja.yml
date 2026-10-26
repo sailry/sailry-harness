@@ -1475,6 +1475,7 @@ chat_child_unavailable: "サブセッションが利用できません。もう�
 chat_child_guide: "ガイド"
 chat_queue_guide: "ガイド"
 queue_guided: "次に挿入"
+queue_withdraw: "撤回"
 subagent_running: "実行中"
 queue_add: "プレビューキューに追加"
 queue_count: "%{count} 待機中"

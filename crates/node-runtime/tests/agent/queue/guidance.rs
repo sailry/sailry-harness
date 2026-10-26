@@ -18,6 +18,44 @@ async fn held(fixture: &Fixture, message: Input) -> QueuedTurn {
     turn
 }
 
+async fn attachment(fixture: &Fixture, bytes: &[u8]) -> attachment::Attachment {
+    let Output::AttachmentUpload(upload) = fixture
+        .client
+        .execute(
+            fixture
+                .client
+                .prepare(Command::UploadAttachment(attachment::Spec {
+                    worktree: fixture.session.worktree,
+                    name: "context.txt".into(),
+                    media_type: "text/plain".into(),
+                    size: bytes.len() as u64,
+                    revision: blake3::hash(bytes).to_hex().to_string(),
+                })),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("upload expected")
+    };
+    fixture
+        .client
+        .upload(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
+        .await
+        .unwrap();
+    let Output::Attachment(attachment) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::FinishAttachmentUpload {
+            worktree: fixture.session.worktree,
+            stream: upload.stream,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("attachment expected")
+    };
+    attachment
+}
+
 fn guide(fixture: &Fixture, turn: TurnId, recipient: TurnId, revision: u64) -> Request {
     fixture.client.prepare(Command::GuideQueuedTurn {
         turn,
@@ -362,41 +400,7 @@ async fn retains_streamed_text() {
 async fn preserves_stopped_input() {
     for remote in [false, true] {
         let (mut fixture, active) = asking(remote).await;
-        let bytes = b"Retained attachment";
-        let Output::AttachmentUpload(upload) = fixture
-            .client
-            .execute(
-                fixture
-                    .client
-                    .prepare(Command::UploadAttachment(attachment::Spec {
-                        worktree: fixture.session.worktree,
-                        name: "context.txt".into(),
-                        media_type: "text/plain".into(),
-                        size: bytes.len() as u64,
-                        revision: blake3::hash(bytes).to_hex().to_string(),
-                    })),
-            )
-            .await
-            .unwrap()
-        else {
-            panic!("upload expected")
-        };
-        fixture
-            .client
-            .upload(&upload, &mut &bytes[..], CancellationToken::new(), |_| {})
-            .await
-            .unwrap();
-        let Output::Attachment(attachment) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::FinishAttachmentUpload {
-                worktree: fixture.session.worktree,
-                stream: upload.stream,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("attachment expected")
-        };
+        let attachment = attachment(&fixture, b"Retained attachment").await;
         let input = Input {
             text: "Retain this guidance 中文 🙂\n".repeat(100),
             attachments: vec![attachment.id],
@@ -492,7 +496,7 @@ async fn preserves_stopped_input() {
 }
 
 #[tokio::test]
-async fn retargets_without_discarding_input() {
+async fn retains_each_selection() {
     for remote in [false, true] {
         let (fixture, active) = asking(remote).await;
         let first = held(&fixture, "First guidance".into()).await;
@@ -508,31 +512,44 @@ async fn retargets_without_discarding_input() {
             .await
             .unwrap();
         let queue = fixture.queue().await;
-        assert_eq!(queue.items[0].turn, second.id);
+        assert_eq!(queue.items[0].turn, first.id);
         assert_eq!(queue.items[0].guidance, Some(active.id));
-        assert_eq!(queue.items[1].turn, first.id);
-        assert_eq!(queue.items[1].guidance, None);
+        assert_eq!(queue.items[0].revision, 2);
+        assert_eq!(queue.items[1].turn, second.id);
+        assert_eq!(queue.items[1].guidance, Some(active.id));
         assert_eq!(
             read(&fixture.client, first.id).await.message.text,
             "First guidance"
         );
         fixture
             .client
+            .execute(fixture.client.prepare(Command::WithdrawGuidance {
+                turn: second.id,
+                expected_revision: queue.items[1].revision,
+            }))
+            .await
+            .unwrap();
+        let withdrawn = fixture.queue().await;
+        assert_eq!(withdrawn.items[0], queue.items[0]);
+        assert_eq!(withdrawn.items[1].turn, second.id);
+        assert_eq!(withdrawn.items[1].guidance, None);
+        assert!(!withdrawn.items[1].ready);
+        assert_eq!(
+            read(&fixture.client, second.id).await.message.text,
+            "Second guidance"
+        );
+        fixture
+            .client
             .execute(fixture.client.prepare(Command::EditQueuedTurn {
                 turn: second.id,
-                expected_revision: queue.items[0].revision,
+                expected_revision: withdrawn.items[1].revision,
                 message: "Edited guidance".into(),
             }))
             .await
             .unwrap();
-        assert!(
-            fixture
-                .queue()
-                .await
-                .items
-                .iter()
-                .all(|item| item.guidance.is_none())
-        );
+        let edited = fixture.queue().await;
+        assert_eq!(edited.items[0], queue.items[0]);
+        assert_eq!(edited.items[1].guidance, None);
         assert_eq!(
             fixture
                 .client
@@ -540,7 +557,7 @@ async fn retargets_without_discarding_input() {
                     &fixture,
                     second.id,
                     active.id,
-                    queue.items[0].revision
+                    queue.items[1].revision
                 ))
                 .await
                 .unwrap_err()
@@ -555,6 +572,173 @@ async fn retargets_without_discarding_input() {
             Status::Running
         );
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ResolveQuestion {
+                session: fixture.session.id,
+                question: question.id,
+                response: question::Response::Answer(question::Answer::Text("Continue".into())),
+            }))
+            .await
+            .unwrap();
+        let page = finished(&fixture.client, fixture.session.id, first.id).await;
+        assert_eq!(status(&page, second.id), Status::Queued);
+        assert_eq!(page.queue.items.len(), 1);
+        assert_eq!(page.queue.items[0].turn, second.id);
+        assert!(!page.queue.items[0].ready);
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn batches_inputs_with_one_output_owner() {
+    for remote in [false, true] {
+        let server = Server::scripted_tools(vec![(
+            "ask_user".into(),
+            json!({"prompt":"Describe the task","input":{"kind":"text","multiline":true,"max_bytes":1024}}),
+        )]).await;
+        let mut fixture = Fixture::with_server(remote, server).await;
+        tools(&mut fixture).await;
+        std::fs::write(
+            fixture.directory.path().join("project/evidence.txt"),
+            "Captured batch evidence",
+        )
+        .unwrap();
+        let active = fixture.push("Initial task").await;
+        let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+        let attachment = attachment(&fixture, b"Batch attachment evidence").await;
+        let first = held(&fixture, "Read the evidence".into()).await;
+        let second = held(
+            &fixture,
+            Input {
+                text: "Report both instructions 中文 🙂".into(),
+                attachments: vec![attachment.id],
+                references: vec![reference::Reference {
+                    target: reference::Target::Plugin("files".into()),
+                    label: "Files".into(),
+                }],
+            },
+        )
+        .await;
+        let first_request = guide(&fixture, first.id, active.id, 1);
+        let first_result = fixture.client.execute(first_request.clone()).await.unwrap();
+        fixture
+            .client
+            .execute(guide(&fixture, second.id, active.id, 1))
+            .await
+            .unwrap();
+        let pending = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(
+            sailry_client::conversation::turns::guided(&pending)
+                .iter()
+                .map(|run| run.turn)
+                .collect::<Vec<_>>(),
+            [first.id, second.id]
+        );
+        for turn in [&first, &second] {
+            let run = pending.runs.iter().find(|run| run.turn == turn.id).unwrap();
+            assert_eq!(run.revision, turn.revision);
+            assert_eq!(
+                read(&fixture.client, turn.id).await.turn.request,
+                turn.request
+            );
+        }
+        fixture.server.replace_tools(vec![(
+            plugin_tool("files", "read_file"),
+            json!({"path":"evidence.txt"}),
+        )]);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ResolveQuestion {
+                session: fixture.session.id,
+                question: question.id,
+                response: question::Response::Answer(question::Answer::Text("Continue".into())),
+            }))
+            .await
+            .unwrap();
+        let page = finished(&fixture.client, fixture.session.id, first.id).await;
+        assert_eq!(status(&page, active.id), Status::Continued);
+        assert_eq!(status(&page, first.id), Status::Completed);
+        let joined = page.runs.iter().find(|run| run.turn == second.id).unwrap();
+        assert_eq!(joined.status, Status::Continued);
+        assert_eq!(joined.joined, Some(first.id));
+        assert!(page.queue.items.is_empty());
+        let entries: Vec<_> = page
+            .entries
+            .iter()
+            .filter(|entry| entry.author == "user" && [first.id, second.id].contains(&entry.turn))
+            .collect();
+        assert_eq!(entries.len(), 2);
+        assert_eq!([entries[0].turn, entries[1].turn], [first.id, second.id]);
+        assert!(
+            entries[1]
+                .parts
+                .iter()
+                .any(|part| matches!(part, Part::Attachment(value) if value.id == attachment.id))
+        );
+        assert!(sailry_client::conversation::turns::guided(&page).is_empty());
+        assert!(
+            !page
+                .entries
+                .iter()
+                .any(|entry| entry.turn == second.id && entry.author != "user")
+        );
+        let view = progress::observe(&fixture.client, fixture.session.id).await;
+        let call = view
+            .calls
+            .iter()
+            .find(|call| call.name == plugin_tool("files", "read_file"))
+            .unwrap();
+        assert_eq!(call.turn, first.id);
+        let reference = call.detail_reference(&page).unwrap();
+        assert_eq!(reference.turn, first.id);
+        let detail = fixture.client.tool_detail(reference).await.unwrap();
+        assert!(
+            detail
+                .result
+                .as_ref()
+                .unwrap()
+                .to_string()
+                .contains("Captured batch evidence")
+        );
+        let requests = fixture.server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3);
+        let inputs: Vec<_> = requests[1]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .collect();
+        let inputs = &inputs[inputs.len() - 2..];
+        assert!(
+            inputs[0]["content"]
+                .to_string()
+                .contains("Read the evidence")
+        );
+        assert!(
+            inputs[1]["content"]
+                .to_string()
+                .contains("Report both instructions 中文 🙂")
+        );
+        assert!(
+            inputs[1]["content"]
+                .to_string()
+                .contains(&attachment.id.to_string())
+        );
+        assert!(
+            requests[1]["messages"]
+                .to_string()
+                .contains("The user explicitly selected plugin files for this task.")
+        );
+        assert_eq!(requests[0]["messages"][0], requests[1]["messages"][0]);
+        assert_eq!(requests[0]["tools"], requests[1]["tools"]);
+        assert_eq!(
+            fixture.client.execute(first_request).await.unwrap(),
+            first_result
+        );
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 3);
         fixture.close().await;
     }
 }
