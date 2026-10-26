@@ -148,3 +148,15 @@ fn rejects_stale_routes_and_scopes() {
     current.name = "replacement".into();
     assert!(Entry::new(node, &page, &current).is_none());
 }
+
+#[test]
+fn excludes_incompatible_pages() {
+    let node = NodeId([1; 32]);
+    let mut page = info(Some("dev.sailry.platform/settings.js"));
+    let entry = Entry::new(node, &page, &page.summary).unwrap();
+    page.summary.compatibility = sailry_protocol::plugin::Compatibility::RequiresNewer {
+        required: "0.1.0-alpha.5".into(),
+    };
+    assert!(Entry::new(node, &page, &page.summary).is_none());
+    assert!(!entry.available(node, &[page.summary]));
+}

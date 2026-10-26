@@ -5,8 +5,12 @@ use gpui_kit::*;
 use lifecycle::Initialization;
 use sailry_client::View;
 use sailry_link::CancellationToken;
-use sailry_protocol::plugin::{Context as Scope, Reference, Summary};
+use sailry_protocol::plugin::{Context as Scope, Reference, Summary, desktop::Surface};
 use std::{cell::RefCell, rc::Rc};
+
+fn accepts(summary: &Summary, surface: Surface) -> bool {
+    summary.compatibility.is_compatible() && (summary.enabled || surface == Surface::Settings)
+}
 
 pub(super) type Snapshot = Rc<RefCell<Option<sailry_protocol::Snapshot>>>;
 
@@ -435,8 +439,7 @@ impl Panel {
         self.connected
             && self.selected.as_ref().is_some_and(|selected| {
                 self.summaries.iter().any(|summary| {
-                    (summary.enabled
-                        || self.surface == sailry_protocol::plugin::desktop::Surface::Settings)
+                    accepts(summary, self.surface)
                         && summary.name == selected.name
                         && summary.reference() != *selected
                 })
@@ -462,11 +465,10 @@ impl Panel {
 
     pub(super) fn available(&self, package: &Reference) -> bool {
         self.scope_available()
-            && self.summaries.iter().any(|summary| {
-                (summary.enabled
-                    || self.surface == sailry_protocol::plugin::desktop::Surface::Settings)
-                    && summary.reference() == *package
-            })
+            && self
+                .summaries
+                .iter()
+                .any(|summary| accepts(summary, self.surface) && summary.reference() == *package)
     }
 
     pub(crate) fn enter(
@@ -545,11 +547,7 @@ impl Panel {
         if let Some(package) = self
             .summaries
             .iter()
-            .find(|summary| {
-                (summary.enabled
-                    || self.surface == sailry_protocol::plugin::desktop::Surface::Settings)
-                    && summary.name == selected.name
-            })
+            .find(|summary| accepts(summary, self.surface) && summary.name == selected.name)
             .map(Summary::reference)
         {
             // A settings revision or reconnection invalidates the old host scope.
@@ -982,7 +980,7 @@ impl Panel {
             .entries
             .values()
             .filter_map(|info| {
-                if !info.summary.enabled {
+                if !info.summary.available() {
                     return None;
                 }
                 let extension = info.extension.as_ref()?;
@@ -1008,7 +1006,7 @@ impl Panel {
         cx: &App,
     ) -> Option<(String, Reference)> {
         self.metadata.read(cx).entries.values().find_map(|info| {
-            if !info.summary.enabled {
+            if !info.summary.available() {
                 return None;
             }
             let extension = info.extension.as_ref()?;
@@ -1028,5 +1026,43 @@ impl Panel {
                 info.summary.reference(),
             ))
         })
+    }
+}
+
+#[cfg(test)]
+mod availability {
+    use super::*;
+    use core::prelude::v1::test;
+    use sailry_protocol::plugin::Compatibility;
+
+    #[test]
+    fn preserves_disabled_settings_access() {
+        let mut summary: Summary = serde_json::from_value(serde_json::json!({
+            "name":"example", "revision":1, "digest":"capture", "settings_revision":0,
+            "version":"0.1.0", "enabled":false,
+        }))
+        .unwrap();
+        assert!(accepts(&summary, Surface::Settings));
+        assert!(!accepts(&summary, Surface::Workspace));
+        summary.enabled = true;
+        assert!(accepts(&summary, Surface::Workspace));
+    }
+
+    #[test]
+    fn rejects_incompatible_packages() {
+        let mut summary: Summary = serde_json::from_value(serde_json::json!({
+            "name":"example", "revision":1, "digest":"capture", "settings_revision":0,
+            "version":"0.1.0", "enabled":true,
+        }))
+        .unwrap();
+        summary.compatibility = Compatibility::RequiresNewer {
+            required: "0.1.0-alpha.5".into(),
+        };
+        for enabled in [true, false] {
+            summary.enabled = enabled;
+            for surface in [Surface::Workspace, Surface::Settings] {
+                assert!(!accepts(&summary, surface));
+            }
+        }
     }
 }
