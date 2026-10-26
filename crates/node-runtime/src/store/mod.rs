@@ -662,6 +662,7 @@ impl Store {
                 completed,
                 watches.clone(),
                 code_index.clone(),
+                git.clone(),
                 move |caller, roots, request| {
                     let root = &roots.target;
                     match &request.command {

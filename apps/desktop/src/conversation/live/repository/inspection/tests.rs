@@ -9,7 +9,7 @@ fn failed_read_remains_unknown_and_can_recover() {
     let mut inspection = Inspection::default();
     inspection.select(scope(), true);
     let first = inspection.begin(false).unwrap();
-    assert!(inspection.begin(true).is_none());
+    assert!(inspection.begin(false).is_none());
     assert!(inspection.finish(first, None));
     assert_eq!(inspection.kind(), Kind::Unknown);
     assert!(inspection.report_failure());
@@ -63,4 +63,19 @@ fn switching_back_rejects_the_original_response() {
     assert!(!inspection.finish(stale, Some(RepositoryKind::Directory)));
     assert_eq!(inspection.kind(), Kind::Unknown);
     assert!(inspection.finish(current, Some(RepositoryKind::Ready)));
+}
+
+#[test]
+fn coalesces_pending_invalidations() {
+    let mut inspection = Inspection::default();
+    inspection.select(scope(), true);
+    let first = inspection.begin(false).unwrap();
+    for _ in 0..3 {
+        assert!(inspection.begin(true).is_none());
+    }
+    assert!(inspection.finish(first, Some(RepositoryKind::Ready)));
+    let follow_up = inspection.begin(false).unwrap();
+    assert!(inspection.begin(false).is_none());
+    assert!(inspection.finish(follow_up, Some(RepositoryKind::Ready)));
+    assert!(inspection.begin(false).is_none());
 }

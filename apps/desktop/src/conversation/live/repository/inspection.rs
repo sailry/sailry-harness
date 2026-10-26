@@ -28,6 +28,7 @@ pub(super) struct Inspection {
     observed: Option<Kind>,
     reported: bool,
     attempted: bool,
+    invalidated: bool,
 }
 
 impl Inspection {
@@ -42,19 +43,24 @@ impl Inspection {
         self.observed = None;
         self.reported = false;
         self.attempted = false;
+        self.invalidated = false;
         true
     }
 
     pub(super) fn begin(&mut self, force: bool) -> Option<u64> {
-        if self.scope.is_none()
-            || !self.connected
-            || self.pending.is_some()
-            || !force && self.attempted
-        {
+        if self.scope.is_none() || !self.connected {
+            return None;
+        }
+        if self.pending.is_some() {
+            self.invalidated |= force;
+            return None;
+        }
+        if !force && self.attempted && !self.invalidated {
             return None;
         }
         self.generation += 1;
         self.attempted = true;
+        self.invalidated = false;
         self.pending = Some(self.generation);
         Some(self.generation)
     }

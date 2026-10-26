@@ -21,23 +21,31 @@ mod status;
 pub(crate) mod worktrees;
 
 use std::{
+    collections::BTreeMap,
     ffi::OsStr,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use cap_std::fs::Dir;
+use futures::{
+    FutureExt,
+    future::{BoxFuture, Shared, WeakShared},
+};
 use git2::{Config, Repository, RepositoryOpenFlags};
 use sailry_link::CancellationToken;
 use sailry_protocol::*;
 
 use crate::files::path;
 
+type StatusRead = BoxFuture<'static, Result<Output, Fault>>;
+
 #[derive(Clone)]
 pub(crate) struct Git {
     output: output::Journal,
     environment: Arc<crate::process::Environment>,
+    statuses: Arc<Mutex<BTreeMap<PathBuf, WeakShared<StatusRead>>>>,
 }
 
 impl Git {
@@ -45,6 +53,7 @@ impl Git {
         Self {
             output: Default::default(),
             environment,
+            statuses: Default::default(),
         }
     }
 
@@ -80,6 +89,61 @@ impl Git {
     }
 
     pub(crate) async fn inspect(
+        &self,
+        root: PathBuf,
+        command: Command,
+        closed: CancellationToken,
+    ) -> Result<Output, Fault> {
+        if matches!(&command, Command::InspectGit { .. }) {
+            if closed.is_cancelled() {
+                return Err(Fault::new(
+                    ErrorCode::Unavailable,
+                    "Node service is unavailable",
+                ));
+            }
+            let read = self.status(root, command);
+            return tokio::select! {
+                biased;
+                _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
+                result = read => result,
+            };
+        }
+        self.inspect_once(root, command, closed).await
+    }
+
+    fn status(&self, root: PathBuf, command: Command) -> Shared<StatusRead> {
+        let mut statuses = self
+            .statuses
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        // Retain only a running observation. The next read after completion always
+        // inspects disk again, even while another caller still holds its old result.
+        statuses.retain(|_, read| read.upgrade().is_some_and(|read| read.peek().is_none()));
+        if let Some(read) = statuses.get(&root).and_then(WeakShared::upgrade) {
+            return read;
+        }
+        let git = self.clone();
+        let source = root.clone();
+        let read = async move {
+            // Caller cancellation ends only that observation. The existing worker's
+            // drop guard cancels I/O when the last shared future is released.
+            git.inspect_once(source, command, CancellationToken::new())
+                .await
+        }
+        .boxed()
+        .shared();
+        statuses.insert(root, read.downgrade().expect("new status read is pending"));
+        read
+    }
+
+    pub(crate) fn invalidate(&self, root: &Path) {
+        self.statuses
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(root);
+    }
+
+    async fn inspect_once(
         &self,
         root: PathBuf,
         command: Command,
