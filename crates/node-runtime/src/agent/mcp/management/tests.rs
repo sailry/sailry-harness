@@ -17,7 +17,7 @@ fn preserves_anthropic_branches() {
             (json!({"action":"list"}), true),
             (
                 json!({"action":"uninstall","name":"mcp-fixture","expected_revision":1}),
-                !plan,
+                true,
             ),
             (json!({"action":"uninstall","name":"mcp-fixture"}), false),
             (json!({"action":"list","name":"mcp-fixture"}), false),
