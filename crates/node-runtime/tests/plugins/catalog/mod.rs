@@ -314,13 +314,19 @@ async fn obsolete_manifests_use_bundled_listings() {
             panic!("catalog expected");
         };
         assert!(!page.unavailable);
-        assert!(page.entries.iter().all(|entry| entry.bundled));
-        assert!(!page.entries.iter().any(|entry| entry.id == "official-new"));
+        let official = page
+            .entries
+            .iter()
+            .find(|entry| entry.id == "official-new")
+            .unwrap();
+        assert!(!official.bundled);
+        assert_eq!(official.version.as_deref(), Some("1.0.0"));
         let entry = page
             .entries
             .iter()
             .find(|entry| entry.id == "files")
             .unwrap();
+        assert!(entry.bundled);
         let details = details(
             execute(
                 &client,
@@ -351,7 +357,7 @@ async fn obsolete_manifests_use_bundled_listings() {
                     .await
                     .unwrap_err()
                     .code,
-                ErrorCode::InvalidRequest
+                ErrorCode::NotFound
             );
         }
         assert_eq!(execute(&client, Command::ListPlugins).await, before);

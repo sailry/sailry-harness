@@ -460,7 +460,14 @@ async fn offers_bundled_updates_on_catalog_failure() {
             catalog.requests.lock().unwrap().clear();
             let invalid = check(&client, std::slice::from_ref(&current.summary)).await;
             assert!(invalid.failures.is_empty());
-            assert_eq!(invalid.reports[0].available, offline.reports[0].available);
+            assert_eq!(
+                invalid.reports[0].available,
+                if obsolete {
+                    online.reports[0].available.clone()
+                } else {
+                    offline.reports[0].available.clone()
+                }
+            );
             assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
             assert_eq!(stored(&node), before);
             assert_eq!(private().await, body);
