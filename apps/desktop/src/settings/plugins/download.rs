@@ -84,7 +84,6 @@ fn mount(
                     &state.binding,
                     cx,
                 ))
-                .into()
             },
         );
         Download {
