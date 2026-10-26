@@ -93,6 +93,7 @@ pub(in crate::settings) struct State {
 pub(super) struct Entry {
     pub current: Summary,
     pub candidate: Option<Candidate>,
+    pub blocked: Option<checks::Blocked>,
     pub manual: bool,
     pub previous: Option<Info>,
 }
@@ -130,6 +131,21 @@ impl State {
             Candidate::Node(info) => Some(info),
             Candidate::Upload(package) => Some(&package.info),
         }
+    }
+
+    pub(in crate::settings) fn blocked(&self, current: &Summary) -> Option<&checks::Blocked> {
+        self.entries
+            .get(&current.name)
+            .filter(|entry| entry.current == *current)?
+            .blocked
+            .as_ref()
+    }
+
+    pub(in crate::settings) fn blocked_count(&self) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| entry.blocked.is_some())
+            .count()
     }
 
     pub(super) fn added_actions(&self, current: &Info) -> Vec<String> {
@@ -431,6 +447,7 @@ impl State {
                         }
                         let available = state.available();
                         let manual = state.entries.values().filter(|entry| entry.manual).count();
+                        let blocked = state.blocked_count();
                         let message = if failed > 0 {
                             rust_i18n::t!(
                                 "plugins_check_partial",
@@ -445,6 +462,8 @@ impl State {
                                 manual = manual
                             )
                             .into()
+                        } else if blocked > 0 {
+                            rust_i18n::t!("plugins_updates_require_sailry", count = blocked).into()
                         } else if available > 0 {
                             rust_i18n::t!("plugins_updates_found", count = available).into()
                         } else {
@@ -730,7 +749,12 @@ impl State {
                             let message = rust_i18n::t!(
                                 "plugins_update_error",
                                 name = name,
-                                error = tr(error_key(&error, uncertain))
+                                error = compatibility::error(
+                                    error_key(&error, uncertain),
+                                    compatibility::required(&error),
+                                    &state.binding,
+                                    cx,
+                                )
                             );
                             if let Some(dialog) = &mut state.dialog
                                 && let Some(row) = dialog.rows.get_mut(name)
@@ -845,6 +869,7 @@ async fn inspect(
     stop: CancellationToken,
 ) -> Result<Entry, Fault> {
     let current = &report.current;
+    let mut blocked = report.blocked;
     let (candidate, manual) = if report.manual
         && let Some(path) = directory
     {
@@ -854,6 +879,7 @@ async fn inspect(
                     current: report.current,
                     previous: None,
                     candidate: None,
+                    blocked,
                     manual: true,
                 });
             }
@@ -862,10 +888,25 @@ async fn inspect(
                 if package.info.summary.name != current.name {
                     return Err(Fault::invalid("plugin update has a different identity"));
                 }
-                (
-                    changed(current, &package.info.summary).then_some(Candidate::Upload(package)),
-                    false,
-                )
+                let candidate = changed(current, &package.info.summary).then_some(package);
+                let candidate = candidate.and_then(|package| {
+                    if let Some(required) = package.info.summary.compatibility.required() {
+                        blocked = Some(checks::Blocked {
+                            version: package
+                                .info
+                                .summary
+                                .version
+                                .clone()
+                                .unwrap_or_else(|| "—".into()),
+                            required: required.into(),
+                            release_notes: package.info.release_notes.clone(),
+                        });
+                        None
+                    } else {
+                        Some(Candidate::Upload(package))
+                    }
+                });
+                (candidate, false)
             }
         }
     } else {
@@ -879,7 +920,7 @@ async fn inspect(
         };
         (candidate, report.manual)
     };
-    let previous = if candidate.is_some() {
+    let previous = if candidate.is_some() || blocked.is_some() {
         let Output::Plugin(info) = binding
             .client
             .execute(binding.client.prepare(Command::ReadPluginVersion {
@@ -900,6 +941,7 @@ async fn inspect(
         current: report.current,
         previous,
         candidate,
+        blocked,
         manual,
     })
 }

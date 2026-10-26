@@ -1,0 +1,5 @@
+plugins_requires_sailry: "Requires Sailry %{version}"
+plugins_requires_node: "Requires Sailry %{version} on %{node}"
+plugins_update_sailry: "Update Sailry"
+plugins_updates_require_sailry: "%{count} updates require newer Sailry"
+plugins_review_updates: "Review updates"

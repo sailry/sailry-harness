@@ -1,6 +1,7 @@
 use super::entry::Entry;
 mod cards;
 pub(in crate::settings) mod classification;
+pub(in crate::settings) mod compatibility;
 pub(super) mod configuration;
 pub(in crate::settings) mod details;
 pub(super) mod dialog;

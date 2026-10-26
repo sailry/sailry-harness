@@ -176,7 +176,7 @@ impl Registry {
         cx: &App,
     ) -> bool {
         self.metadata.read(cx).entries.values().any(|info| {
-            info.summary.enabled
+            info.summary.available()
                 && info.extension.as_ref().is_some_and(|extension| {
                     extension.scope == Scope::Host
                         && extension.desktop.as_ref().is_some_and(|desktop| {
@@ -201,7 +201,7 @@ impl Registry {
             .read(cx)
             .entries
             .values()
-            .filter(|info| info.summary.enabled)
+            .filter(|info| info.summary.available())
         {
             let Some(extension) = info
                 .extension
@@ -282,7 +282,7 @@ impl Registry {
         cx: &App,
     ) -> bool {
         let owner = self.metadata.read(cx).entries.values().find_map(|info| {
-            if !info.summary.enabled {
+            if !info.summary.available() {
                 return None;
             }
             let renderer = info
@@ -493,7 +493,7 @@ impl Registry {
             .values()
             .filter_map(|info| {
                 let extension = info.extension.as_ref()?;
-                (info.summary.enabled
+                (info.summary.available()
                     && extension.ui.iter().any(|entry| self.accepts(entry.slot))
                     && assistant.map_or(extension.scope == Scope::Host, |binding| {
                         binding.package.name == info.summary.name
@@ -708,7 +708,9 @@ impl Registry {
                 .read(cx)
                 .entries
                 .get(&key.package.name)
-                .is_some_and(|info| info.summary.enabled && info.summary.reference() == key.package)
+                .is_some_and(|info| {
+                    info.summary.available() && info.summary.reference() == key.package
+                })
                 && mounted
                     .states
                     .get(&key.id)

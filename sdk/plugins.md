@@ -173,6 +173,25 @@ leaf emits that leaf's ID through `header_action()`; Header selections do not
 emit Menu events or values. Without `menu`, flat actions remain unchanged.
 Menus reuse the existing declaration validation and 256 top-level item limit.
 
+## Runtime compatibility
+
+Declare optional `min_sailry_version` inside `extensions.dev.sailry.platform`
+as a complete SemVer value, including a prerelease when applicable. The execution
+Node compares SemVer precedence against its own Sailry version. Omission imposes
+no minimum. Contracts remain `v1`; this field does not select another API version.
+
+When a package uses a new `sailry/*` module or export, extension field or permission,
+set the minimum to the first Sailry version containing that capability. Publish the
+dependent package version only after that Sailry version is released; earlier
+applications do not enforce this field.
+
+The Node rejects incompatible installation and enabling with structured
+`PluginRequiresNewer {required}` fault details. An incompatible installed package
+retains its files, configuration and saved enable choice, while its contributions
+remain unavailable. Update inspection keeps compatible candidates separate from
+newer releases requiring Sailry updates. Desktop's application update entry applies
+to its local execution Node; a remote requirement identifies the affected Node.
+
 ## Marketplace metadata
 
 The v1 extension may declare `category` (`development`, `documents`, `data`,

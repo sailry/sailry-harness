@@ -1,0 +1,5 @@
+plugins_requires_sailry: "Sailry %{version} が必要"
+plugins_requires_node: "%{node} に Sailry %{version} が必要"
+plugins_update_sailry: "Sailry を更新"
+plugins_updates_require_sailry: "%{count} 件の更新には新しい Sailry が必要"
+plugins_review_updates: "更新を確認"

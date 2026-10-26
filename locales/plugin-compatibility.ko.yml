@@ -1,0 +1,5 @@
+plugins_requires_sailry: "Sailry %{version} 필요"
+plugins_requires_node: "%{node}에 Sailry %{version} 필요"
+plugins_update_sailry: "Sailry 업데이트"
+plugins_updates_require_sailry: "업데이트 %{count}개에 새 Sailry 필요"
+plugins_review_updates: "업데이트 보기"

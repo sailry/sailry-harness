@@ -72,6 +72,26 @@ impl Details {
                 );
             }
         }
+        if let Some(blocked) = installed
+            .then(|| self.updates.read(cx).blocked(&info.summary))
+            .flatten()
+        {
+            rows.push(
+                super::rows::row(
+                    "plugin-blocked-version".into(),
+                    IconName::Tag,
+                    blocked.version.clone(),
+                    Some(compatibility::message(&blocked.required, &self.binding, cx).to_string()),
+                    h_flex().children(compatibility::action(
+                        "plugin-version-update-sailry",
+                        &self.binding,
+                        cx,
+                    )),
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
         rows.push(
             super::rows::row(
                 "plugin-installed-version".into(),

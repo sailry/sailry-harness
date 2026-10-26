@@ -18,6 +18,7 @@ pub(super) struct Editor {
     loading: bool,
     stop: sailry_link::CancellationToken,
     error: Option<&'static str>,
+    required: Option<String>,
     request: Option<Request>,
     pending: bool,
     closed: bool,
@@ -104,6 +105,7 @@ fn new(
         loading: false,
         stop: sailry_link::CancellationToken::new(),
         error: None,
+        required: None,
         request: None,
         pending: false,
         closed: false,
@@ -338,6 +340,7 @@ impl Editor {
                             if !live::uncertain(&error) {
                                 editor.request = None;
                             }
+                            editor.required = compatibility::required(&error).map(str::to_owned);
                             editor.error = Some(live::error_key(&error));
                             if editor.package.is_some()
                                 && error.code == sailry_protocol::ErrorCode::NotFound
@@ -366,10 +369,11 @@ impl Editor {
     fn report(&self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(error) = self.error else { return };
         let owner = cx.entity();
+        let message = compatibility::error(error, self.required.as_deref(), &self.binding, cx);
         crate::feedback::toast(
             window,
-            tr(error),
-            Notification::error(tr(error))
+            message.clone(),
+            Notification::error(message)
                 .id1::<Editor>(("package", cx.entity_id()))
                 .action(move |_, _, _| {
                     let owner = owner.clone();

@@ -70,6 +70,26 @@ impl Workspace {
                                 )
                             },
                         )
+                        .when(
+                            updates.is_some_and(|state| state.blocked_count() > 0),
+                            |view| {
+                                view.child(
+                                    Button::new("plugins-review-updates")
+                                        .label(tr("plugins_review_updates"))
+                                        .disabled(
+                                            busy || updates.is_some_and(|state| {
+                                                state.busy() || state.selecting()
+                                            }),
+                                        )
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            if let Some(state) = &this.plugin_catalog.updates {
+                                                state
+                                                    .update(cx, |state, cx| state.open(window, cx));
+                                            }
+                                        })),
+                                )
+                            },
+                        )
                         .child(
                             Button::new("plugins-download")
                                 .label(tr("plugins_download"))
@@ -188,6 +208,15 @@ impl Workspace {
         let description = info
             .and_then(metadata::description)
             .or_else(|| plugin.description.clone());
+        let description = plugin
+            .compatibility
+            .required()
+            .and_then(|required| {
+                self.provider_link
+                    .as_ref()
+                    .map(|live| compatibility::message(required, &live.binding, cx).to_string())
+            })
+            .or(description);
         let description = self
             .plugin_catalog
             .python
@@ -465,7 +494,9 @@ impl Workspace {
                     })
                     .child(
                         Switch::new(SharedString::from(format!("plugin-toggle-{name}")))
-                            .disabled(busy)
+                            .disabled(
+                                busy || (!plugin.enabled && !plugin.compatibility.is_compatible()),
+                            )
                             .checked(plugin.enabled)
                             .accessibility_label(tr("plugins_enabled"))
                             .on_click(cx.listener(move |this, enabled, window, cx| {
