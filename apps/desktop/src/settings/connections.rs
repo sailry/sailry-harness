@@ -5,10 +5,7 @@ use gpui_kit::component::{
     *,
 };
 use gpui_kit::*;
-use sailry_link::{
-    CancellationToken, RelaySelection,
-    rendezvous::{Relay, RequestId},
-};
+use sailry_link::{CancellationToken, RelaySelection, rendezvous::Relay};
 
 use super::group::Group;
 mod devices;
@@ -31,7 +28,7 @@ pub struct Connections {
     code: Option<String>,
     stop: Option<CancellationToken>,
     task: Option<Task<()>>,
-    claim: Option<(String, RequestId)>,
+    claim: sailry_client::pairing::Claim,
     relay_select: Entity<SelectState<Vec<relay::Network>>>,
     relay_address: Entity<InputState>,
     relay_feedback: Option<&'static str>,
@@ -97,7 +94,7 @@ impl Connections {
             code: None,
             stop: None,
             task: None,
-            claim: None,
+            claim: Default::default(),
             relay_select,
             relay_address,
             relay_feedback: None,
@@ -163,14 +160,7 @@ impl Connections {
             return;
         };
         let pin = self.pin.read(cx).value().to_string();
-        if self
-            .claim
-            .as_ref()
-            .is_none_or(|(previous, _)| previous != &pin)
-        {
-            self.claim = Some((pin.clone(), RequestId::default()));
-        }
-        let request = self.claim.as_ref().unwrap().1.clone();
+        let request = self.claim.request(&relay, &pin);
         let stop = CancellationToken::new();
         self.stop = Some(stop.clone());
         self.status = tr("pairing_preparing");

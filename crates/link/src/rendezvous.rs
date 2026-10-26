@@ -54,6 +54,11 @@ struct Redemption {
 }
 
 impl Relay {
+    /// The validated service origin, including the URL's canonical host and port.
+    pub fn origin(&self) -> &str {
+        self.base.as_str()
+    }
+
     /// HTTPS is required except for literal loopback addresses used in local tests.
     pub fn new(address: &str) -> Result<Self, Fault> {
         let _ = rustls::crypto::ring::default_provider().install_default();

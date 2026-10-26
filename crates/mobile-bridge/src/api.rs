@@ -8,6 +8,8 @@ pub(crate) mod overview;
 pub(crate) mod ports;
 pub(crate) mod speech;
 pub(crate) mod terminal;
+#[cfg(test)]
+mod tests;
 pub(crate) mod transfers;
 pub(crate) mod usage;
 pub use commands::CommandUpdates;
@@ -32,6 +34,7 @@ pub struct Controller {
     handle: LinkHandle,
     stop: CancellationToken,
     inbox: std::sync::Arc<Mutex<sailry_client::activity::Inbox>>,
+    claim: Mutex<sailry_client::pairing::Claim>,
 }
 
 impl Controller {
@@ -56,6 +59,7 @@ impl Controller {
             link: Mutex::new(Some(link)),
             stop: CancellationToken::new(),
             inbox: Default::default(),
+            claim: Default::default(),
         })
     }
 
@@ -66,16 +70,17 @@ impl Controller {
     }
 
     pub async fn pair_pin(&self, origin: String, pin: String) -> Result<String, String> {
-        use sailry_link::rendezvous::{DEFAULT_SERVICE, Relay, RequestId};
+        use sailry_link::rendezvous::{DEFAULT_SERVICE, Relay};
         self.check()?;
         let origin = if origin.trim().is_empty() {
             DEFAULT_SERVICE
         } else {
             origin.trim()
         };
-        let address = Relay::new(origin)
-            .map_err(error)?
-            .pair(&self.handle, &pin, &RequestId::default())
+        let relay = Relay::new(origin).map_err(error)?;
+        let request = self.claim.lock().await.request(&relay, &pin);
+        let address = relay
+            .pair(&self.handle, &pin, &request)
             .await
             .map_err(error)?;
         serde_json::to_string(&address).map_err(error)

@@ -16,6 +16,7 @@ pub mod login;
 pub mod oauth;
 mod observation;
 mod outcomes;
+pub mod pairing;
 pub mod permissions;
 pub mod ports;
 mod projection;
