@@ -3,7 +3,6 @@ use sailry_protocol::{
     Delegation,
     conversation::{Child, Run, RunKind, Status},
 };
-use serde_json::json;
 
 fn history() -> (TurnId, View) {
     let turn = TurnId::new();

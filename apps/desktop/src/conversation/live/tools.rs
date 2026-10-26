@@ -150,7 +150,7 @@ impl View {
             v_flex().into_any_element()
         };
         let content_id = format!("live-{turn}-{key}-content");
-        let references = calls
+        let references: Vec<_> = calls
             .iter()
             .filter_map(|call| call.detail_reference(page))
             .collect();

@@ -351,10 +351,10 @@ fn failed_raw_keeps_diagnostics() {
     call.failure = Some(tool::Failure {
         code: Some(ErrorCode::Unavailable),
     });
-    let Part::ToolResult { summary, .. } = &mut page.entries[1].parts[0] else {
+    let Part::ToolResult { summary: facts, .. } = &mut page.entries[1].parts[0] else {
         unreachable!()
     };
-    summary.diagnostics = true;
+    facts.diagnostics = true;
     assert!(has_content(&call, &page));
     assert!(expandable(&[&call], &page));
     assert!(!summary(&call, &page).detail.hide_caret);
