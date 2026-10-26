@@ -91,7 +91,7 @@ fn canonical_result_closes_pending_review() {
     result.parts[0] = Part::ToolResult {
         id: Some(page.questions[0].entry.clone()),
         name: "plan_review".into(),
-        summary: Box::new(Default::default()),
+        summary: Box::default(),
         images: Vec::new(),
     };
     page.entries.push(result);

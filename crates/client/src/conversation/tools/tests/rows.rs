@@ -14,7 +14,7 @@ fn returned(summary: Summary) -> Page {
     else {
         unreachable!()
     };
-    *target = Box::new(summary);
+    **target = summary;
     page.entries.push(response);
     page
 }

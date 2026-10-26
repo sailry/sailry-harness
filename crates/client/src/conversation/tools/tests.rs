@@ -50,7 +50,7 @@ fn entry(sequence: u64, turn: TurnId, branch: &str, result: bool) -> Entry {
             Part::ToolResult {
                 id: Some("call".into()),
                 name: "read_file".into(),
-                summary: Box::new(Default::default()),
+                summary: Box::default(),
                 images: vec![],
             }
         } else {
