@@ -333,6 +333,17 @@ fn rejects_invalid_options() {
 }
 
 #[test]
+fn explains_invalid_patterns() {
+    let root = directory();
+    let error = search(root.path(), &FileSearch {
+        regex:true,query:"[".into(),..options()
+    }, &control()).unwrap_err();
+    assert_eq!(error.code,ErrorCode::InvalidRequest);
+    assert!(error.message.contains("invalid file search pattern"));
+    assert!(error.message.contains("unclosed character class"),"{}",error.message);
+}
+
+#[test]
 fn preserves_large_context_across_bounded_pages() {
     let root = directory();
     let text = (1..=401)

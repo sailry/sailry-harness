@@ -156,7 +156,7 @@ fn traverse<'a>(
     if parts.iter().any(|part| part.eq_ignore_ascii_case(".git")) {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
-            "Git metadata cannot be searched",
+            "Git metadata cannot be searched; use the Git branches tool for remote names and URLs",
         ));
     }
     let mut directory = path::root(root.path())?;

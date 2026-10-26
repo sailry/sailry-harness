@@ -53,6 +53,15 @@ fn matches_names_without_reading_contents() {
 }
 
 #[test]
+fn directs_metadata_reads_to_git() {
+    let root = directory();
+    let error = collect(root.path(), ".git", &control()).err().unwrap();
+    assert_eq!(error.code,ErrorCode::PermissionDenied);
+    assert!(error.message.contains("Git branches tool"));
+    assert!(error.message.contains("remote names and URLs"));
+}
+
+#[test]
 fn bounds_results() {
     let root = directory();
     for index in 0..=MAX_FIND_MATCHES {

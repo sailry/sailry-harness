@@ -64,7 +64,8 @@ pub(super) fn search<'a>(
     if !options.multiline {
         builder.line_terminator(Some(b'\n'));
     }
-    let matcher = builder.build(&options.query).map_err(|_| invalid())?;
+    let matcher = builder.build(&options.query)
+        .map_err(|error| Fault::invalid(format!("invalid file search pattern: {error}")))?;
     let mut listing = walk::collect(root, &options.path, control)?;
     listing.entries.retain(|entry| {
         (globs.is_empty() || globs.is_match(&entry.path))
