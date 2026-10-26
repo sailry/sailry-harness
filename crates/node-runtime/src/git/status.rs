@@ -342,6 +342,7 @@ fn statistics(
     entries: &mut [GitEntry],
     control: &Control,
 ) -> Result<(), Fault> {
+    const MAX_BYTES: i64 = 1024 * 1024;
     if entries.is_empty() {
         return Ok(());
     }
@@ -359,7 +360,7 @@ fn statistics(
         options
             .disable_pathspec_match(true)
             .ignore_submodules(true)
-            .max_size(1024 * 1024);
+            .max_size(MAX_BYTES);
         for entry in entries.iter() {
             options.pathspec(&entry.path);
         }
@@ -383,19 +384,26 @@ fn statistics(
         .map_err(fault)?;
         for position in 0..diff.deltas().len() {
             control.check()?;
-            let Some(patch) = git2::Patch::from_diff(&diff, position).map_err(fault)? else {
+            let patch = git2::Patch::from_diff(&diff, position).map_err(fault)?;
+            let Some(delta) = diff.get_delta(position) else {
                 continue;
             };
-            let delta = patch.delta();
             let path = delta.new_file().path().or_else(|| delta.old_file().path());
             if let Some(entry) = entries
                 .iter_mut()
                 .find(|entry| path == Some(Path::new(&entry.path)))
             {
-                let (_, additions, deletions) = patch.line_stats().map_err(fault)?;
+                let (_, additions, deletions) = patch
+                    .as_ref()
+                    .map(|patch| patch.line_stats())
+                    .transpose()
+                    .map_err(fault)?
+                    .unwrap_or_default();
                 let stats = GitLineStats {
                     additions,
                     deletions,
+                    truncated: delta.old_file().size() > MAX_BYTES as u64
+                        || delta.new_file().size() > MAX_BYTES as u64,
                 };
                 match scope {
                     GitDiffScope::All => entry.diff = stats,

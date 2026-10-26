@@ -490,6 +490,8 @@ pub struct GitCommitOptions {
 pub struct GitLineStats {
     pub additions: usize,
     pub deletions: usize,
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

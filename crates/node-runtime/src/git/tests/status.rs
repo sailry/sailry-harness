@@ -43,6 +43,30 @@ fn status(result: Result<Output, Fault>) -> GitStatus {
     status
 }
 
+#[tokio::test]
+async fn reports_bounded_line_counts() {
+    let (_directory, root, git, command) = fixture();
+    std::fs::write(root.join("small.txt"), "one\ntwo\n").unwrap();
+    std::fs::write(root.join("large.txt"), "large line\n".repeat(110_000)).unwrap();
+    let result = status(git.inspect(root, command, CancellationToken::new()).await);
+    let small = result
+        .entries
+        .iter()
+        .find(|entry| entry.path == "small.txt")
+        .unwrap();
+    assert_eq!(small.diff.additions, 2);
+    assert!(!small.diff.truncated);
+    let large = result
+        .entries
+        .iter()
+        .find(|entry| entry.path == "large.txt")
+        .unwrap();
+    assert!(large.diff.truncated);
+    assert!(large.unstaged_diff.truncated);
+    assert!(!large.staged_diff.truncated);
+    assert!(!result.truncated, "path inventory remains complete");
+}
+
 #[test]
 fn shares_one_pending_scan() {
     let (_directory, root, git, command) = fixture();
