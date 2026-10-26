@@ -132,7 +132,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[core::prelude::v1::test]
     fn invalidates_unavailable_message_commands() {
         let statistics = Arc::default();
         let before = stamp(Arc::clone(&statistics));
