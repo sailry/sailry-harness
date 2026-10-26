@@ -96,7 +96,11 @@ impl Candidate {
 }
 
 impl State {
-    pub(super) fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::settings::plugins) fn open(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let rows: BTreeMap<_, _> = self
             .entries
             .iter()
