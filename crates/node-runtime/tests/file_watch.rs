@@ -171,10 +171,10 @@ async fn observes_repository_changes() {
         .into_iter()
         .enumerate()
     {
-        let client = Client::new(transport);
+        let client = Client::new(transport.clone());
         let (sender, mut updates) = watch::channel(FileView::default());
         let stop = CancellationToken::new();
-        let owner = client.clone();
+        let owner = Client::new(transport);
         let cancelled = stop.clone();
         let task =
             tokio::spawn(async move { owner.watch_repository(worktree, sender, cancelled).await });
