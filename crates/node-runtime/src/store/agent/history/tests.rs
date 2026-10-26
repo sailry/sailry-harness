@@ -78,6 +78,107 @@ async fn hides_canonical_runtime_context() {
     );
 }
 
+#[tokio::test]
+async fn preserves_commentary_part_indices() {
+    let fixture = Fixture::new().await;
+    let mut event = AdkEvent::new("commentary");
+    event.set_content(adk_core::Content {
+        role:"model".into(),
+        parts:vec![
+            adk_core::Part::ServerToolCall {server_tool_call:serde_json::json!({
+                "type":"message","phase":"commentary",
+                "content":[{"type":"output_text","text":"Reading "},{"type":"output_text","text":"the source"}]
+            })},
+            adk_core::Part::FunctionCall {id:Some("call".into()),name:"read_file".into(),
+                args:serde_json::json!({"path":"source.rs"}),thought_signature:None},
+        ],
+    });
+    let entry = project(&fixture.database.connection, 1, TurnId::new(), &event)
+        .await
+        .unwrap();
+    assert_eq!(entry.parts.len(), 2);
+    assert_eq!(entry.parts[0], Part::Text("Reading the source".into()));
+    assert!(matches!(&entry.parts[1],Part::ToolCall {id:Some(id),..} if id == "call"));
+}
+
+#[test]
+fn projects_commentary_deltas() {
+    let value = serde_json::json!({
+        "type":"message","phase":"commentary","content":[{"type":"output_text","text":"Inspecting"}]
+    });
+    assert_eq!(
+        commentary(&value).map(Part::Text),
+        Some(Part::Text("Inspecting".into()))
+    );
+    assert!(commentary(&serde_json::json!({
+        "type":"message","phase":"final_answer","content":[{"type":"output_text","text":"Answer"}]
+    })).is_none());
+}
+
+#[tokio::test]
+async fn publishes_only_settled_batches() {
+    let mut fixture = Fixture::new().await;
+    let turn = running(&mut fixture).await;
+    let session = fixture.session;
+    let mut changes = fixture.events.subscribe();
+    let call = |id: &str| adk_core::Part::FunctionCall {
+        name: "read_file".into(),
+        args: serde_json::json!({"path":"source.rs"}),
+        id: Some(id.into()),
+        thought_signature: None,
+    };
+    let result = |id: &str| adk_core::Part::FunctionResponse {
+        function_response: adk_core::FunctionResponseData::new(
+            "read_file",
+            serde_json::json!({"text":"source"}),
+        ),
+        id: Some(id.into()),
+        annotations: None,
+    };
+    let event = |id: &str, role: &str, parts| {
+        let mut event = AdkEvent::new("batch");
+        event.id = id.into();
+        event.author = "assistant".into();
+        event.set_content(adk_core::Content {
+            role: role.into(),
+            parts,
+        });
+        event
+    };
+    let mut published = Vec::new();
+    for (value, expected) in [
+        (
+            event("calls", "model", vec![call("first"), call("second")]),
+            0,
+        ),
+        (event("second", "function", vec![result("second")]), 0),
+        (event("second", "function", vec![result("second")]), 0),
+        (event("first", "function", vec![result("first")]), 1),
+        (event("unmatched", "function", vec![result("other")]), 1),
+        (
+            event(
+                "answer",
+                "model",
+                vec![adk_core::Part::Text {
+                    text: "Done".into(),
+                }],
+            ),
+            1,
+        ),
+    ] {
+        append(&mut fixture.database, session, turn, value, &fixture.events)
+            .await
+            .unwrap();
+        while let Ok(value) = changes.try_recv() {
+            if let Event::ToolsCompleted { session: owner } = value.event {
+                assert_eq!(owner, session);
+                published.push(value.cursor);
+            }
+        }
+        assert_eq!(published.len(), expected);
+    }
+}
+
 async fn advance(connection: &Connection) -> u64 {
     let transaction = conflict::begin(connection).await.unwrap();
     let sequence = counters::next(&transaction, counters::Namespace::AgentEvents)
@@ -242,41 +343,4 @@ async fn bounds_conflicts_without_partial_history() {
         published.try_recv(),
         Err(broadcast::error::TryRecvError::Empty)
     ));
-}
-
-#[tokio::test]
-async fn preserves_commentary_part_indices() {
-    let fixture = Fixture::new().await;
-    let mut event = AdkEvent::new("commentary");
-    event.set_content(adk_core::Content {
-        role:"model".into(),
-        parts:vec![
-            adk_core::Part::ServerToolCall {server_tool_call:serde_json::json!({
-                "type":"message","phase":"commentary",
-                "content":[{"type":"output_text","text":"Reading "},{"type":"output_text","text":"the source"}]
-            })},
-            adk_core::Part::FunctionCall {id:Some("call".into()),name:"read_file".into(),
-                args:serde_json::json!({"path":"source.rs"}),thought_signature:None},
-        ],
-    });
-    let entry = project(&fixture.database.connection, 1, TurnId::new(), &event)
-        .await
-        .unwrap();
-    assert_eq!(entry.parts.len(), 2);
-    assert_eq!(entry.parts[0], Part::Text("Reading the source".into()));
-    assert!(matches!(&entry.parts[1],Part::ToolCall {id:Some(id),..} if id == "call"));
-}
-
-#[test]
-fn projects_commentary_deltas() {
-    let value = serde_json::json!({
-        "type":"message","phase":"commentary","content":[{"type":"output_text","text":"Inspecting"}]
-    });
-    assert_eq!(
-        commentary(&value).map(Part::Text),
-        Some(Part::Text("Inspecting".into()))
-    );
-    assert!(commentary(&serde_json::json!({
-        "type":"message","phase":"final_answer","content":[{"type":"output_text","text":"Answer"}]
-    })).is_none());
 }
