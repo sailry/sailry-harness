@@ -122,7 +122,7 @@ pub(in crate::store) async fn admit(
 async fn valid(db: &Connection, fence: &Fence, session: SessionId) -> Result<bool, Fault> {
     let package = super::super::plugins::get(db, &fence.package.name).await?;
     if !package.is_some_and(|package| {
-        package.summary.enabled && package.summary.reference() == fence.package
+        package.summary.available() && package.summary.reference() == fence.package
     }) {
         return Ok(false);
     }

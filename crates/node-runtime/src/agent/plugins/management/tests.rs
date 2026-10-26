@@ -37,8 +37,10 @@ fn preserves_anthropic_branches() {
 
 fn info(version: &str, origin: plugin::Origin) -> plugin::Info {
     plugin::Info {
+        versions: Vec::new(),
         release_notes: None,
         summary: plugin::Summary {
+            compatibility: Default::default(),
             name: "fixture".into(),
             revision: 7,
             digest: "frozen".into(),

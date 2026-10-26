@@ -7,6 +7,7 @@ mod bundled;
 pub(crate) mod cards;
 pub(crate) mod catalog;
 mod collection;
+pub(crate) mod compatibility;
 pub(crate) mod connectors;
 pub(crate) mod conversation;
 pub(crate) mod github;
@@ -332,6 +333,7 @@ impl Host {
                 ));
             }
             let info = describe(&staged, manifest, digest.clone(), tree.issues)?;
+            compatibility::check(&info)?;
             if info.issues.iter().any(|issue| {
                 matches!(
                     issue.kind,
@@ -443,7 +445,8 @@ fn describe(
             None
         }
     };
-    let info = Info {
+    let mut info = Info {
+        versions: Vec::new(),
         release_notes,
         origin: None,
         icon,
@@ -451,6 +454,7 @@ fn describe(
         mcp_source: None,
         extension: manifest.extension,
         summary: Summary {
+            compatibility: Default::default(),
             name: manifest.name,
             revision: 0,
             digest,
@@ -464,6 +468,7 @@ fn describe(
         settings,
         issues: manifest.issues,
     };
+    compatibility::refresh(&mut info);
     if serde_json::to_vec(&info)
         .map_err(|_| sailry_protocol::Fault::invalid("plugin metadata could not be encoded"))?
         .len()

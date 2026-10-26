@@ -361,9 +361,8 @@ pub(in crate::store) async fn needs_binding(db: &Connection) -> Result<bool, Fau
 
 async fn available(db: &Connection, package: &str) -> Result<bool, Fault> {
     if let Some(info) = crate::store::plugins::get(db, package).await? {
-        return Ok(
-            info.summary.enabled && info.origin == Some(sailry_protocol::plugin::Origin::Bundled)
-        );
+        return Ok(info.summary.available()
+            && info.origin == Some(sailry_protocol::plugin::Origin::Bundled));
     }
     let recorded: bool = db
         .prepare("SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1)")

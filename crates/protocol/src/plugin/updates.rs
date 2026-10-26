@@ -19,10 +19,19 @@ pub enum Candidate {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Report {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<Blocked>,
     pub current: Summary,
     pub available: Option<Candidate>,
     /// Uploaded packages without a reusable source require another explicit selection.
     pub manual: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Blocked {
+    pub version: String,
+    pub required: String,
+    pub release_notes: Option<catalog::ReleaseNotes>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

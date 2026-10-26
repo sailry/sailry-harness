@@ -15,6 +15,7 @@ async fn database() -> Connection {
 
 async fn package(db: &Connection, digest: &str, declaration: Declaration) -> plugin::Reference {
     let summary = plugin::Summary {
+        compatibility: Default::default(),
         name: "fixture".into(),
         revision: 1,
         digest: digest.into(),
@@ -26,6 +27,7 @@ async fn package(db: &Connection, digest: &str, declaration: Declaration) -> plu
     let reference = summary.reference();
     let extension = serde_json::from_value(json!({"api_version":"v1","actions":["storage.read","storage.write"],"storage":declaration})).unwrap();
     let info = plugin::Info {
+        versions: Vec::new(),
         release_notes: None,
         summary,
         origin: None,

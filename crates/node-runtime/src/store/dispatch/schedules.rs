@@ -179,7 +179,7 @@ pub(super) async fn next(db: &Connection, timestamp: i64) -> Result<Option<i64>,
         if package == native::OWNER
             || super::super::plugins::get(db, &package)
                 .await?
-                .is_some_and(|info| info.summary.enabled)
+                .is_some_and(|info| info.summary.available())
         {
             // A full delivery queue leaves its schedule unconsumed. Completions
             // wake us sooner; a bounded retry avoids spinning on overdue ticks.

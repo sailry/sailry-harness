@@ -73,7 +73,7 @@ pub(in crate::store) async fn types(db: &Connection) -> Result<Vec<Type>, Fault>
             result.push(Type {
                 package: summary.reference(),
                 declaration,
-                enabled: summary.enabled,
+                enabled: summary.available(),
             });
         }
     }
@@ -90,7 +90,7 @@ pub(in crate::store) async fn declaration(
     connector: &str,
 ) -> Result<(Info, Declaration), Fault> {
     let info = settings::current(db, package).await?;
-    if !info.summary.enabled {
+    if !info.summary.available() {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
             "connector package is disabled",

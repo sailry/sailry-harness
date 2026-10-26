@@ -6,6 +6,7 @@ fn reduces_inventory_in_node_order() {
     let mut projection = Projection::new(NodeId([1; 32]), 1);
     projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
     let plugin = Summary {
+        compatibility: Default::default(),
         name: "analysis".into(),
         revision: 1,
         digest: "a".repeat(64),
@@ -63,6 +64,7 @@ fn package_cursors_follow_accepted_changes() {
     state.plugins = ["example", "other"]
         .into_iter()
         .map(|name| Summary {
+            compatibility: Default::default(),
             name: name.into(),
             revision: 1,
             digest: "a".repeat(64),

@@ -1,7 +1,9 @@
 //! The official index selects package directories in one authoritative repository.
 use super::*;
 mod cache;
+mod history;
 pub(in crate::plugins) use cache::Cache;
+use history::{hydrate, package};
 
 pub(super) const REPOSITORY: &str = "https://github.com/sailry/sailry-plugins";
 const INDEX: &str = "https://raw.githubusercontent.com/sailry/sailry-plugins/main/catalog.json";
@@ -25,7 +27,7 @@ pub(crate) fn owns_source(package: &str, repository: &str, path: &str) -> bool {
 #[derive(Deserialize)]
 struct Index {
     version: u32,
-    packages: Vec<Package>,
+    packages: Vec<serde_json::Value>,
     #[serde(default)]
     skills: Option<Vec<super::skills::Listing>>,
 }
@@ -36,6 +38,8 @@ struct Package {
     manifest: serde_json::Value,
     #[serde(default)]
     release_notes: Option<sailry_protocol::plugin::catalog::ReleaseNotes>,
+    #[serde(default)]
+    versions: Vec<sailry_protocol::plugin::catalog::Version>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,15 +95,15 @@ pub(super) async fn source(
     stop: &CancellationToken,
 ) -> Result<Source, Fault> {
     let document = document(host, false, stop).await?;
-    if !document.entries.iter().any(|entry| entry.id == id) {
-        return Err(Fault::new(
-            ErrorCode::NotFound,
-            "official plugin is unavailable",
-        ));
-    }
+    let entry = document
+        .entries
+        .iter()
+        .find(|entry| entry.id == id)
+        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "official plugin is unavailable"))?;
+    compatibility::ensure(&entry.compatibility)?;
     Ok(Source {
         repository: REPOSITORY.into(),
-        git_ref: document.commit,
+        git_ref: entry.commit.clone().or(document.commit),
         path: Some(id.into()),
     })
 }
@@ -128,6 +132,17 @@ pub(super) async fn document(
             let index: Index = host.catalog_json(fixed_url(host, &commit), stop).await?;
             let mut document = parse(index)?;
             document.commit = Some(commit.clone());
+            let mut selected = Vec::with_capacity(document.entries.len());
+            for entry in document.entries {
+                match hydrate(host, entry, &commit, stop).await {
+                    Ok(entry) => selected.push(entry),
+                    Err(_) => tracing::warn!(target: "sailry", area = "plugins", phase = "catalog_entry_skipped"),
+                }
+            }
+            document.entries = selected;
+            document.skills.retain(|skill| {
+                skill.package.as_ref().is_none_or(|package| document.entries.iter().any(|entry| entry.id == *package))
+            });
             for skill in &mut document.skills {
                 if !skill.bundled
                     && let Some(sailry_protocol::plugin::skillcatalog::InstallSource::Git(source)) =
@@ -205,40 +220,32 @@ fn url(_host: &Host) -> url::Url {
 
 fn parse(index: Index) -> Result<Data, Fault> {
     if index.version != 1 || index.packages.len() > 512 {
-        return Err(sailry_protocol::Fault::invalid(
-            "unsupported official plugin catalog",
-        ));
+        return Err(Fault::invalid("unsupported official plugin catalog"));
     }
     let icons = bundled::entries()?;
     let mut entries: Vec<Entry> = Vec::with_capacity(index.packages.len());
-    for package in index.packages {
-        validate_name(&package.id)?;
-        let bytes = serde_json::to_vec(&package.manifest)
-            .map_err(|_| sailry_protocol::Fault::invalid("invalid official plugin manifest"))?;
-        let manifest = manifest::parse(&bytes)?;
-        if manifest.name != package.id
-            || !manifest.issues.is_empty()
-            || entries.iter().any(|entry| entry.id == package.id)
-        {
-            return Err(sailry_protocol::Fault::invalid(
-                "invalid official plugin identity or manifest",
-            ));
+    let mut rejected = std::collections::BTreeSet::new();
+    for (position, value) in index.packages.into_iter().enumerate() {
+        let names: Vec<String> = [
+            value.get("id"),
+            value
+                .get("manifest")
+                .and_then(|manifest| manifest.get("name")),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .collect();
+        match package(value, &icons) {
+            Ok(entry) if !entries.iter().any(|current| current.id == entry.id) => {
+                entries.push(entry)
+            }
+            _ => {
+                rejected.extend(names);
+                tracing::warn!(target: "sailry", area = "plugins", phase = "catalog_entry_skipped", entry_index = position as u64);
+            }
         }
-        let mut entry = super::entry(&package.id, manifest);
-        if package
-            .release_notes
-            .as_ref()
-            .is_some_and(|notes| !notes.valid())
-        {
-            return Err(Fault::invalid("invalid official release notes"));
-        }
-        entry.release_notes = package.release_notes;
-        entry.icon = icons
-            .iter()
-            .find(|icon| icon.id == entry.id)
-            .and_then(|icon| icon.icon.clone());
-        entry.repository = Some(REPOSITORY.into());
-        entries.push(entry);
     }
     let skills = match index.skills {
         Some(skills) => {
@@ -246,6 +253,9 @@ fn parse(index: Index) -> Result<Data, Fault> {
             let mut selected = vec![];
             for listing in skills {
                 if !entries.iter().any(|entry| entry.id == listing.package) {
+                    if rejected.contains(&listing.package) {
+                        continue;
+                    }
                     return Err(Fault::invalid("official skill package is missing"));
                 }
                 let name = listing
@@ -263,7 +273,15 @@ fn parse(index: Index) -> Result<Data, Fault> {
             }
             selected
         }
-        None => bundled::skills()?,
+        None => bundled::skills()?
+            .into_iter()
+            .filter(|skill| {
+                skill
+                    .package
+                    .as_ref()
+                    .is_none_or(|package| entries.iter().any(|entry| entry.id == *package))
+            })
+            .collect(),
     };
     Ok(Data {
         entries,
@@ -281,11 +299,11 @@ mod tests {
             serde_json::from_str(include_str!("../../../../../plugins/catalog.json")).unwrap();
         for package in &index.packages {
             let manifest =
-                manifest::parse(&serde_json::to_vec(&package.manifest).unwrap()).unwrap();
+                manifest::parse(&serde_json::to_vec(&package["manifest"]).unwrap()).unwrap();
             assert!(
                 manifest.issues.is_empty(),
                 "{}: {:?}",
-                package.id,
+                package["id"],
                 manifest.issues
             );
         }
@@ -323,6 +341,7 @@ mod tests {
             assert!(!entry.bundled);
             assert_eq!(entry.repository.as_deref(), Some(REPOSITORY));
             entry.repository = None;
+            entry.versions.clear();
             entry.bundled = true;
             assert_eq!(entry, expected);
         }
@@ -334,14 +353,36 @@ mod tests {
         wrong.version = 2;
         assert!(parse(wrong).is_err());
         let mut duplicate = index();
-        duplicate.packages[1].id = duplicate.packages[0].id.clone();
-        duplicate.packages[1].manifest = duplicate.packages[0].manifest.clone();
-        assert!(parse(duplicate).is_err());
+        duplicate.packages.push(duplicate.packages[0].clone());
+        assert_eq!(
+            parse(duplicate).unwrap().entries.len(),
+            index().packages.len()
+        );
         for id in ["../private", "files/other", "different-name"] {
             let mut wrong = index();
-            wrong.packages[0].id = id.into();
-            assert!(parse(wrong).is_err());
+            wrong.packages[0]["id"] = id.into();
+            assert_eq!(
+                parse(wrong).unwrap().entries.len(),
+                index().packages.len() - 1
+            );
         }
+    }
+
+    #[test]
+    fn skips_invalid_package_metadata() {
+        let expected = index().packages.len() - 1;
+        for value in [
+            serde_json::json!({"text":""}),
+            serde_json::json!({"text":4}),
+        ] {
+            let mut invalid = index();
+            invalid.packages[0]["release_notes"] = value;
+            assert_eq!(parse(invalid).unwrap().entries.len(), expected);
+        }
+        let mut invalid = index();
+        invalid.packages[0]["manifest"]["extensions"]["dev.sailry.platform"]["min_sailry_version"] =
+            ">=0.1.0".into();
+        assert_eq!(parse(invalid).unwrap().entries.len(), expected);
     }
 
     #[test]

@@ -28,6 +28,7 @@ async fn change_count(db: &Connection) -> i64 {
 
 async fn package(db: &Connection, digest: char, semantic: bool) -> plugin::Reference {
     let summary = plugin::Summary {
+        compatibility: Default::default(),
         name: "private-memory".into(),
         revision: 1,
         digest: digest.to_string().repeat(64),
@@ -37,6 +38,7 @@ async fn package(db: &Connection, digest: char, semantic: bool) -> plugin::Refer
         description: None,
     };
     let info = plugin::Info {
+versions: Vec::new(),
         release_notes: None,
         summary, origin: None, icon: None, skill: None, mcp_source: None,
         extension: Some(serde_json::from_value(json!({

@@ -35,7 +35,7 @@ pub(super) async fn execute(
                     "notification plugin changed",
                 ));
             }
-            if !info.summary.enabled {
+            if !info.summary.available() {
                 return Err(Fault::new(
                     ErrorCode::NotConfigured,
                     "notification plugin is disabled",

@@ -80,6 +80,13 @@ impl Host {
         stop: CancellationToken,
         reporter: Option<crate::installation::Reporter>,
     ) -> Result<Info, Fault> {
+        let expected = if super::catalog::official::owns_source(name, &source.repository, path) {
+            self.official_catalog
+                .selected_version(name, &source.commit)
+                .await
+        } else {
+            None
+        };
         let selected = source::Selection::resolved(source, path)?;
         let (archive, _) = self
             .source_archive(
@@ -96,7 +103,13 @@ impl Host {
                 reporter(sailry_protocol::installation::Phase::Inspecting, None);
             }
             let (_temporary, root) = selected_root(archive, &selected.path, &stop)?;
-            host.install(&root, "", &name)
+            let info = host.install(&root, "", &name)?;
+            if expected.is_some() && info.summary.version != expected {
+                return Err(Fault::invalid(
+                    "official package version does not match its catalog",
+                ));
+            }
+            Ok(info)
         })
         .await
         .map_err(|_| github::unavailable())?

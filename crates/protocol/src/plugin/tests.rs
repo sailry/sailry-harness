@@ -1,6 +1,27 @@
 use super::*;
 use crate::{Command, NodeId, Request, WorktreeId};
 
+#[test]
+fn preserves_enable_choice_when_unavailable() {
+    let mut summary: Summary = serde_json::from_value(serde_json::json!({
+        "name":"example", "revision":1, "digest":"a", "settings_revision":0,
+        "enabled":true, "version":"0.1.0", "description":null
+    }))
+    .unwrap();
+    assert!(summary.available());
+    summary.compatibility = Compatibility::RequiresNewer {
+        required: "0.2.0".into(),
+    };
+    assert!(summary.enabled);
+    assert!(!summary.available());
+    assert_eq!(summary.compatibility.required(), Some("0.2.0"));
+    let encoded = serde_json::to_vec(&summary).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Summary>(&encoded).unwrap(),
+        summary
+    );
+}
+
 mod extension {
     use super::*;
     use serde_json::json;

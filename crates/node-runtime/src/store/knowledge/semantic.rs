@@ -110,7 +110,7 @@ pub(in crate::store) async fn startup(
     let mut changed = false;
     for summary in super::super::plugins::list(db).await? {
         check(stop)?;
-        if summary.enabled {
+        if summary.available() {
             changed |= ensure(db, &summary.reference(), stop).await?.1;
         }
     }

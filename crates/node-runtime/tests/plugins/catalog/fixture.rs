@@ -30,6 +30,7 @@ pub(super) struct Catalog {
     pub obsolete: Arc<AtomicBool>,
     pub requests: Arc<Mutex<Vec<String>>>,
     pub version: Arc<Mutex<Option<String>>>,
+    pub documents: Arc<Mutex<std::collections::BTreeMap<String, Vec<u8>>>>,
     worker: tokio::task::JoinHandle<()>,
 }
 
@@ -86,6 +87,10 @@ impl Catalog {
         let captured = requests.clone();
         let version = Arc::new(Mutex::new(None::<String>));
         let selected_version = version.clone();
+        let documents = Arc::new(Mutex::new(
+            std::collections::BTreeMap::<String, Vec<u8>>::new(),
+        ));
+        let responses = documents.clone();
         let first = archive("1.0.0", reminders, mcp);
         let second = archive("2.0.0", updated_version, mcp);
         let worker = tokio::spawn(async move {
@@ -108,7 +113,18 @@ impl Catalog {
                     .nth(1)
                     .unwrap();
                 captured.lock().unwrap().push(path.to_owned());
-                let (code, content_type, body) = if let Some(response) =
+                let overridden = responses.lock().unwrap().get(path).cloned();
+                let (code, content_type, body) = if let Some(body) = overridden {
+                    (
+                        200,
+                        if path.contains("/zip/") {
+                            "application/zip"
+                        } else {
+                            "application/json"
+                        },
+                        body,
+                    )
+                } else if let Some(response) =
                     external::response(path, response_status.load(Ordering::SeqCst))
                 {
                     response
@@ -175,6 +191,7 @@ impl Catalog {
             obsolete,
             requests,
             version,
+            documents,
             worker,
         }
     }
@@ -196,6 +213,10 @@ fn manifest(version: &str) -> serde_json::Value {
 fn index(updated: bool, version: Option<&str>, obsolete: bool, legacy: bool) -> Vec<u8> {
     let mut index: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../plugins/catalog.json")).unwrap();
+    // Existing fixtures describe one latest-only snapshot; history fixtures opt in explicitly.
+    for package in index["packages"].as_array_mut().unwrap() {
+        package.as_object_mut().unwrap().remove("versions");
+    }
     index["packages"]
         .as_array_mut()
         .unwrap()

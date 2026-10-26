@@ -58,6 +58,12 @@ pub struct External {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
+    #[serde(default, skip_serializing_if = "super::Compatibility::is_compatible")]
+    pub compatibility: super::Compatibility,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub versions: Vec<Version>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<super::Category>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -129,4 +135,18 @@ impl ReleaseNotes {
                     })
             })
     }
+}
+
+/// Published package metadata at an immutable repository revision.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Version {
+    pub version: String,
+    pub commit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_sailry_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_notes: Option<ReleaseNotes>,
+    #[serde(default, skip_serializing_if = "super::Compatibility::is_compatible")]
+    pub compatibility: super::Compatibility,
 }

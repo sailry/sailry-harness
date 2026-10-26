@@ -6,6 +6,7 @@ mod fixture;
 mod live;
 mod skills;
 mod updates;
+mod versions;
 use fixture::{Catalog, FIRST, SECOND};
 
 async fn connection(remote: bool, catalog: &Catalog) -> (tempfile::TempDir, Node, Link, Client) {

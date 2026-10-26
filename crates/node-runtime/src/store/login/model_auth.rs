@@ -307,7 +307,7 @@ async fn alias(
 ) -> Result<(sailry_protocol::plugin::Info, model_auth::Declaration), Fault> {
     let mut found = None;
     for summary in crate::store::plugins::list(db).await? {
-        if !summary.enabled {
+        if !summary.available() {
             continue;
         }
         let Some(info) = crate::store::plugins::get(db, &summary.name).await? else {

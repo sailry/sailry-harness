@@ -35,7 +35,7 @@ pub(super) async fn publish(
         match reference {
             Some(reference) => {
                 if let Some(installed) = super::super::plugins::get(db, &reference.name).await?
-                    && installed.summary.enabled
+                    && installed.summary.available()
                 {
                     let reference = installed.summary.reference();
                     jobs.push(enqueue(db, Some(&reference), &handler, event).await?.id);

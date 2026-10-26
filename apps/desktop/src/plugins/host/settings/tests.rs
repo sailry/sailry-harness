@@ -2,6 +2,7 @@ use super::*;
 
 fn summary(revision: u64) -> plugin::Summary {
     plugin::Summary {
+        compatibility: Default::default(),
         name: "example".into(),
         version: Some("1".into()),
         description: Some("Example".into()),

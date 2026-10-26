@@ -1,5 +1,44 @@
 use super::*;
 
+#[tokio::test]
+async fn retains_compatible_and_blocked_releases() {
+    let directory = tempfile::tempdir().unwrap();
+    let host = Host::new(Some(directory.path().canonicalize().unwrap()));
+    let mut current = host.install_bundled("reminders").unwrap();
+    current.origin = Some(Origin::Bundled);
+    current.summary.version = Some("0.0.1".into());
+    let mut entry = bundled::entries()
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.id == "reminders")
+        .unwrap();
+    entry.version = Some("1.0.0".into());
+    entry.versions = vec![sailry_protocol::plugin::catalog::Version {
+        version: "2.0.0".into(),
+        commit: "a".repeat(40),
+        min_sailry_version: Some("99.0.0".into()),
+        release_notes: Some(sailry_protocol::plugin::catalog::ReleaseNotes {
+            text: "Future notes".into(),
+            locales: Default::default(),
+        }),
+        compatibility: sailry_protocol::plugin::Compatibility::RequiresNewer {
+            required: "99.0.0".into(),
+        },
+    }];
+    let catalog = Ok(Catalog {
+        entries: vec![entry],
+    });
+    let report = host
+        .check_update(current, None, CancellationToken::new(), Some(&catalog))
+        .await
+        .unwrap();
+    assert!(matches!(report.available, Some(Candidate::Official(_))));
+    let blocked = report.blocked.unwrap();
+    assert_eq!(blocked.version, "2.0.0");
+    assert_eq!(blocked.required, "99.0.0");
+    assert_eq!(blocked.release_notes.unwrap().text, "Future notes");
+}
+
 #[allow(dead_code)]
 #[path = "../../../tests/support/skills_git.rs"]
 mod fixture;

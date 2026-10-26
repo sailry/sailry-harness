@@ -15,6 +15,23 @@ struct Document {
 }
 
 impl Cache {
+    pub(in crate::plugins) async fn selected_version(
+        &self,
+        name: &str,
+        commit: &str,
+    ) -> Option<String> {
+        self.0
+            .lock()
+            .await
+            .as_ref()?
+            .document
+            .entries
+            .iter()
+            .find(|entry| entry.id == name && entry.commit.as_deref() == Some(commit))?
+            .version
+            .clone()
+    }
+
     pub(super) async fn fetch<F, Future>(
         &self,
         source: &str,

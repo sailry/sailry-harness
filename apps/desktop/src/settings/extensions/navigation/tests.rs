@@ -5,7 +5,9 @@ use serde_json::json;
 
 fn info(entry: Option<&str>) -> Info {
     Info {
+        versions: Vec::new(),
         summary: Summary {
+            compatibility: Default::default(),
             name: "example".into(),
             revision: 1,
             digest: "example-digest".into(),

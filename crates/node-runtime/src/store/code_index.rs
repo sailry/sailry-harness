@@ -92,12 +92,12 @@ pub(super) async fn settings(db: &Connection) -> Result<Settings, Fault> {
 
 pub(super) async fn initialize(db: &mut Connection) -> Result<Settings, Fault> {
     let tx = db.transaction().await.map_err(storage_error)?;
-    if let Some(enabled) =
-        super::plugins::services::enabled(&tx, sailry_protocol::plugin::Service::CodeIndex).await?
-    {
-        enable(&tx, enabled).await?;
+    let state =
+        super::plugins::services::state(&tx, sailry_protocol::plugin::Service::CodeIndex).await?;
+    if let Some(state) = &state {
+        enable(&tx, state.enabled).await?;
     }
-    let value = settings(&tx).await?;
+    let value = effective(&tx).await?;
     crate::store::database::conflict::commit(tx).await?;
     Ok(value)
 }
@@ -149,8 +149,18 @@ pub(super) fn configures(command: &Command) -> bool {
     )
 }
 
+async fn effective(db: &Connection) -> Result<Settings, Fault> {
+    let mut value = settings(db).await?;
+    if let Some(state) =
+        super::plugins::services::state(db, sailry_protocol::plugin::Service::CodeIndex).await?
+    {
+        value.enabled &= state.available;
+    }
+    Ok(value)
+}
+
 pub(super) async fn refresh(db: &Connection, service: &crate::code_index::Service) {
-    match settings(db).await {
+    match effective(db).await {
         Ok(value) => service.configure(value.enabled),
         Err(_) => service.configure(false),
     }
@@ -187,3 +197,6 @@ pub(super) async fn removed(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

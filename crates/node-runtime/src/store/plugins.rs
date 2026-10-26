@@ -52,7 +52,10 @@ pub(super) async fn get(db: &Connection, name: &str) -> Result<Option<Info>, Fau
     let stored: Option<Info> = body
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?;
-    Ok(stored)
+    Ok(stored.map(|mut info| {
+        crate::plugins::compatibility::refresh(&mut info);
+        info
+    }))
 }
 
 pub(super) async fn list(db: &Connection) -> Result<Vec<Summary>, Fault> {
@@ -73,7 +76,10 @@ pub(super) async fn list(db: &Connection) -> Result<Vec<Summary>, Fault> {
     .map_err(storage_error)?
     .map(|body| {
         serde_json::from_slice::<Info>(&body.map_err(storage_error)?)
-            .map(|info| info.summary)
+            .map(|mut info| {
+                crate::plugins::compatibility::refresh(&mut info);
+                info.summary
+            })
             .map_err(storage_error)
     })
     .collect::<Result<_, Fault>>()?;
@@ -110,6 +116,9 @@ async fn save(db: &Connection, info: &Info, installed: bool) -> Result<(), Fault
 }
 
 async fn enable(db: &Connection, mut info: Info, enabled: bool) -> Result<Info, Fault> {
+    if enabled {
+        crate::plugins::compatibility::check(&info)?;
+    }
     let name = &info.summary.name;
     info.summary.revision = next(db, name).await?;
     info.summary.enabled = enabled;
@@ -142,6 +151,9 @@ pub(super) async fn synchronize(
         }
         return Ok(None);
     };
+    if enabled {
+        crate::plugins::compatibility::check(&info)?;
+    }
     if info.summary.enabled == enabled {
         return Ok(None);
     }
@@ -171,6 +183,7 @@ pub(super) async fn prepare_enable(
 ) -> Result<Info, Fault> {
     let info = required(db, name).await?;
     super::commands::check_revision(info.summary.revision, expected)?;
+    crate::plugins::compatibility::check(&info)?;
     Ok(info)
 }
 
@@ -353,6 +366,7 @@ async fn finish_package(
     if info.summary.name != *name {
         return Err(storage_error("installed plugin identity mismatch"));
     }
+    crate::plugins::compatibility::check(info)?;
     info.origin = None;
     db.execute(
         // Explicit reinstallation refreshes parsed metadata for the same immutable bytes.

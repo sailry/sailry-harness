@@ -4,6 +4,7 @@ use sailry_protocol::plugin::{Summary, mcp::Availability};
 
 fn service() -> catalog::Service {
     let package = Summary {
+        compatibility: Default::default(),
         name: "fixture".into(),
         revision: 1,
         digest: "digest".into(),

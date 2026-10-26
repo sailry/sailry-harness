@@ -142,7 +142,27 @@ impl Host {
         Ok(manifest.version)
     }
 
+    pub(crate) fn bundled_compatibility(
+        name: &str,
+    ) -> Result<sailry_protocol::plugin::Compatibility, Fault> {
+        let (_, files) = PACKAGES
+            .iter()
+            .find(|(id, _)| *id == name)
+            .ok_or_else(|| Fault::new(ErrorCode::NotFound, "bundled plugin is unavailable"))?;
+        let bytes = files
+            .iter()
+            .find(|(path, _)| *path == "plugin.json")
+            .unwrap()
+            .1;
+        Ok(compatibility::extension(
+            manifest::parse(bytes)?.extension.as_ref(),
+        ))
+    }
+
     pub(crate) fn bundled_newer(name: &str, current: Option<&str>) -> Result<bool, Fault> {
+        if !Self::bundled_compatibility(name)?.is_compatible() {
+            return Ok(false);
+        }
         let Ok(current) = updates::version(current) else {
             return Ok(false);
         };

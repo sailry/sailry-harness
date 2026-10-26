@@ -3961,6 +3961,13 @@
         "null"
       ]
     },
+    "min_sailry_version": {
+      "description": "Earliest Sailry execution Node supported by this package.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "model_adapters": {
       "default": [],
       "items": {

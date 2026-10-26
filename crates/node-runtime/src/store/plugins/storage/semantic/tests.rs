@@ -17,6 +17,7 @@ impl Fixture {
             .await
             .unwrap();
         let summary = plugin::Summary {
+            compatibility: Default::default(),
             name: "owner".into(),
             revision: 1,
             digest: "a".repeat(64),
@@ -31,6 +32,7 @@ impl Fixture {
             "storage":{"collections":[{"scope":"node","prefix":"entry/","schema":true,"index":{"semantic":semantic}}]}
         })).unwrap();
         let info = plugin::Info {
+            versions: Vec::new(),
             release_notes: None,
             summary,
             origin: None,
