@@ -64,7 +64,7 @@ pub(in crate::store) async fn list(
         login: None,
     }));
     for summary in crate::store::plugins::list(db).await? {
-        if !summary.enabled {
+        if !summary.available() {
             continue;
         }
         let Some(info) = crate::store::plugins::get(db, &summary.name).await? else {

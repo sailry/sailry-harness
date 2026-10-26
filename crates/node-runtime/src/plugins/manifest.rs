@@ -100,7 +100,8 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                         });
                     }
                     Ok(parsed)
-                        if parsed.actions.len() <= 32
+                        if super::compatibility::valid(parsed.min_sailry_version.as_deref())
+                            && parsed.actions.len() <= 32
                             && parsed.connectors.len() <= 8
                             && parsed.connectors.iter().enumerate().all(|(index, item)| item.valid() && !parsed.connectors[..index].iter().any(|other| other.id == item.id))
                             && parsed.files_in_namespace()
@@ -309,6 +310,27 @@ mod settings;
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn validates_minimum_version() {
+        for (minimum, valid) in [
+            (json!("0.1.0-alpha.4"), true),
+            (json!("0.1.0+published"), true),
+            (json!(">=0.1.0"), false),
+            (json!(""), false),
+            (json!(3), false),
+        ] {
+            let manifest = parse(&serde_json::to_vec(&json!({
+                "$schema": SCHEMA, "name":"minimum",
+                "extensions":{"dev.sailry.platform":{"api_version":"v1", "min_sailry_version":minimum}}
+            })).unwrap()).unwrap();
+            assert_eq!(manifest.extension.is_some(), valid);
+            assert_eq!(manifest.issues.is_empty(), valid);
+            if !valid {
+                assert_eq!(manifest.issues[0].kind, IssueKind::InvalidExtensions);
+            }
+        }
+    }
 
     #[test]
     fn validates_native_resource_ownership() {

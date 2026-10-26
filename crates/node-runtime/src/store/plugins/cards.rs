@@ -126,7 +126,7 @@ pub(in crate::store) async fn captured(
                             continue;
                         }
                         let current = required(db, &summary.package.name).await?;
-                        if !current.summary.enabled
+                        if !current.summary.available()
                             || current.summary.digest != summary.package.digest
                         {
                             return Err(denied());

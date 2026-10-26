@@ -19,8 +19,9 @@ pub(in crate::store) async fn validate(
                 .conversation_modes
                 .iter()
                 .any(|mode| mode.selected(config.options.get(name)))
-        }) && !info.summary.enabled
+        }) && !info.summary.available()
         {
+            crate::plugins::compatibility::check(&info)?;
             return Err(Fault::new(
                 ErrorCode::NotConfigured,
                 "conversation mode is unavailable",

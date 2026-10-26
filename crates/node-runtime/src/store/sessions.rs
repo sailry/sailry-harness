@@ -230,7 +230,9 @@ pub(super) async fn import(
     if let Some(binding) = &mut config.assistant {
         let installed = crate::store::plugins::get(db, &binding.package.name)
             .await?
-            .filter(|info| info.summary.enabled && info.summary.digest == binding.package.digest)
+            .filter(|info| {
+                info.summary.available() && info.summary.digest == binding.package.digest
+            })
             .ok_or_else(|| {
                 sailry_protocol::Fault::invalid(
                     "plugin assistant package is unavailable on the destination Node",

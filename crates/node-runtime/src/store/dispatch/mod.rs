@@ -228,6 +228,7 @@ async fn current(db: &Connection, name: &str) -> Result<protocol::plugin::Info, 
     let installed = super::plugins::get(db, name)
         .await?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "dispatch plugin is not installed"))?;
+    crate::plugins::compatibility::check(&installed)?;
     if !installed.summary.enabled {
         return Err(Fault::new(
             ErrorCode::NotConfigured,

@@ -32,7 +32,8 @@ impl Database {
         }
         if super::connectors::check(&self.connection, request).await? {
             let package = self.plugin_package(caller, request).await?;
-            if !package.summary.enabled || package.summary.reference() != context.package {
+            crate::plugins::compatibility::check(&package)?;
+            if !package.summary.available() || package.summary.reference() != context.package {
                 return Err(denied("connector package is unavailable or changed"));
             }
             return Ok(());
@@ -650,6 +651,7 @@ impl Database {
             }
         }
         let package = self.plugin_package(caller, request).await?;
+        crate::plugins::compatibility::check(&package)?;
         if let Some(turn) = context.turn {
             crate::store::agent::plugins::check_action(
                 &self.connection,
@@ -664,7 +666,7 @@ impl Database {
                 .extension
                 .as_ref()
                 .ok_or_else(|| denied("plugin has no permission contribution"))?;
-            if !package.summary.enabled
+            if !package.summary.available()
                 || !sailry_protocol::permissions::valid(extension)
                 || extension.permissions.is_empty()
                 || context.turn.is_some()
@@ -743,7 +745,7 @@ impl Database {
                     | Command::ReadComputerPermissions
                     | Command::RequestComputerPermission { .. }
             );
-        if !package.summary.enabled && !settings_access {
+        if !package.summary.available() && !settings_access {
             return Err(Fault::new(ErrorCode::NotConfigured, "plugin is disabled"));
         }
         if package.summary.reference() != context.package {

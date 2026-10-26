@@ -34,7 +34,7 @@ pub(in crate::store) async fn prepare(
         }
         let info = crate::store::plugins::get(&db.connection, &context.package.name)
             .await?
-            .filter(|info| info.summary.enabled && info.summary.reference() == context.package)
+            .filter(|info| info.summary.available() && info.summary.reference() == context.package)
             .ok_or_else(denied)?;
         let resource = info
             .extension
@@ -67,7 +67,7 @@ pub(in crate::store) async fn prepare(
     // Live provider resources resolve the current package before durable admission.
     let info = crate::store::plugins::get(&db.connection, &package.name)
         .await?
-        .filter(|info| info.summary.enabled)
+        .filter(|info| info.summary.available())
         .ok_or_else(denied)?;
     if info.summary.reference() != *package {
         return Err(Fault::new(

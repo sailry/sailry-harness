@@ -25,6 +25,7 @@ pub(in crate::store) async fn current(
         return Ok(info);
     }
     let info = required(db, &package.name).await?;
+    crate::plugins::compatibility::check(&info)?;
     if !info.summary.enabled && surface != plugin::desktop::Surface::Settings {
         return Err(Fault::new(ErrorCode::NotConfigured, "plugin is disabled"));
     }

@@ -16,7 +16,7 @@ pub(in crate::store) async fn prepare(
     server: &str,
 ) -> Result<(Info, crate::plugins::settings::Resolved), Fault> {
     let info = settings::current(db, package).await?;
-    if !info.summary.enabled {
+    if !info.summary.available() {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
             "MCP package is disabled",

@@ -103,6 +103,9 @@ pub enum Tint {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct Extension {
+    /// Earliest Sailry execution Node supported by this package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_sailry_version: Option<String>,
     #[schemars(extend("const" = API_VERSION))]
     pub api_version: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -261,8 +264,34 @@ pub struct Reference {
     pub settings_revision: u64,
 }
 
+/// Availability evaluated by the execution Node, independently of the enable choice.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Compatibility {
+    #[default]
+    Compatible,
+    RequiresNewer {
+        required: String,
+    },
+}
+
+impl Compatibility {
+    pub fn is_compatible(&self) -> bool {
+        matches!(self, Self::Compatible)
+    }
+
+    pub fn required(&self) -> Option<&str> {
+        match self {
+            Self::Compatible => None,
+            Self::RequiresNewer { required } => Some(required),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
+    #[serde(default, skip_serializing_if = "Compatibility::is_compatible")]
+    pub compatibility: Compatibility,
     pub name: String,
     pub revision: u64,
     /// Content digest for installed packages; empty for compiled-in capabilities.
@@ -275,6 +304,10 @@ pub struct Summary {
 }
 
 impl Summary {
+    pub fn available(&self) -> bool {
+        self.enabled && self.compatibility.is_compatible()
+    }
+
     pub fn reference(&self) -> Reference {
         Reference {
             name: self.name.clone(),
@@ -286,6 +319,9 @@ impl Summary {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Info {
+    /// Official repository history, populated only by catalog inspection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub versions: Vec<catalog::Version>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_notes: Option<catalog::ReleaseNotes>,
     pub summary: Summary,

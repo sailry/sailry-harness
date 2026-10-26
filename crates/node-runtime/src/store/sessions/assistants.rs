@@ -13,7 +13,7 @@ pub(in crate::store) async fn validate(
     };
     let info = crate::store::plugins::get(db, &binding.package.name)
         .await?
-        .filter(|info| info.summary.enabled)
+        .filter(|info| info.summary.available())
         .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "assistant plugin is unavailable"))?;
     if info.summary.reference() != binding.package {
         return Err(Fault::new(

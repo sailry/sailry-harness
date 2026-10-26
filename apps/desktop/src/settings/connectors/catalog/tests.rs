@@ -8,7 +8,9 @@ use serde_json::json;
 
 fn info(name: &str, servers: &[&str]) -> Info {
     Info {
+        versions: Vec::new(),
         summary: Summary {
+            compatibility: Default::default(),
             name: name.into(),
             revision: 1,
             digest: format!("{name}-digest"),

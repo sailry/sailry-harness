@@ -27,6 +27,8 @@ pub(in crate::store::plugins) async fn project(
         server.allowed = saved.mcp_allowed.get(&server.name).copied().unwrap_or(true);
         server.availability = if !installed {
             Availability::Unavailable
+        } else if !info.summary.compatibility.is_compatible() {
+            Availability::Unavailable
         } else if !info.summary.enabled {
             Availability::PackageDisabled
         } else if !server.allowed {
@@ -177,7 +179,7 @@ mod tests {
             panic!("retained plugin expected")
         };
         assert_eq!(retained.summary.reference(), reference);
-        assert!(retained.summary.enabled);
+        assert!(retained.summary.available());
         assert!(retained.mcp[0].allowed);
         assert_eq!(retained.mcp[0].availability, Availability::Unavailable);
         assert_eq!(

@@ -14,6 +14,8 @@ mod actions;
 mod applications;
 #[path = "plugins/catalog/mod.rs"]
 mod catalog;
+#[path = "plugins/compatibility.rs"]
+mod compatibility;
 #[path = "plugins/completion.rs"]
 mod completion;
 #[cfg(feature = "test-support")]

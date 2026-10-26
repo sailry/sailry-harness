@@ -117,6 +117,9 @@ impl Host {
                 path: None,
             })?;
             entries.push(Entry {
+                compatibility: Default::default(),
+                commit: None,
+                versions: Vec::new(),
                 category: None,
                 tint: None,
                 release_notes: None,
@@ -186,13 +189,30 @@ impl Host {
                 .map_err(|_| github::unavailable())?
                 .map(|info| Details::Plugin(Box::new(info)));
         }
-        let selected = self.catalog_source(source, id, stop.clone()).await?;
         if source == CatalogSource::ThirdParty {
+            let selected = self.catalog_source(source, id, stop.clone()).await?;
             self.inspect_catalog_source(&selected, stop).await
         } else {
-            Ok(Details::Plugin(Box::new(
-                self.inspect_source(&selected, stop).await?.info,
-            )))
+            let document = official::document(self, false, &stop).await?;
+            let entry = document
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| Fault::new(ErrorCode::NotFound, "official plugin is unavailable"))?;
+            // Details remain readable when every published version requires a newer Node.
+            let selected = Source {
+                repository: official::REPOSITORY.into(),
+                git_ref: entry.commit.clone(),
+                path: Some(id.into()),
+            };
+            let mut info = self.inspect_source(&selected, stop).await?.info;
+            if info.summary.version != entry.version {
+                return Err(Fault::invalid(
+                    "official package version does not match its catalog",
+                ));
+            }
+            info.versions = entry.versions.clone();
+            Ok(Details::Plugin(Box::new(info)))
         }
     }
 
@@ -234,6 +254,9 @@ pub(super) fn entry(id: &str, manifest: manifest::Manifest) -> Entry {
         .as_ref()
         .map_or_else(Vec::new, |extension| extension.actions.clone());
     Entry {
+        compatibility: compatibility::extension(manifest.extension.as_ref()),
+        commit: None,
+        versions: Vec::new(),
         category: manifest
             .extension
             .as_ref()

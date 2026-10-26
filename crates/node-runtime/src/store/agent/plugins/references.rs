@@ -24,7 +24,7 @@ pub(in crate::store) async fn assistant(
         } else {
             crate::store::plugins::get(db, package)
                 .await?
-                .filter(|info| info.summary.enabled)
+                .filter(|info| info.summary.available())
                 .ok_or_else(unavailable)?
         };
         if !info.extension.as_ref().is_some_and(|extension| {
@@ -47,7 +47,7 @@ pub(in crate::store) async fn assistant(
 pub(in crate::store) async fn capture(db: &Connection) -> Result<Vec<plugin::Reference>, Fault> {
     let mut references = Vec::new();
     for summary in crate::store::plugins::list(db).await? {
-        if !summary.enabled {
+        if !summary.available() {
             continue;
         }
         let Some(info) = crate::store::plugins::get(db, &summary.name).await? else {
@@ -107,7 +107,7 @@ pub(in crate::store) async fn validate(
     reference: &plugin::Reference,
 ) -> Result<(), Fault> {
     let info = crate::store::plugins::get(db, &reference.name).await?;
-    if !info.is_some_and(|info| info.summary.enabled) {
+    if !info.is_some_and(|info| info.summary.available()) {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
             "assistant plugin is disabled or removed",
@@ -152,6 +152,8 @@ pub(in crate::store) async fn packages(
                             )
                         })?)
                         .map_err(storage_error)?;
+                    crate::plugins::compatibility::refresh(&mut info);
+                    crate::plugins::compatibility::check(&info)?;
                     crate::store::plugins::settings::validate_revision(db, reference).await?;
                     info.summary.settings_revision = reference.settings_revision;
                     Ok(info)

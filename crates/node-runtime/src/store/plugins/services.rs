@@ -19,14 +19,26 @@ pub(super) async fn initial(db: &Connection, info: &Info) -> Result<Option<bool>
     }
 }
 
-pub(in crate::store) async fn enabled(
+pub(in crate::store) struct State {
+    pub(in crate::store) enabled: bool,
+    pub(in crate::store) available: bool,
+}
+
+pub(in crate::store) async fn state(
     db: &Connection,
     service: Service,
-) -> Result<Option<bool>, Fault> {
+) -> Result<Option<State>, Fault> {
     if let Some(name) = owner(db, service, true).await? {
-        return Ok(Some(super::required(db, &name).await?.summary.enabled));
+        let summary = super::required(db, &name).await?.summary;
+        return Ok(Some(State {
+            enabled: summary.enabled,
+            available: summary.available(),
+        }));
     }
-    Ok(owner(db, service, false).await?.map(|_| false))
+    Ok(owner(db, service, false).await?.map(|_| State {
+        enabled: false,
+        available: false,
+    }))
 }
 
 pub(super) async fn apply(db: &Connection, info: &Info, enabled: bool) -> Result<(), Fault> {

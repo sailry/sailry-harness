@@ -126,7 +126,9 @@ impl Transport for Reads {
 
 fn info(name: &str) -> Info {
     Info {
+        versions: Vec::new(),
         summary: Summary {
+            compatibility: Default::default(),
             name: name.into(),
             revision: 1,
             digest: format!("{name}-digest"),

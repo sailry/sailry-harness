@@ -27,7 +27,7 @@ async fn current(db: &Connection, name: &str) -> Result<plugin::Info, Fault> {
     let info = super::super::plugins::get(db, name)
         .await?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "knowledge owner plugin is unavailable"))?;
-    if !info.summary.enabled {
+    if !info.summary.available() {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
             "knowledge owner plugin is disabled",

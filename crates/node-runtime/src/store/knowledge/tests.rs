@@ -22,6 +22,7 @@ async fn database() -> Connection {
 
 async fn package(db: &Connection, name: &str, digest: char, actions: &[&str]) -> plugin::Reference {
     let summary = plugin::Summary {
+        compatibility: Default::default(),
         name: name.into(),
         revision: 1,
         digest: digest.to_string().repeat(64),
@@ -32,6 +33,7 @@ async fn package(db: &Connection, name: &str, digest: char, actions: &[&str]) ->
     };
     let reference = summary.reference();
     let info = plugin::Info {
+        versions: Vec::new(),
         release_notes: None,
         summary,
         origin: None,

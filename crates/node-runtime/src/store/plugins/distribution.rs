@@ -34,7 +34,18 @@ pub(in crate::store) async fn initialize(
         if recorded {
             continue;
         }
-        let info = host.install_bundled(name)?;
+        let info = match host.install_bundled(name) {
+            Ok(info) => info,
+            Err(error)
+                if matches!(
+                    error.details,
+                    Some(sailry_protocol::FaultDetails::PluginRequiresNewer { .. })
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         let enabled = services::initial(db, &info).await?.unwrap_or(enabled);
         let mut result = Ok(Output::Plugin(info));
         let mut event = finish(
@@ -123,7 +134,19 @@ async fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fau
         if !newer {
             continue;
         }
-        let mut result = Ok(Output::Plugin(host.install_bundled(name)?));
+        let candidate = match host.install_bundled(name) {
+            Ok(info) => info,
+            Err(error)
+                if matches!(
+                    error.details,
+                    Some(sailry_protocol::FaultDetails::PluginRequiresNewer { .. })
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let mut result = Ok(Output::Plugin(candidate));
         let event = finish(
             db,
             host.profile(),

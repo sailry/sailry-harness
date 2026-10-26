@@ -5,7 +5,7 @@ use sailry_protocol::plugin::{
     Origin,
     catalog::Entry,
     skills::Source,
-    updates::{Candidate, Report},
+    updates::{Blocked, Candidate, Report},
 };
 
 pub(crate) struct Catalog {
@@ -99,6 +99,7 @@ impl Host {
     ) -> Result<Report, Fault> {
         if current.skill.is_none() && version(current.summary.version.as_deref()).is_err() {
             return Ok(Report {
+                blocked: None,
                 current: current.summary,
                 available: None,
                 manual: true,
@@ -111,7 +112,11 @@ impl Host {
                 Err(error) => return Err(error),
             };
             let installed = version(current.summary.version.as_deref())?;
-            let bundled = bundled.filter(|available| available.cmp_precedence(&installed).is_gt());
+            let bundled = bundled.filter(|available| {
+                available.cmp_precedence(&installed).is_gt()
+                    && Self::bundled_compatibility(&current.summary.name)
+                        .is_ok_and(|compatibility| compatibility.is_compatible())
+            });
             let entry = catalog
                 .ok_or_else(|| Fault::invalid("official plugin catalog is unavailable"))
                 .and_then(|catalog| catalog.as_ref().map_err(Clone::clone))
@@ -128,9 +133,14 @@ impl Host {
                     let available = version(entry.version.as_deref())?;
                     Ok((entry, available))
                 });
+            let blocked = entry
+                .as_ref()
+                .ok()
+                .and_then(|(entry, _)| blocked_entry(entry, &installed));
             let available = match entry {
                 Ok((entry, available))
-                    if available.cmp_precedence(&installed).is_gt()
+                    if entry.compatibility.is_compatible()
+                        && available.cmp_precedence(&installed).is_gt()
                         && bundled
                             .as_ref()
                             .is_none_or(|bundle| !bundle.cmp_precedence(&available).is_gt()) =>
@@ -153,6 +163,7 @@ impl Host {
                 Err(error) => return Err(error),
             };
             return Ok(Report {
+                blocked,
                 available,
                 current: current.summary,
                 manual: false,
@@ -178,6 +189,7 @@ impl Host {
                 .map_err(|_| github::unavailable())??;
                 let Some(candidate) = candidate else {
                     return Ok(Report {
+                        blocked: None,
                         current: current.summary,
                         available: None,
                         manual: false,
@@ -189,6 +201,7 @@ impl Host {
                 let Some(candidate) = self.inspect_registry_skill(source, &name, stop).await?
                 else {
                     return Ok(Report {
+                        blocked: None,
                         current: current.summary,
                         available: None,
                         manual: false,
@@ -228,6 +241,7 @@ impl Host {
                         .await?
                     else {
                         return Ok(Report {
+                            blocked: None,
                             current: current.summary,
                             available: None,
                             manual: false,
@@ -244,6 +258,7 @@ impl Host {
             }
             _ => {
                 return Ok(Report {
+                    blocked: None,
                     current: current.summary,
                     available: None,
                     manual: true,
@@ -256,9 +271,12 @@ impl Host {
             ));
         }
         candidate.origin = Some(origin);
+        let blocked = blocked_info(&candidate);
+        let compatible = blocked.is_none();
         Ok(Report {
-            available: (current.skill.is_none()
-                || candidate.summary.digest != current.summary.digest)
+            blocked,
+            available: (compatible
+                && (current.skill.is_none() || candidate.summary.digest != current.summary.digest))
                 .then_some(Candidate::Package(Box::new(candidate))),
             current: current.summary,
             manual: false,
@@ -307,6 +325,41 @@ pub(super) fn version(value: Option<&str>) -> Result<semver::Version, Fault> {
     value
         .and_then(|value| semver::Version::parse(value).ok())
         .ok_or_else(|| sailry_protocol::Fault::invalid("plugin semantic version is unavailable"))
+}
+
+fn blocked_info(info: &Info) -> Option<Blocked> {
+    Some(Blocked {
+        version: info.summary.version.clone()?,
+        required: info.summary.compatibility.required()?.into(),
+        release_notes: info.release_notes.clone(),
+    })
+}
+
+fn blocked_entry(entry: &Entry, current: &semver::Version) -> Option<Blocked> {
+    if let Some(version) = entry.versions.iter().find(|version| {
+        !version.compatibility.is_compatible()
+            && semver::Version::parse(&version.version)
+                .is_ok_and(|version| version.cmp_precedence(current).is_gt())
+    }) {
+        return Some(Blocked {
+            version: version.version.clone(),
+            required: version.compatibility.required()?.into(),
+            release_notes: version.release_notes.clone(),
+        });
+    }
+    if version(entry.version.as_deref())
+        .ok()?
+        .cmp_precedence(current)
+        .is_gt()
+    {
+        Some(Blocked {
+            version: entry.version.clone()?,
+            required: entry.compatibility.required()?.into(),
+            release_notes: entry.release_notes.clone(),
+        })
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
