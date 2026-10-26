@@ -17,12 +17,14 @@ fn page(
             .find(|entry| entry.path == "file.txt")
             .unwrap()
             .metadata_revision,
-        side,
-        Page {
-            expected_revision: Some(revision),
-            offset,
-            limit: 1,
-        },
+        (
+            side,
+            Page {
+                expected_revision: Some(revision),
+                offset,
+                limit: 1,
+            },
+        ),
         &fixture.control,
         &fixture.cache,
     )

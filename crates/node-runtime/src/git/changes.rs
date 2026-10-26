@@ -147,8 +147,7 @@ pub(super) fn context(
     snapshot: GitChangeSnapshot,
     path: &str,
     expected_metadata: &str,
-    side: GitContextSide,
-    page: Page<'_>,
+    (side, page): (GitContextSide, Page<'_>),
     control: &Control,
     cache: &Cache,
 ) -> Result<GitContext, Fault> {

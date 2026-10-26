@@ -58,7 +58,7 @@ enum StatusSlot {
         read: WeakShared<StatusRead>,
         generation: Arc<()>,
     },
-    Complete(CachedStatus),
+    Complete(Box<CachedStatus>),
 }
 
 #[derive(Clone)]
@@ -178,7 +178,7 @@ impl Git {
                 }
                 None
             }
-            Some(StatusSlot::Complete(cached)) => Some(cached.clone()),
+            Some(StatusSlot::Complete(cached)) => Some(cached.as_ref().clone()),
             None => None,
         };
         let git = self.clone();
@@ -203,12 +203,12 @@ impl Git {
                     Ok((output, root)) => {
                         statuses.insert(
                             source,
-                            StatusSlot::Complete(CachedStatus {
+                            StatusSlot::Complete(Box::new(CachedStatus {
                                 output: output.clone(),
                                 root: *root,
                                 expires: expires
                                     .unwrap_or_else(|| tokio::time::Instant::now() + STATUS_TTL),
-                            }),
+                            })),
                         );
                     }
                     Err(_) => {
@@ -392,12 +392,14 @@ impl Git {
                     snapshot,
                     &path,
                     &expected_metadata_revision,
-                    side,
-                    changes::Page {
-                        expected_revision: Some(&expected_revision),
-                        offset,
-                        limit,
-                    },
+                    (
+                        side,
+                        changes::Page {
+                            expected_revision: Some(&expected_revision),
+                            offset,
+                            limit,
+                        },
+                    ),
                     &control,
                     &captures,
                 )

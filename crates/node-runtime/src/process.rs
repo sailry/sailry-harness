@@ -119,6 +119,7 @@ impl Drop for Child {
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn execute(
     launch: Launch,
     environment: &Environment,

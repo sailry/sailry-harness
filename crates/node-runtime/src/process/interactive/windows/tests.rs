@@ -73,6 +73,7 @@ impl Running {
                 &closing,
                 &progress,
                 received,
+                Arc::new(crate::process::output::Retained::default()),
             )
             .await
         });

@@ -454,12 +454,14 @@ fn reuses_inventory_for_content_pages() {
         scope.snapshot.clone(),
         "file.rs",
         &scope.entries[0].metadata_revision,
-        GitContextSide::New,
-        Page {
-            expected_revision: Some(&first.revision),
-            offset: 1,
-            limit: 1,
-        },
+        (
+            GitContextSide::New,
+            Page {
+                expected_revision: Some(&first.revision),
+                offset: 1,
+                limit: 1,
+            },
+        ),
         &fixture.control,
         &fixture.cache,
     )
