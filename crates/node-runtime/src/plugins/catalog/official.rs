@@ -44,7 +44,7 @@ struct Package {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Data {
-    entries: Vec<Entry>,
+    pub(super) entries: Vec<Entry>,
     pub(super) skills: Vec<sailry_protocol::plugin::skillcatalog::Entry>,
     commit: Option<String>,
 }
