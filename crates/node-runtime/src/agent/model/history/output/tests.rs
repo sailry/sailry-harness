@@ -92,6 +92,44 @@ fn leaves_small_and_unrecognized_results_unchanged() {
 }
 
 #[test]
+fn reuses_only_the_loaded_guide_revision() {
+    let body = "Current guide instructions\n".repeat(200);
+    let output = json!({
+        "kind":"file_lines",
+        "data":{"path":"AGENTS.md","revision":"current","size":body.len(),"offset":0,"next_offset":null,
+            "lines":[{"number":1,"text":body}]},
+        "sailry_guide_loaded":{"path":"AGENTS.md","revision":"current"},
+    });
+    let canonical = vec![response("plugin_files_read", output.clone())];
+    let mut request = canonical.clone();
+    project(&mut request);
+    assert_eq!(value(&request[0])["already_loaded"], true);
+    assert!(
+        value(&request[0])["text"]
+            .as_str()
+            .unwrap()
+            .contains("read_command with output")
+    );
+    assert_eq!(value(&canonical[0]), &output);
+    let mut changed = output;
+    changed["data"]["revision"] = json!("changed");
+    changed["sailry_context"] = json!("Newly discovered guide context");
+    let mut request = vec![response("plugin_files_read", changed)];
+    project(&mut request);
+    assert!(value(&request[0]).get("already_loaded").is_none());
+    assert!(
+        value(&request[0])["text"]
+            .as_str()
+            .unwrap()
+            .contains("Current guide instructions")
+    );
+    assert_eq!(
+        value(&request[0])["sailry_context"],
+        "Newly discovered guide context"
+    );
+}
+
+#[test]
 fn numbers_file_text_with_bounded_lines() {
     let lines: Vec<_> = (1..=100)
         .map(|number| sailry_protocol::FileLine {
@@ -149,7 +187,7 @@ fn groups_search_and_keeps_match_context() {
 }
 
 #[test]
-fn strips_ansi_and_folds_progress_without_changing_raw() {
+fn normalizes_progress_without_changing_raw() {
     let raw = "\x1b[31mCompiling 中文\x1b[0m\r\n1%\r25%\r完成🙂\r\n\x1b]8;;https://example.com\x07link\x1b]8;;\x1b\\\n";
     let normalized = commands::normalize(raw);
     assert_eq!(normalized, "Compiling 中文\n完成🙂\nlink\n");
@@ -166,39 +204,42 @@ fn strips_ansi_and_folds_progress_without_changing_raw() {
 }
 
 #[test]
-fn reuses_only_the_loaded_guide_revision() {
-    let body = "Current guide instructions\n".repeat(200);
-    let output = json!({
-        "kind":"file_lines",
-        "data":{"path":"AGENTS.md","revision":"current","size":body.len(),"offset":0,"next_offset":null,
-            "lines":[{"number":1,"text":body}]},
-        "sailry_guide_loaded":{"path":"AGENTS.md","revision":"current"},
-    });
-    let canonical = vec![response("plugin_files_read", output.clone())];
+fn shortens_log_without_changing_canonical_entries() {
+    let output = json!({"kind":"git_log","data":{"entries":[{
+        "id":"commit","author":"Author","email":"private@example.test","timestamp":123,
+        "message":"Title\n\nFirst body\nSecond body\nThird body\nFourth body\nSigned-off-by: Author <private@example.test>\nCo-authored-by: Other <other@example.test>"
+    }]}});
+    let canonical = vec![response("plugin_git_log", output.clone())];
     let mut request = canonical.clone();
     project(&mut request);
-    assert_eq!(value(&request[0])["already_loaded"], true);
-    assert!(
-        value(&request[0])["text"]
-            .as_str()
-            .unwrap()
-            .contains("read_command with output")
-    );
-    assert_eq!(value(&canonical[0]), &output);
-    let mut changed = output;
-    changed["data"]["revision"] = json!("changed");
-    changed["sailry_context"] = json!("Newly discovered guide context");
-    let mut request = vec![response("plugin_files_read", changed)];
-    project(&mut request);
-    assert!(value(&request[0]).get("already_loaded").is_none());
-    assert!(
-        value(&request[0])["text"]
-            .as_str()
-            .unwrap()
-            .contains("Current guide instructions")
-    );
+    let entry = &value(&request[0])["data"]["entries"][0];
     assert_eq!(
-        value(&request[0])["sailry_context"],
-        "Newly discovered guide context"
+        entry["message"],
+        "Title\nFirst body\nSecond body\nThird body"
     );
+    assert!(entry.get("email").is_none());
+    assert!(entry.get("timestamp").is_none());
+    assert_eq!(value(&canonical[0]), &output);
+}
+
+#[test]
+fn removes_only_sparse_status_fields() {
+    let output = json!({"kind":"git_status","data":{
+        "staged":false,"deleted":null,"ahead":0,"behind":2,"dirty":true,
+        "entries":[{"path":"zero.txt","binary":false,"added":0,"deleted":3}],
+        "message":"","literal":"false",
+    }});
+    let canonical = vec![response("plugin_git_status", output.clone())];
+    let mut request = canonical.clone();
+    project(&mut request);
+    let data = &value(&request[0])["data"];
+    for key in ["staged", "deleted", "ahead"] {
+        assert!(data.get(key).is_none());
+    }
+    assert_eq!(data["behind"], 2);
+    assert_eq!(data["dirty"], true);
+    assert_eq!(data["message"], "");
+    assert_eq!(data["literal"], "false");
+    assert_eq!(data["entries"][0], json!({"path":"zero.txt","deleted":3}));
+    assert_eq!(value(&canonical[0]), &output);
 }
