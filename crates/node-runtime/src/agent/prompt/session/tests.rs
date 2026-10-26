@@ -1,13 +1,34 @@
 use super::*;
+use adk_core::{AdkError, Tool};
+use async_trait::async_trait;
 use sailry_protocol::{Permission, WorkMode};
 
+struct Fixture {
+    description: String,
+}
+
+#[async_trait]
+impl Tool for Fixture {
+    fn name(&self) -> &str {
+        "fixture"
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn parameters_schema(&self) -> Option<Value> {
+        Some(json!({"type":"object"}))
+    }
+
+    async fn execute(&self, _: Arc<dyn ToolContext>, _: Value) -> adk_core::Result<Value> {
+        Err(AdkError::tool("fixture tools do not execute"))
+    }
+}
+
 fn tools(description: &str) -> Vec<Registration> {
-    vec![Registration::managed(Arc::new(Frozen {
-        name: "fixture".into(),
-        declaration: Declaration {
-            value: json!({"name":"fixture","description":description,"parameters":{"type":"object"}}),
-            builtin: false,
-        },
+    vec![Registration::managed(Arc::new(Fixture {
+        description: description.into(),
     }))]
 }
 
@@ -35,7 +56,7 @@ fn restores_the_first_request_prefix() {
     );
     let restored = resumed.declarations(&tools("Changed description"));
     assert_eq!(
-        serde_json::to_value(restored).unwrap(),
+        serde_json::to_value(&restored).unwrap(),
         serde_json::to_value(&declarations).unwrap()
     );
     assert_eq!(serde_json::to_value(resumed).unwrap(), captured);
@@ -44,14 +65,18 @@ fn restores_the_first_request_prefix() {
         model: "fixture".into(),
         contents: vec![],
         config: None,
-        tools: Default::default(),
+        tools: HashMap::from([("changed".into(), json!({"name":"changed"}))]),
         previous_response_id: None,
     };
     project(&mut request, &declarations);
-    assert_eq!(
-        request.tools["fixture"].declaration()["description"],
-        "First description"
-    );
+    let expected = json!({
+        "name":"fixture","description":"First description","parameters":{"type":"object"}
+    });
+    assert_eq!(request.tools.len(), 1);
+    assert_eq!(request.tools["fixture"], expected);
+    project(&mut request, &restored);
+    assert_eq!(request.tools.len(), 1);
+    assert_eq!(request.tools["fixture"], expected);
     assert!(!instruction.contains("This turn uses Ask permission"));
     assert!(!instruction.contains("This is a planning turn"));
 }

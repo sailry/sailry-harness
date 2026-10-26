@@ -348,9 +348,10 @@ impl Worktree {
             let closed = self.stop.clone();
             // Backend creation can enumerate directories. Reuse the existing per-root
             // watcher outside the async worker and the service's registration lock.
-            let events =
-                tokio::task::spawn_blocking(move || watches.subscribe(root, node, id, closed))
-                    .await;
+            let events = tokio::task::spawn_blocking(move || {
+                watches.subscribe(root, node, id, false, closed)
+            })
+            .await;
             match events {
                 Ok(Ok(mut events)) => {
                     let weak = Arc::downgrade(self);

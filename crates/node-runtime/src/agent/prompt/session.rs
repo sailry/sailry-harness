@@ -7,9 +7,8 @@ use crate::{
         agent::{APP, Invocation, Sessions, USER},
     },
 };
-use adk_core::{AdkError, Content, Event, LlmRequest, Tool, ToolContext};
+use adk_core::{Content, Event, LlmRequest, ToolContext};
 use adk_session::{GetRequest, SessionService};
-use async_trait::async_trait;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Fault, TurnId, conversation::reference::Target, tool::Operation};
 use serde::{Deserialize, Serialize};
@@ -241,48 +240,8 @@ pub(in crate::agent) fn retain(events: &[Event], text: &mut String) -> HashMap<S
 pub(super) fn project(request: &mut LlmRequest, declarations: &BTreeMap<String, Declaration>) {
     request.tools = declarations
         .iter()
-        .map(|(name, declaration)| {
-            (
-                name.clone(),
-                Arc::new(Frozen {
-                    name: name.clone(),
-                    declaration: declaration.clone(),
-                }) as Arc<dyn Tool>,
-            )
-        })
+        .map(|(name, declaration)| (name.clone(), declaration.value.clone()))
         .collect();
-}
-
-struct Frozen {
-    name: String,
-    declaration: Declaration,
-}
-
-#[async_trait]
-impl Tool for Frozen {
-    fn name(&self) -> &str {
-        &self.name
-    }
-    fn description(&self) -> &str {
-        self.declaration.value["description"].as_str().unwrap_or("")
-    }
-    fn declaration(&self) -> Value {
-        self.declaration.value.clone()
-    }
-    fn parameters_schema(&self) -> Option<Value> {
-        self.declaration.value.get("parameters").cloned()
-    }
-    fn response_schema(&self) -> Option<Value> {
-        self.declaration.value.get("response").cloned()
-    }
-    fn is_builtin(&self) -> bool {
-        self.declaration.builtin
-    }
-    async fn execute(&self, _: Arc<dyn ToolContext>, _: Value) -> adk_core::Result<Value> {
-        Err(AdkError::tool(
-            "captured declarations do not authorize tool execution",
-        ))
-    }
 }
 
 pub(in crate::agent) async fn observe(

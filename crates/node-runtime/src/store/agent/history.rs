@@ -585,9 +585,7 @@ pub(crate) async fn project(
                     } if server_tool_response["type"] == "anthropic_message" => {
                         Part::Resource(serde_json::json!({"type":"provider_context"}))
                     },
-                    adk_core::Part::ServerToolResponse {
-                        server_tool_response,
-                    } => tools::raw(db, turn, sequence, event, index).await?.map(tools::Raw::part).unwrap_or_else(|| {
+                    adk_core::Part::ServerToolResponse { .. } => tools::raw(db, turn, sequence, event, index).await?.map(tools::Raw::part).unwrap_or_else(|| {
                         Part::Resource(
                             serde_json::to_value(part).expect("ADK content is serializable"),
                         )

@@ -12,7 +12,6 @@ pub(super) fn project(
         for stream in ["stdout", "stderr"] {
             if retained[stream].is_object() {
                 result["data"][stream] = retained[stream].clone();
-                changed = true;
             }
         }
         result.as_object_mut()?.remove("sailry_command");

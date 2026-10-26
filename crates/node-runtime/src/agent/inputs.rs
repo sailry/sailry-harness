@@ -72,8 +72,8 @@ impl Batch {
             let mut event = Event::new(invocation.turn.id.to_string());
             event.author = "user".into();
             event.set_content(content.clone());
-            ingress
-                .sessions(*turn)
+            crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
+                .with_input_turn(*turn)
                 .with_input_source(source)
                 .with_references(references.clone())
                 .append_event(&invocation.turn.session.to_string(), event)

@@ -80,7 +80,7 @@ pub(super) fn slice(
     })
 }
 
-pub(super) async fn raw(
+pub(in crate::store::agent) async fn raw(
     db: &Connection,
     turn: TurnId,
     sequence: u64,
