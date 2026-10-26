@@ -6,6 +6,8 @@ use tokio::sync::{mpsc, watch};
 
 #[path = "paging/details.rs"]
 mod details;
+#[path = "paging/entries.rs"]
+mod entries;
 #[path = "paging/removal.rs"]
 mod removal;
 #[path = "paging/seek.rs"]
