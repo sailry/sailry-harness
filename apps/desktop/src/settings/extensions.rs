@@ -31,7 +31,7 @@ impl State {
 
     pub(super) fn park(&mut self, cx: &App) {
         if let Some(panel) = self.panel.take() {
-            panel.read(cx).activity_sources.set_visible(false);
+            panel.read(cx).set_visible(false);
         }
         self.form = None;
     }

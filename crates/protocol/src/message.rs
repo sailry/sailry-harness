@@ -2152,6 +2152,10 @@ pub enum Event {
         session: SessionId,
         activity: Box<crate::activity::Summary>,
     },
+    /// Canonical tool results settled; no tool arguments or output cross this feed.
+    ToolsCompleted {
+        session: SessionId,
+    },
     TerminalChanged(crate::terminal::Info),
     ProjectRegistered(Project),
     ProjectChanged(Project),
@@ -2235,6 +2239,7 @@ pub enum Topic {
     Terminal(crate::TerminalId),
     Node,
     Files(WorktreeId),
+    Repository(WorktreeId),
 }
 
 /// Durable receipt is distinct from completion; read-only requests have no durable receipt.

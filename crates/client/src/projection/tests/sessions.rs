@@ -31,6 +31,65 @@ fn session() -> Session {
 }
 
 #[test]
+fn worktree_changes_follow_settled_activity() {
+    let first = session();
+    let second = session();
+    let mut state = snapshot(0);
+    state.sessions = vec![first.clone(), second.clone()];
+    state.worktrees = [first.worktree, second.worktree]
+        .into_iter()
+        .map(|id| Worktree {
+            id,
+            project: first.project,
+            path: id.to_string(),
+            main: false,
+        })
+        .collect();
+    let node = state.node;
+    let mut projection = Projection::new(node, 1);
+    projection.apply(1, Update::Snapshot(state)).unwrap();
+    let unchanged = Event::ConversationChanged {
+        session: first.id,
+        activity: Box::new(first.activity.clone()),
+    };
+    projection
+        .apply(
+            1,
+            Update::Event(EventEnvelope {
+                node,
+                cursor: 1,
+                event: unchanged,
+            }),
+        )
+        .unwrap();
+    assert_eq!(projection.settled_cursors()[&first.worktree], 0);
+    projection
+        .apply(
+            1,
+            Update::Event(EventEnvelope {
+                node,
+                cursor: 2,
+                event: Event::ToolsCompleted { session: first.id },
+            }),
+        )
+        .unwrap();
+    assert_eq!(projection.settled_cursors()[&first.worktree], 2);
+    assert_eq!(projection.settled_cursors()[&second.worktree], 0);
+    projection
+        .apply(
+            1,
+            Update::Event(EventEnvelope {
+                node,
+                cursor: 3,
+                event: Event::ToolsCompleted { session: second.id },
+            }),
+        )
+        .unwrap();
+    assert_eq!(projection.settled_cursors()[&first.worktree], 2);
+    assert_eq!(projection.settled_cursors()[&second.worktree], 3);
+}
+
+#[test]
 fn descendant_activity_follows_events_and_recovery() {
     use crate::activity::{Lane, aggregate_lane};
     use conversation::{Run, RunKind, Status};

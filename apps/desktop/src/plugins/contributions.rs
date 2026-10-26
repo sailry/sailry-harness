@@ -79,6 +79,7 @@ pub(crate) struct ViewState<'a> {
 }
 
 pub(crate) struct Registry {
+    visible: std::cell::Cell<bool>,
     composer: Option<WeakEntity<crate::conversation::live::View>>,
     providers: Option<Entity<super::providers::Source>>,
     surface: Surface,
@@ -95,6 +96,13 @@ pub(crate) struct Registry {
 impl EventEmitter<Event> for Registry {}
 
 impl Registry {
+    pub(crate) fn set_visible(&self, visible: bool, cx: &App) {
+        self.visible.set(visible);
+        for mounted in self.mounted.values() {
+            mounted.panel.read(cx).set_visible(visible);
+        }
+    }
+
     pub(crate) fn metadata(&self) -> Entity<Metadata> {
         self.metadata.clone()
     }
@@ -148,6 +156,7 @@ impl Registry {
         let metadata = cx.new(|_| Metadata::new(binding.client.clone(), binding.runtime.clone()));
         let observe = cx.observe(&metadata, |_, _, cx| cx.notify());
         Self {
+            visible: std::cell::Cell::new(true),
             composer: None,
             providers: None,
             surface,
@@ -448,6 +457,7 @@ impl Registry {
             || self.session != id
         {
             let composer = self.composer.clone();
+            let visible = self.visible.get();
             self.close(cx);
             *self = if self.surface == Surface::Provider {
                 Self::providers(binding, cx)
@@ -455,6 +465,7 @@ impl Registry {
                 Self::bind(binding, self.surface, cx)
             };
             self.composer = composer;
+            self.visible.set(visible);
             self.session = id;
         }
         let Some(snapshot) = snapshot.filter(|_| connected) else {
@@ -550,6 +561,7 @@ impl Registry {
                 panel.share_metadata(self.metadata.clone(), cx);
                 panel.providers = self.providers.clone();
                 panel.content_sized = content_sized;
+                panel.set_visible(self.visible.get());
                 panel
             });
             cx.emit(Event::Mounted(panel.clone()));

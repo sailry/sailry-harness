@@ -134,6 +134,75 @@ async fn shares_transient_invalidation() {
 }
 
 #[tokio::test]
+async fn observes_repository_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    git2::Repository::init(&root).unwrap();
+    std::fs::write(root.join("source.txt"), "initial").unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let local = Client::new(node.local());
+    local
+        .execute(local.prepare(Command::RegisterProject {
+            name: "Repository".into(),
+            path: root.to_str().unwrap().into(),
+        }))
+        .await
+        .unwrap();
+    let Output::Snapshot(snapshot) = local
+        .execute(local.prepare(Command::Snapshot))
+        .await
+        .unwrap()
+    else {
+        panic!("snapshot expected");
+    };
+    let worktree = snapshot.worktrees[0].id;
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    for (index, transport) in [node.local(), controller.handle().remote(address)]
+        .into_iter()
+        .enumerate()
+    {
+        let client = Client::new(transport);
+        let (sender, mut updates) = watch::channel(FileView::default());
+        let stop = CancellationToken::new();
+        let owner = client.clone();
+        let cancelled = stop.clone();
+        let task =
+            tokio::spawn(async move { owner.watch_repository(worktree, sender, cancelled).await });
+        wait(&mut updates, |view| view.connected).await;
+        let revision = updates.borrow().revision;
+        let content = format!("external change {index}");
+        std::fs::write(root.join("source.txt"), &content).unwrap();
+        wait_for(&mut updates, NATIVE_WAIT, |view| view.revision > revision).await;
+        let Output::FileContent(read) = client
+            .execute(client.prepare(Command::ReadFile {
+                worktree,
+                path: "source.txt".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("file expected");
+        };
+        assert_eq!(read.text, content);
+        stop.cancel();
+        task.await.unwrap().unwrap();
+        assert!(!updates.borrow().connected);
+    }
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn reconnects_and_revokes() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("node");

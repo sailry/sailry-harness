@@ -45,17 +45,8 @@ impl Mounted {
         self.host.check().is_ok()
     }
 
-    pub(super) fn observe(
-        &self,
-        cursor: u64,
-        packages: &std::collections::BTreeMap<String, u64>,
-        connected: bool,
-    ) {
-        let package = packages
-            .get(&self.host.context().package.name)
-            .copied()
-            .unwrap_or(0);
-        self.host.observe(cursor, package, connected);
+    pub(super) fn observe(&self, cursor: u64, package: u64, settled: u64, connected: bool) {
+        self.host.observe(cursor, package, settled, connected);
     }
 
     pub(super) fn close(&self) {

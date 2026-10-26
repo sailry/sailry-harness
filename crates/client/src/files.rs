@@ -63,6 +63,28 @@ impl Client {
         updates: watch::Sender<FileView>,
         stop: CancellationToken,
     ) -> Result<(), Fault> {
+        self.watch_changes(Topic::Files(worktree), worktree, updates, stop)
+            .await
+    }
+
+    /// Repository-relevant changes share the Node's existing file-watch backend.
+    pub async fn watch_repository(
+        &self,
+        worktree: WorktreeId,
+        updates: watch::Sender<FileView>,
+        stop: CancellationToken,
+    ) -> Result<(), Fault> {
+        self.watch_changes(Topic::Repository(worktree), worktree, updates, stop)
+            .await
+    }
+
+    async fn watch_changes(
+        &self,
+        topic: Topic,
+        worktree: WorktreeId,
+        updates: watch::Sender<FileView>,
+        stop: CancellationToken,
+    ) -> Result<(), Fault> {
         let _closing = Closing(updates.clone());
         let mut revision = 0u64;
         let mut delay = Duration::from_millis(250);
@@ -71,7 +93,7 @@ impl Client {
                 biased;
                 _ = stop.cancelled() => return Ok(()),
                 _ = updates.closed() => return Ok(()),
-                stream = self.transport.subscribe(Topic::Files(worktree)) => stream,
+                stream = self.transport.subscribe(topic.clone()) => stream,
             };
             let failure = match stream {
                 Ok(mut stream) => loop {

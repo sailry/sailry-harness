@@ -41,6 +41,9 @@ pub(crate) struct Panel {
     pub(super) source_error: Option<sailry_protocol::Fault>,
     summaries: Vec<Summary>,
     package_cursors: std::collections::BTreeMap<String, u64>,
+    read_cursors: sailry_client::ReadCursors,
+    settled_cursor: u64,
+    visible: std::cell::Cell<bool>,
     pub(super) snapshot: Snapshot,
     pub(super) selected: Option<Reference>,
     pub(super) target: Option<String>,
@@ -87,6 +90,29 @@ impl Drop for Panel {
 }
 
 impl Panel {
+    pub(crate) fn set_visible(&self, visible: bool) {
+        self.visible.set(visible);
+        self.activity_sources.set_visible(visible);
+        if let Some(mounted) = &self.mounted {
+            mounted.host().set_visible(visible);
+        }
+    }
+
+    fn package_cursor(&self, package: &Reference, cx: &App) -> u64 {
+        let package_cursor = self
+            .package_cursors
+            .get(&package.name)
+            .copied()
+            .unwrap_or(0);
+        let metadata = self.metadata.read(cx);
+        let actions = metadata
+            .entries
+            .get(&package.name)
+            .and_then(|info| info.extension.as_ref())
+            .map_or(&[][..], |extension| extension.actions.as_slice());
+        package_cursor.max(self.read_cursors.for_actions(actions))
+    }
+
     pub(crate) fn browser(
         source: Entity<Chat>,
         browser: Entity<crate::browser::Browser>,
@@ -311,6 +337,9 @@ impl Panel {
             source_error: None,
             summaries: Vec::new(),
             package_cursors: Default::default(),
+            read_cursors: Default::default(),
+            settled_cursor: 0,
+            visible: std::cell::Cell::new(true),
             snapshot: Default::default(),
             selected: None,
             target: None,
@@ -336,6 +365,12 @@ impl Panel {
         }
         let cursor = view.snapshot.as_ref().map_or(0, |snapshot| snapshot.cursor);
         self.package_cursors = view.package_cursors;
+        self.read_cursors = view.read_cursors;
+        self.settled_cursor = self
+            .binding
+            .worktree
+            .and_then(|worktree| view.settled_cursors.get(&worktree).copied())
+            .unwrap_or(0);
         self.connected = view.connected;
         self.source_error = view.error;
         if let Some(snapshot) = view.snapshot {
@@ -360,7 +395,13 @@ impl Panel {
             return;
         }
         if let Some(mounted) = &self.mounted {
-            mounted.observe(cursor, &self.package_cursors, self.connected);
+            let package = mounted.host().context().package;
+            mounted.observe(
+                cursor,
+                self.package_cursor(&package, cx),
+                self.settled_cursor,
+                self.connected,
+            );
             mounted
                 .host()
                 .observe_settings(&self.summaries, self.connected);
@@ -480,6 +521,7 @@ impl Panel {
         if self.stop.is_cancelled() {
             return;
         }
+        self.set_visible(true);
         self.metadata
             .update(cx, |metadata, cx| metadata.retry(Some(&package.name), cx));
         if (self
@@ -759,13 +801,11 @@ impl Panel {
                                 .borrow()
                                 .as_ref()
                                 .map_or(0, |snapshot| snapshot.cursor),
-                            panel
-                                .package_cursors
-                                .get(&package.name)
-                                .copied()
-                                .unwrap_or(0),
+                            panel.package_cursor(&package, cx),
+                            panel.settled_cursor,
                             panel.connected,
                         );
+                        host.set_visible(panel.visible.get());
                         host.observe_settings(&panel.summaries, panel.connected);
                         if panel.entry_pending.take().as_ref() == Some(&package) {
                             host.enter();

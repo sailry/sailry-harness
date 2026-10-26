@@ -152,7 +152,7 @@ impl Shell {
             .as_ref()
             .and_then(|state| state.panel.as_ref())
         {
-            panel.read(cx).activity_sources.set_visible(false);
+            panel.read(cx).set_visible(false);
         }
     }
 

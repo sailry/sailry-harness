@@ -156,12 +156,20 @@ numbers. Binary, unsupported and oversized resources have an explicit
 that needs a retained snapshot must store its complete captured pages before
 publishing them; these read commands do not create a persisted snapshot.
 
-`nextChange(cursor, "package")` observes only this package's inventory and private
-storage invalidations, reconnection and view entry. It reuses the existing
-coalesced Client subscription. Its token is package-wide, including changes from
-other controllers; it does not expose storage keys or session values. Omit the
-scope to keep the shared Node cursor. Use the existing composer or conversation
-observations for session execution and draft state.
+`nextChange(cursor, "package")` observes this package's inventory, private storage
+and declared role, model or terminal catalog dependencies. Changes from other
+controllers invalidate the same package without exposing storage keys or values.
+The `"settled"` scope requires a captured worktree and observes completed tool
+batches, completed runs and worktree changes. The `"repository"` scope adds
+relevant filesystem and Git metadata changes in that worktree through Client's
+scoped watcher. These scopes grant no resource-reading authority. Omit the scope
+to retain the shared Node cursor.
+
+Updates coalesce for 750 ms with a one-second maximum wait. Connection, visibility
+and view-entry changes arrive immediately. The result includes `visible`; hidden
+views keep their last invalidation and wait until shown, without refreshing their
+data. Pass each returned opaque cursor to the next call. Use composer or
+conversation observations for session execution and draft state.
 
 Keep `id` while a request is unresolved. `completeRequest` observes the original durable receipt after a missing response; an unresolved receipt rejects with `unconfirmed`. A retry uses that same ID. A completed business fault is returned as `{Err: {code, message}}`; success is `{Ok: {kind, data}}`. Forget only confirmed requests, or drafts intentionally abandoned when a view or game closes. Closing a view does not cancel work already admitted by the Node.
 

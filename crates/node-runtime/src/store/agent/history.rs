@@ -5,6 +5,7 @@ use std::collections::HashMap;
 mod citations;
 mod credentials;
 mod interrupted;
+mod settled;
 pub(super) use interrupted::retain;
 pub(super) mod pages;
 // Canonical telemetry remains available to statistics without consuming chat or prompt pages.
@@ -88,12 +89,12 @@ pub(super) async fn append(
                     Ok::<_, Fault>(selected)
                 }?;
                 let envelope = changed(&transaction, database.node, session).await?;
-                let notices = super::super::database::record(
-                    &transaction,
-                    database.node,
-                    notice.into_iter().collect(),
-                )
-                .await?;
+                let mut changes: Vec<_> = notice.into_iter().collect();
+                if settled::completed(&transaction, turn, &entry).await? {
+                    changes.push(Event::ToolsCompleted { session });
+                }
+                let notices =
+                    super::super::database::record(&transaction, database.node, changes).await?;
                 Ok(Some((
                     entry, visible, background, statistics, parents, envelope, notices,
                 )))

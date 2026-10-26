@@ -42,20 +42,27 @@ impl Roots {
             Output::FileRestored(file) => index.invalidate(&self.target, Some(&file.path)),
             _ => {}
         }
-        match output {
-            Output::EntryMoved { .. } => {
-                watches.changed(&self.source);
-                if self.target != self.source {
-                    watches.changed(&self.target);
-                }
+        let paths = match output {
+            Output::FileWritten(file) => vec![(&self.target, file.path.as_str())],
+            Output::FileRestored(file) => vec![(&self.target, file.path.as_str())],
+            Output::DirectoryCreated { path } | Output::EntryTrashed { path } => {
+                vec![(&self.target, path.as_str())]
             }
-            Output::FileWritten(_)
-            | Output::FileRestored(_)
-            | Output::DirectoryCreated { .. }
-            | Output::EntryRenamed { .. }
-            | Output::EntryCopied { .. }
-            | Output::EntryTrashed { .. } => watches.changed(&self.target),
-            _ => {}
+            Output::EntryRenamed { from, to } => {
+                vec![(&self.target, from.as_str()), (&self.target, to.as_str())]
+            }
+            Output::EntryCopied { to, .. } => vec![(&self.target, to.as_str())],
+            Output::EntryMoved { from, to } => {
+                vec![(&self.source, from.as_str()), (&self.target, to.as_str())]
+            }
+            _ => Vec::new(),
+        };
+        let mut roots = std::collections::BTreeMap::<_, Vec<_>>::new();
+        for (root, path) in paths {
+            roots.entry(root).or_default().push(root.join(path));
+        }
+        for (root, paths) in roots {
+            watches.changed_paths(root, &paths);
         }
     }
 

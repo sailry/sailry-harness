@@ -17,6 +17,10 @@ enum Provider {
 }
 
 impl View {
+    pub(crate) fn set_plugin_visibility(&self, visible: bool, cx: &App) {
+        self.contributions.read(cx).set_visible(visible, cx);
+    }
+
     pub(crate) fn preview_available(&self, mime: &str, cx: &App) -> bool {
         if matches!(mime, "text/markdown" | "text/x-markdown") {
             return self.contributions.read(cx).renderer_available(

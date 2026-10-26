@@ -621,6 +621,7 @@ impl Render for Shell {
             let (frame, visible, _) = self.frame(content, None, window, cx);
             (frame.into_any_element(), visible)
         };
+        self.sync_plugin_visibility(visible, cx);
         if let Some(browser) = self
             .side_resource
             .as_ref()

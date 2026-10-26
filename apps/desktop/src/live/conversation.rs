@@ -18,6 +18,12 @@ pub(crate) struct State {
     pub(crate) views: BTreeMap<(NodeId, SessionId), Entity<Chat>>,
 }
 
+impl State {
+    pub(crate) fn controllers(&self) -> impl Iterator<Item = &Entity<Chat>> {
+        self.views.values().chain(self.draft.iter())
+    }
+}
+
 impl Shell {
     pub(crate) fn open_dictation_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.navigate(Page::Settings, window, cx);

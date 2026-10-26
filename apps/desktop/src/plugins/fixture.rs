@@ -269,7 +269,7 @@ impl Transport for Observed {
     }
     fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
         Box::pin(async move {
-            let files = matches!(topic, Topic::Files(_));
+            let files = matches!(topic, Topic::Files(_) | Topic::Repository(_));
             let stream = self.inner.subscribe(topic).await?;
             if !files {
                 return Ok(stream);

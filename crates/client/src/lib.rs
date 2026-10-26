@@ -37,7 +37,7 @@ use std::sync::Arc;
 use sailry_link::{Admission, Subscription, Transport};
 use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request, Update};
 
-pub use projection::{Apply, Projection};
+pub use projection::{Apply, Projection, ReadCursors};
 
 pub struct Client {
     transport: Arc<dyn Transport>,

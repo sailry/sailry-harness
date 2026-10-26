@@ -49,6 +49,7 @@ mod tests;
 mod theme;
 mod tree;
 mod view;
+mod visibility;
 mod window;
 pub(crate) mod workspace;
 

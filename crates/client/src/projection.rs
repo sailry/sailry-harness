@@ -8,6 +8,9 @@ pub enum Apply {
 }
 
 mod quotas;
+mod reads;
+mod settled;
+pub use reads::ReadCursors;
 #[cfg(test)]
 mod tests;
 
@@ -19,6 +22,8 @@ pub struct Projection {
     package_cursors: std::collections::BTreeMap<String, u64>,
     package_revision: u64,
     credential_cursor: u64,
+    settled: settled::Changes,
+    read_cursors: ReadCursors,
 }
 
 impl Projection {
@@ -31,6 +36,8 @@ impl Projection {
             package_cursors: Default::default(),
             package_revision: 0,
             credential_cursor: 0,
+            settled: Default::default(),
+            read_cursors: Default::default(),
         }
     }
 
@@ -41,6 +48,15 @@ impl Projection {
     /// Local invalidation revisions for each currently installed package.
     pub fn package_cursors(&self) -> &std::collections::BTreeMap<String, u64> {
         &self.package_cursors
+    }
+
+    /// Completion and worktree invalidation, independent of streaming history cursors.
+    pub fn settled_cursors(&self) -> &std::collections::BTreeMap<sailry_protocol::WorktreeId, u64> {
+        &self.settled.cursors
+    }
+
+    pub fn read_cursors(&self) -> ReadCursors {
+        self.read_cursors
     }
 
     /// Invalidates public credential reads after mutation, recovery or reconnection.
@@ -102,6 +118,8 @@ impl Projection {
                     .iter()
                     .map(|plugin| (plugin.name.clone(), self.package_revision))
                     .collect();
+                self.settled.reset(&snapshot);
+                self.read_cursors.reset(self.package_revision);
                 self.snapshot = Some(snapshot);
                 self.recovery = false;
                 Ok(Apply::Applied)
@@ -120,17 +138,23 @@ impl Projection {
                     advance_credentials(&mut self.credential_cursor)?;
                     return Ok(Apply::Recover);
                 }
-                if matches!(
-                    &envelope.event,
-                    Event::PluginChanged(_)
-                        | Event::PluginValuesChanged { .. }
-                        | Event::PluginRemoved { .. }
-                ) {
+                if ReadCursors::observes(&envelope.event)
+                    || matches!(
+                        &envelope.event,
+                        Event::PluginChanged(_)
+                            | Event::PluginValuesChanged { .. }
+                            | Event::PluginRemoved { .. }
+                    )
+                {
                     self.package_revision =
                         self.package_revision.checked_add(1).ok_or_else(|| {
                             Fault::new(ErrorCode::Internal, "plugin change revision exhausted")
                         })?;
                 }
+                self.settled
+                    .observe(snapshot, &envelope.event, envelope.cursor);
+                self.read_cursors
+                    .observe(&envelope.event, self.package_revision);
                 match envelope.event {
                     Event::CredentialChanged { credential, .. } => {
                         if credential.node != self.node {
@@ -164,7 +188,9 @@ impl Projection {
                         self.package_cursors.remove(&name);
                         snapshot.plugins.retain(|item| item.name != name)
                     }
-                    Event::DispatchChanged { .. } | Event::RetainedRecord(_) => {}
+                    Event::DispatchChanged { .. }
+                    | Event::RetainedRecord(_)
+                    | Event::ToolsCompleted { .. } => {}
                     Event::NotificationChanged(notice) => {
                         snapshot.notifications.retain(|entry| entry.id != notice.id);
                         snapshot.notifications.push(notice);

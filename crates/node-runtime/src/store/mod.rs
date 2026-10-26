@@ -359,7 +359,7 @@ pub(crate) struct Ingress {
     pub(crate) web: Arc<crate::web::Fetcher>,
     pub(crate) search: Arc<crate::web::Searcher>,
     terminals: Arc<crate::terminal::Terminals>,
-    commands: Arc<crate::process::background::Commands>,
+    pub(crate) commands: Arc<crate::process::background::Commands>,
     pub(crate) environment: Arc<crate::process::Environment>,
     sender: mpsc::Sender<Job>,
     events: broadcast::Sender<sailry_protocol::EventEnvelope>,
@@ -479,7 +479,8 @@ impl Store {
                 let _ = failures.send(Job::PowerFailed(code)).await;
             });
         });
-        let watches = Arc::new(crate::files::watch::Watches::default());
+        let git = crate::git::Git::new(environment.clone());
+        let watches = Arc::new(crate::files::watch::Watches::new(git.clone()));
         let ingress = Arc::new(Ingress {
             storage: Arc::default(),
             operations: operations.tasks.clone(),
@@ -505,7 +506,7 @@ impl Store {
             ports: Arc::new(crate::ports::Ports::default()),
             browsers: Arc::default(),
             external_browser: Arc::new(crate::external_browser::Browsers::new(profile.clone())),
-            git: crate::git::Git::new(environment.clone()),
+            git,
             code_queries: Arc::new(crate::code_index::Queries::default()),
             web: Arc::default(),
             search: Arc::default(),
@@ -1586,7 +1587,10 @@ impl Handler for Ingress {
             if let sailry_protocol::Topic::Conversation(id) = topic {
                 return self.conversation(id).await;
             }
-            if let sailry_protocol::Topic::Files(worktree) = topic {
+            if let sailry_protocol::Topic::Files(worktree)
+            | sailry_protocol::Topic::Repository(worktree) = topic
+            {
+                let repository = matches!(topic, sailry_protocol::Topic::Repository(_));
                 let root = self.worktree_root(worktree).await?;
                 let expected = root.clone();
                 let watches = self.watches.clone();
@@ -1594,7 +1598,7 @@ impl Handler for Ingress {
                 let closed = self.closed.child_token();
                 let preparation = closed.clone().drop_guard();
                 let subscription = tokio::task::spawn_blocking(move || {
-                    watches.subscribe(root, node, worktree, closed)
+                    watches.subscribe(root, node, worktree, repository, closed)
                 })
                 .await
                 .map_err(|_| unavailable())??;

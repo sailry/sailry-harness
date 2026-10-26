@@ -7,6 +7,8 @@ mod guidance;
 mod inputs;
 #[path = "queue/persistence.rs"]
 mod persistence;
+#[path = "queue/settled.rs"]
+mod settled;
 
 struct Fixture {
     directory: tempfile::TempDir,

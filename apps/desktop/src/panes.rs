@@ -194,6 +194,26 @@ impl Workspaces {
             .filter(|target| self.workspace(*target, cx) == Some(workspace))
             .collect()
     }
+
+    pub(crate) fn displayed(&self, target: Target, cx: &App) -> bool {
+        let Some(workspace) = self.active.and_then(|active| self.workspace(active, cx)) else {
+            return false;
+        };
+        if self.workspace(target, cx) != Some(workspace) {
+            return false;
+        }
+        let panel = PanelId::from(self.panes[&target].entity_id());
+        let area = self.groups[&workspace].area.read(cx);
+        let Some(tree) = area.layout(DockPlacement::Center) else {
+            return false;
+        };
+        tree.find_panel_node(panel)
+            .and_then(|node| tree.find_node(node))
+            .is_some_and(|node| match node.kind() {
+                PaneRef::Tabs { panels, active_ix } => panels.get(active_ix) == Some(&panel),
+                PaneRef::Split { .. } => false,
+            })
+    }
     /// The Shell owns the single-pane title band; split groups keep their own headers.
     pub fn single_header(&self, cx: &App) -> Option<(SharedString, AnyElement)> {
         let target = self.active?;

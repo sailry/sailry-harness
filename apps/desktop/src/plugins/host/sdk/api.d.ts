@@ -38,10 +38,12 @@ export function completeRequest(id: string): Promise<Json>;
 /** Recognizes the private value owner's known atomic key-CAS rejection. */
 export function isValueConflict(outcome: Json): boolean;
 export function forgetRequest(id: string): void;
-/** Coalesced Node and cached panel entry invalidation, without resource data.
- * Pass the returned opaque cursor to wait; one pending call per view. Reuses Client recovery.
- * Entry changes on cached panel navigation, independently of Node events. */
-export function nextChange(cursor?: string, scope?: "package"): Promise<{cursor: string; connected: boolean; entry: string}>;
+/** Trailing-coalesced invalidation with bounded latency and Client recovery.
+ * package observes package dependencies; settled requires a worktree and observes only tool/run
+ * completion and worktree changes; repository adds scoped filesystem and Git metadata changes.
+ * Connection, visibility and entry changes arrive immediately.
+ * Pass the returned opaque cursor to wait; hidden views retain invalidation until shown. */
+export function nextChange(cursor?: string, scope?: "package" | "settled" | "repository"): Promise<{cursor: string; connected: boolean; entry: string; visible: boolean}>;
 export function getValue(key: string): Promise<Entry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
 /** Prepare a durable compare-and-set write; completeRequest returns its receipt. */
