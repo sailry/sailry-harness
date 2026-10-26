@@ -107,6 +107,7 @@ impl Worker {
         completed: mpsc::Sender<Job>,
         watches: Arc<crate::files::watch::Watches>,
         index: Arc<crate::code_index::Service>,
+        git: crate::git::Git,
         execute: impl Fn(NodeId, &Roots, &Request) -> Response + Send + 'static,
     ) -> Result<Self, Error> {
         let (sender, mut receiver) = mpsc::channel::<Mutation>(CAPACITY);
@@ -114,6 +115,8 @@ impl Worker {
             .name("sailry-mutations".into())
             .spawn(move || {
                 while let Some(mutation) = receiver.blocking_recv() {
+                    git.invalidate(&mutation.roots.source);
+                    git.invalidate(&mutation.roots.target);
                     let result = catch_unwind(AssertUnwindSafe(|| {
                         execute(mutation.caller, &mutation.roots, &mutation.request)
                     }))
@@ -123,6 +126,10 @@ impl Worker {
                             "resource operation panicked; inspect the target before retrying",
                         ))
                     });
+                    // Later reads must not join a scan that overlapped this write,
+                    // including uncertain effects and early-return command paths.
+                    git.invalidate(&mutation.roots.source);
+                    git.invalidate(&mutation.roots.target);
                     if let Ok(output) = &result {
                         // A completed physical change remains visible if receipt persistence fails.
                         mutation

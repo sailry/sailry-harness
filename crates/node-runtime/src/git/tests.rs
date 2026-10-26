@@ -1,6 +1,8 @@
 use super::*;
 use std::{future::Future, task::Poll};
 
+mod status;
+
 #[test]
 fn admits_parallel_reads() {
     let runtime = tokio::runtime::Builder::new_current_thread()

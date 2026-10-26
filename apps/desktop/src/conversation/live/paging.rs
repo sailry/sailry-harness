@@ -62,12 +62,18 @@ impl View {
                 !Arc::ptr_eq(&previous.page, &snapshot.page) || previous.drafts != snapshot.drafts
             })
         });
+        let repository_changed = self
+            .binding
+            .worktree
+            .is_some_and(|worktree| repository::changed(&self.history, &next, worktree));
         self.approvals.observe(&next);
         self.history = next;
         if changed || self.outgoing.is_some() {
             self.sync_rows(cx);
         }
-        self.refresh_repository(repository::Refresh::History, cx);
+        if repository_changed {
+            self.refresh_repository(repository::Refresh::History, cx);
+        }
         self.refresh_clock(cx);
         self.reveal_loaded(cx);
         cx.notify();

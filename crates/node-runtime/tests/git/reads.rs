@@ -46,6 +46,56 @@ async fn failed_inspections_recover_without_caching_a_directory() {
 }
 
 #[tokio::test]
+async fn refreshes_after_writes_on_both_transports() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("repository");
+    let repository = Repository::init(&root).unwrap();
+    repository.set_head("refs/heads/main").unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    // Independent clients exercise Node sharing rather than a controller read coordinator.
+    let local = Client::new(node.local());
+    let worktree = worktree(&local, &root).await;
+    let controller = Link::controller(directory.path().join("client"), NetworkScope::default())
+        .await
+        .unwrap();
+    let peer = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let remote = Client::new(controller.handle().remote(peer));
+    assert!(status(&local, worktree).await.entries.is_empty());
+    for (index, writer) in [&local, &remote].into_iter().enumerate() {
+        let path = format!("change-{index}.txt");
+        assert!(matches!(
+            writer
+                .execute(writer.prepare(Command::WriteFile {
+                    worktree,
+                    path: path.clone(),
+                    text: "changed\n".into(),
+                    expected_revision: None,
+                }))
+                .await
+                .unwrap(),
+            Output::FileWritten(_)
+        ));
+        let (first, second) = tokio::join!(status(&local, worktree), status(&remote, worktree));
+        assert_eq!(first, second);
+        assert_eq!(first.entries.len(), index + 1);
+        assert!(
+            first
+                .entries
+                .iter()
+                .any(|entry| entry.path == path && entry.untracked)
+        );
+    }
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn serves_concurrent_controllers() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("repository");

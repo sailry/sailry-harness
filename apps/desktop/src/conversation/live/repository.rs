@@ -3,6 +3,9 @@ use super::*;
 mod inspection;
 use inspection::{Inspection, Kind};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub(super) struct State {
     inspection: Inspection,
@@ -37,6 +40,65 @@ pub(super) enum Refresh {
     History,
     Focus,
     Location,
+}
+
+pub(super) fn changed(previous: &History, next: &History, worktree: WorktreeId) -> bool {
+    use sailry_client::conversation::children::active;
+    let (Some(before), Some(after)) = (&previous.snapshot, &next.snapshot) else {
+        return false;
+    };
+    if before.node != after.node
+        || before.page.session != after.page.session
+        || before.page.revision != after.page.revision
+        || Arc::ptr_eq(&before.page, &after.page) && Arc::ptr_eq(&previous.calls, &next.calls)
+    {
+        return false;
+    }
+    let prior: BTreeMap<_, _> = before
+        .page
+        .runs
+        .iter()
+        .chain(before.page.children.iter().map(|child| &child.run))
+        .filter(|run| run.worktree == worktree)
+        .map(|run| (run.turn, run))
+        .collect();
+    let latest = prior.values().map(|run| run.sequence).max();
+    let current: BTreeMap<_, _> = after
+        .page
+        .runs
+        .iter()
+        .chain(after.page.children.iter().map(|child| &child.run))
+        .filter(|run| run.worktree == worktree)
+        .map(|run| (run.turn, run))
+        .collect();
+    if current.values().any(|run| {
+        !matches!(
+            run.status,
+            Status::Queued | Status::Running | Status::Stopping
+        ) && (prior
+            .get(&run.turn)
+            .is_some_and(|before| active(before.status))
+            || latest.is_none_or(|sequence| run.sequence > sequence))
+    }) {
+        return true;
+    }
+    // Public tool projections do not classify filesystem effects. A newly returned
+    // call can include a write even when the overall turn continues streaming.
+    next.calls.iter().any(|call| {
+        call.response.is_some()
+            && current.get(&call.turn).is_some_and(|run| {
+                active(run.status)
+                    || prior
+                        .get(&call.turn)
+                        .is_some_and(|before| active(before.status))
+                    || latest.is_none_or(|sequence| run.sequence > sequence)
+            })
+            && !previous.calls.iter().any(|before| {
+                before.turn == call.turn
+                    && before.source == call.source
+                    && before.response == call.response
+            })
+    })
 }
 
 impl View {
@@ -133,6 +195,8 @@ impl View {
                     }
                     Err(_) => {}
                 }
+                // An effect observed during this read needs one fresh inspection.
+                view.refresh_repository(Refresh::Snapshot, cx);
                 cx.notify();
             });
         }));
