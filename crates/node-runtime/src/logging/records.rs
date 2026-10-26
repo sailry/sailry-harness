@@ -271,6 +271,7 @@ pub struct Span {
     finished: bool,
     stop: Option<CancellationToken>,
     routine: bool,
+    debug: bool,
 }
 impl Span {
     pub fn new(entry: Entry) -> Self {
@@ -284,6 +285,7 @@ impl Span {
             finished: false,
             stop: None,
             routine: false,
+            debug: false,
         }
     }
     pub(crate) fn query(entry: Entry) -> Self {
@@ -293,7 +295,14 @@ impl Span {
             finished: false,
             stop: None,
             routine: true,
+            debug: false,
         }
+    }
+    pub(crate) fn background(entry: Entry) -> Self {
+        let mut span = Self::query(entry);
+        span.routine = false;
+        span.debug = true;
+        span
     }
     pub fn cancel_when(mut self, stop: CancellationToken) -> Self {
         self.stop = Some(stop);
@@ -309,7 +318,11 @@ impl Span {
         let mut entry = self.entry.clone();
         entry.phase = phase;
         entry.duration_us = Some(self.elapsed_us());
-        entry.emit();
+        if self.debug {
+            entry.emit_debug();
+        } else {
+            entry.emit();
+        }
     }
     pub fn finish(&mut self, phase: Phase, code: Option<ErrorCode>) {
         if self.finished {
@@ -321,7 +334,11 @@ impl Span {
         // Ordinary successful reads carry no new diagnostic fact. Keep slow
         // completions, every failure and uncertain/cancelled outcomes visible.
         if !self.routine || !matches!(phase, Phase::Completed) || self.elapsed_us() >= 100_000 {
-            self.entry.emit();
+            if self.debug && matches!(phase, Phase::Completed) && code.is_none() {
+                self.entry.emit_debug();
+            } else {
+                self.entry.emit();
+            }
         }
         self.finished = true;
     }

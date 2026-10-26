@@ -80,6 +80,7 @@ pub(crate) fn rotation() -> Animation {
     // for a 450 ms revolution followed by a 550 ms pause, once per second.
     Animation::new(Duration::from_secs(1))
         .repeat()
+        .with_max_fps(60.)
         .with_easing(|phase| {
             let progress = (phase / 0.45).min(1.);
             progress * progress * (3. - 2. * progress)

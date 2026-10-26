@@ -26,6 +26,7 @@ pub(super) struct State {
     model_cursor: u64,
     session: Option<sailry_protocol::SessionId>,
     worktree: Option<sailry_protocol::WorktreeId>,
+    stamp: Option<crate::conversation::live::ComposerStamp>,
     _observer: Subscription,
 }
 
@@ -43,6 +44,11 @@ impl State {
         let Some(source) = self.source.upgrade() else {
             return;
         };
+        let stamp = source.read(cx).composer_stamp(cx);
+        if self.stamp.as_ref() == Some(&stamp) {
+            return;
+        }
+        self.stamp = Some(stamp);
         let mut next = source.read(cx).composer_options(cx);
         next["options"] = source.read(cx).package_options(&self.package, cx);
         publish(&self.changes, &mut self.cursor, next);
@@ -127,6 +133,7 @@ pub(super) fn extend(
                     worktree: host.context().worktree,
                     node: source.read(cx).binding().client.target(),
                     package: host.context().package.clone(),
+                    stamp: Some(source.read(cx).composer_stamp(cx)),
                     source: source.downgrade(),
                     changes: tokio::sync::watch::channel(snapshot).0,
                     cursor: 0,

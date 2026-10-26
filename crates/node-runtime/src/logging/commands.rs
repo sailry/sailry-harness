@@ -20,6 +20,8 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
             ("read_turn_capture", Some(*session), Some(*turn))
         }
         Command::ReadTurn { session, turn, .. } => ("read_turn", Some(*session), Some(*turn)),
+        Command::ReadCommandPage { session, .. } => ("read_command_page", Some(*session), None),
+        Command::ReadToolOutput { turn, .. } => ("read_tool_output", None, Some(*turn)),
         Command::ReadSession { session } => ("read_session", Some(*session), None),
         Command::ReadPluginCallback { .. } => ("read_plugin_callback", None, None),
         Command::ReadPluginValue { .. } => ("read_plugin_value", None, None),
@@ -55,11 +57,15 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         entry.context.provider = Some(*provider);
     }
     Some(
-        if matches!(
+        if request.plugin.is_some() && crate::store::observes(&request.command) {
+            Span::background(entry)
+        } else if matches!(
             &request.command,
             Command::ReadConversation { .. }
                 | Command::ReadTurnCapture { .. }
                 | Command::ReadTurn { .. }
+                | Command::ReadCommandPage { .. }
+                | Command::ReadToolOutput { .. }
                 | Command::ReadSession { .. }
                 | Command::ReadPluginCallback { .. }
                 | Command::ReadPluginValue { .. }

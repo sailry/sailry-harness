@@ -39,6 +39,7 @@ mod requests;
 mod resources;
 mod roles;
 mod routing;
+pub(crate) use routing::observes;
 mod sandbox;
 mod search;
 mod sessions;

@@ -121,6 +121,11 @@ CREATE TABLE IF NOT EXISTS events (
     cursor INTEGER PRIMARY KEY,
     body BLOB NOT NULL
 );
+CREATE INDEX IF NOT EXISTS usage_metadata_events ON events(cursor)
+WHERE json_extract(body,'$.kind') IN (
+    'project_registered','project_changed','project_removed',
+    'ssh_changed','ssh_removed','database_changed','database_removed',
+    'session_changed','sessions_removed','session_rewound');
 CREATE TABLE IF NOT EXISTS agent_delegations (
     turn TEXT PRIMARY KEY REFERENCES turns(id),
     parent_turn TEXT NOT NULL REFERENCES turns(id),

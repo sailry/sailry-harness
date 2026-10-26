@@ -263,6 +263,13 @@ impl Database {
                 }
                 self.check_plugin(caller, request).await?;
                 self.check_removal_scope(&request.command).await?;
+                if let Command::ReadUsage(query) = &request.command {
+                    return self
+                        .usage
+                        .read(&transaction, self.node, query)
+                        .await
+                        .map(Output::Usage);
+                }
                 let (mut output, event) = commands::execute(
                     &transaction,
                     self.node,

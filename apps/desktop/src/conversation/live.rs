@@ -25,6 +25,7 @@ mod commands;
 mod compaction;
 mod composer;
 mod composer_options;
+pub(crate) use composer_options::Stamp as ComposerStamp;
 mod configuration;
 mod connection;
 mod context;
@@ -126,6 +127,8 @@ pub(crate) struct View {
     node: NodeView,
     defaults: NodeView,
     history: History,
+    history_window: AnyWindowHandle,
+    history_pending: bool,
     python: sailry_client::python::View,
     config: Option<SessionConfig>,
     config_owner: NodeId,
@@ -395,6 +398,8 @@ impl View {
             node: NodeView::default(),
             defaults: NodeView::default(),
             history: History::default(),
+            history_window: window.window_handle(),
+            history_pending: false,
             python: sailry_client::python::View::default(),
             input,
             restored_input: None,

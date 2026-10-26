@@ -2,8 +2,17 @@
 use super::*;
 use sailry_protocol::{conversation::Input, plugin::ui::CommandKind};
 use serde_json::{Value, json};
+mod stamp;
+pub(crate) use stamp::Stamp;
 
 impl View {
+    fn message_command(&self, name: &str, cx: &App) -> Option<&crate::plugins::contributions::Key> {
+        self.references
+            .command_keys
+            .get(name)
+            .filter(|key| self.contributions.read(cx).message_command(key, name, cx))
+    }
+
     pub(super) fn normalized_input(&self, mut input: Input) -> Input {
         if let Some((mode, _)) = references::commands::leading_mode(&input.text)
             && mode == self.current_mode()
@@ -34,10 +43,7 @@ impl View {
         });
         let text = self.input.read(cx).value();
         let command = references::commands::leading(&text).and_then(|(name, arguments, _)| {
-            self.references
-                .command_keys
-                .get(name)
-                .filter(|key| self.contributions.read(cx).message_command(key, name, cx))
+            self.message_command(name, cx)
                 .map(|key| json!({"name":name,"arguments":arguments,"package":key.package}))
         });
         let model_tools = self

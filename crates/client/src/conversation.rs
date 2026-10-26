@@ -2,6 +2,8 @@ mod assets;
 pub mod children;
 pub mod export;
 mod history;
+#[cfg(test)]
+mod identity_tests;
 pub mod modes;
 mod observer;
 mod projection;
@@ -34,6 +36,9 @@ pub struct View {
     /// First live canonical entry; older history pages never establish this boundary.
     pub live_start: Option<u64>,
     pub snapshot: Option<Arc<Snapshot>>,
+    /// Stable identity for composer metadata while only transient drafts change.
+    #[serde(skip)]
+    pub statistics: Arc<conversation::Statistics>,
     pub calls: Arc<Vec<tools::Call>>,
     pub children: Arc<children::View>,
     /// True only after authoritative Node observation and confirmation agree.
@@ -54,6 +59,9 @@ impl View {
         generation: u64,
         live_start: Option<u64>,
     ) {
+        if self.statistics.as_ref() != &snapshot.statistics {
+            self.statistics = Arc::new(snapshot.statistics.clone());
+        }
         if self
             .snapshot
             .as_ref()

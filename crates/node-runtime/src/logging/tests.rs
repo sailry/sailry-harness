@@ -769,3 +769,82 @@ fn records_provider_http_metadata() {
             .contains("PRIVATE_")
     );
 }
+
+#[test]
+fn keeps_background_read_failures_visible() {
+    use sailry_protocol::{Command, ErrorCode, NodeId, Request, WorktreeId, plugin};
+
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Desktop));
+    let node = NodeId([9; 32]);
+    let worktree = WorktreeId::new();
+    let request =
+        Request::new(node, Command::InspectGit { worktree }).with_plugin(plugin::Context {
+            package: plugin::Reference {
+                name: "fixture".into(),
+                digest: "a".repeat(64),
+                settings_revision: 0,
+            },
+            invocation: None,
+            session: None,
+            turn: None,
+            worktree: Some(worktree),
+            surface: Default::default(),
+        });
+    tracing::dispatcher::with_default(&dispatch, || {
+        let mut span = commands::begin(node, node, &request).unwrap();
+        span.record(Phase::Admitted);
+        span.finish(Phase::Completed, None);
+        for command in [
+            Command::ListPlugins,
+            Command::ListPluginKeys {
+                prefix: String::new(),
+                after: None,
+                limit: 10,
+            },
+            Command::SearchPluginValues(serde_json::from_value(json!({})).unwrap()),
+            Command::ReadPluginValue {
+                key: "fixture".into(),
+            },
+        ] {
+            let mut read = request.clone();
+            read.command = command;
+            let mut span = commands::begin(node, node, &read).unwrap();
+            span.record(Phase::Admitted);
+            span.finish(Phase::Completed, None);
+        }
+        let mut span = commands::begin(node, node, &request).unwrap();
+        span.finish(Phase::Failed, Some(ErrorCode::Unavailable));
+        let mut write = request.clone();
+        write.command = Command::StopCommands {
+            session: sailry_protocol::SessionId::new(),
+        };
+        let mut span = commands::begin(node, node, &write).unwrap();
+        span.finish(Phase::Completed, None);
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records[0]["phase"], "admitted");
+    assert_eq!(records[0]["level"], "DEBUG");
+    assert_eq!(records[1]["phase"], "completed");
+    assert_eq!(records[1]["level"], "DEBUG");
+    assert_eq!(records.len(), 13);
+    for records in records[..10].chunks_exact(2) {
+        assert_eq!(records[0]["phase"], "admitted");
+        assert_eq!(records[1]["phase"], "completed");
+        assert!(records.iter().all(|record| record["level"] == "DEBUG"));
+    }
+    assert_eq!(records[10]["phase"], "failed");
+    assert_eq!(records[10]["level"], "ERROR");
+    assert_eq!(records[11]["phase"], "begin");
+    assert_eq!(records[11]["level"], "INFO");
+    assert_eq!(records[12]["phase"], "completed");
+    assert_eq!(records[12]["level"], "INFO");
+}

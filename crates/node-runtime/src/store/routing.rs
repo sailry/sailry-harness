@@ -149,6 +149,37 @@ pub(super) fn route(command: &Command) -> Route {
     }
 }
 
+/// Observation routes share logging policy with their existing service owner.
+pub(crate) fn observes(command: &Command) -> bool {
+    matches!(
+        route(command),
+        Route::Read
+            | Route::ReadNetwork
+            | Route::ReadInstallations
+            | Route::ReadBackup
+            | Route::ReadArtifact
+            | Route::ListChannelPresets
+            | Route::ModelCatalog
+            | Route::ReadStorageSearch
+            | Route::ReadKnowledge
+            | Route::ReadLocalModels
+            | Route::ReadCodeIndex
+            | Route::ReadCommand
+            | Route::ReadPluginMcp
+            | Route::ReadPluginView
+            | Route::CheckPluginUpdate
+            | Route::PluginCatalog
+            | Route::DiscoverSkills
+            | Route::InspectWorktree
+    ) || matches!(
+        command,
+        Command::InspectHost
+            | Command::ReadHostMetrics
+            | Command::ReadComputerPermissions
+            | Command::ListShells
+    )
+}
+
 fn read(command: &Command) -> bool {
     matches!(
         command,
