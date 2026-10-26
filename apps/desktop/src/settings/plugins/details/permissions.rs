@@ -126,9 +126,9 @@ impl Details {
         }
         for action in actions {
             let (tag, access) = match action.access() {
-                Access::Read => (Tag::secondary(), "read"),
-                Access::Modify => (Tag::warning().outline(), "modify"),
-                Access::Operate => (Tag::warning().outline(), "operate"),
+                Access::Read => (Tag::secondary(), "market_details_access_read"),
+                Access::Modify => (Tag::warning().outline(), "market_details_access_modify"),
+                Access::Operate => (Tag::warning().outline(), "market_details_access_operate"),
             };
             items.push(
                 rows::row(
@@ -136,7 +136,7 @@ impl Details {
                     icon(action),
                     tr(label(action)),
                     Some(raw(action)),
-                    tag.small().child(access),
+                    tag.small().child(tr(access)),
                     cx,
                 )
                 .into_any_element(),
@@ -155,7 +155,10 @@ impl Details {
                             IconName::SquareTerminal,
                             tr("connector_cli_capability"),
                             Some(command.clone()),
-                            Tag::warning().outline().small().child("operate"),
+                            Tag::warning()
+                                .outline()
+                                .small()
+                                .child(tr("market_details_access_operate")),
                             cx,
                         )
                         .into_any_element(),
