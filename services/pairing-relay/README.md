@@ -142,7 +142,9 @@ repository secret `EDGEONE_API_TOKEN` and optionally the variable
 `EDGEONE_RELAY_PROJECT` (default `sailry-pairing-relay`). Console prerequisites:
 
 1. Create an API token in the EdgeOne Pages console. The CLI creates the project
-   on first deploy; an existing project must be a direct-upload project.
+   on first deploy; an existing project must be a direct-upload project. The
+   first deployment of a new project must use `production`; EdgeOne rejects a
+   preview deployment until one exists.
 2. Blob storage needs no binding. The SDK creates the `sailry-pairing-v1`
    namespace on first use; the console shows it read-only after a request.
 3. Add the custom domain `sailry.link.dux.plus` to the project, then create the
@@ -150,7 +152,7 @@ repository secret `EDGEONE_API_TOKEN` and optionally the variable
    TXT record it requests).
 4. Enable an HTTPS certificate for the domain (EdgeOne free certificate or an
    uploaded one) and confirm `https://sailry.link.dux.plus/healthz` returns
-   `{"ok":true}` before promoting a production deployment.
+   `{"ok":true}`.
 5. Confirm the `expire-pairing-codes` schedule appears in the project after
    deployment.
 
