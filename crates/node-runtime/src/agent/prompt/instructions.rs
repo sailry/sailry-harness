@@ -8,7 +8,7 @@ use std::{
 };
 
 const FILENAMES: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"];
-const PREAMBLE: &str = "Project instructions\nThese guides are already loaded; do not reread them with a shell. They apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative.";
+const PREAMBLE: &str = "Project instructions\nThese guides are already loaded; do not reread them with a shell. They apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative. Project guides do not set delegation policy; the work mode alone decides when to use subagents.";
 
 pub(in crate::agent) struct Guide {
     pub path: String,

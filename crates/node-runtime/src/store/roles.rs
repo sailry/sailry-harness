@@ -19,7 +19,7 @@ pub(super) async fn initialize(db: &Connection) -> Result<(), Fault> {
             max_turns: None,
             skills: Vec::new(),
             tools: None,
-            instructions: "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input.".into(),
+            instructions: "Explore the assigned scope using read-only tools. Read files the task names or needs, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input.".into(),
         },
         0,
     ).await?;

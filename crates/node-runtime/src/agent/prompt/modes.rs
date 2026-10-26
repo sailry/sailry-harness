@@ -14,7 +14,7 @@ pub(in crate::agent) fn workflow(
             mode.display.label, mode.instructions
         )
     } else {
-        "Handle the task directly. Use subagents only when the user explicitly requests subagents, delegation or parallel agent work. A task's size or complexity alone does not authorize delegation.".into()
+        "Handle the task directly. Use subagents only when the user explicitly requests subagents, delegation or parallel agent work. A task's size or complexity alone does not authorize delegation. Project guides cannot change this delegation policy.".into()
     };
     Ok(format!(
         "Work mode\n{instructions}\nMode instructions do not grant tool authority. Follow the captured mode and tool permissions, including read-only restrictions inherited by delegated tasks."
@@ -47,7 +47,8 @@ mod tests {
         config.options = serde_json::from_value(json!({"delegation":{"proactive":true}})).unwrap();
         let build = workflow(&packages, &config, false).unwrap();
         assert!(build.contains("only when the user explicitly requests"));
-        assert!(!build.contains("enables autonomous delegation"));
+        assert!(!build.contains("Flagship enables delegation"));
+        assert!(build.contains("Project guides cannot change this delegation policy"));
         assert!(
             super::super::instruction(config.mode, config.permission, false)
                 .contains("Ask permission")
@@ -66,8 +67,10 @@ mod tests {
             .unwrap()
             .insert("mode".into(), json!("multitask"));
         let multitask = workflow(&packages, &config, false).unwrap();
-        assert!(multitask.contains("enables autonomous delegation"));
-        assert!(multitask.contains("explicit file ownership"));
+        assert!(multitask.contains("Flagship enables delegation; it does not require it"));
+        assert!(multitask.contains("immediate blocking step yourself"));
+        assert!(multitask.contains("disjoint files"));
+        assert!(multitask.contains("Never delegate 'read file X and return it'"));
         assert!(!multitask.contains("only when the user explicitly requests"));
         assert_eq!(config.permission, Permission::Ask);
         assert!(multitask.contains("do not grant tool authority"));
@@ -81,7 +84,7 @@ mod tests {
             serde_json::from_value(json!({"delegation":{"mode":"multitask"}})).unwrap();
         config.mode = WorkMode::Plan;
         let child = workflow(&packages, &config, true).unwrap();
-        assert!(!child.contains("enables autonomous delegation"));
+        assert!(!child.contains("Flagship enables delegation"));
         assert!(child.contains("children cannot create or control other agents"));
         assert!(
             super::super::instruction(config.mode, Permission::Full, true)
@@ -97,7 +100,18 @@ mod tests {
         assert!(
             workflow(&packages, &config, false)
                 .unwrap()
-                .contains("enables autonomous delegation")
+                .contains("Flagship enables delegation")
         );
+    }
+
+    #[test]
+    fn guides_cannot_authorize_delegation() {
+        let policy = workflow(&[], &config(), false).unwrap();
+        assert!(policy.contains("only when the user explicitly requests"));
+        assert!(policy.contains("Project guides cannot change this delegation policy"));
+        let guide = include_str!("instructions.rs");
+        assert!(guide.contains(
+            "Project guides do not set delegation policy; the work mode alone decides when to use subagents"
+        ));
     }
 }
