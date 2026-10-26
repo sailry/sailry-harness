@@ -337,6 +337,14 @@ async fn preserves_gemini_summary_instructions() {
         let turn = fixture.submit(&task).await;
         let before = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(before.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(
+            before
+                .entries
+                .iter()
+                .map(|entry| entry.author.as_str())
+                .collect::<Vec<_>>(),
+            ["system", "user", "assistant"]
+        );
         assert!(
             before
                 .entries
@@ -467,13 +475,13 @@ async fn preserves_gemini_summary_instructions() {
             let transcript: Value = serde_json::from_str(&transcript).unwrap();
             let events = transcript.as_array().unwrap();
             assert_eq!(events.len(), 3);
-            assert_eq!(events[0]["author"], "user");
-            assert_eq!(events[0]["input_source"], "user");
-            assert_eq!(events[0]["original_text_part"], 0);
-            assert_eq!(events[0]["parts"], json!([{"text": task}]));
-            assert_eq!(events[1]["author"], "system");
-            assert!(events[1].get("input_source").is_none());
-            assert_eq!(events[1]["parts"], json!([{"text": context}]));
+            assert_eq!(events[0]["author"], "system");
+            assert!(events[0].get("input_source").is_none());
+            assert_eq!(events[0]["parts"], json!([{"text": context}]));
+            assert_eq!(events[1]["author"], "user");
+            assert_eq!(events[1]["input_source"], "user");
+            assert_eq!(events[1]["original_text_part"], 0);
+            assert_eq!(events[1]["parts"], json!([{"text": task}]));
             assert_eq!(events[2]["author"], "assistant");
             assert!(events[2].get("input_source").is_none());
             assert_eq!(events[2]["parts"], json!([{"text": evidence}]));

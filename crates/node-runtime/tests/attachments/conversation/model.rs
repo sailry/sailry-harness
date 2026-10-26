@@ -206,6 +206,12 @@ async fn materializes_inputs() {
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
         fixture.node = Node::start_empty(&profile).await.unwrap();
+        fixture
+            .node
+            .set_model_transport_fixture(adk_model::openai::WsOptions {
+                enabled: std::sync::Arc::new(|| false),
+                ..Default::default()
+            });
         for (client, (session, turn, history, pdf)) in fixture.clients().into_iter().zip(records) {
             assert_eq!(page(&client, session.id).await, history);
             let Output::Session(branch) = client
