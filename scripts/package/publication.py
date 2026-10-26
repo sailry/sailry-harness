@@ -17,7 +17,7 @@ import versions
 PREREQUISITES = {
     "desktop": ("Source", "Shared Node", "Desktop"),
     "host": ("Source", "Shared Node", "Host"),
-    "mobile": ("Source", "Shared Node", "Mobile, shared bridge and iOS",
+    "mobile": ("Source", "Shared Node", "Mobile logic and iOS",
                "Mobile Dart FFI contracts", "Mobile Android"),
 }
 

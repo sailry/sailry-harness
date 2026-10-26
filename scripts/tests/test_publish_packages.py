@@ -6,6 +6,7 @@ import subprocess
 import importlib.util
 import io
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -548,6 +549,13 @@ class NativeBuildReuse(unittest.TestCase):
 
 
 class Readiness(unittest.TestCase):
+    def test_required_jobs_exist(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        names = set(re.findall(r"^    name: (.+)$", workflow, re.MULTILINE))
+        for component, prerequisites in publication.PREREQUISITES.items():
+            with self.subTest(component=component):
+                self.assertLessEqual(set(prerequisites) | {f"{component.title()} ready"}, names)
+
     def run_fixture(self, gate="success", event="push", branch="main", sha=COMMIT, overall="failure"):
         client = Mock()
         client.api.side_effect = [

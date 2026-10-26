@@ -90,7 +90,8 @@ def select_paths(paths):
             selected.update(NATIVE)
             continue
         if path == "themes" or path.startswith("themes/"):
-            # Theme sources are imported explicitly, never embedded in binaries.
+            # Desktop embeds the discovery catalog; package assets install separately.
+            selected.add("desktop")
             continue
         for prefixes, lanes in DEPENDENTS:
             if path.startswith(prefixes):
