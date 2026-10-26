@@ -454,7 +454,7 @@ pub(super) async fn get(
     })
 }
 
-pub(super) struct Session {
+pub(in crate::store) struct Session {
     id: String,
     state: HashMap<String, Value>,
     events: Vec<AdkEvent>,
