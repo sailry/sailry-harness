@@ -9,7 +9,9 @@ async fn head_does_not_scan_worktree() {
     std::fs::write(root.join("tracked.txt"), "original\n").unwrap();
     commit(&repository);
     let commit = repository.head().unwrap().target().unwrap();
-    let node = Node::start_empty(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let local = Client::new(node.local());
     let worktree = worktree(&local, &root).await;
     let controller = Link::controller(directory.path().join("client"), NetworkScope::default())

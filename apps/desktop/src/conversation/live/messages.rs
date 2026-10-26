@@ -649,24 +649,26 @@ impl View {
                     .gap(px(10.))
                     .pb(px(28.))
                     .children(users)
-                    .when(run.joined.is_none(), |group| group.child(
-                        Message::new()
-                            .header(
-                                MessageHeader::new().content_inset(false).w_full().child(
-                                    v_flex()
-                                        .debug_selector(move || {
-                                            format!("live-turn-status-{turn}-{status}")
-                                        })
-                                        .text_sm()
-                                        .w_full()
-                                        .gap_2()
-                                        .child(header)
-                                        .child(Separator::horizontal()),
-                                ),
-                            )
-                            .content(crate::theme::messages::assistant(content, cx))
-                            .when(!frame::active(run.status), |message| message.footer(footer)),
-                    )),
+                    .when(run.joined.is_none(), |group| {
+                        group.child(
+                            Message::new()
+                                .header(
+                                    MessageHeader::new().content_inset(false).w_full().child(
+                                        v_flex()
+                                            .debug_selector(move || {
+                                                format!("live-turn-status-{turn}-{status}")
+                                            })
+                                            .text_sm()
+                                            .w_full()
+                                            .gap_2()
+                                            .child(header)
+                                            .child(Separator::horizontal()),
+                                    ),
+                                )
+                                .content(crate::theme::messages::assistant(content, cx))
+                                .when(!frame::active(run.status), |message| message.footer(footer)),
+                        )
+                    }),
             )
             .into_any_element()
     }
