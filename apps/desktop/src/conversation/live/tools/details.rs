@@ -38,7 +38,7 @@ impl View {
                 let _ = view.update(cx, |view, cx| {
                     view.detail_loading.borrow_mut().remove(&reference);
                     let current = std::iter::once(&view.history)
-                        .chain(view.approvals.children.values().map(|child| &child.history))
+                        .chain(view.approvals.histories())
                         .any(|history| {
                             history.snapshot.as_ref().is_some_and(|snapshot| {
                                 history.calls.iter().any(|call| {
@@ -82,7 +82,7 @@ impl View {
         }
     }
 
-    fn expand_tools(
+    pub(super) fn expand_tools(
         &mut self,
         turn: TurnId,
         key: String,

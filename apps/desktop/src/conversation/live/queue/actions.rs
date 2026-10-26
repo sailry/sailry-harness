@@ -128,7 +128,7 @@ impl Panel {
             let result = match prepared {
                 Ok(Ok(message)) => {
                     if let Some(message) = message {
-                        let valid = panel.update_in(cx, |panel, _, cx| {
+                        let valid = panel.update_in(cx, |panel, _, _| {
                             if extract && super::super::references::inline::content(&message.text, &message.references).is_err() { return false; }
                             if let Some(attempt) = &mut panel.retry { attempt.message = Some(message.clone()); }
                             true

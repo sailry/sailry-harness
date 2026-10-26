@@ -15,6 +15,10 @@ pub(in crate::conversation::live) struct Actions {
 }
 
 impl Actions {
+    pub(in crate::conversation::live) fn histories(&self) -> impl Iterator<Item = &History> {
+        self.children.values().map(|child| &child.history)
+    }
+
     pub(in crate::conversation::live) fn observe(&mut self, history: &History) {
         let captured: Vec<_> = history
             .snapshot
