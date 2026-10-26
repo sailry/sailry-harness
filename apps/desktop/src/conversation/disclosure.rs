@@ -221,11 +221,8 @@ fn row(
                 .when(detail.wrap, |label| {
                     label.flex_1().min_w_0().whitespace_normal()
                 })
-                .when(!detail.wrap && detail.secondary, |label| {
-                    label.min_w_0().truncate()
-                })
-                .when(!detail.wrap && !detail.secondary, |label| {
-                    label.flex_shrink_0()
+                .when(!detail.wrap, |label| {
+                    label.flex_shrink_0().whitespace_nowrap()
                 })
                 .child(
                     if detail.running && !detail.pending && !detail.failed && !detail.warning {
@@ -251,8 +248,9 @@ fn row(
                         let selector = format!("{id}-detail");
                         move || selector.clone()
                     })
+                    .flex_1()
                     .min_w_0()
-                    .text_ellipsis()
+                    .truncate()
                     .when(
                         detail.secondary && !detail.failed && !detail.warning,
                         |text| text.text_color(cx.theme().muted_foreground.opacity(0.65)),
