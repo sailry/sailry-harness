@@ -2,7 +2,7 @@ use super::*;
 use crate::conversation::mode;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
-    menu::{DropdownMenu, PopupMenuItem},
+    menu::DropdownMenu,
 };
 use sailry_protocol::plugin;
 
@@ -190,6 +190,7 @@ impl View {
             .cloned()
             .collect();
         let configured = self.config.is_some();
+        let metadata = self.contribution_metadata.clone();
         let owner = cx.entity().downgrade();
         let button = Button::new("live-chat-mode")
             .custom(crate::theme::subtle_button(cx))
@@ -212,7 +213,7 @@ impl View {
                 self.configuration_blocked() || (self.session.is_some() && !self.connected()),
             );
         button
-            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
+            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, cx| {
                 let menu =
                     mode::MODES
                         .into_iter()
@@ -235,16 +236,26 @@ impl View {
                             && active.declaration.id == entry.declaration.id
                     });
                     let entry = entry.clone();
+                    let description = metadata
+                        .read(cx)
+                        .entries
+                        .get(&entry.package.name)
+                        .filter(|info| info.summary.reference() == entry.package)
+                        .and_then(crate::plugins::metadata::description)
+                        .map(SharedString::from);
                     menu.item(
-                        PopupMenuItem::new(label(&entry))
-                            .icon(icon(&entry))
-                            .checked(selected)
-                            .disabled(!configured || !entry.enabled)
-                            .on_click(move |_, window, cx| {
-                                let _ = owner.update(cx, |view, cx| {
-                                    view.select_plugin_mode(&entry, window, cx)
-                                });
-                            }),
+                        crate::conversation::choice::row(
+                            entry.key().into(),
+                            label(&entry),
+                            description,
+                            icon(&entry),
+                            selected,
+                        )
+                        .disabled(!configured || !entry.enabled)
+                        .on_click(move |_, window, cx| {
+                            let _ = owner
+                                .update(cx, |view, cx| view.select_plugin_mode(&entry, window, cx));
+                        }),
                     )
                 })
             })
