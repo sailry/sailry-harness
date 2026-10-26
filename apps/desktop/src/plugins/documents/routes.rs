@@ -55,7 +55,7 @@ impl Panel {
         line: Option<usize>,
         window: &mut Window,
         cx: &mut App,
-    ) -> Option<tokio::sync::oneshot::Receiver<Result<Value, Fault>>> {
+    ) -> Option<Opening> {
         if !self.resource_active() {
             return None;
         }
@@ -82,7 +82,7 @@ impl Panel {
         path: String,
         window: &mut Window,
         cx: &mut App,
-    ) -> Option<tokio::sync::oneshot::Receiver<Result<Value, Fault>>> {
+    ) -> Option<Opening> {
         if !self.resource_active() {
             return None;
         }
@@ -95,21 +95,22 @@ impl Panel {
         }
     }
 
-    pub(crate) fn open_system_file(
-        &self,
-        path: String,
-        cx: &mut App,
-    ) -> Option<tokio::sync::oneshot::Receiver<Result<Value, Fault>>> {
+    pub(crate) fn open_system_file(&self, path: String, cx: &mut App) -> Option<Opening> {
         if !self.resource_active() {
             return None;
         }
-        Some(crate::plugins::file_transfers::open_captured(
+        let host = self.mounted.as_ref()?.host();
+        let receive = crate::plugins::file_transfers::open_captured(
             &self.binding,
-            &self.mounted.as_ref()?.host(),
+            &host,
             path,
             crate::plugins::file_transfers::system::Action::Open,
             cx,
-        ))
+        );
+        Some(Opening {
+            receive,
+            stop: Arc::new(host.stop_token().child_token()),
+        })
     }
 
     pub(crate) fn reveal_document(
@@ -117,7 +118,7 @@ impl Panel {
         path: String,
         line: Option<usize>,
         cx: &mut App,
-    ) -> Option<tokio::sync::oneshot::Receiver<Result<Value, Fault>>> {
+    ) -> Option<Opening> {
         if !self.resource_active() {
             return None;
         }
