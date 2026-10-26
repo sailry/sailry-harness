@@ -41,12 +41,8 @@ jobs:
           path: .workflow-tools
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/actions/rust-cache/
-            /scripts/ci.py
-            /scripts/ci-run.py
-            /scripts/check-release.py
-            /scripts/package/publication.py
-            /scripts/package/versions.py
+            /.github/actions/
+            /scripts/
       - name: Require a matching version tag and Host gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -87,12 +83,8 @@ jobs:
           path: .workflow-tools
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/actions/rust-cache/
-            /scripts/ci.py
-            /scripts/ci-run.py
-            /scripts/check-release.py
-            /scripts/package/publication.py
-            /scripts/package/versions.py
+            /.github/actions/
+            /scripts/
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -108,20 +100,12 @@ jobs:
           python3 scripts/package/versions.py --tag "$RELEASE_TAG"
       - name: Rust dependency caches
         uses: ./.workflow-tools/.github/actions/rust-cache
-      - name: Speech cache identity
-        id: speech-key
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-        run: python3 scripts/ci.py speech-key "$PACKAGE_TARGET" shared
-      - name: Speech native libraries
-        id: speech-cache
+      - name: Native library cache
+        id: native-cache
         continue-on-error: true
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: ./.workflow-tools/.github/actions/native-cache
         with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}-llama-${{ hashFiles('scripts/package/llama-runtime.lock.json') }}
+          target: ${{ matrix.target }}
       - name: Verify distribution signing configuration
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
@@ -143,25 +127,18 @@ jobs:
       - name: Build prerequisites
         run: |
           brew install llvm@21 ripgrep
-      - name: Host packaging fixtures
-        run: |
-          python3 scripts/ci.py fixtures shared
-          python3 scripts/ci.py fixtures host
       - name: Build native Host
         run: |
-          TSLP_SOURCE_BUNDLE_URL="$(python3 scripts/package/code-parsers.py --source-only)"
-          export TSLP_SOURCE_BUNDLE_URL
-          unset TSLP_OFFLINE TSLP_LANGUAGES
-          python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings -p sailry-host
-      - name: Save speech native libraries
-        if: always() && steps.speech-cache.outputs.cache-hit != 'true'
+          python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings -p sailry-host
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
         continue-on-error: true
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
             target/sherpa-onnx-prebuilt
             target/llama-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}-llama-${{ hashFiles('scripts/package/llama-runtime.lock.json') }}
+          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -184,34 +161,7 @@ jobs:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-        run: |
-          python3 - <<'PY'
-          import base64, os, pathlib, subprocess, uuid
-          names = ('APPLE_CERTIFICATE_P12', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_API_PRIVATE_KEY')
-          if not all(os.environ.get(name) for name in names):
-              raise SystemExit('The macOS signing secrets are not configured')
-          stage = pathlib.Path(os.environ['RUNNER_TEMP'])
-          certificate = stage / 'sailry-signing.p12'
-          key = stage / 'sailry-notary.p8'
-          certificate.write_bytes(base64.b64decode(os.environ['APPLE_CERTIFICATE_P12'], validate=True))
-          key.write_text(os.environ['APPLE_API_PRIVATE_KEY'])
-          certificate.chmod(0o600)
-          key.chmod(0o600)
-          keychain = stage / 'sailry-signing.keychain-db'
-          password = uuid.uuid4().hex
-          def security(*args):
-              result = subprocess.run(['security', *map(str, args)], capture_output=True, text=True)
-              if result.returncode:
-                  raise SystemExit('Temporary signing keychain setup failed')
-          security('create-keychain', '-p', password, keychain)
-          security('set-keychain-settings', '-lut', '21600', keychain)
-          security('unlock-keychain', '-p', password, keychain)
-          security('import', certificate, '-k', keychain, '-P', os.environ['APPLE_CERTIFICATE_PASSWORD'], '-T', '/usr/bin/codesign')
-          security('set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, keychain)
-          with open(os.environ['GITHUB_ENV'], 'a') as file:
-              file.write(f'APPLE_SIGNING_KEYCHAIN={keychain}\nAPPLE_API_KEY_PATH={key}\n')
-          certificate.unlink()
-          PY
+        run: python3 .workflow-tools/scripts/package/signing-credentials.py install
       - name: Sign, notarize and package
         id: package
         env:
@@ -242,16 +192,7 @@ jobs:
           retention-days: 14
       - name: Remove temporary signing credentials
         if: always()
-        run: |
-          python3 - <<'PY'
-          import os, pathlib, subprocess
-          stage = pathlib.Path(os.environ['RUNNER_TEMP'])
-          keychain = stage / 'sailry-signing.keychain-db'
-          if keychain.exists():
-              subprocess.run(['security', 'delete-keychain', str(keychain)], check=True)
-          for name in ('sailry-signing.p12', 'sailry-notary.p8'):
-              (stage / name).unlink(missing_ok=True)
-          PY
+        run: python3 .workflow-tools/scripts/package/signing-credentials.py cleanup
 
   host:
     name: Linux Host ${{ matrix.target }}
@@ -280,12 +221,8 @@ jobs:
           path: .workflow-tools
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/actions/rust-cache/
-            /scripts/ci.py
-            /scripts/ci-run.py
-            /scripts/check-release.py
-            /scripts/package/publication.py
-            /scripts/package/versions.py
+            /.github/actions/
+            /scripts/
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -363,13 +300,8 @@ jobs:
           path: .workflow-tools
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/actions/rust-cache/
-            /scripts/ci.py
-            /scripts/ci-run.py
-            /scripts/check-release.py
-            /scripts/package/publication.py
-            /scripts/package/versions.py
-            /scripts/publish-packages.py
+            /.github/actions/
+            /scripts/
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: host-*

@@ -202,8 +202,8 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("secrets.", packaging)
         for command in ("cargo build", "cargo run"):
             self.assertNotIn(command, packaging)
-        self.assertIn("fixtures shared", build)
-        self.assertIn("fixtures desktop", build)
+        self.assertNotIn("fixtures shared", build)
+        self.assertNotIn("fixtures desktop", build)
         self.assertIn("needs: package", publish)
         self.assertIn("pattern: packages-*", publish)
         self.assertNotIn("pattern: native-*", publish)
@@ -302,17 +302,17 @@ class ReleaseWorkflows(unittest.TestCase):
             with self.subTest(build=build[:80]):
                 self.assertIn("macos-15-intel", build)
                 self.assertIn("Xcode_26.3.app", build)
-                self.assertIn("target/sherpa-onnx-prebuilt", build)
+                self.assertIn("uses: ./.workflow-tools/.github/actions/native-cache", build)
                 self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", build)
                 self.assertNotIn("key: packages-", build)
-                self.assertIn("key: ${{ steps.speech-key.outputs.key }}", build)
+                self.assertIn("target: ${{ matrix.target }}", build)
                 self.assertNotIn("github.sha", build)
                 commands = re.findall(r"cargo build[^\n]+", build)
                 self.assertTrue(commands)
                 for command in commands:
                     self.assertNotIn("--target", command)
                 self.assertIn("version: '0.16.0'", build)
-                self.assertIn("fixtures shared", build)
+                self.assertNotIn("fixtures shared", build)
         self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release"))
         self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release-host"))
 

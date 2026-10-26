@@ -1,0 +1,30 @@
+name: Native library cache
+description: Restore pinned speech and decision libraries for the product target
+inputs:
+  target:
+    description: Native target triple
+    required: true
+outputs:
+  key:
+    description: Exact library identity
+    value: ${{ steps.identity.outputs.key }}
+  hit:
+    description: Whether the exact library archive was restored
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Native library identity
+      id: identity
+      shell: bash
+      env:
+        PACKAGE_TARGET: ${{ inputs.target }}
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci.py" native-key "$PACKAGE_TARGET" shared
+    - name: Restore native libraries
+      id: restore
+      uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: |
+          target/sherpa-onnx-prebuilt
+          target/llama-prebuilt
+        key: ${{ steps.identity.outputs.key }}

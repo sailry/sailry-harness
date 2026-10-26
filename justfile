@@ -11,23 +11,17 @@ ci *args:
     bash scripts/python.sh scripts/ci.py local "$@"
 
 check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    TSLP_SOURCE_BUNDLE_URL="$(bash scripts/python.sh scripts/package/code-parsers.py --source-only)"
-    export TSLP_SOURCE_BUNDLE_URL
-    unset TSLP_OFFLINE TSLP_LANGUAGES
-    cargo fmt --all -- --check
-    cargo clippy --locked --workspace --all-targets -- -D warnings
+    bash scripts/python.sh scripts/ci.py check format
+    bash scripts/python.sh scripts/ci.py check lint
 
 test-ui:
     bash scripts/python.sh scripts/ci.py check desktop
 
 test-source:
-    bash scripts/python.sh -m unittest discover -s scripts/tests -v
-    bash scripts/python.sh -m unittest discover -s apps/desktop/src/content/files/preview/web -v
-    bash scripts/python.sh themes/scripts/catalog.py --check
-    bash scripts/python.sh -m unittest discover -s themes/scripts/tests -v
-    node --test crates/content/src/markdown/visuals/render.test.mjs
+    bash scripts/python.sh scripts/ci.py check source
+    bash scripts/python.sh scripts/ci.py check desktop-source
+    bash scripts/python.sh scripts/ci.py check host-source
+    bash scripts/python.sh scripts/ci.py check mobile-source
 
 test-plugins:
     bash scripts/python.sh scripts/test-plugins.py
@@ -86,8 +80,8 @@ mobile-ios: mobile-deps
 test-workload:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p .preview
-    task_output="$(mktemp -d "$PWD/.preview/native-workload-XXXXXX")"
+    task_output="$PWD/.runtime/native-workload"
+    mkdir -p "$task_output"
     task_triple="$(rustc -vV | awk '/^host: / {print $2}')"
     task_parsers=(--target "$task_triple" --output "${CARGO_TARGET_DIR:-target}/release/code-parsers")
     if [[ "$task_triple" == *apple-darwin ]]; then task_parsers+=(--sign -); fi

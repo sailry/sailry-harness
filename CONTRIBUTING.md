@@ -228,11 +228,14 @@ failures are not retried. Hung tests fail after five 60-second timeout periods.
 Unit tests precede production-feature checks; the lifecycle suite builds its own
 required application executable. JUnit reports remain separate and include
 individual test durations.
-Checks uses three macOS jobs: lint with backend, Desktop, and Mobile with iOS.
+Checks uses four macOS jobs: lint, shared Node with Host lifecycle, Desktop, and
+Mobile with conditional Dart FFI and iOS phases. Node-only changes run Dart FFI
+contracts without rebuilding iOS.
 Backend and Desktop share downloaded dependency sources, with backend as the
 cache producer; Mobile reuses that source cache. Sccache caches eligible library
-metadata. Downloaded speech libraries are cached
-separately and saved after preparation, before subsequent checks or target cleanup.
+metadata. Downloaded speech and decision libraries share a target-specific cache
+keyed by their pinned identities. Only successful jobs on `main` save complete
+library archives; pull requests only restore them.
 Rust compilation uses one Cargo job to bound memory on the standard macOS runner.
 These CLI limits preserve the shared dependency cache identity. Backend tests run
 four isolated processes concurrently to bound real-Node fixture contention.

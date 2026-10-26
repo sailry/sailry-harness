@@ -114,36 +114,26 @@ jobs:
       - name: Rust dependency caches
         id: rust-cache
         uses: ./.github/actions/rust-cache
-      - name: Speech cache identity
+      - name: Native library cache
         if: needs.source.outputs.shared == 'true' || needs.source.outputs.desktop == 'true' || needs.source.outputs.mobile == 'true'
-        id: speech-key
-        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
-      - name: Speech native libraries
-        if: steps.speech-key.outcome == 'success'
-        id: speech-cache
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}-llama-${{ hashFiles('scripts/package/llama-runtime.lock.json') }}
-      - name: Prepare uncached speech libraries
-        if: steps.speech-key.outcome == 'success' && steps.speech-cache.outputs.cache-hit != 'true'
-        run: cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
-      - name: Save speech native libraries
+        id: native-cache
         continue-on-error: true
-        if: steps.speech-key.outcome == 'success' && steps.speech-cache.outputs.cache-hit != 'true'
-        # Save before later checks fail.
+        uses: ./.github/actions/native-cache
+        with:
+          target: aarch64-apple-darwin
+      - name: Formatting
+        run: python3 scripts/ci.py check format
+      - name: Strict lint for selected packages
+        run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
+        continue-on-error: true
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
             target/sherpa-onnx-prebuilt
             target/llama-prebuilt
-          key: ${{ steps.speech-cache.outputs.cache-primary-key }}
-      - name: Formatting
-        run: python3 scripts/ci.py check format
-      - name: Strict lint for selected packages
-        run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint
+          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -157,16 +147,13 @@ jobs:
   shared:
     name: Shared Node
     needs: source
-    if: needs.source.outputs.shared == 'true'
+    if: needs.source.outputs.shared == 'true' || needs.source.outputs.host == 'true'
     runs-on: macos-15
     timeout-minutes: 240
     env:
       CARGO_BUILD_JOBS: '2'
       BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-    outputs:
-      source-key: ${{ steps.rust-cache.outputs.source-key }}
-      source-ready: ${{ steps.rust-cache.outputs.source-hit == 'true' || steps.source-save.outcome == 'success' }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -200,37 +187,28 @@ jobs:
         continue-on-error: true
         if: github.ref == 'refs/heads/main' && steps.rust-cache.outputs.source-key != '' && steps.rust-cache.outputs.source-hit != 'true'
         run: cargo fetch --locked
-      - name: Speech cache identity
-        id: speech-key
-        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
-      - name: Speech native libraries
-        id: speech-cache
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}-llama-${{ hashFiles('scripts/package/llama-runtime.lock.json') }}
-      - name: Prepare uncached speech libraries
-        if: steps.speech-cache.outputs.cache-hit != 'true'
-        run: cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
-      - name: Save speech native libraries
+      - name: Native library cache
+        if: needs.source.outputs.shared == 'true'
+        id: native-cache
         continue-on-error: true
-        if: steps.speech-cache.outputs.cache-hit != 'true'
-        # Save before later checks fail.
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: ./.github/actions/native-cache
         with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.speech-cache.outputs.cache-primary-key }}
+          target: aarch64-apple-darwin
       - name: Shared unit and local/remote integration
+        if: needs.source.outputs.shared == 'true'
         run: python3 scripts/ci-run.py -- python3 scripts/ci.py check backend
       - name: Isolated database engines
+        if: needs.source.outputs.shared == 'true'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           python3 scripts/ci.py check databases
+      - name: Host macOS lifecycle
+        if: needs.source.outputs.host == 'true'
+        run: python3 scripts/ci.py check host-mac
+      - name: Host without test features
+        if: needs.source.outputs.host == 'true'
+        run: python3 scripts/ci.py check host-production
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -257,6 +235,15 @@ jobs:
           path: .cargo-sources
           key: ${{ steps.rust-cache.outputs.source-key }}
           enableCrossOsArchive: true
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            target/sherpa-onnx-prebuilt
+            target/llama-prebuilt
+          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -266,27 +253,6 @@ jobs:
         run: |
           sccache --show-stats || true
           python3 scripts/ci.py cache-usage
-
-  source_cache:
-    name: Retire superseded source archives
-    needs: shared
-    if: always() && github.ref == 'refs/heads/main' && needs.shared.outputs.source-ready == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    continue-on-error: true
-    permissions:
-      contents: read
-      actions: write
-    steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          persist-credentials: false
-      - name: Retire matching legacy source keys
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_KEY: ${{ needs.shared.outputs.source-key }}
-        run: python3 scripts/prune-source-cache.py --saved-key "$SOURCE_KEY"
 
   desktop:
     name: Desktop
@@ -323,33 +289,12 @@ jobs:
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
-      - name: Speech cache identity
-        id: speech-key
-        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
-      - name: Speech native libraries
-        id: speech-cache
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}-llama-${{ hashFiles('scripts/package/llama-runtime.lock.json') }}
-      - name: Prepare uncached speech libraries
-        if: steps.speech-cache.outputs.cache-hit != 'true'
-        run: cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
-      - name: Save speech native libraries
+      - name: Native library cache
+        id: native-cache
         continue-on-error: true
-        if: steps.speech-cache.outputs.cache-hit != 'true'
-        # Save before later checks fail.
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: ./.github/actions/native-cache
         with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.speech-cache.outputs.cache-primary-key }}
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
-        with:
-          node-version: '22.22.1'
+          target: aarch64-apple-darwin
       - name: Desktop source fixtures
         run: python3 scripts/ci.py check desktop-source
       - name: Desktop logic and service contracts
@@ -372,6 +317,15 @@ jobs:
             target/nextest/lifecycle/junit.xml
           if-no-files-found: ignore
           retention-days: 7
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            target/sherpa-onnx-prebuilt
+            target/llama-prebuilt
+          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -444,75 +398,15 @@ jobs:
           sccache --show-stats || true
           python3 scripts/ci.py cache-usage
 
-  host_mac:
-    name: macOS Host lifecycle
+  mobile:
+    name: Mobile
     needs: source
-    if: needs.source.outputs.host == 'true'
+    if: needs.source.outputs.mobile == 'true' || needs.source.outputs.mobile_ffi == 'true'
     runs-on: macos-15
-    timeout-minutes: 150
+    timeout-minutes: 240
     env:
       CARGO_BUILD_JOBS: '2'
       BUILD_JOBS: '1'
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-    steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: '0.16.0'
-          use-cache: false
-      - name: Pinned Rust toolchain
-        run: |
-          rustup show active-toolchain
-          test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-version
-      - name: Search prerequisite
-        run: brew install ripgrep
-      - name: Rust dependency caches
-        id: rust-cache
-        uses: ./.github/actions/rust-cache
-      - name: Process-isolated test runner
-        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
-        with:
-          tool: cargo-nextest@0.9.143
-          fallback: none
-      - name: Host macOS lifecycle
-        run: python3 scripts/ci.py check host-mac
-      - name: Host without test features
-        run: python3 scripts/ci.py check host-production
-      - name: Compilation timings
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: cargo-timings-host-macos
-          path: |
-            target/cargo-timings
-            target/nextest/ci/junit.xml
-            target/nextest/databases/junit.xml
-            target/nextest/lifecycle/junit.xml
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Compiler cache statistics
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          sccache --show-stats || true
-          python3 scripts/ci.py cache-usage
-
-  mobile:
-    name: Mobile logic and iOS
-    needs: source
-    if: needs.source.outputs.mobile == 'true'
-    runs-on: macos-15
-    timeout-minutes: 150
-    env:
-      CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -528,6 +422,7 @@ jobs:
           flutter-version: '3.44.7'
           channel: stable
       - name: Pinned Flutter dependencies
+        if: needs.source.outputs.mobile == 'true'
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
       - name: Search prerequisite
@@ -536,95 +431,47 @@ jobs:
         id: rust-cache
         uses: ./.github/actions/rust-cache
       - name: Mobile source fixtures
+        if: needs.source.outputs.mobile == 'true'
         run: python3 scripts/ci.py check mobile-source
       - name: Flutter analysis and logic tests
+        if: needs.source.outputs.mobile == 'true'
         working-directory: apps/mobile
         run: |
           python3 ../../scripts/ci.py check mobile-format
           python3 ../../scripts/ci.py check mobile-check
       - name: iOS Rust dependency boundary
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.source.outputs.mobile == 'true' }}
         run: |
           rustup target add aarch64-apple-ios
-          bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge
+          bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge --dependencies-only
       - name: Unsigned iOS application
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.source.outputs.mobile == 'true' }}
         working-directory: apps/mobile
         run: |
           flutter build ios --release --no-codesign --build-name="$(python3 ../../scripts/package/versions.py --apple)"
           git diff --exit-code -- pubspec.lock
-      - name: Compiler cache statistics
-        if: always()
+      - name: Native library cache
+        if: needs.source.outputs.mobile_ffi == 'true'
+        id: native-cache
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          sccache --show-stats || true
-          python3 scripts/ci.py cache-usage
-
-  mobile_ffi:
-    name: Mobile Dart FFI contracts
-    needs: source
-    if: needs.source.outputs.mobile_ffi == 'true'
-    runs-on: macos-15
-    timeout-minutes: 120
-    env:
-      CARGO_BUILD_JOBS: '2'
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-    steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: ./.github/actions/native-cache
         with:
-          persist-credentials: false
-          submodules: recursive
-      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: '0.16.0'
-          use-cache: false
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
-        with:
-          flutter-version: '3.44.7'
-          channel: stable
-      - name: Search prerequisite
-        run: brew install ripgrep
-      - name: Rust dependency caches
-        id: rust-cache
-        uses: ./.github/actions/rust-cache
-      - name: Speech cache identity
-        id: speech-key
-        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
-      - name: Speech native libraries
-        id: speech-cache
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: target/sherpa-onnx-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}
-      - name: Prepare uncached speech libraries
-        if: steps.speech-cache.outputs.cache-hit != 'true'
-        run: cargo build --locked -p sailry-speech --jobs 1 -vv
-      - name: Save speech native libraries
-        continue-on-error: true
-        if: steps.speech-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: target/sherpa-onnx-prebuilt
-          key: ${{ steps.speech-cache.outputs.cache-primary-key }}
-      - name: Native shared bridge
-        run: cargo build --locked -p sailry-mobile-bridge --lib --jobs 1
-      - name: Code index contract resources
-        run: |
-          task_source="$(python3 scripts/package/code-parsers.py --target aarch64-apple-darwin --output target/debug/code-parsers --sign -)"
-          printf 'TSLP_SOURCE_BUNDLE_URL=%s\n' "$task_source" >> "$GITHUB_ENV"
+          target: aarch64-apple-darwin
       - name: Dart FFI contract fixtures
+        if: needs.source.outputs.mobile_ffi == 'true'
         run: |
-          unset TSLP_OFFLINE TSLP_LANGUAGES
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
-          cd tests/mobile-contract
-          dart pub get --enforce-lockfile
-          dart analyze
-          cd ../..
-          cargo test --locked -p sailry-mobile-bridge --test dart --timings -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
+          python3 scripts/ci.py check mobile-contract
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            target/sherpa-onnx-prebuilt
+            target/llama-prebuilt
+          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -667,18 +514,20 @@ jobs:
           rustup target add aarch64-linux-android
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes ripgrep
+      - name: Rust dependency caches
+        uses: ./.github/actions/rust-cache
       - name: Pinned Flutter dependencies
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
-      - name: Rust boundary and Android initializer
-        env:
-          SAILRY_ANDROID_API: '36'
-        run: bash scripts/check-mobile-android.sh
       - name: ARM64 release APK
         working-directory: apps/mobile
         # CI uses a disposable debug certificate; distribution signing is tag-only.
         # Pub setup regenerates release registrants without test-only plugins.
         run: flutter build apk --release --target-platform android-arm64
+      - name: Rust boundary and Android initializer
+        env:
+          SAILRY_ANDROID_API: '36'
+        run: bash scripts/check-mobile-android.sh --apk apps/mobile/build/app/outputs/flutter-apk/app-release.apk
       - name: Bundled native libraries
         run: |
           git diff --exit-code -- apps/mobile/pubspec.lock
@@ -689,6 +538,7 @@ jobs:
   desktop_ready:
     name: Desktop ready
     if: >-
+      needs.source.outputs.shared == 'true' && needs.source.outputs.desktop == 'true' &&
       !cancelled() && needs.source.result == 'success' && needs.lint.result == 'success' &&
       needs.shared.result == 'success' && needs.desktop.result == 'success'
     needs: [source, lint, shared, desktop]
@@ -706,9 +556,10 @@ jobs:
   host_ready:
     name: Host ready
     if: >-
+      needs.source.outputs.shared == 'true' && needs.source.outputs.host == 'true' &&
       !cancelled() && needs.source.result == 'success' && needs.lint.result == 'success' &&
-      needs.shared.result == 'success' && needs.host.result == 'success' && needs.host_mac.result == 'success'
-    needs: [source, lint, shared, host, host_mac]
+      needs.shared.result == 'success' && needs.host.result == 'success'
+    needs: [source, lint, shared, host]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -723,9 +574,10 @@ jobs:
   mobile_ready:
     name: Mobile ready
     if: >-
+      needs.source.outputs.shared == 'true' && needs.source.outputs.mobile == 'true' && needs.source.outputs.mobile_ffi == 'true' && needs.source.outputs.android == 'true' &&
       !cancelled() && needs.source.result == 'success' && needs.lint.result == 'success' &&
-      needs.shared.result == 'success' && needs.mobile.result == 'success' && needs.mobile_ffi.result == 'success' && needs.android.result == 'success'
-    needs: [source, lint, shared, mobile, mobile_ffi, android]
+      needs.shared.result == 'success' && needs.mobile.result == 'success' && needs.android.result == 'success'
+    needs: [source, lint, shared, mobile, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -740,7 +592,7 @@ jobs:
   checks:
     name: Checks passed
     if: ${{ !cancelled() }}
-    needs: [source, lint, shared, desktop, host, host_mac, mobile, mobile_ffi, android, services]
+    needs: [source, lint, shared, desktop, host, mobile, android, services]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

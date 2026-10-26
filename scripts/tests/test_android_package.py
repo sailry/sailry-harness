@@ -1,7 +1,9 @@
 """APK fixtures validate packaging checks, not Android device acceptance."""
 
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -69,6 +71,31 @@ class NativeLibraries(unittest.TestCase):
         with patch.object(checking, "run", side_effect=[BADGING, f"Signer #1 certificate SHA-256 digest: {FINGERPRINT}\n"]) as run:
             checking.verify(self.apk, VERSION, 1, "com.sailry.sailry_mobile", Path("tools"), FINGERPRINT)
         self.assertEqual(run.call_args_list[1].args, (Path("tools/apksigner"), "verify", "--print-certs", self.apk))
+
+
+class DependencyBoundary(unittest.TestCase):
+    def test_reuses_build_without_skipping_dependency_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cargo = root / "cargo"
+            cargo.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TASK_CALLS\"\nprintf '%s\\n' \"$TASK_DEPENDENCIES\"\n")
+            cargo.chmod(0o755)
+            calls = root / "calls"
+            for dependency, success in (("sailry-client v0.1.0", True),
+                                        ("sailry-node-runtime v0.1.0", False)):
+                with self.subTest(dependency=dependency):
+                    calls.write_text("")
+                    result = subprocess.run(
+                        ["bash", str(ROOT / "scripts/check-mobile-boundary.sh"),
+                         "aarch64-apple-ios", "sailry-mobile-bridge", "--dependencies-only"],
+                        env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                             "TASK_CALLS": str(calls), "TASK_DEPENDENCIES": dependency},
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
+                    invoked = calls.read_text().splitlines()
+                    self.assertEqual(len(invoked), 1)
+                    self.assertTrue(invoked[0].startswith("tree --locked "))
 
 
 if __name__ == "__main__":

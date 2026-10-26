@@ -19,6 +19,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 LANES = {"shared", "desktop", "host", "mobile", "mobile_ffi", "android", "services"}
 NATIVE = LANES - {"services"}
+CHECK_JOBS = {
+    "shared": {"shared", "host"},
+    "desktop": {"desktop"},
+    "host": {"host"},
+    "mobile": {"mobile", "mobile_ffi"},
+    "android": {"android"},
+    "services": {"services"},
+}
 PRODUCTS = {
     "desktop": {"shared", "desktop"},
     "host": {"shared", "host"},
@@ -28,7 +36,7 @@ FIXTURES = {
     "shared": {
         "test_ci_local", "test_ci_resources", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
         "test_names", "test_ocu_helper", "test_onnx_runtime", "test_llama_runtime", "test_code_parsers", "test_public_source", "test_publish_packages",
-        "test_python_launcher", "test_python_runtime", "test_release_notes", "test_source_cache",
+        "test_python_launcher", "test_python_runtime", "test_release_notes",
         "test_release_versions", "test_suites",
     },
     "desktop": {
@@ -64,7 +72,7 @@ DEPENDENTS = (
     (("apps/desktop/", "crates/content/"), {"desktop"}),
     (("apps/host/",), {"host"}),
     (("crates/node-runtime/", "crates/embedding/", "crates/ocr/", "crates/decision/"),
-     {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
+     {"shared", "desktop", "host", "mobile_ffi"}),
     (("crates/protocol/", "crates/link/", "crates/client/",
       "crates/speech/", "crates/model-assets/", "sdk/", "schemas/", "plugins/"), NATIVE),
     (("apps/mobile/", "vendor/flutter-markdown-plus/"), {"mobile", "android"}),
@@ -213,6 +221,12 @@ def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
         ],
         "host-source": [([python, "scripts/ci.py", "fixtures", "host"], ".")],
         "mobile-source": [([python, "scripts/ci.py", "fixtures", "mobile"], "."), ([python, "scripts/check-locales.py", "--product", "mobile"], ".")],
+        "mobile-contract": [
+            (["dart", "pub", "get", "--enforce-lockfile"], "tests/mobile-contract"),
+            (["dart", "analyze"], "tests/mobile-contract"),
+            (["cargo", "build", "--locked", "-p", "sailry-mobile-bridge", "--lib", "--jobs", jobs], "."),
+            (["cargo", "test", "--locked", "-p", "sailry-mobile-bridge", "--test", "dart", "--timings", "--jobs", jobs, "--", "--ignored", "--skip", "mcp_peer::stdio_peer", "--test-threads=4", "--nocapture"], "."),
+        ],
         "mobile-format": [(["dart", "format", "--output=none", "--set-exit-if-changed", "lib", "preview", "test", "tool"], "apps/mobile")],
         "mobile-check": [(["flutter", "analyze", "--no-pub"], "apps/mobile"), (["flutter", "test", "--no-pub"], "apps/mobile")],
         "services": [(["pnpm", task], "services/pairing-relay") for task in ("typecheck", "test", "build", "build:edgeone")],
@@ -263,7 +277,7 @@ def parser_environment(root, env, libraries):
 
 def run_check(name, jobs="2", root=ROOT, selection=None, env=None):
     commands = check_commands(name, jobs, root, selection, env)
-    if name in {"backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac"}:
+    if name in {"backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
         env = parser_environment(root, env, libraries=True)
     elif name in {"lint", "desktop-production", "host-production"}:
         env = parser_environment(root, env, libraries=False)
@@ -435,10 +449,17 @@ def speech_cache_key(root, target, mode):
     return f"speech-native-v1-sherpa-{sherpa}-sys-{system}-{target}-{mode}"
 
 
+def native_cache_key(root, target, mode):
+    speech = speech_cache_key(root, target, mode)
+    llama = hashlib.sha256((root / "scripts/package/llama-runtime.lock.json").read_bytes()).hexdigest()
+    return f"native-libraries-v1-{speech}-llama-{llama}"
+
+
 def require_results(results, product=None):
     required = PRODUCTS[product] if product else LANES
-    jobs = ("source", *sorted(required))
-    if not isinstance(results, dict) or any(not isinstance(results.get(job), dict) for job in jobs):
+    jobs = {name for name, lanes in CHECK_JOBS.items() if lanes & required}
+    if not isinstance(results, dict) or any(not isinstance(results.get(job), dict)
+                                           for job in {"source", "lint", *jobs}):
         raise ValueError("Missing check results")
     source = results["source"]
     if source.get("result") != "success":
@@ -447,17 +468,15 @@ def require_results(results, product=None):
     if not isinstance(selection, dict) or any(selection.get(lane) not in ("true", "false") for lane in LANES):
         raise ValueError("Missing check selection")
     selected = {lane for lane in LANES if selection[lane] == "true"}
-    for name, needed in (("lint", bool(lint_packages(selected))), ("host_mac", "host" in selected)):
-        if product and name == "host_mac" and "host" not in required:
-            continue
-        job = results.get(name)
-        if (not isinstance(job, dict) or job.get("result") not in ({"success"} if needed else {"success", "skipped"})):
-            raise ValueError(f"{name}: required check did not pass")
-    for name in jobs[1:]:
+    if product and not required <= selected:
+        raise ValueError("Product prerequisites were not selected")
+    lint = results["lint"].get("result")
+    if lint not in ({"success"} if lint_packages(selected) else {"success", "skipped"}):
+        raise ValueError("lint: required check did not pass")
+    for name in sorted(jobs):
         result = results[name].get("result")
-        if product and (name not in selected or result != "success"):
-            raise ValueError(f"{name}: product prerequisite did not pass ({result})")
-        if result != "success" and (name in selected or result != "skipped"):
+        needed = bool(CHECK_JOBS[name] & selected)
+        if result not in ({"success"} if needed or product else {"success", "skipped"}):
             raise ValueError(f"{name}: required check did not pass ({result})")
 
 
@@ -501,7 +520,7 @@ def main():
         raise SystemExit(local(sys.argv[2:]))
     elif len(sys.argv) == 3 and sys.argv[1] == "check":
         try:
-            selection = json.loads(os.environ["CHECK_SCOPE"]) if sys.argv[2] == "lint" else None
+            selection = json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES)))) if sys.argv[2] == "lint" else None
             raise SystemExit(run_check(sys.argv[2], os.getenv("BUILD_JOBS", os.getenv("CARGO_BUILD_JOBS", "2")), selection=selection))
         except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
             raise SystemExit(str(error)) from error
@@ -525,9 +544,10 @@ def main():
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
             target.writelines(f"{key}={value}\n" for key, value in selection.items())
         print("Selected checks: " + ", ".join(lane for lane in sorted(LANES) if selection[lane] == "true"))
-    elif len(sys.argv) == 4 and sys.argv[1] == "speech-key":
+    elif len(sys.argv) == 4 and sys.argv[1] in {"speech-key", "native-key"}:
         try:
-            key = speech_cache_key(ROOT, sys.argv[2], sys.argv[3])
+            key_function = native_cache_key if sys.argv[1] == "native-key" else speech_cache_key
+            key = key_function(Path(os.getenv("GITHUB_WORKSPACE", str(ROOT))), sys.argv[2], sys.argv[3])
             with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
                 target.write(f"key={key}\n")
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -549,7 +569,7 @@ def main():
     else:
         raise SystemExit(
             "Usage: ci.py local [fast|affected] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint|report [desktop|host|mobile]|fixtures <owner>|"
-            "speech-key <target> <shared|static>"
+            "speech-key|native-key <target> <shared|static>"
         )
 
 

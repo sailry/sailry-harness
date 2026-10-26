@@ -8,10 +8,28 @@ task_android_jar="$ANDROID_SDK_ROOT/platforms/android-$task_api/android.jar"
 test -f "$task_android_jar"
 command -v javac >/dev/null
 command -v jar >/dev/null
-bash scripts/check-mobile-boundary.sh aarch64-linux-android sailry-mobile-bridge
+task_output=".runtime/android-adapter"
+mkdir -p "$task_output/classes"
+find "$task_output/classes" -type f -delete
+task_library="${CARGO_TARGET_DIR:-target}/aarch64-linux-android/debug/libsailry_mobile_bridge.so"
+if test "${1:-}" = --apk && test "$#" = 2; then
+  task_library="$task_output/libsailry_mobile_bridge.so"
+  bash scripts/python.sh - "$2" "$task_library" <<'PYTHON'
+from pathlib import Path
+import sys
+import zipfile
+with zipfile.ZipFile(sys.argv[1]) as apk:
+    Path(sys.argv[2]).write_bytes(apk.read("lib/arm64-v8a/libsailry_mobile_bridge.so"))
+PYTHON
+  bash scripts/check-mobile-boundary.sh aarch64-linux-android sailry-mobile-bridge --dependencies-only
+elif test "$#" = 0; then
+  bash scripts/check-mobile-boundary.sh aarch64-linux-android sailry-mobile-bridge
+else
+  echo "Usage: check-mobile-android.sh [--apk <path>]" >&2
+  exit 1
+fi
+test -f "$task_library"
 
-task_output=$(mktemp -d /tmp/sailry-android-adapter.XXXXXX)
-mkdir "$task_output/classes"
 javac --release 8 -classpath "$task_android_jar" -d "$task_output/classes" \
   crates/mobile-bridge/android/src/main/java/ai/sailry/bridge/Native.java
 jar cf "$task_output/sailry-android-init.jar" -C "$task_output/classes" .
@@ -23,7 +41,7 @@ case "$(uname -s)" in
   *) echo "Unsupported NDK host" >&2; exit 1 ;;
 esac
 "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$task_ndk_host/bin/llvm-nm" \
-  --dynamic --defined-only target/aarch64-linux-android/debug/libsailry_mobile_bridge.so \
+  --dynamic --defined-only "$task_library" \
   | rg 'Java_ai_sailry_bridge_Native_init$'
 
 # Locate the companion through the lockfile-resolved dependency, never a private path.

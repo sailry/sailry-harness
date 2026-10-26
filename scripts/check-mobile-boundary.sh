@@ -5,6 +5,8 @@ command -v rg >/dev/null
 # Run from the repository root. This checks target compilation, not device behavior.
 task_target="${1:?Usage: bash scripts/check-mobile-boundary.sh <aarch64-apple-ios|aarch64-apple-ios-sim|aarch64-linux-android>}"
 task_package="${2:-sailry-client}"
+task_mode="${3:-build}"
+case "$task_mode" in build|--dependencies-only) ;; *) echo "Unsupported boundary mode" >&2; exit 1 ;; esac
 case "$task_package" in
   sailry-client|sailry-mobile-bridge) ;;
   *) echo "Unsupported mobile package" >&2; exit 1 ;;
@@ -36,6 +38,7 @@ if printf '%s\n' "$task_dependencies" | rg '^(sailry-node-runtime|sailry-decisio
   echo "Execution or desktop dependency leaked into the mobile client" >&2
   exit 1
 fi
+if test "$task_mode" = --dependencies-only; then exit 0; fi
 if test "$task_package" = sailry-mobile-bridge; then
   cargo build --locked -p "$task_package" --lib --target "$task_target"
 else

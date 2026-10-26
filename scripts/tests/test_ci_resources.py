@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
-JOBS = ("source", "lint", "shared", "desktop", "host", "host_mac", "mobile", "mobile_ffi", "android", "services")
+JOBS = ("source", "lint", "shared", "desktop", "host", "mobile", "android", "services")
 spec = importlib.util.spec_from_file_location("ci", ROOT / "scripts/ci.py")
 ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
@@ -44,10 +44,9 @@ class CheckResults(unittest.TestCase):
         selection = ci.outputs(selected)
         return {
             "source": {"result": "success", "outputs": selection},
-            **{name: {"result": "success" if name in selected else "skipped"}
-               for name in ci.LANES},
+            **{name: {"result": "success" if lanes & selected else "skipped"}
+               for name, lanes in ci.CHECK_JOBS.items()},
             "lint": {"result": "success" if ci.lint_packages(selected) else "skipped"},
-            "host_mac": {"result": "success" if "host" in selected else "skipped"},
         }
 
     def summarize(self, results, product=None):
@@ -141,9 +140,7 @@ class CheckResults(unittest.TestCase):
         for product, lanes in ci.PRODUCTS.items():
             with self.subTest(product=product):
                 results = self.results(ci.LANES)
-                needed = {"source", "lint"} | lanes
-                if "host" in lanes:
-                    needed.add("host_mac")
+                needed = {"source", "lint"} | {name for name, selected in ci.CHECK_JOBS.items() if lanes & selected}
                 for name in set(JOBS) - needed:
                     results[name]["result"] = "failure"
                 result = self.summarize(results, product)
@@ -160,7 +157,9 @@ class CheckResults(unittest.TestCase):
             for missing in lanes:
                 with self.subTest(product=product, missing=missing):
                     results = self.results(ci.LANES - {missing})
-                    results[missing]["result"] = "success"
+                    for name, selected in ci.CHECK_JOBS.items():
+                        if missing in selected:
+                            results[name]["result"] = "success"
                     self.assertNotEqual(self.summarize(results, product).returncode, 0)
 
 
@@ -171,11 +170,12 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("    if:", source.split("    steps:\n", 1)[0])
         self.assertIn("fetch-depth: 0", source)
         self.assertIn("run: python3 scripts/ci.py select", source)
-        for lane in ci.LANES:
-            section = workflow.split(f"\n  {lane}:\n", 1)[1].split("    steps:\n", 1)[0]
+        for name, lanes in ci.CHECK_JOBS.items():
+            section = job_section(workflow, name).split("    steps:\n", 1)[0]
             self.assertIn("needs: source", section)
-            self.assertIn(f"if: needs.source.outputs.{lane} == 'true'", section)
-        self.assertIn("needs: [source, lint, shared, desktop, host, host_mac, mobile, mobile_ffi, android, services]", workflow)
+            for lane in lanes:
+                self.assertIn(f"needs.source.outputs.{lane} == 'true'", section)
+        self.assertIn("needs: [source, lint, shared, desktop, host, mobile, android, services]", workflow)
         self.assertIn("run: python3 scripts/ci.py report", workflow)
 
     def test_lints_every_workspace_member(self):
@@ -190,8 +190,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs: source", lint)
         self.assertNotIn("cargo clippy", workflow)
         self.assertEqual(workflow.count("scripts/ci-run.py -- python3 scripts/ci.py lint"), 1)
-        for lane in ci.LANES:
-            self.assertNotIn("needs: [source, lint]", job_section(workflow, lane))
+        for name in ci.CHECK_JOBS:
+            self.assertNotIn("needs: [source, lint]", job_section(workflow, name))
 
     def test_runs_shared_package_tests(self):
         workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
@@ -229,7 +229,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("run: cargo fmt --all -- --check", lint)
         for lane in ("shared", "desktop", "host", "mobile"):
             self.assertIn(f"needs.source.outputs.{lane} == 'true'", header)
-        for lane in ("shared", "desktop", "host", "host_mac", "mobile", "mobile_ffi", "android"):
+        for lane in ("shared", "desktop", "host", "mobile", "android"):
             self.assertNotIn("name: Formatting", job_section(workflow, lane))
 
     def test_product_gates_require_real_jobs(self):
@@ -240,40 +240,41 @@ class Workflow(unittest.TestCase):
                 self.assertIn(f"name: {product.title()} ready", section)
                 self.assertIn("needs.source.result == 'success'", section)
                 self.assertIn("needs.lint.result == 'success'", section)
-                if product == "host":
-                    self.assertIn("needs.host_mac.result == 'success'", section)
                 for lane in lanes:
-                    self.assertIn(f"needs.{lane}.result == 'success'", section)
+                    self.assertIn(f"needs.source.outputs.{lane} == 'true'", section)
+                for name, selected in ci.CHECK_JOBS.items():
+                    if lanes & selected:
+                        self.assertIn(f"needs.{name}.result == 'success'", section)
                 self.assertIn(f"python3 scripts/ci.py report {product}", section)
                 self.assertNotIn("continue-on-error", section)
 
-    def test_keeps_host_out_of_desktop(self):
+    def test_merges_host_lifecycle_into_shared(self):
         workflow = workflow_source()
         shared = job_section(workflow, "shared")
         desktop = job_section(workflow, "desktop")
         host = job_section(workflow, "host")
-        mac = job_section(workflow, "host_mac")
-        self.assertNotIn("-p sailry-host", shared + desktop)
+        self.assertNotIn("-p sailry-host", desktop)
         self.assertIn("-p sailry-node-runtime", shared)
         self.assertIn("-p sailry-release", shared)
         self.assertIn("cargo check --locked -p sailry-desktop --jobs", desktop)
-        for section in (host, mac):
+        for section in (host, shared):
             self.assertIn("cargo check --locked -p sailry-host --jobs", section)
         self.assertIn("runs-on: ubuntu-24.04", host)
         self.assertIn("bubblewrap libx11-dev libxi-dev libxtst-dev", host)
         self.assertIn("cargo nextest run --locked -p sailry-host --timings", host)
-        self.assertNotIn("--filterset", host)
-        self.assertIn("runs-on: macos-15", mac)
-        self.assertIn("cargo nextest run --locked -p sailry-host --test lifecycle --timings", mac)
-        self.assertNotIn("--ignored", mac)
-        self.assertIn("DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer", shared + mac)
-        self.assertIn("bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge", workflow)
-        self.assertIn("bash scripts/check-mobile-android.sh", workflow)
+        self.assertIn("cargo nextest run --locked -p sailry-host --test lifecycle --timings", shared)
+        for title, lane in (("Shared unit and local/remote integration", "shared"),
+                            ("Isolated database engines", "shared"), ("Host macOS lifecycle", "host"),
+                            ("Host without test features", "host")):
+            step = shared.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
+            self.assertIn(f"if: needs.source.outputs.{lane} == 'true'", step)
+        self.assertIn("bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge --dependencies-only", workflow)
+        self.assertIn("bash scripts/check-mobile-android.sh --apk", workflow)
 
     def test_database_reuses_shared_package_graph(self):
         workflow = workflow_source()
         shared = job_section(workflow, "shared")
-        commands = [line for line in shared.splitlines() if "cargo nextest run" in line]
+        commands = [line for line in shared.splitlines() if "cargo nextest run" in line and "-p sailry-node-runtime" in line]
         self.assertEqual(len(commands), 2)
         packages = [re.findall(r"-p ([\w-]+)", command) for command in commands]
         self.assertEqual(packages[0], packages[1])
@@ -291,79 +292,56 @@ class Workflow(unittest.TestCase):
         self.assertIn("scripts/check-locales.py --product desktop", workflow)
         self.assertIn("scripts/check-locales.py --product mobile", workflow)
 
-    def test_splits_dart_contracts_on_macos(self):
+    def test_runs_selected_mobile_phases(self):
         workflow = workflow_source()
-        mobile = workflow.split("\n  mobile:\n", 1)[1].split("\n  mobile_ffi:\n", 1)[0]
-        ffi = workflow.split("\n  mobile_ffi:\n", 1)[1].split("\n  android:\n", 1)[0]
-        self.assertNotIn("--test dart", mobile)
-        self.assertNotIn("--test flutter", mobile)
+        mobile = job_section(workflow, "mobile")
         self.assertIn("flutter analyze --no-pub", mobile)
         self.assertIn("flutter test --no-pub", mobile)
         self.assertIn("flutter build ios --release --no-codesign", mobile)
-        self.assertIn("runs-on: macos-15", ffi)
-        self.assertIn("DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer", ffi)
-        self.assertIn("if: needs.source.outputs.mobile_ffi == 'true'", ffi)
-        self.assertIn("mlugg/setup-zig@", ffi)
-        self.assertIn("run: brew install ripgrep", ffi)
-        self.assertNotIn("apt-get", ffi)
-        self.assertIn("python3 scripts/ci.py speech-key aarch64-apple-darwin shared", ffi)
-        bridge = "cargo build --locked -p sailry-mobile-bridge --lib --jobs 1"
-        contract = (
-            "brew install postgresql@17 mysql@8.4\n"
-            "          export PATH=\"$(brew --prefix postgresql@17)/bin:"
-            "$(brew --prefix mysql@8.4)/bin:$PATH\"\n"
-            "          cd tests/mobile-contract\n"
-            "          dart pub get --enforce-lockfile\n"
-            "          dart analyze\n"
-            "          cd ../..\n"
-            "          cargo test --locked -p sailry-mobile-bridge --test dart --timings -- "
-            "--ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture"
-        )
-        self.assertIn(bridge, ffi)
-        self.assertIn(contract, ffi)
-        self.assertLess(ffi.index(bridge), ffi.index(contract))
+        self.assertIn("runs-on: macos-15", mobile)
+        self.assertIn("--test dart --timings", mobile)
+        self.assertIn("--skip mcp_peer::stdio_peer --test-threads=4", mobile)
+        for title, lane in (("Dart FFI contract fixtures", "mobile_ffi"),
+                            ("Mobile source fixtures", "mobile"),
+                            ("Flutter analysis and logic tests", "mobile"),
+                            ("iOS Rust dependency boundary", "mobile"),
+                            ("Unsigned iOS application", "mobile")):
+            step = mobile.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
+            self.assertIn(f"needs.source.outputs.{lane} == 'true'", step)
+        script = (ROOT / "scripts/check-mobile-contract.sh").read_text()
+        self.assertIn("scripts/ci.py check mobile-contract", script)
+        self.assertNotIn("cargo test", script)
+        android = job_section(workflow, "android")
+        self.assertIn("uses: ./.github/actions/rust-cache", android)
+        self.assertLess(android.index("flutter build apk"), android.index("check-mobile-android.sh"))
 
-    def test_keys_speech_cache_by_native_identity(self):
+    def test_shares_native_cache_and_limits_writes(self):
         workflow = workflow_source()
-        self.assertNotIn("hashFiles('Cargo.lock')", workflow)
-        for name, target in (
-            ("lint", "aarch64-apple-darwin"), ("shared", "aarch64-apple-darwin"),
-            ("desktop", "aarch64-apple-darwin"),
-            ("mobile_ffi", "aarch64-apple-darwin"),
-        ):
-            with self.subTest(job=name):
-                section = job_section(workflow, name)
-                self.assertIn(f"python3 scripts/ci.py speech-key {target} shared", section)
-                self.assertIn("key: ${{ steps.speech-key.outputs.key }}", section)
-                preparation = section.split("      - name: Prepare uncached speech libraries\n", 1)[1].split("      - ", 1)[0]
-                self.assertIn("steps.speech-cache.outputs.cache-hit != 'true'", preparation)
-                self.assertIn("cargo build --locked -p sailry-speech", preparation)
+        action = (ROOT / ".github/actions/native-cache/action.yml").read_text()
+        for path in ("target/sherpa-onnx-prebuilt", "target/llama-prebuilt"):
+            self.assertIn(path, action)
+        self.assertIn('native-key "$PACKAGE_TARGET" shared', action)
+        for name in ("lint", "shared", "desktop", "mobile"):
+            section = job_section(workflow, name)
+            self.assertIn("uses: ./.github/actions/native-cache", section)
+            self.assertIn("target: aarch64-apple-darwin", section)
+            save = section.split("      - name: Save native libraries\n", 1)[1].split("      - ", 1)[0]
+            self.assertIn("github.ref == 'refs/heads/main'", save)
+            self.assertIn("steps.native-cache.outputs.hit != 'true'", save)
+            self.assertNotIn("always()", save)
+        for name in ("release", "release-host"):
+            release = (ROOT / f".github/workflows/{name}.yml").read_text()
+            self.assertIn("uses: ./.workflow-tools/.github/actions/native-cache", release)
+            self.assertNotIn("Save speech native libraries", release)
+            save = release.split("      - name: Save native libraries\n", 1)[1].split("      - ", 1)[0]
+            self.assertIn("github.ref == 'refs/heads/main'", save)
+            self.assertNotIn("always()", save)
 
-        for name in ("host", "host_mac", "mobile"):
-            self.assertNotIn("sailry-speech", job_section(workflow, name))
-            self.assertNotIn("speech-key", job_section(workflow, name))
-        lint = job_section(workflow, "lint")
-        identity = lint.split("      - name: Speech cache identity\n", 1)[1].split("      - ", 1)[0]
-        for name in ("shared", "desktop", "mobile"):
-            self.assertIn(f"needs.source.outputs.{name} == 'true'", identity)
-        self.assertNotIn("needs.source.outputs.host", identity)
-        for title in ("Speech native libraries", "Prepare uncached speech libraries", "Save speech native libraries"):
-            step = lint.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
-            self.assertIn("steps.speech-key.outcome == 'success'", step)
-
-    def test_retires_archives_without_blocking_checks(self):
+    def test_omits_retired_source_cleanup(self):
         workflow = workflow_source()
-        cleanup = job_section(workflow, "source_cache")
-        header = cleanup.split("    steps:\n", 1)[0]
-        self.assertIn("needs: shared", header)
-        self.assertIn("needs.shared.outputs.source-ready == 'true'", header)
-        self.assertIn("github.ref == 'refs/heads/main'", header)
-        self.assertIn("continue-on-error: true", header)
-        self.assertIn("actions: write", header)
-        self.assertIn('python3 scripts/prune-source-cache.py --saved-key "$SOURCE_KEY"', cleanup)
-        for name in ("checks", "desktop_ready", "host_ready", "mobile_ready"):
-            needs = job_section(workflow, name).split("    steps:\n", 1)[0]
-            self.assertNotIn("source_cache", needs)
+        self.assertNotIn("prune-source-cache", workflow)
+        self.assertNotIn("\n  source_cache:", workflow)
+        self.assertFalse((ROOT / "scripts/prune-source-cache.py").exists())
 
     def test_always_builds_with_compiler_caching(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
@@ -371,7 +349,7 @@ class Workflow(unittest.TestCase):
         compilation = build.split("      - name: Build native Desktop\n", 1)[1].split("      - ", 1)[0]
         self.assertNotIn("if:", compilation)
         self.assertIn("cargo build --locked --release --timings", compilation)
-        for legacy in ("reuse_build_run", "reusable-build", "native-cache", "target/release\n"):
+        for legacy in ("reuse_build_run", "reusable-build", "key: packages-", "target/release\n"):
             self.assertNotIn(legacy, workflow)
         self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", build)
 
@@ -418,7 +396,7 @@ class Workflow(unittest.TestCase):
             self.assertIn("scripts/ci.py cache-usage", workflow)
         for workflow in workflows[1:]:
             self.assertNotIn("Save compilation before signing", workflow)
-            self.assertIn("python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings", workflow)
+            self.assertIn("python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings", workflow)
 
 
 class SourceCacheIdentity(unittest.TestCase):
@@ -608,7 +586,7 @@ class PhaseProgress(unittest.TestCase):
                 patch.object(module, "progress") as progress, \
                 patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}), patch("builtins.print"):
             self.assertEqual(module.run(["cargo", "build", "--locked"]), 0)
-        spawn.assert_called_once_with(["cargo", "build", "--locked"])
+        spawn.assert_called_once_with(["cargo", "build", "--locked"], env=None)
         progress.assert_called_once()
 
 
@@ -640,6 +618,19 @@ class SpeechCache(unittest.TestCase):
             self.assertEqual(ci.speech_cache_key(root, "aarch64-apple-darwin", "shared"), before)
             self.fixture(root, system="1.2.4")
             self.assertIn("sys-1.2.4", ci.speech_cache_key(root, "x86_64-unknown-linux-gnu", "shared"))
+
+    def test_native_key_tracks_llama_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            lock = root / "scripts/package/llama-runtime.lock.json"
+            lock.parent.mkdir(parents=True)
+            lock.write_text('{"revision":"first"}')
+            first = ci.native_cache_key(root, "aarch64-apple-darwin", "shared")
+            self.assertNotEqual(first, ci.native_cache_key(root, "x86_64-apple-darwin", "shared"))
+            self.assertNotEqual(first, ci.native_cache_key(root, "aarch64-apple-darwin", "static"))
+            lock.write_text('{"revision":"second"}')
+            self.assertNotEqual(first, ci.native_cache_key(root, "aarch64-apple-darwin", "shared"))
 
     def test_requires_exact_workspace_pin(self):
         with tempfile.TemporaryDirectory() as directory:

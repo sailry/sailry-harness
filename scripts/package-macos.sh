@@ -5,7 +5,7 @@ set -euo pipefail
 task_update_signing_key="${SAILRY_UPDATE_SIGNING_KEY:-}"
 unset SAILRY_UPDATE_SIGNING_KEY
 
-# Package existing builds into a fresh directory; never replace an installed app.
+# Package existing builds in a fixed staging directory; never replace an installed app.
 task_profile="${1:-release}"
 case "$task_profile" in debug|release) ;; *) echo 'Usage: bash scripts/package-macos.sh [debug|release] [desktop|host|all]' >&2; exit 1 ;; esac
 task_component="${2:-all}"
@@ -47,7 +47,11 @@ test -n "$task_version"
 if test "$task_desktop" = 1; then test -x "$task_build/sailry-desktop"; fi
 if test "$task_host" = 1; then test -x "$task_build/sailry-host"; fi
 mkdir -p "$task_root/dist"
-task_output="$(mktemp -d "$task_root/dist/macos-$task_profile-XXXXXX")"
+task_output="$task_root/dist/macos-$task_profile-$task_component"
+# Rebuild only this component's fixed packaging stage.
+test ! -L "$task_output"
+rm -rf -- "$task_output"
+mkdir -p "$task_output"
 task_app="$task_output/Sailry.app"
 task_package_args=()
 task_python_outputs=()

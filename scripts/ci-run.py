@@ -26,10 +26,10 @@ def progress(elapsed):
         print("Process snapshot unavailable", flush=True)
 
 
-def run(command):
+def run(command, env=None):
     start = time.monotonic()
     print("CI phase started", flush=True)
-    with subprocess.Popen(command) as process:
+    with subprocess.Popen(command, env=env) as process:
         while True:
             try:
                 code = process.wait(timeout=60)
@@ -49,6 +49,12 @@ def run(command):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] != "--":
-        raise SystemExit("Usage: ci-run.py -- <command> [arguments...]")
-    raise SystemExit(run(sys.argv[2:]))
+    arguments = sys.argv[1:]
+    environment = None
+    if arguments[:1] == ["--parsers"]:
+        import ci
+        environment = ci.parser_environment(Path.cwd(), None, libraries=False)
+        arguments = arguments[1:]
+    if len(arguments) < 2 or arguments[0] != "--":
+        raise SystemExit("Usage: ci-run.py [--parsers] -- <command> [arguments...]")
+    raise SystemExit(run(arguments[1:], environment))

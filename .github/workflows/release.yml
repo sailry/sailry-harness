@@ -66,13 +66,8 @@ jobs:
           path: .workflow-tools
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/actions/rust-cache/
-            /scripts/ci.py
-            /scripts/ci-run.py
-            /scripts/check-release.py
-            /scripts/package/publication.py
-            /scripts/package/versions.py
-            /scripts/recover-desktop.py
+            /.github/actions/
+            /scripts/
       - name: Require a matching version tag and Desktop gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -126,15 +121,8 @@ jobs:
           path: .workflow-tools
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/actions/rust-cache/
-            /scripts/ci.py
-            /scripts/ci-run.py
-            /scripts/check-release.py
-            /scripts/package/publication.py
-            /scripts/package/versions.py
-            /scripts/recover-desktop.py
-            /scripts/desktop-build.py
-            /scripts/package/notarize-macos.py
+            /.github/actions/
+            /scripts/
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -150,33 +138,18 @@ jobs:
           python3 scripts/package/versions.py --tag "$RELEASE_TAG"
       - name: Rust dependency caches
         uses: ./.workflow-tools/.github/actions/rust-cache
-      - name: Speech cache identity
-        id: speech-key
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-        run: python3 scripts/ci.py speech-key "$PACKAGE_TARGET" shared
-      - name: Speech native libraries
-        id: speech-cache
+      - name: Native library cache
+        id: native-cache
         continue-on-error: true
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: ./.workflow-tools/.github/actions/native-cache
         with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}-llama-${{ hashFiles('scripts/package/llama-runtime.lock.json') }}
+          target: ${{ matrix.target }}
       - name: Build prerequisites
         run: |
           brew install llvm@21 ripgrep
-      - name: Desktop packaging fixtures
-        run: |
-          python3 scripts/ci.py fixtures shared
-          python3 scripts/ci.py fixtures desktop
       - name: Build native Desktop
         run: |
-          TSLP_SOURCE_BUNDLE_URL="$(python3 scripts/package/code-parsers.py --source-only)"
-          export TSLP_SOURCE_BUNDLE_URL
-          unset TSLP_OFFLINE TSLP_LANGUAGES
-          python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings -p sailry-desktop -p sailry-release
+          python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings -p sailry-desktop -p sailry-release
       - name: Stage native Desktop
         env:
           WORKFLOW_REVISION: ${{ github.workflow_sha }}
@@ -192,15 +165,15 @@ jobs:
           path: ${{ runner.temp }}/native-${{ matrix.target }}.tar.gz
           if-no-files-found: error
           retention-days: 14
-      - name: Save speech native libraries
-        if: always() && steps.speech-cache.outputs.cache-hit != 'true'
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
         continue-on-error: true
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
             target/sherpa-onnx-prebuilt
             target/llama-prebuilt
-          key: ${{ steps.speech-key.outputs.key }}-llama-${{ hashFiles('scripts/package/llama-runtime.lock.json') }}
+          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -243,15 +216,8 @@ jobs:
           path: .workflow-tools
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/actions/rust-cache/
-            /scripts/ci.py
-            /scripts/ci-run.py
-            /scripts/check-release.py
-            /scripts/package/publication.py
-            /scripts/package/versions.py
-            /scripts/recover-desktop.py
-            /scripts/desktop-build.py
-            /scripts/package-desktop-adhoc.py
+            /.github/actions/
+            /scripts/
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -328,14 +294,8 @@ jobs:
           path: .workflow-tools
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/actions/rust-cache/
-            /scripts/ci.py
-            /scripts/ci-run.py
-            /scripts/check-release.py
-            /scripts/package/publication.py
-            /scripts/package/versions.py
-            /scripts/desktop-build.py
-            /scripts/publish-packages.py
+            /.github/actions/
+            /scripts/
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: packages-*
