@@ -78,6 +78,25 @@ class HostTasks(unittest.TestCase):
                          ["submit", "--data-dir", str(self.home / ".sailry-host"),
                           "--session", "session", "--prompt", "--data-dir"])
 
+    def test_preserves_explicit_profiles_without_home(self):
+        environment = {key: value for key, value in self.environment.items() if key != "HOME"}
+        profile = str(self.root / "explicit profile")
+        for command in ("share", "submit", "wait", "acp"):
+            with self.subTest(command=command):
+                output = self.command("host-command.sh", command, "--data-dir", profile,
+                                      environment=environment)
+                self.assertEqual(output.returncode, 4, output.stderr)
+                self.assertEqual(json.loads(output.stdout)["args"],
+                                 [command, "--data-dir", profile])
+
+    def test_requires_home_only_for_default_profile(self):
+        environment = {key: value for key, value in self.environment.items() if key != "HOME"}
+        output = self.command("host-command.sh", "share", environment=environment)
+        self.assertNotEqual(output.returncode, 0)
+        self.assertIn("use --data-dir", output.stderr)
+        output = self.command("host-command.sh", "help", environment=environment)
+        self.assertEqual(output.returncode, 0, output.stderr)
+
     def test_ci_preserves_stdin_and_exit_code(self):
         environment = {**self.environment, "SAILRY_COMMAND":str(self.binary), "SAILRY_REQUEST_ID":"request",
                        "SAILRY_SESSION":"session", "SAILRY_EXPECTED_REVISION":"7",

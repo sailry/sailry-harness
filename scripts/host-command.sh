@@ -10,13 +10,11 @@ if test -L "$task_script"; then
   esac
 fi
 task_root="$(cd "$(dirname "$task_script")" && pwd)"
-task_data="$HOME/.sailry-host"
 task_command="${1:-help}"
 if test "$#" -gt 0; then shift; fi
 case "$task_command" in
   version) test "$#" = 0; exec "$task_root/sailry-host" --version ;;
-  share) exec "$task_root/sailry-host" share --data-dir "$task_data" "$@" ;;
-  submit|wait|acp)
+  share|submit|wait|acp)
     task_profile_given=false
     task_value=false
     for task_argument in "$@"; do
@@ -30,6 +28,11 @@ case "$task_command" in
     if "$task_profile_given"; then
       exec "$task_root/sailry-host" "$task_command" "$@"
     fi
+    if test -z "${HOME:-}"; then
+      echo 'HOME is unavailable; use --data-dir' >&2
+      exit 1
+    fi
+    task_data="$HOME/.sailry-host"
     exec "$task_root/sailry-host" "$task_command" --data-dir "$task_data" "$@"
     ;;
   update)

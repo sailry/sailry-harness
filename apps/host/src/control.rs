@@ -176,7 +176,10 @@ pub(crate) async fn share(
             return Err("Usage: sailry share [--pairing-service <HTTPS origin>]".into());
         }
     }
-    let profile = profile.unwrap_or(sailry_node_runtime::default_data_dir()?);
+    let profile = match profile {
+        Some(profile) => profile,
+        None => sailry_node_runtime::default_data_dir()?,
+    };
     let origin = origin.as_deref().unwrap_or(DEFAULT_SERVICE);
     Relay::new(origin)?;
     let stream = UnixStream::connect(profile.join("control.sock"))
