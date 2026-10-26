@@ -23,6 +23,8 @@ struct Entry {
     watch: Option<(sailry_protocol::WorktreeId, Arc<crate::code_index::Service>)>,
     input: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
     explicit: bool,
+    background: bool,
+    retained: Arc<super::output::Retained>,
 }
 
 pub(crate) struct Finished {
@@ -131,6 +133,9 @@ impl Commands {
         let stop = CancellationToken::new();
         let (progress, output) = watch::channel((Capture::default(), Capture::default()));
         let (input, received) = tokio::sync::mpsc::channel(32);
+        let retained = Arc::new(super::output::Retained::new(
+            launch.profile.as_deref().unwrap_or(&launch.root),
+        ));
         entries.insert(
             id,
             Entry {
@@ -141,6 +146,8 @@ impl Commands {
                 watch: None,
                 input: Some(input),
                 explicit: false,
+                background: true,
+                retained: retained.clone(),
             },
         );
         let owner = self.clone();
@@ -154,6 +161,7 @@ impl Commands {
                 &closed,
                 &progress,
                 received,
+                retained.clone(),
             ))
             .catch_unwind();
             tokio::pin!(execution);
@@ -174,6 +182,7 @@ impl Commands {
                 }
             };
             let mut elapsed_ms = None;
+            retained.finish();
             let status = match result {
                 Ok(Ok(result)) => {
                     elapsed_ms = Some(result.elapsed_ms);
@@ -224,11 +233,118 @@ impl Commands {
             .lock()
             .unwrap()
             .values()
-            .filter(|entry| entry.info.session == session)
+            .filter(|entry| entry.info.session == session && entry.background)
             .map(|entry| entry.info.clone())
             .collect();
         entries.sort_by_key(|entry| (entry.started_ms, entry.id));
         entries
+    }
+
+    pub(crate) fn retain(
+        &self,
+        id: RequestId,
+        session: SessionId,
+        turn: TurnId,
+        launch: &Launch,
+    ) -> Arc<super::output::Retained> {
+        let retained = Arc::new(super::output::Retained::new(
+            launch.profile.as_deref().unwrap_or(&launch.root),
+        ));
+        let mut entries = self.entries.lock().unwrap();
+        while entries.len() >= 128 {
+            let oldest = entries
+                .iter()
+                .filter(|(_, entry)| {
+                    !matches!(entry.info.status, Status::Running | Status::Stopping)
+                })
+                .min_by_key(|(_, entry)| entry.info.started_ms)
+                .map(|(id, _)| *id);
+            let Some(id) = oldest else {
+                break;
+            };
+            entries.remove(&id);
+        }
+        entries.insert(
+            id,
+            Entry {
+                info: Info {
+                    id,
+                    session,
+                    turn,
+                    command: launch.command.clone(),
+                    access: launch.access,
+                    pty: false,
+                    cwd: launch.cwd.clone(),
+                    started_ms: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
+                    status: Status::Running,
+                    services: Vec::new(),
+                },
+                output: watch::channel((Capture::default(), Capture::default())).1,
+                stop: CancellationToken::new(),
+                task: None,
+                watch: None,
+                input: None,
+                explicit: false,
+                background: false,
+                retained: retained.clone(),
+            },
+        );
+        retained
+    }
+
+    pub(crate) fn finish(
+        &self,
+        id: RequestId,
+        result: &Result<sailry_protocol::process::Completion, Fault>,
+    ) {
+        let mut entries = self.entries.lock().unwrap();
+        if let Some(entry) = entries.get_mut(&id) {
+            entry.retained.finish();
+            entry.info.status = match result {
+                Ok(completion) => Status::Finished(completion.outcome.clone()),
+                Err(error) => Status::Failed(error.message.clone()),
+            };
+            if let Ok(completion) = result {
+                entry.output =
+                    watch::channel((completion.stdout.clone(), completion.stderr.clone())).1;
+            }
+        }
+    }
+
+    pub(crate) fn retained(
+        &self,
+        session: SessionId,
+        id: RequestId,
+    ) -> Result<Arc<super::output::Retained>, Fault> {
+        self.entries
+            .lock()
+            .unwrap()
+            .get(&id)
+            .filter(|entry| entry.info.session == session)
+            .map(|entry| entry.retained.clone())
+            .ok_or_else(missing)
+    }
+
+    pub(crate) fn page(
+        &self,
+        session: SessionId,
+        id: RequestId,
+        stream: sailry_protocol::process::OutputStream,
+        offset: usize,
+        limit: usize,
+    ) -> Result<sailry_protocol::process::OutputPage, Fault> {
+        let (info, retained) = {
+            let entries = self.entries.lock().unwrap();
+            let entry = entries
+                .get(&id)
+                .filter(|entry| entry.info.session == session)
+                .ok_or_else(missing)?;
+            (entry.info.clone(), entry.retained.clone())
+        };
+        retained.page(info, stream, offset, limit)
     }
 
     pub fn read(&self, session: SessionId, id: RequestId) -> Result<Snapshot, Fault> {
@@ -336,6 +452,7 @@ impl Commands {
         for task in tasks {
             let _ = task.await;
         }
+        self.entries.lock().unwrap().clear();
     }
 }
 

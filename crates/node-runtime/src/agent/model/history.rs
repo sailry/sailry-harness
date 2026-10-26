@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 mod mcp;
+mod output;
 
 struct Model {
     inner: Arc<dyn Llm>,
@@ -89,6 +90,7 @@ where
 fn project(request: &mut LlmRequest, origin: &ProviderOrigin) {
     adk_core::history::for_provider(&mut request.contents, origin);
     mcp::project(&mut request.contents);
+    output::project(&mut request.contents);
     coalesce(&mut request.contents);
 }
 

@@ -24,7 +24,7 @@ struct File {
 }
 
 fn default_limit() -> usize {
-    200
+    100
 }
 
 #[derive(Deserialize)]
@@ -112,7 +112,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
         Operation::ListDirectory => "List a directory in the captured worktree",
         Operation::ReadFile | Operation::ReadFileLines => {
-            "Read numbered lines with a full file revision; offset starts at zero and defaults to 0, limit defaults to 200"
+            "Read numbered lines with a full file revision; offset starts at zero and defaults to 0, limit defaults to 100"
         }
         Operation::WriteFile => "Write UTF-8 text using the expected file revision",
         Operation::EditFile => {
@@ -152,7 +152,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["path", "after"],
         ),
         Operation::ReadFile | Operation::ReadFileLines => (
-            json!({"path":path,"expected_revision":{"type":"string"},"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":200}}),
+            json!({"path":path,"expected_revision":{"type":"string"},"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":100}}),
             vec!["path"],
         ),
         Operation::WriteFile => (

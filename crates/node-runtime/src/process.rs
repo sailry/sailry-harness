@@ -126,7 +126,27 @@ pub(crate) async fn execute(
     stop: &CancellationToken,
     closed: &CancellationToken,
 ) -> Result<Completion, Fault> {
-    execute_configured(launch, environment, stop, closed, None, None, None).await
+    execute_configured(launch, environment, stop, closed, Streams::default()).await
+}
+
+pub(crate) async fn execute_retained(
+    launch: Launch,
+    environment: &Environment,
+    stop: &CancellationToken,
+    closed: &CancellationToken,
+    retained: Arc<output::Retained>,
+) -> Result<Completion, Fault> {
+    execute_configured(
+        launch,
+        environment,
+        stop,
+        closed,
+        Streams {
+            retained: Some(retained),
+            ..Default::default()
+        },
+    )
+    .await
 }
 
 pub(crate) async fn execute_background(
@@ -136,18 +156,23 @@ pub(crate) async fn execute_background(
     closed: &CancellationToken,
     progress: &tokio::sync::watch::Sender<(Capture, Capture)>,
     input: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    retained: Arc<output::Retained>,
 ) -> Result<Completion, Fault> {
     if launch.pty {
-        return interactive::execute(launch, environment, stop, closed, progress, input).await;
+        return interactive::execute(launch, environment, stop, closed, progress, input, retained)
+            .await;
     }
     execute_configured(
         launch,
         environment,
         stop,
         closed,
-        Some(progress),
-        None,
-        Some(input),
+        Streams {
+            progress: Some(progress),
+            input: Some(input),
+            retained: Some(retained),
+            ..Default::default()
+        },
     )
     .await
 }
@@ -164,11 +189,20 @@ pub(crate) async fn execute_hook(
         environment,
         stop,
         closed,
-        None,
-        Some(metadata),
-        None,
+        Streams {
+            metadata: Some(metadata),
+            ..Default::default()
+        },
     )
     .await
+}
+
+#[derive(Default)]
+struct Streams<'a> {
+    progress: Option<&'a tokio::sync::watch::Sender<(Capture, Capture)>>,
+    metadata: Option<&'a std::collections::BTreeMap<&'static str, String>>,
+    input: Option<tokio::sync::mpsc::Receiver<Vec<u8>>>,
+    retained: Option<Arc<output::Retained>>,
 }
 
 async fn execute_configured(
@@ -176,10 +210,14 @@ async fn execute_configured(
     environment: &Environment,
     stop: &CancellationToken,
     closed: &CancellationToken,
-    progress: Option<&tokio::sync::watch::Sender<(Capture, Capture)>>,
-    metadata: Option<&std::collections::BTreeMap<&'static str, String>>,
-    mut input: Option<tokio::sync::mpsc::Receiver<Vec<u8>>>,
+    streams: Streams<'_>,
 ) -> Result<Completion, Fault> {
+    let Streams {
+        progress,
+        metadata,
+        mut input,
+        retained,
+    } = streams;
     let started = Instant::now();
     if stop.is_cancelled() || closed.is_cancelled() {
         return Ok(cancelled());
@@ -235,7 +273,7 @@ async fn execute_configured(
         .take()
         .expect("command stderr was piped");
     let mut stdin = child.inner.stdin().take();
-    let mut capture = output::Drain::with_tail(stdout, stderr, progress.is_some());
+    let mut capture = output::Drain::with_retained(stdout, stderr, progress.is_some(), retained);
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let mut outcome = {
         let wait = child.wait_root();

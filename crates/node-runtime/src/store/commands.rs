@@ -848,6 +848,8 @@ pub(super) fn execute<'a>(
         | Command::RunCommand { .. }
         | Command::ListCommands { .. }
         | Command::ReadCommand { .. }
+        | Command::ReadCommandPage { .. }
+        | Command::ReadToolOutput { .. }
         | Command::StopCommand { .. }
         | Command::WriteCommand { .. }
         | Command::StopCommands { .. }

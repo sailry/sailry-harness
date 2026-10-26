@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 mod interactive;
 #[path = "commands/lifecycle.rs"]
 mod lifecycle;
+#[path = "commands/output.rs"]
+mod output;
 
 fn name(tool: &str) -> String {
     agent_support::plugin_tool("commands", tool)

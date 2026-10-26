@@ -432,8 +432,16 @@ impl Database {
                     }
                     (Some(Action::ControlCommands), None, Some(session))
                 }
-                Command::ListCommands { session } | Command::ReadCommand { session, .. } => {
+                Command::ListCommands { session }
+                | Command::ReadCommand { session, .. }
+                | Command::ReadCommandPage { session, .. } => {
                     (Some(Action::ReadCommands), None, Some(*session))
+                }
+                Command::ReadToolOutput { turn, .. } => {
+                    if context.turn != Some(*turn) {
+                        return Err(denied("tool output read is outside the captured turn"));
+                    }
+                    (Some(Action::ReadCommands), None, context.session)
                 }
                 Command::StopCommand { session, .. } | Command::WriteCommand { session, .. } => {
                     (Some(Action::ControlCommands), None, Some(*session))

@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 mod content;
 pub use content::{Block, Content, Diff, File, Table, Text};
 mod display;
+mod output;
 mod result;
 pub use display::{Alias, AliasKind, Display, Field, Input, InputFormat, projection};
+pub use output::{MAX_OUTPUT_PAGE_BYTES, OutputPage, OutputReference};
 pub use result::{Diagnostic, Expected, LocalText, ResultDisplay};
 
 /// Controls availability of successful result details, not automatic expansion state.

@@ -213,7 +213,9 @@ impl Ingress {
                 super::routing::Route::ReadCodeIndex => {
                     return defer(move || self.read_code_index(caller, request)).await;
                 }
-                super::routing::Route::ReadCommand => return self.read_command(request),
+                super::routing::Route::ReadCommand => {
+                    return self.read_command(caller, request).await;
+                }
                 super::routing::Route::Port => {
                     return defer(move || self.port(caller, request)).await;
                 }

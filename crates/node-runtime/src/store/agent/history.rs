@@ -7,6 +7,7 @@ mod credentials;
 mod interrupted;
 mod settled;
 pub(super) use interrupted::retain;
+pub(in crate::store) mod output;
 pub(super) mod pages;
 // Canonical telemetry remains available to statistics without consuming chat or prompt pages.
 pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((

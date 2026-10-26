@@ -7,6 +7,25 @@ use serde_json::{Value, json};
 
 const NOTICE: &str = "This command ran in the workspace sandbox: network access is disabled, writes are limited to the worktree and temporary directories, and existing Git metadata and managed child worktrees are protected. macOS also blocks new .git paths. Git writes, including git init, git add and git commit, require access=\"unrestricted\" under the current permission policy. If sandbox restrictions caused the failure, inspect any partial changes before requesting unrestricted access to retry. Unrestricted access does not override operating-system permissions.";
 
+/// Freeze model preview metadata at this tool return, independent of later reads.
+pub(super) async fn retain(
+    commands: &crate::process::background::Commands,
+    session: sailry_protocol::SessionId,
+    id: sailry_protocol::RequestId,
+    _command: &str,
+    _output: &Output,
+    value: &mut Value,
+) {
+    let Ok(retained) = commands.retained(session, id) else {
+        return;
+    };
+    let projected = tokio::task::spawn_blocking(move || {
+        retained.preview(id).unwrap_or_else(|| json!({"id":id}))
+    })
+    .await;
+    value["sailry_command"] = projected.unwrap_or_else(|_| json!({"id":id}));
+}
+
 pub(super) fn failure(output: &Output) -> Option<Failure> {
     let outcome = match output {
         Output::CommandResult(completion) => &completion.outcome,

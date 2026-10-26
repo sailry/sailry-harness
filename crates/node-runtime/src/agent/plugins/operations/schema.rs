@@ -116,7 +116,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
         }
         Operation::ReadSettings => "Read this plugin's public settings without credential values",
         Operation::RunCommand => "Execute a command in the captured turn's worktree on the Node",
-        Operation::ReadCommand => "Read or list background commands in the captured session",
+        Operation::ReadCommand => {
+            "Read command output or original tool results, or list background commands in the captured session"
+        }
         Operation::StopCommand => "Stop a background command in the captured session",
         Operation::WriteCommand => "Send input to a background command in the captured session",
         Operation::Progress
@@ -289,7 +291,16 @@ pub(super) fn parameters(operation: Operation) -> Value {
                 "attachments",
             ],
         ),
-        Operation::ReadCommand => (json!({"id":{"type":["string", "null"]}}), vec![]),
+        Operation::ReadCommand => (
+            json!({
+                "id":{"type":["string", "null"]},
+                "output":{"type":"object","properties":{"call":{"type":"string"},"revision":{"type":"string"}},"required":["call","revision"],"additionalProperties":false},
+                "stream":{"type":"string","enum":["stdout","stderr"]},
+                "offset":{"type":"integer","minimum":0},
+                "limit":{"type":"integer","minimum":1,"maximum":32768}
+            }),
+            vec![],
+        ),
         Operation::StopCommand => (json!({"id":{"type":"string"}}), vec!["id"]),
         Operation::WriteCommand => (
             json!({"id":{"type":"string"},"input":{"type":"string","maxLength":65536}}),
@@ -497,7 +508,56 @@ pub(super) fn command(
                 attachments: launch.attachments,
             });
         }
-        Operation::ReadCommand | Operation::StopCommand => {
+        Operation::ReadCommand => {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Read {
+                id: Option<sailry_protocol::RequestId>,
+                output: Option<sailry_protocol::tool::OutputReference>,
+                stream: Option<sailry_protocol::process::OutputStream>,
+                offset: Option<usize>,
+                limit: Option<usize>,
+            }
+            let read: Read = serde_json::from_value(arguments).map_err(invalid)?;
+            let session = context
+                .session
+                .ok_or_else(|| Fault::invalid("operation requires a session"))?;
+            if read.id.is_some() && read.output.is_some() || read.limit == Some(0) {
+                return Err(Fault::invalid(
+                    "use either a command id or a tool output reference",
+                ));
+            }
+            if let Some(output) = read.output {
+                return Ok(Command::ReadToolOutput {
+                    turn: context
+                        .turn
+                        .ok_or_else(|| Fault::invalid("operation requires a turn"))?,
+                    output,
+                    stream: read.stream,
+                    offset: read.offset.unwrap_or(0),
+                    limit: read.limit.unwrap_or(32768),
+                });
+            }
+            if let Some(id) = read.id {
+                return match (read.stream, read.offset, read.limit) {
+                    (None, None, None) => Ok(Command::ReadCommand { session, id }),
+                    (stream, offset, limit) => Ok(Command::ReadCommandPage {
+                        session,
+                        id,
+                        stream: stream.unwrap_or_default(),
+                        offset: offset.unwrap_or(0),
+                        limit: limit.unwrap_or(32768),
+                    }),
+                };
+            }
+            if read.stream.is_some() || read.offset.is_some() || read.limit.is_some() {
+                return Err(Fault::invalid(
+                    "paged output requires a command id or output reference",
+                ));
+            }
+            return Ok(Command::ListCommands { session });
+        }
+        Operation::StopCommand => {
             #[derive(serde::Deserialize)]
             #[serde(deny_unknown_fields)]
             struct Identity {
@@ -509,8 +569,6 @@ pub(super) fn command(
                 .ok_or_else(|| Fault::invalid("operation requires a session"))?;
             return match (operation, identity.id) {
                 (Operation::StopCommand, Some(id)) => Ok(Command::StopCommand { session, id }),
-                (Operation::ReadCommand, Some(id)) => Ok(Command::ReadCommand { session, id }),
-                (Operation::ReadCommand, None) => Ok(Command::ListCommands { session }),
                 _ => Err(Fault::invalid("command id is required")),
             };
         }

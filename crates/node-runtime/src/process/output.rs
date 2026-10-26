@@ -8,6 +8,10 @@ use tokio::{
     task::JoinHandle,
 };
 
+mod retained;
+pub(crate) use retained::Retained;
+pub(crate) mod model;
+
 const LIMIT: usize = 64 * 1024;
 
 #[derive(Default)]
@@ -70,7 +74,11 @@ struct Reader {
 }
 
 impl Reader {
-    fn new(mut pipe: impl AsyncRead + Unpin + Send + 'static, tail: bool) -> Self {
+    fn new(
+        mut pipe: impl AsyncRead + Unpin + Send + 'static,
+        tail: bool,
+        retained: Option<(Arc<Retained>, sailry_protocol::process::OutputStream)>,
+    ) -> Self {
         let buffer = Arc::new(Mutex::new(Buffer {
             tail,
             ..Buffer::default()
@@ -85,6 +93,9 @@ impl Reader {
                     return Ok(());
                 }
                 output.lock().unwrap().append(&bytes[..count]);
+                if let Some((retained, stream)) = &retained {
+                    retained.append(*stream, &bytes[..count]);
+                }
             }
         });
         Self { buffer, task }
@@ -115,9 +126,28 @@ impl Drain {
         stderr: impl AsyncRead + Unpin + Send + 'static,
         tail: bool,
     ) -> Self {
+        Self::with_retained(stdout, stderr, tail, None)
+    }
+
+    pub fn with_retained(
+        stdout: impl AsyncRead + Unpin + Send + 'static,
+        stderr: impl AsyncRead + Unpin + Send + 'static,
+        tail: bool,
+        retained: Option<Arc<Retained>>,
+    ) -> Self {
         Self {
-            stdout: Reader::new(stdout, tail),
-            stderr: Reader::new(stderr, tail),
+            stdout: Reader::new(
+                stdout,
+                tail,
+                retained
+                    .clone()
+                    .map(|record| (record, sailry_protocol::process::OutputStream::Stdout)),
+            ),
+            stderr: Reader::new(
+                stderr,
+                tail,
+                retained.map(|record| (record, sailry_protocol::process::OutputStream::Stderr)),
+            ),
         }
     }
 

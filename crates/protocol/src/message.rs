@@ -823,6 +823,20 @@ pub enum Command {
         session: SessionId,
         id: RequestId,
     },
+    ReadCommandPage {
+        session: SessionId,
+        id: RequestId,
+        stream: crate::process::OutputStream,
+        offset: usize,
+        limit: usize,
+    },
+    ReadToolOutput {
+        turn: crate::TurnId,
+        output: crate::tool::OutputReference,
+        stream: Option<crate::process::OutputStream>,
+        offset: usize,
+        limit: usize,
+    },
     StopCommands {
         session: SessionId,
     },
@@ -1612,6 +1626,8 @@ impl Command {
                 | Self::ListTerminalTools { .. }
                 | Self::ListCommands { .. }
                 | Self::ReadCommand { .. }
+                | Self::ReadCommandPage { .. }
+                | Self::ReadToolOutput { .. }
                 | Self::ReadTerminalSettings
                 | Self::ReadPowerSettings
                 | Self::ReadNetworkSettings
@@ -1893,6 +1909,8 @@ pub enum Output {
     },
     Commands(Vec<crate::process::Info>),
     CommandOutput(crate::process::Snapshot),
+    CommandOutputPage(crate::process::OutputPage),
+    ToolOutput(crate::tool::OutputPage),
     Provider(crate::conversation::Provider),
     Providers(Vec<crate::conversation::Provider>),
     ProviderKey(Option<crate::Secret>),

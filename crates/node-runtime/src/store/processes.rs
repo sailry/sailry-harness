@@ -226,9 +226,22 @@ impl Worker {
                     commands.watch(info.id, execution.launch.worktree, code);
                     return Ok(Output::CommandStarted(info));
                 }
-                process::execute(execution.launch.launch, &environment, &stop, &closed)
-                    .await
-                    .map(Output::CommandResult)
+                let retained = commands.retain(
+                    execution.request.id,
+                    execution.launch.session,
+                    turn,
+                    &execution.launch.launch,
+                );
+                let result = process::execute_retained(
+                    execution.launch.launch,
+                    &environment,
+                    &stop,
+                    &closed,
+                    retained,
+                )
+                .await;
+                commands.finish(execution.request.id, &result);
+                result.map(Output::CommandResult)
             };
             let result = AssertUnwindSafe(operation)
                 .catch_unwind()
@@ -253,11 +266,61 @@ impl Worker {
 }
 
 impl super::Ingress {
-    pub(super) fn read_command(&self, request: Request) -> Result<sailry_link::Admission, Fault> {
+    pub(super) async fn read_command(
+        &self,
+        caller: NodeId,
+        request: Request,
+    ) -> Result<sailry_link::Admission, Fault> {
         let result = match request.command {
             Command::ListCommands { session } => Ok(Output::Commands(self.commands.list(session))),
             Command::ReadCommand { session, id } => {
                 self.commands.read(session, id).map(Output::CommandOutput)
+            }
+            Command::ReadCommandPage {
+                session,
+                id,
+                stream,
+                offset,
+                limit,
+            } => self
+                .commands
+                .page(session, id, stream, offset, limit)
+                .map(Output::CommandOutputPage),
+            Command::ReadToolOutput {
+                turn,
+                output,
+                stream,
+                offset,
+                limit,
+            } => {
+                let storage = self.storage.get().ok_or_else(super::unavailable)?;
+                let reference = output.clone();
+                let resolved = storage
+                    .read(move |db| {
+                        Box::pin(async move {
+                            super::agent::history::output::resolve(db, caller, turn, &reference)
+                                .await
+                        })
+                    })
+                    .await?;
+                match stream {
+                    Some(stream) => {
+                        let id = resolved
+                            .value
+                            .pointer("/sailry_command/id")
+                            .or_else(|| resolved.value.pointer("/data/info/id"))
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|id| id.parse().ok())
+                            .ok_or_else(|| {
+                                Fault::invalid("tool result has no retained command stream")
+                            })?;
+                        self.commands
+                            .page(resolved.session, id, stream, offset, limit)
+                            .map(Output::CommandOutputPage)
+                    }
+                    None => super::agent::history::output::page(resolved, output, offset, limit)
+                        .map(Output::ToolOutput),
+                }
             }
             _ => unreachable!(),
         };

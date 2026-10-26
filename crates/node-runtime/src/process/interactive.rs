@@ -97,6 +97,7 @@ pub(super) async fn execute(
     closed: &CancellationToken,
     progress: &tokio::sync::watch::Sender<(Capture, Capture)>,
     mut input: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    retained: Arc<super::output::Retained>,
 ) -> Result<Completion, Fault> {
     let started = Instant::now();
     if stop.is_cancelled() || closed.is_cancelled() {
@@ -122,7 +123,10 @@ pub(super) async fn execute(
     let sink = Arc::new(move |event| {
         let mut output = output.lock().unwrap();
         match event {
-            pty::Event::Bytes(bytes) => output.append(&bytes),
+            pty::Event::Bytes(bytes) => {
+                output.append(&bytes);
+                retained.append(sailry_protocol::process::OutputStream::Stdout, &bytes);
+            }
             pty::Event::Eof(result) => {
                 output.finish();
                 if let Err(error) = result {

@@ -1,5 +1,7 @@
 //! Bounded command results; process handles and execution remain on the Node.
 use serde::{Deserialize, Serialize};
+mod output;
+pub use output::{OutputPage, OutputStream};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

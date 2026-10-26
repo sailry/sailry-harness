@@ -76,7 +76,10 @@ pub(super) fn route(command: &Command) -> Route {
         Command::SearchCode { .. }
         | Command::OutlineCode { .. }
         | Command::CancelCodeIndexQuery { .. } => Route::ReadCodeIndex,
-        Command::ListCommands { .. } | Command::ReadCommand { .. } => Route::ReadCommand,
+        Command::ListCommands { .. }
+        | Command::ReadCommand { .. }
+        | Command::ReadCommandPage { .. }
+        | Command::ReadToolOutput { .. } => Route::ReadCommand,
         Command::OpenPort { .. } | Command::CancelPort { .. } => Route::Port,
         Command::ReadPluginMcp { .. } => Route::ReadPluginMcp,
         Command::ReadPluginView { .. } => Route::ReadPluginView,
