@@ -325,10 +325,24 @@ pub(super) async fn capture_names(
             if field.names.contains_key(&target.to_string()) {
                 continue;
             }
-            let title: Option<String> = (match (async { let mut statement = db.prepare("SELECT json_extract(body,'$.task.title') FROM agent_background WHERE session=?1 AND kind='agent' AND source=?2 ORDER BY sequence DESC,rowid DESC LIMIT 1").await?;
+            let child: Option<(Option<String>, String)> = (match (async { let mut statement = db.prepare("SELECT json_extract(body,'$.task.title'),json_extract(body,'$.task.kind.data.turn') FROM agent_background WHERE session=?1 AND kind='agent' AND source=?2 ORDER BY sequence DESC,rowid DESC LIMIT 1").await?;
 let row = statement.query_row(turso::params![session.to_string(), target.to_string()]).await?;
-let mapped: turso::Result<_> = row.get(0);
-mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) }).map_err(super::storage_error)?.flatten();
+let mapped: turso::Result<_> = (|row: &turso::Row| Ok((row.get(0)?,row.get(1)?)))(&row);
+mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) }).map_err(super::storage_error)?;
+            let title = if let Some((Some(title), turn)) = child {
+                let role =
+                    super::delegation::child(db, turn.parse().map_err(super::storage_error)?)
+                        .await?
+                        .and_then(|child| child.role)
+                        .map(|role| role.name)
+                        .filter(|name| !name.trim().is_empty());
+                Some(match role {
+                    Some(name) => format!("{name} {title}"),
+                    None => title,
+                })
+            } else {
+                None
+            };
             let title = if title.is_some() {
                 title
             } else if let Some(project) = source_project {

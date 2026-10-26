@@ -241,7 +241,7 @@ pub(super) enum Operation {
     Get {
         turn: TurnId,
         request: GetRequest,
-        reply: oneshot::Sender<adk_core::Result<Box<dyn AdkSession>>>,
+        reply: oneshot::Sender<adk_core::Result<sessions::Session>>,
     },
     Append {
         session: SessionId,

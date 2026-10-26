@@ -40,6 +40,87 @@ async fn captures(fixture: &fixture::Fixture) -> String {
 }
 
 #[tokio::test]
+async fn projects_only_tagged_node_context() {
+    use adk_core::Session as _;
+
+    let mut fixture = fixture::Fixture::new().await;
+    let text = "Node context\n\nPersonal instructions\nKeep the captured policy";
+    let mut context = AdkEvent::new("captured-context");
+    context.author = "system".into();
+    context
+        .provider_metadata
+        .insert(crate::agent::CONTEXT_METADATA.into(), "context".into());
+    context.actions.state_delta.insert(
+        "sailry.context.personal".into(),
+        serde_json::json!("Keep the captured policy"),
+    );
+    context.set_content(adk_core::Content::new("user").with_text(text));
+    let mut untagged = AdkEvent::new("untagged-context");
+    untagged.author = "system".into();
+    untagged.set_content(adk_core::Content::new("user").with_text("Other system content"));
+    let mut other = context.clone();
+    other.id = "other-agent-context".into();
+    other.author = "other".into();
+    let turn = fixture.append([context.clone(), untagged, other]).await;
+    let request = GetRequest {
+        app_name: APP.into(),
+        user_id: USER.into(),
+        session_id: fixture.session.to_string(),
+        num_recent_events: None,
+        after: None,
+    };
+    let canonical = sessions::get(&fixture.database.connection, turn, request.clone())
+        .await
+        .unwrap();
+    let originals = serde_json::to_value(canonical.events().all()).unwrap();
+    assert_eq!(originals[0]["author"], "system");
+    let state = canonical.state().all();
+    let updated = canonical.last_update_time();
+    let projected = canonical.for_model();
+    assert_eq!(projected.events().at(0).unwrap().author, "user");
+    assert_eq!(projected.events().at(1).unwrap().author, "system");
+    assert_eq!(projected.events().at(2).unwrap().author, "other");
+    assert_eq!(projected.state().all(), state);
+    assert_eq!(projected.last_update_time(), updated);
+    assert_eq!(projected.events().at(0).unwrap().id, context.id);
+    assert!(
+        !projected
+            .events()
+            .at(0)
+            .unwrap()
+            .provider_metadata
+            .contains_key(sessions::INPUT_TURN)
+    );
+    let runner = adk_runner::MutableSession::new(Arc::new(projected));
+    let contents = runner.conversation_history_with_context("assistant", "");
+    assert_eq!(contents[0].role, "user");
+    assert_eq!(contents[0].parts[0].text(), Some(text));
+    assert!(!adk_core::history::is_other_agent_context(&contents[0]));
+    assert!(adk_core::history::is_other_agent_context(&contents[1]));
+    assert!(adk_core::history::is_other_agent_context(&contents[2]));
+    let reloaded = sessions::get(&fixture.database.connection, turn, request)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(reloaded.events().all()).unwrap(),
+        originals
+    );
+    assert_eq!(reloaded.state().all(), state);
+    assert!(
+        fixture
+            .read(None, 100)
+            .await
+            .page
+            .entries
+            .iter()
+            .find(|entry| entry.id == context.id)
+            .unwrap()
+            .parts
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn reads_existing_event_bytes_without_rewriting() {
     let mut fixture = fixture::Fixture::new().await;
     fixture::files(&fixture.database, fixture._root.path()).await;

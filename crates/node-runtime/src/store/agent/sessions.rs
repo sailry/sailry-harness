@@ -215,9 +215,10 @@ impl SessionService for Sessions {
             })))
             .await
             .map_err(|_| AdkError::session("Node storage is closed"))?;
-        response
+        let session = response
             .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?
+            .map_err(|_| AdkError::session("Node storage is closed"))??;
+        Ok(Box::new(session.for_model()))
     }
     async fn append_event(&self, session_id: &str, mut event: AdkEvent) -> adk_core::Result<()> {
         let timeline = self.ingress.agents.timeline(self.turn);
@@ -355,7 +356,7 @@ pub(super) async fn get(
     db: &Connection,
     turn: TurnId,
     request: GetRequest,
-) -> adk_core::Result<Box<dyn AdkSession>> {
+) -> adk_core::Result<Session> {
     identity(&request.app_name, &request.user_id)?;
     let session: SessionId = request.session_id.parse().map_err(AdkError::session)?;
     check_session(db, session).await.map_err(adk_error)?;
@@ -445,20 +446,40 @@ pub(super) async fn get(
     if let Some(after) = request.after {
         events.retain(|event| event.timestamp >= after);
     }
-    Ok(Box::new(Session {
+    Ok(Session {
         id: session.to_string(),
         state,
         events,
         updated,
-    }))
+    })
 }
 
-struct Session {
+pub(super) struct Session {
     id: String,
     state: HashMap<String, Value>,
     events: Vec<AdkEvent>,
     updated: DateTime<Utc>,
 }
+
+impl Session {
+    pub(super) fn for_model(mut self) -> Self {
+        // ADK quotes other authors as untrusted agent transcripts. Only the
+        // Node's tagged policy appendices enter its user-context category;
+        // canonical events and compaction keep their original system author.
+        for event in &mut self.events {
+            if event.author == "system"
+                && event
+                    .provider_metadata
+                    .get(crate::agent::CONTEXT_METADATA)
+                    .is_some_and(|kind| kind == "context")
+            {
+                event.author = "user".into();
+            }
+        }
+        self
+    }
+}
+
 impl AdkSession for Session {
     fn id(&self) -> &str {
         &self.id
