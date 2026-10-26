@@ -88,6 +88,70 @@ async fn rolls_back_failure() {
 }
 
 #[tokio::test]
+async fn retains_media_packages_and_settings() {
+    let mut db = fixture().await;
+    db.execute(
+        "INSERT INTO plugin_packages VALUES('orphan','example',?1)",
+        [b"{}".as_slice()],
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO plugin_settings VALUES('example',2,?1)",
+        [b"{}".as_slice()],
+    )
+    .await
+    .unwrap();
+    let reference = plugin::Reference {
+        name: "example".into(),
+        digest: "unused".into(),
+        settings_revision: 1,
+    };
+    let snapshot = serde_json::json!({
+        "vision":{"provider":{"binding":{"package":reference}}},
+        "image":null,
+        "video":{"provider":{"binding":{"package":null}}}
+    });
+    db.execute(
+        "INSERT INTO session_media(session,body) VALUES('session',?1)",
+        [encode(&snapshot).unwrap()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(counts(&db).await, (2, 2));
+    assert_eq!(
+        metadata(&mut db).await.unwrap(),
+        BTreeSet::from([reference.digest.clone()])
+    );
+    assert_eq!(counts(&db).await, (1, 1));
+    super::super::settings::validate_revision(&db, &reference)
+        .await
+        .unwrap();
+    assert!(
+        super::super::settings::validate_revision(
+            &db,
+            &plugin::Reference {
+                settings_revision: 2,
+                ..reference
+            }
+        )
+        .await
+        .is_err()
+    );
+    db.execute(
+        "UPDATE session_media SET body=?1 WHERE session='session'",
+        [
+            encode(&serde_json::json!({"vision":null,"image":{"provider":{"binding":null}}}))
+                .unwrap(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert!(metadata(&mut db).await.unwrap().is_empty());
+    assert_eq!(counts(&db).await, (0, 0));
+}
+
+#[tokio::test]
 async fn skips_native_callbacks_without_dropping_packages() {
     let mut db = fixture().await;
     for (sequence, (id, status, reference)) in [

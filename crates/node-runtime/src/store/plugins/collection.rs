@@ -63,7 +63,8 @@ async fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
             "SELECT json_extract(provider,'$.binding.package') FROM agent_runs WHERE json_type(provider,'$.binding.package')='object'
              UNION ALL SELECT json_extract(profile,'$.provider.binding.package') FROM session_revisions WHERE json_type(profile,'$.provider.binding.package')='object'
              UNION ALL SELECT json_extract(item.value,'$.binding.package') FROM session_revisions, json_each(roles,'$.providers') item WHERE json_type(item.value,'$.binding.package')='object'
-             UNION ALL SELECT json_extract(item.value,'$.binding.package') FROM turns,json_each(roles,'$.providers') item WHERE json_type(item.value,'$.binding.package')='object'"
+             UNION ALL SELECT json_extract(item.value,'$.binding.package') FROM turns,json_each(roles,'$.providers') item WHERE json_type(item.value,'$.binding.package')='object'
+             UNION ALL SELECT json_extract(item.value,'$.provider.binding.package') FROM session_media,json_each(session_media.body) item WHERE json_type(item.value,'$.provider.binding.package')='object'"
         ).await.map_err(storage_error)?;
         {
             let mut rows = query.query(()).await.map_err(storage_error)?;

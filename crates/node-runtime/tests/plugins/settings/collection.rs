@@ -2,6 +2,9 @@ use super::persistence::{read, save, state};
 use super::*;
 use plugin::settings::SecretUpdate;
 
+#[path = "collection/media.rs"]
+mod media;
+
 async fn values(db: &turso::Connection) -> Result<(i64, i64, i64), Fault> {
     let row = db.prepare("SELECT (SELECT count(*) FROM plugin_packages),(SELECT count(*) FROM plugin_settings),(SELECT count(*) FROM plugin_settings,json_each(plugin_settings.body,'$.slots') WHERE json_each.type='text')")
             .await.map_err(crate::plugins::database_fixture::fault)?.query_row(()).await.map_err(crate::plugins::database_fixture::fault)?;
