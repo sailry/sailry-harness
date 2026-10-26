@@ -23,18 +23,7 @@ pub(super) enum Call {
     Inspect,
     OpenStream(sailry_protocol::StreamId),
     Command(Box<Request>),
-    Subscribe,
-    WatchFiles(sailry_protocol::WorktreeId),
-    WatchTerminal(sailry_protocol::TerminalId),
-    WatchBrowser,
-    WatchPython,
-    WatchInstallations,
-    WatchScopedInstallations(Box<Request>),
-    WatchCommands(sailry_protocol::SessionId),
-    WatchConversation(sailry_protocol::SessionId),
-    WatchProviderLogin(sailry_protocol::RequestId),
-    WatchConnectorLogin(sailry_protocol::RequestId),
-    WatchConnections,
+    Subscribe(sailry_protocol::Topic),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -48,6 +37,7 @@ pub(super) enum Reply {
         platform: String,
     },
     StreamOpened,
+    Subscribed,
     Receipt(Receipt),
     Rejected(Fault),
     Completed(Box<Response>),

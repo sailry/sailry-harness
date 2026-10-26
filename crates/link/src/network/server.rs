@@ -138,18 +138,7 @@ async fn request(
                 }
             }
         }
-        subscription @ (Call::Subscribe
-        | Call::WatchProviderLogin(_)
-        | Call::WatchConnectorLogin(_)
-        | Call::WatchConnections
-        | Call::WatchFiles(_)
-        | Call::WatchTerminal(_)
-        | Call::WatchBrowser
-        | Call::WatchPython
-        | Call::WatchInstallations
-        | Call::WatchScopedInstallations(_)
-        | Call::WatchCommands(_)
-        | Call::WatchConversation(_)) => {
+        Call::Subscribe(topic) => {
             let Ok(_permit) = subscriptions.try_acquire_owned() else {
                 core.wait(frame::write(
                     &mut send,
@@ -160,22 +149,6 @@ async fn request(
                 ))
                 .await??;
                 return send.finish().map_err(network);
-            };
-            let topic = match subscription {
-                Call::WatchPython => sailry_protocol::Topic::Python,
-                Call::WatchInstallations => sailry_protocol::Topic::Installations,
-                Call::WatchScopedInstallations(request) => {
-                    sailry_protocol::Topic::ScopedInstallations(request)
-                }
-                Call::WatchProviderLogin(id) => sailry_protocol::Topic::ProviderLogin(id),
-                Call::WatchConnectorLogin(id) => sailry_protocol::Topic::ConnectorLogin(id),
-                Call::WatchConnections => sailry_protocol::Topic::Connections,
-                Call::WatchFiles(worktree) => sailry_protocol::Topic::Files(worktree),
-                Call::WatchTerminal(terminal) => sailry_protocol::Topic::Terminal(terminal),
-                Call::WatchCommands(session) => sailry_protocol::Topic::Commands(session),
-                Call::WatchBrowser => sailry_protocol::Topic::Browser,
-                Call::WatchConversation(session) => sailry_protocol::Topic::Conversation(session),
-                _ => sailry_protocol::Topic::Node,
             };
             // Preparing a transient subscription has no durable admission. A
             // departed observer must release its slot even if setup is slow.
@@ -193,6 +166,8 @@ async fn request(
                     return send.finish().map_err(network);
                 }
             };
+            core.wait(frame::write(&mut send, &Reply::Subscribed))
+                .await??;
             loop {
                 let update = tokio::select! {
                     biased;

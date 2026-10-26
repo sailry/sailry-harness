@@ -59,20 +59,27 @@ async fn accepts_commands_at_capacity() {
     let remote = fixture.remote();
     let mut subscriptions = Vec::new();
     for _ in 0..64 {
-        let mut subscription = remote
-            .subscribe(Topic::Conversation(SessionId::new()))
-            .await
-            .unwrap();
-        match tokio::time::timeout(Duration::from_secs(2), subscription.next())
-            .await
-            .unwrap()
+        match tokio::time::timeout(
+            Duration::from_secs(2),
+            remote.subscribe(Topic::Conversation(SessionId::new())),
+        )
+        .await
+        .unwrap()
         {
-            Ok(Update::ResetRequired) => subscriptions.push(subscription),
+            Ok(mut subscription) => {
+                assert!(matches!(
+                    tokio::time::timeout(Duration::from_secs(2), subscription.next())
+                        .await
+                        .unwrap(),
+                    Ok(Update::ResetRequired)
+                ));
+                subscriptions.push(subscription);
+            }
             Err(Fault {
                 code: ErrorCode::Busy,
                 ..
             }) => break,
-            _ => panic!("expected initial update or capacity rejection"),
+            _ => panic!("expected subscription acceptance or capacity rejection"),
         }
     }
     assert!((12..64).contains(&subscriptions.len()));
@@ -146,11 +153,12 @@ async fn cancellation_releases_capacity() {
     let remote = fixture.remote();
     // More than one connection's request capacity; no preparation ever finishes.
     for _ in 0..12 {
-        let subscription = remote
-            .subscribe(Topic::Files(WorktreeId::new()))
-            .await
-            .unwrap();
-        notified(&fixture.handler.preparing).await;
+        let mut subscription = remote.subscribe(Topic::Files(WorktreeId::new()));
+        tokio::select! {
+            biased;
+            _ = &mut subscription => panic!("subscription accepted before preparation"),
+            _ = notified(&fixture.handler.preparing) => {}
+        }
         drop(subscription);
         notified(&fixture.handler.cancelled).await;
     }
@@ -172,19 +180,49 @@ async fn cancellation_releases_capacity() {
 #[tokio::test]
 async fn shutdown_cancels_preparation() {
     let fixture = Fixture::new().await;
-    let subscription = fixture
-        .remote()
-        .subscribe(Topic::Files(WorktreeId::new()))
-        .await
-        .unwrap();
-    notified(&fixture.handler.preparing).await;
+    let remote = fixture.remote();
+    let mut subscription = remote.subscribe(Topic::Files(WorktreeId::new()));
+    tokio::select! {
+        biased;
+        _ = &mut subscription => panic!("subscription accepted before preparation"),
+        _ = notified(&fixture.handler.preparing) => {}
+    }
     tokio::time::timeout(Duration::from_secs(2), fixture.execution.close())
         .await
         .unwrap()
         .unwrap();
     notified(&fixture.handler.cancelled).await;
-    drop(subscription);
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), subscription)
+            .await
+            .unwrap()
+            .is_err()
+    );
     fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn accepts_idle_subscriptions() {
+    let fixture = Fixture::new().await;
+    let local: Arc<dyn Transport> = Arc::new(Local::new(
+        fixture.target,
+        fixture.caller,
+        fixture.handler.clone(),
+    ));
+    for transport in [local, fixture.remote()] {
+        let mut subscription =
+            tokio::time::timeout(Duration::from_secs(2), transport.subscribe(Topic::Python))
+                .await
+                .unwrap()
+                .unwrap();
+        let mut next = subscription.next();
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(next.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+    }
+    fixture.close().await;
 }
 
 pub(super) struct Failure(pub bool);

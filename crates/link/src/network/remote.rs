@@ -283,36 +283,25 @@ impl Transport for Remote {
         topic: sailry_protocol::Topic,
     ) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
         Box::pin(async move {
-            let call = match topic {
-                sailry_protocol::Topic::Python => Call::WatchPython,
-                sailry_protocol::Topic::Installations => Call::WatchInstallations,
-                sailry_protocol::Topic::ScopedInstallations(request) => {
-                    Call::WatchScopedInstallations(request)
-                }
-                sailry_protocol::Topic::Commands(session) => Call::WatchCommands(session),
-                sailry_protocol::Topic::Browser => Call::WatchBrowser,
-                sailry_protocol::Topic::Node => Call::Subscribe,
-                sailry_protocol::Topic::ProviderLogin(id) => Call::WatchProviderLogin(id),
-                sailry_protocol::Topic::ConnectorLogin(id) => Call::WatchConnectorLogin(id),
-                sailry_protocol::Topic::Connections => Call::WatchConnections,
-                sailry_protocol::Topic::Files(worktree) => Call::WatchFiles(worktree),
-                sailry_protocol::Topic::Terminal(terminal) => Call::WatchTerminal(terminal),
-                sailry_protocol::Topic::Conversation(session) => Call::WatchConversation(session),
-            };
             let connection = self.core.connection(&self.address, true).await?;
             let (mut send, recv) = self
                 .core
                 .wait(connection.open_bi())
                 .await?
                 .map_err(network)?;
-            self.core.call(&mut send, call).await??;
+            self.core.call(&mut send, Call::Subscribe(topic)).await??;
             send.finish().map_err(network)?;
-            Ok(Box::new(Events {
+            let mut events = Events {
                 connection,
                 core: self.core.clone(),
                 recv,
                 reader: frame::Reader::default(),
-            }) as Box<dyn Subscription>)
+            };
+            match events.reply().await? {
+                Reply::Subscribed => Ok(Box::new(events) as Box<dyn Subscription>),
+                Reply::Rejected(error) => Err(error),
+                _ => Err(invalid("subscription acceptance expected")),
+            }
         })
     }
 }
@@ -341,22 +330,28 @@ struct Events {
 impl Subscription for Events {
     fn next(&mut self) -> Pending<'_, Result<Update, Fault>> {
         Box::pin(async move {
-            // Idle subscriptions have no read timeout; shutdown and stream reset still interrupt.
-            let reply: Reply = tokio::select! {
-                biased;
-                _ = self.core.stop.cancelled() => return Err(network("closed")),
-                reply = self.reader.reply(&mut self.recv) => reply.map_err(|error| {
-                    if matches!(self.connection.close_reason(), Some(ConnectionError::ApplicationClosed(close)) if close.error_code == 1u32.into()) {
-                        Fault::new(ErrorCode::PermissionDenied, "peer revoked access")
-                    } else { error }
-                })?,
-            };
-            match reply {
+            match self.reply().await? {
                 Reply::Update(update) => Ok(*update),
                 Reply::Rejected(error) => Err(error),
                 _ => Err(invalid("subscription update expected")),
             }
         })
+    }
+}
+
+impl Events {
+    async fn reply(&mut self) -> Result<Reply, Fault> {
+        // Subscription preparation and idle reads have no operation deadline.
+        // Closing the Link or dropping this future still cancels observation.
+        tokio::select! {
+            biased;
+            _ = self.core.stop.cancelled() => Err(network("closed")),
+            reply = self.reader.reply(&mut self.recv) => reply.map_err(|error| {
+                if matches!(self.connection.close_reason(), Some(ConnectionError::ApplicationClosed(close)) if close.error_code == 1u32.into()) {
+                    Fault::new(ErrorCode::PermissionDenied, "peer revoked access")
+                } else { error }
+            }),
+        }
     }
 }
 

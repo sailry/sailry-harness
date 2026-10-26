@@ -55,10 +55,7 @@ async fn faults(transport: &dyn Transport) -> Vec<Fault> {
     let request = Request::new(transport.target(), Command::Snapshot);
     let command = transport.dispatch(request).await.err().unwrap();
     let stream = transport.open(StreamId::new()).await.err().unwrap();
-    let subscription = match transport.subscribe(Topic::Node).await {
-        Ok(mut subscription) => subscription.next().await.err().unwrap(),
-        Err(error) => error,
-    };
+    let subscription = transport.subscribe(Topic::Node).await.err().unwrap();
     vec![command, stream, subscription]
 }
 

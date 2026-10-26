@@ -159,6 +159,9 @@ impl Handler for Echo {
             if matches!(topic, Topic::Browser) {
                 return Ok(Box::new(subscriptions::Failure(false)) as Box<dyn Subscription>);
             }
+            if matches!(topic, Topic::Python) {
+                return Ok(Box::new(subscriptions::Idle(true)) as Box<dyn Subscription>);
+            }
             if matches!(topic, Topic::Conversation(_)) {
                 self.preparing.add_permits(1);
                 return Ok(Box::new(subscriptions::Idle(false)) as Box<dyn Subscription>);

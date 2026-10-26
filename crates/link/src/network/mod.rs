@@ -283,7 +283,12 @@ impl LinkHandle {
                 "peer is not paired",
             ));
         }
-        self.core.store.remember(address).await?;
+        self.core.store.remember(address.clone()).await?;
+        self.core
+            .addresses
+            .write()
+            .map_err(network)?
+            .insert(peer, address);
         self.core.trust_changed.send_replace(());
         Ok(())
     }

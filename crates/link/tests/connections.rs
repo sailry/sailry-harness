@@ -80,7 +80,7 @@ async fn follows_fresh_peer_addresses() {
         .unwrap();
     let peer = NodeId(*target.id.as_bytes());
     let remote = handle.remote(target.clone());
-    for _ in 0..2 {
+    for pair in [false, true] {
         // Reserve a distinct port while the previous endpoint is still bound.
         let reservation = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
         let bind = reservation.local_addr().unwrap();
@@ -100,8 +100,17 @@ async fn follows_fresh_peer_addresses() {
         let fresh = host.handle().address();
         assert_eq!(fresh.id, target.id);
         assert!(fresh.ip_addrs().any(|address| *address == bind));
-        handle.inspect(&fresh).await.unwrap();
-        handle.update_peer(fresh).await.unwrap();
+        if pair {
+            assert_eq!(
+                handle
+                    .pair(host.handle().invite().unwrap().ticket())
+                    .await
+                    .unwrap(),
+                fresh
+            );
+        } else {
+            handle.update_peer(fresh).await.unwrap();
+        }
         handle.disconnect(peer).await;
         let stop = CancellationToken::new();
         let (sender, mut receiver) = watch::channel(ConnectionInfo::default());
