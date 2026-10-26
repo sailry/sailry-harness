@@ -184,7 +184,7 @@ mod tests {
             Operation::QueryDatabase,
             Operation::RunSsh,
             Operation::GenerateImage,
-            Operation::ScheduleJob,
+            Operation::StorageTransaction,
         ] {
             assert!(!standard(&tool(operation)));
         }

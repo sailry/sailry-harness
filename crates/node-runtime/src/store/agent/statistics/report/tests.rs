@@ -6,9 +6,9 @@ mod location;
 mod offsets;
 mod requests;
 
-const START: i64 = 1_609_459_200_000;
+pub(super) const START: i64 = 1_609_459_200_000;
 
-fn query() -> Query {
+pub(super) fn query() -> Query {
     Query {
         start_ms: START,
         end_ms: START + 3 * DAY,
@@ -22,7 +22,7 @@ fn query() -> Query {
     }
 }
 
-fn event(timestamp_ms: i64, input: i32) -> AdkEvent {
+pub(super) fn event(timestamp_ms: i64, input: i32) -> AdkEvent {
     let mut event = AdkEvent::new("report-fixture");
     event.author = "assistant".into();
     event.timestamp = DateTime::from_timestamp_millis(timestamp_ms).unwrap();

@@ -71,9 +71,9 @@ fn bounds_mcp_without_rewriting_history() {
     };
     assert_eq!(function_response.inline_data[0].data, vec![1, 2, 3]);
     assert_eq!(annotations, &Some(json!({"preserved":true})));
-    let once = request.clone();
+    let once = serde_json::to_value(&request).unwrap();
     project(&mut request);
-    assert_eq!(request, once);
+    assert_eq!(serde_json::to_value(&request).unwrap(), once);
 }
 
 #[test]
@@ -86,9 +86,9 @@ fn leaves_small_and_unrecognized_results_unchanged() {
             json!({"kind":"file_lines","data":{"path":"file"}}),
         ),
     ];
-    let canonical = request.clone();
+    let canonical = serde_json::to_value(&request).unwrap();
     project(&mut request);
-    assert_eq!(request, canonical);
+    assert_eq!(serde_json::to_value(&request).unwrap(), canonical);
 }
 
 #[test]
