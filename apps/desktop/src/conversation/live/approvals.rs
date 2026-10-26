@@ -326,16 +326,6 @@ pub(super) fn details(call: &Call, page: &Page) -> Details {
     }
 }
 
-pub(super) fn label(state: ApprovalState) -> &'static str {
-    match state {
-        ApprovalState::Pending => "approval_pending",
-        ApprovalState::Approved => "approval_approved",
-        ApprovalState::Denied => "approval_rejected",
-        ApprovalState::Cancelled => "approval_cancelled",
-        ApprovalState::Interrupted => "approval_interrupted",
-    }
-}
-
 fn ssh_prompt(trust: &sailry_protocol::ssh::Trust) -> String {
     let key = if trust.changed {
         "approval_ssh_replace"
