@@ -8,6 +8,14 @@
 
 <p align="center"><strong>AI agents, files and tools in one native workspace.</strong></p>
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License"></a>
+  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.98-orange?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 1.98"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/platform-macOS-lightgrey?style=for-the-badge&logo=apple&logoColor=white" alt="Platform macOS"></a>
+  <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=for-the-badge&color=yellow" alt="GitHub Stars"></a>
+  <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
+</p>
+
 > [!NOTE]
 > **Early preview.** Sailry is under active development, so expect bugs and changes between releases. Back up important work before letting agents edit it, and please [report issues](https://github.com/sailry/sailry-harness/issues) — your feedback shapes what comes next.
 
@@ -92,6 +100,18 @@ Choose **Create session**, pick a model and describe your task; review tool appr
 [Models](docs/models.md) · [Remote hosts](docs/hosts.md) · [Projects and sessions](docs/projects.md)
 
 [Build from source](CONTRIBUTING.md#native-setup)
+
+## Community
+
+For collaboration or to join the group chat, add me on WeChat or join the Discord community.
+
+<p align="center">
+  <img src="assets/readme/wechat.png" width="240" alt="WeChat QR code">
+  <br>
+  <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the Sailry Discord community"></a>
+</p>
+
+> Please use [GitHub Issues](https://github.com/sailry/sailry-harness/issues) for bug reports and feature requests so they are easier to track.
 
 ## License
 

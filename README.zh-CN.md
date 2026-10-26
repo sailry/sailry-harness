@@ -8,6 +8,14 @@
 
 <p align="center"><strong>把 AI 智能体、文件和工具放在同一个原生工作区。</strong></p>
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License"></a>
+  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.98-orange?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 1.98"></a>
+  <a href="#安装"><img src="https://img.shields.io/badge/platform-macOS-lightgrey?style=for-the-badge&logo=apple&logoColor=white" alt="Platform macOS"></a>
+  <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=for-the-badge&color=yellow" alt="GitHub Stars"></a>
+  <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/Discord-%E5%8A%A0%E5%85%A5-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
+</p>
+
 > [!NOTE]
 > **早期预览版。** Sailry 仍在快速开发中，可能存在 bug，版本之间也会有较大变化。让智能体修改重要文件前请先备份。遇到问题欢迎[提交反馈](https://github.com/sailry/sailry-harness/issues)，你的反馈会直接影响后续开发。
 
@@ -87,6 +95,18 @@ Sailry 目前处于早期预览阶段：macOS 桌面端已提供，Host 安装�
 [模型配置](docs/models.md) · [远程主机](docs/hosts.md) · [项目与会话](docs/projects.md)
 
 [从源码构建](CONTRIBUTING.md#native-setup)
+
+## 交流与合作
+
+有相关合作或想加入交流群，可以加我微信，或直接加入 Discord 社区：
+
+<p align="center">
+  <img src="assets/readme/wechat.png" width="240" alt="微信二维码">
+  <br>
+  <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/Discord-%E5%8A%A0%E5%85%A5%E7%A4%BE%E5%8C%BA-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="加入 Sailry Discord 社区"></a>
+</p>
+
+> Bug 反馈和功能请求请使用 [GitHub Issues](https://github.com/sailry/sailry-harness/issues)，更容易跟踪。
 
 ## 许可证
 
