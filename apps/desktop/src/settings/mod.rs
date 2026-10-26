@@ -299,8 +299,14 @@ impl Workspace {
                 )
                 .collect()
             },
-            |_, key, _| {
-                let notice = gpui_kit::component::notification::Notification::error(crate::tr(key));
+            |view, key, cx| {
+                let message = view.plugin_catalog.required.as_ref().map_or_else(
+                    || crate::tr(key),
+                    |(required, binding)| {
+                        plugins::compatibility::error(key, Some(required), binding, cx)
+                    },
+                );
+                let notice = gpui_kit::component::notification::Notification::error(message);
                 if key == "preferences_save_failed" {
                     notice.scoped_action(|_, _, cx| {
                         crate::feedback::retry("preferences-retry").on_click(cx.listener(

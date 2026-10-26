@@ -1,6 +1,7 @@
 use super::entry::Entry;
 mod cards;
 pub(in crate::settings) mod classification;
+pub(in crate::settings) mod compatibility;
 pub(super) mod configuration;
 pub(in crate::settings) mod details;
 pub(super) mod dialog;
@@ -8,6 +9,7 @@ pub(in crate::settings) mod download;
 mod editor;
 mod inventory;
 pub(super) mod live;
+mod notes;
 use super::market;
 pub(in crate::settings) mod preparation;
 pub(in crate::settings) mod updates;

@@ -1,5 +1,5 @@
 use super::{
-    Candidate, State,
+    Candidate, Entry, State,
     changes::{Changes, Delta},
 };
 use crate::{
@@ -16,7 +16,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use sailry_protocol::plugin::{Info, Summary};
+use sailry_protocol::plugin::{Info, Summary, updates::Blocked};
 use std::collections::BTreeMap;
 
 #[cfg(test)]
@@ -32,17 +32,47 @@ pub(super) struct Row {
     info: Info,
     previous: Summary,
     changes: Changes,
+    blocked: Option<Blocked>,
     pub selected: bool,
     pub(super) expanded: bool,
     pub status: Status,
 }
 
 impl Row {
+    fn new(entry: &Entry) -> Option<Self> {
+        let previous = entry.previous.as_ref()?;
+        let candidate = entry.candidate.as_ref().map(Candidate::info);
+        if candidate.is_none() && entry.blocked.is_none() {
+            return None;
+        }
+        let info = candidate.unwrap_or(previous);
+        Some(Self {
+            info: info.clone(),
+            previous: previous.summary.clone(),
+            changes: Changes::between(previous, info),
+            blocked: entry.blocked.clone(),
+            selected: candidate.is_some(),
+            expanded: false,
+            status: if candidate.is_some() {
+                Status::Ready
+            } else {
+                Status::Blocked
+            },
+        })
+    }
+
     fn version(&self) -> String {
         format!(
             "{} → {}",
             self.previous.version.as_deref().unwrap_or("—"),
-            self.info.summary.version.as_deref().unwrap_or("—")
+            if self.status == Status::Blocked {
+                self.blocked
+                    .as_ref()
+                    .map(|blocked| blocked.version.as_str())
+                    .unwrap_or("—")
+            } else {
+                self.info.summary.version.as_deref().unwrap_or("—")
+            }
         )
     }
 }
@@ -50,6 +80,7 @@ impl Row {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Status {
     Ready,
+    Blocked,
     Updating,
     Succeeded,
     Failed,
@@ -69,23 +100,8 @@ impl State {
         let rows: BTreeMap<_, _> = self
             .entries
             .iter()
-            .filter_map(|(name, entry)| {
-                let candidate = entry.candidate.as_ref()?.info();
-                let previous = entry.previous.as_ref()?;
-                (!entry.manual).then(|| {
-                    (
-                        name.clone(),
-                        Row {
-                            info: candidate.clone(),
-                            previous: previous.summary.clone(),
-                            changes: Changes::between(previous, candidate),
-                            selected: true,
-                            expanded: false,
-                            status: Status::Ready,
-                        },
-                    )
-                })
-            })
+            .filter(|(_, entry)| !entry.manual)
+            .filter_map(|(name, entry)| Row::new(entry).map(|row| (name.clone(), row)))
             .collect();
         if rows.is_empty() {
             return;
@@ -386,16 +402,79 @@ impl Render for State {
                                         ),
                                     ),
                             )
+                            .when_some(row.blocked.as_ref(), |view, blocked| {
+                                view.child(
+                                    h_flex()
+                                        .w_full()
+                                        .gap_2()
+                                        .items_center()
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(format!(
+                                                    "{} · {}",
+                                                    blocked.version,
+                                                    super::super::compatibility::message(
+                                                        &blocked.required,
+                                                        &self.binding,
+                                                        cx
+                                                    )
+                                                )),
+                                        )
+                                        .children(super::super::compatibility::action(
+                                            SharedString::from(format!(
+                                                "plugin-update-sailry-{name}"
+                                            )),
+                                            &self.binding,
+                                            cx,
+                                        )),
+                                )
+                            })
                             .when(row.expanded, |view| {
                                 view.child(
                                     v_flex()
                                         .gap_2()
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .font_medium()
-                                                .child(tr("plugins_update_changes")),
-                                        )
+                                        .when(row.status != Status::Blocked, |view| {
+                                            view.when_some(
+                                                row.info.release_notes.as_ref(),
+                                                |view, notes| {
+                                                    view.child(
+                                                        div().font_medium().child(
+                                                            row.info
+                                                                .summary
+                                                                .version
+                                                                .clone()
+                                                                .unwrap_or_else(|| "—".into()),
+                                                        ),
+                                                    )
+                                                    .child(super::super::notes::view(notes))
+                                                },
+                                            )
+                                        })
+                                        .when_some(row.blocked.as_ref(), |view, blocked| {
+                                            view.when_some(
+                                                blocked.release_notes.as_ref(),
+                                                |view, notes| {
+                                                    view.child(
+                                                        div()
+                                                            .font_medium()
+                                                            .child(blocked.version.clone()),
+                                                    )
+                                                    .child(super::super::notes::view(notes))
+                                                },
+                                            )
+                                        })
+                                        .when(row.status != Status::Blocked, |view| {
+                                            view.child(
+                                                div()
+                                                    .text_sm()
+                                                    .font_medium()
+                                                    .child(tr("plugins_update_changes")),
+                                            )
+                                        })
                                         .children(
                                             [
                                                 ("plugins_update_tools", &row.changes.tools, false),

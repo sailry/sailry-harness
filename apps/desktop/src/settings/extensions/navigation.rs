@@ -18,7 +18,10 @@ pub(crate) struct Entry {
 
 impl Entry {
     pub fn new(node: NodeId, info: &Info, current: &Summary) -> Option<Self> {
-        if info.summary.name != current.name || info.summary.digest != current.digest {
+        if !current.compatibility.is_compatible()
+            || info.summary.name != current.name
+            || info.summary.digest != current.digest
+        {
             return None;
         }
         let page = info.extension.as_ref()?.settings_page.as_ref()?;
@@ -32,9 +35,9 @@ impl Entry {
 
     pub fn available(&self, node: NodeId, summaries: &[Summary]) -> bool {
         self.node == node
-            && summaries
-                .iter()
-                .any(|summary| summary.reference() == self.package)
+            && summaries.iter().any(|summary| {
+                summary.compatibility.is_compatible() && summary.reference() == self.package
+            })
     }
 }
 

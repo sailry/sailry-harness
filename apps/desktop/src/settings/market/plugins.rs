@@ -90,7 +90,7 @@ impl Market {
         if self.installed(&entry.name, cx).is_some() {
             return;
         }
-        if self.busy(cx) {
+        if self.busy(cx) || !entry.compatibility.is_compatible() {
             return;
         }
         if entry.bundled {
@@ -139,7 +139,7 @@ impl Market {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.pending.is_some() {
+        if self.pending.is_some() || !entry.compatibility.is_compatible() {
             return;
         }
         let Some(owner) = self.owner.upgrade() else {
@@ -305,9 +305,22 @@ impl Market {
                         let summary = card::content(
                             title.clone().into(),
                             entry
-                                .description(&rust_i18n::locale())
-                                .unwrap_or_default()
-                                .to_owned(),
+                                .compatibility
+                                .required()
+                                .map(|required| {
+                                    super::super::plugins::compatibility::message(
+                                        required,
+                                        &self.binding,
+                                        cx,
+                                    )
+                                    .to_string()
+                                })
+                                .unwrap_or_else(|| {
+                                    entry
+                                        .description(&rust_i18n::locale())
+                                        .unwrap_or_default()
+                                        .to_owned()
+                                }),
                             Some(icon),
                             None,
                             cx,
@@ -346,6 +359,20 @@ impl Market {
                                 }
                             }
                         }));
+                        let action = if entry.compatibility.is_compatible() {
+                            action.into_any_element()
+                        } else {
+                            h_flex()
+                                .children(super::super::plugins::compatibility::action(
+                                    SharedString::from(format!(
+                                        "market-update-sailry-{}",
+                                        entry.id
+                                    )),
+                                    &self.binding,
+                                    cx,
+                                ))
+                                .into_any_element()
+                        };
                         card::row(format!("market-card-{}", entry.id), summary, action, cx)
                             .accessibility_label(title)
                             .disabled(!connected)

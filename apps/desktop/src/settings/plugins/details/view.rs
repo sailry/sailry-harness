@@ -10,6 +10,7 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
     let info = details.info.as_ref();
     let installed = matches!(details.target, Target::Installed(_));
     let managed = details.catalog_installed(cx);
+    let required = details.requirement(cx);
     let catalog_update = managed
         .as_ref()
         .is_some_and(|current| details.updates.read(cx).candidate(current).is_some());
@@ -56,7 +57,9 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                         .child(div().text_lg().font_semibold().truncate().child(title)),
                 )
                 .when(
-                    !installed && ((managed.is_none() && details.installable()) || catalog_update),
+                    required.is_none()
+                        && !installed
+                        && ((managed.is_none() && details.installable()) || catalog_update),
                     |row| {
                         row.child(
                             Button::new("plugin-details-primary")
@@ -87,6 +90,27 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
                     },
                 ),
         )
+        .when_some(required, |view, required| {
+            view.child(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(compatibility::message(&required, &details.binding, cx)),
+                    )
+                    .children(compatibility::action(
+                        "plugin-details-update-sailry",
+                        &details.binding,
+                        cx,
+                    )),
+            )
+        })
         .when_some(
             info.and_then(metadata::description).or_else(|| {
                 details
@@ -147,11 +171,17 @@ fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
         .into_any_element()
 }
 
+pub(super) fn official_repository(repository: &str) -> bool {
+    url::Url::parse(repository).is_ok_and(|url| {
+        let path = url.path().trim_end_matches('/');
+        let path = path.strip_suffix(".git").unwrap_or(path);
+        url.host_str() == Some("github.com") && path == "/sailry/sailry-plugins"
+    })
+}
+
 fn repository_owner(repository: &str) -> Option<String> {
     let url = url::Url::parse(repository).ok()?;
-    if url.host_str() == Some("github.com")
-        && url.path().trim_end_matches('/') == "/sailry/sailry-plugins"
-    {
+    if official_repository(repository) {
         return Some("Sailry".into());
     }
     url.path_segments()?
@@ -350,6 +380,10 @@ mod tests {
     fn identifies_repository_publishers() {
         assert_eq!(
             repository_owner("https://github.com/sailry/sailry-plugins/"),
+            Some("Sailry".into())
+        );
+        assert_eq!(
+            repository_owner("https://github.com/sailry/sailry-plugins.git"),
             Some("Sailry".into())
         );
         assert_eq!(

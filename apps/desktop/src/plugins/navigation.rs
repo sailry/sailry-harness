@@ -514,10 +514,9 @@ impl Shell {
             Scope::Host => {
                 state.node == entry.node
                     && snapshot.is_some_and(|snapshot| {
-                        snapshot
-                            .plugins
-                            .iter()
-                            .any(|summary| summary.enabled && summary.reference() == entry.package)
+                        snapshot.plugins.iter().any(|summary| {
+                            summary.available() && summary.reference() == entry.package
+                        })
                     })
             }
             Scope::Desktop => desktop.connected && desktop.client.target() == entry.node,
@@ -550,7 +549,7 @@ impl Shell {
             metadata.read(cx).entries.values().filter_map(move |info| {
                 let extension = info.extension.as_ref()?;
                 let desktop = extension.desktop.as_ref()?;
-                if !info.summary.enabled || extension.scope != scope {
+                if !info.summary.available() || extension.scope != scope {
                     return None;
                 }
                 let navigation = desktop.navigation.as_ref()?;
@@ -602,7 +601,7 @@ impl Shell {
     ) -> bool {
         self.extensions.as_ref().is_some_and(|state| {
             state.metadata.read(cx).entries.values().any(|info| {
-                info.summary.enabled
+                info.summary.available()
                     && info.extension.as_ref().is_some_and(|extension| {
                         extension
                             .ui

@@ -9,6 +9,7 @@ use sailry_protocol::{
 };
 
 mod contents;
+mod history;
 mod permissions;
 use crate::settings::market::details::rows;
 mod versions;
@@ -42,10 +43,12 @@ pub(crate) struct Details {
     target: Target,
     info: Option<Info>,
     external: Option<sailry_protocol::plugin::catalog::Details>,
+    history: history::State,
     updates: Entity<updates::State>,
     tab: Tab,
     scroll: ScrollHandle,
     error: Option<&'static str>,
+    required: Option<String>,
     stop: CancellationToken,
     task: Option<Task<()>>,
 }
@@ -176,7 +179,9 @@ fn mount(
             target,
             info,
             external: None,
+            history: Default::default(),
             error: None,
+            required: None,
             stop,
             task: None,
         }
@@ -186,9 +191,11 @@ fn mount(
             window,
             cx,
             |view, _| view.error.into_iter().collect(),
-            |_, key, cx| {
+            |view, key, cx| {
+                let message =
+                    compatibility::error(key, view.required.as_deref(), &view.binding, cx);
                 let owner = cx.weak_entity();
-                gpui_kit::component::notification::Notification::error(tr(key)).scoped_action(
+                gpui_kit::component::notification::Notification::error(message).scoped_action(
                     move |_, _, cx| {
                         let owner = owner.clone();
                         crate::feedback::retry("plugin-details-retry")
@@ -202,9 +209,13 @@ fn mount(
             },
         );
     });
-    if details.read(cx).info.is_none() {
-        details.update(cx, |details, cx| details.load(cx));
-    }
+    details.update(cx, |details, cx| {
+        if details.info.is_none() {
+            details.load(cx);
+        } else {
+            details.load_history(cx);
+        }
+    });
     window.dispatch_action(
         Box::new(super::super::OpenDetails(details.clone().into())),
         cx,
@@ -255,6 +266,9 @@ impl Details {
         else {
             return;
         };
+        if !entry.compatibility.is_compatible() {
+            return;
+        }
         let Some(market) = market.upgrade() else {
             return;
         };
@@ -285,8 +299,32 @@ impl Details {
         self.info.is_some() || self.external.is_some()
     }
 
+    fn requirement(&self, cx: &App) -> Option<String> {
+        let current = match &self.target {
+            Target::Installed(expected) => expected,
+            Target::Catalog { entry, .. } => {
+                return entry.compatibility.required().map(str::to_owned);
+            }
+        };
+        current
+            .compatibility
+            .required()
+            .map(str::to_owned)
+            .or_else(|| {
+                let updates = self.updates.read(cx);
+                updates
+                    .candidate(current)
+                    .is_none()
+                    .then(|| updates.blocked(current))
+                    .flatten()
+                    .map(|blocked| blocked.required.clone())
+            })
+    }
+
     fn installable(&self) -> bool {
-        self.info.is_some()
+        self.info
+            .as_ref()
+            .is_some_and(|info| info.summary.compatibility.is_compatible())
             || matches!(&self.external, Some(sailry_protocol::plugin::catalog::Details::Skills(collection)) if !collection.skills.is_empty())
     }
 
@@ -369,8 +407,14 @@ impl Details {
                             details.error = Some("plugins_conflict");
                         }
                     }
-                    Ok(Some(Err(error))) => details.error = Some(live::error_key(&error)),
+                    Ok(Some(Err(error))) => {
+                        details.required = compatibility::required(&error).map(str::to_owned);
+                        details.error = Some(live::error_key(&error));
+                    }
                     _ => details.error = Some("plugins_failed"),
+                }
+                if details.error.is_none() {
+                    details.load_history(cx);
                 }
                 cx.notify();
             });

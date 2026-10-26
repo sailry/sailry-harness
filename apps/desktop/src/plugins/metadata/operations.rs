@@ -48,7 +48,9 @@ impl Metadata {
         let selected = assistant.and_then(|binding| {
             self.entries
                 .values()
-                .find(|info| info.summary.reference() == binding.package)?
+                .find(|info| {
+                    info.summary.available() && info.summary.reference() == binding.package
+                })?
                 .extension
                 .as_ref()?
                 .desktop
@@ -80,7 +82,7 @@ impl Metadata {
                         operations.len() - 1
                     });
                 if operations[index].1
-                    || !info.summary.enabled
+                    || !info.summary.available()
                     || operation
                         .action()
                         .is_some_and(|action| !extension.actions.contains(&action))

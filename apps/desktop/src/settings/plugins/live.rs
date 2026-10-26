@@ -12,6 +12,7 @@ pub(in crate::settings) struct Catalog {
     pub(super) inventory: Option<super::inventory::Inventory>,
     actions: std::collections::BTreeMap<String, Action>,
     pub(in crate::settings) error: Option<&'static str>,
+    pub(in crate::settings) required: Option<(String, Binding)>,
 }
 
 struct Action {
@@ -138,7 +139,10 @@ impl Workspace {
         let Some(live) = &self.provider_link else {
             return;
         };
-        if !live.connected || self.plugin_catalog.busy_package(&plugin.name, cx) {
+        if !live.connected
+            || self.plugin_catalog.busy_package(&plugin.name, cx)
+            || (enabled && !plugin.compatibility.is_compatible())
+        {
             return;
         }
         let command = Command::SetPluginEnabled {
@@ -241,6 +245,7 @@ fn dispatch(
         window,
         cx,
     );
+    let feedback_binding = binding.clone();
     let job = binding
         .runtime
         .spawn(async move { binding.client.execute(request).await });
@@ -279,6 +284,8 @@ fn dispatch(
                         if !uncertain(error) {
                             catalog.actions.remove(&name);
                         }
+                        catalog.required = compatibility::required(error)
+                            .map(|required| (required.to_owned(), feedback_binding.clone()));
                         catalog.error = Some(error_key(error));
                     }
                     _ => catalog.error = Some("plugins_unknown"),
@@ -298,10 +305,16 @@ fn dispatch(
         {
             let key = error_key(error);
             let _ = target.update(cx, |_, window, cx| {
+                let message = compatibility::error(
+                    key,
+                    compatibility::required(error),
+                    &feedback_binding,
+                    cx,
+                );
                 crate::feedback::toast(
                     window,
-                    tr(key),
-                    gpui_kit::component::notification::Notification::error(tr(key)),
+                    message.clone(),
+                    gpui_kit::component::notification::Notification::error(message),
                     cx,
                 )
             });
@@ -318,6 +331,9 @@ pub(in crate::settings) fn uncertain(error: &Fault) -> bool {
 }
 
 pub(in crate::settings) fn error_key(error: &Fault) -> &'static str {
+    if compatibility::required(error).is_some() {
+        return "plugins_requires_sailry";
+    }
     match error.code {
         ErrorCode::RevisionConflict | ErrorCode::Conflict => "plugins_conflict",
         ErrorCode::NotFound => "plugins_not_found",

@@ -173,6 +173,25 @@ leaf emits that leaf's ID through `header_action()`; Header selections do not
 emit Menu events or values. Without `menu`, flat actions remain unchanged.
 Menus reuse the existing declaration validation and 256 top-level item limit.
 
+## Runtime compatibility
+
+Declare optional `min_sailry_version` inside `extensions.dev.sailry.platform`
+as a complete SemVer value, including a prerelease when applicable. The execution
+Node compares SemVer precedence against its own Sailry version. Omission imposes
+no minimum. Contracts remain `v1`; this field does not select another API version.
+
+When a package uses a new `sailry/*` module or export, extension field or permission,
+set the minimum to the first Sailry version containing that capability. Publish the
+dependent package version only after that Sailry version is released; earlier
+applications do not enforce this field.
+
+The Node rejects incompatible installation and enabling with structured
+`PluginRequiresNewer {required}` fault details. An incompatible installed package
+retains its files, configuration and saved enable choice, while its contributions
+remain unavailable. Update inspection keeps compatible candidates separate from
+newer releases requiring Sailry updates. Desktop's application update entry applies
+to its local execution Node; a remote requirement identifies the affected Node.
+
 ## Marketplace metadata
 
 The v1 extension may declare `category` (`development`, `documents`, `data`,
@@ -185,11 +204,18 @@ the requested locale to the source display name, then to the immutable skill ID.
 
 `CHANGELOG.md` may contain `## <version>` sections; optional
 `CHANGELOG.<locale>.md` files use the same headings. The Node and official catalog
-generator select only the section matching the inspected manifest version.
+generator select the section matching each inspected package version.
 `Info.release_notes` and catalog entries expose `{text, locales}` as plain text,
-without HTML execution or an arbitrary per-language display cutoff. Existing
-package, response and resource budgets still apply. `Mcp.host` contains only the
-endpoint hostname, never headers, credentials or the full URL. `Action.access()`
+without HTML execution or an arbitrary per-language display cutoff. The requested
+locale falls back to English when its matching section is absent. Official catalog
+entries include descending `versions` with each version's final package-content
+`commit`, optional `min_sailry_version`, exact-version notes and Node-evaluated
+compatibility. The Node selects the highest compatible candidate and acquires its
+fixed commit. Details retain installed-version notes separately from catalog
+history. Bundled, directory and other Git packages expose current-version notes;
+only official catalog packages have catalog history. History is read-only and does
+not add version selection or rollback. Existing package, response and resource
+budgets still apply. `Mcp.host` contains only the endpoint hostname, never headers, credentials or the full URL. `Action.access()`
 groups permissions for display; `read_only()` and execution checks are unchanged.
 
 `SearchSkillCatalog {source, query, page, force}` is a read-only execution-Node

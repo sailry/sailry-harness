@@ -18,6 +18,7 @@ struct Download {
     closed: bool,
     dialog: crate::ui::overlays::Owned,
     error: Option<&'static str>,
+    required: Option<String>,
     task: Option<Task<()>>,
 }
 
@@ -72,9 +73,20 @@ fn mount(
                 input.update(cx, |input, cx| input.set_value(value, window, cx));
             }
         }
-        crate::feedback::observe(window, cx, |state: &Download, _| {
-            state.error.into_iter().collect()
-        });
+        crate::feedback::observe_with(
+            window,
+            cx,
+            |state: &Download, _| state.error.into_iter().collect(),
+            |state, key, cx| {
+                gpui_kit::component::notification::Notification::error(compatibility::error(
+                    key,
+                    state.required.as_deref(),
+                    &state.binding,
+                    cx,
+                ))
+                .into()
+            },
+        );
         Download {
             binding,
             known,
@@ -85,6 +97,7 @@ fn mount(
             closed: false,
             dialog: Default::default(),
             error: None,
+            required: None,
             task: None,
         }
     });
@@ -299,6 +312,7 @@ impl Download {
                             if !live::uncertain(&error) {
                                 state.request = None;
                             }
+                            state.required = compatibility::required(&error).map(str::to_owned);
                             state.error = Some(live::error_key(&error));
                         }
                         _ => state.error = Some("plugins_unknown"),

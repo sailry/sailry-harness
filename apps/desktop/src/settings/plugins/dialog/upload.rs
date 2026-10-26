@@ -136,7 +136,10 @@ impl Editor {
                         cx.notify();
                         return;
                     }
-                    Ok(Err(error)) => editor.error = Some(live::error_key(&error)),
+                    Ok(Err(error)) => {
+                        editor.required = compatibility::required(&error).map(str::to_owned);
+                        editor.error = Some(live::error_key(&error));
+                    }
                     _ => editor.error = Some("plugins_failed"),
                 }
                 if editor.package.is_some() {
