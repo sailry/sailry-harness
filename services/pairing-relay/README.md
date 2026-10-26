@@ -163,9 +163,11 @@ cross-provider proxy is involved. The Blob adapter pins `@edgeone/pages-blob`
 [official Blob API](https://pages.edgeone.ai/document/blob-storage).
 
 EdgeOne's project root is this directory. `cloud-functions/[[default]].ts` is the
-native Node handler; `edgeone.json` configures build output and a native minute
-schedule for `/internal/cleanup`. The SDK obtains platform credentials inside
-the deployed function; never put a project token into client code. The handler
+native Node handler; `edgeone.json` configures build output and a native daily
+UTC schedule for `/internal/cleanup`. Daily is EdgeOne's minimum schedule
+interval; a more frequent cron fails route generation, leaving only static
+assets deployed. The SDK obtains platform credentials inside the deployed
+function; never put a project token into client code. The handler
 uses platform `clientIp`, not a client-supplied forwarding header. See the
 [Node Functions contract](https://pages.edgeone.ai/document/node-functions).
 
