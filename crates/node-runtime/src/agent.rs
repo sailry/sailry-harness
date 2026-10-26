@@ -25,6 +25,7 @@ mod question;
 mod references;
 mod review;
 mod skills;
+mod text;
 mod title;
 mod tools;
 
@@ -235,11 +236,13 @@ async fn run(
         entry.emit();
     }
     controls.finish(turn);
-    let status = persisted?;
-    if !controls.stopped.is_cancelled() {
-        plugins::callbacks::complete(ingress, callbacks, status).await;
+    if let Ok(status) = &persisted
+        && !controls.stopped.is_cancelled()
+    {
+        plugins::callbacks::complete(ingress, callbacks, *status).await;
     }
     controls.wake.notify_waiters();
+    let status = persisted?;
     if let Some(error) = error {
         return Err(error);
     }

@@ -576,14 +576,12 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
                 "context summary was not completed",
             ));
         }
-        if let Some(content) = response.content {
-            let mut chunk = String::new();
-            for part in content.parts {
+        if let Some(content) = &response.content {
+            for part in &content.parts {
                 match part {
-                    Part::Text { text } => chunk.push_str(&text),
-                    Part::Thinking { .. } => {}
+                    Part::Text { .. } | Part::Thinking { .. } => {}
                     Part::ServerToolCall { server_tool_call }
-                        if commentary(&server_tool_call, response.partial) => {}
+                        if commentary(server_tool_call, response.partial) => {}
                     _ => {
                         return Err(invalid_at(
                             Stage::Summary,
@@ -593,14 +591,8 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
                     }
                 }
             }
-            if !chunk.is_empty() {
-                if response.partial {
-                    text.push_str(&chunk)
-                } else {
-                    text = chunk
-                }
-            }
         }
+        super::text::append(&mut text, &response, usize::MAX);
         if response.usage_metadata.is_some() {
             usage = response.usage_metadata;
             timing = response

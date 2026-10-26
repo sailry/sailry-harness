@@ -59,7 +59,9 @@ fn complete(text: &str) -> LlmResponse {
             candidates_token_count: 5,
             ..Default::default()
         }),
-        provider_metadata: Some(json!({"sailry_timing":{"elapsed_us":250000}})),
+        provider_metadata: Some(
+            json!({"content_complete":true,"sailry_timing":{"elapsed_us":250000}}),
+        ),
         ..Default::default()
     }
 }
@@ -236,6 +238,59 @@ async fn persists_valid_summaries() {
             .text()
             .unwrap()
             .contains("Keep requirements 中文 🙂")
+    );
+}
+
+#[tokio::test]
+async fn retains_non_authoritative_summary_segments() {
+    let mut terminal = complete("Final part");
+    terminal.provider_metadata.as_mut().unwrap()["content_complete"] = false.into();
+    let (summarizer, _) = summarizer(
+        vec![
+            LlmResponse {
+                content: Some(Content::new("model").with_text("First part ")),
+                partial: true,
+                ..Default::default()
+            },
+            LlmResponse {
+                content: Some(Content::new("model").with_text("Second part ")),
+                ..Default::default()
+            },
+            terminal,
+        ],
+        false,
+    );
+    let summary = summarizer
+        .summarize_events(&history())
+        .await
+        .unwrap()
+        .unwrap();
+    let content = summary.actions.compaction.unwrap().compacted_content;
+    assert!(
+        content.parts[0]
+            .text()
+            .unwrap()
+            .starts_with("First part Second part Final part")
+    );
+}
+
+#[tokio::test]
+async fn rejects_cleared_retry_summary() {
+    let (summarizer, _) = summarizer(
+        vec![
+            LlmResponse {
+                content: Some(Content::new("model").with_text("Abandoned draft")),
+                partial: true,
+                ..Default::default()
+            },
+            complete(""),
+        ],
+        false,
+    );
+    let error = summarizer.summarize_events(&history()).await.unwrap_err();
+    assert_eq!(
+        failure::classify(&error),
+        (Stage::Summary, Reason::EmptySummary)
     );
 }
 

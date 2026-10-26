@@ -46,15 +46,10 @@ pub(crate) async fn generate(
                 "plugin model response failed",
             ));
         }
-        if let Some(usage) = response.usage_metadata {
-            tokens = usage.total_token_count.max(0) as u64;
-        }
-        if let Some(content) = response.content {
-            let mut value = String::new();
-            for part in content.parts {
+        if let Some(content) = &response.content {
+            for part in &content.parts {
                 match part {
-                    Part::Text { text } => value.push_str(&text),
-                    Part::Thinking { .. } => {}
+                    Part::Text { .. } | Part::Thinking { .. } => {}
                     _ => {
                         return Err(Fault::new(
                             ErrorCode::Unavailable,
@@ -63,17 +58,15 @@ pub(crate) async fn generate(
                     }
                 }
             }
-            if response.partial {
-                text.push_str(&value);
-            } else if !value.is_empty() {
-                text = value;
-            }
-            if text.len() > 64 * 1024 {
-                return Err(Fault::new(
-                    ErrorCode::Unavailable,
-                    "plugin model response exceeds the size limit",
-                ));
-            }
+        }
+        if !super::text::append(&mut text, &response, 64 * 1024) {
+            return Err(Fault::new(
+                ErrorCode::Unavailable,
+                "plugin model response exceeds the size limit",
+            ));
+        }
+        if let Some(usage) = response.usage_metadata {
+            tokens = usage.total_token_count.max(0) as u64;
         }
         if response.turn_complete {
             if response.finish_reason != Some(FinishReason::Stop) {

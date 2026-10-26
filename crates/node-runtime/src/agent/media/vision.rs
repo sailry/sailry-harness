@@ -158,25 +158,10 @@ fn append(text: &mut String, response: &LlmResponse) -> Result<(), Fault> {
     {
         return Err(Fault::new(ErrorCode::Unavailable, "vision request failed"));
     }
-    if !response.partial
-        && response
-            .provider_metadata
-            .as_ref()
-            .is_some_and(|metadata| metadata["content_complete"].as_bool() == Some(true))
-    {
-        text.clear();
-    }
-    if let Some(content) = &response.content {
-        for part in &content.parts {
-            if let Part::Text { text: value } = part {
-                if value.len() > 64 * 1024 - text.len() {
-                    return Err(sailry_protocol::Fault::invalid(
-                        "vision response exceeds the size limit",
-                    ));
-                }
-                text.push_str(value);
-            }
-        }
+    if !super::super::text::append(text, response, 64 * 1024) {
+        return Err(sailry_protocol::Fault::invalid(
+            "vision response exceeds the size limit",
+        ));
     }
     Ok(())
 }
