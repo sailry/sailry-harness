@@ -101,7 +101,7 @@ impl Resource {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub(super) struct Stamp {
+pub(in crate::git) struct Stamp {
     pub mode: u32,
     pub size: u64,
     modified: Option<(u64, u32)>,
@@ -120,7 +120,7 @@ pub(super) struct Stamp {
 }
 
 impl Stamp {
-    pub(super) fn of(metadata: &Metadata) -> Self {
+    pub(in crate::git) fn of(metadata: &Metadata) -> Self {
         let mode = if metadata.is_symlink() {
             0o120000
         } else if metadata.is_file() {

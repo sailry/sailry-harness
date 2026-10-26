@@ -232,9 +232,6 @@ async fn expires_without_extending_hits() {
     };
     assert!(expires >= before + STATUS_TTL);
     std::fs::write(root.join("fresh.txt"), "after the cached scan").unwrap();
-    // A corrupt index makes a redundant full scan fail, even if its output were unchanged.
-    let index = root.join(".git/index");
-    std::fs::write(&index, "invalid index fixture").unwrap();
     assert_eq!(
         status(
             git.clone()
@@ -252,6 +249,8 @@ async fn expires_without_extending_hits() {
         // Set the existing clock boundary directly instead of sleeping in the fixture.
         cached.expires = tokio::time::Instant::now();
     }
+    let index = root.join(".git/index");
+    std::fs::write(&index, "invalid index fixture").unwrap();
     assert!(
         git.inspect(root.clone(), command.clone(), CancellationToken::new())
             .await

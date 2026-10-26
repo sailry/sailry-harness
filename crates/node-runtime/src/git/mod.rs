@@ -50,6 +50,7 @@ const STATUS_TTL: Duration = Duration::from_secs(1);
 struct CachedStatus {
     output: Output,
     root: path::identity::Identity,
+    metadata: Option<status::Metadata>,
     expires: tokio::time::Instant,
 }
 
@@ -158,7 +159,7 @@ impl Git {
         }
         self.inspect_once(root, command, closed, None)
             .await
-            .map(|(output, _)| output)
+            .map(|(output, _, _)| output)
     }
 
     fn status(&self, root: PathBuf, command: Command) -> Shared<StatusRead> {
@@ -186,7 +187,9 @@ impl Git {
         let generation = Arc::new(());
         let current = generation.clone();
         let read = async move {
-            let expires = cached.as_ref().map(|cached| cached.expires);
+            let retained = cached
+                .as_ref()
+                .map(|cached| (cached.metadata.clone(), cached.expires));
             // Pending slots stay weak: the last observer still cancels its worker.
             let result = git
                 .inspect_once(source.clone(), command, CancellationToken::new(), cached)
@@ -200,13 +203,16 @@ impl Git {
                 if Arc::ptr_eq(generation, &current))
             {
                 match &result {
-                    Ok((output, root)) => {
+                    Ok((output, root, metadata)) => {
                         statuses.insert(
                             source,
                             StatusSlot::Complete(Box::new(CachedStatus {
                                 output: output.clone(),
                                 root: *root,
-                                expires: expires
+                                metadata: metadata.clone(),
+                                expires: retained
+                                    .filter(|(previous, _)| previous == metadata)
+                                    .map(|(_, expires)| expires)
                                     .unwrap_or_else(|| tokio::time::Instant::now() + STATUS_TTL),
                             })),
                         );
@@ -216,7 +222,7 @@ impl Git {
                     }
                 }
             }
-            result.map(|(output, _)| output)
+            result.map(|(output, _, _)| output)
         }
         .boxed()
         .shared();
@@ -243,7 +249,7 @@ impl Git {
         command: Command,
         closed: CancellationToken,
         cached: Option<CachedStatus>,
-    ) -> Result<(Output, path::identity::Identity), Fault> {
+    ) -> Result<(Output, path::identity::Identity, Option<status::Metadata>), Fault> {
         let output = self.output.clone();
         let environment = self.environment.clone();
         let captures = self.changes.clone();
@@ -283,6 +289,11 @@ impl Git {
             control.check()?;
             let retained = path::root(&root)?;
             let identity = path::identity::directory(&retained)?;
+            let metadata = if matches!(&command, Command::InspectGit { .. }) {
+                status::metadata(&root)?
+            } else {
+                None
+            };
             if let Some(cached) = cached {
                 if identity != cached.root {
                     return Err(Fault::new(
@@ -290,18 +301,11 @@ impl Git {
                         "worktree root changed since Git inspection",
                     ));
                 }
-                match open(&root) {
-                    Ok(_) => {}
-                    Err(error)
-                        if error.code == ErrorCode::NotFound
-                            && matches!(&cached.output, Output::GitStatus(status)
-                                if status.kind == RepositoryKind::Directory)
-                            && !root.join(".git").exists() => {}
-                    Err(error) => return Err(error),
+                if metadata == cached.metadata {
+                    check_root(&retained, &root)?;
+                    control.check()?;
+                    return Ok((cached.output, identity, metadata));
                 }
-                check_root(&retained, &root)?;
-                control.check()?;
-                return Ok((cached.output, identity));
             }
             let result = match command {
                 Command::ReadGitStash { commit, .. } => {
@@ -426,7 +430,7 @@ impl Git {
             };
             check_root(&retained, &root)?;
             control.check()?;
-            result.map(|output| (output, identity))
+            result.map(|output| (output, identity, metadata))
         });
         // Use the runtime blocking pool. Queued work checks cancellation before I/O;
         // an executing libgit2 call still cannot be preempted.

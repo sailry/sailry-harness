@@ -1,11 +1,82 @@
 //! Bounded candidate scanning and classification adapted from sailry-code
 //! 67ae9fa0 sailry-git/src/action_read/status.rs (Apache-2.0).
-use super::{Control, EntryParents, fault, io_error, open, path, valid_path};
+use super::{Control, EntryParents, changes::Stamp, fault, head, io_error, open, path, valid_path};
 use cap_fs_ext::DirExt;
 use cap_std::fs::Dir;
 use git2::{ObjectType, Oid, Repository, Status, StatusOptions};
 use sailry_protocol::*;
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
+
+#[derive(Clone, Eq, PartialEq)]
+pub(super) struct Metadata {
+    gitdir: (PathBuf, path::identity::Identity),
+    common: (PathBuf, path::identity::Identity),
+    head: GitHead,
+    head_stamp: Option<Stamp>,
+    index: Option<Stamp>,
+    packed: Option<Stamp>,
+    reference: Option<(String, Option<Stamp>)>,
+}
+
+pub(super) fn metadata(root: &Path) -> Result<Option<Metadata>, Fault> {
+    let repository = match open(root) {
+        Ok(repository) => repository,
+        Err(error) if error.code == ErrorCode::NotFound && !root.join(".git").exists() => {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let gitdir = path::root(repository.path())?;
+    let common = path::root(repository.commondir())?;
+    let reference = match repository.head() {
+        Ok(reference) => reference
+            .name()
+            .filter(|name| *name != "HEAD")
+            .map(str::to_owned),
+        Err(error) if error.code() == git2::ErrorCode::UnbornBranch => repository
+            .find_reference("HEAD")
+            .map_err(fault)?
+            .symbolic_target()
+            .map_err(fault)?
+            .map(str::to_owned),
+        Err(error) => return Err(fault(error)),
+    }
+    .map(|name| -> Result<_, Fault> {
+        valid_path(&name)?;
+        let value = stamp(&common, &name)?;
+        Ok((name, value))
+    })
+    .transpose()?;
+    Ok(Some(Metadata {
+        gitdir: (
+            repository.path().to_owned(),
+            path::identity::directory(&gitdir)?,
+        ),
+        common: (
+            repository.commondir().to_owned(),
+            path::identity::directory(&common)?,
+        ),
+        head: head::project(&repository)?,
+        head_stamp: stamp(&gitdir, "HEAD")?,
+        index: stamp(&gitdir, "index")?,
+        packed: stamp(&common, "packed-refs")?,
+        reference,
+    }))
+}
+
+fn stamp(root: &Dir, name: &str) -> Result<Option<Stamp>, Fault> {
+    match root.symlink_metadata(name) {
+        Ok(metadata) if metadata.is_file() && !metadata.is_symlink() => {
+            Ok(Some(Stamp::of(&metadata)))
+        }
+        Ok(_) => Err(Fault::invalid("expected a regular Git resource")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(io_error(error)),
+    }
+}
 
 pub(super) fn inspect(root: &Path, control: &Control) -> Result<GitStatus, Fault> {
     let repository = match open(root) {

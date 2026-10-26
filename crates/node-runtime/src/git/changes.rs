@@ -7,7 +7,7 @@ use super::{Control, open};
 
 mod contents;
 mod inventory;
-pub(super) use inventory::Cache;
+pub(super) use inventory::{Cache, Stamp};
 #[cfg(test)]
 mod tests;
 

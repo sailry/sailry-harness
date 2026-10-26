@@ -1,4 +1,5 @@
 use super::{fault, open};
+use git2::Repository;
 use sailry_protocol::{ErrorCode, Fault, GitHead, RepositoryKind};
 use std::path::Path;
 
@@ -14,6 +15,10 @@ pub(super) fn read(root: &Path) -> Result<GitHead, Fault> {
         }
         Err(error) => return Err(error),
     };
+    project(&repository)
+}
+
+pub(super) fn project(repository: &Repository) -> Result<GitHead, Fault> {
     let head = match repository.head() {
         Ok(head) => Some(head),
         Err(error) if error.code() == git2::ErrorCode::UnbornBranch => None,
