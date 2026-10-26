@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: AGPL-3.0-only
 // Bounded body reading adapted from sailry-code 67ae9fa0; see ../NOTICE.
 import { MAX_BODY_BYTES, action, type Action, type Result } from "./contract";
 
