@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Bounded body reading adapted from sailry-code 67ae9fa0; see ../NOTICE.
 import { MAX_BODY_BYTES, action, type Action, type Result } from "./contract";
+import { capacity, report } from "./diagnostics";
 
 export interface Exchange {
   execute(kind: Action, body: unknown, source: string, now: number): Result | Promise<Result>;
@@ -10,22 +11,20 @@ export async function handle(request: Request, registry: Exchange, source: strin
   const url = new URL(request.url);
   const kind = action(url.pathname);
   if (request.method !== "POST" || !kind || url.search) return json(404, { error: "not_found" });
+  let stage: "body" | "exchange" = "body";
   try {
     const body = JSON.parse(await readBody(request));
+    stage = "exchange";
     const result = await registry.execute(kind, body, source, now ?? Date.now());
+    if (result.status === 503 && result.body && "error" in result.body && result.body.error === "capacity") capacity();
     return response(result);
   } catch (error) {
     if (error instanceof BodyError) return json(error.status, { error: "invalid_body" });
     if (error instanceof SyntaxError) return json(400, { error: "invalid_json" });
     // Never reflect bodies, tickets or storage diagnostics into an HTTP response.
-    report(error);
+    report(stage, error);
     return json(503, { error: "unavailable" });
   }
-}
-
-/** Logs only the failure class and message to the platform's private function log. */
-export function report(error: unknown): void {
-  console.error("pairing request unavailable:", error instanceof Error ? `${error.name}: ${error.message}` : typeof error);
 }
 
 export class BodyError extends Error { constructor(readonly status: number) { super("invalid body"); } }

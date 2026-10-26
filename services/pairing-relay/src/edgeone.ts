@@ -2,7 +2,8 @@ import { BlobObjects } from "./blob";
 import { cleanup } from "./cleanup";
 import { generation, TTL_MS } from "./contract";
 import { Exchange } from "./exchange";
-import { handle, json, report } from "./http";
+import { handle, json } from "./http";
+import { report } from "./diagnostics";
 import type { ManagedObjects } from "./objects";
 
 interface Context { request: Request; clientIp?: string }
@@ -11,6 +12,7 @@ export async function serve(context: Context, objects: ManagedObjects): Promise<
   const { request } = context;
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/healthz" && !url.search) return json(200, { ok: true });
+  let stage: "cleanup" | "request" = "cleanup";
   try {
     if (request.method === "GET" && url.pathname === "/internal/cleanup" && !url.search) {
       const now = Date.now();
@@ -31,12 +33,13 @@ export async function serve(context: Context, objects: ManagedObjects): Promise<
       await cleanup(objects, Date.now());
     // EdgeOne's Node wrapper shadows `body` with its own parsed value; a copy
     // restores the standard stream that bounded body reading requires.
+    stage = "request";
     return await handle(new Request(request), new Exchange(objects), context.clientIp ?? "unknown");
-  } catch (error) { report(error); return json(503, { error: "unavailable" }); }
+  } catch (error) { report(stage, error); return json(503, { error: "unavailable" }); }
 }
 
 export default async function onRequest(context: Context): Promise<Response> {
   // Construct in the request scope: deployed SDK credentials are platform-owned.
   try { return await serve(context, new BlobObjects()); }
-  catch (error) { report(error); return json(503, { error: "unavailable" }); }
+  catch (error) { report("storage_init", error); return json(503, { error: "unavailable" }); }
 }
