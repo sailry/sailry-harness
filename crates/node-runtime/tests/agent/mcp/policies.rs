@@ -525,18 +525,14 @@ async fn projects_only_selected_images() {
             9
         );
         let canonical = serde_json::to_vec(&page).unwrap();
+        let output = results(&fixture.client, &page).await;
         assert!(
-            String::from_utf8(canonical.clone())
+            serde_json::to_string(&output)
                 .unwrap()
                 .contains("\"kind\":\"computer\"")
         );
-        assert!(
-            results(&fixture.client, &page)
-                .await
-                .iter()
-                .all(|result| result["output"]["nested"]
-                    == json!({"kind":"computer","data":{"untouched":true}}))
-        );
+        assert!(output.iter().all(|result| result["output"]["nested"]
+            == json!({"kind":"computer","data":{"untouched":true}})));
         {
             let requests = model.requests.lock().unwrap();
             assert_eq!(requests.len(), 10);

@@ -240,7 +240,7 @@ async fn rejects_cleared_credentials() {
         let page = finished(&fixture.client, fixture.session.id, queued.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert!(
-            serde_json::to_string(&page)
+            serde_json::to_string(&results(&fixture.client, &page).await)
                 .unwrap()
                 .contains("Complete skill beside MCP")
         );

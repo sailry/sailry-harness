@@ -92,7 +92,7 @@ async fn restores(direct: bool) {
                     continue;
                 };
                 if direct {
-                    if event.author == "user"
+                    if content.role != "model"
                         || !content.parts.iter().any(|part| part.text().is_some())
                     {
                         continue;

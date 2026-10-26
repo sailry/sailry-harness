@@ -61,11 +61,18 @@ async fn idless_mcp_results_keep_execution_facts() {
         );
         let view =
             super::super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        let results: Vec<_> = view
-            .calls
-            .iter()
-            .filter(|call| call.response.is_some())
-            .collect();
+        let mut results = Vec::new();
+        for call in view.calls.iter().filter(|call| call.response.is_some()) {
+            results.push(
+                call.with_detail(
+                    fixture
+                        .client
+                        .tool_detail(call.detail_reference(&page).unwrap())
+                        .await
+                        .unwrap(),
+                ),
+            );
+        }
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|call| {
             call.name == name

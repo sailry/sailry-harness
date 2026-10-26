@@ -34,7 +34,8 @@ async fn install(client: &Client, project: &std::path::Path, worktree: WorktreeI
                 "host":{"entry":"dev.sailry.platform/host/main.js",
                     "resources":["dev.sailry.platform/host/main.js"],"handlers":["inspect"]},
                 "tools":[{"name":"inspect","description":"Return canonical Unicode content",
-                    "display":{"label":"Inspect","raw_result":true},
+                    "presentation":"details",
+                    "display":{"label":"Inspect","output":{"body":{"text":{"source":"result","path":"/text"}}}},
                     "handler":{"name":"inspect","parameters":{"type":"object","required":["text"],
                         "properties":{"text":{"type":"string"}},"additionalProperties":false}}}]
             }}
@@ -123,7 +124,8 @@ async fn pages_canonical_details_on_both_transports() {
                     })
             })
             .unwrap();
-        assert!(summary.raw_result && summary.has_details);
+        assert!(summary.has_details);
+        assert!(!summary.raw_result);
         let reference = Reference {
             session: page.session,
             turn: entry.turn,

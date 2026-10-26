@@ -159,21 +159,22 @@ pub(super) fn resolve(
                 })
                 .and_then(|mut text| {
                     let field = input.and_then(|input| input.summary.as_ref())?;
-                    if let Some(name) = result_name(field, result) {
+                    let name = result_name(field, result);
+                    if let Some(name) = name {
                         text.text = name.to_owned();
                     }
                     match field.format {
                         Some(InputFormat::Command) => {
                             text.text = command::format(&text.text, &display.unwrap().aliases);
                         }
-                        Some(InputFormat::Session) => {
+                        Some(InputFormat::Session) if name.is_none() => {
                             text.text = field
                                 .names
                                 .get(&text.text)
                                 .filter(|name| !name.trim().is_empty())
                                 .cloned()?;
                         }
-                        Some(InputFormat::Connection) => {
+                        Some(InputFormat::Connection) if name.is_none() => {
                             if let Some(name) = field
                                 .names
                                 .get(&text.text)
@@ -182,7 +183,7 @@ pub(super) fn resolve(
                                 text.text = name.clone();
                             }
                         }
-                        None => {}
+                        _ => {}
                     }
                     Some(text)
                 }),

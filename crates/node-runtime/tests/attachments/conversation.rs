@@ -202,9 +202,15 @@ async fn run(client: &Client, turn: &QueuedTurn) -> Page {
         .execute(client.prepare(Command::StartQueuedTurn { turn: turn.id }))
         .await
         .unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
+    let mut observed = None;
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let page = page(client, turn.session).await;
+            observed = page
+                .runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .map(|run| (run.status, run.error.clone()));
             if page.runs.iter().any(|run| {
                 run.turn == turn.id
                     && !matches!(
@@ -217,8 +223,13 @@ async fn run(client: &Client, turn: &QueuedTurn) -> Page {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .expect("attachment turn deadline")
+    .await;
+    result.unwrap_or_else(|error| {
+        panic!(
+            "attachment turn deadline (session={}, turn={}, observed={observed:?}): {error}",
+            turn.session, turn.id
+        )
+    })
 }
 
 fn discard(client: &Client, attachment: &Attachment) -> Request {

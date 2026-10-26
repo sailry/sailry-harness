@@ -55,7 +55,10 @@ impl Raw {
         {
             output_visible(self, resolved.as_ref())
         } else {
-            literal(result).is_some()
+            self.display
+                .as_ref()
+                .is_none_or(|display| display.output.is_none())
+                && literal(result).is_some()
         };
         let has_details = self.result.is_some()
             && (diagnostics

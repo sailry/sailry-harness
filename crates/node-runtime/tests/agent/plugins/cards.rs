@@ -59,19 +59,37 @@ export async function connection(){
     info
 }
 
-fn summary(calls: &[sailry_client::conversation::tools::Call]) -> card::Summary {
-    calls
+async fn summary(
+    client: &Client,
+    page: &Page,
+    calls: &[sailry_client::conversation::tools::Call],
+) -> card::Summary {
+    for call in calls
         .iter()
-        .filter_map(|call| call.content.as_ref())
-        .flat_map(|content| &content.blocks)
-        .find_map(|block| {
-            if let tool::Block::Card(card) = block {
-                Some(card.clone())
-            } else {
-                None
-            }
-        })
-        .expect("canonical card expected")
+        .filter(|call| call.summary(page).is_some_and(|summary| summary.published))
+    {
+        let call = call.with_detail(
+            client
+                .tool_detail(call.detail_reference(page).unwrap())
+                .await
+                .unwrap(),
+        );
+        if let Some(card) = call
+            .content()
+            .into_iter()
+            .flat_map(|content| &content.blocks)
+            .find_map(|block| {
+                if let tool::Block::Card(card) = block {
+                    Some(card.clone())
+                } else {
+                    None
+                }
+            })
+        {
+            return card;
+        }
+    }
+    panic!("canonical card expected")
 }
 
 fn context(card: &card::Summary, package: plugin::Reference) -> plugin::Context {
@@ -120,7 +138,7 @@ async fn keeps_login_private_and_does_not_replay() {
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        let card = summary(&view.calls);
+        let card = summary(&fixture.client, &page, &view.calls).await;
         assert_eq!(card.receipt.turn, turn);
         assert_eq!(card.receipt.session, fixture.session.id);
         assert_eq!(card.node, fixture.node.id());
@@ -134,13 +152,15 @@ async fn keeps_login_private_and_does_not_replay() {
             0,
             "tool output must not start login"
         );
-        let result = view
-            .calls
-            .iter()
-            .find(|call| call.content.is_some())
-            .unwrap()
-            .result(&page)
-            .unwrap();
+        let call = view.calls.iter().find(|call| call.name == alias).unwrap();
+        let call = call.with_detail(
+            fixture
+                .client
+                .tool_detail(call.detail_reference(&page).unwrap())
+                .await
+                .unwrap(),
+        );
+        let result = call.result(&page).unwrap();
         assert!(result["isError"].as_bool().unwrap());
         let count = model.requests.lock().unwrap().len();
         let Output::PluginView(view) = fixture
@@ -238,7 +258,7 @@ async fn keeps_login_private_and_does_not_replay() {
         ));
         let restored = history(&fixture.client, fixture.session.id).await;
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        assert_eq!(summary(&view.calls), card);
+        assert_eq!(summary(&fixture.client, &restored, &view.calls).await, card);
         let history = serde_json::to_string(&restored).unwrap();
         for private in [
             &url,
@@ -272,9 +292,9 @@ async fn rejects_stale_and_foreign_scopes() {
         let fixture = process::Fixture::packages(remote, &model, &[]).await;
         let package = install(&fixture, &issuer.endpoint).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
-        finished(&fixture.client, fixture.session.id, turn).await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        let card = summary(&view.calls);
+        let card = summary(&fixture.client, &page, &view.calls).await;
         for change in 0..6 {
             let mut scope = context(&card, card.package.clone());
             let mut command = Command::ReadPluginConnection {

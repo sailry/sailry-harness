@@ -109,7 +109,10 @@ pub(crate) fn cargo(command: &str, text: &str) -> Option<String> {
                 || line.starts_with(' ')
                 || trimmed.starts_with("-->")
                 || trimmed.starts_with('|')
-                || trimmed.starts_with('='));
+                || trimmed.starts_with('=')
+                || trimmed
+                    .split_once('|')
+                    .is_some_and(|(number, _)| number.trim_end().parse::<usize>().is_ok()));
         if continues {
             warning.push(line);
             continue;

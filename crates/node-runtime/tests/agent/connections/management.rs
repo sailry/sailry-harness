@@ -414,7 +414,9 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
         approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;
-        let output: Vec<_> = tool_details(&fixture.client, &page)
+        let mut current = page.clone();
+        current.entries.retain(|entry| entry.turn == turn);
+        let output: Vec<_> = tool_details(&fixture.client, &current)
             .await
             .into_iter()
             .filter(|(name, _)| name == &tool("ssh_save_connection"))
@@ -422,8 +424,12 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
             .collect();
         assert_eq!(output.len(), 1, "{output:?}");
         assert_eq!(
-            output[0]["error"],
-            format!("Tool {} not found", tool("ssh_save_connection")),
+            output[0]["error"]["code"], "permission_denied",
+            "{output:?}"
+        );
+        assert_eq!(
+            output[0]["error"]["message"],
+            "planning turns cannot authorize tools with side effects",
             "{output:?}"
         );
         assert!(server.requests.lock().unwrap().iter().all(|request| {
@@ -431,7 +437,7 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|entry| entry["function"]["name"] != tool("ssh_save_connection"))
+                .any(|entry| entry["function"]["name"] == tool("ssh_save_connection"))
         }));
         assert_eq!(ssh_profiles(&fixture.client).await, profiles);
         assert!(
@@ -896,7 +902,9 @@ async fn relative_saves_preserve_scope_and_plan() {
         approvals::rules::route(&fixture.client, &fixture.session, &server.endpoint).await;
         let turn = submit(&fixture).await;
         let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;
-        let output: Vec<_> = tool_details(&fixture.client, &page)
+        let mut current = page.clone();
+        current.entries.retain(|entry| entry.turn == turn);
+        let output: Vec<_> = tool_details(&fixture.client, &current)
             .await
             .into_iter()
             .filter(|(name, _)| name == &tool("database_save_connection"))
@@ -904,8 +912,12 @@ async fn relative_saves_preserve_scope_and_plan() {
             .collect();
         assert_eq!(output.len(), 1, "{output:?}");
         assert_eq!(
-            output[0]["error"],
-            format!("Tool {} not found", tool("database_save_connection")),
+            output[0]["error"]["code"], "permission_denied",
+            "{output:?}"
+        );
+        assert_eq!(
+            output[0]["error"]["message"],
+            "planning turns cannot authorize tools with side effects",
             "{output:?}"
         );
         assert!(server.requests.lock().unwrap().iter().all(|request| {
@@ -913,7 +925,7 @@ async fn relative_saves_preserve_scope_and_plan() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|entry| entry["function"]["name"] != tool("database_save_connection"))
+                .any(|entry| entry["function"]["name"] == tool("database_save_connection"))
         }));
         assert!(databases(&fixture.client).await.is_empty());
         assert!(!fixture.root.join("sales.db").exists());

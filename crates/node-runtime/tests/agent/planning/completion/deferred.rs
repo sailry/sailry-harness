@@ -97,6 +97,12 @@ async fn new_input_closes_review_without_execution_consent() {
                         .is_some_and(|owned| owned.id == question.id)
                 })
                 .unwrap();
+            let call = call.with_detail(
+                other
+                    .tool_detail(call.detail_reference(&page).unwrap())
+                    .await
+                    .unwrap(),
+            );
             assert!(call.question_pending(&page).is_none());
             assert_eq!(call.result(&page).unwrap()["status"], "cancelled");
             let Output::Snapshot(snapshot) = other

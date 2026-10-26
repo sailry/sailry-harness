@@ -126,17 +126,22 @@ async fn fails_without_an_answer() {
     let mut commentary = message("Inspecting the project");
     commentary["phase"] = json!("commentary");
     let outputs = [
-        (json!([]), EMPTY_RESPONSE),
-        (json!([message(" \n\t")]), EMPTY_RESPONSE),
+        (json!([]), EMPTY_RESPONSE, ""),
+        (json!([message(" \n\t")]), EMPTY_RESPONSE, ""),
         (
             json!([{"type":"reasoning", "id":"reasoning", "status":"completed",
             "summary":[{"type":"summary_text", "text":"Inspecting the task"}]}]),
             EMPTY_RESPONSE,
+            "",
         ),
-        (json!([commentary]), "Model returned no answer"),
+        (
+            json!([commentary]),
+            "Model returned no answer",
+            "Inspecting the project",
+        ),
     ];
     for remote in [false, true] {
-        for (output, diagnostic) in outputs.clone() {
+        for (output, diagnostic, projected) in outputs.clone() {
             let server = server(vec![completed(output)]).await;
             let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Can you read this project?").await;
@@ -145,7 +150,7 @@ async fn fails_without_an_answer() {
             assert_eq!(run.status, Status::Failed);
             assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Unavailable);
             assert_eq!(run.error.as_ref().unwrap().message, diagnostic);
-            assert!(response(&page).trim().is_empty());
+            assert_eq!(response(&page).trim(), projected);
             assert_eq!(
                 server.requests.lock().unwrap().len(),
                 1,
@@ -167,7 +172,23 @@ async fn preserves_tools_before_empty_completion() {
         let turn = fixture.submit("Read phase.txt and answer").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Failed);
-        assert!(response(&page).is_empty());
+        assert_eq!(response(&page), crate::agent_support::phases::COMMENTARY);
+        let parts = page
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == turn && entry.author != "user")
+            .flat_map(|entry| &entry.parts)
+            .collect::<Vec<_>>();
+        let boundary = sailry_client::conversation::reply::boundary(
+            parts
+                .iter()
+                .map(|part| sailry_client::conversation::reply::is_work(part)),
+        );
+        assert!(
+            parts[boundary..]
+                .iter()
+                .all(|part| { !matches!(part, Part::Text(text) if !text.trim().is_empty()) })
+        );
         assert_eq!(
             page.entries
                 .iter()

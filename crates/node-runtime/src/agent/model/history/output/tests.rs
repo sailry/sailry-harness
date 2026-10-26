@@ -188,8 +188,13 @@ fn groups_search_and_keeps_match_context() {
 
 #[test]
 fn normalizes_progress_without_changing_raw() {
-    let raw = "\x1b[31mCompiling 中文\x1b[0m\r\n1%\r25%\r完成🙂\r\n\x1b]8;;https://example.com\x07link\x1b]8;;\x1b\\\n";
-    let normalized = commands::normalize(raw);
+    let progress = (0..100)
+        .map(|percent| format!("\x1b[32m{percent}%\x1b[0m\r"))
+        .collect::<String>();
+    let raw = format!(
+        "\x1b[31mCompiling 中文\x1b[0m\r\n{progress}完成🙂\r\n\x1b]8;;https://example.com\x07link\x1b]8;;\x1b\\\n"
+    );
+    let normalized = commands::normalize(&raw);
     assert_eq!(normalized, "Compiling 中文\n完成🙂\nlink\n");
     let output = json!({"kind":"command_result","data":{
         "stdout":{"text":raw,"truncated":false,"invalid_utf8":false},
@@ -201,6 +206,9 @@ fn normalizes_progress_without_changing_raw() {
     project(&mut request);
     assert_eq!(value(&request[0])["data"]["stdout"]["text"], normalized);
     assert_eq!(value(&canonical[0])["data"]["stdout"]["text"], raw);
+    assert!(
+        serde_json::to_vec(&request).unwrap().len() < serde_json::to_vec(&canonical).unwrap().len()
+    );
 }
 
 #[test]
@@ -224,9 +232,13 @@ fn shortens_log_without_changing_canonical_entries() {
 
 #[test]
 fn removes_only_sparse_status_fields() {
+    let mut entries = vec![json!({"path":"zero.txt","binary":false,"added":0,"deleted":3})];
+    entries.extend((1..16).map(
+        |index| json!({"path":format!("source_{index}.rs"),"binary":false,"added":0,"deleted":3}),
+    ));
     let output = json!({"kind":"git_status","data":{
         "staged":false,"deleted":null,"ahead":0,"behind":2,"dirty":true,
-        "entries":[{"path":"zero.txt","binary":false,"added":0,"deleted":3}],
+        "entries":entries,
         "message":"","literal":"false",
     }});
     let canonical = vec![response("plugin_git_status", output.clone())];
@@ -241,5 +253,15 @@ fn removes_only_sparse_status_fields() {
     assert_eq!(data["message"], "");
     assert_eq!(data["literal"], "false");
     assert_eq!(data["entries"][0], json!({"path":"zero.txt","deleted":3}));
+    assert_eq!(data["entries"].as_array().unwrap().len(), 16);
+    for index in 1..16 {
+        assert_eq!(
+            data["entries"][index],
+            json!({"path":format!("source_{index}.rs"),"deleted":3})
+        );
+    }
     assert_eq!(value(&canonical[0]), &output);
+    assert!(
+        serde_json::to_vec(&request).unwrap().len() < serde_json::to_vec(&canonical).unwrap().len()
+    );
 }

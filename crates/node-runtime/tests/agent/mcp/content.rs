@@ -80,8 +80,15 @@ async fn restores() {
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
         assert_eq!(view.calls.len(), 1);
         let call = &view.calls[0];
+        let call = call.with_detail(
+            fixture
+                .client
+                .tool_detail(call.detail_reference(&page).unwrap())
+                .await
+                .unwrap(),
+        );
         assert_eq!(call.presentation, Presentation::Content);
-        assert_eq!(call.content.as_ref(), Some(&expected));
+        assert_eq!(call.content(), Some(&expected));
         assert!(call.failure.is_none());
         assert!(!call.diagnostics(&page));
         assert_eq!(call.result(&page).unwrap()["output"]["sample"], true);
@@ -101,7 +108,14 @@ async fn restores() {
         });
         assert_eq!(history(&client, fixture.session.id).await, page);
         let restored = super::super::progress::observe(&client, fixture.session.id).await;
-        assert_eq!(restored.calls[0].content.as_ref(), Some(&expected));
+        let call = &restored.calls[0];
+        let call = call.with_detail(
+            client
+                .tool_detail(call.detail_reference(&page).unwrap())
+                .await
+                .unwrap(),
+        );
+        assert_eq!(call.content(), Some(&expected));
         let Output::AttachmentDownload(download) = execute(
             &client,
             Command::DownloadImage {

@@ -452,7 +452,6 @@ impl Commands {
         for task in tasks {
             let _ = task.await;
         }
-        self.entries.lock().unwrap().clear();
     }
 }
 
