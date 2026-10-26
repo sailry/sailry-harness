@@ -1,6 +1,6 @@
 use crate::store::Ingress;
 use sailry_link::Admission;
-use sailry_protocol::{Command, ErrorCode, Fault, Output, Receipt, Request, VERSION};
+use sailry_protocol::{Command, ErrorCode, Fault, Output, Receipt, Request};
 use tokio::sync::oneshot;
 
 impl Ingress {
@@ -8,12 +8,6 @@ impl Ingress {
         &self,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let result = match &request.command {
             Command::SearchSkillCatalog {
                 source,

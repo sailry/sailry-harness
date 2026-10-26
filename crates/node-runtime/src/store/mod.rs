@@ -1049,8 +1049,11 @@ impl Store {
                         }),
                         Job::Completed(completed) => Box::pin(async move {
                             // A removed checkout is gone even when its receipt cannot be saved.
-                            if let Ok(output @ sailry_protocol::Output::WorktreeRemoved { .. }) = &completed.result
-                                && let Err(error) = code_index::removed(&database.connection, code_index, output).await
+                            if let Ok(output @ sailry_protocol::Output::WorktreeRemoved { .. }) =
+                                &completed.result
+                                && let Err(error) =
+                                    code_index::removed(&database.connection, code_index, output)
+                                        .await
                             {
                                 eprintln!("removed worktree index cleanup failed: {error}");
                             }
@@ -1062,8 +1065,11 @@ impl Store {
                                     events,
                                 )
                                 .await;
-                            if let Ok(output @ sailry_protocol::Output::ProjectRemoved { .. }) = &result
-                                && let Err(error) = code_index::removed(&database.connection, code_index, output).await
+                            if let Ok(output @ sailry_protocol::Output::ProjectRemoved { .. }) =
+                                &result
+                                && let Err(error) =
+                                    code_index::removed(&database.connection, code_index, output)
+                                        .await
                             {
                                 eprintln!("removed project index cleanup failed: {error}");
                             }
@@ -1552,12 +1558,7 @@ impl Handler for Ingress {
                     .subscribe(self.node, caller, self.closed.clone()));
             }
             if let sailry_protocol::Topic::ScopedInstallations(request) = &topic {
-                if request.target != self.node || request.version != sailry_protocol::VERSION {
-                    return Err(Fault::new(
-                        ErrorCode::WrongTarget,
-                        "Node or protocol version mismatch",
-                    ));
-                }
+                routing::validate(self.node, request)?;
                 let sailry_protocol::Command::ReadInstallations { requests } = &request.command
                 else {
                     return Err(Fault::invalid("installation observation expected"));

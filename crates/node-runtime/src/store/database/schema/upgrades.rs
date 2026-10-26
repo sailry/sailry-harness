@@ -58,8 +58,5 @@ pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
             [kind],
         ).await?;
     }
-    // Preserve the execution Node's existing enable choice without rewriting
-    // installed configuration or immutable sent-turn/plugin captures.
-    connection.execute("INSERT OR IGNORE INTO code_index_settings(singleton,body) SELECT singleton,CAST(json_object('revision',coalesce(json_extract(body,'$.revision'),0),'enabled',json(CASE WHEN coalesce(json_extract(body,'$.enabled'),1) THEN 'true' ELSE 'false' END)) AS BLOB) FROM code_settings",()).await?;
     Ok(())
 }

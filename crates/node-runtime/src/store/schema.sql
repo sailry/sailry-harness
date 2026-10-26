@@ -408,16 +408,7 @@ CREATE TABLE notifications (
     body BLOB NOT NULL
 );
 
-CREATE TABLE code_startups (
-    worktree TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,
-    root TEXT NOT NULL,
-    server TEXT NOT NULL,
-    body BLOB NOT NULL,
-    PRIMARY KEY(worktree,root,server)
-);
-
 CREATE TABLE code_index_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
-CREATE TABLE code_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
 CREATE TABLE python_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
 
 CREATE TABLE hook_settings (

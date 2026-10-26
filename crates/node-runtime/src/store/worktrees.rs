@@ -89,7 +89,7 @@ pub(super) async fn finish(
         };
         let changed = if referenced {
             // Session history keeps its foreign keys; the tombstone hides the checkout.
-            for table in ["terminals", "code_startups", "hook_settings"] {
+            for table in ["terminals", "hook_settings"] {
                 db.execute(
                     &format!("DELETE FROM {table} WHERE worktree=?1"),
                     [id_text.as_str()],

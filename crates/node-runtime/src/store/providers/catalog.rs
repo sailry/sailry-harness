@@ -179,12 +179,6 @@ impl Ingress {
         &self,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let download = tokio::select! {
             biased;
             _ = self.closed.cancelled() => return Err(unavailable()),

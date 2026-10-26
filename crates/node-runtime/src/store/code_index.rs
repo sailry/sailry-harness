@@ -15,12 +15,6 @@ impl Ingress {
         caller: NodeId,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let id = request.id;
         let (mut reply, completion) = tokio::sync::oneshot::channel();
         match &request.command {

@@ -247,3 +247,42 @@ async fn survives_result_loss_and_restart() {
     fixture.controller.close().await.unwrap();
     node.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn rejects_mismatched_routes_before_admission() {
+    let fixture = Fixture::empty().await;
+    for client in fixture.clients() {
+        let before = counts(&fixture.node).await;
+        for command in [
+            Command::Snapshot,
+            Command::InspectHost,
+            Command::ListChannelPresets {
+                refresh_partners: true,
+            },
+            Command::SearchCode {
+                worktree: fixture.worktree,
+                query: Default::default(),
+            },
+            Command::CreateDirectory {
+                worktree: fixture.worktree,
+                path: "unadmitted".into(),
+            },
+        ] {
+            for wrong_version in [false, true] {
+                let mut request = client.prepare(command.clone());
+                if wrong_version {
+                    request.version = u16::MAX;
+                } else {
+                    request.target = NodeId([9; 32]);
+                }
+                assert_eq!(
+                    client.execute(request).await.unwrap_err().code,
+                    ErrorCode::WrongTarget
+                );
+            }
+        }
+        assert_eq!(counts(&fixture.node).await, before);
+        assert!(!fixture.root.join("unadmitted").exists());
+    }
+    fixture.close().await;
+}

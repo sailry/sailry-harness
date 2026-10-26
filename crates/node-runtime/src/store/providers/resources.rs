@@ -136,12 +136,6 @@ impl Ingress {
         caller: NodeId,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let (reply, response) = oneshot::channel();
         self.send_internal(Job::ProviderHttp {
             caller,

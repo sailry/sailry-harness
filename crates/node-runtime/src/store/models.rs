@@ -1,7 +1,7 @@
 //! Public Hub discovery captures the execution Node's current mirror settings.
 use super::Ingress;
 use sailry_link::Admission;
-use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request};
+use sailry_protocol::{Command, Fault, NodeId, Output, Request};
 use tokio::sync::oneshot;
 
 impl Ingress {
@@ -10,12 +10,6 @@ impl Ingress {
         caller: NodeId,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let refresh = matches!(
             request.command,
             Command::ListChannelPresets {
@@ -23,6 +17,9 @@ impl Ingress {
             }
         );
         let mut listing = if refresh {
+            if request.plugin.is_some() {
+                self.check_plugin(caller, request.clone()).await?;
+            }
             let (catalog, unavailable) = self.presets.read(&self.closed).await?;
             let (reply, response) = oneshot::channel();
             self.sender
@@ -95,12 +92,6 @@ impl Ingress {
     }
 
     pub(super) async fn model_catalog(&self, request: Request) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         // Plugin reads pass the same captured action check in ordinary Ingress admission.
         let stop = self.closed.child_token();
         let _guard = stop.clone().drop_guard();

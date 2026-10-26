@@ -11,12 +11,6 @@ impl Ingress {
         request: Request,
         internal: bool,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let admission = self.read_request(caller, request.clone()).await?;
         let Output::Artifact(mut content) =
             admission.completion.await.map_err(|_| unavailable())??

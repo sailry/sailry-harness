@@ -1,6 +1,6 @@
 use super::{Ingress, unavailable};
 use sailry_link::Admission;
-use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Receipt, Request, VERSION};
+use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Receipt, Request};
 use tokio::sync::oneshot;
 
 impl Ingress {
@@ -11,12 +11,6 @@ impl Ingress {
         internal: bool,
     ) -> Result<Admission, Fault> {
         let access = crate::files::Access::request(&request, internal);
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         if matches!(
             &request.command,
             Command::DownloadBackup { .. } | Command::UploadBackup { .. }

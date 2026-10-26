@@ -271,7 +271,7 @@ async fn continues_across_root_invalidations() {
     assert!(!reconciled.partial && !reconciled.truncated);
     assert_eq!(resources.parser.parsed.load(Ordering::Relaxed), count);
     let dirty = worktree.dirty.lock().unwrap();
-    assert_eq!(dirty.clean, dirty.generation);
+    assert!(dirty.paths.is_empty());
 }
 
 #[tokio::test]

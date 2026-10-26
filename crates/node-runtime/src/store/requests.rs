@@ -74,26 +74,7 @@ impl Ingress {
                 request.command,
                 sailry_protocol::Command::SaveSearchSettings(_)
             );
-            let launch = matches!(
-                request.command,
-                sailry_protocol::Command::SubmitTurn { .. }
-                    | sailry_protocol::Command::SubmitTask { .. }
-                    | sailry_protocol::Command::ResolveQuestion {
-                        response: sailry_protocol::conversation::question::Response::StartCoding { .. },
-                        ..
-                    }
-                    | sailry_protocol::Command::ContinueTurn { .. }
-                    | sailry_protocol::Command::PluginTransaction { .. }
-                    | sailry_protocol::Command::StartSession(_)
-                    | sailry_protocol::Command::ReplaceTurn { .. }
-                    | sailry_protocol::Command::CompactContext { .. }
-                    | sailry_protocol::Command::StartQueuedTurn { .. }
-                    | sailry_protocol::Command::SendQueuedTurn { .. }
-                    | sailry_protocol::Command::GuideQueuedTurn { .. }
-                    | sailry_protocol::Command::GuideTurn { .. }
-                    | sailry_protocol::Command::SetQueuePaused { .. }
-                    | sailry_protocol::Command::SavePluginSettings { .. }
-            );
+            let launch = super::routing::launches(&request.command);
             let guiding = match &request.command {
                 sailry_protocol::Command::GuideTurn { recipient, .. }
                 | sailry_protocol::Command::GuideQueuedTurn { recipient, .. } => Some(*recipient),

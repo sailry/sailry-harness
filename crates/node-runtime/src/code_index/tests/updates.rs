@@ -116,7 +116,7 @@ async fn changes_during_parse_remain_dirty() {
     assert!(old.partial);
     {
         let dirty = worktree.dirty.lock().unwrap();
-        assert_ne!(dirty.clean, dirty.generation);
+        assert!(dirty.paths.contains_key("main.rs"));
     }
     let fresh = fixture.search().await;
     assert!(fresh.symbols.iter().any(|symbol| symbol.name == "after_"));

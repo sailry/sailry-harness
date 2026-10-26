@@ -71,12 +71,6 @@ impl Ingress {
         caller: NodeId,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let output = self.terminals.command(caller, request.command).await;
         let (reply, completion) = oneshot::channel();
         let _ = reply.send(output);

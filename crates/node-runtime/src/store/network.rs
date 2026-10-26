@@ -97,12 +97,6 @@ async fn read(db: &Connection, link: &LinkHandle) -> Result<Settings, Fault> {
 
 impl Ingress {
     pub(super) async fn read_network(&self, request: Request) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         if request.plugin.is_some() {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,

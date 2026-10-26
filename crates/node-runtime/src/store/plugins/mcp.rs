@@ -3,7 +3,7 @@ use super::*;
 use crate::store::{Ingress, Job, unavailable};
 use sailry_link::Admission;
 use sailry_protocol::{
-    Receipt, Request, VERSION,
+    Receipt, Request,
     plugin::mcp::{Configuration, State},
 };
 use tokio::sync::oneshot;
@@ -121,12 +121,6 @@ impl Ingress {
         &self,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         if request.plugin.is_some() {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,

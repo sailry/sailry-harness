@@ -18,6 +18,38 @@ use turso::Connection;
 type Objects = BTreeMap<(String, String), String>;
 const DDL: &str = include_str!("../schema.sql");
 
+// Retain these two inactive tables in existing profiles without creating or reading them.
+const RETAINED: [(&str, &str); 2] = [
+    (
+        "code_settings",
+        "CREATE TABLE code_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL)",
+    ),
+    (
+        "code_startups",
+        "CREATE TABLE code_startups (
+    worktree TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,
+    root TEXT NOT NULL,
+    server TEXT NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(worktree,root,server)
+)",
+    ),
+];
+
+fn retained(actual: &mut Objects, path: &Path) -> Result<(), Error> {
+    for (name, definition) in RETAINED {
+        if let Some(stored) = actual.remove(&("table".into(), name.into()))
+            && normalize(&stored) != normalize(definition)
+        {
+            return Err(incompatible(
+                path,
+                format!("retained table {name:?} does not match its definition"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(super) struct Schema {
     state: State,
     expected: Objects,
@@ -243,6 +275,7 @@ async fn verify_objects(
 ) -> Result<(), Error> {
     let mut actual = objects(connection).await?;
     check_backing(&mut actual, expected, path)?;
+    retained(&mut actual, path)?;
     compare(expected, &actual, path)?;
     if let Some((kind, name)) = actual
         .keys()

@@ -2,7 +2,7 @@ use super::*;
 use crate::store::{Ingress, Job, unavailable};
 use sailry_link::Admission;
 use sailry_protocol::plugin::updates::{Batch, Failure, Request as Selection};
-use sailry_protocol::{Receipt, Request, VERSION};
+use sailry_protocol::{Receipt, Request};
 use tokio::sync::oneshot;
 
 #[cfg(test)]
@@ -23,12 +23,6 @@ impl Ingress {
         &self,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let (selections, single, force) = match &request.command {
             Command::CheckPluginUpdate {
                 name,

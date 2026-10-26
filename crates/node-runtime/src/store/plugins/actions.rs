@@ -20,12 +20,7 @@ impl Database {
         if matches!(request.command, Command::SubmitTask { .. }) {
             return Err(denied("task submission requires a native controller"));
         }
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
+        super::super::routing::validate(self.node, request)?;
         if matches!(request.command, Command::CancelConnectorLogin { .. }) {
             return Ok(());
         }

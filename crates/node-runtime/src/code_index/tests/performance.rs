@@ -97,10 +97,7 @@ async fn measures_repository_segments() {
         let elapsed = start.elapsed();
         let remaining = worktree.sync.lock().await.remaining();
         let indexed = worktree.index().await.unwrap().files().await.unwrap().len();
-        let reconciled = {
-            let dirty = worktree.dirty.lock().unwrap();
-            dirty.clean == dirty.generation
-        };
+        let reconciled = !page.truncated;
         segments.push((elapsed, indexed, remaining, reconciled, page));
         if remaining.is_none() && reconciled {
             break;

@@ -24,6 +24,7 @@ impl Plan {
     ) -> Result<Self, Error> {
         let mut actual = objects(connection).await?;
         check_backing(&mut actual, expected, path)?;
+        super::retained(&mut actual, path)?;
         let mut statements = Vec::new();
         let mut created = std::collections::BTreeSet::new();
         let mut added = std::collections::BTreeSet::new();

@@ -303,19 +303,17 @@ impl Database {
         access: crate::files::Access,
     ) -> sailry_link::Pending<'a, Option<Work>> {
         Box::pin(async move {
-            if request.target != self.node || request.version != VERSION {
-                let _ = reply.send(Err(Fault::new(
-                    ErrorCode::WrongTarget,
-                    "Node or protocol version mismatch",
-                )));
+            if let Err(error) = super::routing::validate(self.node, &request) {
+                let _ = reply.send(Err(error));
                 return None;
             }
             let receipt = Receipt {
                 id: request.id,
                 durable: request.command.durable(),
             };
+            let effect = super::routing::effect(&request.command);
             let plugin_command = super::plugins::command::resolve(self, &request).await;
-            if matches!(plugin_command, Ok(None)) && !super::routing::external(&request.command) {
+            if matches!(plugin_command, Ok(None)) && effect.is_none() {
                 let output = match self.execute(caller, &request, events).await {
                     Ok(output) => output,
                     Err(error) => {
@@ -367,10 +365,7 @@ impl Database {
                         reply: completion,
                     },
                 )));
-            } else if matches!(
-                request.command,
-                Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. }
-            ) {
+            } else if effect == Some(super::routing::Effect::Network) {
                 match super::network::prepare(self, caller, request, completion).await {
                     Ok(execution) => return Some(Work::Network(execution)),
                     Err(failure) => {
@@ -382,38 +377,13 @@ impl Database {
                         return None;
                     }
                 }
-            } else if matches!(
-                request.command,
-                Command::BeginProviderLogin { .. }
-                    | Command::CompleteProviderLogin { .. }
-                    | Command::CancelProviderLogin { .. }
-                    | Command::StartConnectorLogin { .. }
-                    | Command::SubmitConnectorInput { .. }
-                    | Command::CancelConnectorLogin { .. }
-                    | Command::ProbeConnection { .. }
-                    | Command::InspectConnectorCli { .. }
-            ) {
+            } else if effect == Some(super::routing::Effect::Login) {
                 return Some(Work::Login(super::login::Operation {
                     caller,
                     request,
                     reply: completion,
                 }));
-            } else if matches!(
-                request.command,
-                Command::InstallHost { .. }
-                    | Command::UpdateSshHost { .. }
-                    | Command::ReadHostInstall { .. }
-                    | Command::CheckSsh { .. }
-                    | Command::OpenSshTerminal { .. }
-                    | Command::CloseSshTerminal { .. }
-                    | Command::RunSsh { .. }
-                    | Command::TransferSsh { .. }
-                    | Command::BrowseSshDirectory { .. }
-                    | Command::DownloadSshFile { .. }
-                    | Command::FinishSshUpload { .. }
-                    | Command::ModifySshFile { .. }
-                    | Command::CancelSsh { .. }
-            ) {
+            } else if effect == Some(super::routing::Effect::Ssh) {
                 let prepared = if matches!(
                     request.command,
                     Command::CancelSsh { .. }
@@ -438,14 +408,7 @@ impl Database {
                             .await
                     }
                 }
-            } else if matches!(
-                request.command,
-                Command::BrowseDatabase { .. }
-                    | Command::CheckDatabase { .. }
-                    | Command::TestDatabase { .. }
-                    | Command::QueryDatabase { .. }
-                    | Command::CancelDatabase { .. }
-            ) {
+            } else if effect == Some(super::routing::Effect::Database) {
                 let prepared = if matches!(request.command, Command::CancelDatabase { .. }) {
                     Ok(None)
                 } else {
@@ -467,15 +430,7 @@ impl Database {
                             .await
                     }
                 }
-            } else if matches!(
-                request.command,
-                Command::GeneratePluginText { .. }
-                    | Command::RequestPluginHttp(_)
-                    | Command::ExecuteProviderHttp { .. }
-                    | Command::CallPlugin { .. }
-                    | Command::ReadPluginCallback { .. }
-                    | Command::CancelPluginCall { .. }
-            ) {
+            } else if effect == Some(super::routing::Effect::Plugin) {
                 match super::plugins::execution::prepare(self, caller, &request).await {
                     Ok(input) => {
                         return Some(Work::PluginExecution(Box::new(
@@ -492,19 +447,7 @@ impl Database {
                             .await
                     }
                 }
-            } else if matches!(
-                request.command,
-                Command::CloseTerminal { .. }
-                    | Command::CheckPluginMcp { .. }
-                    | Command::RestoreBackupFile { .. }
-                    | Command::ExportBackup { .. }
-                    | Command::RestoreBackup { .. }
-                    | Command::InstallLocalModel { .. }
-                    | Command::DeleteLocalModel { .. }
-                    | Command::UseExternalBrowser { .. }
-                    | Command::UseBrowser { .. }
-                    | Command::UseMedia { .. }
-            ) {
+            } else if effect == Some(super::routing::Effect::Resources) {
                 match super::resources::prepare(self, &request).await {
                     Ok(()) => {
                         return Some(Work::Resources(super::resources::Execution {
@@ -518,7 +461,7 @@ impl Database {
                             .await
                     }
                 }
-            } else if matches!(request.command, Command::RunCommand { .. }) {
+            } else if effect == Some(super::routing::Effect::Process) {
                 match match super::processes::prepare(self, &request).await {
                     Ok(value) => {
                         (async |launch: super::processes::Prepared| {
@@ -555,7 +498,7 @@ impl Database {
                             .await
                     }
                 }
-            } else if matches!(request.command, Command::CreateSessionAt { .. }) {
+            } else if effect == Some(super::routing::Effect::Session) {
                 match super::forwarding::prepare(self, caller, &request).await {
                     Ok(forwarded) => {
                         return Some(Work::Session(super::forwarding::Transfer {
@@ -1006,10 +949,13 @@ impl Database {
             let mut envelopes = record(&transaction, self.node, changes).await?;
             let receipt = async |result: &Response| -> Result<(), Fault> {
                 if request.command.durable() {
-                    transaction.execute(
-                    "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2",
+                    let changed = transaction.execute(
+                    "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2 AND status='admitted'",
                     params![&caller.0[..], request.id.to_string(), serde_json::to_string(result).map_err(storage_error)?],
                 ).await.map_err(storage_error)?;
+                    if changed != 1 {
+                        return Err(storage_error("durable admission missing"));
+                    }
                 }
                 Ok(())
             };
@@ -1074,26 +1020,7 @@ impl Database {
                 }
                 _ => {}
             }
-            for event in envelopes {
-                match &event.event {
-                    Event::SessionChanged(session) if session.archived => {
-                        self.model_clients.evict(session.id)
-                    }
-                    Event::SessionsRemoved(ids) => {
-                        for id in ids {
-                            self.model_clients.evict(*id);
-                        }
-                    }
-                    Event::PluginChanged(package) => {
-                        super::agent::invalidate_package(self, &package.name).await
-                    }
-                    Event::PluginRemoved { name } => {
-                        super::agent::invalidate_package(self, name).await
-                    }
-                    _ => {}
-                }
-                publication.send(events, event);
-            }
+            self.publish(events, &publication, envelopes).await;
             if let Ok(output) = &result {
                 for (session, change) in review_changes {
                     self.feeds.publish(self.node, session, change);
@@ -1102,6 +1029,32 @@ impl Database {
             }
             Ok(result)
         })
+    }
+
+    async fn publish(
+        &mut self,
+        events: &broadcast::Sender<EventEnvelope>,
+        publication: &super::publication::Guard,
+        envelopes: Vec<EventEnvelope>,
+    ) {
+        for event in envelopes {
+            match &event.event {
+                Event::SessionChanged(session) if session.archived => {
+                    self.model_clients.evict(session.id)
+                }
+                Event::SessionsRemoved(ids) => {
+                    for id in ids {
+                        self.model_clients.evict(*id);
+                    }
+                }
+                Event::PluginChanged(package) => {
+                    super::agent::invalidate_package(self, &package.name).await
+                }
+                Event::PluginRemoved { name } => super::agent::invalidate_package(self, name).await,
+                _ => {}
+            }
+            publication.send(events, event);
+        }
     }
 
     pub(super) fn finish_external<'a>(
@@ -1280,18 +1233,7 @@ impl Database {
                     super::agent::publish_run(self, run).await;
                     super::agent::background::publish(self, tasks).await;
                 }
-                for event in envelopes {
-                    match &event.event {
-                        Event::PluginChanged(package) => {
-                            super::agent::invalidate_package(self, &package.name).await
-                        }
-                        Event::PluginRemoved { name } => {
-                            super::agent::invalidate_package(self, name).await
-                        }
-                        _ => {}
-                    }
-                    publication.send(events, event);
-                }
+                self.publish(events, &publication, envelopes).await;
                 result
             }
         }

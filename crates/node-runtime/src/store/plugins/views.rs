@@ -1,7 +1,7 @@
 use super::*;
 use crate::store::{Ingress, Job, unavailable};
 use sailry_link::Admission;
-use sailry_protocol::{Receipt, Request, VERSION};
+use sailry_protocol::{Receipt, Request};
 use tokio::sync::oneshot;
 
 pub(in crate::store) async fn current(
@@ -86,12 +86,6 @@ impl Ingress {
         &self,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let Command::ReadPluginView { package, surface } = &request.command else {
             return Err(Fault::new(
                 ErrorCode::Internal,

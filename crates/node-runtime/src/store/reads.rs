@@ -1,5 +1,5 @@
 use sailry_link::Admission;
-use sailry_protocol::{Command, ErrorCode, Fault, Receipt, Request, VERSION};
+use sailry_protocol::{Command, ErrorCode, Fault, Receipt, Request};
 use tokio::sync::oneshot;
 
 use super::{Ingress, Job, unavailable};
@@ -29,12 +29,6 @@ impl Ingress {
         internal: bool,
     ) -> Result<Admission, Fault> {
         let access = crate::files::Access::request(&request, internal);
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let root = if matches!(request.command, Command::BrowseFiles { .. }) {
             std::path::PathBuf::new()
         } else {

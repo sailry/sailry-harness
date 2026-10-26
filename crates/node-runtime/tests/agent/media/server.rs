@@ -18,6 +18,10 @@ pub fn image() -> Vec<u8> {
 pub struct Server {
     pub endpoint: String,
     pub requests: Arc<Mutex<Vec<(String, Value)>>>,
+    #[allow(
+        dead_code,
+        reason = "Only model service fixtures inspect captured headers"
+    )]
     pub headers: Arc<Mutex<Vec<std::collections::BTreeMap<String, String>>>>,
     stop: CancellationToken,
 }

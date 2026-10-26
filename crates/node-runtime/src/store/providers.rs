@@ -79,12 +79,6 @@ impl Ingress {
     }
 
     pub(super) async fn discover_models(&self, request: Request) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let (models, saved) = match &request.command {
             Command::ValidateProvider {
                 provider,

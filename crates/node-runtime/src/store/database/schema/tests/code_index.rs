@@ -4,17 +4,31 @@ use crate::store::database::Database;
 const SETTINGS: &str = "CREATE TABLE code_index_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL)";
 
 #[tokio::test]
-async fn preserves_enable_choice_and_original_backup() {
+async fn preserves_retired_data_and_current_choice() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("node.turso");
     let node = NodeId([84; 32]);
     let database = Database::open(&path, node, None).await.unwrap();
-    let old = serde_json::to_vec(&sailry_protocol::code::Settings {
+    for (_, declaration) in RETAINED {
+        database
+            .connection
+            .execute_batch(declaration)
+            .await
+            .unwrap();
+    }
+    let old = b"opaque retired configuration".to_vec();
+    let current = sailry_protocol::code_index::Settings {
         revision: 9,
         enabled: false,
-        ..Default::default()
-    })
-    .unwrap();
+    };
+    database
+        .connection
+        .execute(
+            "INSERT INTO code_index_settings(singleton,body) VALUES(1,?1)",
+            [serde_json::to_vec(&current).unwrap()],
+        )
+        .await
+        .unwrap();
     database
         .connection
         .execute(
@@ -25,7 +39,28 @@ async fn preserves_enable_choice_and_original_backup() {
         .unwrap();
     database
         .connection
-        .execute("DROP TABLE code_index_settings", ())
+        .execute("DROP TABLE power_settings", ())
+        .await
+        .unwrap();
+    let worktree = sailry_protocol::WorktreeId::new();
+    database
+        .connection
+        .execute(
+            "INSERT INTO worktrees(id,project,path,main) VALUES(?1,NULL,?2,0)",
+            turso::params![worktree.to_string(), directory.path().to_str().unwrap()],
+        )
+        .await
+        .unwrap();
+    database
+        .connection
+        .execute(
+            "INSERT INTO code_startups(worktree,root,server,body) VALUES(?1,?2,'retired',?3)",
+            turso::params![
+                worktree.to_string(),
+                directory.path().to_str().unwrap(),
+                old.as_slice()
+            ],
+        )
         .await
         .unwrap();
     let before = objects(&database.connection).await.unwrap();
@@ -47,6 +82,17 @@ async fn preserves_enable_choice_and_original_backup() {
         .get(0)
         .unwrap();
     assert_eq!(kept, old);
+    let startup: Vec<u8> = database
+        .connection
+        .prepare("SELECT body FROM code_startups WHERE worktree=?1")
+        .await
+        .unwrap()
+        .query_row([worktree.to_string()])
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    assert_eq!(startup, old);
     database.close().await.unwrap();
     let backups = std::fs::read_dir(directory.path().join("backups"))
         .unwrap()
@@ -82,14 +128,14 @@ async fn rejects_invalid_data_without_applying_changes() {
     database
         .connection
         .execute(
-            "INSERT INTO code_settings(singleton,body) VALUES(1,?1)",
+            "INSERT INTO code_index_settings(singleton,body) VALUES(1,?1)",
             [b"invalid".as_slice()],
         )
         .await
         .unwrap();
     database
         .connection
-        .execute("DROP TABLE code_index_settings", ())
+        .execute("DROP TABLE power_settings", ())
         .await
         .unwrap();
     let before = objects(&database.connection).await.unwrap();
@@ -104,7 +150,7 @@ async fn rejects_invalid_data_without_applying_changes() {
     let connection = database.connect().unwrap();
     assert_eq!(objects(&connection).await.unwrap(), before);
     let kept: Vec<u8> = connection
-        .prepare("SELECT body FROM code_settings WHERE singleton=1")
+        .prepare("SELECT body FROM code_index_settings WHERE singleton=1")
         .await
         .unwrap()
         .query_row(())
@@ -133,4 +179,17 @@ async fn rollback_restores_absent_settings_table() {
         .unwrap();
     connection.execute("ROLLBACK", ()).await.unwrap();
     assert_eq!(objects(&connection).await.unwrap(), before);
+}
+
+#[tokio::test]
+async fn omits_retired_tables_from_new_profiles() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = Database::open(&directory.path().join("node.turso"), NodeId([86; 32]), None)
+        .await
+        .unwrap();
+    let tables = objects(&database.connection).await.unwrap();
+    for (name, _) in RETAINED {
+        assert!(!tables.contains_key(&("table".into(), name.into())));
+    }
+    database.close().await.unwrap();
 }

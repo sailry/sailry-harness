@@ -385,12 +385,6 @@ impl Ingress {
         &self,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let output = match &request.command {
             Command::ReadLocalModels { kind } => {
                 let models = self.local_models.models(*kind).await?;
@@ -421,12 +415,6 @@ impl Ingress {
     }
 
     pub(in crate::store) async fn decide(&self, request: Request) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let Command::Decide(input) = request.command else {
             return Err(Fault::invalid("decision request expected"));
         };

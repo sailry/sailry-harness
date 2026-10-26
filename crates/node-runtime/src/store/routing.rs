@@ -1,7 +1,151 @@
 //! Classify existing database handlers; execution owners keep their own entry points.
-use sailry_protocol::Command;
+use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Request};
 
-pub(super) fn read(command: &Command) -> bool {
+/// Service dispatch stays with the Node; durability remains a protocol property.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Route {
+    Read,
+    Store,
+    ReadNetwork,
+    ReadInstallations,
+    DismissInstallation,
+    ReadBackup,
+    ReadArtifact,
+    FetchWeb,
+    SearchWeb,
+    ListChannelPresets,
+    ModelCatalog,
+    ReadStorageSearch,
+    ReadKnowledge,
+    Decide,
+    ReadLocalModels,
+    ReadCodeIndex,
+    ReadCommand,
+    Port,
+    ReadPluginMcp,
+    ReadPluginView,
+    CheckPluginUpdate,
+    PluginCatalog,
+    DiscoverSkills,
+    RequestProviderHttp,
+    DiscoverModels,
+    RefreshCatalog,
+    Terminal,
+    Transfer,
+    InspectWorktree,
+    Host,
+    Browser,
+}
+
+pub(super) fn validate(node: NodeId, request: &Request) -> Result<(), Fault> {
+    if request.target != node || request.version != sailry_protocol::VERSION {
+        return Err(Fault::new(
+            ErrorCode::WrongTarget,
+            "Node or protocol version mismatch",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn route(command: &Command) -> Route {
+    if read(command) {
+        return Route::Read;
+    }
+    match command {
+        Command::CompleteBrowser { .. } => Route::Browser,
+        Command::ReadNetworkSettings => Route::ReadNetwork,
+        Command::ReadInstallations { .. } => Route::ReadInstallations,
+        Command::DismissInstallation { .. } => Route::DismissInstallation,
+        Command::ListBackups => Route::ReadBackup,
+        Command::ReadArtifact { .. } => Route::ReadArtifact,
+        Command::FetchWeb(_) | Command::CancelWebFetch { .. } => Route::FetchWeb,
+        Command::SearchWeb(_)
+        | Command::CancelWebSearch { .. }
+        | Command::TestSearchDriver { .. } => Route::SearchWeb,
+        Command::ListChannelPresets { .. } => Route::ListChannelPresets,
+        Command::SearchModels(_)
+        | Command::ReadModelVersions { .. }
+        | Command::ResolveModel { .. }
+        | Command::RefreshLocalModel { .. } => Route::ModelCatalog,
+        Command::SearchPluginValues(_) => Route::ReadStorageSearch,
+        Command::QueryKnowledge(_) | Command::ReadKnowledgeCitation(_) => Route::ReadKnowledge,
+        Command::Decide(_) => Route::Decide,
+        Command::ReadLocalModels { .. } | Command::CancelLocalModel { .. } => {
+            Route::ReadLocalModels
+        }
+        Command::SearchCode { .. }
+        | Command::OutlineCode { .. }
+        | Command::CancelCodeIndexQuery { .. } => Route::ReadCodeIndex,
+        Command::ListCommands { .. } | Command::ReadCommand { .. } => Route::ReadCommand,
+        Command::OpenPort { .. } | Command::CancelPort { .. } => Route::Port,
+        Command::ReadPluginMcp { .. } => Route::ReadPluginMcp,
+        Command::ReadPluginView { .. } => Route::ReadPluginView,
+        Command::CheckPluginUpdate { .. } | Command::CheckPluginUpdates { .. } => {
+            Route::CheckPluginUpdate
+        }
+        Command::SearchPluginCatalog { .. }
+        | Command::SearchSkillCatalog { .. }
+        | Command::ReadCatalogPlugin { .. }
+        | Command::ReadCatalogPluginInfo { .. }
+        | Command::InspectPluginSource { .. } => Route::PluginCatalog,
+        Command::ReadSkillDocument { .. }
+        | Command::DiscoverSkills { .. }
+        | Command::DiscoverRegistrySkill { .. } => Route::DiscoverSkills,
+        Command::RequestProviderHttp { .. } => Route::RequestProviderHttp,
+        Command::DiscoverModels(_) | Command::ValidateProvider { .. } => Route::DiscoverModels,
+        Command::RefreshModelCatalog => Route::RefreshCatalog,
+        Command::InspectTerminal { .. }
+        | Command::ClaimTerminal { .. }
+        | Command::InputTerminal { .. }
+        | Command::ResizeTerminal { .. }
+        | Command::SetTerminalAppearance { .. } => Route::Terminal,
+        Command::DownloadFile { .. }
+        | Command::DownloadBackup { .. }
+        | Command::UploadBackup { .. }
+        | Command::UploadPlugin(_)
+        | Command::DiscoverSkillUpload { .. }
+        | Command::DiscoverLocalSkills { .. }
+        | Command::InspectPluginUpload { .. }
+        | Command::UploadFile(_)
+        | Command::StageSshUpload(_)
+        | Command::UploadAttachment(_)
+        | Command::DownloadAttachment { .. }
+        | Command::DownloadImage { .. }
+        | Command::CancelFileTransfer { .. } => Route::Transfer,
+        Command::ListDirectory { .. }
+        | Command::BrowseFiles { .. }
+        | Command::ListTerminalTools { .. }
+        | Command::ReadFile { .. }
+        | Command::ReadFileLines { .. }
+        | Command::FindFiles { .. }
+        | Command::ReadOffice { .. }
+        | Command::ReadNotebook { .. }
+        | Command::SearchFiles { .. }
+        | Command::InspectGit { .. }
+        | Command::ReadGitStash { .. }
+        | Command::ReadGitOutput { .. }
+        | Command::ListGitRemoteTags { .. }
+        | Command::ListGitBranches { .. }
+        | Command::ResolveGitRevision { .. }
+        | Command::ListWorktrees { .. }
+        | Command::ReadGitLog { .. }
+        | Command::ReadGitShow { .. }
+        | Command::ReadGitBlame { .. }
+        | Command::ListGitChanges { .. }
+        | Command::ReadGitChange { .. }
+        | Command::ReadGitContext { .. }
+        | Command::ReadGitCommit { .. }
+        | Command::ReadGitDiff { .. } => Route::InspectWorktree,
+        Command::InspectHost
+        | Command::ReadHostMetrics
+        | Command::ReadComputerPermissions
+        | Command::RequestComputerPermission { .. }
+        | Command::ListShells => Route::Host,
+        _ => Route::Store,
+    }
+}
+
+fn read(command: &Command) -> bool {
     matches!(
         command,
         Command::Snapshot
@@ -108,62 +252,82 @@ pub(super) fn lifecycle(command: &Command) -> bool {
     )
 }
 
-/// Execution owners run effects only after their own durable admission.
+/// External effects are admitted once; only their captured outcomes may be retried.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Effect {
+    Network,
+    Login,
+    Ssh,
+    Database,
+    Plugin,
+    Resources,
+    Process,
+    Session,
+    Mutation,
+    Inline,
+}
+
 pub(super) fn external(command: &Command) -> bool {
-    materializes(command)
-        || super::mutations::target(command).is_some()
-        || matches!(
-            command,
-            Command::ReadNetworkSettings
-                | Command::WriteArtifact(_)
-                | Command::ImportSession(_)
-                | Command::BindConnectionSession { .. }
-                | Command::SaveNetworkSettings { .. }
-                | Command::BeginProviderLogin { .. }
-                | Command::CompleteProviderLogin { .. }
-                | Command::CancelProviderLogin { .. }
-                | Command::StartConnectorLogin { .. }
-                | Command::SubmitConnectorInput { .. }
-                | Command::CancelConnectorLogin { .. }
-                | Command::ProbeConnection { .. }
-                | Command::InspectConnectorCli { .. }
-                | Command::InstallHost { .. }
-                | Command::UpdateSshHost { .. }
-                | Command::ReadHostInstall { .. }
-                | Command::CheckSsh { .. }
-                | Command::OpenSshTerminal { .. }
-                | Command::CloseSshTerminal { .. }
-                | Command::RunSsh { .. }
-                | Command::TransferSsh { .. }
-                | Command::BrowseSshDirectory { .. }
-                | Command::DownloadSshFile { .. }
-                | Command::FinishSshUpload { .. }
-                | Command::ModifySshFile { .. }
-                | Command::CancelSsh { .. }
-                | Command::BrowseDatabase { .. }
-                | Command::CheckDatabase { .. }
-                | Command::TestDatabase { .. }
-                | Command::QueryDatabase { .. }
-                | Command::CancelDatabase { .. }
-                | Command::GeneratePluginText { .. }
-                | Command::RequestPluginHttp(_)
-                | Command::ExecuteProviderHttp { .. }
-                | Command::CallPlugin { .. }
-                | Command::ReadPluginCallback { .. }
-                | Command::CancelPluginCall { .. }
-                | Command::CloseTerminal { .. }
-                | Command::CheckPluginMcp { .. }
-                | Command::RestoreBackupFile { .. }
-                | Command::ExportBackup { .. }
-                | Command::RestoreBackup { .. }
-                | Command::InstallLocalModel { .. }
-                | Command::DeleteLocalModel { .. }
-                | Command::UseExternalBrowser { .. }
-                | Command::UseBrowser { .. }
-                | Command::UseMedia { .. }
-                | Command::RunCommand { .. }
-                | Command::CreateSessionAt { .. }
-        )
+    effect(command).is_some()
+}
+
+pub(super) fn effect(command: &Command) -> Option<Effect> {
+    if materializes(command) {
+        return Some(Effect::Inline);
+    }
+    let effect = match command {
+        Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. } => Effect::Network,
+        Command::BeginProviderLogin { .. }
+        | Command::CompleteProviderLogin { .. }
+        | Command::CancelProviderLogin { .. }
+        | Command::StartConnectorLogin { .. }
+        | Command::SubmitConnectorInput { .. }
+        | Command::CancelConnectorLogin { .. }
+        | Command::ProbeConnection { .. }
+        | Command::InspectConnectorCli { .. } => Effect::Login,
+        Command::InstallHost { .. }
+        | Command::UpdateSshHost { .. }
+        | Command::ReadHostInstall { .. }
+        | Command::CheckSsh { .. }
+        | Command::OpenSshTerminal { .. }
+        | Command::CloseSshTerminal { .. }
+        | Command::RunSsh { .. }
+        | Command::TransferSsh { .. }
+        | Command::BrowseSshDirectory { .. }
+        | Command::DownloadSshFile { .. }
+        | Command::FinishSshUpload { .. }
+        | Command::ModifySshFile { .. }
+        | Command::CancelSsh { .. } => Effect::Ssh,
+        Command::BrowseDatabase { .. }
+        | Command::CheckDatabase { .. }
+        | Command::TestDatabase { .. }
+        | Command::QueryDatabase { .. }
+        | Command::CancelDatabase { .. } => Effect::Database,
+        Command::GeneratePluginText { .. }
+        | Command::RequestPluginHttp(_)
+        | Command::ExecuteProviderHttp { .. }
+        | Command::CallPlugin { .. }
+        | Command::ReadPluginCallback { .. }
+        | Command::CancelPluginCall { .. } => Effect::Plugin,
+        Command::CloseTerminal { .. }
+        | Command::CheckPluginMcp { .. }
+        | Command::RestoreBackupFile { .. }
+        | Command::ExportBackup { .. }
+        | Command::RestoreBackup { .. }
+        | Command::InstallLocalModel { .. }
+        | Command::DeleteLocalModel { .. }
+        | Command::UseExternalBrowser { .. }
+        | Command::UseBrowser { .. }
+        | Command::UseMedia { .. } => Effect::Resources,
+        Command::RunCommand { .. } => Effect::Process,
+        Command::CreateSessionAt { .. } => Effect::Session,
+        Command::WriteArtifact(_)
+        | Command::ImportSession(_)
+        | Command::BindConnectionSession { .. } => Effect::Inline,
+        _ if super::mutations::target(command).is_some() => Effect::Mutation,
+        _ => return None,
+    };
+    Some(effect)
 }
 
 fn materializes(command: &Command) -> bool {
@@ -188,6 +352,29 @@ pub(super) fn session(command: &Command) -> Option<sailry_protocol::SessionId> {
         | Command::SetSessionConfig { session, .. } => Some(*session),
         _ => None,
     }
+}
+
+pub(super) fn launches(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::SubmitTurn { .. }
+            | Command::SubmitTask { .. }
+            | Command::ResolveQuestion {
+                response: sailry_protocol::conversation::question::Response::StartCoding { .. },
+                ..
+            }
+            | Command::ContinueTurn { .. }
+            | Command::PluginTransaction { .. }
+            | Command::StartSession(_)
+            | Command::ReplaceTurn { .. }
+            | Command::CompactContext { .. }
+            | Command::StartQueuedTurn { .. }
+            | Command::SendQueuedTurn { .. }
+            | Command::GuideQueuedTurn { .. }
+            | Command::GuideTurn { .. }
+            | Command::SetQueuePaused { .. }
+            | Command::SavePluginSettings { .. }
+    )
 }
 
 #[cfg(test)]
@@ -224,7 +411,7 @@ mod tests {
             },
             Command::ReadPluginValue { key: "key".into() },
         ] {
-            assert!(read(&command), "{command:?}");
+            assert_eq!(route(&command), Route::Read, "{command:?}");
         }
     }
 
@@ -245,7 +432,7 @@ mod tests {
                 expected_revision: 0,
             },
         ] {
-            assert!(!read(&command), "{command:?}");
+            assert_ne!(route(&command), Route::Read, "{command:?}");
         }
     }
 
@@ -278,7 +465,7 @@ mod tests {
                 limit: 1,
             }),
         ] {
-            assert!(!read(&command), "{command:?}");
+            assert_ne!(route(&command), Route::Read, "{command:?}");
         }
     }
 }

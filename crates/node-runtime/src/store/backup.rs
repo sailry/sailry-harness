@@ -469,12 +469,6 @@ impl Ingress {
     }
 
     pub(super) async fn read_backup(&self, request: Request) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         controller(&request)?;
         let plan = self.backup_plan(None).await?;
         let output = Output::Backups(backup::list(&plan, &self.closed.child_token()).await?);

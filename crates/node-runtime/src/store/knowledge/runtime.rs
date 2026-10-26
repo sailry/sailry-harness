@@ -211,12 +211,6 @@ impl Ingress {
         &self,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let service = self.knowledge.get().ok_or_else(unavailable)?;
         let output = match &request.command {
             Command::QueryKnowledge(query) => {

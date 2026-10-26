@@ -55,9 +55,7 @@ struct Worktree {
 #[derive(Default)]
 struct Dirty {
     generation: u64,
-    clean: u64,
     paths: BTreeMap<String, u64>,
-    root: bool,
     watch_failed: bool,
 }
 
@@ -66,17 +64,13 @@ impl Dirty {
         self.generation = self.generation.wrapping_add(1);
         if let Some(path) = path {
             self.paths.insert(path.into(), self.generation);
-        } else {
-            self.root = true;
         }
     }
     fn finish(&mut self, generation: u64) -> bool {
         if self.generation != generation {
             return false;
         }
-        self.clean = generation;
         self.paths.clear();
-        self.root = false;
         true
     }
 }

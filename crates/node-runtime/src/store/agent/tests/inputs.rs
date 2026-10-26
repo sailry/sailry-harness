@@ -292,7 +292,7 @@ async fn rejects_invalid_capture_before_upgrade() {
     fixture
         .database
         .connection
-        .execute_batch("DROP TABLE code_settings")
+        .execute_batch("DROP TABLE code_index_settings")
         .await
         .unwrap();
     fixture.database.close().await.unwrap();

@@ -43,6 +43,25 @@ async fn reads_cached_catalog_without_side_effects() {
             client.execute(wrong).await.unwrap_err().code,
             ErrorCode::WrongTarget
         );
+        let context = plugin::Context {
+            invocation: None,
+            turn: None,
+            surface: Default::default(),
+            package: plugin::Reference {
+                name: "uninstalled".into(),
+                settings_revision: 1,
+                digest: "a".repeat(64),
+            },
+            worktree: None,
+            session: None,
+        };
+        for refresh_partners in [false, true] {
+            let request = client
+                .prepare(Command::ListChannelPresets { refresh_partners })
+                .with_plugin(context.clone());
+            assert!(client.execute(request).await.is_err());
+            assert!(server.requests.lock().unwrap().is_empty());
+        }
         let Output::ChannelPresets(initial) = client
             .execute(client.prepare(command.clone()))
             .await

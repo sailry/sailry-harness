@@ -254,12 +254,6 @@ impl Worker {
 
 impl super::Ingress {
     pub(super) fn read_command(&self, request: Request) -> Result<sailry_link::Admission, Fault> {
-        if request.target != self.node || request.version != VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         let result = match request.command {
             Command::ListCommands { session } => Ok(Output::Commands(self.commands.list(session))),
             Command::ReadCommand { session, id } => {

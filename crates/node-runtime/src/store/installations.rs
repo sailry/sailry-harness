@@ -8,7 +8,7 @@ pub(super) use worker::Worker;
 
 use super::{Ingress, unavailable};
 use sailry_link::{Admission, Response};
-use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Receipt, Request};
+use sailry_protocol::{Command, Fault, NodeId, Output, Receipt, Request};
 use tokio::sync::oneshot;
 
 pub(super) struct Execution {
@@ -27,12 +27,6 @@ impl Ingress {
         caller: NodeId,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         if self.closed.is_cancelled() {
             return Err(unavailable());
         }
@@ -58,12 +52,6 @@ impl Ingress {
         caller: NodeId,
         request: Request,
     ) -> Result<Admission, Fault> {
-        if request.target != self.node || request.version != sailry_protocol::VERSION {
-            return Err(Fault::new(
-                ErrorCode::WrongTarget,
-                "Node or protocol version mismatch",
-            ));
-        }
         if self.closed.is_cancelled() {
             return Err(unavailable());
         }
