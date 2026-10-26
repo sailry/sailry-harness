@@ -1,5 +1,8 @@
 use sailry_protocol::{Fault, FaultDetails};
-use turso::{Connection, Error};
+use turso::{
+    Connection, Error,
+    transaction::{Transaction, TransactionBehavior},
+};
 
 use super::storage_error;
 
@@ -18,19 +21,73 @@ pub(in crate::store) async fn begin_with(
     connection: &Connection,
     schema: bool,
 ) -> Result<turso::transaction::Transaction<'_>, Fault> {
-    let mut transaction = turso::transaction::Transaction::new_unchecked(
+    begin_as(
         connection,
         if schema {
             // Turso requires its exclusive schema transaction for first-corpus DDL.
-            turso::transaction::TransactionBehavior::Deferred
+            TransactionBehavior::Deferred
         } else {
-            turso::transaction::TransactionBehavior::Concurrent
+            TransactionBehavior::Concurrent
         },
     )
     .await
-    .map_err(storage_error)?;
+}
+
+async fn begin_as(
+    connection: &Connection,
+    behavior: TransactionBehavior,
+) -> Result<Transaction<'_>, Fault> {
+    let mut transaction = Transaction::new_unchecked(connection, behavior)
+        .await
+        .map_err(storage_error)?;
     transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
     Ok(transaction)
+}
+
+/// Retry only transaction start, before any read callback or external effect runs.
+pub(in crate::store) async fn begin_read(
+    connection: &Connection,
+) -> Result<Transaction<'_>, Fault> {
+    read_with(connection, |connection| {
+        Box::pin(begin_as(connection, TransactionBehavior::Deferred))
+    })
+    .await
+}
+
+async fn read_with<'a>(
+    connection: &'a Connection,
+    mut begin: impl FnMut(&'a Connection) -> sailry_link::Pending<'a, Result<Transaction<'a>, Fault>>
+    + Send,
+) -> Result<Transaction<'a>, Fault> {
+    for attempt in 0..=RETRIES {
+        let error = match begin(connection).await {
+            Ok(transaction) => return Ok(transaction),
+            Err(error) => error,
+        };
+        rollback(connection).await?;
+        let result = Err::<Transaction<'_>, _>(error);
+        if !again(&result, attempt).await {
+            return result;
+        }
+    }
+    unreachable!("the final attempt returns its result")
+}
+
+/// Settle a single read without replaying its callback, even on a commit conflict.
+pub(in crate::store) async fn finish_read<T>(
+    transaction: Transaction<'_>,
+    result: Result<T, Fault>,
+) -> Result<T, Fault> {
+    match result {
+        Ok(value) => {
+            commit(transaction).await?;
+            Ok(value)
+        }
+        Err(error) => {
+            rollback(&transaction).await?;
+            Err(error)
+        }
+    }
 }
 
 pub(in crate::store) fn is_conflict(error: &Fault) -> bool {

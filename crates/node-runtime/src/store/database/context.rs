@@ -27,6 +27,8 @@ pub(in crate::store) struct Facts {
     pub network_request: Mutex<Option<RequestId>>,
     pub removals: Mutex<BTreeMap<WorktreeId, removal::Pending>>,
     pub relocations: Mutex<BTreeMap<(NodeId, RequestId), Vec<PathBuf>>>,
+    #[cfg(test)]
+    pub plugin_checks: std::sync::atomic::AtomicUsize,
     #[cfg(any(test, feature = "test-support"))]
     pub approval_commit: Mutex<Option<store::agent::approvals::fixture::Commit>>,
 }
@@ -59,6 +61,8 @@ impl Facts {
             network_request: Default::default(),
             removals: Default::default(),
             relocations: Default::default(),
+            #[cfg(test)]
+            plugin_checks: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             approval_commit: Default::default(),
         }
@@ -117,25 +121,14 @@ impl Storage {
             -> sailry_link::Pending<'a, Result<T, sailry_protocol::Fault>>
         + Send,
     ) -> Result<T, sailry_protocol::Fault> {
-        let mut connection = self
+        let connection = self
             .handle
             .lease(true)
             .await
             .map_err(super::storage_error)?;
-        let transaction = connection
-            .transaction_with_behavior(turso::transaction::TransactionBehavior::Deferred)
-            .await
-            .map_err(super::storage_error)?;
-        match read(&transaction).await {
-            Ok(value) => {
-                crate::store::database::conflict::commit(transaction).await?;
-                Ok(value)
-            }
-            Err(error) => {
-                transaction.rollback().await.map_err(super::storage_error)?;
-                Err(error)
-            }
-        }
+        let transaction = super::conflict::begin_read(&connection).await?;
+        let result = read(&transaction).await;
+        super::conflict::finish_read(transaction, result).await
     }
 
     pub(in crate::store) async fn close(&self) -> Result<(), Error> {

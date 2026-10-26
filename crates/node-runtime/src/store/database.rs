@@ -45,27 +45,45 @@ impl Database {
 
     pub(super) async fn worktree_root(&self, id: WorktreeId) -> Result<std::path::PathBuf, Fault> {
         self.check_removing(id)?;
-        let row = self
-            .connection
-            .prepare("SELECT path FROM worktrees WHERE id=?1")
-            .await
-            .map_err(storage_error)?
-            .query_row([id.to_string()])
-            .await;
-        let root = match row {
-            Ok(row) => std::path::PathBuf::from(row.get::<String>(0).map_err(storage_error)?),
-            Err(turso::Error::QueryReturnedNoRows) => {
-                return Err(Fault::new(
-                    ErrorCode::NotFound,
-                    "worktree does not exist on this Node",
-                ));
-            }
-            Err(error) => return Err(storage_error(error)),
+        // Authorization may already own this connection's snapshot.
+        let transaction = if self.connection.is_autocommit().map_err(storage_error)? {
+            Some(conflict::begin_read(&self.connection).await?)
+        } else {
+            None
         };
-        super::worktrees::present(&self.connection, id).await?;
-        super::worktrees::materialize_session(&self.connection, self.profile.as_deref(), id, &root)
+        let result = async {
+            let row = self
+                .connection
+                .prepare("SELECT path FROM worktrees WHERE id=?1")
+                .await
+                .map_err(storage_error)?
+                .query_row([id.to_string()])
+                .await;
+            let root = match row {
+                Ok(row) => std::path::PathBuf::from(row.get::<String>(0).map_err(storage_error)?),
+                Err(turso::Error::QueryReturnedNoRows) => {
+                    return Err(Fault::new(
+                        ErrorCode::NotFound,
+                        "worktree does not exist on this Node",
+                    ));
+                }
+                Err(error) => return Err(storage_error(error)),
+            };
+            super::worktrees::present(&self.connection, id).await?;
+            super::worktrees::materialize_session(
+                &self.connection,
+                self.profile.as_deref(),
+                id,
+                &root,
+            )
             .await?;
-        Ok(root)
+            Ok(root)
+        }
+        .await;
+        match transaction {
+            Some(transaction) => conflict::finish_read(transaction, result).await,
+            None => result,
+        }
     }
 
     pub(super) async fn resolve_credential(
@@ -222,26 +240,27 @@ impl Database {
                 Some(_) => Some(self.publication.clone().lock().await),
                 None => None,
             };
-            let transaction = self
-                .connection
-                .unchecked_transaction()
-                .await
-                .map_err(storage_error)?;
-            let sequence = if let Some(session) = history {
-                // Pin the SQL snapshot before capturing the matching feed watermark.
-                transaction
-                    .prepare("SELECT coalesce(max(cursor),0) FROM events")
-                    .await
-                    .map_err(storage_error)?
-                    .query_row(())
-                    .await
-                    .map_err(storage_error)?;
-                Some(self.feeds.sequence(session))
-            } else {
-                None
-            };
-            drop(order);
+            let transaction = conflict::begin_read(&self.connection).await?;
             let result = async {
+                let sequence = if let Some(session) = history {
+                    // Pin the SQL snapshot before capturing the matching feed watermark.
+                    transaction
+                        .prepare("SELECT coalesce(max(cursor),0) FROM events")
+                        .await
+                        .map_err(storage_error)?
+                        .query_row(())
+                        .await
+                        .map_err(storage_error)?;
+                    Some(self.feeds.sequence(session))
+                } else {
+                    None
+                };
+                drop(order);
+                #[cfg(test)]
+                if request.plugin.is_some() {
+                    self.plugin_checks
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 self.check_plugin(caller, request).await?;
                 self.check_removal_scope(&request.command).await?;
                 let (mut output, event) = commands::execute(
@@ -263,16 +282,7 @@ impl Database {
                 Ok(output)
             }
             .await;
-            match result {
-                Ok(output) => {
-                    crate::store::database::conflict::commit(transaction).await?;
-                    Ok(output)
-                }
-                Err(error) => {
-                    transaction.rollback().await.map_err(storage_error)?;
-                    Err(error)
-                }
-            }
+            conflict::finish_read(transaction, result).await
         })
     }
 

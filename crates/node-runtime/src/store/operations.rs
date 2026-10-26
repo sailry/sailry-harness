@@ -152,21 +152,13 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
                 reply,
             } => Box::pin(async move {
                 let result = async {
-                    let transaction = database
-                        .connection
-                        .unchecked_transaction()
-                        .await
-                        .map_err(database::storage_error)?;
-                    match database.check_plugin(caller, &request).await {
-                        Ok(()) => database::conflict::commit(transaction).await,
-                        Err(error) => {
-                            transaction
-                                .rollback()
-                                .await
-                                .map_err(database::storage_error)?;
-                            Err(error)
-                        }
+                    let transaction = database::conflict::begin_read(&database.connection).await?;
+                    #[cfg(test)]
+                    if request.plugin.is_some() {
+                        database.plugin_checks.fetch_add(1, Ordering::Relaxed);
                     }
+                    let result = database.check_plugin(caller, &request).await;
+                    database::conflict::finish_read(transaction, result).await
                 }
                 .await;
                 let _ = reply.send(result);

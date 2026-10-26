@@ -3,6 +3,8 @@ use turso::transaction::{DropBehavior, Transaction, TransactionBehavior};
 use super::*;
 use crate::store::database::{connect, engine};
 
+mod reads;
+
 async fn integer(connection: &Connection, sql: &str) -> turso::Result<i64> {
     connection.prepare(sql).await?.query_row(()).await?.get(0)
 }

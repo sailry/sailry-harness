@@ -18,6 +18,8 @@ mod progress;
 mod repository;
 mod roles;
 mod schema;
+#[cfg(test)]
+mod tests;
 pub(super) use crate::plugins::tools::alias;
 
 pub(super) fn bind(
@@ -331,9 +333,6 @@ impl HostOperation {
         context: &dyn ToolContext,
         request: Request,
     ) -> Result<Value, Fault> {
-        self.ingress
-            .check_plugin(self.caller, request.clone())
-            .await?;
         if connections::handles(self.operation)
             && !matches!(
                 self.operation,
@@ -463,14 +462,6 @@ impl HostOperation {
                             args: authorized_arguments.clone(),
                         },
                     )
-                    .await?;
-            }
-            if !connections::management(self.operation)
-                && !(roles::handles(self.operation) && !self.is_read_only())
-                && !models::handles(self.operation)
-            {
-                self.ingress
-                    .check_plugin(self.caller, request.clone())
                     .await?;
             }
             let ssh_trust = if connections::ssh(self.operation)

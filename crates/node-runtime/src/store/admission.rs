@@ -75,6 +75,15 @@ pub(super) fn release_removed(
     send
 }
 impl Ingress {
+    #[cfg(test)]
+    pub(crate) fn plugin_check_count(&self) -> usize {
+        self.storage
+            .get()
+            .expect("storage is initialized")
+            .plugin_checks
+            .load(Ordering::Relaxed)
+    }
+
     pub(super) async fn read_request(
         &self,
         caller: NodeId,
