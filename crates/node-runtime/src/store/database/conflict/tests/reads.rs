@@ -42,7 +42,7 @@ async fn bounds_busy_attempts() -> Result<(), crate::Error> {
         Box::pin(async { Err(storage_error(Error::Busy("checkpoint".into()))) })
     })
     .await;
-    let error = result.err().expect("busy begin must exhaust its budget");
+    let error = result.expect_err("busy begin must exhaust its budget");
     assert_eq!(error.code, ErrorCode::Busy);
     assert!(is_conflict(&error));
     assert_eq!(attempts, RETRIES + 1);
@@ -67,7 +67,7 @@ async fn preserves_nonconflict_errors() -> Result<(), crate::Error> {
             Box::pin(async move { Err(error) })
         })
         .await;
-        assert_eq!(result.err().expect("begin must fail"), error);
+        assert_eq!(result.expect_err("begin must fail"), error);
         assert_eq!(attempts, 1);
         assert!(connection.is_autocommit()?);
     }

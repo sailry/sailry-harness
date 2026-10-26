@@ -836,7 +836,7 @@ fn keeps_background_read_failures_visible() {
     assert_eq!(records[1]["phase"], "completed");
     assert_eq!(records[1]["level"], "DEBUG");
     assert_eq!(records.len(), 13);
-    for records in records[..10].chunks_exact(2) {
+    for records in records[..10].as_chunks::<2>().0 {
         assert_eq!(records[0]["phase"], "admitted");
         assert_eq!(records[1]["phase"], "completed");
         assert!(records.iter().all(|record| record["level"] == "DEBUG"));
