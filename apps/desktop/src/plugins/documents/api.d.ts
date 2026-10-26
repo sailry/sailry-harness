@@ -15,6 +15,7 @@ export const DocumentSurface: { new(id: string, props: { document: string }): im
 export function readDocuments(): Documents;
 export function refreshDocuments(): void;
 export function nextDocumentChange(cursor: string): Promise<Documents>;
+/** Obsolete reads reject with the structured `cancelled` Fault code. */
 export function openDocument(path: string, options?: { line?: number }): Promise<Document>;
 export function documentAction(id: string, action: { kind: "focus" | "source" | "document" | "copy" | "cut" | "paste" | "undo" | "redo" | "find" | "reveal"; line?: number }): Promise<Document>;
 export function saveDocument(id: string): Promise<Document>;

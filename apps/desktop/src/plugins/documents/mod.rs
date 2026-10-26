@@ -3,6 +3,7 @@ mod closing;
 pub(in crate::plugins) mod entries;
 mod load;
 pub(in crate::plugins) mod notebook;
+mod reads;
 mod recovery;
 pub(crate) mod routes;
 mod save;
@@ -15,7 +16,7 @@ use gpui_kit::*;
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, NodeId, RequestId, SessionId, WorktreeId, plugin};
 use serde_json::{Value, json};
-use std::{cell::RefCell, collections::BTreeMap};
+use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 
 pub(super) use sdk::{Scope, module};
 use state::{Action, Document};
@@ -24,8 +25,24 @@ type Key = (NodeId, WorktreeId, Option<SessionId>);
 type Reply = tokio::sync::oneshot::Sender<Result<Value, Fault>>;
 
 struct Completion {
-    stop: CancellationToken,
+    stop: Arc<CancellationToken>,
     reply: Reply,
+}
+
+pub(crate) struct Opening {
+    pub receive: tokio::sync::oneshot::Receiver<Result<Value, Fault>>,
+    pub stop: Arc<CancellationToken>,
+}
+
+impl Opening {
+    pub(crate) async fn read(self) -> Result<Value, Fault> {
+        let result = self.receive.await.unwrap_or_else(|_| Err(unavailable()));
+        if self.stop.is_cancelled() {
+            Err(cancelled())
+        } else {
+            result
+        }
+    }
 }
 
 #[derive(Default)]
@@ -79,8 +96,7 @@ pub(crate) struct Controller {
     changes: tokio::sync::watch::Sender<Value>,
     cursor: u64,
     intent: u64,
-    read_sequence: u64,
-    reads: BTreeMap<String, u64>,
+    reads: reads::Reads,
     reveal: Option<(RequestId, u64)>,
     stop: CancellationToken,
 }
@@ -113,7 +129,7 @@ enum Operation {
 struct Request {
     context: plugin::Context,
     write: bool,
-    stop: CancellationToken,
+    stop: Arc<CancellationToken>,
     operation: Operation,
     reply: RefCell<Option<Reply>>,
 }
@@ -185,7 +201,7 @@ impl Controller {
                     Operation::Save { id } if request.write => controller.save(
                         *id,
                         request.context.clone(),
-                        request.stop.clone(),
+                        request.stop.as_ref().clone(),
                         reply,
                         window,
                         cx,
@@ -236,8 +252,7 @@ impl Controller {
             changes: tokio::sync::watch::channel(Value::Null).0,
             cursor: 0,
             intent: 0,
-            read_sequence: 0,
-            reads: BTreeMap::new(),
+            reads: reads::Reads::default(),
             reveal: None,
             stop: CancellationToken::new(),
         }
@@ -269,7 +284,7 @@ impl Controller {
             cx.emit(Request {
                 context: context.clone(),
                 write: false,
-                stop: self.stop.child_token(),
+                stop: Arc::new(self.stop.child_token()),
                 operation: Operation::Refresh { path },
                 reply: RefCell::new(Some(reply)),
             });
@@ -283,16 +298,17 @@ impl Controller {
         context: plugin::Context,
         stop: CancellationToken,
         cx: &mut Context<Self>,
-    ) -> tokio::sync::oneshot::Receiver<Result<Value, Fault>> {
+    ) -> Opening {
+        let stop = Arc::new(stop.child_token());
         let (reply, receive) = tokio::sync::oneshot::channel();
         cx.emit(Request {
             context,
             write: false,
-            stop,
+            stop: stop.clone(),
             operation: Operation::Open { path, line },
             reply: RefCell::new(Some(reply)),
         });
-        receive
+        Opening { receive, stop }
     }
 
     pub(crate) fn session(&self) -> Option<SessionId> {
@@ -421,7 +437,7 @@ impl Controller {
         cx: &mut Context<Self>,
     ) -> Result<bool, Fault> {
         let document = self.documents.get(&id).ok_or_else(unavailable)?;
-        self.reads.remove(&document.path);
+        self.reads.invalidate(&document.path);
         if document.unsaved(cx) && !discard {
             return Ok(false);
         }
@@ -440,4 +456,8 @@ impl Controller {
 
 fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "document is unavailable")
+}
+
+fn cancelled() -> Fault {
+    Fault::new(ErrorCode::Cancelled, "document read was cancelled")
 }

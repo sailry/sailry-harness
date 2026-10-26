@@ -77,8 +77,11 @@ pub(in crate::plugins) fn module(scope: Scope, host: Arc<Host>, cx: &mut App) ->
             let path = args.string(0)?.to_owned();
             let options = args.value(1).ok().map(decode).transpose()?.unwrap_or(Value::Null);
             let line = options.get("line").map(|value| value.as_u64().and_then(|value| usize::try_from(value).ok()).ok_or_else(|| HostError::new("invalid document line"))).transpose()?;
-            let receive = dispatch(&open, &open_host, scope.write, Operation::Open { path, line })?;
-            Ok(complete(receive, scope.write))
+            let opening = prepare(&open, &open_host, scope.write, Operation::Open { path, line })?;
+            Ok(async move {
+                let value = opening.read().await.map_err(failure)?;
+                encode(capabilities(value, scope.write))
+            })
         })
         .async_function("documentAction", move |args| {
             let id = args.string(0)?.parse().map_err(HostError::new)?;
@@ -129,13 +132,23 @@ pub(super) fn dispatch(
     write: bool,
     operation: Operation,
 ) -> Result<tokio::sync::oneshot::Receiver<Result<Value, Fault>>, HostError> {
+    prepare(controller, host, write, operation).map(|opening| opening.receive)
+}
+
+fn prepare(
+    controller: &Option<Entity<Controller>>,
+    host: &Host,
+    write: bool,
+    operation: Operation,
+) -> Result<Opening, HostError> {
     host.check()?;
     let controller = controller.clone().ok_or_else(missing)?;
+    let stop = Arc::new(host.stop_token().child_token());
     let (reply, receive) = tokio::sync::oneshot::channel();
     let request = Request {
         context: host.context().clone(),
         write,
-        stop: host.stop_token(),
+        stop: stop.clone(),
         operation,
         reply: RefCell::new(Some(reply)),
     };
@@ -143,18 +156,19 @@ pub(super) fn dispatch(
         cx.defer(move |cx| controller.update(cx, |_, cx| cx.emit(request)))
     })
     .ok_or_else(missing)?;
-    Ok(receive)
+    Ok(Opening { receive, stop })
 }
 
 pub(in crate::plugins) async fn complete(
     receive: tokio::sync::oneshot::Receiver<Result<Value, Fault>>,
     write: bool,
 ) -> Result<gpui_shell::HostValue, HostError> {
-    let value = receive
-        .await
-        .map_err(|_| missing())?
-        .map_err(|fault| HostError::new(serde_json::to_string(&fault).unwrap_or(fault.message)))?;
+    let value = receive.await.map_err(|_| missing())?.map_err(failure)?;
     encode(capabilities(value, write))
+}
+
+fn failure(fault: Fault) -> HostError {
+    HostError::new(serde_json::to_string(&fault).unwrap_or(fault.message))
 }
 fn missing() -> HostError {
     HostError::new("document scope is unavailable")

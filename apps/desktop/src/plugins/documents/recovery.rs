@@ -9,7 +9,7 @@ impl Controller {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.reads.remove(path);
+        self.reads.invalidate(path);
         if removed {
             self.documents
                 .retain(|_, document| document.path != path || document.unsaved(cx));
@@ -23,24 +23,22 @@ impl Controller {
         {
             return;
         }
-        self.read_sequence += 1;
-        let sequence = self.read_sequence;
         let path = path.to_owned();
-        self.reads.insert(path.clone(), sequence);
         let client = self.binding.client.clone();
         let worktree = self.binding.worktree.expect("document worktree");
-        let stop = self.stop.child_token();
+        let stop = Arc::new(self.stop.child_token());
+        let sequence = self.reads.start(path.clone(), stop.clone());
+        let cancellation = stop.as_ref().clone();
         let task_path = path.clone();
         let job = self.binding.runtime.spawn(async move {
-            super::notebook::load(client, worktree, task_path, None, stop).await
+            super::notebook::load(client, worktree, task_path, None, cancellation).await
         });
         cx.spawn_in(window, async move |controller, cx| {
             let result = job.await;
             let _ = controller.update_in(cx, |controller, window, cx| {
-                if controller.reads.get(&path) != Some(&sequence) {
+                if stop.is_cancelled() || !controller.reads.current(&path, sequence) {
                     return;
                 }
-                controller.reads.remove(&path);
                 let Some(document) = controller
                     .documents
                     .values_mut()

@@ -43,15 +43,14 @@ impl Controller {
                 self.reveal(id, intent, line, window, cx);
             }
             if self.documents[&id].unsaved(cx) {
+                self.reads.invalidate(&path);
                 let _ = reply.send(Ok(self.documents[&id].snapshot(id, cx)));
                 return;
             }
         }
-        self.read_sequence += 1;
-        let sequence = self.read_sequence;
-        self.reads.insert(path.clone(), sequence);
+        let sequence = self.reads.start(path.clone(), stop.clone());
         let client = self.binding.client.clone();
-        let cancellation = stop.clone();
+        let cancellation = stop.as_ref().clone();
         let task_path = path.clone();
         let task_context = context.clone();
         let job = self.binding.runtime.spawn(async move {
@@ -72,11 +71,10 @@ impl Controller {
             let mut reply = Some(reply);
             let _ = controller.update_in(cx, |controller, window, cx| {
                 let reply = reply.take().unwrap();
-                if stop.is_cancelled() || controller.reads.get(&path) != Some(&sequence) {
-                    let _ = reply.send(Err(unavailable()));
+                if stop.is_cancelled() || !controller.reads.current(&path, sequence) {
+                    let _ = reply.send(Err(cancelled()));
                     return;
                 }
-                controller.reads.remove(&path);
                 let (content, notebook_page) = match result {
                     Ok(content) => content,
                     Err(fault) => {

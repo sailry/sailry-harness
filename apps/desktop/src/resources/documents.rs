@@ -147,7 +147,7 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(receive) = panel.update(cx, |panel, cx| {
+        let Some(opening) = panel.update(cx, |panel, cx| {
             if target.artifact {
                 panel.open_artifact_target(target.path.clone(), window, cx)
             } else {
@@ -158,17 +158,30 @@ impl Shell {
         };
         let panel = panel.downgrade();
         cx.spawn_in(window, async move |_, cx| {
-            let mut result = receive.await;
+            let stop = opening.stop.clone();
+            let mut result = opening.read().await;
+            if stop.is_cancelled() {
+                return;
+            }
             if !target.artifact
-                && matches!(&result, Ok(Err(fault)) if fault.code == sailry_protocol::ErrorCode::InvalidRequest)
-                && let Ok(Some(receive)) = cx.update(|_, cx| {
+                && matches!(&result, Err(fault) if fault.code == sailry_protocol::ErrorCode::InvalidRequest)
+                && let Ok(Some(fallback)) = cx.update(|_, cx| {
                     panel.upgrade().and_then(|panel| panel.update(cx, |panel, cx| {
                         panel.open_system_file(target.path, cx)
                     }))
-                }) { result = receive.await; }
-            if !matches!(result, Ok(Ok(_))) {
+                }) {
+                    let fallback_stop = fallback.stop.clone();
+                    result = fallback.read().await;
+                    if fallback_stop.is_cancelled() {
+                        return;
+                    }
+                }
+            if stop.is_cancelled() {
+                return;
+            }
+            if result.is_err() {
                 let _ = cx.update(|window, cx| {
-                    if panel
+                    if !stop.is_cancelled() && panel
                         .upgrade()
                         .is_some_and(|panel| panel.read(cx).resource_active())
                     {
