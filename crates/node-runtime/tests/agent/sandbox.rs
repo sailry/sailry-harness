@@ -335,7 +335,11 @@ async fn rejects_outside_working_directory() {
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert!(!fixture.directory.path().join("escaped.txt").exists());
-        let result = approvals::rules::results(&page, turn).pop().unwrap().2;
+        let result = approvals::rules::results(&fixture.client, &page, turn)
+            .await
+            .pop()
+            .unwrap()
+            .2;
         assert_eq!(result["isError"], true);
         assert_eq!(result["error"]["code"], "permission_denied");
         assert!(process::results(&fixture.client, &page).await.is_empty());

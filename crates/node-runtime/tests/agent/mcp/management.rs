@@ -142,7 +142,7 @@ async fn manages_only_standalone_inventory() {
                 sailry_protocol::tool::Presentation::Details
             );
             assert_eq!(call.details(&page), details);
-            assert!(call.display(&page).unwrap().valid());
+            assert!(call.resolved().unwrap().label.is_some());
         }
         assert_eq!(outputs[1]["enabled"], false);
         assert_eq!(outputs[1]["revision"], disabled.summary.revision + 2);

@@ -425,7 +425,7 @@ async fn retry(
     assert_eq!(reused[0].run.session, child);
     assert_eq!(reused[0].run.turn, child_turn);
     let page = completed(&fixture.client, child, child_turn).await;
-    let results = crate::approvals::rules::results(&page, child_turn);
+    let results = crate::approvals::rules::results(&fixture.client, &page, child_turn).await;
     assert_eq!(results.len(), actions.len(), "{page:?}");
     for ((_, name, result), (expected, _)) in results.iter().zip(&actions) {
         assert_eq!(name, expected);
@@ -529,8 +529,10 @@ async fn retries_parallel_reports_without_lost_receipts() {
         completed(&fixture.client, fixture.session.id, turn.id).await;
         let alpha_page = completed(&fixture.client, alpha, alpha_report.turn).await;
         let beta_page = completed(&fixture.client, beta, beta_report.turn).await;
-        let alpha_results = crate::approvals::rules::results(&alpha_page, alpha_report.turn);
-        let beta_results = crate::approvals::rules::results(&beta_page, beta_report.turn);
+        let alpha_results =
+            crate::approvals::rules::results(&fixture.client, &alpha_page, alpha_report.turn).await;
+        let beta_results =
+            crate::approvals::rules::results(&fixture.client, &beta_page, beta_report.turn).await;
         assert_eq!(alpha_results.len(), 3);
         assert_eq!(beta_results.len(), 3);
         for (page, turn) in [
@@ -737,8 +739,11 @@ async fn retries_parallel_group_receipts() {
         completed(&fixture.client, fixture.session.id, turn.id).await;
         let alpha_page = completed(&fixture.client, alpha, alpha_receipt.turn).await;
         let beta_page = completed(&fixture.client, beta, beta_receipt.turn).await;
-        let alpha_results = crate::approvals::rules::results(&alpha_page, alpha_receipt.turn);
-        let beta_results = crate::approvals::rules::results(&beta_page, beta_receipt.turn);
+        let alpha_results =
+            crate::approvals::rules::results(&fixture.client, &alpha_page, alpha_receipt.turn)
+                .await;
+        let beta_results =
+            crate::approvals::rules::results(&fixture.client, &beta_page, beta_receipt.turn).await;
         assert_eq!(alpha_results.len(), 1);
         assert_eq!(beta_results.len(), 1);
         let winners = [won(&alpha_results[0].2), won(&beta_results[0].2)];
@@ -864,7 +869,8 @@ async fn rejects_foreign_sessions_and_worktrees() {
         let child: SessionId = delegation[0]["session"].as_str().unwrap().parse().unwrap();
         let page = history(&fixture.client, child).await;
         assert_eq!(page.runs.len(), 1);
-        let results = crate::approvals::rules::results(&page, page.runs[0].turn);
+        let results =
+            crate::approvals::rules::results(&fixture.client, &page, page.runs[0].turn).await;
         assert_eq!(results.len(), 3);
         for (_, _, result) in results {
             failure(&result, "permission_denied");

@@ -133,7 +133,7 @@ async fn keeps_frozen_resources() {
         .await;
         let page = finished(&fixture.client, fixture.session.id, queued.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        verify(&page, "Retained", secret);
+        verify(&fixture.client, &page, "Retained", secret).await;
         // Completed history still owns the frozen revision, even without a live catalog entry.
         fixture.node.shutdown().await.unwrap();
         reaped(&profile.join("plugins/data/example"));

@@ -203,7 +203,8 @@ async fn cancels_waiters_without_replaying() {
             ),
             Status::Running
         );
-        assert!(results(&history(&fixture.client, fixture.parents[0].id).await).is_empty());
+        let page = history(&fixture.client, fixture.parents[0].id).await;
+        assert!(results(&fixture.client, &page).await.is_empty());
         let queued = runs
             .iter()
             .find(|run| run.status == Status::Queued)

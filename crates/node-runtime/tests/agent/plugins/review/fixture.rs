@@ -70,7 +70,7 @@ pub(super) async fn calls_within(
     let page =
         crate::approvals::rules::completed_within(&fixture.client, session.id, turn.id, budget)
             .await;
-    let results = crate::approvals::rules::results(&page, turn.id);
+    let results = crate::approvals::rules::results(&fixture.client, &page, turn.id).await;
     assert_eq!(results.len(), calls.len(), "{page:?}");
     for ((_, name, _), (expected, _)) in results.iter().zip(&calls) {
         assert_eq!(name, expected);

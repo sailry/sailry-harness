@@ -28,7 +28,15 @@ async fn preserves_failures_without_changing_returns() {
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
         assert_eq!(view.calls.len(), 6);
-        let calls = &view.calls;
+        let mut calls = Vec::new();
+        for call in view.calls.iter() {
+            let detail = fixture
+                .client
+                .tool_detail(call.detail_reference(&page).unwrap())
+                .await
+                .unwrap();
+            calls.push(call.with_detail(detail));
+        }
         assert_eq!(calls[0].id.as_deref(), Some("call-fixture-0"));
         assert_eq!(calls[1].id.as_deref(), Some("call-fixture-1"));
         assert_eq!(calls[0].presentation, Presentation::Hidden);
@@ -61,7 +69,7 @@ async fn preserves_failures_without_changing_returns() {
             Some(&json!({"output":{"isError":true,"error":"domain row"}}))
         );
         assert!(!calls[5].details(&page));
-        assert!(calls[5].display(&page).unwrap().valid());
+        assert!(calls[5].resolved().unwrap().label.is_some());
         assert_eq!(calls[5].result(&page).unwrap()["sessions"], json!([]));
         {
             let requests = model.requests.lock().unwrap();

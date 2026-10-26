@@ -172,7 +172,7 @@ async fn retains_history_after_brief_removal() {
                 .unwrap(),
             captured
         );
-        assert_eq!(cards(&page), [document]);
+        assert_eq!(cards(&fixture.client, &page).await, [document]);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

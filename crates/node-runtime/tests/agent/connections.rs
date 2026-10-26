@@ -274,19 +274,19 @@ async fn scopes_database_approvals() {
             query.presentation,
             sailry_protocol::tool::Presentation::Content
         );
-        let table = query
-            .display(&page)
+        let detail = client
+            .tool_detail(query.detail_reference(&page).unwrap())
+            .await
+            .unwrap();
+        let table = detail
+            .resolved
+            .as_ref()
             .unwrap()
             .output
             .as_ref()
             .unwrap()
             .table
             .as_ref()
-            .unwrap()
-            .render(
-                query.arguments(&page).unwrap(),
-                query.result(&page).unwrap(),
-            )
             .unwrap();
         assert_eq!(table.columns, ["value"]);
         assert_eq!(table.rows, [vec!["7".to_owned()]]);

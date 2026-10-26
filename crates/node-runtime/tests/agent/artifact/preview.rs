@@ -25,7 +25,7 @@ async fn retains_code_and_defaults_metadata() {
         let turn = submit(&fixture, "Create the requested interactive preview").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let preview = cards(&page).remove(0);
+        let preview = cards(&fixture.client, &page).await.remove(0);
         assert_eq!(preview.kind, artifact::Kind::Preview);
         assert_eq!(preview.size, SOURCE.len() as u64);
         let content = fixture
@@ -67,7 +67,8 @@ async fn retains_code_and_defaults_metadata() {
         let turn = submit(&fixture, "Create a structured report").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let document = cards(&page)
+        let document = cards(&fixture.client, &page)
+            .await
             .into_iter()
             .find(|value| value.title == "Report")
             .unwrap();

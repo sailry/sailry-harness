@@ -129,7 +129,7 @@ async fn reconciles_changed_entries_without_restarting_turns() {
                     rejected(&fixture.client, request).await;
                 }
                 let outputs = results(&fixture.client, &page).await;
-                let changed = outputs[1].get("context").unwrap_or(outputs[1]);
+                let changed = outputs[1].get("context").unwrap_or(&outputs[1]);
                 assert_eq!(changed["saved"], false);
                 assert_eq!(
                     changed["status"],

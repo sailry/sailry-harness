@@ -199,7 +199,7 @@ async fn executes_in_existing_worktrees() {
             assert_eq!(snippets.len(), 1, "{context:?}");
             assert_eq!(snippets[0]["file_revision"], revision);
             assert_eq!(snippets[0]["text"], SOURCE);
-            assert!(serde_json::to_vec(context).unwrap().len() <= 16 * 1024);
+            assert!(serde_json::to_vec(&context).unwrap().len() <= 16 * 1024);
             assert!(
                 fixture
                     .node

@@ -1,5 +1,5 @@
 use super::*;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::path::Path;
 
 #[path = "worktrees/live.rs"]

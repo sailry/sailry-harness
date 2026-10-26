@@ -162,19 +162,12 @@ async fn reads_history_with_and_without_mentions() {
                 sailry_protocol::tool::Presentation::Summary
             );
             assert!(!call.details(&captured));
-            let display = call.display(&captured).unwrap();
-            assert!(display.valid());
-            assert_ne!(display.label("en"), display.label("zh-CN"));
+            let display = call.resolved().unwrap();
+            assert!(display.label.is_some());
+            let label = display.label.as_ref().unwrap();
+            assert_ne!(label.label("en"), label.label("zh-CN"));
             if call.name != "list_sessions" {
-                let summary = &call
-                    .resolved
-                    .as_ref()
-                    .unwrap()
-                    .input
-                    .summary
-                    .as_ref()
-                    .unwrap()
-                    .text;
+                let summary = &display.input.summary.as_ref().unwrap().text;
                 assert_eq!(summary, "First decision: use the shared editor 中文");
                 assert!(!summary.contains(&source.id.to_string()));
             }

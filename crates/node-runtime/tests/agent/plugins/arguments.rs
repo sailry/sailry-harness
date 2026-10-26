@@ -1,5 +1,5 @@
 use super::*;
-use serde_json::{Value, json};
+use serde_json::json;
 
 #[tokio::test]
 async fn validates_before_scripts_and_flows() {

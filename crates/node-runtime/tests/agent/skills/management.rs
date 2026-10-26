@@ -215,7 +215,7 @@ async fn permissions_and_empty_inventory() {
             assert_eq!(view.calls.len(), 4);
             for index in [0, 1, 3] {
                 assert!(!view.calls[index].details(&page));
-                assert!(view.calls[index].display(&page).unwrap().valid());
+                assert!(view.calls[index].resolved().unwrap().label.is_some());
             }
             if allow {
                 assert!(view.calls[2].details(&page));

@@ -33,7 +33,7 @@ async fn preserves_form_until_last_reference() {
         let publication = submit(&fixture, "Create the requested form").await;
         let page = finished(&fixture.client, fixture.session.id, publication).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let card = cards(&page).remove(0);
+        let card = cards(&fixture.client, &page).await.remove(0);
         let original = fixture.client.read_artifact(card.id, None).await.unwrap();
         assert_eq!(original.artifact.title, title);
         assert_eq!(original.artifact.summary, summary);
@@ -77,7 +77,7 @@ async fn preserves_form_until_last_reference() {
             .await
             .unwrap();
         assert_eq!(
-            cards(&inherited.page).as_slice(),
+            cards(&fixture.client, &inherited.page).await.as_slice(),
             std::slice::from_ref(&card)
         );
         assert_eq!(

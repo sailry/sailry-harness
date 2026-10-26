@@ -228,7 +228,13 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
             Some(ErrorCode::RevisionConflict)
         );
         assert!(view.calls[2].details(&page));
-        assert_eq!(view.calls[2].result(&page), Some(outputs[2]));
+        let call = &view.calls[2];
+        let detail = fixture
+            .client
+            .tool_detail(call.detail_reference(&page).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(call.with_detail(detail).result(&page), Some(&outputs[2]));
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("note.txt")).unwrap(),
             "Second"
@@ -572,7 +578,7 @@ async fn confines_arguments_and_preserves_large_office_results() {
             text
         );
         assert!(content.next.is_none());
-        assert!(serde_json::to_vec(output[5]).unwrap().len() > MAX_FILE_BYTES);
+        assert!(serde_json::to_vec(&output[5]).unwrap().len() > MAX_FILE_BYTES);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

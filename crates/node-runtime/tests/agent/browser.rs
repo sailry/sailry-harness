@@ -288,7 +288,7 @@ async fn publishes_controller_artifact() {
                 detail.result
             })
             .collect();
-        assert_eq!(results, vec![expected]);
+        assert_eq!(results, vec![expected.clone()]);
         assert!(
             !serde_json::to_string(&page)
                 .unwrap()

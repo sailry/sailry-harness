@@ -516,7 +516,8 @@ async fn loads_original_language_rules() {
             Duration::from_secs(30),
         )
         .await;
-        let mut results: Vec<_> = crate::approvals::rules::results(&page, turn.id)
+        let mut results: Vec<_> = crate::approvals::rules::results(&fixture.client, &page, turn.id)
+            .await
             .into_iter()
             .map(|(_, _, result)| result)
             .collect();
