@@ -1,0 +1,35 @@
+name: Website docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'sdk/plugins.md'
+      - 'CHANGELOG.md'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: website-docs
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    name: Notify website
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Request website rebuild
+        env:
+          GH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "WEBSITE_DISPATCH_TOKEN is not set; skipping"
+            exit 0
+          fi
+          gh api --method POST repos/sailry/sailry-website/dispatches \
+            -f event_type=harness-docs-updated \
+            -f "client_payload[sha]=$SOURCE_SHA"
