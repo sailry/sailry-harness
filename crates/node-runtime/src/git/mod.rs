@@ -260,10 +260,7 @@ impl Git {
         };
         let permit = if matches!(
             &command,
-            Command::InspectGit { .. }
-                | Command::ListGitChanges { .. }
-                | Command::ReadGitChange { .. }
-                | Command::ReadGitContext { .. }
+            Command::InspectGit { .. } | Command::ListGitChanges { .. }
         ) {
             let gate = self.scans.root(&root);
             Some(tokio::select! {

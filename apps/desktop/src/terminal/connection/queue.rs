@@ -1,8 +1,10 @@
 use sailry_protocol::{Command, TerminalId, terminal::Viewport};
 use std::{collections::VecDeque, sync::Mutex};
 use tokio::sync::Notify;
+use tokio::time::{Duration, Instant};
 
 const CAPACITY: usize = 64;
+const RETRY_DELAY: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Eq, PartialEq)]
 struct Resize {
@@ -38,6 +40,7 @@ struct State {
     pending: VecDeque<Command>,
     in_flight: Option<Resize>,
     acknowledged: Option<Resize>,
+    retry_after: Option<Instant>,
     closed: bool,
 }
 
@@ -69,6 +72,15 @@ impl State {
     }
 
     fn pop(&mut self) -> Option<Command> {
+        self.pop_at(Instant::now())
+    }
+
+    fn pop_at(&mut self, now: Instant) -> Option<Command> {
+        if self.retry_after.is_some_and(|deadline| now < deadline)
+            && self.pending.front().and_then(Resize::from).is_some()
+        {
+            return None;
+        }
         let command = self.pending.pop_front()?;
         self.in_flight = Resize::from(&command);
         Some(command)
@@ -80,6 +92,7 @@ impl State {
         } else if !success {
             // Later geometry is a separate, idempotent request. Byte input must
             // still be discarded after a failed command rather than replayed.
+            let retry = self.in_flight.is_some();
             let resize = self.in_flight.as_ref().and_then(|current| {
                 self.pending
                     .iter()
@@ -91,11 +104,13 @@ impl State {
                     .cloned()
             });
             self.discard();
+            self.retry_after = retry.then(|| Instant::now() + RETRY_DELAY);
             if let Some(resize) = resize {
                 self.pending.push_back(resize);
             }
         } else if let Some(resize) = self.in_flight.take() {
             self.acknowledged = Some(resize);
+            self.retry_after = None;
         }
     }
 
@@ -103,6 +118,7 @@ impl State {
         self.pending.clear();
         self.in_flight = None;
         self.acknowledged = None;
+        self.retry_after = None;
     }
 }
 
@@ -124,10 +140,21 @@ impl Queue {
     pub async fn next(&self) -> Command {
         loop {
             let notified = self.ready.notified();
-            if let Some(command) = self.state.lock().unwrap().pop() {
-                return command;
+            let deadline = {
+                let mut state = self.state.lock().unwrap();
+                if let Some(command) = state.pop() {
+                    return command;
+                }
+                state.retry_after.filter(|_| !state.pending.is_empty())
+            };
+            if let Some(deadline) = deadline {
+                tokio::select! {
+                    _ = notified => {},
+                    _ = tokio::time::sleep_until(deadline) => {},
+                }
+            } else {
+                notified.await;
             }
-            notified.await;
         }
     }
 
@@ -136,7 +163,10 @@ impl Queue {
     }
 
     pub fn reset_resize(&self) {
-        self.state.lock().unwrap().acknowledged = None;
+        let mut state = self.state.lock().unwrap();
+        state.acknowledged = None;
+        state.retry_after = None;
+        self.ready.notify_one();
     }
 
     pub fn close(&self) {

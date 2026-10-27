@@ -14,6 +14,20 @@ struct Observation {
     history: sailry_client::conversation::View,
     client: std::sync::Arc<sailry_client::Client>,
     prefix: String,
+    cache: std::sync::Arc<tokio::sync::Mutex<BTreeMap<String, Captured>>>,
+}
+
+struct Captured {
+    stamp: Stamp,
+    value: Value,
+}
+
+#[derive(PartialEq, Eq)]
+struct Stamp {
+    reference: sailry_protocol::tool::detail::Reference,
+    call: sailry_client::conversation::tools::Call,
+    timestamp_ms: i64,
+    sequence: Option<u64>,
 }
 
 impl Default for Observations {
@@ -50,12 +64,21 @@ impl Observations {
                 }) {
                     false
                 } else {
+                    let client = chat.binding().client;
+                    let cache = values
+                        .get(&id)
+                        .filter(|previous| {
+                            previous.client.target() == client.target() && previous.prefix == prefix
+                        })
+                        .map(|previous| previous.cache.clone())
+                        .unwrap_or_default();
                     values.insert(
                         id.clone(),
                         Observation {
                             history: history.clone(),
-                            client: chat.binding().client,
+                            client,
                             prefix: prefix.clone(),
+                            cache,
                         },
                     );
                     true
@@ -114,10 +137,13 @@ impl Observations {
 async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
     let history = &observation.history;
     let Some(snapshot) = &history.snapshot else {
+        observation.cache.lock().await.clear();
         return Ok(json!({"connected":history.connected,"calls":[]}));
     };
     let page = &snapshot.page;
     let mut calls = Vec::new();
+    let mut retained = std::collections::BTreeSet::new();
+    let mut cache = observation.cache.lock().await;
     for call in history.calls.iter() {
         let Some(name) = call.name.strip_prefix(&observation.prefix) else {
             continue;
@@ -125,11 +151,6 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
         let Some(reference) = call.detail_reference(page) else {
             continue;
         };
-        let detail = observation
-            .client
-            .tool_detail(reference)
-            .await
-            .map_err(|error| HostError::new(error.message))?;
         let Some(source) = page
             .entries
             .iter()
@@ -141,17 +162,42 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
             .response
             .as_ref()
             .and_then(|response| page.entries.iter().find(|entry| entry.id == response.entry));
+        let key = format!("{}:{}", call.turn, call.source.key());
+        let mut metadata = call.clone();
+        metadata.detail = None;
+        let stamp = Stamp {
+            reference: reference.clone(),
+            call: metadata,
+            timestamp_ms: source.timestamp_ms,
+            sequence: response.map(|entry| entry.sequence),
+        };
+        retained.insert(key.clone());
+        if let Some(previous) = cache.get(&key).filter(|previous| previous.stamp == stamp) {
+            calls.push(previous.value.clone());
+            continue;
+        }
+        let detail = observation
+            .client
+            .tool_detail(reference)
+            .await
+            .map_err(|error| HostError::new(error.message))?;
         let result = detail.result.as_ref().map(|value| {
             serde_json::from_value(value.clone())
                 .ok()
                 .and_then(|output| public_output(output).ok())
                 .unwrap_or_else(|| value.clone())
         });
-        calls.push(json!({"key":format!("{}:{}",call.turn,call.source.key()),"name":name,"arguments":detail.arguments,
-            "state":call.state,"timestamp_ms":source.timestamp_ms,"result":result,"sequence":response.map(|entry|entry.sequence.to_string())}));
+        let value = json!({"key":key,"name":name,"arguments":detail.arguments,
+            "state":call.state,"timestamp_ms":source.timestamp_ms,"result":result,"sequence":response.map(|entry|entry.sequence.to_string())});
+        calls.push(value.clone());
+        cache.insert(key, Captured { stamp, value });
     }
+    cache.retain(|key, _| retained.contains(key));
     Ok(
         json!({"connected":history.connected,"session":page.session,"revision":page.revision.to_string(),
         "latest":page.entries.iter().map(|entry|entry.sequence).max().map(|value|value.to_string()),"calls":calls}),
     )
 }
+
+#[cfg(test)]
+mod tests;

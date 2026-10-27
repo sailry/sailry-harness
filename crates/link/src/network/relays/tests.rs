@@ -318,7 +318,7 @@ async fn observes_selected_relay_and_ip_paths() {
         invitation.paired().await.unwrap();
         let mut address = first.handle().address();
         address.addrs.retain(|address| address.is_relay());
-        let connection = second
+        let (connection, _) = second
             .handle
             .core
             .connection(&address, false)
@@ -582,13 +582,13 @@ mod routes {
             .unwrap();
         assert!(admitted.receipt.durable);
         assert_eq!(admitted.receipt.id, original.id);
-        let connection = control
+        let (connection, _) = control
             .core
             .connection(&previous_address, true)
             .await
             .unwrap();
         assert!(connection.close_reason().is_none());
-        let unaddressed = control
+        let (unaddressed, _) = control
             .core
             .connection(&EndpointAddr::new(previous_address.id), true)
             .await

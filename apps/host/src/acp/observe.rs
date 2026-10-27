@@ -10,9 +10,36 @@ use std::{collections::BTreeSet, future::Future, num::NonZeroU64, pin::Pin};
 pub(super) struct Presentation {
     text: BTreeMap<(SessionId, String, usize), String>,
     calls: BTreeMap<String, acp::ToolCall>,
+    stamps: BTreeMap<String, Stamp>,
     permissions: BTreeSet<ApprovalId>,
     children: BTreeSet<SessionId>,
     views: BTreeMap<SessionId, watch::Receiver<View>>,
+}
+
+#[derive(PartialEq, Eq)]
+struct Stamp {
+    reference: sailry_protocol::tool::detail::Reference,
+    call: Call,
+}
+
+impl Stamp {
+    fn new(call: &Call, reference: sailry_protocol::tool::detail::Reference) -> Self {
+        let mut call = call.clone();
+        call.detail = None;
+        Self { reference, call }
+    }
+}
+
+impl Presentation {
+    fn retain(&mut self, source: SessionId, current: &BTreeSet<String>) {
+        let prefix = format!("{source}:");
+        self.stamps
+            .retain(|id, _| !id.starts_with(&prefix) || current.contains(id));
+    }
+
+    fn changed(&self, id: &str, stamp: &Stamp) -> bool {
+        self.stamps.get(id) != Some(stamp)
+    }
 }
 
 pub(super) async fn start(
@@ -133,19 +160,34 @@ fn render<'a>(
         let Some(snapshot) = &view.snapshot else {
             return Ok(());
         };
+        let current: BTreeSet<_> = view
+            .calls
+            .iter()
+            .map(|call| call_id(source, call))
+            .collect();
+        opened.presentation.lock().await.retain(source, &current);
         let session = acp::SessionId::new(parent.to_string());
         let page = &snapshot.page;
         let mut calls = Vec::with_capacity(view.calls.len());
         for call in view.calls.iter() {
+            let reference = call
+                .detail_reference(page)
+                .ok_or_else(|| invalid("tool detail identity is unavailable"))?;
+            let stamp = Stamp::new(call, reference.clone());
+            if !opened
+                .presentation
+                .lock()
+                .await
+                .changed(&call_id(source, call), &stamp)
+            {
+                continue;
+            }
             let detail = adapter
                 .client
-                .tool_detail(
-                    call.detail_reference(page)
-                        .ok_or_else(|| invalid("tool detail identity is unavailable"))?,
-                )
+                .tool_detail(reference)
                 .await
                 .map_err(|error| fault(error, None))?;
-            calls.push(call.with_detail(detail));
+            calls.push((call.with_detail(detail), stamp));
         }
         let mut presentation = opened.presentation.lock().await;
         if source != parent {
@@ -195,13 +237,13 @@ fn render<'a>(
             )?;
         }
         let mut permissions = Vec::new();
-        for call in &calls {
-            let id = call_id(source, call);
-            let title = title(call, page);
+        for (call, stamp) in calls {
+            let id = call_id(source, &call);
+            let title = title(&call, page);
             let context = json!({"node":adapter.client.target(),"session":source,"turn":call.turn,"source":call.source,
             "state":call.state,"approval":call.approval,"question":call.question});
             let tool = acp::ToolCall::new(id.clone(), title)
-                .status(status(call, page))
+                .status(status(&call, page))
                 .raw_input(call.arguments(page).cloned())
                 .raw_output(call.result(page).cloned())
                 .content(
@@ -241,6 +283,7 @@ fn render<'a>(
             {
                 permissions.push((call.clone(), approval.clone()));
             }
+            presentation.stamps.insert(id, stamp);
         }
         let children = page
             .children
@@ -307,6 +350,9 @@ fn render<'a>(
         Ok(())
     })
 }
+
+#[cfg(test)]
+mod tests;
 
 struct Chunk<'a> {
     source: SessionId,

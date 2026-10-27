@@ -46,23 +46,6 @@ impl Slot {
 }
 
 impl Core {
-    pub(super) async fn compression(
-        &self,
-        address: &EndpointAddr,
-        connection: &Connection,
-    ) -> Result<bool, Fault> {
-        let outgoing = self.outgoing.lock().await;
-        let slot = outgoing
-            .get(&NodeId(*address.id.as_bytes()))
-            .ok_or_else(|| network("connection is no longer registered"))?;
-        let cached = slot.cached.lock().map_err(network)?;
-        cached
-            .as_ref()
-            .filter(|cached| cached.connection.stable_id() == connection.stable_id())
-            .map(|cached| cached.zstd)
-            .ok_or_else(|| network("connection changed after negotiation"))
-    }
-
     async fn slot(&self, peer: NodeId) -> Result<Arc<Slot>, Fault> {
         let mut outgoing = self.outgoing.lock().await;
         // An in-flight dial or a waiter holds an Arc. Never evict its registered
@@ -147,7 +130,7 @@ impl Core {
         &self,
         address: &EndpointAddr,
         execution: bool,
-    ) -> Result<Connection, Fault> {
+    ) -> Result<(Connection, bool), Fault> {
         let peer = NodeId(*address.id.as_bytes());
         if !self.trusted(peer) {
             return Err(Fault::new(
@@ -171,7 +154,7 @@ impl Core {
                         cached.software_version.as_deref(),
                     )?;
                 }
-                return Ok(cached.connection.clone());
+                return Ok((cached.connection.clone(), cached.zstd));
             }
         }
         let connection = slot
@@ -200,14 +183,17 @@ impl Core {
                 connection.clone(),
                 info.software_version,
                 info.zstd,
-            )
+            )?;
+            Ok(info.zstd)
         }
         .await;
-        if let Err(error) = result {
-            connection.close(0u32.into(), b"peer connection rejected");
-            return Err(error);
+        match result {
+            Ok(compressed) => Ok((connection, compressed)),
+            Err(error) => {
+                connection.close(0u32.into(), b"peer connection rejected");
+                Err(error)
+            }
         }
-        Ok(connection)
     }
 
     pub(super) async fn replace_address(&self, address: EndpointAddr) -> Result<(), Fault> {

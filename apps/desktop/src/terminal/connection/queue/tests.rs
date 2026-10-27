@@ -34,7 +34,11 @@ fn acknowledges_only_success() {
     assert!(state.acknowledged.is_none());
     assert!(state.in_flight.is_none());
     assert!(state.push(command.clone()));
-    assert_eq!(state.pop(), Some(command.clone()));
+    assert!(state.pop().is_none());
+    assert_eq!(
+        state.pop_at(state.retry_after.unwrap()),
+        Some(command.clone())
+    );
     state.complete(true);
     assert!(state.acknowledged.as_ref() == Resize::from(&command).as_ref());
     assert!(state.push(command));
@@ -138,9 +142,36 @@ fn retains_newer_geometry_after_failure() {
     assert!(state.push(resize(terminal, 1, 40)));
     state.complete(false);
     assert!(state.acknowledged.is_none());
-    assert_eq!(state.pop(), Some(resize(terminal, 1, 40)));
+    assert!(state.pop().is_none());
+    assert_eq!(
+        state.pop_at(state.retry_after.unwrap()),
+        Some(resize(terminal, 1, 40))
+    );
     state.complete(true);
     assert!(state.pop().is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn delays_failed_resize_bursts() {
+    let terminal = TerminalId::new();
+    let queue = Queue::default();
+    assert!(queue.enqueue(resize(terminal, 1, 80)));
+    assert_eq!(queue.next().await, resize(terminal, 1, 80));
+    queue.complete(false);
+    for columns in 40..80 {
+        assert!(queue.enqueue(resize(terminal, 1, columns)));
+    }
+    let next = queue.next();
+    tokio::pin!(next);
+    assert!(
+        tokio::time::timeout(RETRY_DELAY / 2, next.as_mut())
+            .await
+            .is_err()
+    );
+    assert_eq!(next.await, resize(terminal, 1, 79));
+    queue.complete(true);
+    assert!(queue.enqueue(resize(terminal, 1, 79)));
+    assert!(queue.state.lock().unwrap().pending.is_empty());
 }
 
 #[test]

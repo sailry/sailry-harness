@@ -76,3 +76,51 @@ async fn shutdown_cancels_reads() {
         ErrorCode::Cancelled | ErrorCode::Unavailable
     ));
 }
+
+#[tokio::test]
+async fn content_reads_bypass_scan_queue() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    Repository::init(&root).unwrap();
+    std::fs::write(root.join("file.txt"), "review evidence\n").unwrap();
+    let git = Git::new(Arc::new(crate::process::Environment::ambient()));
+    let worktree = WorktreeId::new();
+    let Output::GitChanges(scope) = git
+        .inspect(
+            root.clone(),
+            Command::ListGitChanges {
+                worktree,
+                target: None,
+                cursor: None,
+                limit: 10,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("Git changes expected")
+    };
+    let gate = git.scans.root(&root);
+    let _permit = gate.acquire_owned().await.unwrap();
+    let read = git.inspect(
+        root,
+        Command::ReadGitChange {
+            worktree,
+            snapshot: scope.snapshot,
+            path: scope.entries[0].path.clone(),
+            expected_metadata_revision: scope.entries[0].metadata_revision.clone(),
+            expected_revision: None,
+            offset: 0,
+            limit: 100,
+        },
+        CancellationToken::new(),
+    );
+    assert!(matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), read)
+            .await
+            .unwrap()
+            .unwrap(),
+        Output::GitChange(_)
+    ));
+}

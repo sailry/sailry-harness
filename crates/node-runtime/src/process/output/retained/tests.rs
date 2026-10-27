@@ -145,5 +145,10 @@ fn reports_the_retention_limit() {
     assert_eq!(page.total_bytes, 27);
     assert!(page.next_offset.is_none());
     assert_eq!(stream.retained, 12);
-    assert_eq!(std::fs::metadata(stream.path.as_ref().unwrap()).unwrap().len(), 12);
+    assert_eq!(
+        std::fs::metadata(stream.path.as_ref().unwrap())
+            .unwrap()
+            .len(),
+        12
+    );
 }

@@ -76,3 +76,39 @@ fn retains_unknown_output() {
     assert!(cargo("printf cargo", input).is_none());
     assert!(cargo("cargo test", "test single ... ok\n").is_none());
 }
+
+// Captured cargo and nextest output; workspace paths are normalized.
+#[test]
+fn preserves_captured_failure_output() {
+    for (command, input, evidence) in [
+        (
+            "cargo test",
+            include_str!("fixtures/cargo-failure.txt"),
+            "assertion `left == right` failed",
+        ),
+        (
+            "cargo nextest run",
+            include_str!("fixtures/nextest-failure.txt"),
+            "called `Result::unwrap()` on an `Err` value: Elapsed(())",
+        ),
+        (
+            "cargo clippy",
+            include_str!("fixtures/compiler-error.txt"),
+            "error: this `if` statement can be collapsed",
+        ),
+    ] {
+        let result = cargo(command, input).unwrap();
+        assert!(result.contains(evidence));
+        assert!(result.contains("read_command"));
+        assert!(!result.contains("read_tool_output"));
+        assert!(result.len() < input.len());
+        let failure = if let Some(start) = input.find("\nfailures:\n") {
+            &input[start..]
+        } else if let Some(start) = input.find("error:") {
+            &input[start..]
+        } else {
+            &input[input.find("        FAIL [").unwrap()..]
+        };
+        assert!(result.contains(failure.trim_end()));
+    }
+}

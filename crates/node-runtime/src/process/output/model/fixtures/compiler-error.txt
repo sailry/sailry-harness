@@ -1,0 +1,89 @@
+    Checking aws-lc-sys v0.46.0
+    Checking aws-lc-rs v1.18.2
+   Compiling rustls v0.23.44
+    Checking rustls-webpki v0.103.15
+    Checking tokio-rustls v0.26.5
+    Checking hyper-rustls v0.27.9
+    Checking rustls-platform-verifier v0.7.0
+    Checking reqwest v0.13.4
+    Checking sailry-protocol v0.1.0 (/workspace/sailry/crates/protocol)
+    Checking noq-proto v1.3.0
+    Checking n0-dns-resolver v0.1.0
+    Checking tokio-rustls-acme v0.9.1
+    Checking iroh-metrics v1.0.2
+    Checking iroh-dns v1.3.0
+    Checking noq v1.3.0
+    Checking rustls-cert-reloadable-resolver v0.7.1
+    Checking sailry-model-assets v0.1.0 (/workspace/sailry/crates/model-assets)
+    Checking tokio-websockets v0.13.3
+    Checking iroh-relay v1.3.0
+   Compiling sailry-link v0.1.0 (/workspace/sailry/crates/link)
+    Checking iroh v1.3.0
+    Checking reqwest v0.12.28
+    Checking opendal-core v0.57.0
+    Checking sqlx-core v0.9.0 (https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb)
+    Checking libz-sys v1.1.29
+    Checking tungstenite v0.28.0
+    Checking async-openai v0.41.3
+    Checking tokio-tungstenite v0.28.0
+    Checking libssh2-sys v0.3.2
+    Checking adk-gemini v3.0.0 (https://github.com/dux-web/adk-rust.git?rev=2d5c3731efacbe63f38622a92352bde5272b1359#2d5c3731)
+    Checking adk-anthropic v3.0.0 (https://github.com/dux-web/adk-rust.git?rev=2d5c3731efacbe63f38622a92352bde5272b1359#2d5c3731)
+    Checking sqlx-postgres v0.9.0 (https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb)
+    Checking thirtyfour v0.35.0
+    Checking rmcp v3.5.1 (https://github.com/sailry/rust-sdk.git?rev=5e8fb5a9502d0fd153c29369b11e93bee88e63ac#5e8fb5a9)
+    Checking opendal-service-s3 v0.57.0
+    Checking adk-model v3.0.0 (https://github.com/dux-web/adk-rust.git?rev=2d5c3731efacbe63f38622a92352bde5272b1359#2d5c3731)
+    Checking libgit2-sys v0.18.8+1.9.7
+    Checking sqlx-mysql v0.9.0 (https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb)
+    Checking sailry-decision v0.1.0 (/workspace/sailry/crates/decision)
+    Checking sqlx-sqlite v0.9.0 (https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb)
+    Checking opendal-service-fs v0.57.0
+    Checking opendal-service-webdav v0.57.0
+    Checking sailry-embedding v0.1.0 (/workspace/sailry/crates/embedding)
+   Compiling sailry-node-runtime v0.1.0 (/workspace/sailry/crates/node-runtime)
+    Checking adk-tool v3.0.0 (https://github.com/dux-web/adk-rust.git?rev=2d5c3731efacbe63f38622a92352bde5272b1359#2d5c3731)
+    Checking opendal v0.57.0
+    Checking sqlx v0.9.0 (https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb)
+    Checking git2 v0.21.0
+    Checking adk-browser v3.0.0 (https://github.com/dux-web/adk-rust.git?rev=2d5c3731efacbe63f38622a92352bde5272b1359#2d5c3731)
+    Checking sailry-ocr v0.1.0 (/workspace/sailry/crates/ocr)
+    Checking sailry-client v0.1.0 (/workspace/sailry/crates/client)
+    Checking adk-eval v3.0.0 (https://github.com/dux-web/adk-rust.git?rev=2d5c3731efacbe63f38622a92352bde5272b1359#2d5c3731)
+   Compiling zip v2.4.2
+   Compiling sherpa-onnx-sys v1.13.8
+    Checking sherpa-onnx v1.13.8
+   Compiling apple-cf v0.9.3
+   Compiling apple-metal v0.8.8
+    Checking sailry-speech v0.1.0 (/workspace/sailry/crates/speech)
+   Compiling screencapturekit v8.0.1
+    Checking gpui-pre-reqwest v0.12.15
+   Compiling sailry-desktop v0.1.0-alpha.4 (/workspace/sailry/apps/desktop)
+    Checking tungstenite v0.29.0
+    Checking self_update v1.3.0
+    Checking platform-macos v0.32.0 (https://github.com/trycua/cua.git?rev=58aba84b5b83d77e7e2b0f006547699eb594e50d#58aba84b)
+    Checking gpui-shell v0.8.0 (https://github.com/dux-web/gpui-component?rev=7fc6a4cfa126a23ad11ed8fed58186b51e451d64#7fc6a4cf)
+    Checking sailry-content v0.1.0 (/workspace/sailry/crates/content)
+    Checking sailry-mobile-bridge v0.1.0 (/workspace/sailry/crates/mobile-bridge)
+error: this `if` statement can be collapsed
+  --> apps/desktop/src/conversation/live/watch.rs:95:21
+   |
+95 | /                     if !defaults {
+96 | |                         if view.binding.client.target() != node {
+97 | |                             return;
+98 | |                         }
+99 | |                     }
+   | |_____________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+   = note: `-D clippy::collapsible-if` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+   |
+95 ~                     if !defaults
+96 ~                         && view.binding.client.target() != node {
+97 |                             return;
+98 ~                         }
+   |
+
+error: could not compile `sailry-desktop` (bin "sailry-desktop") due to 1 previous error

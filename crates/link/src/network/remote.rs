@@ -40,8 +40,7 @@ impl Transport for Remote {
         resource: sailry_protocol::StreamId,
     ) -> Pending<'_, Result<crate::Stream, Fault>> {
         Box::pin(async move {
-            let connection = self.core.connection(&self.address, true).await?;
-            let compressed = self.core.compression(&self.address, &connection).await?;
+            let (connection, compressed) = self.core.connection(&self.address, true).await?;
             let (mut send, mut recv) = self
                 .core
                 .wait(connection.open_bi())
@@ -77,7 +76,7 @@ impl Transport for Remote {
             }
             log.begin();
             let id = request.id;
-            let connection = match self.core.connection(&self.address, true).await {
+            let (connection, compressed) = match self.core.connection(&self.address, true).await {
                 Ok(connection) => connection,
                 Err(error) => {
                     log.failed(
@@ -92,7 +91,6 @@ impl Transport for Remote {
                     return Err(error);
                 }
             };
-            let compressed = self.core.compression(&self.address, &connection).await?;
             let (mut send, mut recv) = match self.core.wait(connection.open_bi()).await {
                 Ok(Ok(streams)) => streams,
                 Ok(Err(error)) => {
@@ -293,8 +291,7 @@ impl Transport for Remote {
         topic: sailry_protocol::Topic,
     ) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
         Box::pin(async move {
-            let connection = self.core.connection(&self.address, true).await?;
-            let compressed = self.core.compression(&self.address, &connection).await?;
+            let (connection, compressed) = self.core.connection(&self.address, true).await?;
             let (mut send, recv) = self
                 .core
                 .wait(connection.open_bi())

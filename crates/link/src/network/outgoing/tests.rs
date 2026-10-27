@@ -45,15 +45,8 @@ async fn captures_negotiated_compression() {
             send.finish().unwrap();
             connection.closed().await;
         });
-        let connection = handle.core.connection(&address, false).await.unwrap();
-        assert_eq!(
-            handle
-                .core
-                .compression(&address, &connection)
-                .await
-                .unwrap(),
-            enabled
-        );
+        let (_, compressed) = handle.core.connection(&address, false).await.unwrap();
+        assert_eq!(compressed, enabled);
         handle.disconnect(NodeId(*address.id.as_bytes())).await;
         response.await.unwrap();
         host.close().await;

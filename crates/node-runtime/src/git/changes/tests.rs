@@ -777,3 +777,17 @@ fn marks_unsupported_paths_as_incomplete() {
     assert!(!inventory.exhausted);
     assert_eq!(inventory.omitted_paths, 1);
 }
+
+#[test]
+fn reads_with_an_external_index_lock() {
+    let fixture = Fixture::new();
+    fixture.write("file.rs", "original\n");
+    fixture.commit();
+    fixture.write("file.rs", "changed\n");
+    let lock = fixture.repository.path().join("index.lock");
+    fs::write(&lock, "external writer").unwrap();
+    let scope = fixture.working(1);
+    let change = fixture.read(&scope, "file.rs", None, 0, 500).unwrap();
+    assert!(!change.lines.is_empty());
+    assert_eq!(fs::read_to_string(lock).unwrap(), "external writer");
+}

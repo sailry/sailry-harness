@@ -260,7 +260,7 @@ impl LinkHandle {
 
     /// Probe an authenticated peer without attempting a business command on a controller.
     pub async fn inspect(&self, address: &EndpointAddr) -> Result<PeerInfo, Fault> {
-        let connection = self.core.connection(address, false).await?;
+        let (connection, _) = self.core.connection(address, false).await?;
         self.core.inspect_connection(&connection).await
     }
 
