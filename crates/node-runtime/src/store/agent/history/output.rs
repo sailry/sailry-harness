@@ -56,18 +56,12 @@ pub(in crate::store) fn page(
     limit: usize,
 ) -> Result<OutputPage, Fault> {
     let text = resolved.value.to_string();
-    if limit == 0 || offset > text.len() || !text.is_char_boundary(offset) {
-        return Err(Fault::invalid("tool output page is invalid"));
-    }
-    let mut end = offset
-        .saturating_add(limit.min(MAX_OUTPUT_PAGE_BYTES))
-        .min(text.len());
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    if end == offset && end < text.len() {
-        end += text[offset..].chars().next().unwrap().len_utf8();
-    }
+    let range = crate::process::output::utf8_page(
+        text.as_bytes(),
+        offset,
+        limit.min(MAX_OUTPUT_PAGE_BYTES),
+    )?;
+    let end = range.end;
     Ok(OutputPage {
         turn: resolved.turn,
         output,

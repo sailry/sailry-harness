@@ -96,55 +96,16 @@ impl Batch {
     pub async fn append(
         &self,
         ingress: &Arc<Ingress>,
-        invocation: &Invocation,
-        source: &'static str,
-    ) -> Result<(), Fault> {
-        if self.entries.len() == 1 {
-            return Ok(());
-        }
-        self.append_entries(
-            ingress,
-            invocation.turn.session,
-            invocation.turn.id,
-            &invocation.turn.id.to_string(),
-            source,
-            self.entries.len() - 1,
-            None,
-        )
-        .await
-    }
-
-    pub async fn append_guidance(
-        &self,
-        ingress: &Arc<Ingress>,
-        session: SessionId,
-        owner: TurnId,
-        invocation: &str,
-        source: &'static str,
-        context: Option<Event>,
-    ) -> Result<(), Fault> {
-        self.append_entries(
-            ingress,
-            session,
-            owner,
-            invocation,
-            source,
-            self.entries.len(),
-            context,
-        )
-        .await
-    }
-
-    async fn append_entries(
-        &self,
-        ingress: &Arc<Ingress>,
         target: SessionId,
         owner: TurnId,
         invocation: &str,
         source: &'static str,
-        count: usize,
+        omit: Option<TurnId>,
         mut context: Option<Event>,
     ) -> Result<(), Fault> {
+        if context.is_none() && self.entries.iter().all(|entry| omit == Some(entry.turn)) {
+            return Ok(());
+        }
         let sessions = ingress.sessions(owner);
         let session = sessions
             .get(GetRequest {
@@ -168,15 +129,9 @@ impl Batch {
                     .cloned()
             })
             .collect();
-        for entry in &self.entries[..count] {
-            if present.contains(&entry.turn.to_string()) {
+        for entry in &self.entries {
+            if omit == Some(entry.turn) || present.contains(&entry.turn.to_string()) {
                 continue;
-            }
-            if !ingress.agents.running(owner) {
-                return Err(Fault::new(
-                    ErrorCode::Conflict,
-                    "guidance recipient is no longer running",
-                ));
             }
             let mut event = Event::new(invocation);
             event.author = "user".into();
@@ -191,12 +146,6 @@ impl Batch {
                 .map_err(model::error)?;
         }
         if let Some(context) = context {
-            if !ingress.agents.running(owner) {
-                return Err(Fault::new(
-                    ErrorCode::Conflict,
-                    "guidance recipient is no longer running",
-                ));
-            }
             crate::store::agent::Sessions::new(ingress.clone(), owner)
                 .append_with_context(&target.to_string(), context, None)
                 .await

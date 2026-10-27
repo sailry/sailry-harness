@@ -13,10 +13,10 @@ use std::{
 };
 
 const STREAM_LIMIT: usize = 4 * 1024 * 1024;
+const PREFIX_LIMIT: usize = 1024 * 1024;
 pub(crate) const COMMAND_LIMIT: usize = 2 * STREAM_LIMIT;
 const TOTAL_LIMIT: usize = 256 * 1024 * 1024;
 const PAGE: usize = 32 * 1024;
-const HEAD: usize = 8 * 1024;
 const TAIL: usize = 8 * 1024;
 
 pub(crate) struct Budget {
@@ -86,11 +86,12 @@ struct Stream {
     reserved: usize,
     limit: usize,
     total: u64,
-    head: Vec<u8>,
+    written: u64,
     tail: Vec<u8>,
     budget: Arc<Budget>,
 }
 
+#[cfg(test)]
 impl Default for Stream {
     fn default() -> Self {
         Self::new(tempfile::NamedTempFile::new(), Arc::default(), STREAM_LIMIT)
@@ -120,15 +121,13 @@ impl Stream {
             reserved,
             limit: reserved,
             total: 0,
-            head: Vec::new(),
+            written: 0,
             tail: Vec::new(),
             budget,
         }
     }
     fn append(&mut self, bytes: &[u8]) {
         self.total = self.total.saturating_add(bytes.len() as u64);
-        self.head
-            .extend_from_slice(&bytes[..bytes.len().min(HEAD - self.head.len())]);
         if bytes.len() >= TAIL {
             self.tail.clear();
             self.tail.extend_from_slice(&bytes[bytes.len() - TAIL..]);
@@ -141,12 +140,48 @@ impl Stream {
             return;
         }
         let Some(writer) = &mut self.writer else {
-            self.error = Some("command output retention is closed".into());
+            if self.path.is_none() {
+                self.error = Some("command output retention is closed".into());
+            }
             return;
         };
-        let count = bytes.len().min(self.limit.saturating_sub(self.retained));
-        match writer.write_all(&bytes[..count]) {
-            Ok(()) => self.retained += count,
+        let prefix = self.limit.min(PREFIX_LIMIT);
+        let capacity = self.limit - prefix;
+        let start = self.total - bytes.len() as u64;
+        let mut write = || -> std::io::Result<()> {
+            let mut cursor = start;
+            let mut pending = bytes;
+            if cursor < prefix as u64 {
+                let count = pending.len().min(prefix - cursor as usize);
+                writer.seek(SeekFrom::Start(cursor))?;
+                writer.write_all(&pending[..count])?;
+                cursor += count as u64;
+                pending = &pending[count..];
+            }
+            if capacity > 0 && !pending.is_empty() {
+                let skip = pending.len().saturating_sub(capacity);
+                pending = &pending[skip..];
+                cursor += skip as u64;
+                let position = (cursor - prefix as u64) % capacity as u64;
+                let count = pending.len().min(capacity - position as usize);
+                writer.seek(SeekFrom::Start(prefix as u64 + position))?;
+                writer.write_all(&pending[..count])?;
+                if count < pending.len() {
+                    writer.seek(SeekFrom::Start(prefix as u64))?;
+                    writer.write_all(&pending[count..])?;
+                }
+            }
+            Ok(())
+        };
+        match write() {
+            Ok(()) => {
+                self.retained = self.limit.min(self.total as usize);
+                self.written = if capacity > 0 {
+                    self.total
+                } else {
+                    self.total.min(prefix as u64)
+                };
+            }
             Err(error) => {
                 self.error = Some(error.to_string());
                 self.budget.used.fetch_sub(self.reserved, Ordering::Relaxed);
@@ -176,6 +211,56 @@ impl Stream {
         self.error = Some("command output was evicted".into());
     }
 
+    fn read(&self, file: &mut File, offset: usize, count: usize) -> std::io::Result<Vec<u8>> {
+        let prefix = self.limit.min(PREFIX_LIMIT);
+        let capacity = self.limit - prefix;
+        let mut bytes = vec![0; count];
+        let mut cursor = 0;
+        while cursor < count {
+            let logical = offset + cursor;
+            let physical = if logical < prefix {
+                logical
+            } else {
+                prefix + (logical - prefix) % capacity
+            };
+            let available = if physical < prefix {
+                prefix - physical
+            } else {
+                self.limit - physical
+            };
+            let size = (count - cursor).min(available);
+            file.seek(SeekFrom::Start(physical as u64))?;
+            file.read_exact(&mut bytes[cursor..cursor + size])?;
+            cursor += size;
+        }
+        Ok(bytes)
+    }
+
+    fn ranges(&self, file: &mut File) -> std::io::Result<(usize, usize, usize)> {
+        let mut head = self.retained.min(self.limit.min(PREFIX_LIMIT));
+        let tail_bytes = self.retained - head;
+        let mut tail = (self.written as usize).saturating_sub(tail_bytes);
+        if tail_bytes > 0 && tail > head {
+            let start = head.saturating_sub(3);
+            let suffix = self.read(file, start, head - start)?;
+            head = start + super::edges(&suffix, suffix.len(), 0).0;
+            let beginning = self.read(file, tail, tail_bytes.min(4))?;
+            tail += beginning
+                .iter()
+                .take_while(|byte| **byte & 0xc0 == 0x80)
+                .count();
+        }
+        Ok((
+            head,
+            tail,
+            if tail_bytes > 0 {
+                self.written as usize
+            } else {
+                head
+            },
+        ))
+    }
+
     fn page(
         &self,
         info: Info,
@@ -189,7 +274,7 @@ impl Stream {
                 format!("retained command output is unavailable: {error}"),
             ));
         }
-        if offset > self.retained || limit == 0 {
+        if limit == 0 {
             return Err(Fault::invalid("command output page is invalid"));
         }
         let path = self
@@ -204,35 +289,48 @@ impl Stream {
                 )
             })?;
         let mut file = File::open(path).map_err(failure)?;
-        file.seek(SeekFrom::Start(offset as u64)).map_err(failure)?;
-        let count = (self.retained - offset).min(limit.min(PAGE).saturating_add(4));
-        let mut bytes = vec![0; count];
-        file.read_exact(&mut bytes).map_err(failure)?;
+        let (head_end, tail_start, written) = self.ranges(&mut file).map_err(failure)?;
+        let gap = tail_start > head_end && written > head_end;
+        let offset = if gap && offset == head_end {
+            tail_start
+        } else {
+            offset
+        };
+        let end = if gap && offset < head_end {
+            head_end
+        } else if offset <= written && (!gap || offset >= tail_start) {
+            written
+        } else {
+            return Err(Fault::invalid(
+                "command output offset is outside retained ranges",
+            ));
+        };
+        let count = (end - offset).min(limit.min(PAGE).saturating_add(4));
+        let bytes = self.read(&mut file, offset, count).map_err(failure)?;
         if offset > 0 && bytes.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
             return Err(Fault::invalid(
                 "command output offset splits a UTF-8 character",
             ));
         }
-        let mut end = bytes.len().min(limit.min(PAGE));
-        while end > 0 && bytes.get(end).is_some_and(|byte| byte & 0xc0 == 0x80) {
-            end -= 1;
-        }
-        if end == 0 && !bytes.is_empty() {
-            end = 1;
-            while bytes.get(end).is_some_and(|byte| byte & 0xc0 == 0x80) {
-                end += 1;
-            }
-        }
-        let text = String::from_utf8_lossy(&bytes[..end]).into_owned();
+        let range = super::utf8_page(&bytes, 0, limit.min(PAGE))?;
+        let next = offset + range.end;
+        let next_offset = if next < end {
+            Some(next)
+        } else if gap && next == head_end {
+            Some(tail_start)
+        } else {
+            None
+        };
+        let text = String::from_utf8_lossy(&bytes[range.clone()]).into_owned();
         Ok(OutputPage {
             info,
             stream,
             offset,
             total_bytes: self.total,
-            next_offset: (offset + end < self.retained).then_some(offset + end),
+            next_offset,
             text,
             truncated: self.total > self.retained as u64,
-            invalid_utf8: std::str::from_utf8(&bytes[..end]).is_err(),
+            invalid_utf8: std::str::from_utf8(&bytes[range]).is_err(),
         })
     }
 
@@ -240,15 +338,28 @@ impl Stream {
         if self.total <= (64 * 1024) as u64 {
             return None;
         }
-        let (head_end, _) = super::edges(&self.head, HEAD, 0);
         let (_, tail_start) = super::edges(&self.tail, 0, TAIL);
-        let head = &self.head[..head_end];
         let tail = &self.tail[tail_start..];
+        let head_bytes = self.retained.min(self.limit.min(PREFIX_LIMIT));
+        let tail_bytes = self.retained - head_bytes;
+        let ranges = self
+            .writer
+            .as_ref()
+            .map(|writer| writer.path())
+            .or_else(|| self.path.as_deref().map(std::path::Path::new))
+            .and_then(|path| File::open(path).ok())
+            .and_then(|mut file| self.ranges(&mut file).ok())
+            .unwrap_or((
+                head_bytes,
+                self.written as usize - tail_bytes,
+                self.written as usize,
+            ));
         Some(serde_json::json!({
-            "head":String::from_utf8_lossy(head), "head_bytes":head.len(),
             "tail":String::from_utf8_lossy(tail), "tail_offset":self.total.saturating_sub(tail.len() as u64),
             "total_bytes":self.total, "retained_bytes":self.retained,
-            "invalid_utf8":std::str::from_utf8(head).is_err() || std::str::from_utf8(tail).is_err(),
+            "retained_head_bytes":ranges.0, "retained_tail_offset":ranges.1,
+            "retained_end":ranges.2,
+            "invalid_utf8":std::str::from_utf8(tail).is_err(),
         }))
     }
 }
@@ -266,10 +377,19 @@ fn failure(error: std::io::Error) -> Fault {
     )
 }
 
-#[derive(Default)]
 pub(crate) struct Retained {
     stdout: Mutex<Stream>,
     stderr: Mutex<Stream>,
+}
+
+#[cfg(test)]
+impl Default for Retained {
+    fn default() -> Self {
+        Self {
+            stdout: Mutex::default(),
+            stderr: Mutex::default(),
+        }
+    }
 }
 
 impl Retained {
@@ -307,6 +427,10 @@ impl Retained {
     pub(crate) fn evict(&self) {
         self.stdout.lock().unwrap().evict();
         self.stderr.lock().unwrap().evict();
+    }
+
+    pub(crate) fn bytes(&self) -> usize {
+        self.stdout.lock().unwrap().reserved + self.stderr.lock().unwrap().reserved
     }
 
     pub(crate) fn page(

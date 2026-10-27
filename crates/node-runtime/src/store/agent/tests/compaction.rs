@@ -250,6 +250,163 @@ async fn retains_only_latest_input_capability() {
 }
 
 #[tokio::test]
+async fn retains_capability_across_guidance_and_notices() {
+    use adk_core::Content;
+
+    let mut fixture = Fixture::new().await;
+    let owner = fixture.queued().await;
+    runs::start(&fixture.database.connection, owner)
+        .await
+        .unwrap();
+    runs::claim(&mut fixture.database, &fixture.events)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut selected = AdkEvent::new("selected-capability");
+    selected.author = "user".into();
+    selected
+        .provider_metadata
+        .insert(CAPABILITY_PART.into(), "1".into());
+    selected.set_content(
+        Content::new("user")
+            .with_text("User task")
+            .with_text("Exact capability survives guidance"),
+    );
+    history::append(
+        &mut fixture.database,
+        fixture.session,
+        owner,
+        selected,
+        &fixture.events,
+    )
+    .await
+    .unwrap();
+    let Output::QueuedTurn(guidance) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::GuideTurn {
+            recipient: owner,
+            expected_revision: 1,
+            message: "Continue this task".into(),
+        },
+    )
+    .await
+    else {
+        panic!("guided turn expected")
+    };
+    let claimed = runs::guidance::take(&mut fixture.database, owner, &fixture.events)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed[0].turn.id, guidance.id);
+    let mut guided = AdkEvent::new("guidance-input");
+    guided.author = "user".into();
+    guided.set_content(Content::new("user").with_text("Continue this task"));
+    history::append(
+        &mut fixture.database,
+        fixture.session,
+        guidance.id,
+        guided,
+        &fixture.events,
+    )
+    .await
+    .unwrap();
+    let anchor = event("Completed guided evidence");
+    history::append(
+        &mut fixture.database,
+        fixture.session,
+        owner,
+        anchor.clone(),
+        &fixture.events,
+    )
+    .await
+    .unwrap();
+    runs::finish(
+        &mut fixture.database,
+        owner,
+        Status::Completed,
+        None,
+        &fixture.events,
+    )
+    .await
+    .unwrap();
+    let mut notice = AdkEvent::new("notice-input");
+    notice.author = "user".into();
+    notice.set_content(Content::new("user").with_text("Background task completed"));
+    let notification = fixture.append([notice]).await;
+    let mut run = runs::get(&fixture.database.connection, notification)
+        .await
+        .unwrap();
+    run.notice = true;
+    runs::put(&fixture.database.connection, &run).await.unwrap();
+    let turn = fixture.append([summary(&anchor)]).await;
+    let loaded = load(&fixture, turn).await;
+    let text = serde_json::to_string(loaded[0].content().unwrap()).unwrap();
+    assert_eq!(
+        text.matches("Exact capability survives guidance").count(),
+        1
+    );
+    assert!(!text.contains("Continue this task"));
+    assert_eq!(
+        loaded[1].content().unwrap().parts[0].text(),
+        Some("Background task completed")
+    );
+}
+
+#[tokio::test]
+async fn excludes_capability_after_the_boundary() {
+    use adk_core::{Content, FunctionResponseData, Part as AdkPart};
+
+    let mut fixture = Fixture::new().await;
+    let selected = |text: &str| {
+        let mut selected = AdkEvent::new("selected-capability");
+        selected.author = "user".into();
+        selected
+            .provider_metadata
+            .insert(CAPABILITY_PART.into(), "1".into());
+        selected.set_content(Content::new("user").with_text("User task").with_text(text));
+        selected
+    };
+    let mut call = event("");
+    call.set_content(Content {
+        role: "model".into(),
+        parts: vec![AdkPart::FunctionCall {
+            id: Some("boundary-read".into()),
+            name: "read_file".into(),
+            args: serde_json::json!({"path":"fixture.txt"}),
+            thought_signature: None,
+        }],
+    });
+    let mut anchor = event("");
+    anchor.set_content(Content {
+        role: "user".into(),
+        parts: vec![AdkPart::FunctionResponse {
+            id: Some("boundary-read".into()),
+            function_response: FunctionResponseData::new(
+                "read_file",
+                serde_json::json!({"content":"Earlier completed evidence"}),
+            ),
+            annotations: None,
+        }],
+    });
+    fixture
+        .append([
+            selected("Capability before the boundary"),
+            call,
+            anchor.clone(),
+            selected("Capability after the boundary"),
+        ])
+        .await;
+    let turn = fixture.append([summary(&anchor)]).await;
+    let loaded = load(&fixture, turn).await;
+    let before = serde_json::to_string(loaded[0].content().unwrap()).unwrap();
+    assert_eq!(before.matches("Capability before the boundary").count(), 1);
+    assert!(!before.contains("Capability after the boundary"));
+    let after = serde_json::to_string(loaded[1].content().unwrap()).unwrap();
+    assert_eq!(after.matches("Capability after the boundary").count(), 1);
+}
+
+#[tokio::test]
 async fn merges_disjoint_discovered_tools() {
     let mut fixture = Fixture::new().await;
     let discovered = |name: &str| {
@@ -267,10 +424,18 @@ async fn merges_disjoint_discovered_tools() {
         .await;
     let turn = fixture.append([summary(&anchor)]).await;
     let loaded = load(&fixture, turn).await;
-    assert_eq!(
-        loaded[0].actions.state_delta[LOADED_TOOLS],
-        serde_json::json!(["first", "second"])
-    );
+    assert!(!loaded[0].actions.state_delta.contains_key(LOADED_TOOLS));
+    for _ in 0..2 {
+        assert_eq!(
+            history::state(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap()[LOADED_TOOLS],
+            serde_json::json!(["first", "second"])
+        );
+        history::rebuild_session(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+    }
 }
 
 #[tokio::test]

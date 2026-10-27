@@ -25,8 +25,9 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<Value> {
         }
         _ => return None,
     }
-    if let Some(bounded) = super::bounded(&result, source) {
-        return Some(bounded);
+    let encoded = result.to_string();
+    if encoded.len() > LIMIT {
+        return Some(super::clip(&result, source, &encoded, 2 * EDGE, false));
     }
     result["output"] = source.clone();
     Some(result)

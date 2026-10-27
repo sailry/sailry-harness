@@ -31,6 +31,80 @@ async fn projected(server: &Server) -> Value {
 }
 
 #[tokio::test]
+async fn reads_large_failure_tail_at_original_offsets() {
+    for remote in [false, true] {
+        let prefix_bytes = 21 * 1024 * 1024;
+        let failure = format!(
+            "failures:\n{}last failure\n",
+            "failed assertion details\n".repeat(2000)
+        );
+        assert!(failure.len() > 30 * 1024);
+        let command = format!(
+            "dd if=/dev/zero bs=1048576 count=21 2>/dev/null | tr '\\000' x; printf '%s' '{failure}'; exit 7"
+        );
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let server = Server::held_after_tool(
+            vec![(name("run_command"), json!({"command":command}))],
+            gate.clone(),
+        )
+        .await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
+        planning::configure(&mut fixture, WorkMode::Code).await;
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "Read the final failure details".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        let projected = projected(&server).await;
+        let reference: OutputReference =
+            serde_json::from_value(projected["output"].clone()).unwrap();
+        let total = prefix_bytes + failure.len();
+        assert_eq!(projected["data"]["stdout"]["total_bytes"], total);
+        let mut offset = prefix_bytes;
+        let mut text = String::new();
+        loop {
+            let Output::CommandOutputPage(page) = execute(
+                &fixture,
+                Command::ReadToolOutput {
+                    turn: turn.id,
+                    output: reference.clone(),
+                    stream: Some(OutputStream::Stdout),
+                    offset,
+                    limit: 4093,
+                },
+            )
+            .await
+            else {
+                panic!("retained failure tail expected")
+            };
+            assert_eq!(page.offset, offset);
+            assert_eq!(page.total_bytes, total as u64);
+            assert!(page.truncated && !page.invalid_utf8);
+            text.push_str(&page.text);
+            match page.next_offset {
+                Some(next) => {
+                    assert!(next > offset);
+                    offset = next;
+                }
+                None => break,
+            }
+        }
+        assert_eq!(text, failure);
+        gate.notify_one();
+        finished(&fixture.client, fixture.session.id, turn.id).await;
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn retains_foreground_streams_and_canonical_results() {
     for remote in [false, true] {
         let gate = Arc::new(tokio::sync::Notify::new());

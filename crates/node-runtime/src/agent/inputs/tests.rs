@@ -62,6 +62,74 @@ async fn running(node: &crate::Node) -> (SessionId, TurnId) {
 }
 
 #[tokio::test]
+async fn writes_context_before_new_input() {
+    let directory = tempfile::tempdir().unwrap();
+    let node = crate::Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let (session, owner) = running(&node).await;
+    let batch = Batch {
+        entries: vec![Entry {
+            turn: owner,
+            references: vec![],
+            content: Content::new("user").with_text("Original user text"),
+            capability: None,
+        }],
+    };
+    let mut context = Event::new("context-fixture");
+    context.author = "system".into();
+    context
+        .provider_metadata
+        .insert(prompt::session::METADATA.into(), "context".into());
+    context.set_content(Content::new("user").with_text("Changed runtime context"));
+    context.actions.state_delta.insert(
+        prompt::session::POLICY.into(),
+        serde_json::json!("Changed policy"),
+    );
+    batch
+        .append(
+            &node.ingress,
+            session,
+            owner,
+            "fixture",
+            "user",
+            None,
+            Some(context.clone()),
+        )
+        .await
+        .unwrap();
+    let history = node
+        .ingress
+        .sessions(owner)
+        .get(GetRequest {
+            app_name: APP.into(),
+            user_id: USER.into(),
+            session_id: session.to_string(),
+            num_recent_events: None,
+            after: None,
+        })
+        .await
+        .unwrap();
+    let events = history.events().all();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].id, context.id);
+    assert_eq!(
+        events[0].content().unwrap().parts,
+        context.content().unwrap().parts
+    );
+    assert_eq!(
+        events[1].provider_metadata[crate::store::agent::INPUT_TURN],
+        owner.to_string()
+    );
+    assert_eq!(
+        events[1].content().unwrap().parts[0].text(),
+        Some("Original user text")
+    );
+    node.ingress.agents.finish(owner);
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn preserves_context_with_duplicate_inputs() {
     let directory = tempfile::tempdir().unwrap();
     let node = crate::Node::start_empty(directory.path().join("node"))
@@ -82,7 +150,7 @@ async fn preserves_context_with_duplicate_inputs() {
         }],
     };
     batch
-        .append_guidance(&node.ingress, session, owner, "fixture", "user", None)
+        .append(&node.ingress, session, owner, "fixture", "user", None, None)
         .await
         .unwrap();
     let mut context = Event::new("context-fixture");
@@ -96,12 +164,13 @@ async fn preserves_context_with_duplicate_inputs() {
         serde_json::json!("Changed policy"),
     );
     batch
-        .append_guidance(
+        .append(
             &node.ingress,
             session,
             owner,
             "fixture",
             "user",
+            None,
             Some(context.clone()),
         )
         .await
@@ -170,7 +239,7 @@ async fn stamps_exact_capability_position() {
         }],
     };
     batch
-        .append_guidance(&node.ingress, session, owner, "fixture", "user", None)
+        .append(&node.ingress, session, owner, "fixture", "user", None, None)
         .await
         .unwrap();
     let history = node

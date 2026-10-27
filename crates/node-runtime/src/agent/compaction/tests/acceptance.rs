@@ -73,6 +73,28 @@ fn preserves_canonical_prefix() {
 }
 
 #[test]
+fn preserves_active_declarations() {
+    let (mut summarizer, _) = summarizer(vec![], false);
+    let tools = [(
+        "previously_called".into(),
+        json!({
+            "name":"previously_called", "parameters":{"type":"object"}
+        }),
+    )]
+    .into();
+    summarizer.tools = Some(tools);
+    let events = history();
+    let ordinary = summarizer.canonical_request(&events, &[], summarizer.tools.clone().unwrap());
+    let summary = summarizer.prepare(&events).unwrap().request;
+    assert!(summary.tools.contains_key("previously_called"));
+    assert_eq!(summary.tools, ordinary.tools);
+    assert_eq!(
+        serde_json::to_vec(&summary.contents[..ordinary.contents.len()]).unwrap(),
+        serde_json::to_vec(&ordinary.contents).unwrap()
+    );
+}
+
+#[test]
 fn preserves_already_masked_prefix() {
     let (mut summarizer, _) = summarizer(vec![], false);
     let mut events = history();

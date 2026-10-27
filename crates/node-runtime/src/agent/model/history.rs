@@ -109,19 +109,24 @@ where
     F: FnOnce(LlmRequest) -> Fut,
     Fut: std::future::Future<Output = adk_core::Result<LlmResponseStream>>,
 {
-    let revisions = output::references(&request.contents);
     project(&mut request, &origin);
-    limit(&mut request, window, &revisions)?;
+    let prepared = output::take_prepared(&mut request, window)?;
+    if !prepared {
+        output::prepare(&mut request, &Default::default()).limit(&mut request, window)?;
+        output::take_prepared(&mut request, window)?;
+    }
     Ok(responses(generate(request).await?, origin))
 }
 
 fn project(request: &mut LlmRequest, origin: &ProviderOrigin) {
     adk_core::history::for_provider(&mut request.contents, origin);
-    mcp::project(&mut request.contents);
     coalesce(&mut request.contents);
 }
 
-pub(in crate::agent) use output::{Masks, Revisions, masked, remask, revisions};
+pub(in crate::agent) use output::{
+    Masks, PREPARED, Prepared, Revisions, masked, prepare, remask, revisions,
+};
+pub(in crate::agent) use output::{mask, protected};
 
 /// Returns a fingerprint of results shortened for the window, if any.
 pub(in crate::agent) fn limit(
@@ -129,21 +134,7 @@ pub(in crate::agent) fn limit(
     window: Option<Window>,
     revisions: &Revisions,
 ) -> adk_core::Result<Option<String>> {
-    output::project_with(&mut request.contents, revisions);
     output::limit(request, window, revisions)
-}
-
-pub(in crate::agent) fn mask(
-    request: &mut LlmRequest,
-    protect: u64,
-    minimum: u64,
-    revisions: &Revisions,
-) -> adk_core::Result<u64> {
-    output::mask(request, protect, minimum, revisions)
-}
-
-pub(in crate::agent) fn protected(name: &str, value: &serde_json::Value) -> bool {
-    output::protected(name, value)
 }
 
 fn stamp(response: &mut LlmResponse, origin: &ProviderOrigin) {
@@ -425,6 +416,91 @@ mod tests {
                 assert_eq!(function_response.response["output"]["call"], "mcp-call");
                 assert_eq!(function_response.response["output"]["revision"], expected);
                 assert_eq!(function_response.response["isError"], true);
+                Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
+            },
+        )
+        .await
+        .unwrap();
+        drop(stream);
+    }
+
+    #[tokio::test]
+    async fn preserves_small_mcp_revision_on_fallback() {
+        let data = serde_json::json!({"text":"canonical evidence ".repeat(200)});
+        let canonical = serde_json::json!({"output":data,"text":[data.to_string()]});
+        let expected = blake3::hash(canonical.to_string().as_bytes())
+            .to_hex()
+            .to_string();
+        let mut request = LlmRequest::new(
+            "fixture",
+            vec![Content {
+                role: "function".into(),
+                parts: vec![Part::FunctionResponse {
+                    id: Some("mcp-call".into()),
+                    function_response: adk_core::FunctionResponseData::new(
+                        "mcp_fixture",
+                        canonical,
+                    ),
+                    annotations: None,
+                }],
+            }],
+        );
+        prepare(&mut request, &Default::default())
+            .limit(
+                &mut request,
+                Some(Window {
+                    context: 10_000,
+                    output: 100,
+                }),
+            )
+            .unwrap();
+        let Part::FunctionResponse {
+            function_response, ..
+        } = &request.contents[0].parts[0]
+        else {
+            unreachable!()
+        };
+        assert_eq!(function_response.response["output"], data);
+        assert_eq!(
+            function_response.response["sailry_output"]["revision"],
+            expected
+        );
+        let projected = serde_json::to_vec(&request.contents).unwrap();
+        prepare(&mut request, &Default::default())
+            .limit(
+                &mut request,
+                Some(Window {
+                    context: 10_000,
+                    output: 100,
+                }),
+            )
+            .unwrap();
+        assert_eq!(serde_json::to_vec(&request.contents).unwrap(), projected);
+        let stream = generate(
+            request,
+            origin(&provider(), "fixture", None, None),
+            Some(Window {
+                context: 1000,
+                output: 100,
+            }),
+            |request| async move {
+                assert!(
+                    request
+                        .config
+                        .as_ref()
+                        .unwrap()
+                        .extensions
+                        .get(PREPARED)
+                        .is_none()
+                );
+                let Part::FunctionResponse {
+                    function_response, ..
+                } = &request.contents[0].parts[0]
+                else {
+                    unreachable!()
+                };
+                assert_eq!(function_response.response["output"]["call"], "mcp-call");
+                assert_eq!(function_response.response["output"]["revision"], expected);
                 Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
             },
         )

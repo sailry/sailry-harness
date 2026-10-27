@@ -1,8 +1,10 @@
 //! Omit duplicate MCP text only from outgoing model requests.
+#[cfg(test)]
 use adk_core::{Content, Part};
 use serde_json::Value;
 
-pub(super) fn project(contents: &mut [Content]) {
+#[cfg(test)]
+fn project(contents: &mut [Content]) {
     for content in contents {
         for part in &mut content.parts {
             let Part::FunctionResponse {
@@ -14,34 +16,41 @@ pub(super) fn project(contents: &mut [Content]) {
             if !function_response.name.starts_with("mcp_") {
                 continue;
             }
-            let value = &mut function_response.response;
-            let (Some(output), Some(text)) = (
-                value.get("output"),
-                value.get("text").and_then(Value::as_array),
-            ) else {
-                continue;
-            };
-            let retained: Vec<_> = text
-                .iter()
-                .filter(|text| {
-                    text.as_str()
-                        .and_then(|text| serde_json::from_str::<Value>(text).ok())
-                        .as_ref()
-                        != Some(output)
-                })
-                .cloned()
-                .collect();
-            if retained.len() == text.len() {
-                continue;
-            }
-            let object = value.as_object_mut().expect("MCP result has named fields");
-            if retained.is_empty() {
-                object.remove("text");
-            } else {
-                object.insert("text".into(), Value::Array(retained));
+            if let Some(value) = deduplicate(&function_response.response) {
+                function_response.response = value;
             }
         }
     }
+}
+
+pub(super) fn deduplicate(value: &Value) -> Option<Value> {
+    let (Some(output), Some(text)) = (
+        value.get("output"),
+        value.get("text").and_then(Value::as_array),
+    ) else {
+        return None;
+    };
+    let retained: Vec<_> = text
+        .iter()
+        .filter(|text| {
+            text.as_str()
+                .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                .as_ref()
+                != Some(output)
+        })
+        .cloned()
+        .collect();
+    if retained.len() == text.len() {
+        return None;
+    }
+    let mut value = value.clone();
+    let object = value.as_object_mut().expect("MCP result has named fields");
+    if retained.is_empty() {
+        object.remove("text");
+    } else {
+        object.insert("text".into(), Value::Array(retained));
+    }
+    Some(value)
 }
 
 #[cfg(test)]

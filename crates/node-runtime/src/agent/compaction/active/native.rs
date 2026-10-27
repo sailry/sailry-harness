@@ -63,13 +63,20 @@ impl Context {
         self.discard_candidate()?;
         let history = self.history().await?;
         let events = &history.events;
-        let mut request =
-            LlmRequest::new(self.summarizer.model.name(), vec![self.preamble().clone()]);
-        request
-            .contents
-            .extend(super::super::history::prefix(events));
-        request.tools = prompt::session::declarations(events)?;
-        let tokens = self.tokens(&request, &[]).await?;
+        let tools = self
+            .tools
+            .lock()
+            .map_err(|_| invalid("model declarations are unavailable"))?
+            .clone();
+        let mut request = self.summarizer.canonical_request(events, &[], tools);
+        // Keep the canonical request intact for commit's exact tail match.
+        let tokens = {
+            let mut measured = request.clone();
+            let mut outputs =
+                model::history::prepare(&mut measured, &model::history::revisions(events));
+            outputs.remask(&mut measured, &self.state.masked()?);
+            self.tokens(&measured, &[], &outputs).await?
+        };
         let skipped = json!({
             "status":"skipped", "context_tokens":tokens,
             "trigger_tokens":self.summarizer.budget(),
@@ -107,24 +114,20 @@ impl Context {
             return Err(AdkError::tool("context compaction was cancelled"));
         }
         let id = summary.id.clone();
-        self.service
-            .append_event(&self.session.to_string(), summary)
-            .await
-            .map_err(save_error)?;
-        *self
-            .checkpoint
-            .lock()
-            .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
+        let tokens = self
+            .commit(
+                &mut request,
+                &history,
+                cut,
+                summary,
+                0,
+                "",
+                &[],
+                SummaryMode::Manual,
+            )
+            .await?;
         // Later automatic callbacks must retain the exchanges protected here.
         self.retention.store(2, Ordering::Relaxed);
-        self.applied.store(true, Ordering::Relaxed);
-        let current = self.history().await?;
-        matching::rebuild(&mut request, &current.events, self.preamble(), "")?;
-        let revisions = model::history::revisions(&current.events);
-        let tokens = self.retain(&mut request, &revisions)?;
-        // The summary is durable even if fixed retained context cannot fit.
-        // The next ordinary model boundary still enforces its input capacity.
-        self.invalidate(&request, &[]).await?;
         Ok(
             json!({"status":"compacted", "summary_id":id, "context_tokens":tokens, "trigger_tokens":self.summarizer.budget()}),
         )

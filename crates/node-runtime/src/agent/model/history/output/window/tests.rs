@@ -240,8 +240,8 @@ fn keeps_results_that_fit_the_window() {
     let mut request = LlmRequest::new(
         "fixture",
         vec![
-            result("large", "mcp_fixture", large.clone()),
-            result("small", "mcp_fixture", json!({"text":"small"})),
+            result("large", "ordinary_fixture", large.clone()),
+            result("small", "ordinary_fixture", json!({"text":"small"})),
         ],
     );
     let roomy = Window {
@@ -264,12 +264,123 @@ fn keeps_results_that_fit_the_window() {
     let mut repeated = LlmRequest::new(
         "fixture",
         vec![
-            result("large", "mcp_fixture", large),
-            result("small", "mcp_fixture", json!({"text":"small"})),
+            result("large", "ordinary_fixture", large),
+            result("small", "ordinary_fixture", json!({"text":"small"})),
         ],
     );
     assert_eq!(
         limit(&mut repeated, Some(tight), &Revisions::new()).unwrap(),
         fingerprint
+    );
+}
+
+#[test]
+fn deduplicates_before_context_measurement() {
+    let output = json!({"text":"canonical evidence ".repeat(2000)});
+    let canonical = json!({"output":output,"text":[output.to_string()]});
+    let mut request = LlmRequest::new(
+        "fixture",
+        vec![result("call", "mcp_fixture", canonical.clone())],
+    );
+    let original = estimate::request(&request).unwrap();
+    let mut prepared = prepare(&mut request, &Revisions::new());
+    assert!(prepared.tokens(&request).unwrap() < original * 3 / 4);
+    assert_eq!(
+        prepared.tokens(&request).unwrap(),
+        estimate::request(&request).unwrap()
+    );
+    assert!(value(&request, 0).get("text").is_none());
+    assert!(prepared.mask(&mut request, 0, 1).unwrap() > 0);
+    assert_eq!(value(&request, 0)["output"]["revision"], hash(&canonical));
+    assert_eq!(
+        prepared.tokens(&request).unwrap(),
+        estimate::request(&request).unwrap()
+    );
+}
+
+#[test]
+fn preserves_revisions_after_prepared_invalidation() {
+    let output = json!({"text":"canonical evidence ".repeat(200)});
+    let canonical = json!({"output":output,"text":[output.to_string()]});
+    let mut request = LlmRequest::new(
+        "fixture",
+        vec![result("call", "mcp_fixture", canonical.clone())],
+    );
+    prepare(&mut request, &Revisions::new())
+        .limit(&mut request, None)
+        .unwrap();
+    let tight = Window {
+        context: 1000,
+        output: 100,
+    };
+    assert!(!take_prepared(&mut request, Some(tight)).unwrap());
+    prepare(&mut request, &Revisions::new())
+        .limit(&mut request, Some(tight))
+        .unwrap();
+    assert_eq!(value(&request, 0)["output"]["revision"], hash(&canonical));
+}
+
+#[test]
+fn measures_pending_revisions_in_canonical_order() {
+    let older = json!({"text":"older evidence ".repeat(500)});
+    let latest = json!({"text":"latest evidence"});
+    let mut request = LlmRequest::new(
+        "fixture",
+        vec![
+            result("reused", "ordinary", older),
+            result("reused", "ordinary", latest.clone()),
+        ],
+    );
+    let mut outputs = prepare(&mut request, &Revisions::new());
+    outputs.mask(&mut request, 1, 1).unwrap();
+    let mut event = adk_core::Event::new("pending");
+    event.set_content(result("reused", "ordinary", latest));
+    assert_eq!(
+        outputs.pending_tokens(std::slice::from_ref(&event)),
+        estimate::tokens(&[event])
+    );
+}
+
+#[test]
+fn verifies_prepared_request_boundaries() {
+    let window = Window {
+        context: 10_000,
+        output: 1000,
+    };
+    let mut request = LlmRequest::new(
+        "fixture",
+        vec![result("call", "ordinary", json!({"text":"evidence"}))],
+    );
+    prepare(&mut request, &Revisions::new())
+        .limit(&mut request, Some(window))
+        .unwrap();
+    let mut unchanged = request.clone();
+    assert!(take_prepared(&mut unchanged, Some(window)).unwrap());
+    assert!(
+        unchanged
+            .config
+            .as_ref()
+            .unwrap()
+            .extensions
+            .get(PREPARED)
+            .is_none()
+    );
+    let mut changed = request.clone();
+    if let Part::FunctionResponse {
+        function_response, ..
+    } = &mut changed.contents[0].parts[0]
+    {
+        function_response.response["text"] = json!("different content");
+    }
+    assert!(!take_prepared(&mut changed, Some(window)).unwrap());
+    assert!(
+        !take_prepared(
+            &mut request,
+            Some(Window {
+                context: 100,
+                output: 50
+            })
+        )
+        .unwrap()
     );
 }

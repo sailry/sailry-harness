@@ -41,7 +41,10 @@ pub(super) fn lines(original: &Value, source: &Value) -> Option<Value> {
         page.revision
     );
     if omitted > 0 {
-        text.push_str("Use read_tool_output with output, offset and limit for omitted text\n");
+        text.push_str(&format!(
+            "Use {} for omitted text\n",
+            crate::process::output::hint(crate::process::output::ReadHint::Output)
+        ));
     }
     if let Some(offset) = next {
         text.push_str(&format!("Continue read_file with offset={offset}\n"));

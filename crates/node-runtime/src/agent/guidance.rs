@@ -32,6 +32,7 @@ pub(super) fn bind(
     resources: Arc<crate::plugins::resources::Resources>,
     tools: BTreeMap<String, Vec<String>>,
     stop: CancellationToken,
+    limit: Option<u32>,
 ) -> (BeforeModelCallback, AfterModelCallback) {
     let ingress = ingress.clone();
     let invocation = invocation.clone();
@@ -40,11 +41,6 @@ pub(super) fn bind(
     let child = invocation.child.is_some();
     let inputs = Arc::new(Mutex::new(Inputs::default()));
     let tools = Arc::new(tools);
-    let limit = invocation
-        .child
-        .as_ref()
-        .and_then(|child| child.role.as_ref())
-        .and_then(|role| role.max_turns);
     let continuation = continue_pending(&ingress, owner, inputs.clone(), stop.clone(), limit);
     let before: BeforeModelCallback = Box::new(move |callback, mut request| {
         let ingress = ingress.clone();
@@ -104,12 +100,13 @@ pub(super) fn bind(
                     return Err(AdkError::agent("guidance was cancelled"));
                 }
                 batch
-                    .append_guidance(
+                    .append(
                         &ingress,
                         session,
                         owner,
                         callback.invocation_id(),
                         if child { "parent" } else { "user" },
+                        None,
                         context_event,
                     )
                     .await

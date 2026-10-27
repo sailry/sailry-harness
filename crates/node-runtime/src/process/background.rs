@@ -30,7 +30,7 @@ struct Entry {
     explicit: bool,
     background: bool,
     retained: Arc<super::output::Retained>,
-    finished: Option<std::time::Instant>,
+    accessed: std::time::Instant,
 }
 
 pub(crate) struct Finished {
@@ -72,15 +72,38 @@ impl Commands {
     }
 
     fn trim(&self, entries: &mut BTreeMap<RequestId, Entry>) {
-        while entries.len() >= 128 || self.budget.available() < super::output::COMMAND_LIMIT {
+        while entries.len() >= 128 {
             let oldest = entries
                 .iter()
-                .filter_map(|(id, entry)| entry.finished.map(|finished| (*id, finished)))
-                .min_by_key(|(_, finished)| *finished)
-                .map(|(id, _)| id);
+                .filter(|(_, entry)| {
+                    !matches!(entry.info.status, Status::Running | Status::Stopping)
+                })
+                .min_by_key(|(_, entry)| entry.accessed)
+                .map(|(id, _)| *id);
             let Some(entry) = oldest.and_then(|id| entries.remove(&id)) else {
                 break;
             };
+            entry.retained.evict();
+        }
+        let needed = super::output::COMMAND_LIMIT.saturating_sub(self.budget.available());
+        let mut candidates = entries
+            .values_mut()
+            .filter(|entry| !matches!(entry.info.status, Status::Running | Status::Stopping))
+            .filter_map(|entry| {
+                let bytes = entry.retained.bytes();
+                (bytes > 0).then_some((entry, bytes))
+            })
+            .collect::<Vec<_>>();
+        // Do not destroy every finished result if active reservations still
+        // prevent the requested command from obtaining its normal quota.
+        if candidates.iter().map(|(_, bytes)| *bytes).sum::<usize>() < needed {
+            return;
+        }
+        candidates.sort_by_key(|(entry, _)| entry.accessed);
+        for (entry, _) in candidates {
+            if self.budget.available() >= super::output::COMMAND_LIMIT {
+                break;
+            }
             entry.retained.evict();
         }
     }
@@ -167,7 +190,7 @@ impl Commands {
                 explicit: false,
                 background: true,
                 retained: retained.clone(),
-                finished: None,
+                accessed: std::time::Instant::now(),
             },
         );
         let owner = self.clone();
@@ -219,7 +242,7 @@ impl Commands {
                         git.invalidate(root);
                     }
                     entry.info.status = status;
-                    entry.finished = Some(std::time::Instant::now());
+                    entry.accessed = std::time::Instant::now();
                     entry.input.take();
                     entry.info.services.clear();
                     owner.changes.send_replace(());
@@ -303,7 +326,7 @@ impl Commands {
                 explicit: false,
                 background: false,
                 retained: retained.clone(),
-                finished: None,
+                accessed: std::time::Instant::now(),
             },
         );
         retained
@@ -321,7 +344,7 @@ impl Commands {
                 Ok(completion) => Status::Finished(completion.outcome.clone()),
                 Err(error) => Status::Failed(error.message.clone()),
             };
-            entry.finished = Some(std::time::Instant::now());
+            entry.accessed = std::time::Instant::now();
             if let Ok(completion) = result {
                 entry.output =
                     watch::channel((completion.stdout.clone(), completion.stderr.clone())).1;
@@ -334,13 +357,13 @@ impl Commands {
         session: SessionId,
         id: RequestId,
     ) -> Result<Arc<super::output::Retained>, Fault> {
-        self.entries
-            .lock()
-            .unwrap()
-            .get(&id)
+        let mut entries = self.entries.lock().unwrap();
+        let entry = entries
+            .get_mut(&id)
             .filter(|entry| entry.info.session == session)
-            .map(|entry| entry.retained.clone())
-            .ok_or_else(missing)
+            .ok_or_else(missing)?;
+        entry.accessed = std::time::Instant::now();
+        Ok(entry.retained.clone())
     }
 
     pub(crate) fn page(
@@ -352,22 +375,24 @@ impl Commands {
         limit: usize,
     ) -> Result<sailry_protocol::process::OutputPage, Fault> {
         let (info, retained) = {
-            let entries = self.entries.lock().unwrap();
+            let mut entries = self.entries.lock().unwrap();
             let entry = entries
-                .get(&id)
+                .get_mut(&id)
                 .filter(|entry| entry.info.session == session)
                 .ok_or_else(missing)?;
+            entry.accessed = std::time::Instant::now();
             (entry.info.clone(), entry.retained.clone())
         };
         retained.page(info, stream, offset, limit)
     }
 
     pub fn read(&self, session: SessionId, id: RequestId) -> Result<Snapshot, Fault> {
-        let entries = self.entries.lock().unwrap();
+        let mut entries = self.entries.lock().unwrap();
         let entry = entries
-            .get(&id)
+            .get_mut(&id)
             .filter(|entry| entry.info.session == session)
             .ok_or_else(missing)?;
+        entry.accessed = std::time::Instant::now();
         let (stdout, stderr) = entry.output.borrow().clone();
         Ok(Snapshot {
             info: entry.info.clone(),
@@ -499,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn replenishes_budget_by_completion_order() {
+    fn replenishes_budget_with_finished_eviction() {
         use sailry_protocol::process::{Completion, OutputStream};
         let profile = tempfile::tempdir().unwrap();
         let commands = Commands {
@@ -531,10 +556,7 @@ mod tests {
         );
         let next_id = RequestId::new();
         let next = commands.retain(next_id, session, TurnId::new(), &launch(profile.path()));
-        assert_eq!(
-            commands.read(session, second_id).unwrap_err().code,
-            ErrorCode::NotFound
-        );
+        assert!(commands.read(session, second_id).is_ok());
         assert!(commands.read(session, first_id).is_ok());
         // Eviction releases files and quota even while a reader owns the old Arc.
         assert_eq!(
@@ -612,6 +634,102 @@ mod tests {
             assert!(!page.truncated);
             assert_eq!(page.info.status, Status::Running);
         }
+    }
+
+    #[test]
+    fn keeps_finished_output_without_reclaimable_capacity() {
+        use sailry_protocol::process::{Completion, OutputStream};
+        let profile = tempfile::tempdir().unwrap();
+        let commands = Commands {
+            budget: Arc::new(super::super::output::Budget::limited(
+                super::super::output::COMMAND_LIMIT + 128,
+            )),
+            ..Default::default()
+        };
+        let session = SessionId::new();
+        let id = RequestId::new();
+        let retained = commands.retain(id, session, TurnId::new(), &launch(profile.path()));
+        retained.append(OutputStream::Stdout, b"saved");
+        commands.finish(
+            id,
+            Ok(&Completion {
+                outcome: Outcome::Exited(0),
+                stdout: Capture::default(),
+                stderr: Capture::default(),
+                elapsed_ms: 1,
+            }),
+        );
+        let _active = commands.retain(
+            RequestId::new(),
+            session,
+            TurnId::new(),
+            &launch(profile.path()),
+        );
+        let _overflow = commands.retain(
+            RequestId::new(),
+            session,
+            TurnId::new(),
+            &launch(profile.path()),
+        );
+        assert_eq!(
+            commands
+                .page(session, id, OutputStream::Stdout, 0, 100)
+                .unwrap()
+                .text,
+            "saved"
+        );
+    }
+
+    #[test]
+    fn recent_pages_preserve_finished_output() {
+        use sailry_protocol::process::{Completion, OutputStream};
+        let profile = tempfile::tempdir().unwrap();
+        let commands = Commands {
+            budget: Arc::new(super::super::output::Budget::limited(
+                2 * super::super::output::COMMAND_LIMIT,
+            )),
+            ..Default::default()
+        };
+        let session = SessionId::new();
+        let first = RequestId::new();
+        let second = RequestId::new();
+        let bytes = vec![b'x'; super::super::output::COMMAND_LIMIT / 2];
+        for id in [first, second] {
+            let retained = commands.retain(id, session, TurnId::new(), &launch(profile.path()));
+            retained.append(OutputStream::Stdout, &bytes);
+            retained.append(OutputStream::Stderr, &bytes);
+            commands.finish(
+                id,
+                Ok(&Completion {
+                    outcome: Outcome::Exited(0),
+                    stdout: Capture::default(),
+                    stderr: Capture::default(),
+                    elapsed_ms: 1,
+                }),
+            );
+        }
+        commands
+            .page(session, first, OutputStream::Stdout, 0, 100)
+            .unwrap();
+        let _next = commands.retain(
+            RequestId::new(),
+            session,
+            TurnId::new(),
+            &launch(profile.path()),
+        );
+        assert!(
+            commands
+                .page(session, first, OutputStream::Stdout, 0, 100)
+                .is_ok()
+        );
+        assert_eq!(
+            commands
+                .page(session, second, OutputStream::Stdout, 0, 100)
+                .unwrap_err()
+                .code,
+            ErrorCode::Unavailable
+        );
+        assert!(commands.read(session, second).is_ok());
     }
 
     async fn finished(commands: &Commands, session: SessionId, id: RequestId) -> Snapshot {

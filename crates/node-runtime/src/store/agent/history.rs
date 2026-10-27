@@ -414,19 +414,7 @@ async fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> R
         })
         .transpose()?
         .unwrap_or_default();
-    names.extend(
-        event
-            .content()
-            .into_iter()
-            .flat_map(|content| &content.parts)
-            .filter_map(|part| {
-                if let adk_core::Part::FunctionCall { name, .. } = part {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            }),
-    );
+    names.extend(crate::agent::called_tools(event.content()));
     remember(db, session, names).await
 }
 

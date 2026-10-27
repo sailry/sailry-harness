@@ -46,14 +46,12 @@ fn pages_complete_unicode_after_finish() {
     assert_eq!(actual, text);
     let preview = retained.preview(info().id).unwrap();
     let preview = &preview["stdout"];
-    assert!(preview["head"].as_str().unwrap().starts_with("header\n"));
     assert!(preview["tail"].as_str().unwrap().ends_with("last failure"));
-    let head = preview["head_bytes"].as_u64().unwrap() as usize;
     let tail = preview["tail_offset"].as_u64().unwrap() as usize;
     assert_eq!(preview["total_bytes"], text.len());
-    assert_eq!(preview["head"], &text[..head]);
+    assert!(preview.get("head").is_none());
     assert_eq!(preview["tail"], &text[tail..]);
-    assert!(head <= HEAD && text.len() - tail <= TAIL);
+    assert!(text.len() - tail <= TAIL);
 }
 
 #[test]
@@ -219,7 +217,7 @@ fn reports_raw_size_beyond_stream_quota() {
     retained.append(OutputStream::Stdout, b"last failure");
     retained.finish();
     let page = retained
-        .page(info(), OutputStream::Stdout, STREAM_LIMIT - PAGE, PAGE)
+        .page(info(), OutputStream::Stdout, raw.len() + 12 - PAGE, PAGE)
         .unwrap();
     assert!(page.truncated);
     assert_eq!(page.text.len(), PAGE);
@@ -229,9 +227,126 @@ fn reports_raw_size_beyond_stream_quota() {
     let preview = &preview["stdout"];
     assert_eq!(preview["total_bytes"], page.total_bytes);
     assert_eq!(preview["retained_bytes"], STREAM_LIMIT);
-    assert_eq!(preview["head_bytes"], HEAD);
+    assert_eq!(preview["retained_head_bytes"], PREFIX_LIMIT);
     assert_eq!(preview["tail_offset"], page.total_bytes - TAIL as u64);
     assert!(preview["tail"].as_str().unwrap().ends_with("last failure"));
+}
+
+#[test]
+fn pages_rolling_tail_at_original_offsets() {
+    let retained = Retained::default();
+    let prefix = b"test suite started\n";
+    retained.append(OutputStream::Stdout, prefix);
+    let logs = vec![b'x'; 20 * 1024 * 1024];
+    for chunk in logs.chunks(8191) {
+        retained.append(OutputStream::Stdout, chunk);
+    }
+    let failures = format!(
+        "\nfailures:\n{}last failure\n",
+        "failed assertion 中文🙂\n".repeat(2000)
+    );
+    assert!(failures.len() > 30 * 1024);
+    let start = prefix.len() + logs.len();
+    retained.append(OutputStream::Stdout, failures.as_bytes());
+    retained.finish();
+    assert_eq!(
+        retained
+            .page(info(), OutputStream::Stdout, 0, prefix.len())
+            .unwrap()
+            .text
+            .as_bytes(),
+        prefix
+    );
+    let mut offset = start;
+    let mut actual = String::new();
+    loop {
+        let page = retained
+            .page(info(), OutputStream::Stdout, offset, 4093)
+            .unwrap();
+        assert_eq!(page.offset, offset);
+        assert!(page.truncated && !page.invalid_utf8);
+        assert_eq!(page.total_bytes, (start + failures.len()) as u64);
+        actual.push_str(&page.text);
+        match page.next_offset {
+            Some(next) => {
+                assert!(next > offset);
+                offset = next;
+            }
+            None => break,
+        }
+    }
+    assert_eq!(actual, failures);
+    let preview = retained.preview(info().id).unwrap();
+    let tail = preview["stdout"]["retained_tail_offset"].as_u64().unwrap() as usize;
+    let page = retained
+        .page(info(), OutputStream::Stdout, PREFIX_LIMIT - 100, 100)
+        .unwrap();
+    assert_eq!(page.next_offset, Some(tail));
+    assert!(
+        retained
+            .page(info(), OutputStream::Stdout, PREFIX_LIMIT + 1, 100)
+            .is_err()
+    );
+    assert_eq!(retained.stdout.lock().unwrap().retained, STREAM_LIMIT);
+}
+
+#[test]
+fn pages_unicode_across_the_retention_gap() {
+    let retained = Retained::default();
+    let text = format!("x{}", "中文🙂".repeat(500_000));
+    for bytes in text.as_bytes().chunks(8191) {
+        retained.append(OutputStream::Stdout, bytes);
+    }
+    retained.finish();
+    let mut head = PREFIX_LIMIT;
+    while !text.is_char_boundary(head) {
+        head -= 1;
+    }
+    let mut tail = text.len() - (STREAM_LIMIT - PREFIX_LIMIT);
+    while !text.is_char_boundary(tail) {
+        tail += 1;
+    }
+    let preview = retained.preview(info().id).unwrap();
+    assert_eq!(preview["stdout"]["retained_head_bytes"], head);
+    assert_eq!(preview["stdout"]["retained_tail_offset"], tail);
+    let mut actual = String::new();
+    let mut offset = 0;
+    let mut jumped = false;
+    loop {
+        let page = retained
+            .page(info(), OutputStream::Stdout, offset, PAGE)
+            .unwrap();
+        assert!(!page.invalid_utf8);
+        actual.push_str(&page.text);
+        let Some(next) = page.next_offset else {
+            break;
+        };
+        if offset + page.text.len() == head {
+            assert_eq!(next, tail);
+            jumped = true;
+        }
+        offset = next;
+    }
+    assert!(jumped);
+    assert_eq!(actual, format!("{}{}", &text[..head], &text[tail..]));
+}
+
+#[test]
+fn late_bytes_preserve_finished_pages() {
+    let retained = Retained::default();
+    retained.append(OutputStream::Stdout, b"saved evidence");
+    retained.finish();
+    retained.append(OutputStream::Stdout, &vec![b'x'; 70 * 1024]);
+    let page = retained
+        .page(info(), OutputStream::Stdout, 0, PAGE)
+        .unwrap();
+    assert_eq!(page.text, "saved evidence");
+    assert!(page.truncated);
+    assert_eq!(page.total_bytes, 14 + 70 * 1024);
+    assert_eq!(
+        retained.preview(info().id).unwrap()["stdout"]["retained_end"],
+        14
+    );
 }
 
 #[test]

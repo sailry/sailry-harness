@@ -5,24 +5,32 @@ use serde_json::Value;
 /// Estimate the complete neutral envelope, including the summary prompt and JSON framing.
 /// This is not the provider's tokenizer or an exact context measurement.
 pub(in crate::agent) fn request(request: &LlmRequest) -> adk_core::Result<u64> {
+    Ok(envelope(request)?
+        + request
+            .contents
+            .iter()
+            .map(|content| 4 + content.parts.iter().map(part).sum::<u64>())
+            .sum::<u64>())
+}
+
+pub(in crate::agent) fn envelope(request: &LlmRequest) -> adk_core::Result<u64> {
+    let mut config = request.config.clone();
+    if let Some(config) = &mut config {
+        config
+            .extensions
+            .remove(super::super::model::history::PREPARED);
+    }
     let envelope = LlmRequest {
         model: request.model.clone(),
         contents: Vec::new(),
-        config: request.config.clone(),
+        config,
         tools: Default::default(),
         previous_response_id: request.previous_response_id.clone(),
     };
     // LlmRequest deliberately skips tools during serialization.
     let framing = serde_json::to_string(&(&envelope, &request.tools))
         .map_err(|_| adk_core::AdkError::model("context request could not be encoded"))?;
-    // Inline binary bytes are not tokens. Reuse the pending-content estimator
-    // for parts while including the request's real configuration and tools.
-    Ok(text(&framing)
-        + request
-            .contents
-            .iter()
-            .map(|content| 4 + content.parts.iter().map(part).sum::<u64>())
-            .sum::<u64>())
+    Ok(text(&framing))
 }
 
 pub(crate) fn tokens(events: &[Event]) -> u64 {
@@ -42,20 +50,7 @@ pub(in crate::agent) fn part(part: &Part) -> u64 {
         Part::FunctionCall { name, args, .. } => text(name) + json(args),
         Part::FunctionResponse {
             function_response, ..
-        } => {
-            text(&function_response.name)
-                + json(&function_response.response)
-                + function_response
-                    .inline_data
-                    .iter()
-                    .map(|part| media(&part.mime_type, &part.data))
-                    .sum::<u64>()
-                + function_response
-                    .file_data
-                    .iter()
-                    .map(|part| media(&part.mime_type, &[]))
-                    .sum::<u64>()
-        }
+        } => response(function_response, json(&function_response.response)),
         Part::ProviderData { .. } => match part.provider_part() {
             Part::ProviderData { .. } => 0,
             inner => self::part(inner),
@@ -75,6 +70,24 @@ pub(in crate::agent) fn part(part: &Part) -> u64 {
             resource: EmbeddedResource::Blob(blob),
         } => media(blob.mime_type.as_deref().unwrap_or(""), &blob.data),
     }
+}
+
+pub(in crate::agent) fn response(
+    response: &adk_core::FunctionResponseData,
+    value_tokens: u64,
+) -> u64 {
+    text(&response.name)
+        + value_tokens
+        + response
+            .inline_data
+            .iter()
+            .map(|part| media(&part.mime_type, &part.data))
+            .sum::<u64>()
+        + response
+            .file_data
+            .iter()
+            .map(|part| media(&part.mime_type, &[]))
+            .sum::<u64>()
 }
 
 pub(in crate::agent) fn text(value: &str) -> u64 {

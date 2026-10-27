@@ -23,6 +23,7 @@ pub(crate) use model::plugin::{
 mod plugins;
 mod prompt;
 pub(crate) use prompt::session::METADATA as CONTEXT_METADATA;
+pub(crate) use prompt::session::called as called_tools;
 pub(crate) use prompt::session::compose as compose_context;
 mod question;
 mod references;
@@ -541,7 +542,7 @@ async fn execute_with(
         }
     }
     let declarations = prompt_session.declarations(&extensions.tools);
-    let preflight_tools = prompt::session::project(declarations.clone());
+    let preflight_tools = prompt::session::project(declarations.clone(), &prompt_session.loaded());
     prompt_session
         .append(ingress, &invocation, policy, environment, personal, &stop)
         .await?;
@@ -564,6 +565,7 @@ async fn execute_with(
         resources,
         capability_tools,
         stop.clone(),
+        limit,
     );
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         // ADK requires a numeric ceiling; only explicit role budgets constrain tasks.
@@ -664,12 +666,16 @@ async fn execute_with(
     inputs
         .append(
             ingress,
-            &invocation,
+            invocation.turn.session,
+            invocation.turn.id,
+            &invocation.turn.id.to_string(),
             if invocation.child.is_some() {
                 "parent"
             } else {
                 "user"
             },
+            Some(input_turn),
+            None,
         )
         .await?;
     let mut runner_span = diagnostics.span(Phase::Runner, None);

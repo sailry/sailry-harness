@@ -320,7 +320,13 @@ fn preserves_both_command_stream_edges() {
         let text = projected[stream]["text"].as_str().unwrap();
         assert!(text.starts_with(&format!("{stream} first")));
         assert!(text.ends_with(&format!("{stream} last")));
-        let offset = projected[stream]["head_bytes"].as_u64().unwrap();
+        let offset = if stream == "stderr" {
+            assert!(projected[stream].get("head_bytes").is_none());
+            assert!(projected[stream].get("omitted_bytes").is_none());
+            0
+        } else {
+            projected[stream]["head_bytes"].as_u64().unwrap()
+        };
         assert!(text.contains(&format!(
             "read_command id=command stream={stream} offset={offset}"
         )));
@@ -333,6 +339,105 @@ fn preserves_both_command_stream_edges() {
     assert!(projected.get("text").is_none());
 }
 
+#[tokio::test]
+async fn restarts_lossy_captures_at_raw_zero() {
+    use sailry_protocol::{
+        RequestId, SessionId, TurnId,
+        process::{Access, Capture, Info, Outcome, OutputStream, Status},
+    };
+    use std::{sync::Arc, time::Duration};
+    use tokio::io::AsyncWriteExt;
+
+    for mode in 0..3 {
+        let mut raw = vec![0xff];
+        raw.extend(std::iter::repeat_n(b'x', 8188));
+        raw.extend_from_slice("中".as_bytes());
+        raw.extend(std::iter::repeat_n(
+            b'x',
+            if mode == 0 { 20_000 } else { 70_000 },
+        ));
+        let profile = tempfile::tempdir().unwrap();
+        let retained = Arc::new(crate::process::output::Retained::new(
+            profile.path(),
+            Arc::default(),
+        ));
+        let (mut writer, reader) = tokio::io::duplex(raw.len());
+        writer.write_all(&raw).await.unwrap();
+        writer.shutdown().await.unwrap();
+        let mut drain = crate::process::output::Drain::with_retained(
+            reader,
+            tokio::io::empty(),
+            false,
+            Some(retained.clone()),
+        );
+        let (capture, _, error) = drain.finish(Duration::from_secs(1)).await;
+        assert!(error.is_none() && capture.invalid_utf8);
+        retained.finish();
+        let info = Info {
+            id: RequestId::new(),
+            session: SessionId::new(),
+            turn: TurnId::new(),
+            command: "fixture".into(),
+            access: Access::Workspace,
+            pty: false,
+            cwd: String::new(),
+            started_ms: 0,
+            status: Status::Finished(Outcome::Exited(0)),
+            services: Vec::new(),
+        };
+        // Lossy decoding expands the first byte by two, so the old displayed
+        // head length pointed into the final byte of this raw character.
+        let (head, _) = crate::process::output::edges(capture.text.as_bytes(), 8192, 0);
+        assert_eq!(head, 8191);
+        assert!(
+            retained
+                .page(info.clone(), OutputStream::Stdout, head, 100)
+                .is_err()
+        );
+        let mut original = json!({"kind":"command_result","data":{
+            "stdout":capture,"stderr":Capture::default(),
+            "outcome":{"kind":"exited","data":0},"elapsed_ms":1,
+        }});
+        let mut preview = retained
+            .preview(info.id)
+            .unwrap_or_else(|| json!({"id":info.id}));
+        if mode == 2 {
+            let head = retained
+                .page(info.clone(), OutputStream::Stdout, 0, 8192)
+                .unwrap();
+            preview["stdout"]["head"] = json!(head.text);
+            preview["stdout"]["head_invalid_utf8"] = json!(head.invalid_utf8);
+            original["data"]["stdout"] = json!({
+                "text":String::from_utf8_lossy(&raw[raw.len() - 64 * 1024..]),
+                "invalid_utf8":false,"truncated":true,
+            });
+        }
+        original["sailry_command"] = preview;
+        let mut request = vec![response("declared_command", original)];
+        project(&mut request);
+        let projected = &value(&request[0])["data"]["stdout"];
+        assert!(projected["text"].as_str().unwrap().contains(&format!(
+            "read_command id={} stream=stdout offset=0",
+            info.id
+        )));
+        assert_eq!(projected["invalid_utf8"], true);
+        for key in ["head_bytes", "omitted_bytes", "captured_bytes"] {
+            assert!(projected.get(key).is_none());
+        }
+        if mode == 0 {
+            assert!(projected.get("total_bytes").is_none());
+            assert!(projected.get("tail_offset").is_none());
+        } else {
+            assert_eq!(projected["total_bytes"], raw.len());
+            assert!(projected["tail_offset"].is_u64());
+        }
+        let page = retained.page(info, OutputStream::Stdout, 0, 8192).unwrap();
+        assert_eq!(page.offset, 0);
+        assert_eq!(page.next_offset, Some(8192));
+        assert!(page.invalid_utf8 && page.text.ends_with('中'));
+    }
+}
+
 #[test]
 fn preserves_raw_preview_coordinates() {
     let total = 20 * 1024 * 1024 + 3;
@@ -341,11 +446,11 @@ fn preserves_raw_preview_coordinates() {
     let tail = format!("{}END", "🙂".repeat(2047));
     let tail_offset = total - tail.len();
     let original = json!({"kind":"command_result","data":{
-        "stdout":{"text":"canonical prefix ".repeat(4000),"truncated":true,"invalid_utf8":false},
+        "stdout":{"text":format!("{head}{}", "canonical prefix ".repeat(4000)),"truncated":true,"invalid_utf8":false},
         "stderr":{"text":"","truncated":false,"invalid_utf8":false}},
         "sailry_command":{"id":"retained", "stdout":{
-            "head":head,"head_bytes":head.len(),"tail":tail,"tail_offset":tail_offset,
-            "total_bytes":total,"retained_bytes":4 * 1024 * 1024,"invalid_utf8":false}}
+            "tail":tail,"tail_offset":tail_offset,"retained_head_bytes":1024 * 1024,
+            "total_bytes":total,"retained_bytes":4 * 1024 * 1024,"retained_tail_offset":total - 3 * 1024 * 1024,"retained_end":total,"invalid_utf8":false}}
     });
     let mut request = vec![response("declared_command", original.clone())];
     project(&mut request);
@@ -364,13 +469,28 @@ fn preserves_raw_preview_coordinates() {
     assert!(text.contains("read_command id=retained stream=stdout offset=8192"));
     assert!(text.contains("read_tool_output with output"));
     assert!(text.contains(&format!("tail starts at offset={tail_offset}")));
-    assert!(text.contains("raw retention ends at offset=4194304"));
+    assert!(text.contains(&format!("retained output ends at offset={total}")));
+    assert!(original["sailry_command"]["stdout"].get("head").is_none());
     assert_eq!(
         projected["output"]["revision"],
         blake3::hash(original.to_string().as_bytes())
             .to_hex()
             .to_string()
     );
+}
+
+#[test]
+fn avoids_read_hints_outside_retained_capacity() {
+    let original = json!({"kind":"command_result", "data":{
+        "stdout":{"text":"captured ".repeat(6000),"truncated":true,"invalid_utf8":false}, "stderr":{"text":"","truncated":false,"invalid_utf8":false}},
+        "sailry_command":{"id":"empty", "stdout":{"tail":"last failure","tail_offset":200_000,"total_bytes":200_012,"retained_bytes":0,"retained_head_bytes":0,"retained_tail_offset":0,"retained_end":0,"invalid_utf8":false}}});
+    let mut request = vec![response("declared_command", original)];
+    project(&mut request);
+    let text = value(&request[0])["data"]["stdout"]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text.contains("read_tool_output"));
+    assert!(!text.contains("read_command"));
 }
 
 #[test]

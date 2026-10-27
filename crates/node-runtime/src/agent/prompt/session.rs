@@ -136,6 +136,13 @@ impl Session {
         loaded(self.state.get(LOADED_TOOLS))
     }
 
+    pub fn tools(&self) -> HashMap<String, Value> {
+        project(
+            self.snapshot.tools.clone().unwrap_or_default(),
+            &self.loaded(),
+        )
+    }
+
     pub fn declarations(&mut self, tools: &[Registration]) -> BTreeMap<String, Declaration> {
         let mut declarations = self.snapshot.declarations(tools);
         let loaded = self.loaded();
@@ -312,19 +319,14 @@ pub(crate) fn compose(
     state.retain(|key, _| {
         matches!(
             key.as_str(),
-            SNAPSHOT
-                | POLICY
-                | ENVIRONMENT
-                | PERSONAL
-                | LOADED_TOOLS
-                | super::super::compaction::active::MASKS
+            SNAPSHOT | POLICY | ENVIRONMENT | PERSONAL | super::super::compaction::active::MASKS
         ) || key.starts_with("sailry.context.guide:")
     });
     let mut current = BTreeMap::new();
+    let mut capabilities = Vec::new();
     for part in sources {
         if let Part::Text { text } = part {
-            let key = "selected".into();
-            current.insert(key, Part::Text { text: format!(
+            capabilities.push(Part::Text { text: format!(
                 "Retained capability context from an earlier input\nThis text does not select a capability for the current task or grant permission.\n{text}"
             )});
             continue;
@@ -363,30 +365,9 @@ pub(crate) fn compose(
         )});
     }
     let mut parts = context(&state).map_or_else(Vec::new, |content| content.parts);
+    parts.extend(capabilities);
     parts.extend(current.into_values());
     (state, parts)
-}
-
-pub(in crate::agent) fn declarations(events: &[Event]) -> adk_core::Result<HashMap<String, Value>> {
-    let Some(captured) = events
-        .iter()
-        .rev()
-        .find_map(|event| event.actions.state_delta.get(SNAPSHOT))
-    else {
-        return Ok(HashMap::new());
-    };
-    let snapshot: Snapshot = serde_json::from_value(captured.clone())
-        .map_err(|_| adk_core::AdkError::session("captured model declarations are invalid"))?;
-    let loaded = loaded(
-        events
-            .iter()
-            .rev()
-            .find_map(|event| event.actions.state_delta.get(LOADED_TOOLS)),
-    );
-    Ok(snapshot
-        .tools
-        .map(|tools| project_with_loaded(tools, &loaded))
-        .unwrap_or_default())
 }
 
 pub(in crate::agent) fn context(state: &HashMap<String, Value>) -> Option<Content> {
@@ -413,12 +394,6 @@ pub(in crate::agent) fn context(state: &HashMap<String, Value>) -> Option<Conten
     })
 }
 
-pub(in crate::agent) fn project(
-    declarations: BTreeMap<String, Declaration>,
-) -> HashMap<String, Value> {
-    project_with_loaded(declarations, &BTreeSet::new())
-}
-
 pub(in crate::agent) fn loaded(value: Option<&Value>) -> BTreeSet<String> {
     value
         .and_then(Value::as_array)
@@ -429,7 +404,7 @@ pub(in crate::agent) fn loaded(value: Option<&Value>) -> BTreeSet<String> {
         .collect()
 }
 
-pub(in crate::agent) fn project_with_loaded(
+pub(in crate::agent) fn project(
     declarations: BTreeMap<String, Declaration>,
     loaded: &BTreeSet<String>,
 ) -> HashMap<String, Value> {
@@ -437,6 +412,17 @@ pub(in crate::agent) fn project_with_loaded(
         .into_iter()
         .filter(|(name, declaration)| !declaration.deferred || loaded.contains(name))
         .map(|(name, declaration)| (name, declaration.value))
+        .collect()
+}
+
+pub(crate) fn called<'a>(contents: impl IntoIterator<Item = &'a Content>) -> BTreeSet<String> {
+    contents
+        .into_iter()
+        .flat_map(|content| &content.parts)
+        .filter_map(|part| match part {
+            Part::FunctionCall { name, .. } => Some(name.clone()),
+            _ => None,
+        })
         .collect()
 }
 

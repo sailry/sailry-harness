@@ -2,7 +2,7 @@
 use super::*;
 use adk_core::Part;
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 pub(super) async fn read(
     db: &Connection,
@@ -10,7 +10,6 @@ pub(super) async fn read(
     boundary: i64,
 ) -> Result<(HashMap<String, Value>, Vec<Part>), Fault> {
     let mut state = HashMap::new();
-    let mut loaded = BTreeSet::new();
     {
         let mut statement = db
             .prepare(
@@ -20,7 +19,7 @@ pub(super) async fn read(
              AND json_type(e.body,'$.actions.compaction') IS NULL
              AND EXISTS(SELECT 1 FROM json_each(e.body,'$.actions.state_delta') field
                WHERE field.key IN ('sailry.context.declarations','sailry.context.policy',
-                 'sailry.context.environment','sailry.context.personal','sailry.context.loaded_tools','sailry.context.masked_outputs')
+                 'sailry.context.environment','sailry.context.personal','sailry.context.masked_outputs')
                OR field.key GLOB 'sailry.context.guide:*')
              ORDER BY h.sequence",
             )
@@ -32,19 +31,10 @@ pub(super) async fn read(
             .map_err(storage_error)?;
         while let Some(row) = rows.next().await.map_err(storage_error)? {
             let body = row.get::<String>(0).map_err(storage_error)?;
-            let mut delta: HashMap<String, Value> =
+            let delta: HashMap<String, Value> =
                 serde_json::from_str(&body).map_err(storage_error)?;
-            if let Some(value) = delta.remove(LOADED_TOOLS) {
-                loaded.extend(
-                    serde_json::from_value::<BTreeSet<String>>(value).map_err(storage_error)?,
-                );
-            }
             state.extend(delta);
         }
-    }
-    loaded.extend(history::called(db, session, boundary).await?);
-    if !loaded.is_empty() {
-        state.insert(LOADED_TOOLS.into(), serde_json::json!(loaded));
     }
     let mut sources = Vec::new();
     {
@@ -59,9 +49,19 @@ pub(super) async fn read(
                OR json_type(part.value,'$.functionResponse.response.progress')='object'
                OR (json_extract(e.body,'$.author')='user'
                    AND CAST(part.key AS TEXT)=json_extract(e.body,'$.event_metadata."sailry.context.capability_part"')
-                   AND h.sequence=(SELECT max(latest.sequence) FROM conversation_events latest
-                     JOIN agent_events input ON input.sequence=latest.sequence
-                     WHERE latest.session=?1 AND json_extract(input.body,'$.author')='user')))
+                   AND h.sequence=(SELECT max(selected.sequence) FROM conversation_events selected
+                     JOIN agent_events input ON input.sequence=selected.sequence
+                     JOIN agent_runs selected_run ON selected_run.turn=input.turn
+                     WHERE selected.session=?1 AND selected.sequence<=?2
+                       AND json_extract(input.body,'$.author')='user'
+                       AND json_type(input.body,'$.event_metadata."sailry.context.capability_part"') IS NOT NULL
+                       AND coalesce(json_extract(selected_run.body,'$.joined'),selected_run.turn)=(
+                         SELECT coalesce(json_extract(latest_run.body,'$.joined'),latest_run.turn)
+                         FROM conversation_events latest JOIN agent_events latest_input ON latest_input.sequence=latest.sequence
+                         JOIN agent_runs latest_run ON latest_run.turn=latest_input.turn
+                         WHERE latest.session=?1 AND json_extract(latest_input.body,'$.author')='user'
+                           AND json_extract(latest_run.body,'$.notice')=0
+                         ORDER BY latest.sequence DESC LIMIT 1))))
              ORDER BY h.sequence,CAST(part.key AS INTEGER)"#,
             )
             .await

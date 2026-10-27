@@ -51,13 +51,14 @@ impl State {
 
     /// Returns whether a window projection differs from the last one saved.
     pub(super) fn project(&self, fingerprint: Option<String>) -> adk_core::Result<bool> {
-        let Some(fingerprint) = fingerprint else {
-            return Ok(false);
-        };
         let mut previous = self
             .projection
             .lock()
             .map_err(|_| invalid("context recovery state is unavailable"))?;
+        let Some(fingerprint) = fingerprint else {
+            *previous = None;
+            return Ok(false);
+        };
         if previous.as_ref() == Some(&fingerprint) {
             return Ok(false);
         }
@@ -98,6 +99,8 @@ mod tests {
         assert!(!state.project(None).unwrap());
         assert!(state.project(Some("first".into())).unwrap());
         assert!(!state.project(Some("first".into())).unwrap());
+        assert!(state.project(Some("second".into())).unwrap());
+        assert!(!state.project(None).unwrap());
         assert!(state.project(Some("second".into())).unwrap());
         state
             .mask(Masks::from([("call".into(), "revision".into())]))

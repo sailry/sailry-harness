@@ -7,8 +7,10 @@ mod commands;
 mod files;
 mod git;
 mod window;
-pub(in crate::agent) use window::{Masks, Revisions, masked, remask, revisions};
-pub(super) use window::{limit, mask, protected, references};
+pub(in crate::agent) use window::{
+    Masks, PREPARED, Prepared, Revisions, masked, prepare, remask, revisions, take_prepared,
+};
+pub(in crate::agent) use window::{limit, mask, protected};
 #[cfg(test)]
 mod tests;
 
@@ -17,135 +19,141 @@ const EDGE: usize = 16 * 1024;
 
 #[cfg(test)]
 fn project(contents: &mut [Content]) {
-    project_with(contents, &Revisions::new());
+    window::Prepared::new(contents, &Revisions::new()).project(contents);
 }
 
-pub(super) fn project_with(contents: &mut [Content], revisions: &Revisions) {
-    let mut calls = BTreeMap::new();
-    for part in contents.iter_mut().flat_map(|content| &mut content.parts) {
-        if let Part::FunctionCall {
-            id: Some(id),
-            name,
-            args,
-            ..
-        } = part
+fn eligible(original: &Value, name: &str, id: &str) -> bool {
+    if original.get("output").is_some_and(|source| {
+        source["call"].as_str() == Some(id)
+            && source["revision"].as_str().is_some_and(|revision| {
+                revision.len() == 64 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+    }) {
+        return false;
+    }
+    let data = original.get("data").unwrap_or(original);
+    original.get("sailry_guide_loaded").is_some()
+        || original["kind"].as_str().is_some_and(|kind| {
+            matches!(
+                kind,
+                "file_lines" | "search_results" | "command_result" | "command_output" | "web_page"
+            ) || kind.starts_with("git_")
+        })
+        || data["lines"].is_array()
+            && data["path"].is_string()
+            && data["revision"].is_string()
+            && data["offset"].is_u64()
+        || data["matches"].is_array() && data.get("mode").is_some()
+        || data["stdout"].is_object() && data["stderr"].is_object()
+        || name.starts_with("mcp_")
+}
+
+fn candidate(
+    original: &Value,
+    name: &str,
+    arguments: Option<&Value>,
+    source: &Value,
+    encoded: &str,
+) -> Option<Value> {
+    let kind = original.get("kind").and_then(Value::as_str);
+    let data = original.get("data").unwrap_or(original);
+    if original.get("sailry_guide_loaded").is_some_and(|guide| {
+        guide["path"].is_string()
+            && guide["path"] == data["path"]
+            && guide["revision"] == data["revision"]
+    }) {
+        return Some(json!({
+            "text":format!("Project guide already loaded: {}. For requested current text, use {}", data["path"].as_str().unwrap(), crate::process::output::hint(crate::process::output::ReadHint::Output)),
+            "path":data["path"], "revision":data["revision"], "already_loaded":true, "output":source,
+        }));
+    }
+    let bounded =
+        || (encoded.len() > LIMIT).then(|| clip(original, source, encoded, 2 * EDGE, false));
+    match kind {
+        Some("file_lines") => files::lines(original, source),
+        Some("search_results") => files::search(original, arguments, source),
+        Some("command_result" | "command_output") => commands::project(original, source, arguments),
+        Some("web_page") => bounded(),
+        Some(kind) if kind.starts_with("git_") => git::project(original, source).or_else(bounded),
+        None if data["lines"].is_array()
+            && data["path"].is_string()
+            && data["revision"].is_string()
+            && data["offset"].is_u64() =>
         {
-            calls.insert(id.clone(), (name.clone(), args.clone()));
-            continue;
+            files::lines(original, source)
         }
-        let Part::FunctionResponse {
-            function_response,
-            id: Some(id),
-            ..
-        } = part
-        else {
-            continue;
-        };
-        if id.is_empty() {
-            continue;
+        None if data["matches"].is_array() && data.get("mode").is_some() => {
+            files::search(original, arguments, source)
         }
-        let original = &function_response.response;
-        if original.get("output").is_some_and(|source| {
-            source["call"].as_str() == Some(id.as_str())
-                && source["revision"].as_str().is_some_and(|revision| {
-                    revision.len() == 64 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
-                })
-        }) {
-            continue;
+        None if data["stdout"].is_object() && data["stderr"].is_object() => {
+            commands::project(original, source, arguments)
         }
-        let source = window::source(original, id, revisions);
-        let kind = original.get("kind").and_then(Value::as_str);
-        let data = original.get("data").unwrap_or(original);
-        let candidate = if original.get("sailry_guide_loaded").is_some_and(|guide| {
-            guide["path"].is_string()
-                && guide["path"] == data["path"]
-                && guide["revision"] == data["revision"]
-        }) {
-            Some(json!({
-                "text":format!("Project guide already loaded: {}. For requested current text, use read_tool_output with output, offset and limit", data["path"].as_str().unwrap()),
-                "path":data["path"], "revision":data["revision"],
-                "already_loaded":true, "output":source,
-            }))
-        } else {
-            match kind {
-                Some("file_lines") => files::lines(original, &source),
-                Some("search_results") => files::search(
-                    original,
-                    calls
-                        .get(id)
-                        .filter(|(name, _)| name == &function_response.name)
-                        .map(|(_, arguments)| arguments),
-                    &source,
-                ),
-                Some("command_result" | "command_output") => commands::project(
-                    original,
-                    &source,
-                    calls.get(id).map(|(_, arguments)| arguments),
-                ),
-                Some("web_page") => bounded(original, &source),
-                Some(kind) if kind.starts_with("git_") => {
-                    git::project(original, &source).or_else(|| bounded(original, &source))
-                }
-                // Script-backed host operations return their validated data
-                // directly, while native operations retain the Output envelope.
-                None if data.get("lines").is_some_and(Value::is_array)
-                    && data["path"].is_string()
-                    && data["revision"].is_string()
-                    && data["offset"].is_u64() =>
-                {
-                    files::lines(original, &source)
-                }
-                None if data.get("matches").is_some_and(Value::is_array)
-                    && data.get("mode").is_some() =>
-                {
-                    files::search(
-                        original,
-                        calls
-                            .get(id)
-                            .filter(|(name, _)| name == &function_response.name)
-                            .map(|(_, arguments)| arguments),
-                        &source,
-                    )
-                }
-                None if data["stdout"].is_object() && data["stderr"].is_object() => {
-                    commands::project(
-                        original,
-                        &source,
-                        calls.get(id).map(|(_, arguments)| arguments),
-                    )
-                }
-                _ if function_response.name.starts_with("mcp_") => bounded(original, &source),
-                _ => None,
-            }
-        };
-        if let Some(mut candidate) = candidate {
-            if let Some(context) = original.get("sailry_context") {
-                candidate["sailry_context"] = context.clone();
-            }
-            if candidate.to_string().len() < original.to_string().len() {
-                function_response.response = candidate;
-            }
-        }
+        _ if name.starts_with("mcp_") => bounded(),
+        _ => None,
     }
 }
 
-fn bounded(value: &Value, source: &Value) -> Option<Value> {
-    let text = value.to_string();
-    if text.len() <= LIMIT {
-        return None;
-    }
-    let (head, tail) = crate::process::output::edges(text.as_bytes(), EDGE, EDGE);
-    let (head, tail) = (&text[..head], &text[tail..]);
-    let omitted = text.len() - head.len() - tail.len();
+fn command<'a>(value: &'a Value, stream: Option<&str>) -> Option<&'a str> {
+    let id = crate::process::output::command_id(value)?;
+    let data = value.get("data").unwrap_or(value);
+    let retained = |stream: &str| {
+        value["sailry_command"][stream]["retained_bytes"]
+            .as_u64()
+            .or_else(|| data[stream]["retained_bytes"].as_u64())
+    };
+    let available = match stream {
+        Some(stream) => retained(stream).is_none_or(|bytes| bytes > 0),
+        None => {
+            let known = [retained("stdout"), retained("stderr")]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            known.is_empty() || known.into_iter().any(|bytes| bytes > 0)
+        }
+    };
+    available.then_some(id)
+}
+
+fn hint(value: &Value, stream: Option<&str>, offset: Option<u64>) -> String {
+    use crate::process::output::{ReadHint, hint};
+    hint(
+        command(value, stream).map_or(ReadHint::Output, |id| ReadHint::Command {
+            id: Some(id),
+            stream,
+            offset,
+        }),
+    )
+}
+
+fn clip(value: &Value, source: &Value, text: &str, budget: usize, masked: bool) -> Value {
+    let (head, tail) =
+        crate::process::output::edges(text.as_bytes(), budget / 2, budget - budget / 2);
+    let omitted = tail - head;
+    let continuation = hint(value, None, None);
     let mut result = json!({
-        "text":format!("{head}\n[... {omitted} bytes omitted; use read_tool_output with output, offset and limit for the original result ...]\n{tail}"),
-        "output":source,
-        "omitted_bytes":omitted
+        "text":format!("{}\n[... {omitted} bytes omitted; original result retained; use {continuation} ...]\n{}", &text[..head], &text[tail..]),
+        "output":source, "omitted_bytes":omitted,
     });
-    for key in ["isError", "error"] {
+    if let Some(id) = command(value, None) {
+        result["sailry_command"] = json!({"id":id});
+    }
+    if masked || value["masked"] == true {
+        result["masked"] = Value::Bool(true);
+    }
+    for key in [
+        "isError",
+        "error",
+        "sailry_context",
+        "next_offset",
+        "offset",
+        "path",
+        "revision",
+        "partial",
+        "truncated",
+    ] {
         if let Some(value) = value.get(key) {
             result[key] = value.clone();
         }
     }
-    Some(result)
+    result
 }

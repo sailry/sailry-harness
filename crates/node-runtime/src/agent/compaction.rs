@@ -120,6 +120,7 @@ async fn manual_inner(
     summarizer.masks = Some(prompt_session.output_masks().map_err(|error| {
         adk_core::AdkError::session("saved output masks are invalid").with_source(error)
     })?);
+    summarizer.tools = Some(prompt_session.tools());
     summarizer.preamble = Some(
         Content::new("system").with_text(prompt_session.instruction(prompt::baseline().to_owned())),
     );
@@ -159,7 +160,7 @@ struct Summarizer {
     stop: CancellationToken,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum SummaryMode {
     Manual,
     Automatic,
@@ -308,16 +309,30 @@ struct Prepared {
 }
 
 impl Summarizer {
+    fn canonical_request(
+        &self,
+        events: &[Event],
+        pending: &[Content],
+        tools: std::collections::HashMap<String, serde_json::Value>,
+    ) -> LlmRequest {
+        let mut contents = self.preamble.iter().cloned().collect::<Vec<_>>();
+        contents.extend(history::prefix(events));
+        contents.extend_from_slice(pending);
+        LlmRequest {
+            model: self.model.name().into(),
+            contents,
+            config: None,
+            tools,
+            previous_response_id: None,
+        }
+    }
+
     fn prepare(&self, events: &[Event]) -> adk_core::Result<Prepared> {
         let instruction = self.covered_instruction(events);
         let verbatim = instruction
             .as_ref()
             .map_or_else(String::new, Instruction::appendix);
         let output = self.summary_output();
-        let mut contents = history::prefix(events);
-        if let Some(preamble) = &self.preamble {
-            contents.insert(0, preamble.clone());
-        }
         let mut handoff = format!(
             "{PROMPT}\nSummary output budget: {output} tokens{}",
             history::attribution(events)
@@ -328,21 +343,15 @@ impl Summarizer {
             );
             handoff.push_str(focus);
         }
-        contents.push(Content::new("user").with_text(handoff));
-        let request = LlmRequest {
-            model: self.model.name().into(),
-            contents,
-            config: Some(GenerateContentConfig {
-                max_output_tokens: Some(output.min(i32::MAX as u64) as i32),
-                ..Default::default()
-            }),
-            tools: match &self.tools {
-                Some(tools) => tools.clone(),
-                None => prompt::session::declarations(events)?,
-            },
-            previous_response_id: None,
-        };
-        let mut request = request;
+        let mut request = self.canonical_request(
+            events,
+            &[Content::new("user").with_text(handoff)],
+            self.tools.clone().unwrap_or_default(),
+        );
+        request.config = Some(GenerateContentConfig {
+            max_output_tokens: Some(output.min(i32::MAX as u64) as i32),
+            ..Default::default()
+        });
         if let Some(masks) = &self.masks {
             model::history::remask(&mut request, masks, &model::history::revisions(events));
         }

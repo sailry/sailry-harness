@@ -20,17 +20,107 @@ pub(crate) fn edges(bytes: &[u8], head: usize, tail: usize) -> (usize, usize) {
     while head > 0 && bytes.get(head).is_some_and(|byte| byte & 0xc0 == 0x80) {
         head -= 1;
     }
-    if head == bytes.len()
-        && let Err(error) = std::str::from_utf8(bytes)
-        && error.error_len().is_none()
+    if let Some(start) = (head.saturating_sub(3)..head)
+        .rev()
+        .find(|index| bytes[*index] & 0xc0 != 0x80)
     {
-        head = error.valid_up_to();
+        let width = match bytes[start] {
+            0xc2..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf4 => 4,
+            _ => 1,
+        };
+        if head - start < width {
+            head = start;
+        }
     }
     let mut tail = bytes.len().saturating_sub(tail).max(head);
     while bytes.get(tail).is_some_and(|byte| byte & 0xc0 == 0x80) {
         tail += 1;
     }
     (head, tail)
+}
+
+/// Select one raw byte page without splitting a UTF-8 sequence.
+pub(crate) fn utf8_page(
+    bytes: &[u8],
+    offset: usize,
+    limit: usize,
+) -> Result<std::ops::Range<usize>, sailry_protocol::Fault> {
+    if offset > bytes.len() || limit == 0 {
+        return Err(sailry_protocol::Fault::invalid("output page is invalid"));
+    }
+    if offset > 0 && bytes.get(offset).is_some_and(|byte| byte & 0xc0 == 0x80) {
+        return Err(sailry_protocol::Fault::invalid(
+            "output page offset splits a UTF-8 character",
+        ));
+    }
+    let mut end = offset.saturating_add(limit).min(bytes.len());
+    while end > offset && bytes.get(end).is_some_and(|byte| byte & 0xc0 == 0x80) {
+        end -= 1;
+    }
+    if end == offset && end < bytes.len() {
+        end += 1;
+        while bytes.get(end).is_some_and(|byte| byte & 0xc0 == 0x80) {
+            end += 1;
+        }
+    }
+    Ok(offset..end)
+}
+
+pub(crate) fn command_id(value: &serde_json::Value) -> Option<&str> {
+    value
+        .pointer("/sailry_command/id")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            matches!(
+                value["kind"].as_str(),
+                Some("command_result" | "command_output")
+            )
+            .then(|| {
+                value
+                    .pointer("/data/info/id")
+                    .or_else(|| value.pointer("/info/id"))
+            })
+            .flatten()
+            .and_then(serde_json::Value::as_str)
+        })
+}
+
+pub(crate) enum ReadHint<'a> {
+    Output,
+    Command {
+        id: Option<&'a str>,
+        stream: Option<&'a str>,
+        offset: Option<u64>,
+    },
+}
+
+pub(crate) fn hint(kind: ReadHint<'_>) -> String {
+    let output = "read_tool_output with output, offset and limit for the persisted result JSON";
+    match kind {
+        ReadHint::Output => output.into(),
+        ReadHint::Command { id, stream, offset } => {
+            let mut command = id.map_or_else(
+                || "read_command for this command ID".into(),
+                |id| format!("read_command id={id}"),
+            );
+            if let Some(stream) = stream {
+                command.push_str(&format!(" stream={stream}"));
+            }
+            if let Some(offset) = offset {
+                command.push_str(&format!(" offset={offset}"));
+            }
+            command.push_str(" with limit");
+            if stream.is_none() {
+                command.push_str(" and stream");
+            }
+            if offset.is_none() {
+                command.push_str(" and offset");
+            }
+            format!("{command}; use {output} if retained output is unavailable")
+        }
+    }
 }
 
 #[derive(Default)]
@@ -46,10 +136,7 @@ impl Buffer {
         if self.tail {
             self.bytes.extend_from_slice(bytes);
             if self.bytes.len() > LIMIT {
-                let mut discard = self.bytes.len() - LIMIT;
-                while discard < self.bytes.len() && self.bytes[discard] & 0xc0 == 0x80 {
-                    discard += 1;
-                }
+                let (_, discard) = edges(&self.bytes, 0, LIMIT);
                 self.bytes.drain(..discard);
                 self.truncated = true;
             }
@@ -62,11 +149,9 @@ impl Buffer {
 
     pub(super) fn capture(&self) -> Capture {
         let mut bytes = self.bytes.as_slice();
-        if (!self.finished || self.truncated && !self.tail)
-            && let Err(error) = std::str::from_utf8(bytes)
-            && error.error_len().is_none()
-        {
-            bytes = &bytes[..error.valid_up_to()];
+        if !self.finished || self.truncated && !self.tail {
+            let (end, _) = edges(bytes, bytes.len(), 0);
+            bytes = &bytes[..end];
         }
         Capture {
             text: String::from_utf8_lossy(bytes).into_owned(),
@@ -137,9 +222,10 @@ impl Drain {
         stdout: impl AsyncRead + Unpin + Send + 'static,
         stderr: impl AsyncRead + Unpin + Send + 'static,
     ) -> Self {
-        Self::with_tail(stdout, stderr, false)
+        Self::with_retained(stdout, stderr, false, None)
     }
 
+    #[cfg(test)]
     pub fn with_tail(
         stdout: impl AsyncRead + Unpin + Send + 'static,
         stderr: impl AsyncRead + Unpin + Send + 'static,
@@ -205,6 +291,33 @@ impl Drain {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounds_incomplete_suffix_after_invalid_bytes() {
+        let mut bytes = vec![b'x'; 8192];
+        bytes[10] = 0xff;
+        bytes[8190..].copy_from_slice(&[0xe4, 0xb8]);
+        assert_eq!(edges(&bytes, bytes.len(), 0).0, 8190);
+        bytes.push(0xad);
+        assert_eq!(edges(&bytes, 8192, 0).0, 8190);
+        assert_eq!(edges(&bytes, bytes.len(), 0).0, bytes.len());
+        let mut buffer = Buffer::default();
+        buffer.append(&bytes[..8192]);
+        assert_eq!(buffer.capture().text.len(), 8192); // one invalid byte expands by two bytes
+        buffer.append(&bytes[8192..]);
+        assert!(buffer.capture().text.ends_with('中'));
+    }
+
+    #[test]
+    fn rejects_business_ids_for_command_pages() {
+        assert!(command_id(&serde_json::json!({"data":{"info":{"id":"business"}}})).is_none());
+        assert_eq!(
+            command_id(
+                &serde_json::json!({"kind":"command_output","data":{"info":{"id":"command"}}})
+            ),
+            Some("command")
+        );
+    }
 
     #[test]
     fn bounds_unicode_output() {

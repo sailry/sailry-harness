@@ -21,8 +21,31 @@ pub(super) async fn retain(
     let Ok(retained) = commands.retained(session, id) else {
         return;
     };
+    let background = match output {
+        Output::CommandOutput(snapshot) => Some(snapshot.info.clone()),
+        _ => None,
+    };
     let projected = tokio::task::spawn_blocking(move || {
-        retained.preview(id).unwrap_or_else(|| json!({"id":id}))
+        let mut preview = retained.preview(id).unwrap_or_else(|| json!({"id":id}));
+        // Background captures contain the recent tail; only these need a small
+        // explicit head. Foreground captures already own the original prefix.
+        if let Some(info) = background {
+            for (name, stream) in [
+                ("stdout", sailry_protocol::process::OutputStream::Stdout),
+                ("stderr", sailry_protocol::process::OutputStream::Stderr),
+            ] {
+                if preview[name].is_object()
+                    && let Ok(head) = retained.page(info.clone(), stream, 0, 8 * 1024)
+                {
+                    if !head.invalid_utf8 {
+                        preview[name]["head_bytes"] = json!(head.text.len());
+                    }
+                    preview[name]["head_invalid_utf8"] = json!(head.invalid_utf8);
+                    preview[name]["head"] = json!(head.text);
+                }
+            }
+        }
+        preview
     })
     .await;
     value["sailry_command"] = projected.unwrap_or_else(|_| json!({"id":id}));
@@ -141,12 +164,7 @@ mod tests {
         let metadata = &value["sailry_command"];
         assert!(metadata.to_string().len() < 36 * 1024);
         let preview = &metadata["stderr"];
-        assert!(
-            preview["head"]
-                .as_str()
-                .unwrap()
-                .starts_with("test passed ... ok\n")
-        );
+        assert!(preview.get("head").is_none());
         assert!(
             preview["tail"]
                 .as_str()

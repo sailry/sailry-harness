@@ -324,11 +324,7 @@ impl super::Ingress {
                     .await?;
                 match stream {
                     Some(stream) => {
-                        let id = resolved
-                            .value
-                            .pointer("/sailry_command/id")
-                            .or_else(|| resolved.value.pointer("/data/info/id"))
-                            .and_then(serde_json::Value::as_str)
+                        let id = crate::process::output::command_id(&resolved.value)
                             .and_then(|id| id.parse().ok())
                             .ok_or_else(|| {
                                 Fault::invalid("tool result has no retained command stream")

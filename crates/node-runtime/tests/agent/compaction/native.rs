@@ -22,6 +22,7 @@ async fn retains_complete_exchanges() {
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 6);
         assert!(agent_support::compaction::is_summary(&requests[4]));
+        assert_eq!(requests[3]["tools"], requests[4]["tools"]);
         let summary = messages(&requests[4]);
         assert!(summary.contains("Evidence 1"));
         for index in 2..=4 {
@@ -90,6 +91,7 @@ async fn preserves_active_call() {
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 5);
         assert!(agent_support::compaction::is_summary(&requests[3]));
+        assert_eq!(requests[2]["tools"], requests[3]["tools"]);
         assert!(messages(&requests[3]).contains("Original evidence"));
         assert!(!messages(&requests[3]).contains("compact-call"));
         let latest = messages(&requests[4]);
