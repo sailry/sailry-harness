@@ -209,6 +209,7 @@ incremental = false
 # Optimize stable dependencies and desktop geometry/layout hot paths.
 [profile.dev.package]
 "*" = { opt-level = 2 }
+sailry-ocr = { opt-level = 1 }
 gpui-base = { opt-level = 3 }
 gpui-fast = { opt-level = 3 }
 taffy = { opt-level = 3 }
