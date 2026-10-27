@@ -349,10 +349,11 @@ whether a summary is needed. The newest 50,000 output tokens and owner-managed
 plans and skills remain protected; a batch must save at least 30,000 tokens.
 At 85% of the compaction trigger, one cancellable background request can prepare
 a completed historical prefix. At the trigger, the existing model boundary applies
-only a candidate whose immutable prefix, instructions and mounted tools still match,
+only a candidate whose immutable prefix and instructions still match,
 retaining content appended after that prefix. Summary requests preserve the normal
-request prefix, including tool declarations and exact owner context at its original
-positions, then append a user request for the handoff. They keep the captured model,
+request prefix at preparation time, including tool declarations and exact owner
+context at its original positions, then append a user request for the handoff.
+They keep the captured model,
 reasoning effort and configured maximum output where the provider supports it.
 A failed summary never permits replay. Model-requested compaction below half the
 trigger returns current usage without changing context.
@@ -370,8 +371,8 @@ formatting or recover from an input capacity failure. Output exhaustion does not
 retry with smaller input. Authorization, content-filter, empty and invalid-handoff
 failures remain terminal. Exhausted transient summary retries retain the context
 and continue when it still fits the captured input capacity.
-Budget and no-reduction failures continue only when a request projection saves
-tokens and fits the captured input capacity. Request-only projections can shorten
+Automatic budget and no-reduction failures continue only when a request projection
+saves tokens and fits the captured input capacity. Request-only projections can shorten
 older ordinary tool results while retaining canonical raw output and references
 readable through the current session's `read_tool_output` service. Applying a
 summary or projection invalidates stale context-size facts, then recomputes the
@@ -385,6 +386,12 @@ remains available for explicit retry, and a new message checks preflight again.
 Request checkpoints change only after persistence succeeds. A mismatched checkpoint
 is discarded and rebuilt from the saved canonical window. These are local request
 projections, not another history writer.
+Model-requested transient and no-reduction failures return a failed tool result
+without ending the task. Successful model-requested compaction records the actual
+remaining context estimate for the same growth gate used by automatic attempts.
+Selected plugin and skill instructions accompany their own user input rather than
+changing persistent policy. Canonical input metadata identifies those exact owner
+fragments for rehydration after a summary without selecting them for a later task.
 
 Account authorization workflows belong to model authentication packages.
 The default `openai-auth` package retains ChatGPT OAuth's device-code flow and
@@ -748,8 +755,9 @@ queue without automatic replay.
 
 Successful main-session planning completion ends execution and retains a pending
 review in the same durable history, even after a plain answer; a new user input
-closes that review without changing mode. Ordinary model questions still wait for
-their answers. Explicitly executing the plan atomically admits one coding turn
+closes that review without changing mode. Plan review has no clarification deadline.
+Ordinary model questions still wait for their answers. Explicitly executing the
+plan atomically admits one coding turn
 and changes the session mode while preserving its permission. Continuing planning
 keeps Plan mode and does not itself admit another turn; subsequent user input or
 an already admitted queue supplies further work.
