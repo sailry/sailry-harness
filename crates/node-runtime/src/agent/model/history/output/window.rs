@@ -86,11 +86,12 @@ fn excerpt(
         .take(characters - characters / 2)
         .map(char::len_utf8)
         .sum();
-    let (head, tail) = crate::process::output::edges(&text, head, tail);
+    let (head, tail) = crate::process::output::edges(text.as_bytes(), head, tail);
+    let (head, tail) = (&text[..head], &text[tail..]);
     let command = super::commands::id(value);
     let continuation = command.map_or_else(
         || "read_tool_output with output, offset and limit".into(),
-        |id| format!("read_command id={id} with stream, offset and limit"),
+        |id| format!("read_command id={id} with stream, offset and limit; use read_tool_output with output, offset and limit for the persisted result JSON"),
     );
     let mut result = json!({
         "text":format!("{head}\n[... original result retained; use {continuation} ...]\n{tail}"),

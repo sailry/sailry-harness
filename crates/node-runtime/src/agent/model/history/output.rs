@@ -134,7 +134,8 @@ fn bounded(value: &Value, source: &Value) -> Option<Value> {
     if text.len() <= LIMIT {
         return None;
     }
-    let (head, tail) = crate::process::output::edges(&text, EDGE, EDGE);
+    let (head, tail) = crate::process::output::edges(text.as_bytes(), EDGE, EDGE);
+    let (head, tail) = (&text[..head], &text[tail..]);
     let omitted = text.len() - head.len() - tail.len();
     let mut result = json!({
         "text":format!("{head}\n[... {omitted} bytes omitted; use read_tool_output with output, offset and limit for the original result ...]\n{tail}"),
@@ -147,12 +148,4 @@ fn bounded(value: &Value, source: &Value) -> Option<Value> {
         }
     }
     Some(result)
-}
-
-fn floor(text: &str, mut offset: usize) -> usize {
-    offset = offset.min(text.len());
-    while !text.is_char_boundary(offset) {
-        offset -= 1;
-    }
-    offset
 }

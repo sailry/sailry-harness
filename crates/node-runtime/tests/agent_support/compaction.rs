@@ -204,6 +204,8 @@ pub async fn respond_native(
             .then_some(index)
     });
     let loop_task = task.is_some_and(|text| text.contains("Compact loop evidence"));
+    let protected_growth = task.is_some_and(|text| text.contains("Load protected evidence"));
+    let retained_masks = task.is_some_and(|text| text.contains("Mask retained evidence"));
     let continue_work = messages.iter().any(|message| {
         message["role"] == "user"
             && message["content"]
@@ -219,7 +221,10 @@ pub async fn respond_native(
         let index = completed + 1;
         let mut calls = Vec::new();
         if completed == 3 {
-            calls.push(json!({"index":0,"id":"compact-call","type":"function","function":{"name":"compact_context","arguments":"{}"}}));
+            if protected_growth {
+                calls.push(json!({"index":0,"id":"native-skill","type":"function","function":{"name":"load_skill","arguments":json!({"skill":"context-fixture:large"}).to_string()}}));
+            }
+            calls.push(json!({"index":calls.len(),"id":"compact-call","type":"function","function":{"name":"compact_context","arguments":"{}"}}));
         }
         if completed < if continue_work { 5 } else { 4 } {
             calls.push(json!({"index":calls.len(),"id":format!("native-read-{index}"),"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":format!("source-{index}.txt"),"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}));
@@ -231,6 +236,7 @@ pub async fn respond_native(
             json!({"role":"assistant","content":"Compaction request handled"})
         };
         let usage = match completed {
+            3 if retained_masks => 30_000,
             3 => NATIVE_USAGE,
             4 if continue_work => 26_000,
             _ => 100,

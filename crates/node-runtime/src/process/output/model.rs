@@ -143,7 +143,7 @@ pub(crate) fn cargo(command: &str, text: &str) -> Option<String> {
         output.push_str(&format!("; warning {rule}: {count}"));
     }
     output.push_str(
-        "; use read_command with this command ID, stream, offset and limit for retained output]\n",
+        "; use read_command with this command ID, stream, offset and limit for retained output; use read_tool_output with output, offset and limit for the persisted result JSON]\n",
     );
     (output.len() < text.len()).then_some(output)
 }

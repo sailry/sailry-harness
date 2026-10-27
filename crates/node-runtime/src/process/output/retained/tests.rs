@@ -45,11 +45,15 @@ fn pages_complete_unicode_after_finish() {
     }
     assert_eq!(actual, text);
     let preview = retained.preview(info().id).unwrap();
-    let preview = preview["stdout"]["text"].as_str().unwrap();
-    assert!(preview.starts_with("header\n"));
-    assert!(preview.ends_with("last failure"));
-    assert!(preview.contains("bytes omitted") && preview.contains("read_command"));
-    assert!(preview.len() < 34 * 1024);
+    let preview = &preview["stdout"];
+    assert!(preview["head"].as_str().unwrap().starts_with("header\n"));
+    assert!(preview["tail"].as_str().unwrap().ends_with("last failure"));
+    let head = preview["head_bytes"].as_u64().unwrap() as usize;
+    let tail = preview["tail_offset"].as_u64().unwrap() as usize;
+    assert_eq!(preview["total_bytes"], text.len());
+    assert_eq!(preview["head"], &text[..head]);
+    assert_eq!(preview["tail"], &text[tail..]);
+    assert!(head <= HEAD && text.len() - tail <= TAIL);
 }
 
 #[test]
@@ -58,7 +62,7 @@ fn pages_large_output_without_truncation() {
     let chunk = vec![b'x'; PAGE];
     let mut expected = blake3::Hasher::new();
     let mut total = 0;
-    for _ in 0..=(32 * 1024 * 1024 / PAGE) {
+    for _ in 0..=(2 * 1024 * 1024 / PAGE) {
         retained.append(OutputStream::Stdout, &chunk);
         expected.update(&chunk);
         total += chunk.len();
@@ -91,9 +95,14 @@ fn pages_large_output_without_truncation() {
     assert!(last.ends_with(std::str::from_utf8(suffix).unwrap()));
     assert_eq!(actual.finalize(), expected.finalize());
     let preview = retained.preview(info().id).unwrap();
-    let preview = preview["stdout"]["text"].as_str().unwrap();
-    assert!(preview.ends_with(std::str::from_utf8(suffix).unwrap()));
-    assert!(!preview.contains("complete retained output is unavailable"));
+    let preview = &preview["stdout"];
+    assert!(
+        preview["tail"]
+            .as_str()
+            .unwrap()
+            .ends_with(std::str::from_utf8(suffix).unwrap())
+    );
+    assert_eq!(preview["retained_bytes"], total);
 }
 
 #[test]
@@ -153,15 +162,12 @@ fn reports_the_retention_limit() {
 
 #[test]
 fn shares_budget_and_preserves_prefixes() {
-    let profile = tempfile::tempdir().unwrap();
-    let budget = Arc::new(Budget {
-        used: AtomicUsize::new(0),
-        limit: 12,
-    });
-    let first = Retained::new(profile.path(), budget.clone());
-    let second = Retained::new(profile.path(), budget.clone());
-    first.append(OutputStream::Stdout, b"12345678");
-    second.append(OutputStream::Stderr, b"abcdef");
+    let budget = Arc::new(Budget::limited(12));
+    let mut first = Stream::new(tempfile::NamedTempFile::new(), budget.clone(), 8);
+    let mut second = Stream::new(tempfile::NamedTempFile::new(), budget.clone(), 8);
+    assert_eq!(budget.available(), 0);
+    first.append(b"12345678");
+    second.append(b"abcdef");
     assert_eq!(budget.used.load(Ordering::Relaxed), 12);
     let page = second.page(info(), OutputStream::Stderr, 0, PAGE).unwrap();
     assert_eq!(page.text, "abcd");
@@ -169,7 +175,7 @@ fn shares_budget_and_preserves_prefixes() {
     assert_eq!(page.total_bytes, 6);
     drop(first);
     assert_eq!(budget.used.load(Ordering::Relaxed), 4);
-    second.append(OutputStream::Stderr, b"later");
+    second.append(b"later");
     assert_eq!(
         second
             .page(info(), OutputStream::Stderr, 0, PAGE)
@@ -177,12 +183,55 @@ fn shares_budget_and_preserves_prefixes() {
             .text,
         "abcd"
     );
-    let third = Retained::new(profile.path(), budget.clone());
-    third.append(OutputStream::Stdout, b"reused");
+    let mut third = Stream::new(tempfile::NamedTempFile::new(), budget.clone(), 8);
+    third.append(b"reused");
+    third.finish();
     assert_eq!(budget.used.load(Ordering::Relaxed), 10);
     drop(second);
     drop(third);
     assert_eq!(budget.used.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn returns_unused_reservations_on_finish() {
+    let profile = tempfile::tempdir().unwrap();
+    let budget = Arc::new(Budget::limited(COMMAND_LIMIT));
+    let retained = Retained::new(profile.path(), budget.clone());
+    assert_eq!(budget.available(), 0);
+    retained.append(OutputStream::Stdout, b"saved output");
+    retained.finish();
+    retained.finish();
+    assert_eq!(budget.available(), COMMAND_LIMIT - 12);
+    assert_eq!(
+        retained
+            .page(info(), OutputStream::Stdout, 0, PAGE)
+            .unwrap()
+            .text,
+        "saved output"
+    );
+}
+
+#[test]
+fn reports_raw_size_beyond_stream_quota() {
+    let retained = Retained::default();
+    let raw = vec![b'x'; STREAM_LIMIT + PAGE];
+    retained.append(OutputStream::Stdout, &raw);
+    retained.append(OutputStream::Stdout, b"last failure");
+    retained.finish();
+    let page = retained
+        .page(info(), OutputStream::Stdout, STREAM_LIMIT - PAGE, PAGE)
+        .unwrap();
+    assert!(page.truncated);
+    assert_eq!(page.text.len(), PAGE);
+    assert!(page.next_offset.is_none());
+    assert_eq!(page.total_bytes, (raw.len() + 12) as u64);
+    let preview = retained.preview(info().id).unwrap();
+    let preview = &preview["stdout"];
+    assert_eq!(preview["total_bytes"], page.total_bytes);
+    assert_eq!(preview["retained_bytes"], STREAM_LIMIT);
+    assert_eq!(preview["head_bytes"], HEAD);
+    assert_eq!(preview["tail_offset"], page.total_bytes - TAIL as u64);
+    assert!(preview["tail"].as_str().unwrap().ends_with("last failure"));
 }
 
 #[test]

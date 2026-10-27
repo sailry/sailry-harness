@@ -152,17 +152,35 @@ impl Context {
         Ok(saved)
     }
 
+    fn retain(
+        &self,
+        request: &mut LlmRequest,
+        revisions: &model::history::Revisions,
+    ) -> adk_core::Result<u64> {
+        model::history::remask(request, &self.state.masked()?, revisions);
+        self.mask(request, PROTECTED_OUTPUT, MINIMUM_SAVING, revisions)?;
+        if self
+            .summarizer
+            .needs_compaction(Some(estimate::request(request)?))
+        {
+            self.mask(request, 0, 0, revisions)?;
+        }
+        // Growth uses the retained canonical view before output formatting.
+        let tokens = estimate::request(request)?;
+        self.state.record(tokens)?;
+        Ok(tokens)
+    }
+
     fn candidates(&self, history: &History, keep: usize) -> Vec<usize> {
         let mut exchange = crate::store::agent::compaction::Exchange::default();
         let complete = history.events[history.current..]
             .iter()
             .map(|event| exchange.push(event))
             .collect::<Vec<_>>();
-        let mut cuts = history
+        let calls = history
             .events
             .iter()
             .enumerate()
-            .skip(history.current)
             .filter(|(_, event)| {
                 event.content().is_some_and(|content| {
                     content
@@ -172,29 +190,16 @@ impl Context {
                 })
             })
             .map(|(index, _)| index)
-            .collect::<Vec<_>>()
-            .into_iter()
+            .collect::<Vec<_>>();
+        let mut cuts = calls
+            .iter()
+            .copied()
             .rev()
+            .take_while(|cut| *cut >= history.current)
             .skip(keep)
             .filter(|cut| *cut > history.current && complete[*cut - history.current - 1])
             .collect::<Vec<_>>();
-        let recent = history
-            .events
-            .iter()
-            .enumerate()
-            .filter(|(_, event)| {
-                event.content().is_some_and(|content| {
-                    content
-                        .parts
-                        .iter()
-                        .any(|part| matches!(part, Part::FunctionCall { .. }))
-                })
-            })
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .nth(keep);
+        let recent = calls.iter().rev().nth(keep).copied();
         cuts.extend(history.completed.iter().rev().copied().filter(|cut| {
             *cut <= history.current
                 && recent.is_none_or(|recent| *cut <= recent)
@@ -677,12 +682,11 @@ impl Context {
             Err(error) => return Err(error),
             Ok(()) => None,
         };
-        model::history::remask(&mut request, &self.state.masked()?, &revisions);
-        saved += self.mask(&mut request, PROTECTED_OUTPUT, MINIMUM_SAVING, &revisions)?;
-        if applied && above(estimate::request(&request)?) {
-            // Retained results that keep the new window above the trigger are
-            // masked now rather than summarized again at the next step.
-            saved += self.mask(&mut request, 0, 0, &revisions)?;
+        if applied {
+            self.retain(&mut request, &revisions)?;
+        } else {
+            model::history::remask(&mut request, &self.state.masked()?, &revisions);
+            saved += self.mask(&mut request, PROTECTED_OUTPUT, MINIMUM_SAVING, &revisions)?;
         }
         let projection = model::history::limit(&mut request, self.window(), &revisions)?;
         let changed = self.state.project(projection)?;
@@ -692,9 +696,7 @@ impl Context {
             Some(error) if !failure::transient(&error) && after >= initial => return Err(error),
             failure => failure,
         };
-        if applied {
-            self.state.record(after)?;
-        } else if failure.is_some() {
+        if !applied && failure.is_some() {
             self.state.record(tokens)?;
         }
         if applied || saved > 0 || changed {

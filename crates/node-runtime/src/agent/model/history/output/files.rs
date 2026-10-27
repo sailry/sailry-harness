@@ -13,7 +13,7 @@ pub(super) fn lines(original: &Value, source: &Value) -> Option<Value> {
     let mut omitted = 0;
     for line in &page.lines {
         let text = line.text.trim_end_matches('\n');
-        let end = floor(text, LINE_LIMIT);
+        let (end, _) = crate::process::output::edges(text.as_bytes(), LINE_LIMIT, 0);
         let row = if end < text.len() {
             format!(
                 "{:>5}\t{} [... {} bytes omitted ...]\n",

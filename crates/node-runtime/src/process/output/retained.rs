@@ -1,7 +1,7 @@
 //! File-backed output belongs to each existing managed-command entry.
 use sailry_protocol::{
     ErrorCode, Fault, RequestId,
-    process::{Capture, Info, OutputPage, OutputStream},
+    process::{Info, OutputPage, OutputStream},
 };
 use std::{
     fs::File,
@@ -12,11 +12,12 @@ use std::{
     },
 };
 
-const RETAINED_LIMIT: usize = 64 * 1024 * 1024;
+const STREAM_LIMIT: usize = 4 * 1024 * 1024;
+pub(crate) const COMMAND_LIMIT: usize = 2 * STREAM_LIMIT;
 const TOTAL_LIMIT: usize = 256 * 1024 * 1024;
 const PAGE: usize = 32 * 1024;
 const HEAD: usize = 8 * 1024;
-const TAIL: usize = 24 * 1024;
+const TAIL: usize = 8 * 1024;
 
 pub(crate) struct Budget {
     used: AtomicUsize,
@@ -33,6 +34,18 @@ impl Default for Budget {
 }
 
 impl Budget {
+    pub(crate) fn available(&self) -> usize {
+        self.limit.saturating_sub(self.used.load(Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn limited(limit: usize) -> Self {
+        Self {
+            used: AtomicUsize::new(0),
+            limit,
+        }
+    }
+
     fn take(&self, requested: usize) -> usize {
         let previous = self
             .used
@@ -70,6 +83,7 @@ struct Stream {
     path: Option<tempfile::TempPath>,
     error: Option<String>,
     retained: usize,
+    reserved: usize,
     limit: usize,
     total: u64,
     head: Vec<u8>,
@@ -79,22 +93,32 @@ struct Stream {
 
 impl Default for Stream {
     fn default() -> Self {
-        Self::new(tempfile::NamedTempFile::new(), Arc::default())
+        Self::new(tempfile::NamedTempFile::new(), Arc::default(), STREAM_LIMIT)
     }
 }
 
 impl Stream {
-    fn new(created: std::io::Result<tempfile::NamedTempFile>, budget: Arc<Budget>) -> Self {
+    fn new(
+        created: std::io::Result<tempfile::NamedTempFile>,
+        budget: Arc<Budget>,
+        limit: usize,
+    ) -> Self {
         let (writer, error) = match created {
             Ok(file) => (Some(file), None),
             Err(error) => (None, Some(error.to_string())),
+        };
+        let reserved = if writer.is_some() {
+            budget.take(limit)
+        } else {
+            0
         };
         Self {
             writer,
             path: None,
             error,
             retained: 0,
-            limit: RETAINED_LIMIT,
+            reserved,
+            limit: reserved,
             total: 0,
             head: Vec::new(),
             tail: Vec::new(),
@@ -120,20 +144,14 @@ impl Stream {
             self.error = Some("command output retention is closed".into());
             return;
         };
-        let requested = bytes.len().min(self.limit.saturating_sub(self.retained));
-        let count = self.budget.take(requested);
-        if count < requested {
-            // Once a raw span is omitted, retained offsets must remain a prefix.
-            self.limit = self.retained + count;
-        }
+        let count = bytes.len().min(self.limit.saturating_sub(self.retained));
         match writer.write_all(&bytes[..count]) {
             Ok(()) => self.retained += count,
             Err(error) => {
                 self.error = Some(error.to_string());
-                self.budget
-                    .used
-                    .fetch_sub(self.retained + count, Ordering::Relaxed);
+                self.budget.used.fetch_sub(self.reserved, Ordering::Relaxed);
                 self.retained = 0;
+                self.reserved = 0;
                 self.writer.take();
             }
         }
@@ -143,6 +161,19 @@ impl Stream {
         if let Some(writer) = self.writer.take() {
             self.path = Some(writer.into_temp_path());
         }
+        self.budget
+            .used
+            .fetch_sub(self.reserved - self.retained, Ordering::Relaxed);
+        self.reserved = self.retained;
+    }
+
+    fn evict(&mut self) {
+        self.writer.take();
+        self.path.take();
+        self.budget.used.fetch_sub(self.reserved, Ordering::Relaxed);
+        self.retained = 0;
+        self.reserved = 0;
+        self.error = Some("command output was evicted".into());
     }
 
     fn page(
@@ -205,51 +236,26 @@ impl Stream {
         })
     }
 
-    fn preview(&self, id: RequestId, stream: OutputStream) -> Option<Capture> {
+    fn preview(&self) -> Option<serde_json::Value> {
         if self.total <= (64 * 1024) as u64 {
             return None;
         }
-        let mut head_end = self.head.len();
-        if let Err(error) = std::str::from_utf8(&self.head)
-            && error.error_len().is_none()
-        {
-            head_end = error.valid_up_to();
-        }
-        let mut tail_start = 0;
-        while self
-            .tail
-            .get(tail_start)
-            .is_some_and(|byte| byte & 0xc0 == 0x80)
-        {
-            tail_start += 1;
-        }
+        let (head_end, _) = super::edges(&self.head, HEAD, 0);
+        let (_, tail_start) = super::edges(&self.tail, 0, TAIL);
         let head = &self.head[..head_end];
         let tail = &self.tail[tail_start..];
-        let omitted = self.total.saturating_sub((head.len() + tail.len()) as u64);
-        let stream = match stream {
-            OutputStream::Stdout => "stdout",
-            OutputStream::Stderr => "stderr",
-        };
-        let unavailable = if self.error.is_some() || self.total > self.retained as u64 {
-            "; complete retained output is unavailable"
-        } else {
-            ""
-        };
-        Some(Capture {
-            text: format!(
-                "{}\n[... {omitted} bytes omitted; read_command id={id} stream={stream} offset=0 for retained output{unavailable} ...]\n{}",
-                String::from_utf8_lossy(head),
-                String::from_utf8_lossy(tail)
-            ),
-            truncated: true,
-            invalid_utf8: std::str::from_utf8(head).is_err() || std::str::from_utf8(tail).is_err(),
-        })
+        Some(serde_json::json!({
+            "head":String::from_utf8_lossy(head), "head_bytes":head.len(),
+            "tail":String::from_utf8_lossy(tail), "tail_offset":self.total.saturating_sub(tail.len() as u64),
+            "total_bytes":self.total, "retained_bytes":self.retained,
+            "invalid_utf8":std::str::from_utf8(head).is_err() || std::str::from_utf8(tail).is_err(),
+        }))
     }
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        self.budget.used.fetch_sub(self.retained, Ordering::Relaxed);
+        self.budget.used.fetch_sub(self.reserved, Ordering::Relaxed);
     }
 }
 
@@ -277,8 +283,8 @@ impl Retained {
             Err(error) => Err(std::io::Error::new(error.kind(), error.to_string())),
         };
         Self {
-            stdout: Mutex::new(Stream::new(create(), budget.clone())),
-            stderr: Mutex::new(Stream::new(create(), budget)),
+            stdout: Mutex::new(Stream::new(create(), budget.clone(), STREAM_LIMIT)),
+            stderr: Mutex::new(Stream::new(create(), budget, STREAM_LIMIT)),
         }
     }
 
@@ -298,6 +304,11 @@ impl Retained {
         self.stderr.lock().unwrap().finish();
     }
 
+    pub(crate) fn evict(&self) {
+        self.stdout.lock().unwrap().evict();
+        self.stderr.lock().unwrap().evict();
+    }
+
     pub(crate) fn page(
         &self,
         info: Info,
@@ -312,16 +323,8 @@ impl Retained {
     }
 
     pub(crate) fn preview(&self, id: RequestId) -> Option<serde_json::Value> {
-        let stdout = self
-            .stdout
-            .lock()
-            .unwrap()
-            .preview(id, OutputStream::Stdout);
-        let stderr = self
-            .stderr
-            .lock()
-            .unwrap()
-            .preview(id, OutputStream::Stderr);
+        let stdout = self.stdout.lock().unwrap().preview();
+        let stderr = self.stderr.lock().unwrap().preview();
         (stdout.is_some() || stderr.is_some())
             .then(|| serde_json::json!({"id":id,"stdout":stdout,"stderr":stderr}))
     }

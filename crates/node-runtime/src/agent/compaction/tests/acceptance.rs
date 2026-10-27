@@ -109,11 +109,66 @@ fn prefers_fitting_boundaries() {
     let (summarizer, _) = summarizer(vec![], false);
     let mut events = history();
     events[1].set_content(Content::new("model").with_text("Evidence ".repeat(12_000)));
-    assert!(!summarizer.fits(&events).unwrap());
-    assert!(summarizer.fits(&events[..1]).unwrap());
     assert_eq!(
         summarizer
             .prefix(&events, [2, 1].into_iter(), summarizer.recent())
+            .unwrap(),
+        Some(1)
+    );
+}
+
+#[test]
+fn includes_exact_capacity_boundary() {
+    let (mut summarizer, _) = summarizer(vec![], false);
+    let mut summary = Event::new("prior-summary");
+    summary.actions.compaction = Some(EventCompaction {
+        start_timestamp: summary.timestamp,
+        end_timestamp: summary.timestamp,
+        compacted_content: Content::new("user").with_text("Earlier handoff"),
+    });
+    let mut events = vec![summary, Event::new("projection-metadata")];
+    events.extend(history());
+    let output = summarizer.summary_output();
+    let required =
+        estimate::request(&summarizer.prepare(&events).unwrap().request).unwrap() + output;
+    summarizer.context = Some(required);
+    assert_eq!(summarizer.summary_output(), output);
+    assert_eq!(
+        summarizer
+            .prefix(&events, [0, events.len() + 1, 4, 2].into_iter(), 0)
+            .unwrap(),
+        Some(4)
+    );
+    summarizer.context = Some(required - 1);
+    assert_eq!(
+        summarizer.prefix(&events, [4, 2].into_iter(), 0).unwrap(),
+        Some(2)
+    );
+    assert_eq!(
+        summarizer
+            .prefix(&events, [0, events.len() + 1].into_iter(), 0)
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn preserves_exact_recent_window() {
+    let (summarizer, _) = summarizer(vec![], false);
+    let mut events = history();
+    let mut tail = Event::new("recent");
+    tail.set_content(Content::new("model").with_text("Recent evidence ".repeat(40)));
+    events.push(tail);
+    let recent = estimate::tokens(&events[2..]);
+    assert_eq!(
+        summarizer
+            .prefix(&events, [3, 2, 1].into_iter(), recent)
+            .unwrap(),
+        Some(2)
+    );
+    assert_eq!(
+        summarizer
+            .prefix(&events, [3, 2, 1].into_iter(), recent + 1)
             .unwrap(),
         Some(1)
     );

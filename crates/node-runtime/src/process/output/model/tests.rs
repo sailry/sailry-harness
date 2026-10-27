@@ -115,7 +115,7 @@ fn preserves_captured_failure_output() {
         let result = cargo(command, input).unwrap();
         assert!(result.contains(evidence));
         assert!(result.contains("read_command"));
-        assert!(!result.contains("read_tool_output"));
+        assert!(result.contains("read_tool_output"));
         assert!(result.len() < input.len());
         let failure = if let Some(start) = input.find("\nfailures:\n") {
             &input[start..]

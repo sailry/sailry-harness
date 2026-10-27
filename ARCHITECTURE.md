@@ -316,9 +316,12 @@ profile's `tmp` directory, separate from durable worktree outputs and attachment
 Command scratch is scoped to the admitted turn and retained while its commands
 still use it. Remote files opened by a controller use that controller's local
 profile for their retained copies, not the execution Node's temporary directory.
-Managed command output retains at most 64 MiB per stream in owned temporary files;
-output pages and previews identify truncated retention, while model summaries
-remain bounded.
+Managed command output reserves at most 4 MiB per stream in owned temporary files
+within a shared 256 MiB Node budget. Completed commands release unused capacity;
+new commands evict the earliest completed entries when space is needed. Output
+pages and previews identify raw byte offsets and truncated retention, while model
+summaries remain bounded. Persisted result previews remain readable after the
+temporary output is evicted.
 
 ADK-Rust is the agent execution engine. Node integrates Runner and SessionService
 with one authoritative durable event history. Client and UI projections are
@@ -391,7 +394,8 @@ without ending the task. Successful model-requested compaction records the actua
 remaining context estimate for the same growth gate used by automatic attempts.
 Selected plugin and skill instructions accompany their own user input rather than
 changing persistent policy. Canonical input metadata identifies those exact owner
-fragments for rehydration after a summary without selecting them for a later task.
+fragments; a summary restores only the latest input's selected capability content
+without selecting it for a later task.
 
 Account authorization workflows belong to model authentication packages.
 The default `openai-auth` package retains ChatGPT OAuth's device-code flow and
@@ -559,6 +563,9 @@ their exact definition inputs match. Common tools follow declared operations and
 selected mode or role scope; additional tools are discovered through `tool_search`
 from the same captured catalog. Discovery adds declarations and their package
 context for later requests without executing tools or increasing permissions.
+Explicitly discovered and called tools stay loaded; tools exposed only by a work
+mode or assistant do not become permanently loaded. Flagship and selected roles
+expose their delegation tools on the first request.
 Changed tool membership is intentional; unchanged loadouts retain the same request
 declarations. Package updates affect subsequent admission, preserving sent captures.
 

@@ -377,3 +377,253 @@ async fn allows_automatic_compaction_after_growth() {
         fixture.controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn preserves_success_before_capacity_failure() {
+    for remote in [false, true] {
+        let server = Server::native_compaction(false).await;
+        let fixture = fixture(remote, &server).await;
+        super::budget::model(&fixture, 64_000, 2_048, false).await;
+        let package = fixture.root.join("package");
+        std::fs::create_dir_all(package.join("skills/large")).unwrap();
+        std::fs::write(
+            package.join("plugin.json"),
+            serde_json::json!({
+                "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                "name":"context-fixture", "version":"0.1.0"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        // This valid skill fits its byte limit but exceeds the model's token
+        // window. It arrives immediately before compaction in the same batch.
+        let skill = format!(
+            "---\nname: large\ndescription: Retain exact instructions\n---\n{}",
+            "中".repeat(42_000)
+        );
+        std::fs::write(package.join("skills/large/SKILL.md"), &skill).unwrap();
+        let installed = fixture
+            .client
+            .execute(fixture.client.prepare(Command::InstallPlugin {
+                worktree: fixture.session.worktree,
+                path: "package".into(),
+                name: "context-fixture".into(),
+                expected_revision: 0,
+                expected_digest: None,
+            }))
+            .await
+            .unwrap();
+        assert!(matches!(installed, Output::Plugin(_)));
+        for index in 1..=4 {
+            std::fs::write(
+                fixture.root.join(format!("source-{index}.txt")),
+                format!("Evidence {index}\n").repeat(120),
+            )
+            .unwrap();
+        }
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: 1,
+                message: "Compact loop evidence. Load protected evidence".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected");
+        };
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Failed, "{:?}", page.runs);
+        assert!(page.queue.paused);
+        assert_eq!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter(|part| matches!(part, Part::Compaction(_)))
+                .count(),
+            1
+        );
+        assert!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
+                && value["failure"]["source"] == "automatic"
+                && value["failure"]["continued"] == false)
+                })
+        );
+        assert!(
+            !page
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
+                && value["failure"]["source"] == "manual")
+                })
+        );
+        let details = tool_details(&fixture.client, &page).await;
+        let compacted = details
+            .iter()
+            .find(|(name, _)| name == "compact_context")
+            .unwrap()
+            .1
+            .result
+            .as_ref()
+            .unwrap();
+        assert_eq!(compacted["status"], "compacted");
+        assert!(compacted["context_tokens"].as_u64().unwrap() > 64_000);
+        assert_eq!(
+            details
+                .iter()
+                .find(|(name, _)| name == "load_skill")
+                .unwrap()
+                .1
+                .result
+                .as_ref()
+                .unwrap()["content"],
+            skill
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 5);
+        assert!(agent_support::compaction::is_summary(&requests[4]));
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn persists_retained_masks_without_resummarizing() {
+    for remote in [false, true] {
+        let server = Server::native_compaction(false).await;
+        let fixture = fixture(remote, &server).await;
+        let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+        provider.models[0].context = 512_000;
+        provider.models[0].compaction_tokens = Some(50_000);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap();
+        for index in 1..=4 {
+            let mut text = format!("Evidence {index}\n");
+            if matches!(index, 2 | 3) {
+                text.push_str(&"x".repeat(128 * 1024 - text.len()));
+            } else {
+                text = text.repeat(120);
+            }
+            std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
+        }
+        let (_, _, page) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Compact loop evidence. Mask retained evidence".into(),
+        )
+        .await;
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 6);
+        assert!(agent_support::compaction::is_summary(&requests[4]));
+        assert_eq!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter(|part| matches!(part, Part::Compaction(_)))
+                .count(),
+            1
+        );
+        let masked = |request: &Value, call: &str| {
+            let message = request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|message| message["tool_call_id"] == call)
+                .unwrap();
+            let value: Value = serde_json::from_str(message["content"].as_str().unwrap()).unwrap();
+            assert_eq!(value["masked"], true);
+            value
+        };
+        let second = masked(&requests[5], "native-read-2");
+        let third = masked(&requests[5], "native-read-3");
+        let details = tool_details(&fixture.client, &page).await;
+        let compacted = details
+            .iter()
+            .find(|(name, _)| name == "compact_context")
+            .unwrap()
+            .1
+            .result
+            .as_ref()
+            .unwrap();
+        assert_eq!(compacted["status"], "compacted");
+        let tokens = compacted["context_tokens"].as_u64().unwrap();
+        assert!(tokens < 50_000);
+        let bodies: Vec<Vec<u8>> = fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .prepare("SELECT body FROM agent_events ORDER BY sequence")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query(())
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut bodies = Vec::new();
+                    while let Some(row) =
+                        rows.next().await.map_err(crate::database_fixture::fault)?
+                    {
+                        bodies.push(row.get(0).map_err(crate::database_fixture::fault)?);
+                    }
+                    Ok(bodies)
+                })
+            })
+            .await
+            .unwrap();
+        let masks = serde_json::json!([
+            ["native-read-2", second["output"]["revision"]],
+            ["native-read-3", third["output"]["revision"]],
+        ]);
+        assert!(
+            bodies
+                .iter()
+                .map(|body| serde_json::from_slice::<adk_core::Event>(body).unwrap())
+                .any(|event| {
+                    event
+                        .actions
+                        .state_delta
+                        .get("sailry.context.masked_outputs")
+                        == Some(&masks)
+                        && event
+                            .provider_metadata
+                            .get("sailry_context_projection")
+                            .and_then(|value| serde_json::from_str::<Value>(value).ok())
+                            .is_some_and(|value| value["tokens"] == tokens)
+                })
+        );
+        fixture.node.shutdown().await.unwrap();
+        let node = Node::start_empty(fixture.directory.path().join("node"))
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            fixture.controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        submit(
+            &client,
+            fixture.session.id,
+            "Continue after retained masks".into(),
+        )
+        .await;
+        let resumed = server.requests.lock().unwrap().last().unwrap().clone();
+        assert_eq!(masked(&resumed, "native-read-2"), second);
+        assert_eq!(masked(&resumed, "native-read-3"), third);
+        assert_eq!(server.requests.lock().unwrap().len(), 7);
+        node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}

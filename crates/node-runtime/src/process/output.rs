@@ -9,22 +9,28 @@ use tokio::{
 };
 
 mod retained;
-pub(crate) use retained::{Budget, Retained, clear};
+pub(crate) use retained::{Budget, COMMAND_LIMIT, Retained, clear};
 pub(crate) mod model;
 
 const LIMIT: usize = 64 * 1024;
 
-/// Split a UTF-8 output preview without overlapping its retained edges.
-pub(crate) fn edges(text: &str, head: usize, tail: usize) -> (&str, &str) {
-    let mut head = head.min(text.len());
-    while !text.is_char_boundary(head) {
+/// Locate UTF-8 boundaries without overlapping the retained byte ranges.
+pub(crate) fn edges(bytes: &[u8], head: usize, tail: usize) -> (usize, usize) {
+    let mut head = head.min(bytes.len());
+    while head > 0 && bytes.get(head).is_some_and(|byte| byte & 0xc0 == 0x80) {
         head -= 1;
     }
-    let mut tail = text.len().saturating_sub(tail).max(head);
-    while !text.is_char_boundary(tail) {
+    if head == bytes.len()
+        && let Err(error) = std::str::from_utf8(bytes)
+        && error.error_len().is_none()
+    {
+        head = error.valid_up_to();
+    }
+    let mut tail = bytes.len().saturating_sub(tail).max(head);
+    while bytes.get(tail).is_some_and(|byte| byte & 0xc0 == 0x80) {
         tail += 1;
     }
-    (&text[..head], &text[tail..])
+    (head, tail)
 }
 
 #[derive(Default)]

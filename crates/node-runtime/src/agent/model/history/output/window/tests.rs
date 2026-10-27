@@ -98,9 +98,25 @@ fn masks_commands_with_stream_reader() {
     let masked = value(&request, 0);
     let text = masked["text"].as_str().unwrap();
     assert!(text.contains("read_command id=retained-command"));
-    assert!(!text.contains("read_tool_output"));
+    assert!(text.contains("read_tool_output with output"));
     assert_eq!(masked["sailry_command"]["id"], "retained-command");
     assert_eq!(masked["output"]["revision"], hash(&original));
+}
+
+#[test]
+fn leaves_business_ids_out_of_command_hints() {
+    let original = json!({"info":{"id":"business-record"},"text":"business data ".repeat(4_000)});
+    let mut request = LlmRequest::new("fixture", vec![result("call", "mcp_fixture", original)]);
+    assert!(mask(&mut request, 0, 100, &Revisions::new()).unwrap() > 0);
+    let projected = value(&request, 0);
+    assert!(
+        projected["text"]
+            .as_str()
+            .unwrap()
+            .contains("read_tool_output")
+    );
+    assert!(!projected["text"].as_str().unwrap().contains("read_command"));
+    assert!(projected.get("sailry_command").is_none());
 }
 
 #[test]

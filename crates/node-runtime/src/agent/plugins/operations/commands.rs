@@ -140,10 +140,21 @@ mod tests {
         retain(&commands, session, id, &output, &mut value).await;
         let metadata = &value["sailry_command"];
         assert!(metadata.to_string().len() < 36 * 1024);
-        let text = metadata["stderr"]["text"].as_str().unwrap();
-        assert!(text.starts_with("test passed ... ok\n"));
-        assert!(text.ends_with("last failure\n"));
-        assert!(!text.contains("Omitted 100 passed tests"));
+        let preview = &metadata["stderr"];
+        assert!(
+            preview["head"]
+                .as_str()
+                .unwrap()
+                .starts_with("test passed ... ok\n")
+        );
+        assert!(
+            preview["tail"]
+                .as_str()
+                .unwrap()
+                .ends_with("last failure\n")
+        );
+        assert!(!preview.to_string().contains("Omitted 100 passed tests"));
+        assert_eq!(preview["total_bytes"], raw.len());
         assert_eq!(value["data"]["stderr"]["text"], "canonical capture");
     }
 

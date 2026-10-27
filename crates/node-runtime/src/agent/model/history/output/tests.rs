@@ -279,11 +279,12 @@ fn bounds_complete_command_diagnostics() {
                     "truncated":false,"invalid_utf8":false},
                 "stderr":{"text":"","truncated":false,"invalid_utf8":false}
             });
-            let original = if wrapped {
+            let mut original = if wrapped {
                 json!({"kind":"command_result","data":data})
             } else {
                 data
             };
+            original["sailry_command"] = json!({"id":"00000000-0000-4000-8000-000000000001"});
             let canonical = vec![response("plugin_commands_run", original.clone())];
             let mut request = canonical.clone();
             project(&mut request);
@@ -294,7 +295,8 @@ fn bounds_complete_command_diagnostics() {
             assert!(stdout.starts_with("failures:\n"));
             assert!(stdout.ends_with("last failure"));
             assert!(stdout.contains("read_command id=00000000-0000-4000-8000-000000000001"));
-            assert!(stdout.contains("stream=stdout offset=0"));
+            assert!(stdout.contains("stream=stdout offset=8192"));
+            assert!(stdout.contains("read_tool_output with output"));
             assert_eq!(data["stderr"]["text"], "");
             assert_eq!(data["stdout"]["truncated"], true);
             assert_eq!(projected["output"]["call"], "call");
@@ -318,14 +320,79 @@ fn preserves_both_command_stream_edges() {
         let text = projected[stream]["text"].as_str().unwrap();
         assert!(text.starts_with(&format!("{stream} first")));
         assert!(text.ends_with(&format!("{stream} last")));
-        assert!(text.contains(&format!("read_command id=command stream={stream} offset=0")));
-        assert!(!text.contains("read_tool_output"));
+        let offset = projected[stream]["head_bytes"].as_u64().unwrap();
+        assert!(text.contains(&format!(
+            "read_command id=command stream={stream} offset={offset}"
+        )));
+        assert!(text.contains("read_tool_output with output"));
         assert!(text.len() < 18 * 1024);
     }
     assert_eq!(projected["stderr"]["invalid_utf8"], true);
     assert_eq!(projected["outcome"], original["outcome"]);
     assert_eq!(projected["elapsed_ms"], 23);
     assert!(projected.get("text").is_none());
+}
+
+#[test]
+fn preserves_raw_preview_coordinates() {
+    let total = 20 * 1024 * 1024 + 3;
+    let mut head = "\u{1b}[31mHEAD\u{1b}[0m\n".to_owned();
+    head.push_str(&"h".repeat(8192 - head.len()));
+    let tail = format!("{}END", "🙂".repeat(2047));
+    let tail_offset = total - tail.len();
+    let original = json!({"kind":"command_result","data":{
+        "stdout":{"text":"canonical prefix ".repeat(4000),"truncated":true,"invalid_utf8":false},
+        "stderr":{"text":"","truncated":false,"invalid_utf8":false}},
+        "sailry_command":{"id":"retained", "stdout":{
+            "head":head,"head_bytes":head.len(),"tail":tail,"tail_offset":tail_offset,
+            "total_bytes":total,"retained_bytes":4 * 1024 * 1024,"invalid_utf8":false}}
+    });
+    let mut request = vec![response("declared_command", original.clone())];
+    project(&mut request);
+    let projected = value(&request[0]);
+    let stream = &projected["data"]["stdout"];
+    let text = stream["text"].as_str().unwrap();
+    assert!(text.starts_with("HEAD\n") && text.ends_with("END"));
+    assert!(!text.contains('\u{1b}'));
+    assert_eq!(stream["total_bytes"], total);
+    assert_eq!(stream["omitted_bytes"], tail_offset - head.len());
+    assert_eq!(stream["tail_offset"], tail_offset);
+    assert!(text.contains(&format!(
+        "{} of {total} raw bytes omitted",
+        tail_offset - head.len()
+    )));
+    assert!(text.contains("read_command id=retained stream=stdout offset=8192"));
+    assert!(text.contains("read_tool_output with output"));
+    assert!(text.contains(&format!("tail starts at offset={tail_offset}")));
+    assert!(text.contains("raw retention ends at offset=4194304"));
+    assert_eq!(
+        projected["output"]["revision"],
+        blake3::hash(original.to_string().as_bytes())
+            .to_hex()
+            .to_string()
+    );
+}
+
+#[test]
+fn measures_offsets_before_terminal_normalization() {
+    let raw = format!(
+        "\u{1b}[31mHEAD\u{1b}[0m\n{}TAIL",
+        "line\rprogress\n".repeat(4000)
+    );
+    let original = json!({"kind":"command_result","sailry_command":{"id":"raw"},"data":{
+        "stdout":{"text":raw,"truncated":false,"invalid_utf8":false}, "stderr":{"text":"","truncated":false,"invalid_utf8":false}}});
+    let mut request = vec![response("declared_command", original)];
+    project(&mut request);
+    let projected = &value(&request[0])["data"]["stdout"];
+    let head = projected["head_bytes"].as_u64().unwrap() as usize;
+    let tail = projected["tail_offset"].as_u64().unwrap() as usize;
+    assert_eq!(head, 8192);
+    assert_eq!(tail, raw.len() - 8192);
+    assert_eq!(projected["omitted_bytes"], tail - head);
+    assert_eq!(projected["total_bytes"], raw.len());
+    let text = projected["text"].as_str().unwrap();
+    assert!(text.starts_with(&commands::normalize(&raw[..head])));
+    assert!(text.ends_with(&commands::normalize(&raw[tail..])));
 }
 
 #[test]

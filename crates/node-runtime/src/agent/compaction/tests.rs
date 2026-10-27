@@ -160,7 +160,10 @@ mod budget {
         let (summarizer, model) = summarizer(vec![complete("Unused summary")], false);
         let mut events = history();
         events[1].set_content(Content::new("model").with_text("x".repeat(80_000)));
-        assert!(!summarizer.fits(&events).unwrap());
+        assert_eq!(
+            summarizer.prefix(&events, [2, 1].into_iter(), 0).unwrap(),
+            Some(1)
+        );
         let error = summarizer
             .summarize_with(&events, SummaryMode::Automatic)
             .await
@@ -871,7 +874,6 @@ fn retains_estimated_oversized_candidate() {
     let (summarizer, model) = summarizer(vec![], false);
     let mut events = history();
     events[0].set_content(Content::new("user").with_text("x".repeat(70 * 1024)));
-    assert!(!summarizer.fits(&events).unwrap());
     assert_eq!(
         summarizer
             .prefix(&events, [events.len()].into_iter(), summarizer.recent())

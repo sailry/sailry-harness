@@ -121,10 +121,10 @@ impl Context {
         let current = self.history().await?;
         matching::rebuild(&mut request, &current.events, self.preamble(), "")?;
         let revisions = model::history::revisions(&current.events);
-        model::history::remask(&mut request, &self.state.masked()?, &revisions);
-        model::history::limit(&mut request, self.window(), &revisions)?;
-        let tokens = estimate::request(&request)?;
-        self.state.record(tokens)?;
+        let tokens = self.retain(&mut request, &revisions)?;
+        // The summary is durable even if fixed retained context cannot fit.
+        // The next ordinary model boundary still enforces its input capacity.
+        self.invalidate(&request, &[]).await?;
         Ok(
             json!({"status":"compacted", "summary_id":id, "context_tokens":tokens, "trigger_tokens":self.summarizer.budget()}),
         )

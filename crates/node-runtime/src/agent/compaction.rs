@@ -354,12 +354,6 @@ impl Summarizer {
         })
     }
 
-    #[cfg(test)]
-    fn fits(&self, events: &[Event]) -> adk_core::Result<bool> {
-        let prepared = self.prepare(events)?;
-        self.fits_request(&prepared.request)
-    }
-
     fn source_tokens(&self, events: &[Event], request: &LlmRequest) -> adk_core::Result<u64> {
         let mut projected = request.clone();
         // An oversized immutable prefix is handled by the bounded recovery
