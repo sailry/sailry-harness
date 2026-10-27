@@ -85,6 +85,7 @@ pub enum State {
     Pending,
     Declined,
     Answered(Answer),
+    TimedOut,
     Cancelled,
     Interrupted,
 }

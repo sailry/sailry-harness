@@ -4,7 +4,9 @@ use adk_core::ToolConfirmationRequest;
 use question::{Question, Response, Spec, State};
 use std::collections::BTreeMap;
 
+mod expiry;
 mod planning;
+pub(super) use expiry::expire;
 pub(in crate::store) use planning::accept;
 
 pub(in crate::store) type Waiting =

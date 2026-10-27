@@ -2,6 +2,10 @@ use super::*;
 use question::{Answer, Question, Response, State};
 use serde_json::json;
 
+#[cfg(all(unix, feature = "test-support"))]
+#[path = "questions/timeouts.rs"]
+mod timeouts;
+
 pub(super) async fn pending(client: &Client, session: SessionId) -> (Page, Question) {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {

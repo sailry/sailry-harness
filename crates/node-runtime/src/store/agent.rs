@@ -179,6 +179,12 @@ pub(super) enum Operation {
         request: adk_core::ToolConfirmationRequest,
         reply: oneshot::Sender<Result<question::Response, Fault>>,
     },
+    ExpireQuestion {
+        turn: TurnId,
+        call: String,
+        stop: sailry_link::CancellationToken,
+        reply: oneshot::Sender<Result<question::Question, Fault>>,
+    },
     CancelInput {
         turn: TurnId,
         call: String,
@@ -833,6 +839,14 @@ pub(super) fn execute<'a>(
                     let _ = reply.send(Err(error));
                 }
             }
+        }),
+        Operation::ExpireQuestion {
+            turn,
+            call,
+            stop,
+            reply,
+        } => Box::pin(async move {
+            let _ = reply.send(questions::expire(database, turn, &call, &stop, events).await);
         }),
         Operation::CancelInput { turn, call } => Box::pin(async move {
             if controls.stopped.is_cancelled() {

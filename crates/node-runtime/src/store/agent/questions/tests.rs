@@ -3,6 +3,7 @@ use super::*;
 use question::{Answer, Input};
 
 mod completion;
+mod expiry;
 mod planning;
 
 struct Fixture {

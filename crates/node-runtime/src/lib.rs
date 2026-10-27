@@ -328,6 +328,12 @@ impl Node {
         *self.ingress.agents.approval_timeout.lock().unwrap() = Some(timeout);
     }
 
+    /// Shortens native clarification waits in isolated lifecycle fixtures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_question_timeout_fixture(&self, timeout: std::time::Duration) {
+        *self.ingress.agents.question_timeout.lock().unwrap() = Some(timeout);
+    }
+
     /// Observes an actual expiry request without guessing its scheduling delay.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn wait_approval_expiry_fixture(&self) {

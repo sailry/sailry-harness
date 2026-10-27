@@ -29,6 +29,7 @@ impl View {
             State::Cancelled => "interaction_cancelled",
             State::Declined => "question_declined",
             State::Interrupted => "question_interrupted",
+            State::TimedOut => "chat_response_timeout",
         };
         let answers: Vec<String> = match (&spec.input, &question.state) {
             (Input::Plan, _) => vec![spec.prompt.clone()],
@@ -58,7 +59,7 @@ impl View {
         let icon = match question.state {
             State::Pending => IconName::Bot,
             State::Cancelled => IconName::CircleX,
-            State::Interrupted => IconName::TriangleAlert,
+            State::Interrupted | State::TimedOut => IconName::TriangleAlert,
             _ => IconName::CircleCheck,
         };
         let detail = disclosure::Detail {

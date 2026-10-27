@@ -59,6 +59,8 @@ class QuestionHistory extends StatelessWidget {
                 ? 'toolQuestionDeclined'
                 : state['kind'] == 'interrupted'
                 ? 'conversationInterrupted'
+                : state['kind'] == 'timed_out'
+                ? 'backgroundTimedOut'
                 : 'toolQuestionCancelled',
           ),
         ),
