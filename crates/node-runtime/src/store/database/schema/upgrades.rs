@@ -46,7 +46,7 @@ pub(super) async fn needed(connection: &Connection) -> Result<bool, Error> {
             return Ok(true);
         }
     }
-    Ok(false)
+    Ok(crate::store::roles::needs_refresh(connection).await?)
 }
 
 pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
@@ -58,5 +58,6 @@ pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
             [kind],
         ).await?;
     }
+    crate::store::roles::refresh(connection).await?;
     Ok(())
 }

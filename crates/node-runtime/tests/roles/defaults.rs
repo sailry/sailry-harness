@@ -75,3 +75,72 @@ async fn preserves_edits_and_removal() {
         node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn refreshes_only_pristine_explore_instructions() {
+    const PREVIOUS: &str = "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input.";
+    for remote in [false, true] {
+        for customized in [false, true] {
+            let (directory, node, controller, client) = fresh(remote).await;
+            let profiles = list(&client).await;
+            let original = profiles[0].clone();
+            let mut previous = original.clone();
+            previous.instructions = PREVIOUS.into();
+            if customized {
+                previous.name = "Custom explorer".into();
+                previous.revision += 1;
+            }
+            node.shutdown().await.unwrap();
+            let path = directory.path().join("node/storage/node.turso");
+            let (database, connection) = database_fixture::open(&path, false).await;
+            connection
+                .execute(
+                    "UPDATE roles SET body=?1 WHERE id=?2",
+                    turso::params![
+                        serde_json::to_vec(&previous).unwrap(),
+                        previous.id.to_string()
+                    ],
+                )
+                .await
+                .unwrap();
+            database_fixture::close(database, connection).await;
+            let node = Node::start(directory.path().join("node")).await.unwrap();
+            let client = Client::new(if remote {
+                controller.handle().remote(node.link().address())
+            } else {
+                node.local()
+            });
+            let current = list(&client).await;
+            assert_eq!(current[1], profiles[1]);
+            if customized {
+                assert_eq!(current[0], previous);
+            } else {
+                let mut expected = original;
+                expected.revision += 1;
+                assert_eq!(current[0], expected);
+                let backups = std::fs::read_dir(directory.path().join("node/storage/backups"))
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path().join("node.turso"))
+                    .collect::<Vec<_>>();
+                assert_eq!(backups.len(), 1);
+                let (database, connection) = database_fixture::open(&backups[0], true).await;
+                let saved = connection
+                    .prepare("SELECT body FROM roles WHERE id=?1")
+                    .await
+                    .unwrap()
+                    .query_row([previous.id.to_string()])
+                    .await
+                    .unwrap()
+                    .get::<Vec<u8>>(0)
+                    .unwrap();
+                assert_eq!(
+                    serde_json::from_slice::<role::Profile>(&saved).unwrap(),
+                    previous
+                );
+                database_fixture::close(database, connection).await;
+            }
+            node.shutdown().await.unwrap();
+            controller.close().await.unwrap();
+        }
+    }
+}

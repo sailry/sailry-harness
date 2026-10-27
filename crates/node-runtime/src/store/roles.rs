@@ -4,25 +4,28 @@ use sailry_protocol::{ErrorCode, Fault, RoleId, role};
 use turso::{Connection, params};
 pub(super) mod approvals;
 
+const EXPLORE_INSTRUCTIONS: &str = "Explore the assigned scope using read-only tools. Read files the task names or needs, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input.";
+const PREVIOUS_EXPLORE: &str = "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input.";
+
+fn explore(id: RoleId) -> role::Profile {
+    role::Profile {
+        id,
+        revision: 0,
+        key: "explore".into(),
+        name: "Explore".into(),
+        appearance: None,
+        description: "Read existing code and report findings with exact paths".into(),
+        read_only: true,
+        model: None,
+        max_turns: None,
+        skills: Vec::new(),
+        tools: None,
+        instructions: EXPLORE_INSTRUCTIONS.into(),
+    }
+}
+
 pub(super) async fn initialize(db: &Connection) -> Result<(), Fault> {
-    put(
-        db,
-        &role::Profile {
-            id: RoleId::new(),
-            revision: 0,
-            key: "explore".into(),
-            name: "Explore".into(),
-            appearance: None,
-            description: "Read existing code and report findings with exact paths".into(),
-            read_only: true,
-            model: None,
-            max_turns: None,
-            skills: Vec::new(),
-            tools: None,
-            instructions: "Explore the assigned scope using read-only tools. Read files the task names or needs, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input.".into(),
-        },
-        0,
-    ).await?;
+    put(db, &explore(RoleId::new()), 0).await?;
     put(
         db,
         &role::Profile {
@@ -41,6 +44,40 @@ pub(super) async fn initialize(db: &Connection) -> Result<(), Fault> {
         },
         0,
     ).await?;
+    Ok(())
+}
+
+async fn outdated(db: &Connection) -> Result<Option<role::Profile>, Fault> {
+    let row = db
+        .prepare("SELECT body FROM roles WHERE key='explore'")
+        .await
+        .map_err(storage_error)?
+        .query_row(())
+        .await;
+    let row = match row {
+        Ok(row) => row,
+        Err(turso::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(error) => return Err(storage_error(error)),
+    };
+    let profile: role::Profile =
+        serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+            .map_err(storage_error)?;
+    let mut previous = explore(profile.id);
+    previous.revision = 1;
+    previous.instructions = PREVIOUS_EXPLORE.into();
+    Ok((profile == previous).then_some(profile))
+}
+
+pub(in crate::store) async fn needs_refresh(db: &Connection) -> Result<bool, Fault> {
+    Ok(outdated(db).await?.is_some())
+}
+
+/// Called only by the existing backed-up, current-format update transaction.
+pub(in crate::store) async fn refresh(db: &Connection) -> Result<(), Fault> {
+    if let Some(mut profile) = outdated(db).await? {
+        profile.instructions = EXPLORE_INSTRUCTIONS.into();
+        put(db, &profile, profile.revision).await?;
+    }
     Ok(())
 }
 
