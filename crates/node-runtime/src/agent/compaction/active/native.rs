@@ -10,7 +10,7 @@ impl Tool for Context {
     }
 
     fn description(&self) -> &str {
-        "Summarize completed context while retaining original history, the current tool batch, and two recent tool exchanges. Use only when context needs reducing. Returns compacted or skipped with current context usage; below half the compaction trigger, it skips without changing context. This does not complete the task or authorize further work."
+        "Summarize completed context while retaining original history, the current tool batch, and two recent tool exchanges. Use only when context needs reducing. Returns compacted, skipped or failed; below half the compaction trigger, it skips without changing context. This does not complete the task or authorize further work."
     }
 
     fn parameters_schema(&self) -> Option<Value> {
@@ -37,14 +37,23 @@ impl Tool for Context {
         if !arguments.as_object().is_some_and(serde_json::Map::is_empty) {
             return Err(AdkError::tool("context compaction accepts an empty object"));
         }
-        let result = self.compact(context.clone()).await;
-        if let Err(error) = &result
-            && !self.summarizer.stop.is_cancelled()
-            && !context.is_cancelled()
-        {
-            self.halt(error, SummaryMode::Manual).await?;
+        match self.compact(context.clone()).await {
+            Err(error)
+                if !self.summarizer.stop.is_cancelled()
+                    && !context.is_cancelled()
+                    && (failure::transient(&error) || failure::projectable(&error)) =>
+            {
+                self.notice(&error, SummaryMode::Manual, true).await?;
+                Ok(json!({"status":"failed", "error":model::error(error).message}))
+            }
+            Err(error) => {
+                if !self.summarizer.stop.is_cancelled() && !context.is_cancelled() {
+                    self.halt(&error, SummaryMode::Manual).await?;
+                }
+                Err(error)
+            }
+            result => result,
         }
-        result
     }
 }
 
@@ -55,7 +64,7 @@ impl Context {
         let history = self.history().await?;
         let events = &history.events;
         let mut request =
-            LlmRequest::new(self.summarizer.model.name(), vec![self.preamble.clone()]);
+            LlmRequest::new(self.summarizer.model.name(), vec![self.preamble().clone()]);
         request
             .contents
             .extend(super::super::history::prefix(events));
@@ -63,11 +72,11 @@ impl Context {
         let tokens = self.tokens(&request, &[]).await?;
         let skipped = json!({
             "status":"skipped", "context_tokens":tokens,
-            "trigger_tokens":self.summarizer.budget,
+            "trigger_tokens":self.summarizer.budget(),
         });
         if self
             .summarizer
-            .budget
+            .budget()
             .is_some_and(|budget| tokens.saturating_mul(2) < budget)
         {
             return Ok(skipped);
@@ -106,13 +115,18 @@ impl Context {
             .checkpoint
             .lock()
             .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
-        self.state
-            .record(self.summarizer.budget.unwrap_or(u64::MAX))?;
         // Later automatic callbacks must retain the exchanges protected here.
         self.retention.store(2, Ordering::Relaxed);
         self.applied.store(true, Ordering::Relaxed);
+        let current = self.history().await?;
+        matching::rebuild(&mut request, &current.events, self.preamble(), "")?;
+        let revisions = model::history::revisions(&current.events);
+        model::history::remask(&mut request, &self.state.masked()?, &revisions);
+        model::history::limit(&mut request, self.window(), &revisions)?;
+        let tokens = estimate::request(&request)?;
+        self.state.record(tokens)?;
         Ok(
-            json!({"status":"compacted", "summary_id":id, "context_tokens":tokens, "trigger_tokens":self.summarizer.budget}),
+            json!({"status":"compacted", "summary_id":id, "context_tokens":tokens, "trigger_tokens":self.summarizer.budget()}),
         )
     }
 }

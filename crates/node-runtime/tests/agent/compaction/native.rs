@@ -255,3 +255,125 @@ async fn skips_below_half_trigger() {
         fixture.controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn continues_after_recoverable_failure() {
+    for remote in [false, true] {
+        for (status, reason, attempts) in [
+            (Some(503), "service_rejected", 2),
+            (Some(429), "rate_limited", 2),
+            (None, "no_reduction", 1),
+        ] {
+            let server = Server::native_summary(
+                status,
+                "An expanding handoff with no reduction. ".repeat(1500),
+            )
+            .await;
+            let fixture = fixture(remote, &server).await;
+            std::fs::write(
+                fixture.root.join("source.txt"),
+                "Original evidence remains available\n".repeat(180),
+            )
+            .unwrap();
+            submit(
+                &fixture.client,
+                fixture.session.id,
+                "Read source.txt".into(),
+            )
+            .await;
+            let (_, _, page) = submit(
+                &fixture.client,
+                fixture.session.id,
+                "Compact prior evidence".into(),
+            )
+            .await;
+            assert!(!page.queue.paused);
+            assert!(
+                !page
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .any(|part| { matches!(part, Part::Compaction(_)) })
+            );
+            assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| {
+                matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
+                    && value["failure"]["source"] == "manual"
+                    && value["failure"]["reason"] == reason
+                    && value["failure"]["continued"] == true)
+            }));
+            let results = tool_details(&fixture.client, &page).await;
+            let result = results
+                .iter()
+                .find(|(name, _)| name == "compact_context")
+                .unwrap()
+                .1
+                .result
+                .as_ref()
+                .unwrap();
+            assert_eq!(result["status"], "failed");
+            assert_eq!(
+                results.len(),
+                2,
+                "the read and compaction each execute once"
+            );
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), 4 + attempts);
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| agent_support::compaction::is_summary(request))
+                    .count(),
+                attempts
+            );
+            let retained = messages(requests.last().unwrap());
+            assert!(retained.contains("Original evidence remains available"));
+            assert!(retained.contains("compact-call"));
+            assert!(retained.contains("failed"));
+            fixture.node.shutdown().await.unwrap();
+            fixture.controller.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn allows_automatic_compaction_after_growth() {
+    for remote in [false, true] {
+        let server = Server::native_compaction(false).await;
+        let fixture = fixture(remote, &server).await;
+        for index in 1..=5 {
+            std::fs::write(
+                fixture.root.join(format!("source-{index}.txt")),
+                format!("Evidence {index}\n").repeat(if index == 5 { 2 } else { 120 }),
+            )
+            .unwrap();
+        }
+        let (_, _, page) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Compact loop evidence. Continue after explicit compaction".into(),
+        )
+        .await;
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| agent_support::compaction::is_summary(request))
+                .count(),
+            2
+        );
+        assert_eq!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter(|part| matches!(part, Part::Compaction(_)))
+                .count(),
+            2
+        );
+        let latest = messages(requests.last().unwrap());
+        assert!(latest.contains("Evidence 4"));
+        assert!(latest.contains("Evidence 5"));
+        assert!(!latest.contains("Evidence 1"));
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}

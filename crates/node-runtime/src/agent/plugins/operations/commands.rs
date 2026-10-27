@@ -12,45 +12,17 @@ pub(super) async fn retain(
     commands: &crate::process::background::Commands,
     session: sailry_protocol::SessionId,
     id: sailry_protocol::RequestId,
-    command: &str,
     output: &Output,
     value: &mut Value,
 ) {
+    if !matches!(output, Output::CommandResult(_) | Output::CommandOutput(_)) {
+        return;
+    }
     let Ok(retained) = commands.retained(session, id) else {
         return;
     };
-    let command = match output {
-        Output::CommandOutput(snapshot) => snapshot.info.command.clone(),
-        _ => command.to_owned(),
-    };
-    let finished = match output {
-        Output::CommandResult(_) => true,
-        Output::CommandOutput(snapshot) => {
-            !matches!(snapshot.info.status, Status::Running | Status::Stopping)
-        }
-        _ => return,
-    };
     let projected = tokio::task::spawn_blocking(move || {
-        let mut metadata = retained.preview(id).unwrap_or_else(|| json!({"id":id}));
-        if finished && crate::process::output::model::is_cargo(&command) {
-            for (name, stream) in [
-                ("stdout", sailry_protocol::process::OutputStream::Stdout),
-                ("stderr", sailry_protocol::process::OutputStream::Stderr),
-            ] {
-                if let Some(text) = retained.text(stream) {
-                    let normalized = crate::process::output::model::normalize(&text);
-                    if let Some(text) = crate::process::output::model::cargo(&command, &normalized)
-                    {
-                        metadata[name] = json!(sailry_protocol::process::Capture {
-                            text,
-                            truncated: true,
-                            invalid_utf8: false,
-                        });
-                    }
-                }
-            }
-        }
-        metadata
+        retained.preview(id).unwrap_or_else(|| json!({"id":id}))
     })
     .await;
     value["sailry_command"] = projected.unwrap_or_else(|_| json!({"id":id}));
@@ -131,6 +103,48 @@ mod tests {
             },
             elapsed_ms: 1,
         })
+    }
+
+    #[tokio::test]
+    async fn persists_only_bounded_command_preview() {
+        use sailry_protocol::{RequestId, SessionId, TurnId, process::OutputStream};
+        let profile = tempfile::tempdir().unwrap();
+        let commands = crate::process::background::Commands::default();
+        let session = SessionId::new();
+        let id = RequestId::new();
+        let retained = commands.retain(
+            id,
+            session,
+            TurnId::new(),
+            &crate::process::Launch {
+                profile: Some(profile.path().to_owned()),
+                root: profile.path().to_owned(),
+                command: "cargo test".into(),
+                access: Access::Workspace,
+                pty: false,
+                cwd: String::new(),
+                timeout_ms: 1_000,
+                inputs: None,
+                scratch: None,
+                python: None,
+            },
+        );
+        let raw = format!(
+            "{}failures:\n{}last failure\n",
+            "test passed ... ok\n".repeat(100),
+            "original failure output\n".repeat(50_000)
+        );
+        retained.append(OutputStream::Stderr, raw.as_bytes());
+        let output = output(1, "canonical capture");
+        let mut value = serde_json::to_value(&output).unwrap();
+        retain(&commands, session, id, &output, &mut value).await;
+        let metadata = &value["sailry_command"];
+        assert!(metadata.to_string().len() < 36 * 1024);
+        let text = metadata["stderr"]["text"].as_str().unwrap();
+        assert!(text.starts_with("test passed ... ok\n"));
+        assert!(text.ends_with("last failure\n"));
+        assert!(!text.contains("Omitted 100 passed tests"));
+        assert_eq!(value["data"]["stderr"]["text"], "canonical capture");
     }
 
     #[test]

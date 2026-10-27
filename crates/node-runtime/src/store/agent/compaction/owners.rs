@@ -40,14 +40,16 @@ pub(super) async fn read(
     {
         let mut statement = db
             .prepare(
-                "SELECT part.value FROM conversation_events h
+                r#"SELECT part.value FROM conversation_events h
              JOIN agent_events e ON e.sequence=h.sequence
              JOIN json_each(e.body,'$.content.parts') part
              WHERE h.session=?1 AND h.sequence<=?2
              AND (json_extract(part.value,'$.functionResponse.name')
                IN ('load_skill','read_skill_resource','plan_review')
-               OR json_type(part.value,'$.functionResponse.response.progress')='object')
-             ORDER BY h.sequence,CAST(part.key AS INTEGER)",
+               OR json_type(part.value,'$.functionResponse.response.progress')='object'
+               OR (json_extract(e.body,'$.author')='user'
+                   AND CAST(part.key AS TEXT)=json_extract(e.body,'$.event_metadata."sailry.context.capability_part"')))
+             ORDER BY h.sequence,CAST(part.key AS INTEGER)"#,
             )
             .await
             .map_err(storage_error)?;

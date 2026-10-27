@@ -19,9 +19,15 @@ pub(in crate::agent) fn protected(name: &str, value: &Value) -> bool {
 }
 
 pub(in crate::agent) fn revisions(events: &[adk_core::Event]) -> Revisions {
-    events
-        .iter()
-        .filter_map(adk_core::Event::content)
+    collect(events.iter().filter_map(adk_core::Event::content))
+}
+
+pub(in crate::agent) fn references(contents: &[Content]) -> Revisions {
+    collect(contents.iter())
+}
+
+fn collect<'a>(contents: impl Iterator<Item = &'a Content>) -> Revisions {
+    contents
         .flat_map(|content| &content.parts)
         .filter_map(|part| match part {
             Part::FunctionResponse {
@@ -43,7 +49,7 @@ fn hash(value: &Value) -> String {
         .to_string()
 }
 
-fn source(value: &Value, id: &str, revisions: &Revisions) -> Value {
+pub(super) fn source(value: &Value, id: &str, revisions: &Revisions) -> Value {
     if let Some(source) = value.get("output")
         && source["call"].as_str() == Some(id)
         && source["revision"].as_str().is_some_and(|revision| {
@@ -70,19 +76,29 @@ fn excerpt(
 ) -> Value {
     let text = value.to_string();
     let count = text.chars().count();
-    let head = text.chars().take(characters / 2).collect::<String>();
+    let head = text
+        .char_indices()
+        .nth(characters / 2)
+        .map_or(text.len(), |(index, _)| index);
     let tail = text
         .chars()
         .rev()
         .take(characters - characters / 2)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<String>();
+        .map(char::len_utf8)
+        .sum();
+    let (head, tail) = crate::process::output::edges(&text, head, tail);
+    let command = super::commands::id(value);
+    let continuation = command.map_or_else(
+        || "read_tool_output with output, offset and limit".into(),
+        |id| format!("read_command id={id} with stream, offset and limit"),
+    );
     let mut result = json!({
-        "text":format!("{head}\n[... original result retained; use read_tool_output with output, offset and limit ...]\n{tail}"),
+        "text":format!("{head}\n[... original result retained; use {continuation} ...]\n{tail}"),
         "output":source(value,id,revisions), "omitted_characters":count.saturating_sub(characters),
     });
+    if let Some(id) = command {
+        result["sailry_command"] = json!({"id":id});
+    }
     if masked {
         result["masked"] = Value::Bool(true);
     }

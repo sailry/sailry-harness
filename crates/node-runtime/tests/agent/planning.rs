@@ -35,6 +35,10 @@ fn tool_names(request: &Value) -> Vec<&str> {
         .collect()
 }
 
+fn discover(name: &str) -> (String, Value) {
+    ("tool_search".into(), json!({"query":name,"limit":1}))
+}
+
 #[tokio::test]
 async fn preserves_queued_write_authority() {
     for remote in [false, true] {
@@ -100,12 +104,16 @@ async fn preserves_queued_write_authority() {
 #[tokio::test]
 async fn freezes_child_mode() {
     for remote in [false, true] {
-        let server = Server::parallel(vec![(
-            crate::agent_support::plugin_tool("delegation", "spawn_agent"),
-            json!({
-                "role": null, "task": "Inspect the task and propose a plan"
-            }),
-        )])
+        let spawn = plugin_tool("delegation", "spawn_agent");
+        let server = Server::available_tools(vec![
+            discover(&spawn),
+            (
+                spawn.clone(),
+                json!({
+                    "role": null, "task": "Inspect the task and propose a plan"
+                }),
+            ),
+        ])
         .await;
         let mut fixture = Fixture::packages(
             remote,
@@ -157,9 +165,11 @@ async fn freezes_child_mode() {
         assert!(child_history.approvals.is_empty());
         assert!(child_history.questions.is_empty());
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 4);
+        assert!(tool_names(&requests[0]).contains(&"tool_search"));
+        assert!(!tool_names(&requests[0]).contains(&spawn.as_str()));
         let mut delegated = 0;
-        for request in requests {
+        for (index, request) in requests.into_iter().enumerate() {
             let names = tool_names(&request);
             assert!(names.contains(&plugin_tool("files", "write_file").as_str()));
             assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));
@@ -170,6 +180,9 @@ async fn freezes_child_mode() {
                 assert!(!messages.contains("This is a planning turn"));
             } else {
                 assert!(messages.contains("This is a planning turn"));
+                if index > 0 {
+                    assert!(names.contains(&spawn.as_str()));
+                }
             }
         }
         assert!(delegated > 0);
@@ -181,11 +194,21 @@ async fn freezes_child_mode() {
 #[tokio::test]
 async fn restores_frozen_tools() {
     for remote in [false, true] {
-        let server = Server::tools(vec![(
+        let deferred = [
+            plugin_tool("delegation", "spawn_agent"),
+            plugin_tool("worktrees", "create_worktree"),
+            plugin_tool("worktrees", "register_worktree"),
+            plugin_tool("worktrees", "remove_worktree"),
+        ];
+        let mut calls = deferred
+            .iter()
+            .map(|name| discover(name))
+            .collect::<Vec<_>>();
+        calls.push((
             plugin_tool("files", "read_file"),
             json!({"path": "read.txt"}),
-        )])
-        .await;
+        ));
+        let server = Server::tools(calls).await;
         let mut fixture = Fixture::packages(
             remote,
             &server,
@@ -225,8 +248,8 @@ async fn restores_frozen_tools() {
         assert_eq!(page.runs[0].revision, turn.revision);
         assert!(page.approvals.is_empty());
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
-        for request in &requests {
+        assert_eq!(requests.len(), 6);
+        for (index, request) in requests.iter().enumerate() {
             let names = tool_names(request);
             for name in [
                 plugin_tool("files", "read_file").as_str(),
@@ -237,14 +260,17 @@ async fn restores_frozen_tools() {
                 plugin_tool("git", "git_log").as_str(),
                 plugin_tool("worktrees", "list_worktrees").as_str(),
                 "ask_user",
-                plugin_tool("delegation", "spawn_agent").as_str(),
             ] {
                 assert!(names.contains(&name), "missing {name}: {names:?}");
             }
             assert!(names.contains(&plugin_tool("files", "write_file").as_str()));
             assert!(names.contains(&plugin_tool("commands", "run_command").as_str()));
-            for name in ["create_worktree", "register_worktree", "remove_worktree"] {
-                assert!(names.contains(&plugin_tool("worktrees", name).as_str()));
+            for (position, name) in deferred.iter().enumerate() {
+                assert_eq!(
+                    names.contains(&name.as_str()),
+                    index > position,
+                    "unexpected mounted tool {name} in request {index}"
+                );
             }
             assert!(
                 request["messages"]
@@ -253,10 +279,11 @@ async fn restores_frozen_tools() {
             );
         }
         assert!(
-            requests[1]["messages"]
+            requests[5]["messages"]
                 .to_string()
                 .contains("Planning input 中文 🙂")
         );
+        assert_eq!(requests[4]["tools"], requests[5]["tools"]);
         fixture.node.shutdown().await.unwrap();
         let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
@@ -279,7 +306,7 @@ async fn restores_frozen_tools() {
             panic!("snapshot expected")
         };
         assert_eq!(snapshot.sessions[0].config.mode, WorkMode::Code);
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 6);
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

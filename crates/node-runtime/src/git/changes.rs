@@ -58,6 +58,40 @@ pub(super) fn list(
             ));
         }
     };
+    page(&capture, after.as_deref(), limit, control)
+}
+
+pub(super) fn cached(
+    root: &Path,
+    cursor: &GitChangesCursor,
+    limit: usize,
+    control: &Control,
+    cache: &Cache,
+) -> Result<Option<GitChanges>, Fault> {
+    validate_page(0, limit)?;
+    let Some(after) = cursor.after_path.as_deref() else {
+        return Ok(None);
+    };
+    super::valid_path(after)?;
+    let repository = open(root)?;
+    let Some(capture) = inventory::cached(root, &repository, &cursor.snapshot, control, cache)?
+    else {
+        return Ok(None);
+    };
+    if !capture.entries.contains_key(after) {
+        return Err(Fault::invalid(
+            "Git change cursor path is outside the snapshot",
+        ));
+    }
+    page(&capture, Some(after), limit, control).map(Some)
+}
+
+fn page(
+    capture: &inventory::Capture,
+    after: Option<&str>,
+    limit: usize,
+    control: &Control,
+) -> Result<GitChanges, Fault> {
     let mut result = GitChanges {
         snapshot: capture.snapshot.clone(),
         entries: Vec::new(),
@@ -68,11 +102,7 @@ pub(super) fn list(
     let candidates: Vec<_> = capture
         .entries
         .values()
-        .filter(|candidate| {
-            after
-                .as_ref()
-                .is_none_or(|path| &candidate.entry.path > path)
-        })
+        .filter(|candidate| after.is_none_or(|path| candidate.entry.path.as_str() > path))
         .collect();
     for (position, candidate) in candidates.iter().enumerate() {
         control.check()?;

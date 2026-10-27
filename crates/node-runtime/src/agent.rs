@@ -387,8 +387,7 @@ async fn execute_with(
         compaction::manual(ingress, &invocation, model, stop).await?;
         return Ok(Outcome::default());
     }
-    let inputs = inputs::Batch::capture(ingress, &invocation).await?;
-    let (input_turn, input_references, content) = inputs.current();
+    let mut inputs = inputs::Batch::capture(ingress, &invocation).await?;
     let mut prompt_session = prompt::Session::load(ingress, &invocation).await?;
     let resources = Arc::new(crate::plugins::resources::Resources::new(
         ingress.plugins.clone(),
@@ -504,20 +503,10 @@ async fn execute_with(
     instruction.push_str("\n\n");
     instruction.push_str(prompt::recipient(invocation.child.is_some()));
     let capability_tools = references::capabilities::tools(&extensions.tools);
-    policy.push_str(
-        &references::capabilities::instruction(
-            &invocation,
-            invocation.message.references.iter().chain(
-                invocation
-                    .followups
-                    .iter()
-                    .flat_map(|input| &input.message.references),
-            ),
-            &resources,
-            &capability_tools,
-        )
-        .await?,
-    );
+    inputs
+        .select(&invocation, &resources, &capability_tools)
+        .await?;
+    let (input_turn, input_references, content) = inputs.current();
     if let Some(title) = title::instruction(
         invocation.title.as_deref(),
         tool_capable,
@@ -527,7 +516,7 @@ async fn execute_with(
         policy.push_str(&title);
     }
     let instruction = prompt_session.instruction(instruction);
-    let (compact, compaction_config, compact_tool, context) = compaction::bind(
+    let (compact, compact_tool, context) = compaction::bind(
         ingress,
         model::build(ingress, &invocation, &stop, model::Purpose::Compaction).await?,
         &invocation,
@@ -568,6 +557,14 @@ async fn execute_with(
         .as_ref()
         .and_then(|child| child.role.as_ref())
         .and_then(|role| role.max_turns);
+    let (guidance, continuation) = guidance::bind(
+        ingress,
+        invocation,
+        context.clone(),
+        resources,
+        capability_tools,
+        stop.clone(),
+    );
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         // ADK requires a numeric ceiling; only explicit role budgets constrain tasks.
         .max_iterations(limit.unwrap_or(u32::MAX))
@@ -578,17 +575,10 @@ async fn execute_with(
             let instruction = instruction.clone();
             Box::pin(async move { Ok(instruction) })
         }))
-        .after_model_callback(guidance::continue_pending(ingress, invocation.turn.id))
+        .after_model_callback(continuation)
         .before_model_callback(approval::bind(ingress, invocation.turn.id, content.clone()))
         .before_model_callback(preamble)
-        .before_model_callback(guidance::bind(
-            ingress,
-            invocation,
-            context.clone(),
-            resources,
-            capability_tools,
-            stop.clone(),
-        ));
+        .before_model_callback(guidance);
     if let Some(hooks) = hooks {
         agent = agent
             .before_tool_callback(hooks.before())
@@ -650,7 +640,6 @@ async fn execute_with(
         .app_name(APP)
         .agent(Arc::new(agent))
         .session_service(sessions.clone())
-        .compaction_config(compaction_config)
         .run_config(run_config);
     let runner = runner.build().map_err(model::error)?;
     let session = invocation.turn.session.to_string();

@@ -273,42 +273,35 @@ fn appends_only_changed_runtime_context() {
 }
 
 #[test]
-fn appends_capabilities_without_repeating_policy() {
+fn retains_mounted_tools_after_deferral() {
     let turn = TurnId::new();
-    let snapshot = Snapshot::default();
-    let mut values = current(WorkMode::Code);
-    let first = capture(turn, &HashMap::new(), &snapshot, values.clone(), &[])
-        .unwrap()
-        .unwrap();
+    let mut snapshot = Snapshot::default();
+    snapshot.declarations(&tools("Initially selected tool"));
+    let first = capture(
+        turn,
+        &HashMap::new(),
+        &snapshot,
+        current(WorkMode::Code),
+        &[],
+    )
+    .unwrap()
+    .unwrap();
     let state: HashMap<String, Value> = first.actions.state_delta.into_iter().collect();
-    let original = values[0].1.clone();
-    let capability = "\n\nThe user explicitly selected plugin files for this task.";
-    values[0].1.push_str(capability);
-    let changed = capture(turn, &state, &snapshot, values, &[])
+    assert_eq!(
+        loaded(state.get(LOADED_TOOLS)),
+        BTreeSet::from(["fixture".into()])
+    );
+    let mut deferred = tools("Initially selected tool");
+    deferred[0].deferred = true;
+    let declarations = snapshot.declarations(&deferred);
+    assert!(
+        project_with_loaded(declarations, &loaded(state.get(LOADED_TOOLS))).contains_key("fixture")
+    );
+    let changed = capture(turn, &state, &snapshot, current(WorkMode::Code), &[])
         .unwrap()
         .unwrap();
-    let text = changed
-        .content()
-        .unwrap()
-        .parts
-        .iter()
-        .filter_map(|part| match part {
-            Part::Text { text } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect::<String>();
-    assert!(text.contains(capability));
-    assert!(!text.contains(&original));
-    assert_eq!(
-        changed.actions.state_delta[POLICY],
-        json!(original + capability)
-    );
-    let mut state = state;
-    state.extend(changed.actions.state_delta);
-    let retained = context(&state).unwrap();
-    let text = serde_json::to_string(&retained).unwrap();
-    assert!(text.contains("The user explicitly selected plugin files for this task."));
-    assert!(text.contains("This turn uses Ask permission"));
+    assert!(!changed.actions.state_delta.contains_key(LOADED_TOOLS));
+    assert!(!changed.actions.state_delta.contains_key(POLICY));
 }
 
 #[test]

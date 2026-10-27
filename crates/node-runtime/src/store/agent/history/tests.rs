@@ -59,6 +59,53 @@ fn captured() -> AdkEvent {
 }
 
 #[tokio::test]
+async fn rolls_back_context_with_rejected_input() {
+    let mut fixture = Fixture::new().await;
+    let owner = running(&mut fixture).await;
+    let mut context = AdkEvent::new("context");
+    context.author = "system".into();
+    context
+        .actions
+        .state_delta
+        .insert("context_saved".into(), serde_json::json!(true));
+    let mut input = AdkEvent::new("input");
+    input.id.clear();
+    input.author = "user".into();
+    input.set_content(adk_core::Content::new("user").with_text("Uncommitted input"));
+    let session = fixture.session;
+    assert!(
+        append_with_context(
+            &mut fixture.database,
+            session,
+            owner,
+            input,
+            Some((owner, context)),
+            &fixture.events,
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        !state(&fixture.database.connection, session)
+            .await
+            .unwrap()
+            .contains_key("context_saved")
+    );
+    let count: i64 = fixture
+        .database
+        .connection
+        .prepare("SELECT count(*) FROM agent_events WHERE session=?1")
+        .await
+        .unwrap()
+        .query_row([session.to_string()])
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
 async fn preserves_action_visibility() {
     let fixture = Fixture::new().await;
     let mut telemetry = AdkEvent::new("telemetry");

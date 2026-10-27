@@ -45,6 +45,37 @@ fn excludes_owner_context_from_summary() {
 }
 
 #[test]
+fn excludes_input_capabilities_from_summary() {
+    let mut input = Event::new("captured");
+    input.author = "user".into();
+    input.set_content(
+        Content::new("user")
+            .with_text("Apply the selected workflow")
+            .with_text("Exact selected skill instructions"),
+    );
+    input
+        .provider_metadata
+        .insert(crate::store::agent::CAPABILITY_PART.into(), "1".into());
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_SOURCE.into(), "user".into());
+    input
+        .provider_metadata
+        .insert(crate::store::agent::INPUT_PART.into(), "0".into());
+    let events = [input];
+    let content = eligible(&events);
+    assert_eq!(content.len(), 1);
+    assert_eq!(
+        content[0].parts,
+        Content::new("user")
+            .with_text("Apply the selected workflow")
+            .parts
+    );
+    assert_eq!(prefix(&events)[0].parts.len(), 2);
+    assert_eq!(latest(&events).unwrap().text, "Apply the selected workflow");
+}
+
+#[test]
 fn preserves_roles_and_bytes_on_reload() {
     let mut user = Event::new("captured");
     user.author = "user".into();

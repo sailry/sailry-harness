@@ -8,6 +8,8 @@ use std::{collections::BTreeMap, sync::Mutex};
 #[derive(Default)]
 struct Inputs {
     insertions: Vec<(usize, Vec<Content>)>,
+    queued: Option<Vec<sailry_protocol::conversation::QueuedMessage>>,
+    calls: bool,
 }
 
 impl Inputs {
@@ -29,7 +31,7 @@ pub(super) fn bind(
     resources: Arc<crate::plugins::resources::Resources>,
     tools: BTreeMap<String, Vec<String>>,
     stop: CancellationToken,
-) -> BeforeModelCallback {
+) -> (BeforeModelCallback, AfterModelCallback) {
     let ingress = ingress.clone();
     let invocation = invocation.clone();
     let owner = invocation.turn.id;
@@ -37,7 +39,8 @@ pub(super) fn bind(
     let child = invocation.child.is_some();
     let inputs = Arc::new(Mutex::new(Inputs::default()));
     let tools = Arc::new(tools);
-    Box::new(move |callback, mut request| {
+    let continuation = continue_pending(&ingress, owner, inputs.clone(), stop.clone());
+    let before: BeforeModelCallback = Box::new(move |callback, mut request| {
         let ingress = ingress.clone();
         let invocation = invocation.clone();
         let context = context.clone();
@@ -47,36 +50,51 @@ pub(super) fn bind(
         let stop = stop.clone();
         Box::pin(async move {
             let frontier = request.contents.len();
-            inputs
+            {
+                let mut inputs = inputs
+                    .lock()
+                    .map_err(|_| AdkError::agent("guidance history is unavailable"))?;
+                inputs.apply(&mut request)?;
+                inputs.calls = false;
+            }
+            if stop.is_cancelled() {
+                return Err(AdkError::agent("guidance was cancelled"));
+            }
+            let queued = inputs
                 .lock()
                 .map_err(|_| AdkError::agent("guidance history is unavailable"))?
-                .apply(&mut request)?;
-            if stop.is_cancelled() {
-                return Ok(BeforeModelResult::Continue(request));
-            }
-            if let Some(queued) = ingress.take_guidance(owner).await.map_err(model_error)? {
-                let batch = inputs::Batch::guidance(&ingress, owner, &queued)
+                .queued
+                .take();
+            let queued = match queued {
+                Some(queued) => Some(queued),
+                None => ingress.take_guidance(owner).await.map_err(model_error)?,
+            };
+            if let Some(queued) = queued {
+                if stop.is_cancelled() {
+                    return Err(AdkError::agent("guidance was cancelled"));
+                }
+                let mut batch = inputs::Batch::guidance(&ingress, owner, &queued)
                     .await
                     .map_err(model_error)?;
-                let pending = batch.pending();
-                let capabilities = references::capabilities::instruction(
-                    &invocation,
-                    queued.iter().flat_map(|input| &input.message.references),
-                    &resources,
-                    &tools,
-                )
-                .await
-                .map_err(model_error)?;
-                let mut contents =
-                    prompt::Session::refresh(&ingress, &invocation, &queued, &capabilities, &stop)
-                        .await
-                        .map_err(model_error)?
-                        .into_iter()
-                        .collect::<Vec<_>>();
-                context.preflight(&pending, request.tools.clone()).await?;
-                contents.extend(pending);
+                batch
+                    .select(&invocation, &resources, &tools)
+                    .await
+                    .map_err(model_error)?;
+                let context_event = prompt::Session::prepare(&ingress, &invocation, &queued, &stop)
+                    .await
+                    .map_err(model_error)?;
+                let mut contents = context_event
+                    .as_ref()
+                    .and_then(|event| event.content().cloned())
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                contents.extend(batch.pending());
                 if stop.is_cancelled() {
-                    return Ok(BeforeModelResult::Continue(request));
+                    return Err(AdkError::agent("guidance was cancelled"));
+                }
+                context.preflight(&contents, request.tools.clone()).await?;
+                if stop.is_cancelled() {
+                    return Err(AdkError::agent("guidance was cancelled"));
                 }
                 batch
                     .append_guidance(
@@ -85,6 +103,7 @@ pub(super) fn bind(
                         owner,
                         callback.invocation_id(),
                         if child { "parent" } else { "user" },
+                        context_event,
                     )
                     .await
                     .map_err(model_error)?;
@@ -97,26 +116,60 @@ pub(super) fn bind(
             }
             Ok(BeforeModelResult::Continue(request))
         })
-    })
+    });
+    (before, continuation)
 }
 
 fn model_error(error: Fault) -> AdkError {
     AdkError::agent("queued guidance could not be applied").with_source(error)
 }
 
-/// Finish the current response normally, then collect pending input at the next boundary.
-pub(super) fn continue_pending(ingress: &Arc<Ingress>, owner: TurnId) -> AfterModelCallback {
+/// Claim input before requesting continuation, after the complete response settles.
+fn continue_pending(
+    ingress: &Arc<Ingress>,
+    owner: TurnId,
+    inputs: Arc<Mutex<Inputs>>,
+    stop: CancellationToken,
+) -> AfterModelCallback {
     let ingress = ingress.clone();
     Box::new(move |_, mut response| {
         let ingress = ingress.clone();
+        let inputs = inputs.clone();
+        let stop = stop.clone();
         Box::pin(async move {
+            let (calls, claimed) = {
+                let mut inputs = inputs
+                    .lock()
+                    .map_err(|_| AdkError::agent("guidance history is unavailable"))?;
+                inputs.calls |= response.content.as_ref().is_some_and(|content| {
+                    content
+                        .parts
+                        .iter()
+                        .any(|part| matches!(part, adk_core::Part::FunctionCall { .. }))
+                });
+                (inputs.calls, inputs.queued.is_some())
+            };
             if response.partial
+                || stop.is_cancelled()
+                || calls
                 || !(response.turn_complete || response.finish_reason.is_some())
                 || !ingress.agents.running(owner)
             {
                 return Ok(None);
             }
-            if ingress.pending_guidance(owner).await.map_err(model_error)? {
+            let queued = if claimed {
+                None
+            } else {
+                ingress.take_guidance(owner).await.map_err(model_error)?
+            };
+            let continuation = claimed || queued.is_some();
+            if let Some(queued) = queued {
+                inputs
+                    .lock()
+                    .map_err(|_| AdkError::agent("guidance history is unavailable"))?
+                    .queued = Some(queued);
+            }
+            if continuation {
                 let metadata = response
                     .provider_metadata
                     .get_or_insert_with(|| serde_json::json!({}));

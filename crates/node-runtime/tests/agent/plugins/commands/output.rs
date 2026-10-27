@@ -239,3 +239,138 @@ async fn retains_foreground_streams_and_canonical_results() {
         node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn refreshes_git_after_command_completion() {
+    for remote in [false, true] {
+        for background in [false, true] {
+            let command = if background {
+                "printf ready; IFS= read -r value; printf changed > command-created.txt"
+            } else {
+                "printf changed > command-created.txt"
+            };
+            let server = Server::tools(vec![(
+                name("run_command"),
+                json!({
+                    "command":command,"access":"unrestricted","background":background
+                }),
+            )])
+            .await;
+            let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
+            let mut config = fixture.session.config.clone();
+            config.mode = WorkMode::Code;
+            config.permission = Permission::Ask;
+            let Output::Session(session) = execute(
+                &fixture,
+                Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
+                },
+            )
+            .await
+            else {
+                panic!("session expected")
+            };
+            fixture.session = session;
+            git2::Repository::init(&fixture.root).unwrap();
+            let turn = approvals::rules::submit(&fixture.client, &fixture.session)
+                .await
+                .id;
+            let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+            if !background {
+                execute(
+                    &fixture,
+                    Command::InspectGit {
+                        worktree: fixture.session.worktree,
+                    },
+                )
+                .await;
+            }
+            process::decide(&fixture.client, &approval, Decision::Approve).await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            if background {
+                let results = results(&fixture.client, &page).await;
+                let id = serde_json::from_value(results[0]["data"]["id"].clone()).unwrap();
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    loop {
+                        let Output::CommandOutput(snapshot) = execute(
+                            &fixture,
+                            Command::ReadCommand {
+                                session: fixture.session.id,
+                                id,
+                            },
+                        )
+                        .await
+                        else {
+                            panic!("command snapshot expected")
+                        };
+                        if snapshot.stdout.text.contains("ready") {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .unwrap();
+                execute(
+                    &fixture,
+                    Command::InspectGit {
+                        worktree: fixture.session.worktree,
+                    },
+                )
+                .await;
+                execute(
+                    &fixture,
+                    Command::WriteCommand {
+                        session: fixture.session.id,
+                        id,
+                        input: "finish\n".into(),
+                    },
+                )
+                .await;
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    loop {
+                        let Output::CommandOutput(snapshot) = execute(
+                            &fixture,
+                            Command::ReadCommand {
+                                session: fixture.session.id,
+                                id,
+                            },
+                        )
+                        .await
+                        else {
+                            panic!("command snapshot expected")
+                        };
+                        if matches!(
+                            snapshot.info.status,
+                            sailry_protocol::process::Status::Finished(_)
+                        ) {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .unwrap();
+            }
+            let Output::GitStatus(status) = execute(
+                &fixture,
+                Command::InspectGit {
+                    worktree: fixture.session.worktree,
+                },
+            )
+            .await
+            else {
+                panic!("Git status expected")
+            };
+            assert!(
+                status
+                    .entries
+                    .iter()
+                    .any(|entry| entry.path == "command-created.txt")
+            );
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}

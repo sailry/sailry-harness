@@ -74,6 +74,16 @@ pub(super) fn eligible(events: &[Event]) -> Vec<Content> {
             // Prior invocation projection is deliberately used for both a live
             // checkpoint and reload, so provenance cannot alter this prefix.
             let mut content = project(event, "")?;
+            if let Some(index) = event
+                .provider_metadata
+                .get(crate::store::agent::CAPABILITY_PART)
+                .and_then(|index| index.parse::<usize>().ok())
+                .filter(|index| *index < content.parts.len())
+            {
+                // Input capabilities are reinjected from their canonical owner,
+                // separately from the attributed user instruction.
+                content.parts.remove(index);
+            }
             if event
                 .provider_metadata
                 .contains_key(crate::store::agent::compaction::END_EVENT)

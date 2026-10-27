@@ -75,7 +75,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                 .await
                 .unwrap();
         }
-        let mut message: Input = "Compare two independent implementations".into();
+        let mut message = Input::default();
         message.references.push(Reference {
             target: Target::Skill {
                 package: "delegation".into(),
@@ -105,15 +105,33 @@ async fn scopes_skill_policy_to_admitted_inventory() {
             Status::Completed
         );
         let request = fixture.parent.requests.lock().unwrap()[0].clone();
-        let instruction = node_context(&request, "Work mode");
+        let policy = node_context(&request, "Work mode");
+        assert!(!policy.contains("<selected_skill>"));
+        let instruction = request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .map(|message| message["content"].to_string())
+            .find(|text| text.contains("<selected_skill>"))
+            .expect("selected skill accompanies its input");
         assert_eq!(instruction.matches("<selected_skill>").count(), 1);
         assert!(instruction.contains(
             "Use this skill when the user requests two or more competing implementations"
         ));
         assert!(
-            instruction.contains(
+            policy.contains(
                 "unless the full instructions are already supplied; do not load them again"
             )
+        );
+        assert!(
+            !page
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Text(text) if text.contains("<selected_skill>"))
+                })
         );
 
         for stage in [

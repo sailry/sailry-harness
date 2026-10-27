@@ -26,7 +26,6 @@ pub(super) fn lines(original: &Value, source: &Value) -> Option<Value> {
         };
         if body.len() + row.len() > LIMIT - 1024 {
             next = Some(line.number - 1);
-            omitted += 1;
             break;
         }
         omitted += usize::from(end < text.len());
@@ -90,7 +89,6 @@ pub(super) fn search(original: &Value, arguments: Option<&Value>, source: &Value
         let found = matcher.as_ref().and_then(|matcher| matcher.find(&row.line));
         let preview = match found {
             Some(found) => snippet(&row.line, found.start()),
-            None if !row.matched => snippet(&row.line, 0),
             None => snippet(&row.line, 0),
         };
         grouped.entry(&row.path).or_default().push(format!(

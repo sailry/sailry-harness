@@ -88,6 +88,22 @@ fn skips_small_savings_and_protected_context() {
 }
 
 #[test]
+fn masks_commands_with_stream_reader() {
+    let original = json!({"sailry_command":{"id":"retained-command"},"stdout":{"text":"log ".repeat(4_000)},"stderr":{"text":"error ".repeat(4_000)}});
+    let mut request = LlmRequest::new(
+        "fixture",
+        vec![result("call", "declared_command", original.clone())],
+    );
+    assert!(mask(&mut request, 0, 100, &Revisions::new()).unwrap() > 0);
+    let masked = value(&request, 0);
+    let text = masked["text"].as_str().unwrap();
+    assert!(text.contains("read_command id=retained-command"));
+    assert!(!text.contains("read_tool_output"));
+    assert_eq!(masked["sailry_command"]["id"], "retained-command");
+    assert_eq!(masked["output"]["revision"], hash(&original));
+}
+
+#[test]
 fn caps_all_results_to_remaining_window() {
     for name in ["mcp_fixture", "declared_delegate", "ordinary_plugin"] {
         let canonical = LlmRequest::new(

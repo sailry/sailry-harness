@@ -109,8 +109,9 @@ where
     F: FnOnce(LlmRequest) -> Fut,
     Fut: std::future::Future<Output = adk_core::Result<LlmResponseStream>>,
 {
+    let revisions = output::references(&request.contents);
     project(&mut request, &origin);
-    limit(&mut request, window, &Revisions::new())?;
+    limit(&mut request, window, &revisions)?;
     Ok(responses(generate(request).await?, origin))
 }
 
@@ -128,7 +129,7 @@ pub(in crate::agent) fn limit(
     window: Option<Window>,
     revisions: &Revisions,
 ) -> adk_core::Result<Option<String>> {
-    output::project(&mut request.contents);
+    output::project_with(&mut request.contents, revisions);
     output::limit(request, window, revisions)
 }
 
@@ -387,6 +388,49 @@ mod tests {
         );
         coalesce(&mut contents);
         assert_eq!(contents[0].parts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn references_canonical_mcp_result() {
+        let data = serde_json::json!({"text":"canonical evidence 中文🙂".repeat(8_000)});
+        let canonical = serde_json::json!({"output":data,"text":[data.to_string()],"isError":true});
+        let request = LlmRequest::new(
+            "fixture",
+            vec![Content {
+                role: "function".into(),
+                parts: vec![Part::FunctionResponse {
+                    id: Some("mcp-call".into()),
+                    function_response: adk_core::FunctionResponseData::new(
+                        "mcp_fixture",
+                        canonical.clone(),
+                    ),
+                    annotations: None,
+                }],
+            }],
+        );
+        let expected = blake3::hash(canonical.to_string().as_bytes())
+            .to_hex()
+            .to_string();
+        let stream = generate(
+            request,
+            origin(&provider(), "fixture", None, None),
+            None,
+            |request| async move {
+                let Part::FunctionResponse {
+                    function_response, ..
+                } = &request.contents[0].parts[0]
+                else {
+                    panic!("tool result expected")
+                };
+                assert_eq!(function_response.response["output"]["call"], "mcp-call");
+                assert_eq!(function_response.response["output"]["revision"], expected);
+                assert_eq!(function_response.response["isError"], true);
+                Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
+            },
+        )
+        .await
+        .unwrap();
+        drop(stream);
     }
 
     #[test]

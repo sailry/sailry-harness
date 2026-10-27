@@ -144,6 +144,7 @@ pub(super) struct Worker {
     commands: Arc<process::background::Commands>,
     code: Arc<crate::code_index::Service>,
     plugins: crate::plugins::Host,
+    git: crate::git::Git,
 }
 
 impl Worker {
@@ -152,6 +153,7 @@ impl Worker {
             pending: 0,
             code: ingress.code_index.clone(),
             plugins: ingress.plugins.clone(),
+            git: ingress.git.clone(),
             commands: ingress.commands.clone(),
             runtime,
             completed,
@@ -179,8 +181,10 @@ impl Worker {
         let code = self.code.clone();
         let agents = self.agents.clone();
         let plugins = self.plugins.clone();
+        let git = self.git.clone();
         self.runtime.spawn(async move {
             let mut execution = execution;
+            let root = execution.launch.launch.root.clone();
             let operation = async {
                 execution.launch.launch.scratch = Some(agents.scratch(
                     execution.launch.turn,
@@ -223,7 +227,13 @@ impl Worker {
                         environment,
                         closed,
                     )?;
-                    commands.watch(info.id, execution.launch.worktree, code);
+                    commands.watch(
+                        info.id,
+                        execution.launch.worktree,
+                        code,
+                        root.clone(),
+                        git.clone(),
+                    );
                     return Ok(Output::CommandStarted(info));
                 }
                 let retained = commands.retain(
@@ -240,7 +250,6 @@ impl Worker {
                     retained,
                 )
                 .await;
-                commands.finish(execution.request.id, &result);
                 result.map(Output::CommandResult)
             };
             let result = AssertUnwindSafe(operation)
@@ -252,6 +261,16 @@ impl Worker {
                         "command execution failed; inspect the target before retrying",
                     ))
                 });
+            if !execution.launch.background {
+                git.invalidate(&root);
+                match &result {
+                    Ok(Output::CommandResult(completion)) => {
+                        commands.finish(execution.request.id, Ok(completion))
+                    }
+                    Err(error) => commands.finish(execution.request.id, Err(error)),
+                    _ => {}
+                }
+            }
             let _ = completed
                 .send(Job::Executed(Box::new(Completed {
                     caller: execution.caller,

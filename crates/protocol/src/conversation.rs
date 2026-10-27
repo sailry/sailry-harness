@@ -160,7 +160,7 @@ pub enum Status {
     Running,
     Stopping,
     Completed,
-    /// A guidance handoff ended this invocation without stopping its session.
+    /// This input joined another running task and has no separate execution.
     Continued,
     Cancelled,
     Interrupted,

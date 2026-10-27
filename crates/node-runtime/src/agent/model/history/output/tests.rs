@@ -288,18 +288,58 @@ fn bounds_complete_command_diagnostics() {
             let mut request = canonical.clone();
             project(&mut request);
             let projected = value(&request[0]);
-            assert!(projected["text"].as_str().unwrap().len() < LIMIT + 1024);
-            assert!(projected["text"].as_str().unwrap().contains("last failure"));
-            assert!(
-                projected["text"]
-                    .as_str()
-                    .unwrap()
-                    .contains("read_command id=00000000-0000-4000-8000-000000000001")
-            );
+            let data = projected.get("data").unwrap_or(projected);
+            let stdout = data["stdout"]["text"].as_str().unwrap();
+            assert!(stdout.len() < 18 * 1024);
+            assert!(stdout.starts_with("failures:\n"));
+            assert!(stdout.ends_with("last failure"));
+            assert!(stdout.contains("read_command id=00000000-0000-4000-8000-000000000001"));
+            assert!(stdout.contains("stream=stdout offset=0"));
+            assert_eq!(data["stderr"]["text"], "");
+            assert_eq!(data["stdout"]["truncated"], true);
             assert_eq!(projected["output"]["call"], "call");
             assert_eq!(value(&canonical[0]), &original);
         }
     }
+}
+
+#[test]
+fn preserves_both_command_stream_edges() {
+    let original = json!({
+        "sailry_command":{"id":"command"},
+        "stdout":{"text":format!("stdout first {} stdout last", "out 中文🙂".repeat(8_000)),"invalid_utf8":false,"truncated":false},
+        "stderr":{"text":format!("stderr first {} stderr last", "error 中文🙂".repeat(8_000)),"invalid_utf8":true,"truncated":false},
+        "outcome":{"kind":"exited","data":1},"elapsed_ms":23
+    });
+    let mut request = vec![response("declared_command", original.clone())];
+    project(&mut request);
+    let projected = value(&request[0]);
+    for stream in ["stdout", "stderr"] {
+        let text = projected[stream]["text"].as_str().unwrap();
+        assert!(text.starts_with(&format!("{stream} first")));
+        assert!(text.ends_with(&format!("{stream} last")));
+        assert!(text.contains(&format!("read_command id=command stream={stream} offset=0")));
+        assert!(!text.contains("read_tool_output"));
+        assert!(text.len() < 18 * 1024);
+    }
+    assert_eq!(projected["stderr"]["invalid_utf8"], true);
+    assert_eq!(projected["outcome"], original["outcome"]);
+    assert_eq!(projected["elapsed_ms"], 23);
+    assert!(projected.get("text").is_none());
+}
+
+#[test]
+fn continues_file_pages_without_duplicate_hint() {
+    let original = json!({"path":"source.txt", "lines":(1..=50).map(|number| json!({"number":number,"text":"x".repeat(1_000)})).collect::<Vec<_>>(),
+        "size":50_000,"revision":"original","offset":0,"next_offset":null});
+    let mut request = vec![response("declared_file_reader", original)];
+    project(&mut request);
+    let projected = value(&request[0]);
+    let text = projected["text"].as_str().unwrap();
+    let offset = projected["next_offset"].as_u64().unwrap();
+    assert!(offset > 0 && offset < 50);
+    assert!(text.contains(&format!("Continue read_file with offset={offset}")));
+    assert!(!text.contains("read_tool_output"));
 }
 
 #[test]

@@ -622,7 +622,7 @@ pub(super) async fn finish_with(
             && super::queue::read(&database.connection, run.session)
                 .await?
                 .paused);
-    run.status = if stopped && !matches!(status, Status::Continued | Status::Interrupted) {
+    run.status = if stopped && status != Status::Interrupted {
         Status::Cancelled
     } else {
         status

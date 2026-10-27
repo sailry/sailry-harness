@@ -82,6 +82,25 @@ pub async fn reject_length(stream: TcpStream, body: &Value) -> std::io::Result<(
     .await
 }
 
+pub async fn respond_recent(
+    stream: TcpStream,
+    body: &Value,
+    id: &str,
+    path: &str,
+) -> std::io::Result<()> {
+    let read = !body["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|message| message["role"] == "tool" && message["tool_call_id"] == id);
+    let delta = if read {
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":id,"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":path,"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
+    } else {
+        json!({"role":"assistant","content":"Recent result verified"})
+    };
+    reply_usage(stream, body, delta, read, Some(100)).await
+}
+
 pub async fn respond_plain(
     stream: TcpStream,
     body: &Value,
@@ -112,13 +131,14 @@ pub async fn respond_loop(
     fail_summary: bool,
     usage: &[Option<i32>],
     summary_input: i32,
+    text: &str,
 ) -> std::io::Result<()> {
     if is_summary(body) {
         return respond_usage(
             stream,
             body,
             fail_summary.then_some(400),
-            "Context summary fixture: earlier tool evidence retained",
+            text,
             summary_input,
         )
         .await;
@@ -150,16 +170,11 @@ pub const NATIVE_USAGE: i32 = 13_000;
 pub async fn respond_native(
     stream: TcpStream,
     body: &Value,
-    fail_summary: bool,
+    failure_status: Option<u16>,
+    text: &str,
 ) -> std::io::Result<()> {
     if is_summary(body) {
-        return respond(
-            stream,
-            body,
-            fail_summary,
-            "Context summary fixture: original evidence retained",
-        )
-        .await;
+        return respond_usage(stream, body, failure_status, text, 100).await;
     }
     let messages = body["messages"].as_array().unwrap();
     let start = messages
@@ -173,7 +188,7 @@ pub async fn respond_native(
         }
         let id = message["tool_call_id"].as_str()?;
         let index = id.strip_prefix("native-read-")?.parse::<usize>().ok()?;
-        if !(1..=4).contains(&index) {
+        if !(1..=5).contains(&index) {
             return None;
         }
         messages
@@ -189,6 +204,12 @@ pub async fn respond_native(
             .then_some(index)
     });
     let loop_task = task.is_some_and(|text| text.contains("Compact loop evidence"));
+    let continue_work = messages.iter().any(|message| {
+        message["role"] == "user"
+            && message["content"]
+                .as_str()
+                .is_some_and(|text| text.contains("Continue after explicit compaction"))
+    });
     if loop_task || (start.is_none() && retained_read.is_some()) {
         let completed = match retained_read {
             Some(index) => index,
@@ -200,7 +221,7 @@ pub async fn respond_native(
         if completed == 3 {
             calls.push(json!({"index":0,"id":"compact-call","type":"function","function":{"name":"compact_context","arguments":"{}"}}));
         }
-        if completed < 4 {
+        if completed < if continue_work { 5 } else { 4 } {
             calls.push(json!({"index":calls.len(),"id":format!("native-read-{index}"),"type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":format!("source-{index}.txt"),"limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}));
         }
         let call = !calls.is_empty();
@@ -209,13 +230,17 @@ pub async fn respond_native(
         } else {
             json!({"role":"assistant","content":"Compaction request handled"})
         };
-        let usage = if completed == 3 { NATIVE_USAGE } else { 100 };
+        let usage = match completed {
+            3 => NATIVE_USAGE,
+            4 if continue_work => 26_000,
+            _ => 100,
+        };
         return reply_usage(stream, body, delta, call, Some(usage)).await;
     }
     let start = start.expect("native compaction request is missing its user task");
     let compact = task.is_some_and(|text| text.contains("Compact prior evidence"));
     if !compact {
-        return respond(stream, body, fail_summary, "unused").await;
+        return respond(stream, body, false, "unused").await;
     }
     let call = !messages[start..]
         .iter()

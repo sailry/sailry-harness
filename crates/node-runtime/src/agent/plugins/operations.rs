@@ -380,14 +380,9 @@ impl HostOperation {
         );
         let command_record = match &request.command {
             Command::RunCommand {
-                command,
-                background: false,
-                ..
-            } => self
-                .context
-                .session
-                .map(|session| (session, request.id, command.clone())),
-            Command::ReadCommand { session, id } => Some((*session, *id, String::new())),
+                background: false, ..
+            } => self.context.session.map(|session| (session, request.id)),
+            Command::ReadCommand { session, id } => Some((*session, *id)),
             _ => None,
         };
         let work = async {
@@ -435,16 +430,8 @@ impl HostOperation {
                 connections::annotate(self, &output, &mut value).await?;
             }
             commands::annotate(&output, &mut value, workspace);
-            if let Some((session, id, command)) = command_record {
-                commands::retain(
-                    &self.ingress.commands,
-                    session,
-                    id,
-                    &command,
-                    &output,
-                    &mut value,
-                )
-                .await;
+            if let Some((session, id)) = command_record {
+                commands::retain(&self.ingress.commands, session, id, &output, &mut value).await;
             }
             artifacts::annotate(&output, &mut value);
             Ok(value)

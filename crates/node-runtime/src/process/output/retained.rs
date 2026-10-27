@@ -6,14 +6,64 @@ use sailry_protocol::{
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
-    sync::Mutex,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
-const MODEL_LIMIT: usize = 32 * 1024 * 1024;
 const RETAINED_LIMIT: usize = 64 * 1024 * 1024;
+const TOTAL_LIMIT: usize = 256 * 1024 * 1024;
 const PAGE: usize = 32 * 1024;
 const HEAD: usize = 8 * 1024;
 const TAIL: usize = 24 * 1024;
+
+pub(crate) struct Budget {
+    used: AtomicUsize,
+    limit: usize,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Self {
+            used: AtomicUsize::new(0),
+            limit: TOTAL_LIMIT,
+        }
+    }
+}
+
+impl Budget {
+    fn take(&self, requested: usize) -> usize {
+        let previous = self
+            .used
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                Some(used.saturating_add(requested).min(self.limit))
+            })
+            .expect("the retention budget update always succeeds");
+        requested.min(self.limit.saturating_sub(previous))
+    }
+}
+
+pub(crate) fn clear(profile: &std::path::Path) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(profile.join("tmp")) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with("command-output-"))
+            && (kind.is_file() || kind.is_symlink())
+        {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
 
 struct Stream {
     writer: Option<tempfile::NamedTempFile>,
@@ -24,16 +74,17 @@ struct Stream {
     total: u64,
     head: Vec<u8>,
     tail: Vec<u8>,
+    budget: Arc<Budget>,
 }
 
 impl Default for Stream {
     fn default() -> Self {
-        Self::new(tempfile::NamedTempFile::new())
+        Self::new(tempfile::NamedTempFile::new(), Arc::default())
     }
 }
 
 impl Stream {
-    fn new(created: std::io::Result<tempfile::NamedTempFile>) -> Self {
+    fn new(created: std::io::Result<tempfile::NamedTempFile>, budget: Arc<Budget>) -> Self {
         let (writer, error) = match created {
             Ok(file) => (Some(file), None),
             Err(error) => (None, Some(error.to_string())),
@@ -47,6 +98,7 @@ impl Stream {
             total: 0,
             head: Vec::new(),
             tail: Vec::new(),
+            budget,
         }
     }
     fn append(&mut self, bytes: &[u8]) {
@@ -68,11 +120,20 @@ impl Stream {
             self.error = Some("command output retention is closed".into());
             return;
         };
-        let count = bytes.len().min(self.limit.saturating_sub(self.retained));
+        let requested = bytes.len().min(self.limit.saturating_sub(self.retained));
+        let count = self.budget.take(requested);
+        if count < requested {
+            // Once a raw span is omitted, retained offsets must remain a prefix.
+            self.limit = self.retained + count;
+        }
         match writer.write_all(&bytes[..count]) {
             Ok(()) => self.retained += count,
             Err(error) => {
                 self.error = Some(error.to_string());
+                self.budget
+                    .used
+                    .fetch_sub(self.retained + count, Ordering::Relaxed);
+                self.retained = 0;
                 self.writer.take();
             }
         }
@@ -186,6 +247,12 @@ impl Stream {
     }
 }
 
+impl Drop for Stream {
+    fn drop(&mut self) {
+        self.budget.used.fetch_sub(self.retained, Ordering::Relaxed);
+    }
+}
+
 fn failure(error: std::io::Error) -> Fault {
     Fault::new(
         ErrorCode::Unavailable,
@@ -200,7 +267,7 @@ pub(crate) struct Retained {
 }
 
 impl Retained {
-    pub(crate) fn new(profile: &std::path::Path) -> Self {
+    pub(crate) fn new(profile: &std::path::Path, budget: Arc<Budget>) -> Self {
         let directory = profile.join("tmp");
         let created = std::fs::create_dir_all(&directory);
         let create = || match &created {
@@ -210,8 +277,8 @@ impl Retained {
             Err(error) => Err(std::io::Error::new(error.kind(), error.to_string())),
         };
         Self {
-            stdout: Mutex::new(Stream::new(create())),
-            stderr: Mutex::new(Stream::new(create())),
+            stdout: Mutex::new(Stream::new(create(), budget.clone())),
+            stderr: Mutex::new(Stream::new(create(), budget)),
         }
     }
 
@@ -257,24 +324,6 @@ impl Retained {
             .preview(id, OutputStream::Stderr);
         (stdout.is_some() || stderr.is_some())
             .then(|| serde_json::json!({"id":id,"stdout":stdout,"stderr":stderr}))
-    }
-
-    pub(crate) fn text(&self, stream: OutputStream) -> Option<String> {
-        let stream = self.stream(stream).lock().unwrap();
-        if stream.error.is_some()
-            || stream.total > stream.retained as u64
-            || stream.retained > MODEL_LIMIT
-        {
-            return None;
-        }
-        let path = stream
-            .writer
-            .as_ref()
-            .map(|writer| writer.path())
-            .or_else(|| stream.path.as_deref().map(std::path::Path::new))?;
-        let mut bytes = Vec::with_capacity(stream.retained);
-        File::open(path).ok()?.read_to_end(&mut bytes).ok()?;
-        Some(String::from_utf8_lossy(&bytes).into_owned())
     }
 }
 

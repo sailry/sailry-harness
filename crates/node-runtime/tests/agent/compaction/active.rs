@@ -1,6 +1,138 @@
 use super::*;
 
 #[tokio::test]
+async fn persists_masks_after_failed_background_summary() {
+    for remote in [false, true] {
+        let server = Server::loop_summary(
+            vec![Some(100), Some(100), Some(60_000), Some(200_000), Some(100)],
+            100,
+            "An expanding handoff retains excessive source details. ".repeat(2000),
+        )
+        .await;
+        let fixture = fixture(remote, &server).await;
+        let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+        provider.models[0].context = 512_000;
+        provider.models[0].compaction_tokens = Some(100_000);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap();
+        for index in 1..=6 {
+            let mut text = format!("Evidence {index}\n");
+            text.push_str(&"x".repeat(128 * 1024 - text.len()));
+            std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
+        }
+        let (_, _, page) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Preserve all evidence after a failed background summary".into(),
+        )
+        .await;
+        assert!(!page.queue.paused);
+        assert!(
+            !page
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::Compaction(_)))
+        );
+        assert!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| {
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
+                && value["failure"]["reason"] == "no_reduction"
+                && value["failure"]["continued"] == true)
+                })
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        // The prepared summary survives the foreground mask and is used once.
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| agent_support::compaction::is_summary(request))
+                .count(),
+            1
+        );
+        assert_eq!(requests.len(), 8);
+        let masked = |request: &Value, call: &str| {
+            let message = request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|message| message["tool_call_id"] == call)
+                .unwrap();
+            let value: Value = serde_json::from_str(message["content"].as_str().unwrap()).unwrap();
+            assert_eq!(value["masked"], true);
+            value
+        };
+        let first = masked(requests.last().unwrap(), "loop-1");
+        let second = masked(requests.last().unwrap(), "loop-2");
+        let bodies: Vec<Vec<u8>> = fixture
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .prepare("SELECT body FROM agent_events ORDER BY sequence")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query(())
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut bodies = Vec::new();
+                    while let Some(row) =
+                        rows.next().await.map_err(crate::database_fixture::fault)?
+                    {
+                        bodies.push(row.get(0).map_err(crate::database_fixture::fault)?);
+                    }
+                    Ok(bodies)
+                })
+            })
+            .await
+            .unwrap();
+        let masks = bodies
+            .iter()
+            .rev()
+            .map(|body| serde_json::from_slice::<adk_core::Event>(body).unwrap())
+            .find_map(|mut event| {
+                event
+                    .actions
+                    .state_delta
+                    .remove("sailry.context.masked_outputs")
+            })
+            .expect("the first mask is persisted even though the summary failed");
+        assert_eq!(
+            masks,
+            serde_json::json!([
+                ["loop-1", first["output"]["revision"]],
+                ["loop-2", second["output"]["revision"]],
+            ])
+        );
+        fixture.node.shutdown().await.unwrap();
+        let node = Node::start_empty(fixture.directory.path().join("node"))
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            fixture.controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        submit(&client, fixture.session.id, "Continue after restart".into()).await;
+        let resumed = server.requests.lock().unwrap().last().unwrap().clone();
+        assert_eq!(masked(&resumed, "loop-1"), first);
+        assert_eq!(masked(&resumed, "loop-2"), second);
+        assert_eq!(server.requests.lock().unwrap().len(), 9);
+        node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn reuses_masked_prefix_for_later_summary() {
     for remote in [false, true] {
         let server = Server::loop_usage(

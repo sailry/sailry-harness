@@ -1,15 +1,36 @@
 //! Guidance inputs retain their own canonical user entries before one Runner call.
 use super::*;
-use adk_core::{Content, Event};
+use adk_core::{Content, Event, Part};
 use adk_session::GetRequest;
 use sailry_protocol::conversation::{QueuedMessage, reference::Reference};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct Batch {
     entries: Vec<(TurnId, Vec<Reference>, Content)>,
 }
 
 impl Batch {
+    pub async fn select(
+        &mut self,
+        invocation: &Invocation,
+        resources: &crate::plugins::resources::Resources,
+        tools: &BTreeMap<String, Vec<String>>,
+    ) -> Result<(), Fault> {
+        for (_, references, content) in &mut self.entries {
+            let instruction = references::capabilities::instruction(
+                invocation,
+                references.iter(),
+                resources,
+                tools,
+            )
+            .await?;
+            if !instruction.is_empty() {
+                content.parts.push(Part::Text { text: instruction });
+            }
+        }
+        Ok(())
+    }
+
     pub async fn capture(ingress: &Ingress, invocation: &Invocation) -> Result<Self, Fault> {
         let mut entries = vec![(
             invocation.input_turn.unwrap_or(invocation.turn.id),
@@ -72,6 +93,7 @@ impl Batch {
             &invocation.turn.id.to_string(),
             source,
             self.entries.len() - 1,
+            None,
         )
         .await
     }
@@ -83,6 +105,7 @@ impl Batch {
         owner: TurnId,
         invocation: &str,
         source: &'static str,
+        context: Option<Event>,
     ) -> Result<(), Fault> {
         self.append_entries(
             ingress,
@@ -91,6 +114,7 @@ impl Batch {
             invocation,
             source,
             self.entries.len(),
+            context,
         )
         .await
     }
@@ -103,6 +127,7 @@ impl Batch {
         invocation: &str,
         source: &'static str,
         count: usize,
+        mut context: Option<Event>,
     ) -> Result<(), Fault> {
         let sessions = ingress.sessions(owner);
         let session = sessions
@@ -144,7 +169,7 @@ impl Batch {
                 .with_input_turn(*turn)
                 .with_input_source(source)
                 .with_references(references.clone())
-                .append_event(&target.to_string(), event)
+                .append_with_context(&target.to_string(), event, context.take())
                 .await
                 .map_err(model::error)?;
         }

@@ -71,12 +71,14 @@ enum Reply {
         pending_summary: bool,
         usage: Arc<Vec<Option<i32>>>,
         summary_input: i32,
+        text: Arc<String>,
     },
     ExchangeCompaction {
         delegation: bool,
     },
     NativeCompaction {
-        fail_summary: bool,
+        failure_status: Option<u16>,
+        text: Arc<String>,
     },
     WebSearch(Option<Arc<tokio::sync::Notify>>),
     Phases(Option<(String, Value)>),
@@ -196,7 +198,18 @@ impl Server {
         Self::serve(Reply::ExchangeCompaction { delegation: true }).await
     }
     pub async fn native_compaction(fail_summary: bool) -> Self {
-        Self::serve(Reply::NativeCompaction { fail_summary }).await
+        Self::native_summary(
+            fail_summary.then_some(400),
+            "Context summary fixture: original evidence retained".into(),
+        )
+        .await
+    }
+    pub async fn native_summary(failure_status: Option<u16>, text: String) -> Self {
+        Self::serve(Reply::NativeCompaction {
+            failure_status,
+            text: Arc::new(text),
+        })
+        .await
     }
     pub async fn loop_compaction(fail_summary: bool) -> Self {
         Self::serve(Reply::LoopCompaction {
@@ -204,6 +217,7 @@ impl Server {
             pending_summary: false,
             usage: Arc::new(vec![Some(26000)]),
             summary_input: 100,
+            text: Arc::new("Context summary fixture: earlier tool evidence retained".into()),
         })
         .await
     }
@@ -213,6 +227,7 @@ impl Server {
             pending_summary: true,
             usage: Arc::new(vec![Some(26000)]),
             summary_input: 100,
+            text: Arc::new("Context summary fixture: earlier tool evidence retained".into()),
         })
         .await
     }
@@ -310,12 +325,21 @@ impl Server {
         .await
     }
     pub async fn loop_usage(usage: Vec<Option<i32>>, summary_input: i32) -> Self {
+        Self::loop_summary(
+            usage,
+            summary_input,
+            "Context summary fixture: earlier tool evidence retained".into(),
+        )
+        .await
+    }
+    pub async fn loop_summary(usage: Vec<Option<i32>>, summary_input: i32, text: String) -> Self {
         assert!(!usage.is_empty());
         Self::serve(Reply::LoopCompaction {
             fail_summary: false,
             pending_summary: false,
             usage: Arc::new(usage),
             summary_input,
+            text: Arc::new(text),
         })
         .await
     }
@@ -594,22 +618,39 @@ async fn respond(
         return compaction::respond_usage(stream, &body, failure_status, &text, input_tokens).await;
     }
     if matches!(reply, Reply::Overflow | Reply::EarlyLength) {
-        let (index, summaries) = {
+        let summaries = {
             let mut records = records.lock().unwrap();
-            let index = records
+            let summaries = records
                 .iter()
-                .filter(|request| !compaction::is_summary(request))
+                .filter(|request| compaction::is_summary(request))
                 .count();
-            let summaries = records.len() - index;
             records.push(body.clone());
-            (index, summaries)
+            summaries
         };
-        if !compaction::is_summary(&body) && index == 4 && summaries == 0 {
+        let task = body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|message| message["role"] == "user")
+            .and_then(|message| message["content"].as_str());
+        if !compaction::is_summary(&body)
+            && task == Some("Continue after overflow")
+            && summaries == 0
+        {
             return if matches!(reply, Reply::EarlyLength) {
                 compaction::reject_length(stream, &body).await
             } else {
                 compaction::reject_overflow(stream).await
             };
+        }
+        let retained_read = match task {
+            Some("Read a middle result before overflow") => Some(("middle-read", "middle.txt")),
+            Some("Read a recent result before overflow") => Some(("recent-read", "recent.txt")),
+            _ => None,
+        };
+        if let Some((id, path)) = retained_read {
+            return compaction::respond_recent(stream, &body, id, path).await;
         }
         return compaction::respond_usage(
             stream,
@@ -637,21 +678,27 @@ async fn respond(
         pending_summary,
         usage,
         summary_input,
+        text,
     } = reply
     {
         records.lock().unwrap().push(body.clone());
         if pending_summary && compaction::is_summary(&body) {
             return std::future::pending().await;
         }
-        return compaction::respond_loop(stream, &body, fail_summary, &usage, summary_input).await;
+        return compaction::respond_loop(stream, &body, fail_summary, &usage, summary_input, &text)
+            .await;
     }
     if let Reply::ExchangeCompaction { delegation } = reply {
         records.lock().unwrap().push(body.clone());
         return compaction::respond_exchange(stream, &body, delegation).await;
     }
-    if let Reply::NativeCompaction { fail_summary } = reply {
+    if let Reply::NativeCompaction {
+        failure_status,
+        text,
+    } = reply
+    {
         records.lock().unwrap().push(body.clone());
-        return compaction::respond_native(stream, &body, fail_summary).await;
+        return compaction::respond_native(stream, &body, failure_status, &text).await;
     }
     if let Reply::Anthropic(reply) = reply {
         records.lock().unwrap().push(body.clone());

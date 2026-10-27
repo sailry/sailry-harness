@@ -15,7 +15,6 @@ pub(super) struct Panel {
     images: Entity<attachments::images::Images>,
     session: Option<SessionId>,
     recipient: Option<TurnId>,
-    handoff: bool,
     child: bool,
     queue: Queue,
     connected: bool,
@@ -137,7 +136,6 @@ impl Panel {
             images,
             session: None,
             recipient: None,
-            handoff: false,
             child: false,
             queue: Queue::default(),
             connected: false,
@@ -164,9 +162,6 @@ impl Panel {
         let connected = view.connected();
         let guidance_blocked = view.busy();
         let recipient = view.recipient().map(|run| run.turn);
-        let handoff = view
-            .recipient()
-            .is_some_and(|run| run.status == Status::Stopping);
         let outgoing = view.queued_outgoing();
         let represented = view.transcript_pending().map(|item| item.turn);
         let outgoing_attached = outgoing.is_some()
@@ -176,7 +171,6 @@ impl Panel {
                 .is_some_and(|message| !message.input.attachments.is_empty());
         if self.session != view.session()
             || self.recipient != recipient
-            || self.handoff != handoff
             || self.child != view.readonly()
             || self.connected != connected
             || self.guidance_blocked != guidance_blocked
@@ -190,7 +184,6 @@ impl Panel {
             self.outgoing_attached = outgoing_attached;
             self.session = view.session();
             self.recipient = recipient;
-            self.handoff = handoff;
             self.child = view.readonly();
             self.connected = connected;
             self.guidance_blocked = guidance_blocked;

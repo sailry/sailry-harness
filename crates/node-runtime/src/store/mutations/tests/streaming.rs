@@ -61,6 +61,7 @@ async fn append(
             session,
             turn,
             event,
+            context: None,
             reply,
         })))
         .await

@@ -90,7 +90,10 @@ impl Tool for Question {
                 },
             );
             tokio::pin!(waiting);
-            let response = tokio::select! {
+            let response = if matches!(spec.input, Input::Plan) {
+                waiting.await?
+            } else {
+                tokio::select! {
                 biased;
                 response = &mut waiting => response?,
                 _ = tokio::time::sleep(timeout) => {
@@ -110,6 +113,7 @@ impl Tool for Question {
                         }));
                     }
                     waiting.await?
+                }
                 }
             };
             Ok::<_, Fault>(match response {

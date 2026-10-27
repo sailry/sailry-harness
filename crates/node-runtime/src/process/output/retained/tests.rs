@@ -68,8 +68,6 @@ fn pages_large_output_without_truncation() {
     expected.update(suffix);
     total += suffix.len();
     retained.finish();
-    // Model reduction stays bounded independently of complete raw retention.
-    assert!(retained.text(OutputStream::Stdout).is_none());
     let mut actual = blake3::Hasher::new();
     let mut offset = 0;
     let last = loop {
@@ -151,4 +149,64 @@ fn reports_the_retention_limit() {
             .len(),
         12
     );
+}
+
+#[test]
+fn shares_budget_and_preserves_prefixes() {
+    let profile = tempfile::tempdir().unwrap();
+    let budget = Arc::new(Budget {
+        used: AtomicUsize::new(0),
+        limit: 12,
+    });
+    let first = Retained::new(profile.path(), budget.clone());
+    let second = Retained::new(profile.path(), budget.clone());
+    first.append(OutputStream::Stdout, b"12345678");
+    second.append(OutputStream::Stderr, b"abcdef");
+    assert_eq!(budget.used.load(Ordering::Relaxed), 12);
+    let page = second.page(info(), OutputStream::Stderr, 0, PAGE).unwrap();
+    assert_eq!(page.text, "abcd");
+    assert!(page.truncated);
+    assert_eq!(page.total_bytes, 6);
+    drop(first);
+    assert_eq!(budget.used.load(Ordering::Relaxed), 4);
+    second.append(OutputStream::Stderr, b"later");
+    assert_eq!(
+        second
+            .page(info(), OutputStream::Stderr, 0, PAGE)
+            .unwrap()
+            .text,
+        "abcd"
+    );
+    let third = Retained::new(profile.path(), budget.clone());
+    third.append(OutputStream::Stdout, b"reused");
+    assert_eq!(budget.used.load(Ordering::Relaxed), 10);
+    drop(second);
+    drop(third);
+    assert_eq!(budget.used.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn clears_only_stale_owned_files() {
+    let profile = tempfile::tempdir().unwrap();
+    clear(profile.path()).unwrap();
+    let directory = profile.path().join("tmp");
+    std::fs::create_dir(&directory).unwrap();
+    let owned = directory.join("command-output-stale");
+    let unrelated = directory.join("other-resource");
+    let nested = directory.join("command-output-directory");
+    std::fs::write(&owned, "stale").unwrap();
+    std::fs::write(&unrelated, "preserved").unwrap();
+    std::fs::create_dir(&nested).unwrap();
+    #[cfg(unix)]
+    let link = {
+        let path = directory.join("command-output-link");
+        std::os::unix::fs::symlink(&unrelated, &path).unwrap();
+        path
+    };
+    clear(profile.path()).unwrap();
+    assert!(!owned.exists());
+    assert_eq!(std::fs::read_to_string(unrelated).unwrap(), "preserved");
+    assert!(nested.is_dir());
+    #[cfg(unix)]
+    assert!(std::fs::symlink_metadata(link).is_err());
 }

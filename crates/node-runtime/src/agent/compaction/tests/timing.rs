@@ -44,7 +44,7 @@ async fn allows_progress_without_a_total_deadline() {
     summarizer.model = model.clone();
     let started = tokio::time::Instant::now();
     let summary = summarizer
-        .summarize_events(&history())
+        .summarize_with(&history(), SummaryMode::Automatic)
         .await
         .unwrap()
         .unwrap();

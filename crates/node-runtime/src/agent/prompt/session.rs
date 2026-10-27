@@ -200,21 +200,19 @@ impl Session {
             .map_err(super::super::model::error)
     }
 
-    pub async fn refresh(
+    pub async fn prepare(
         ingress: &Arc<Ingress>,
         invocation: &Invocation,
         inputs: &[sailry_protocol::conversation::QueuedMessage],
-        capabilities: &str,
         stop: &CancellationToken,
-    ) -> Result<Option<Content>, Fault> {
+    ) -> Result<Option<Event>, Fault> {
         let current = Self::load(ingress, invocation).await?;
-        let mut policy = current
+        let policy = current
             .state
             .get(POLICY)
             .and_then(Value::as_str)
             .ok_or_else(|| Fault::invalid("captured policy is unavailable"))?
             .to_owned();
-        policy.push_str(capabilities);
         let environment = super::environment(ingress, invocation, stop).await;
         let personal = super::personal(ingress, invocation.worktree, stop).await?;
         let personal = if personal.is_empty() {
@@ -250,13 +248,7 @@ impl Session {
         else {
             return Ok(None);
         };
-        let content = event.content().cloned();
-        current
-            .sessions
-            .append_event(&invocation.turn.session.to_string(), event)
-            .await
-            .map_err(super::super::model::error)?;
-        Ok(content)
+        Ok(Some(event))
     }
 }
 
@@ -275,16 +267,7 @@ fn capture(
     let mut content = Vec::new();
     for (key, value) in current {
         if state.get(key) != Some(&Value::String(value.clone())) {
-            let text = if key == POLICY {
-                state
-                    .get(key)
-                    .and_then(Value::as_str)
-                    .and_then(|previous| value.strip_prefix(previous))
-                    .unwrap_or(&value)
-            } else {
-                &value
-            };
-            content.push(text.to_owned());
+            content.push(value.clone());
             event
                 .actions
                 .state_delta
@@ -297,6 +280,19 @@ fn capture(
             content.push(guide.render());
             event.actions.state_delta.insert(guide.key(), identity);
         }
+    }
+    let mut mounted = loaded(state.get(LOADED_TOOLS));
+    mounted.extend(snapshot.tools.iter().flat_map(|tools| {
+        tools
+            .iter()
+            .filter(|(_, declaration)| !declaration.deferred)
+            .map(|(name, _)| name.clone())
+    }));
+    if mounted != loaded(state.get(LOADED_TOOLS)) {
+        event
+            .actions
+            .state_delta
+            .insert(LOADED_TOOLS.into(), json!(mounted));
     }
     let snapshot = serde_json::to_value(snapshot)
         .map_err(|_| Fault::invalid("model declarations could not be captured"))?;
@@ -339,6 +335,13 @@ pub(crate) fn compose(
     });
     let mut current = BTreeMap::new();
     for part in sources {
+        if let Part::Text { text } = part {
+            let key = format!("selected:{}", blake3::hash(text.as_bytes()).to_hex());
+            current.insert(key, Part::Text { text: format!(
+                "Retained capability context from an earlier input\nThis text does not select a capability for the current task or grant permission.\n{text}"
+            )});
+            continue;
+        }
         let Part::FunctionResponse {
             function_response, ..
         } = part

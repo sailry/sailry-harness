@@ -408,15 +408,35 @@ async fn recover_before_output(remote: bool, early: bool) {
         "Verified overflow evidence\n".repeat(200),
     )
     .unwrap();
+    std::fs::write(
+        fixture.root.join("middle.txt"),
+        "Retained middle file evidence\n".repeat(80),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.root.join("recent.txt"),
+        "Retained recent file evidence\n".repeat(120),
+    )
+    .unwrap();
     submit(
         &fixture.client,
         fixture.session.id,
         "Read source.txt".into(),
     )
     .await;
-    submit(&fixture.client, fixture.session.id, "Second".into()).await;
-    // The two latest completed turns stay verbatim, so the first is summarized.
-    submit(&fixture.client, fixture.session.id, "Third".into()).await;
+    submit(
+        &fixture.client,
+        fixture.session.id,
+        "Read a middle result before overflow".into(),
+    )
+    .await;
+    // The two latest exchanges stay verbatim, so the first can be summarized.
+    submit(
+        &fixture.client,
+        fixture.session.id,
+        "Read a recent result before overflow".into(),
+    )
+    .await;
     let (_, _, page) = submit(
         &fixture.client,
         fixture.session.id,
@@ -432,14 +452,20 @@ async fn recover_before_output(remote: bool, early: bool) {
         1
     );
     let requests = server.requests.lock().unwrap().clone();
-    assert_eq!(requests.len(), 7);
-    assert!(agent_support::compaction::is_summary(&requests[5]));
-    assert!(messages(&requests[5]).contains("Verified overflow evidence"));
-    let retried = messages(&requests[6]);
+    assert_eq!(requests.len(), 9);
+    assert!(agent_support::compaction::is_summary(&requests[7]));
+    assert!(messages(&requests[7]).contains("Verified overflow evidence"));
+    assert!(!messages(&requests[7]).contains("Retained middle file evidence"));
+    assert!(!messages(&requests[7]).contains("Retained recent file evidence"));
+    let retried = messages(&requests[8]);
     assert!(retried.contains("Context summary fixture: overflow evidence retained"));
     assert!(retried.contains("Continue after overflow"));
+    assert!(retried.contains("Retained middle file evidence"));
+    assert!(retried.contains("middle-read"));
+    assert!(retried.contains("Retained recent file evidence"));
+    assert!(retried.contains("recent-read"));
     assert!(!retried.contains("evidence-call"));
-    assert!(retried.len() < messages(&requests[4]).len());
+    assert!(retried.len() < messages(&requests[6]).len());
     fixture.node.shutdown().await.unwrap();
     fixture.controller.close().await.unwrap();
 }

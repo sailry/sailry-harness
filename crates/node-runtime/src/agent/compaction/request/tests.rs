@@ -97,7 +97,11 @@ async fn repairs_headings_once() {
         draft("Verified source findings"),
         complete("Verified findings"),
     ]);
-    let event = summary.summarize_events(&events).await.unwrap().unwrap();
+    let event = summary
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         event.actions.compaction.unwrap().compacted_content.role,
         "user"
@@ -125,7 +129,10 @@ async fn does_not_multiply_recovery_and_repair() {
         Ok(draft("Still missing required headings")),
     ]);
     let original = serde_json::to_vec(&events).unwrap();
-    let error = summary.summarize_events(&events).await.unwrap_err();
+    let error = summary
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap_err();
     assert_eq!(
         failure::classify(&error),
         (Stage::Summary, Reason::UnexpectedOutput)
@@ -140,7 +147,10 @@ async fn does_not_multiply_recovery_and_repair() {
 async fn transport_retry_consumes_layout_repair() {
     let (summary, model, events) = setup(vec![draft("Still missing required headings")]);
     model.recovered.store(true, Ordering::Relaxed);
-    let error = summary.summarize_events(&events).await.unwrap_err();
+    let error = summary
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap_err();
     assert_eq!(
         failure::classify(&error),
         (Stage::Summary, Reason::UnexpectedOutput)
@@ -153,7 +163,10 @@ async fn leaves_reasoning_exhaustion_unsaved() {
     let mut exhausted = draft("");
     exhausted.finish_reason = Some(FinishReason::MaxTokens);
     let (summary, model, events) = setup(vec![exhausted.clone(), exhausted]);
-    let error = summary.summarize_events(&events).await.unwrap_err();
+    let error = summary
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap_err();
     assert_eq!(
         failure::classify(&error),
         (Stage::Summary, Reason::TruncatedSummary)
@@ -165,7 +178,11 @@ async fn leaves_reasoning_exhaustion_unsaved() {
 async fn keeps_focus_separate_from_user_history() {
     let (mut summary, model, events) = setup(vec![complete("Verified findings")]);
     summary.focus = Some("Keep the Git rebase and unresolved changes".into());
-    summary.summarize_events(&events).await.unwrap().unwrap();
+    summary
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap()
+        .unwrap();
     let requests = model.requests.lock().unwrap();
     let request = &requests[0];
     let focus = request.contents.last().unwrap().parts[0].text().unwrap();

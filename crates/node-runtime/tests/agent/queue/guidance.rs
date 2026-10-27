@@ -927,6 +927,25 @@ async fn batches_inputs_with_one_output_owner() {
                 .contains("The user explicitly selected plugin files for this task.")
         );
         assert!(
+            inputs[1]["content"]
+                .to_string()
+                .contains("The user explicitly selected plugin files for this task.")
+        );
+        assert!(
+            requests[1]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|message| {
+                    let text = message["content"].to_string();
+                    !text.contains("Node context")
+                        || !text.contains("The user explicitly selected plugin files")
+                })
+        );
+        assert!(!entries[1].parts.iter().any(|part| {
+            matches!(part, Part::Text(text) if text.contains("The user explicitly selected plugin files"))
+        }));
+        assert!(
             requests[1]["messages"]
                 .to_string()
                 .contains("Guidance folder instructions")

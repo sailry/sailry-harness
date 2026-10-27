@@ -65,13 +65,36 @@ pub(super) async fn append(
     event: AdkEvent,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> adk_core::Result<()> {
+    append_with_context(database, session, turn, event, None, events).await
+}
+
+pub(super) async fn append_with_context(
+    database: &mut Database,
+    session: SessionId,
+    turn: TurnId,
+    event: AdkEvent,
+    context: Option<(TurnId, AdkEvent)>,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> adk_core::Result<()> {
     let permit = database.write().await.map_err(adk_error)?;
     for attempt in 0..=crate::store::database::conflict::RETRIES {
         let event = event.clone();
+        let context = context.clone();
         let write = async || -> Result<(), Fault> {
             let publication = database.publication.clone();
             let transaction = crate::store::database::conflict::begin(&database.connection).await?;
             let prepared: Result<_, Fault> = async {
+                let context = if let Some((owner, event)) = context {
+                    if runs::get(&transaction, owner).await?.status != Status::Running {
+                        return Err(Fault::new(
+                            ErrorCode::Conflict,
+                            "guidance recipient is no longer running",
+                        ));
+                    }
+                    insert(&transaction, session, owner, event).await?
+                } else {
+                    None
+                };
                 let Some(entry) = insert(&transaction, session, turn, event).await? else {
                     return Ok(None);
                 };
@@ -120,11 +143,11 @@ pub(super) async fn append(
                 let notices =
                     super::super::database::record(&transaction, database.node, changes).await?;
                 Ok(Some((
-                    entry, visible, background, statistics, parents, envelope, notices,
+                    entry, visible, context, background, statistics, parents, envelope, notices,
                 )))
             }
             .await;
-            let Some((entry, visible, background, statistics, parents, envelope, notices)) =
+            let Some((entry, visible, context, background, statistics, parents, envelope, notices)) =
                 prepared?
             else {
                 return Ok(());
@@ -134,6 +157,11 @@ pub(super) async fn append(
             publication.send(events, envelope);
             for notice in notices {
                 publication.send(events, notice);
+            }
+            if let Some(context) = context {
+                database
+                    .feeds
+                    .publish(database.node, session, Change::Entry(context));
             }
             if visible {
                 database
@@ -537,6 +565,16 @@ pub(crate) async fn project(
     turn: TurnId,
     event: &AdkEvent,
 ) -> Result<Entry, Fault> {
+    project_with_sources(db, sequence, turn, event, None).await
+}
+
+async fn project_with_sources(
+    db: &Connection,
+    sequence: u64,
+    turn: TurnId,
+    event: &AdkEvent,
+    sources: Option<&tools::Sources>,
+) -> Result<Entry, Fault> {
     let references = super::references::project(event)?;
     let displays = super::presentation::displays(event)?;
     let failures = super::presentation::failures(event)?;
@@ -550,6 +588,10 @@ pub(crate) async fn project(
         && event
             .provider_metadata
             .contains_key(crate::agent::CONTEXT_METADATA);
+    let capability_part = event
+        .provider_metadata
+        .get(super::CAPABILITY_PART)
+        .and_then(|value| value.parse::<usize>().ok());
     let commentary = if hidden {
         Default::default()
     } else {
@@ -559,6 +601,7 @@ pub(crate) async fn project(
             .flat_map(|content| &content.parts)
             .enumerate()
             .skip(skipped)
+            .filter(|(index, _)| Some(*index) != capability_part)
             .filter_map(|(index, part)| {
                 let adk_core::Part::ServerToolCall { server_tool_call } = part else {
                     return None;
@@ -598,7 +641,8 @@ pub(crate) async fn project(
             .into_iter()
             .flat_map(|content| &content.parts)
             .enumerate()
-            .skip(skipped) { projected.push((async |(index, part): (usize, &adk_core::Part)| {
+            .skip(skipped)
+            .filter(|(index, _)| Some(*index) != capability_part) { projected.push((async |(index, part): (usize, &adk_core::Part)| {
                 Ok(match part {
                     adk_core::Part::FileData {
                         file_uri,
@@ -634,7 +678,7 @@ pub(crate) async fn project(
                         })
                     }
                     adk_core::Part::FunctionCall { .. } => {
-                        tools::raw(db, turn, sequence, event, index).await?
+                        tools::with_sources(db, turn, sequence, event, index, sources).await?
                             .ok_or_else(|| Fault::invalid("tool call projection is missing"))?.part()
                     },
                     adk_core::Part::ServerToolResponse {
@@ -642,13 +686,13 @@ pub(crate) async fn project(
                     } if server_tool_response["type"] == "anthropic_message" => {
                         Part::Resource(serde_json::json!({"type":"provider_context"}))
                     },
-                    adk_core::Part::ServerToolResponse { .. } => tools::raw(db, turn, sequence, event, index).await?.map(tools::Raw::part).unwrap_or_else(|| {
+                    adk_core::Part::ServerToolResponse { .. } => tools::with_sources(db, turn, sequence, event, index, sources).await?.map(tools::Raw::part).unwrap_or_else(|| {
                         Part::Resource(
                             serde_json::to_value(part).expect("ADK content is serializable"),
                         )
                     }),
                     adk_core::Part::FunctionResponse { .. } => {
-                        tools::raw(db, turn, sequence, event, index).await?
+                        tools::with_sources(db, turn, sequence, event, index, sources).await?
                             .ok_or_else(|| Fault::invalid("tool result projection is missing"))?.part()
                     },
                     part => Part::Resource(

@@ -1,6 +1,16 @@
 use super::*;
 pub(super) use crate::process::output::model::normalize;
 
+const STREAM_EDGE: usize = 8 * 1024;
+
+pub(super) fn id(value: &Value) -> Option<&str> {
+    value
+        .pointer("/sailry_command/id")
+        .or_else(|| value.pointer("/data/info/id"))
+        .or_else(|| value.pointer("/info/id"))
+        .and_then(Value::as_str)
+}
+
 pub(super) fn project(
     original: &Value,
     source: &Value,
@@ -35,13 +45,12 @@ pub(super) fn project(
                 .and_then(Value::as_str)
         });
     for stream in ["stdout", "stderr"] {
-        let Some(text) = result
-            .pointer(&format!(
-                "{}{stream}/text",
-                if wrapped { "/data/" } else { "/" }
-            ))
-            .and_then(Value::as_str)
-        else {
+        let data = if wrapped {
+            result.get_mut("data")?
+        } else {
+            &mut result
+        };
+        let Some(text) = data[stream]["text"].as_str() else {
             continue;
         };
         let normalized = normalize(text);
@@ -49,43 +58,26 @@ pub(super) fn project(
             .and_then(|command| crate::process::output::model::cargo(command, &normalized))
             .filter(|text| text.len() < normalized.len())
             .unwrap_or(normalized);
-        if reduced.len() < text.len() {
-            let data = if wrapped {
-                result.get_mut("data")?
-            } else {
-                &mut result
-            };
-            data[stream]["text"] = json!(reduced);
+        let text = if reduced.len() > STREAM_EDGE * 2 {
+            let (head, tail) = crate::process::output::edges(&reduced, STREAM_EDGE, STREAM_EDGE);
+            let omitted = reduced.len() - head.len() - tail.len();
+            let continuation = id(original).map_or_else(
+                || "read_tool_output with output, offset=0 and limit for the original result".into(),
+                |id| format!("read_command id={id} stream={stream} offset=0 with limit for retained output"),
+            );
+            let text = format!(
+                "{head}\n[... {omitted} bytes of this preview omitted; use {continuation} ...]\n{tail}"
+            );
+            data[stream]["truncated"] = Value::Bool(true);
+            data[stream]["omitted_bytes"] = json!(omitted);
+            Some(text)
+        } else {
+            (reduced.len() < text.len()).then_some(reduced)
+        };
+        if let Some(text) = text {
+            data[stream]["text"] = json!(text);
             changed = true;
         }
-    }
-    if let Some(mut bounded) = super::bounded(&result, source) {
-        let id = original
-            .pointer("/sailry_command/id")
-            .or_else(|| original.pointer(if wrapped { "/data/info/id" } else { "/info/id" }));
-        let continuation = match id.and_then(Value::as_str) {
-            Some(id) => {
-                bounded["sailry_command"] = json!({"id":id});
-                format!(
-                    "read_command id={id} with stream, offset and limit for retained command output"
-                )
-            }
-            None => {
-                "read_command with output, stream, offset and limit for retained command output"
-                    .into()
-            }
-        };
-        if let Some(text) = bounded
-            .get("text")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-        {
-            bounded["text"] = json!(text.replace(
-                "read_tool_output with output, offset and limit for the original result",
-                &continuation,
-            ));
-        }
-        return Some(bounded);
     }
     if changed {
         result["output"] = source.clone();

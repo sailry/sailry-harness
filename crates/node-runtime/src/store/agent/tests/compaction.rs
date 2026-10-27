@@ -121,8 +121,20 @@ async fn materializes_only_canonical_owner_sources() {
             annotations:None,
         }).collect(),
     });
+    let mut selected = AdkEvent::new("selected-skill");
+    selected.author = "user".into();
+    selected
+        .provider_metadata
+        .insert(CAPABILITY_PART.into(), "1".into());
+    selected.set_content(
+        Content::new("user")
+            .with_text("Original user task")
+            .with_text("Exact selected skill workflow"),
+    );
     let anchor = event("Completed source evidence");
-    fixture.append([captured, owners, anchor.clone()]).await;
+    fixture
+        .append([captured, owners, selected, anchor.clone()])
+        .await;
     let compacted = summary(&anchor);
     let stored = serde_json::to_vec(&compacted).unwrap();
     let turn = fixture.append([compacted.clone()]).await;
@@ -137,6 +149,7 @@ async fn materializes_only_canonical_owner_sources() {
         "Exact pending step",
         "Exact loaded skill",
         "Exact loaded resource",
+        "Exact selected skill workflow",
     ] {
         assert_eq!(text.matches(marker).count(), 1, "{marker}");
         assert!(!String::from_utf8_lossy(&stored).contains(marker));

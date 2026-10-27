@@ -33,6 +33,10 @@ async fn starts_one_coding_turn() {
             (plugin_tool("files", "write_file"), json!({"path": "planned.txt", "text": "Reviewed content 中文 🙂", "expected_revision": null})),
         ]).await;
         let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
+        #[cfg(feature = "test-support")]
+        fixture
+            .node
+            .set_question_timeout_fixture(Duration::from_millis(100));
         configure(&mut fixture, WorkMode::Plan).await;
         let plan = submit(&fixture).await;
         let session = fixture.session.id;
@@ -41,6 +45,13 @@ async fn starts_one_coding_turn() {
         assert!(!fixture.root.join("planned.txt").exists());
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         assert_eq!(question.turn, plan.id);
+        #[cfg(feature = "test-support")]
+        {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let (_, retained) = questions::pending(&fixture.client, session).await;
+            assert_eq!(retained.id, question.id);
+            assert_eq!(retained.state, State::Pending);
+        }
         assert!(!fixture.root.join("planned.txt").exists());
         fixture
             .controller

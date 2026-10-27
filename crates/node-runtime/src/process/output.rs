@@ -9,10 +9,23 @@ use tokio::{
 };
 
 mod retained;
-pub(crate) use retained::Retained;
+pub(crate) use retained::{Budget, Retained, clear};
 pub(crate) mod model;
 
 const LIMIT: usize = 64 * 1024;
+
+/// Split a UTF-8 output preview without overlapping its retained edges.
+pub(crate) fn edges(text: &str, head: usize, tail: usize) -> (&str, &str) {
+    let mut head = head.min(text.len());
+    while !text.is_char_boundary(head) {
+        head -= 1;
+    }
+    let mut tail = text.len().saturating_sub(tail).max(head);
+    while !text.is_char_boundary(tail) {
+        tail += 1;
+    }
+    (&text[..head], &text[tail..])
+}
 
 #[derive(Default)]
 pub(super) struct Buffer {

@@ -127,7 +127,7 @@ impl Panel {
                 .ghost()
                 .small()
                 .label(tr("queue_withdraw"))
-                .disabled(self.blocked() || self.handoff)
+                .disabled(self.blocked())
                 .debug_selector(move || format!("queue-withdraw-{turn}"))
                 .on_click(cx.listener(move |panel, _, window, cx| {
                     cx.stop_propagation();

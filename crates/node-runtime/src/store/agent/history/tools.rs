@@ -11,8 +11,9 @@ mod read;
 mod tests;
 pub(in crate::store) use cache::Cache;
 pub(in crate::store) use read::page;
-pub(in crate::store::agent) use read::raw;
+pub(in crate::store::agent) use read::{Sources, raw, with_sources};
 
+#[derive(Clone)]
 pub(in crate::store::agent) struct Raw {
     source: Option<u64>,
     pub id: Option<String>,
@@ -358,14 +359,6 @@ fn bound(value: &mut Resolved) {
     .flatten()
     {
         field.text = clip(&field.text, 200, true);
-    }
-    if value
-        .input
-        .target
-        .as_ref()
-        .is_some_and(|target| target.text.contains(['\r', '\n']))
-    {
-        value.input.target = None;
     }
     value.approval.truncate(4);
     for prompt in &mut value.approval {

@@ -140,7 +140,7 @@ pub(in crate::store) async fn execute(
                     "child queued input is read-only",
                 ));
             }
-            let recipient = read(db, run.session)
+            read(db, run.session)
                 .await?
                 .items
                 .into_iter()
@@ -149,12 +149,6 @@ pub(in crate::store) async fn execute(
                 .ok_or_else(|| {
                     Fault::new(ErrorCode::Conflict, "queued input has no pending guidance")
                 })?;
-            if runs::get(db, recipient).await?.status == Status::Stopping {
-                return Err(Fault::new(
-                    ErrorCode::Conflict,
-                    "guidance handoff has already started",
-                ));
-            }
             if session.delegation.is_some() {
                 changed.push(runs::stop(db, run.turn).await?);
                 return Ok((

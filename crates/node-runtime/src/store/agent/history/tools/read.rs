@@ -1,6 +1,129 @@
 use super::*;
 use sailry_protocol::tool::detail::{MAX_DETAIL_PAGE_BYTES, Page, Reference};
 
+type SourceKey = (TurnId, String, String, String);
+
+#[cfg(test)]
+mod tests;
+
+#[derive(Default)]
+pub(in crate::store::agent) struct Sources {
+    calls: std::collections::BTreeMap<SourceKey, Vec<Raw>>,
+}
+
+impl Sources {
+    pub(in crate::store::agent) async fn new(
+        db: &Connection,
+        events: &[(u64, TurnId, AdkEvent)],
+    ) -> Result<Self, Fault> {
+        let mut requests = std::collections::BTreeSet::<SourceKey>::new();
+        let mut bounds = std::collections::BTreeMap::<TurnId, u64>::new();
+        for (sequence, turn, event) in events {
+            for part in event
+                .content()
+                .into_iter()
+                .flat_map(|content| &content.parts)
+            {
+                let call = match part {
+                    adk_core::Part::FunctionResponse {
+                        id: Some(id),
+                        function_response,
+                        ..
+                    } => Some((id.clone(), function_response.name.clone())),
+                    adk_core::Part::ServerToolResponse {
+                        server_tool_response,
+                    } => super::super::web_search::response(server_tool_response)
+                        .and_then(|raw| raw.id.map(|id| (id, raw.name))),
+                    _ => None,
+                };
+                if let Some((id, name)) = call {
+                    requests.insert((*turn, event.branch.clone(), id, name));
+                    bounds
+                        .entry(*turn)
+                        .and_modify(|current| *current = (*current).max(*sequence))
+                        .or_insert(*sequence);
+                }
+            }
+        }
+        let mut sources = Self::default();
+        if requests.is_empty() {
+            return Ok(sources);
+        }
+        let bounds: Vec<Value> = bounds
+            .into_iter()
+            .map(|(turn, sequence)| serde_json::json!({"turn":turn, "sequence":sequence}))
+            .collect();
+        // Read call events once for this page, including earlier ambiguous IDs.
+        let mut statement = db
+            .prepare(
+                "SELECT e.sequence,e.turn,e.body FROM agent_events e
+             JOIN json_each(?1) bound ON e.turn=json_extract(bound.value,'$.turn')
+                AND e.sequence<=json_extract(bound.value,'$.sequence')
+             WHERE EXISTS(SELECT 1 FROM json_each(e.body,'$.content.parts') part
+                WHERE json_type(part.value,'$.args') IS NOT NULL
+                   OR json_type(part.value,'$.server_tool_call') IS NOT NULL)
+             ORDER BY e.sequence",
+            )
+            .await
+            .map_err(storage_error)?;
+        let mut rows = statement
+            .query([encode(&bounds)?])
+            .await
+            .map_err(storage_error)?;
+        while let Some(row) = rows.next().await.map_err(storage_error)? {
+            let sequence = row.get::<i64>(0).map_err(storage_error)? as u64;
+            let turn = row
+                .get::<String>(1)
+                .map_err(storage_error)?
+                .parse()
+                .map_err(storage_error)?;
+            let event: AdkEvent =
+                serde_json::from_slice(&row.get::<Vec<u8>>(2).map_err(storage_error)?)
+                    .map_err(storage_error)?;
+            for part in event
+                .content()
+                .into_iter()
+                .flat_map(|content| &content.parts)
+            {
+                if let Some(mut raw) = call(db, turn, &event, part).await?
+                    && let Some(id) = raw.id.clone()
+                    && requests.contains(&(
+                        turn,
+                        event.branch.clone(),
+                        id.clone(),
+                        raw.name.clone(),
+                    ))
+                {
+                    raw.source = Some(sequence);
+                    sources
+                        .calls
+                        .entry((turn, event.branch.clone(), id, raw.name.clone()))
+                        .or_default()
+                        .push(raw);
+                }
+            }
+        }
+        Ok(sources)
+    }
+
+    fn source(
+        &self,
+        turn: TurnId,
+        sequence: u64,
+        branch: &str,
+        id: Option<&str>,
+        name: &str,
+    ) -> Option<Raw> {
+        let mut calls = self
+            .calls
+            .get(&(turn, branch.to_owned(), id?.to_owned(), name.to_owned()))?
+            .iter()
+            .filter(|raw| raw.source.is_some_and(|source| source <= sequence));
+        let source = calls.next()?;
+        calls.next().is_none().then(|| source.clone())
+    }
+}
+
 pub(in crate::store) async fn page(
     db: &Connection,
     cache: &Cache,
@@ -111,6 +234,17 @@ pub(in crate::store::agent) async fn raw(
     event: &AdkEvent,
     index: usize,
 ) -> Result<Option<Raw>, Fault> {
+    with_sources(db, turn, sequence, event, index, None).await
+}
+
+pub(in crate::store::agent) async fn with_sources(
+    db: &Connection,
+    turn: TurnId,
+    sequence: u64,
+    event: &AdkEvent,
+    index: usize,
+    sources: Option<&Sources>,
+) -> Result<Option<Raw>, Fault> {
     let parts = event
         .content()
         .map(|content| content.parts.as_slice())
@@ -173,9 +307,11 @@ pub(in crate::store::agent) async fn raw(
         }
         _ => return Ok(None),
     };
-    let mut raw = source(db, turn, sequence, &event.branch, id.as_deref(), &name)
-        .await?
-        .unwrap_or_else(|| Raw::new(id.clone(), name.clone(), Value::Null));
+    let mut raw = match sources {
+        Some(sources) => sources.source(turn, sequence, &event.branch, id.as_deref(), &name),
+        None => source(db, turn, sequence, &event.branch, id.as_deref(), &name).await?,
+    }
+    .unwrap_or_else(|| Raw::new(id.clone(), name.clone(), Value::Null));
     raw.result = Some(result);
     raw.images = images;
     raw.failure = super::super::super::presentation::failures(event)?

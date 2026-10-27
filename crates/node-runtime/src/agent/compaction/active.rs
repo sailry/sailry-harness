@@ -29,7 +29,6 @@ pub(in crate::agent) struct Context {
     service: Arc<dyn SessionService>,
     session: sailry_protocol::SessionId,
     summarizer: Summarizer,
-    preamble: Content,
     applied: AtomicBool,
     rebuilt: AtomicBool,
     restored: AtomicBool,
@@ -46,7 +45,6 @@ impl Context {
         service: Arc<dyn SessionService>,
         session: sailry_protocol::SessionId,
         summarizer: Summarizer,
-        instruction: String,
     ) -> Self {
         let state = ingress.agents.compaction(summarizer.turn);
         Self {
@@ -54,7 +52,6 @@ impl Context {
             service,
             session,
             summarizer,
-            preamble: Content::new("system").with_text(instruction),
             applied: AtomicBool::new(false),
             rebuilt: AtomicBool::new(false),
             restored: AtomicBool::new(false),
@@ -68,6 +65,13 @@ impl Context {
 
     pub(in crate::agent) fn model(self: &Arc<Self>, model: Arc<dyn Llm>) -> Arc<dyn Llm> {
         recovery::wrap(self.clone(), model)
+    }
+
+    fn preamble(&self) -> &Content {
+        self.summarizer
+            .preamble
+            .as_ref()
+            .expect("active context captures its instructions")
     }
 
     fn window(&self) -> Option<model::history::Window> {
@@ -212,8 +216,13 @@ impl Context {
                 .into_iter()
                 .filter(|cut| {
                     pending
-                        || tail(request, &history.events[*cut..], &self.preamble, invocation)
-                            .is_some()
+                        || tail(
+                            request,
+                            &history.events[*cut..],
+                            self.preamble(),
+                            invocation,
+                        )
+                        .is_some()
                 }),
             self.summarizer.recent(),
         )
@@ -230,7 +239,7 @@ impl Context {
             .checkpoint
             .lock()
             .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
-        match matching::rebuild(request, &history.events, &self.preamble, invocation) {
+        match matching::rebuild(request, &history.events, self.preamble(), invocation) {
             Ok(()) => {
                 request.contents.extend_from_slice(pending);
                 Ok(())
@@ -256,7 +265,7 @@ impl Context {
         offset: usize,
         invocation: &str,
     ) -> adk_core::Result<()> {
-        let index = tail(request, history, &self.preamble, invocation).ok_or_else(|| {
+        let index = tail(request, history, self.preamble(), invocation).ok_or_else(|| {
             invalid_at(
                 Stage::History,
                 Reason::HistoryMismatch,
@@ -305,7 +314,7 @@ impl Context {
             .map_err(|_| invalid("context checkpoint is unavailable"))?
             .clone();
         if let Some(checkpoint) = checkpoint {
-            if checkpoint.apply(request, &self.preamble).is_ok() {
+            if checkpoint.apply(request, self.preamble()).is_ok() {
                 return Ok(checkpoint.offset());
             }
             // A stale live checkpoint is disposable. Rebuild through the same
@@ -353,14 +362,13 @@ impl Context {
         tokens: u64,
         tools: &std::collections::HashMap<String, serde_json::Value>,
     ) -> adk_core::Result<()> {
-        let masks = self.state.masked()?;
         let mut candidate = self
             .candidate
             .lock()
             .map_err(|_| invalid("prepared context is unavailable"))?;
         if candidate
             .as_ref()
-            .is_some_and(|candidate| !candidate.matches(history, &self.preamble, tools, &masks))
+            .is_some_and(|candidate| !candidate.matches(history, self.preamble()))
         {
             candidate.take();
         }
@@ -385,7 +393,7 @@ impl Context {
         summarizer.masks = Some(self.state.masked()?);
         *candidate = Some(Candidate::start(
             history.events[..cut].to_vec(),
-            self.preamble.clone(),
+            self.preamble().clone(),
             summarizer,
         ));
         Ok(())
@@ -394,10 +402,7 @@ impl Context {
     async fn prepared(
         &self,
         history: &History,
-        wait: bool,
-        tools: &std::collections::HashMap<String, serde_json::Value>,
     ) -> adk_core::Result<Option<(usize, Option<Event>)>> {
-        let masks = self.state.masked()?;
         let candidate = {
             let mut candidate = self
                 .candidate
@@ -405,18 +410,11 @@ impl Context {
                 .map_err(|_| invalid("prepared context is unavailable"))?;
             if candidate
                 .as_ref()
-                .is_some_and(|candidate| !candidate.matches(history, &self.preamble, tools, &masks))
+                .is_some_and(|candidate| !candidate.matches(history, self.preamble()))
             {
                 candidate.take();
             }
-            if candidate
-                .as_ref()
-                .is_some_and(|candidate| wait || candidate.ready())
-            {
-                candidate.take()
-            } else {
-                None
-            }
+            candidate.take()
         };
         match candidate {
             Some(candidate) => candidate.finish().await.map(Some),
@@ -493,7 +491,7 @@ impl Context {
             ));
         }
         if pending.is_empty()
-            && tail(request, &history.events[cut..], &self.preamble, invocation).is_none()
+            && tail(request, &history.events[cut..], self.preamble(), invocation).is_none()
         {
             return Err(invalid_at(
                 Stage::History,
@@ -543,49 +541,62 @@ impl Context {
         if self.summarizer.stop.is_cancelled() {
             return Err(invalid("context compaction was cancelled"));
         }
-        let offset = if pending.is_empty() {
+        let forced_history = if forced {
+            let history = self.history().await?;
+            // The provider has already projected this request. Recreate the
+            // canonical ADK view before matching boundaries or checkpoints.
+            matching::rebuild(&mut request, &history.events, self.preamble(), invocation)?;
+            *self
+                .checkpoint
+                .lock()
+                .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
+            self.rebuilt.store(true, Ordering::Relaxed);
+            Some(history)
+        } else {
+            None
+        };
+        let offset = if forced {
+            0
+        } else if pending.is_empty() {
             self.reconcile(&mut request, invocation).await?
         } else {
             0
         };
         self.restore_masks().await?;
         let masks = self.state.masked()?;
-        let tokens = if masks.is_empty() {
-            Some(self.tokens(&request, pending).await?)
-        } else {
-            None
-        };
+        let mut projected = request.clone();
+        // Raw ADK results identify their canonical revision by their own hash.
+        // Saved masks alone do not require reading the full canonical history.
+        model::history::remask(&mut projected, &masks, &Default::default());
+        let tokens = self.tokens(&projected, pending).await?;
         if !forced
-            && tokens.is_some_and(|tokens| {
-                self.summarizer
-                    .budget
-                    .is_none_or(|budget| tokens < budget * PREPARE_PERCENT / 100)
-            })
+            && self
+                .summarizer
+                .budget()
+                .is_none_or(|budget| tokens < budget * PREPARE_PERCENT / 100)
         {
             // Ordinary requests already have ADK's history. Canonical boundaries
             // and result revisions are needed only for a changed projection.
-            let mut projected = request.clone();
             if matches!(
                 model::history::limit(&mut projected, self.window(), &Default::default()),
                 Ok(None)
             ) {
                 return Ok(projected);
             }
+            projected = request.clone();
         }
-        let history = self.history().await?;
+        let history = match forced_history {
+            Some(history) => history,
+            None => self.history().await?,
+        };
         let revisions = model::history::revisions(&history.events);
         // Summary boundaries match the unmasked request; masks are reapplied last.
-        let mut projected = request.clone();
         model::history::remask(&mut projected, &masks, &revisions);
-        let tokens = match tokens {
-            Some(tokens) => tokens,
-            None => self.tokens(&projected, pending).await?,
-        };
         let above = |tokens| self.summarizer.needs_compaction(Some(tokens));
         if !forced && !above(tokens) {
             if self
                 .summarizer
-                .budget
+                .budget()
                 .is_some_and(|budget| tokens >= budget * PREPARE_PERCENT / 100)
             {
                 self.prepare_background(&history, tokens, &request.tools)?;
@@ -596,10 +607,21 @@ impl Context {
             }
             return Ok(projected);
         }
+        // Compare with the normal request before adding masks. Ordinary output
+        // formatting alone must not count as recovery from a failed summary.
+        let mut baseline = projected.clone();
+        if let Err(error) = model::history::limit(&mut baseline, self.window(), &revisions)
+            && !model::context_overflow(&error)
+        {
+            return Err(error);
+        }
+        let initial = estimate::request(&baseline)?;
+        drop(baseline);
+        let mut saved = 0;
         if !forced {
             // Masking older results usually suffices; a prepared summary stays
             // available for a later boundary.
-            let saved = self.mask(&mut projected, PROTECTED_OUTPUT, MINIMUM_SAVING, &revisions)?;
+            saved = self.mask(&mut projected, PROTECTED_OUTPUT, MINIMUM_SAVING, &revisions)?;
             if saved > 0 && !above(tokens.saturating_sub(saved)) {
                 let projection = model::history::limit(&mut projected, self.window(), &revisions)?;
                 self.state.project(projection)?;
@@ -607,15 +629,8 @@ impl Context {
                 return Ok(projected);
             }
         }
-        // Failures are judged against the request sent without compaction.
-        if let Err(error) = model::history::limit(&mut projected, self.window(), &revisions)
-            && !model::context_overflow(&error)
-        {
-            return Err(error);
-        }
-        let initial = estimate::request(&projected)?;
         drop(projected);
-        let prepared = match self.prepared(&history, true, &request.tools).await {
+        let prepared = match self.prepared(&history).await {
             Ok(Some(prepared)) => Ok(Some(prepared)),
             Ok(None) => match self.cut(&history, &request, invocation, !pending.is_empty())? {
                 Some(cut) if self.state.allows(tokens, forced)? => self
@@ -663,7 +678,7 @@ impl Context {
             Ok(()) => None,
         };
         model::history::remask(&mut request, &self.state.masked()?, &revisions);
-        let mut saved = self.mask(&mut request, PROTECTED_OUTPUT, MINIMUM_SAVING, &revisions)?;
+        saved += self.mask(&mut request, PROTECTED_OUTPUT, MINIMUM_SAVING, &revisions)?;
         if applied && above(estimate::request(&request)?) {
             // Retained results that keep the new window above the trigger are
             // masked now rather than summarized again at the next step.
@@ -698,7 +713,7 @@ impl Context {
     ) -> adk_core::Result<()> {
         let history = self.history().await?;
         let mut request =
-            LlmRequest::new(self.summarizer.model.name(), vec![self.preamble.clone()]);
+            LlmRequest::new(self.summarizer.model.name(), vec![self.preamble().clone()]);
         request.contents.extend(
             history
                 .events
@@ -772,14 +787,5 @@ impl Context {
             continued,
         )
         .await
-    }
-}
-
-#[async_trait]
-impl BaseEventsSummarizer for Context {
-    async fn summarize_events(&self, _window: &[Event]) -> adk_core::Result<Option<Event>> {
-        // A completed ADK epoch cannot start a second persistence path. The next
-        // ordinary admission/before-model boundary owns applying its candidate.
-        Ok(None)
     }
 }

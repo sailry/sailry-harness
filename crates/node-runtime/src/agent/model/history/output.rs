@@ -8,18 +8,19 @@ mod files;
 mod git;
 mod window;
 pub(in crate::agent) use window::{Masks, Revisions, masked, remask, revisions};
-pub(super) use window::{limit, mask, protected};
+pub(super) use window::{limit, mask, protected, references};
 #[cfg(test)]
 mod tests;
 
 const LIMIT: usize = 32 * 1024;
 const EDGE: usize = 16 * 1024;
 
-pub(in crate::agent) fn project(contents: &mut [Content]) {
-    project_with(contents);
+#[cfg(test)]
+fn project(contents: &mut [Content]) {
+    project_with(contents, &Revisions::new());
 }
 
-fn project_with(contents: &mut [Content]) {
+pub(super) fn project_with(contents: &mut [Content], revisions: &Revisions) {
     let mut calls = BTreeMap::new();
     for part in contents.iter_mut().flat_map(|content| &mut content.parts) {
         if let Part::FunctionCall {
@@ -52,7 +53,7 @@ fn project_with(contents: &mut [Content]) {
         }) {
             continue;
         }
-        let source = json!({"call":id,"revision":blake3::hash(original.to_string().as_bytes()).to_hex().to_string()});
+        let source = window::source(original, id, revisions);
         let kind = original.get("kind").and_then(Value::as_str);
         let data = original.get("data").unwrap_or(original);
         let candidate = if original.get("sailry_guide_loaded").is_some_and(|guide| {
@@ -133,11 +134,10 @@ fn bounded(value: &Value, source: &Value) -> Option<Value> {
     if text.len() <= LIMIT {
         return None;
     }
-    let head = floor(&text, EDGE);
-    let tail = ceil(&text, text.len() - EDGE);
-    let omitted = tail - head;
+    let (head, tail) = crate::process::output::edges(&text, EDGE, EDGE);
+    let omitted = text.len() - head.len() - tail.len();
     let mut result = json!({
-        "text":format!("{}\n[... {omitted} bytes omitted; use read_tool_output with output, offset and limit for the original result ...]\n{}", &text[..head], &text[tail..]),
+        "text":format!("{head}\n[... {omitted} bytes omitted; use read_tool_output with output, offset and limit for the original result ...]\n{tail}"),
         "output":source,
         "omitted_bytes":omitted
     });
@@ -153,14 +153,6 @@ fn floor(text: &str, mut offset: usize) -> usize {
     offset = offset.min(text.len());
     while !text.is_char_boundary(offset) {
         offset -= 1;
-    }
-    offset
-}
-
-fn ceil(text: &str, mut offset: usize) -> usize {
-    offset = offset.min(text.len());
-    while !text.is_char_boundary(offset) {
-        offset += 1;
     }
     offset
 }

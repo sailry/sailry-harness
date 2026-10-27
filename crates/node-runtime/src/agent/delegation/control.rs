@@ -184,8 +184,8 @@ impl Tool for Control {
                         json!({"session":state.run.session,"turn":state.run.turn,"status":state.run.status,"response":state.response,"error":state.run.error}),
                     );
                 }
-                // Returning from this tool lets the complete batch settle before
-                // the before-model callback hands off the main-session Runner.
+                // Settle the complete tool batch before the next model boundary
+                // inserts queued guidance into this invocation.
                 if self.ingress.pending_guidance(self.turn).await? {
                     return Ok(
                         json!({"session":state.run.session,"turn":state.run.turn,"status":state.run.status,"guidance_pending":true}),

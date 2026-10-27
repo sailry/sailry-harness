@@ -55,7 +55,7 @@ pub(super) use providers::{list as providers, put as put_provider, remove as rem
 pub(super) use runs::visible as visible_run;
 pub(super) use runs::{admit, recover, start, stop, stopping};
 pub(super) use search::search;
-pub(crate) use sessions::{INPUT_PART, INPUT_SOURCE, INPUT_TURN, Sessions};
+pub(crate) use sessions::{CAPABILITY_PART, INPUT_PART, INPUT_SOURCE, INPUT_TURN, Sessions};
 
 pub(crate) const SESSION_TITLE: &str = "sailry.session_title";
 
@@ -253,6 +253,7 @@ pub(super) enum Operation {
         session: SessionId,
         turn: TurnId,
         event: AdkEvent,
+        context: Option<(TurnId, AdkEvent)>,
         reply: oneshot::Sender<adk_core::Result<()>>,
     },
     Claim {
@@ -1046,9 +1047,12 @@ pub(super) fn execute<'a>(
             session,
             turn,
             event,
+            context,
             reply,
         } => Box::pin(async move {
-            let _ = reply.send(history::append(database, session, turn, event, events).await);
+            let _ = reply.send(
+                history::append_with_context(database, session, turn, event, context, events).await,
+            );
         }),
         Operation::Claim { token, reply } => Box::pin(async move {
             let result = if controls.stopped.is_cancelled() {

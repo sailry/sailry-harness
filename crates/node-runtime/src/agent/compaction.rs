@@ -1,8 +1,7 @@
 //! Shared automatic and explicit summaries use the canonical ADK session history.
 use super::*;
 use adk_core::{
-    BaseEventsSummarizer, Content, Event, EventCompaction, EventsCompactionConfig, FinishReason,
-    GenerateContentConfig, Llm, LlmRequest, Part,
+    Content, Event, EventCompaction, FinishReason, GenerateContentConfig, Llm, LlmRequest, Part,
 };
 use adk_session::SessionService;
 use async_trait::async_trait;
@@ -46,30 +45,23 @@ pub(super) fn bind(
     instruction: String,
 ) -> (
     adk_core::BeforeModelCallback,
-    EventsCompactionConfig,
     Arc<dyn adk_core::Tool>,
     Arc<active::Context>,
 ) {
     let mut summarizer = Summarizer::new(ingress, model, invocation, stop);
-    summarizer.preamble = Some(Content::new("system").with_text(instruction.clone()));
+    summarizer.preamble = Some(Content::new("system").with_text(instruction));
     let context = Arc::new(active::Context::new(
         ingress.clone(),
         ingress.sessions(invocation.turn.id),
         invocation.turn.session,
         summarizer,
-        instruction,
     ));
     let observer = context.clone();
     let callback: adk_core::BeforeModelCallback = Box::new(move |ctx, request| {
         let observer = observer.clone();
         Box::pin(async move { observer.before(ctx.invocation_id(), request).await })
     });
-    let config = EventsCompactionConfig {
-        compaction_interval: 1,
-        overlap_size: 2,
-        summarizer: context.clone(),
-    };
-    (callback, config, context.clone(), context)
+    (callback, context.clone(), context)
 }
 
 pub(super) async fn manual(
@@ -157,7 +149,6 @@ struct Summarizer {
     identity: crate::logging::Context,
     turn: TurnId,
     context: Option<u64>,
-    budget: Option<u64>,
     trigger: Option<u32>,
     output: Option<i32>,
     instruction: Option<Instruction>,
@@ -214,15 +205,6 @@ impl Summarizer {
             context: metadata
                 .map(|model| u64::from(model.context))
                 .filter(|context| *context > 0),
-            budget: metadata.and_then(|model| {
-                policy::resolve(
-                    &model.id,
-                    model.context,
-                    model.output,
-                    model.compaction_tokens,
-                )
-                .map(|policy| policy.trigger_tokens)
-            }),
             trigger: metadata.and_then(|model| model.compaction_tokens),
             output: metadata.map(|model| model.output as i32),
             instruction: (invocation.turn.kind == sailry_protocol::conversation::RunKind::Task
@@ -251,9 +233,13 @@ impl Summarizer {
     }
 
     fn needs_compaction(&self, tokens: Option<u64>) -> bool {
-        self.budget
+        self.budget()
             .zip(tokens)
             .is_some_and(|(budget, tokens)| tokens >= budget)
+    }
+
+    fn budget(&self) -> Option<u64> {
+        self.policy().map(|policy| policy.trigger_tokens)
     }
 
     fn policy(&self) -> Option<sailry_protocol::conversation::compaction::Budget> {
@@ -319,7 +305,6 @@ struct Prepared {
     verbatim: String,
     instruction: Option<Instruction>,
     files: std::collections::BTreeMap<String, bool>,
-    summarizable_tokens: u64,
 }
 
 impl Summarizer {
@@ -330,10 +315,6 @@ impl Summarizer {
             .map_or_else(String::new, Instruction::appendix);
         let output = self.summary_output();
         let mut contents = history::prefix(events);
-        let summarizable_tokens = history::eligible(events)
-            .iter()
-            .map(|content| 4 + content.parts.iter().map(estimate::part).sum::<u64>())
-            .sum();
         if let Some(preamble) = &self.preamble {
             contents.insert(0, preamble.clone());
         }
@@ -370,10 +351,10 @@ impl Summarizer {
             verbatim,
             instruction,
             files: history::files(events),
-            summarizable_tokens,
         })
     }
 
+    #[cfg(test)]
     fn fits(&self, events: &[Event]) -> adk_core::Result<bool> {
         let prepared = self.prepare(events)?;
         self.fits_request(&prepared.request)
@@ -470,6 +451,33 @@ impl Summarizer {
         let candidates = candidates
             .filter(|cut| *cut > 0 && *cut <= events.len())
             .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        // Capture declarations, masks and summary framing once. Shorter cuts
+        // conservatively reuse this envelope instead of preparing each prefix.
+        let mut request = self.prepare(events)?.request;
+        let handoff = request
+            .contents
+            .pop()
+            .expect("summary request has a prompt");
+        let contents = request
+            .contents
+            .drain(usize::from(self.preamble.is_some())..)
+            .collect::<Vec<_>>();
+        request.contents.push(handoff);
+        let overhead = estimate::request(&request)?.saturating_add(self.summary_output());
+        let mut contents = contents.iter();
+        let mut prefix_tokens = vec![0u64; events.len() + 1];
+        for (index, event) in events.iter().enumerate() {
+            let tokens = if event.actions.compaction.is_some() || event.content().is_some() {
+                let content = contents.next().expect("history projection preserves order");
+                4 + content.parts.iter().map(estimate::part).sum::<u64>()
+            } else {
+                0
+            };
+            prefix_tokens[index + 1] = prefix_tokens[index].saturating_add(tokens);
+        }
         let mut remaining_tokens = vec![0u64; events.len() + 1];
         for index in (0..events.len()).rev() {
             remaining_tokens[index] = remaining_tokens[index + 1]
@@ -483,11 +491,11 @@ impl Summarizer {
         let remaining = candidates.iter().copied().filter(|cut| !keeps_recent(cut));
         let mut fallback = None;
         for cut in preferred.chain(remaining) {
-            if cut == 0 || cut > events.len() {
-                continue;
-            }
             fallback.get_or_insert(cut);
-            if self.fits(&events[..cut])? {
+            if self
+                .context
+                .is_none_or(|context| prefix_tokens[cut].saturating_add(overhead) <= context)
+            {
                 return Ok(Some(cut));
             }
         }
@@ -508,7 +516,7 @@ impl Summarizer {
         };
         let last = events.last().expect("nonempty history");
         let prepared = self.prepare(events)?;
-        if prepared.summarizable_tokens < 256 || self.stop.is_cancelled() {
+        if self.stop.is_cancelled() {
             return Ok(None);
         }
         let source_tokens = self.source_tokens(events, &prepared.request)?;
@@ -528,7 +536,6 @@ impl Summarizer {
                 verbatim,
                 instruction,
                 files,
-                summarizable_tokens: _,
             } = prepared;
             span.entry.stage = Some("request");
             // A failed or cancelled summary never replaces history or retries business work.
@@ -601,13 +608,6 @@ impl Summarizer {
             }
         }
         result
-    }
-}
-
-#[async_trait]
-impl BaseEventsSummarizer for Summarizer {
-    async fn summarize_events(&self, events: &[Event]) -> adk_core::Result<Option<Event>> {
-        self.summarize_with(events, SummaryMode::Automatic).await
     }
 }
 

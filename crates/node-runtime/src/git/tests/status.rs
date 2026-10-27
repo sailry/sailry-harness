@@ -115,6 +115,80 @@ fn queued_reads_keep_execution_budget() {
     });
 }
 
+#[tokio::test]
+async fn cached_reads_bypass_scan_queue() {
+    let (_directory, root, git, command) = fixture();
+    std::fs::write(root.join("first.txt"), "first").unwrap();
+    std::fs::write(root.join("second.txt"), "second").unwrap();
+    let expected = status(
+        git.inspect(root.clone(), command.clone(), CancellationToken::new())
+            .await,
+    );
+    let Output::GitChanges(first) = git
+        .inspect(
+            root.clone(),
+            Command::ListGitChanges {
+                worktree: WorktreeId::new(),
+                target: Some(GitChangeTarget::Worktree {
+                    scope: GitDiffScope::All,
+                }),
+                cursor: None,
+                limit: 1,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("Git changes expected")
+    };
+    let permit = git.scans.root(&root).acquire_owned().await.unwrap();
+    let actual = tokio::time::timeout(
+        Duration::from_secs(1),
+        git.inspect(root.clone(), command, CancellationToken::new()),
+    )
+    .await
+    .expect("cached status must not wait for the scan permit");
+    assert_eq!(status(actual), expected);
+    let Output::GitChanges(next) = tokio::time::timeout(
+        Duration::from_secs(1),
+        git.inspect(
+            root.clone(),
+            Command::ListGitChanges {
+                worktree: WorktreeId::new(),
+                target: None,
+                cursor: first.next,
+                limit: 1,
+            },
+            CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect("cached inventory page must not wait for the scan permit")
+    .unwrap() else {
+        panic!("Git changes expected")
+    };
+    assert_eq!(next.entries.len(), 1);
+    assert_eq!(next.entries[0].path, "second.txt");
+    assert!(next.exhausted);
+    let mut verify = Box::pin(git.inspect(
+        root,
+        Command::ListGitChanges {
+            worktree: WorktreeId::new(),
+            target: None,
+            cursor: Some(GitChangesCursor {
+                snapshot: next.snapshot,
+                after_path: None,
+            }),
+            limit: 1,
+        },
+        CancellationToken::new(),
+    ));
+    pending(verify.as_mut()).await;
+    drop(permit);
+    assert!(matches!(verify.await.unwrap(), Output::GitChanges(_)));
+}
+
 #[test]
 fn isolates_caller_cancellation() {
     let (_directory, root, git, command) = fixture();

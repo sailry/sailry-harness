@@ -215,27 +215,28 @@ async fn entries(
         }
         values.into_iter()
     };
-    let mut entries = Vec::new();
+    let mut events = Vec::new();
     let mut bytes = 0;
     let mut more = false;
     for row in rows {
         let (sequence, turn, body) = row.map_err(storage_error)?;
-        if entries.len() >= usize::from(limit)
-            || !entries.is_empty() && bytes + body.len() > 3 * 1024 * 1024
+        if events.len() >= usize::from(limit)
+            || !events.is_empty() && bytes + body.len() > 3 * 1024 * 1024
         {
             more = true;
             break;
         }
         bytes += body.len();
-        entries.push(
-            project(
-                db,
-                sequence as u64,
-                turn.parse().map_err(storage_error)?,
-                &serde_json::from_slice(&body).map_err(storage_error)?,
-            )
-            .await?,
-        );
+        events.push((
+            sequence as u64,
+            turn.parse().map_err(storage_error)?,
+            serde_json::from_slice(&body).map_err(storage_error)?,
+        ));
+    }
+    let sources = tools::Sources::new(db, &events).await?;
+    let mut entries = Vec::with_capacity(events.len());
+    for (sequence, turn, event) in events {
+        entries.push(project_with_sources(db, sequence, turn, &event, Some(&sources)).await?);
     }
     entries.reverse();
     Ok((entries, more))

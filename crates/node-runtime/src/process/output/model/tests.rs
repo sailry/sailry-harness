@@ -36,6 +36,21 @@ fn retains_all_passed_summary() {
 }
 
 #[test]
+fn ends_warnings_before_cargo_status() {
+    let input = format!(
+        "warning: unused variable: `value`\n --> src/lib.rs:1:2\n  |\n1 | let value = 1;\n  |     ^^^^^\n  = note: `#[warn(unused_variables)]` on by default\n{}    Finished `test` profile\n     Running unittests src/lib.rs\n{}test result: ok. 100 passed; 0 failed\n",
+        "   Compiling dependency v1.0.0\n".repeat(40),
+        "test ordinary_case ... ok\n".repeat(100)
+    );
+    let output = cargo("cargo test", &input).unwrap();
+    assert!(output.contains("warning unused_variables: 1"));
+    assert!(!output.contains("Compiling dependency"));
+    assert!(output.contains("Finished `test`"));
+    assert!(output.contains("Running unittests"));
+    assert!(output.contains("test result: ok. 100 passed"));
+}
+
+#[test]
 fn folds_nextest_success_rows() {
     let input = format!(
         "{}        FAIL [   0.010s] (101/101) sailry-runtime::fixture rejects_invalid\n\

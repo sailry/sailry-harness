@@ -93,7 +93,6 @@ pub(super) fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarize
             identity: crate::logging::Context::default(),
             turn: TurnId::new(),
             context: Some(16_000),
-            budget: Some(12800),
             trigger: None,
             output: Some(2048),
             instruction: None,
@@ -123,7 +122,8 @@ mod budget {
             let threshold = super::super::budget(context, output);
             assert_eq!(threshold, Some(expected));
             let (mut summarizer, _) = summarizer(vec![], false);
-            summarizer.budget = threshold;
+            summarizer.context = Some(u64::from(context));
+            summarizer.output = Some(output as i32);
             assert!(!summarizer.needs_compaction(Some(expected - 1)));
             assert!(summarizer.needs_compaction(Some(expected)));
             assert!(summarizer.needs_compaction(Some(expected + 1)));
@@ -137,14 +137,13 @@ mod budget {
             let (mut summarizer, _) = summarizer(vec![], false);
             summarizer.context = Some(u64::from(context));
             summarizer.output = Some(output as i32);
-            summarizer.budget = super::super::budget(context, output);
             let policy = policy::resolve(summarizer.model.name(), context, output, None).unwrap();
             assert_eq!(summarizer.policy(), Some(policy.clone()));
             assert_eq!(
                 summarizer.summary_output(),
                 u64::from(policy.summary_output)
             );
-            assert_eq!(summarizer.budget, Some(policy.trigger_tokens));
+            assert_eq!(summarizer.budget(), Some(policy.trigger_tokens));
         }
     }
 
@@ -162,7 +161,10 @@ mod budget {
         let mut events = history();
         events[1].set_content(Content::new("model").with_text("x".repeat(80_000)));
         assert!(!summarizer.fits(&events).unwrap());
-        let error = summarizer.summarize_events(&events).await.unwrap_err();
+        let error = summarizer
+            .summarize_with(&events, SummaryMode::Automatic)
+            .await
+            .unwrap_err();
         assert_eq!(
             failure::classify(&error),
             (Stage::Budget, Reason::NoFittingPrefix)
@@ -176,7 +178,7 @@ mod budget {
             assert_eq!(super::super::budget(context, output), None);
         }
         let (mut summarizer, _) = summarizer(vec![], false);
-        summarizer.budget = None;
+        summarizer.context = None;
         assert!(!summarizer.needs_compaction(Some(u64::MAX)));
     }
 }
@@ -216,7 +218,7 @@ async fn persists_valid_summaries() {
     );
     let history = history();
     let summary = summarizer
-        .summarize_events(&history)
+        .summarize_with(&history, SummaryMode::Automatic)
         .await
         .unwrap()
         .unwrap();
@@ -280,7 +282,7 @@ async fn retains_non_authoritative_summary_segments() {
         false,
     );
     let summary = summarizer
-        .summarize_events(&history())
+        .summarize_with(&history(), SummaryMode::Automatic)
         .await
         .unwrap()
         .unwrap();
@@ -306,7 +308,10 @@ async fn rejects_cleared_retry_summary() {
         ],
         false,
     );
-    let error = summarizer.summarize_events(&history()).await.unwrap_err();
+    let error = summarizer
+        .summarize_with(&history(), SummaryMode::Automatic)
+        .await
+        .unwrap_err();
     assert_eq!(
         failure::classify(&error),
         (Stage::Summary, Reason::EmptySummary)
@@ -364,7 +369,9 @@ async fn rejects_invalid_summaries() {
         (vec![failed], false, (Stage::Request, Reason::RequestFailed)),
     ] {
         let (summarizer, model) = summarizer(responses, rejected);
-        let result = summarizer.summarize_events(&history).await;
+        let result = summarizer
+            .summarize_with(&history, SummaryMode::Automatic)
+            .await;
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(failure::classify(&error), classification);
@@ -440,11 +447,17 @@ fn retains_safe_request_diagnostics() {
 #[tokio::test]
 async fn skips_ineligible_work() {
     let (summarizer, model) = summarizer(vec![], false);
-    assert!(summarizer.summarize_events(&[]).await.unwrap().is_none());
+    assert!(
+        summarizer
+            .summarize_with(&[], SummaryMode::Automatic)
+            .await
+            .unwrap()
+            .is_none()
+    );
     let metadata = Event::new("metadata");
     assert!(
         summarizer
-            .summarize_events(&[metadata])
+            .summarize_with(&[metadata], SummaryMode::Automatic)
             .await
             .unwrap()
             .is_none()
@@ -452,7 +465,7 @@ async fn skips_ineligible_work() {
     summarizer.stop.cancel();
     assert!(
         summarizer
-            .summarize_events(&history())
+            .summarize_with(&history(), SummaryMode::Automatic)
             .await
             .unwrap()
             .is_none()
@@ -519,7 +532,6 @@ async fn discards_cancelled_summary() {
         identity: crate::logging::Context::default(),
         turn: TurnId::new(),
         context: None,
-        budget: None,
         trigger: None,
         output: None,
         instruction: None,
@@ -529,7 +541,11 @@ async fn discards_cancelled_summary() {
         focus: None,
         stop: stop.clone(),
     };
-    let running = tokio::spawn(async move { summarizer.summarize_events(&history()).await });
+    let running = tokio::spawn(async move {
+        summarizer
+            .summarize_with(&history(), SummaryMode::Automatic)
+            .await
+    });
     tokio::time::timeout(Duration::from_secs(1), async {
         while model.requests.lock().unwrap().is_empty() {
             tokio::task::yield_now().await;
@@ -564,7 +580,11 @@ async fn preserves_latest_instruction_without_model_attribution() {
     events[0].set_content(
         Content::new("user").with_text(summarizer.instruction.as_ref().unwrap().text.clone()),
     );
-    let summary = summarizer.summarize_events(&events).await.unwrap().unwrap();
+    let summary = summarizer
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap()
+        .unwrap();
     let content = summary
         .actions
         .compaction
@@ -621,7 +641,11 @@ async fn retains_latest_joined_input() {
     );
     joined.set_content(Content::new("user").with_text("Also retain this later instruction"));
     events.insert(1, joined);
-    let summary = summarizer.summarize_events(&events).await.unwrap().unwrap();
+    let summary = summarizer
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         latest(std::slice::from_ref(&summary)).unwrap().text,
         "Also retain this later instruction"
@@ -650,7 +674,10 @@ async fn rejects_unhelpful_verbatim_replacement() {
         Content::new("user").with_text(summarizer.instruction.as_ref().unwrap().text.clone()),
     );
     let original = serialized(&events);
-    let error = summarizer.summarize_events(&events).await.unwrap_err();
+    let error = summarizer
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap_err();
     assert_eq!(
         failure::classify(&error),
         (Stage::Summary, Reason::NoReduction)
@@ -689,7 +716,7 @@ async fn leaves_large_retained_input_outside_summary() {
         text: current.clone(),
     });
     let summary = summarizer
-        .summarize_events(&history())
+        .summarize_with(&history(), SummaryMode::Automatic)
         .await
         .unwrap()
         .unwrap();
@@ -742,7 +769,7 @@ async fn preserves_large_covered_input() {
     evidence.author = "assistant".into();
     evidence.set_content(Content::new("model").with_text("Verified source evidence ".repeat(1200)));
     let summary = summarizer
-        .summarize_events(&[input, evidence])
+        .summarize_with(&[input, evidence], SummaryMode::Automatic)
         .await
         .unwrap()
         .unwrap();
@@ -864,14 +891,18 @@ async fn rejects_stream_without_completion_marker() {
     response.finish_reason = None;
     response.turn_complete = false;
     let (summarizer, _) = summarizer(vec![response], false);
-    assert!(summarizer.summarize_events(&history()).await.is_err());
+    assert!(
+        summarizer
+            .summarize_with(&history(), SummaryMode::Automatic)
+            .await
+            .is_err()
+    );
 }
 
 #[test]
 fn configures_existing_output_budget() {
     let (mut summarizer, _) = summarizer(vec![], false);
     summarizer.context = Some(2_400);
-    summarizer.budget = Some(1_920);
     let prepared = summarizer.prepare(&history()).unwrap();
     let output = prepared
         .request
@@ -894,7 +925,10 @@ async fn rejects_user_dominated_replacement() {
     let mut events = history();
     events[0].set_content(Content::new("user").with_text(original.clone()));
     events[1].set_content(Content::new("model").with_text("Verified evidence. ".repeat(50)));
-    let error = summarizer.summarize_events(&events).await.unwrap_err();
+    let error = summarizer
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap_err();
     assert_eq!(
         failure::classify(&error),
         (Stage::Summary, Reason::NoReduction)
@@ -978,7 +1012,10 @@ async fn preserves_response_error_details() {
     response.error_code = Some("content_policy".into());
     response.error_message = Some("Summary rejected by the provider".into());
     let (summarizer, _) = summarizer(vec![response], false);
-    let error = summarizer.summarize_events(&history()).await.unwrap_err();
+    let error = summarizer
+        .summarize_with(&history(), SummaryMode::Automatic)
+        .await
+        .unwrap_err();
     assert_eq!(
         failure::classify(&error).0,
         sailry_protocol::conversation::compaction::Stage::Request
@@ -999,7 +1036,7 @@ fn prompt_names_previous_summary_marker() {
 async fn ends_summary_with_single_marker() {
     let (summarizer, _) = summarizer(vec![complete(&format!("Summary\n{MARKER}"))], false);
     let summary = summarizer
-        .summarize_events(&history())
+        .summarize_with(&history(), SummaryMode::Automatic)
         .await
         .unwrap()
         .unwrap();

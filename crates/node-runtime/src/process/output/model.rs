@@ -106,7 +106,6 @@ pub(crate) fn cargo(command: &str, text: &str) -> Option<String> {
         let continues = !warning.is_empty()
             && !is_warning
             && (trimmed.is_empty()
-                || line.starts_with(' ')
                 || trimmed.starts_with("-->")
                 || trimmed.starts_with('|')
                 || trimmed.starts_with('=')

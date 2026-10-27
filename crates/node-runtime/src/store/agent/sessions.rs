@@ -14,6 +14,7 @@ pub(super) fn history_query() -> String {
 pub(crate) const INPUT_TURN: &str = "sailry.context.input_turn";
 pub(crate) const INPUT_SOURCE: &str = "sailry.context.input_source";
 pub(crate) const INPUT_PART: &str = "sailry.context.input_part";
+pub(crate) const CAPABILITY_PART: &str = "sailry.context.capability_part";
 
 pub(crate) struct Sessions {
     ingress: Arc<Ingress>,
@@ -220,117 +221,8 @@ impl SessionService for Sessions {
             .map_err(|_| AdkError::session("Node storage is closed"))??;
         Ok(Box::new(session.for_model()))
     }
-    async fn append_event(&self, session_id: &str, mut event: AdkEvent) -> adk_core::Result<()> {
-        let timeline = self.ingress.agents.timeline(self.turn);
-        let failures = super::presentation::capture_failures(&mut event, timeline.as_deref())?;
-        let branch = event.branch.clone();
-        let displays = self.current_displays(&event).await?;
-        let mut aliases = Vec::new();
-        if let Some(home) = self.ingress.environment.home() {
-            aliases.push(sailry_protocol::tool::Alias {
-                path: home.to_string_lossy().into_owned(),
-                kind: sailry_protocol::tool::AliasKind::Home,
-            });
-        }
-        let commands: Vec<_> = event
-            .content()
-            .into_iter()
-            .flat_map(|content| &content.parts)
-            .filter_map(|part| {
-                let adk_core::Part::FunctionCall { name, args, .. } = part else {
-                    return None;
-                };
-                let field = displays.get(name)?.input.as_ref()?.summary.as_ref()?;
-                (field.format == Some(sailry_protocol::tool::InputFormat::Command))
-                    .then(|| field.read(args))
-                    .flatten()
-            })
-            .collect();
-        if let Some(python) = self.ingress.plugins.display_python(&commands).await {
-            aliases.push(sailry_protocol::tool::Alias {
-                path: python.to_string_lossy().into_owned(),
-                kind: sailry_protocol::tool::AliasKind::Python,
-            });
-        }
-        for access in self.ingress.agents.python(self.turn) {
-            let alias = sailry_protocol::tool::Alias {
-                path: access.ready.python.to_string_lossy().into_owned(),
-                kind: sailry_protocol::tool::AliasKind::Python,
-            };
-            if !aliases.contains(&alias) && aliases.len() < 32 {
-                aliases.push(alias);
-            }
-        }
-        super::presentation::stamp(
-            &mut event,
-            &self.presentations,
-            &self.groupings,
-            &displays,
-            &aliases,
-        )?;
-        if event.author == "user" {
-            event
-                .provider_metadata
-                .insert(INPUT_TURN.into(), self.input_turn.to_string());
-            event
-                .provider_metadata
-                .insert(INPUT_SOURCE.into(), self.input_source.into());
-            let notice = self.notice_input.as_ref().is_some_and(|expected| matches!(event.content().and_then(|content| content.parts.first()), Some(adk_core::Part::Text {text}) if text == expected));
-            if notice {
-                event.provider_metadata.insert(
-                    super::background::INPUT_IDS.into(),
-                    serde_json::to_string(
-                        &self
-                            .notices
-                            .iter()
-                            .map(|notice| &notice.id)
-                            .collect::<Vec<_>>(),
-                    )
-                    .map_err(|error| AdkError::session(error.to_string()))?,
-                );
-            }
-            let index = usize::from(!self.references.is_empty()) + usize::from(notice);
-            if event.content().is_some_and(|content| {
-                matches!(content.parts.get(index), Some(adk_core::Part::Text { .. }))
-            }) {
-                event
-                    .provider_metadata
-                    .insert(INPUT_PART.into(), index.to_string());
-            }
-        }
-        if event.author == "user" && !self.references.is_empty() {
-            event.provider_metadata.insert(
-                super::references::METADATA.into(),
-                serde_json::to_string(&self.references)
-                    .map_err(|error| AdkError::session(error.to_string()))?,
-            );
-        }
-        let session = session_id.parse().map_err(AdkError::session)?;
-        let (reply, response) = oneshot::channel();
-        self.ingress
-            .submit(Job::Agent(Box::new(Operation::Append {
-                session,
-                turn: if event.author == "user" {
-                    self.input_turn
-                } else {
-                    self.turn
-                },
-                event,
-                reply,
-            })))
-            .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?;
-        let result = response
-            .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?;
-        if result.is_ok()
-            && let Some(timeline) = timeline
-        {
-            for failure in failures {
-                timeline.forget_failure(&branch, &failure.id, &failure.name);
-            }
-        }
-        result
+    async fn append_event(&self, session_id: &str, event: AdkEvent) -> adk_core::Result<()> {
+        self.append_with_context(session_id, event, None).await
     }
     async fn append_event_for_identity(&self, request: AppendEventRequest) -> adk_core::Result<()> {
         identity(
@@ -520,5 +412,149 @@ impl Events for Session {
     }
     fn at(&self, index: usize) -> Option<&AdkEvent> {
         self.events.get(index)
+    }
+}
+
+impl Sessions {
+    pub(crate) async fn append_with_context(
+        &self,
+        session_id: &str,
+        mut event: AdkEvent,
+        context: Option<AdkEvent>,
+    ) -> adk_core::Result<()> {
+        let timeline = self.ingress.agents.timeline(self.turn);
+        let failures = super::presentation::capture_failures(&mut event, timeline.as_deref())?;
+        let branch = event.branch.clone();
+        let displays = self.current_displays(&event).await?;
+        let mut aliases = Vec::new();
+        if let Some(home) = self.ingress.environment.home() {
+            aliases.push(sailry_protocol::tool::Alias {
+                path: home.to_string_lossy().into_owned(),
+                kind: sailry_protocol::tool::AliasKind::Home,
+            });
+        }
+        let commands: Vec<_> = event
+            .content()
+            .into_iter()
+            .flat_map(|content| &content.parts)
+            .filter_map(|part| {
+                let adk_core::Part::FunctionCall { name, args, .. } = part else {
+                    return None;
+                };
+                let field = displays.get(name)?.input.as_ref()?.summary.as_ref()?;
+                (field.format == Some(sailry_protocol::tool::InputFormat::Command))
+                    .then(|| field.read(args))
+                    .flatten()
+            })
+            .collect();
+        if let Some(python) = self.ingress.plugins.display_python(&commands).await {
+            aliases.push(sailry_protocol::tool::Alias {
+                path: python.to_string_lossy().into_owned(),
+                kind: sailry_protocol::tool::AliasKind::Python,
+            });
+        }
+        for access in self.ingress.agents.python(self.turn) {
+            let alias = sailry_protocol::tool::Alias {
+                path: access.ready.python.to_string_lossy().into_owned(),
+                kind: sailry_protocol::tool::AliasKind::Python,
+            };
+            if !aliases.contains(&alias) && aliases.len() < 32 {
+                aliases.push(alias);
+            }
+        }
+        super::presentation::stamp(
+            &mut event,
+            &self.presentations,
+            &self.groupings,
+            &displays,
+            &aliases,
+        )?;
+        if event.author == "user" {
+            event
+                .provider_metadata
+                .insert(INPUT_TURN.into(), self.input_turn.to_string());
+            event
+                .provider_metadata
+                .insert(INPUT_SOURCE.into(), self.input_source.into());
+            let notice = self.notice_input.as_ref().is_some_and(|expected| matches!(event.content().and_then(|content| content.parts.first()), Some(adk_core::Part::Text {text}) if text == expected));
+            if notice {
+                event.provider_metadata.insert(
+                    super::background::INPUT_IDS.into(),
+                    serde_json::to_string(
+                        &self
+                            .notices
+                            .iter()
+                            .map(|notice| &notice.id)
+                            .collect::<Vec<_>>(),
+                    )
+                    .map_err(|error| AdkError::session(error.to_string()))?,
+                );
+            }
+            let index = usize::from(!self.references.is_empty()) + usize::from(notice);
+            let capability = if self.references.iter().any(|reference| {
+                matches!(
+                    reference.target,
+                    reference::Target::Plugin(_) | reference::Target::Skill { .. }
+                )
+            }) {
+                event
+                    .content()
+                    .map(|content| &content.parts)
+                    .filter(|parts| {
+                        parts.len() > index
+                            && matches!(parts.last(), Some(adk_core::Part::Text { .. }))
+                    })
+                    .map(|parts| parts.len() - 1)
+            } else {
+                None
+            };
+            if event.content().is_some_and(|content| {
+                matches!(content.parts.get(index), Some(adk_core::Part::Text { .. }))
+            }) && capability != Some(index)
+            {
+                event
+                    .provider_metadata
+                    .insert(INPUT_PART.into(), index.to_string());
+            }
+            if let Some(part) = capability {
+                event
+                    .provider_metadata
+                    .insert(CAPABILITY_PART.into(), part.to_string());
+            }
+        }
+        if event.author == "user" && !self.references.is_empty() {
+            event.provider_metadata.insert(
+                super::references::METADATA.into(),
+                serde_json::to_string(&self.references)
+                    .map_err(|error| AdkError::session(error.to_string()))?,
+            );
+        }
+        let session = session_id.parse().map_err(AdkError::session)?;
+        let (reply, response) = oneshot::channel();
+        self.ingress
+            .submit(Job::Agent(Box::new(Operation::Append {
+                session,
+                turn: if event.author == "user" {
+                    self.input_turn
+                } else {
+                    self.turn
+                },
+                event,
+                context: context.map(|event| (self.turn, event)),
+                reply,
+            })))
+            .await
+            .map_err(|_| AdkError::session("Node storage is closed"))?;
+        let result = response
+            .await
+            .map_err(|_| AdkError::session("Node storage is closed"))?;
+        if result.is_ok()
+            && let Some(timeline) = timeline
+        {
+            for failure in failures {
+                timeline.forget_failure(&branch, &failure.id, &failure.name);
+            }
+        }
+        result
     }
 }

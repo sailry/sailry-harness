@@ -28,7 +28,7 @@ async fn skips_tiny_ranges() {
     let original = serialized(&events);
     assert!(
         summarizer
-            .summarize_events(&events)
+            .summarize_with(&events, SummaryMode::Automatic)
             .await
             .unwrap()
             .is_none()
@@ -44,7 +44,10 @@ async fn rejects_expanding_outputs() {
     let tokens = estimate::tokens(&events) as usize;
     for length in [tokens * 2, tokens * 4 + 1, 32 * 1024 + 1] {
         let (summarizer, model) = summarizer(vec![complete(&"x".repeat(length))], false);
-        let error = summarizer.summarize_events(&events).await.unwrap_err();
+        let error = summarizer
+            .summarize_with(&events, SummaryMode::Automatic)
+            .await
+            .unwrap_err();
         assert_eq!(
             failure::classify(&error),
             (Stage::Summary, Reason::NoReduction)
@@ -152,7 +155,10 @@ async fn compares_model_visible_source() {
     events.push(result);
     let request = summarizer.prepare(&events).unwrap().request;
     assert!(summarizer.source_tokens(&events, &request).unwrap() < estimate::tokens(&events));
-    let error = summarizer.summarize_events(&events).await.unwrap_err();
+    let error = summarizer
+        .summarize_with(&events, SummaryMode::Automatic)
+        .await
+        .unwrap_err();
     assert_eq!(
         failure::classify(&error),
         (Stage::Summary, Reason::NoReduction)

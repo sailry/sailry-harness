@@ -20,7 +20,12 @@ struct Entry {
     output: watch::Receiver<(Capture, Capture)>,
     stop: CancellationToken,
     task: Option<JoinHandle<()>>,
-    watch: Option<(sailry_protocol::WorktreeId, Arc<crate::code_index::Service>)>,
+    watch: Option<(
+        sailry_protocol::WorktreeId,
+        Arc<crate::code_index::Service>,
+        std::path::PathBuf,
+        crate::git::Git,
+    )>,
     input: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
     explicit: bool,
     background: bool,
@@ -37,6 +42,7 @@ pub(crate) struct Commands {
     sink: OnceLock<tokio::sync::mpsc::UnboundedSender<Finished>>,
     entries: Mutex<BTreeMap<RequestId, Entry>>,
     changes: watch::Sender<()>,
+    budget: Arc<super::output::Budget>,
 }
 
 impl Default for Commands {
@@ -45,11 +51,18 @@ impl Default for Commands {
             sink: OnceLock::new(),
             entries: Mutex::default(),
             changes: watch::channel(()).0,
+            budget: Arc::default(),
         }
     }
 }
 
 impl Commands {
+    pub(crate) fn new(profile: Option<&std::path::Path>) -> std::io::Result<Self> {
+        if let Some(profile) = profile {
+            super::output::clear(profile)?;
+        }
+        Ok(Self::default())
+    }
     pub(crate) fn set_sink(&self, sink: tokio::sync::mpsc::UnboundedSender<Finished>) {
         assert!(
             self.sink.set(sink).is_ok(),
@@ -62,6 +75,8 @@ impl Commands {
         id: RequestId,
         worktree: sailry_protocol::WorktreeId,
         code: Arc<crate::code_index::Service>,
+        root: std::path::PathBuf,
+        git: crate::git::Git,
     ) {
         let finished = {
             let mut entries = self.entries.lock().unwrap();
@@ -69,13 +84,14 @@ impl Commands {
                 return;
             };
             if matches!(entry.info.status, Status::Running | Status::Stopping) {
-                entry.watch = Some((worktree, code.clone()));
+                entry.watch = Some((worktree, code.clone(), root.clone(), git.clone()));
                 false
             } else {
                 true
             }
         };
         if finished {
+            git.invalidate(&root);
             code.changed(worktree, None);
         }
     }
@@ -135,6 +151,7 @@ impl Commands {
         let (input, received) = tokio::sync::mpsc::channel(32);
         let retained = Arc::new(super::output::Retained::new(
             launch.profile.as_deref().unwrap_or(&launch.root),
+            self.budget.clone(),
         ));
         entries.insert(
             id,
@@ -195,6 +212,9 @@ impl Commands {
             let watch = {
                 let mut entries = owner.entries.lock().unwrap();
                 if let Some(entry) = entries.get_mut(&id) {
+                    if let Some((_, _, root, git)) = &entry.watch {
+                        git.invalidate(root);
+                    }
                     entry.info.status = status;
                     entry.input.take();
                     entry.info.services.clear();
@@ -218,7 +238,7 @@ impl Commands {
                     None
                 }
             };
-            if let Some((worktree, code)) = watch {
+            if let Some((worktree, code, _, _)) = watch {
                 code.changed(worktree, None);
             }
         });
@@ -249,6 +269,7 @@ impl Commands {
     ) -> Arc<super::output::Retained> {
         let retained = Arc::new(super::output::Retained::new(
             launch.profile.as_deref().unwrap_or(&launch.root),
+            self.budget.clone(),
         ));
         let mut entries = self.entries.lock().unwrap();
         while entries.len() >= 128 {
@@ -298,7 +319,7 @@ impl Commands {
     pub(crate) fn finish(
         &self,
         id: RequestId,
-        result: &Result<sailry_protocol::process::Completion, Fault>,
+        result: Result<&sailry_protocol::process::Completion, &Fault>,
     ) {
         let mut entries = self.entries.lock().unwrap();
         if let Some(entry) = entries.get_mut(&id) {
@@ -481,6 +502,61 @@ mod tests {
             );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
+    }
+
+    #[tokio::test]
+    async fn releases_failed_foreground_output() {
+        let profile = tempfile::tempdir().unwrap();
+        let commands = Commands::default();
+        let session = SessionId::new();
+        let id = RequestId::new();
+        let retained = commands.retain(
+            id,
+            session,
+            TurnId::new(),
+            &Launch {
+                profile: Some(profile.path().to_owned()),
+                root: profile.path().to_owned(),
+                command: "fixture".into(),
+                access: Access::Workspace,
+                pty: false,
+                cwd: String::new(),
+                timeout_ms: 1_000,
+                inputs: None,
+                scratch: None,
+                python: None,
+            },
+        );
+        retained.append(
+            sailry_protocol::process::OutputStream::Stdout,
+            b"before failure",
+        );
+        drop(retained);
+        commands.finish(
+            id,
+            Err(&Fault::new(ErrorCode::OutcomeUnknown, "execution panicked")),
+        );
+        assert_eq!(
+            commands.read(session, id).unwrap().info.status,
+            Status::Failed("execution panicked".into())
+        );
+        assert_eq!(
+            std::fs::read_dir(profile.path().join("tmp"))
+                .unwrap()
+                .count(),
+            2
+        );
+        commands.close_session(session).await;
+        assert_eq!(
+            commands.read(session, id).unwrap_err().code,
+            ErrorCode::NotFound
+        );
+        assert_eq!(
+            std::fs::read_dir(profile.path().join("tmp"))
+                .unwrap()
+                .count(),
+            0
+        );
     }
 
     #[tokio::test]

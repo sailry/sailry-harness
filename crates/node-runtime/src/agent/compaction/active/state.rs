@@ -1,4 +1,4 @@
-//! Recovery guards belong to the admitted Node task, across ADK epochs.
+//! Recovery guards belong to one admitted Node task and its ADK invocation.
 use super::*;
 use crate::agent::model::history::Masks;
 

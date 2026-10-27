@@ -297,6 +297,18 @@ pub(super) fn restore(
     Ok(cache.save(root, capture))
 }
 
+pub(super) fn cached(
+    root: &Path,
+    repository: &Repository,
+    snapshot: &GitChangeSnapshot,
+    control: &Control,
+    cache: &Cache,
+) -> Result<Option<Arc<Capture>>, Fault> {
+    super::digest(&snapshot.metadata_revision)?;
+    validate_target(repository, snapshot, control)?;
+    Ok(cache.get(root, snapshot))
+}
+
 fn validate_target(
     repository: &Repository,
     snapshot: &GitChangeSnapshot,

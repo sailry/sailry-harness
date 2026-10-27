@@ -258,6 +258,57 @@ impl Git {
         } else {
             Duration::from_secs(5)
         };
+        if cached.is_some()
+            || matches!(&command, Command::ListGitChanges { target: None, cursor: Some(cursor), .. } if cursor.after_path.is_some())
+        {
+            let source = root.clone();
+            let command = command.clone();
+            let captures = captures.clone();
+            let cancelled = closed.child_token();
+            let _guard = cancelled.clone().drop_guard();
+            let expires = Instant::now() + deadline;
+            let worker = tokio::task::spawn_blocking(move || {
+                let control = Control {
+                    cancelled,
+                    deadline: expires,
+                };
+                control.check()?;
+                let retained = path::root(&source)?;
+                let identity = path::identity::directory(&retained)?;
+                let result = if let Some(cached) = cached {
+                    if identity != cached.root {
+                        return Err(Fault::new(
+                            ErrorCode::Conflict,
+                            "worktree root changed since Git inspection",
+                        ));
+                    }
+                    let metadata = status::metadata(&source)?;
+                    (metadata == cached.metadata).then_some((cached.output, identity, metadata))
+                } else if let Command::ListGitChanges {
+                    cursor: Some(cursor),
+                    limit,
+                    ..
+                } = command
+                {
+                    changes::cached(&source, &cursor, limit, &control, &captures)?
+                        .map(|result| (Output::GitChanges(result), identity, None))
+                } else {
+                    None
+                };
+                check_root(&retained, &source)?;
+                control.check()?;
+                Ok(result)
+            });
+            let result = tokio::select! {
+                _ = closed.cancelled() => return Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
+                result = tokio::time::timeout(deadline, worker) => result
+                    .map_err(|_| Fault::new(ErrorCode::Busy, "Git read deadline exceeded"))?
+                    .map_err(|_| Fault::new(ErrorCode::Internal, "Git worker failed"))??,
+            };
+            if let Some(result) = result {
+                return Ok(result);
+            }
+        }
         let permit = if matches!(
             &command,
             Command::InspectGit { .. } | Command::ListGitChanges { .. }
@@ -292,19 +343,6 @@ impl Git {
             } else {
                 None
             };
-            if let Some(cached) = cached {
-                if identity != cached.root {
-                    return Err(Fault::new(
-                        ErrorCode::Conflict,
-                        "worktree root changed since Git inspection",
-                    ));
-                }
-                if metadata == cached.metadata {
-                    check_root(&retained, &root)?;
-                    control.check()?;
-                    return Ok((cached.output, identity, metadata));
-                }
-            }
             let result = match command {
                 Command::ReadGitStash { commit, .. } => {
                     actions::stash_position(&root, &commit)?;
