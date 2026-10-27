@@ -1,4 +1,4 @@
-//! Explicit detail reads share one bounded cache across a controller's views.
+//! Shared bounded values and presentation lifetimes for canonical tool details.
 use crate::Client;
 use futures::{
     FutureExt,
@@ -17,54 +17,58 @@ use std::{
 pub const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 64;
 
-pub(crate) struct Cache {
-    values: Mutex<Values>,
-    changes: tokio::sync::watch::Sender<u64>,
-    reads: Arc<tokio::sync::Semaphore>,
+#[derive(Clone, Debug)]
+pub struct Loaded {
+    pub detail: Arc<Detail>,
+    pub bytes: usize,
 }
 
+impl std::ops::Deref for Loaded {
+    type Target = Detail;
+    fn deref(&self) -> &Self::Target {
+        &self.detail
+    }
+}
+
+pub(crate) struct Cache {
+    values: Mutex<Values>,
+    reads: Arc<tokio::sync::Semaphore>,
+}
 impl Default for Cache {
     fn default() -> Self {
         Self {
             values: Mutex::default(),
-            changes: tokio::sync::watch::channel(0).0,
             reads: Arc::new(tokio::sync::Semaphore::new(4)),
         }
     }
 }
-
 #[derive(Default)]
 struct Values {
     entries: VecDeque<Cached>,
     revisions: BTreeMap<SessionId, u64>,
     loading: BTreeMap<Reference, Reading>,
     next: u64,
-    pins: BTreeMap<Reference, usize>,
     tracked: BTreeMap<SessionId, usize>,
 }
-
 struct Reading {
     id: u64,
     invalidated: bool,
     future: WeakShared<BoxFuture<'static, Result<Read, Fault>>>,
 }
-
 struct ReadGuard {
     cache: Weak<Cache>,
     reference: Reference,
     id: u64,
     complete: bool,
 }
-
 impl ReadGuard {
-    fn finish(&mut self, detail: Option<(Arc<Detail>, usize)>) -> bool {
+    fn finish(&mut self, detail: Option<Loaded>) -> bool {
         self.complete = true;
         self.cache
             .upgrade()
             .is_some_and(|cache| cache.finish(&self.reference, self.id, detail))
     }
 }
-
 impl Drop for ReadGuard {
     fn drop(&mut self) {
         if !self.complete
@@ -74,19 +78,22 @@ impl Drop for ReadGuard {
         }
     }
 }
-
 struct Cached {
     reference: Reference,
-    detail: Arc<Detail>,
-    bytes: usize,
+    value: Loaded,
+    pins: usize,
+    valid: bool,
 }
-
 impl Cache {
     fn track(&self, session: SessionId) {
-        let mut values = self.values.lock().expect("tool detail cache lock");
-        *values.tracked.entry(session).or_default() += 1;
+        *self
+            .values
+            .lock()
+            .expect("tool detail cache lock")
+            .tracked
+            .entry(session)
+            .or_default() += 1;
     }
-
     fn untrack(&self, session: SessionId) {
         let mut values = self.values.lock().expect("tool detail cache lock");
         if let Some(count) = values.tracked.get_mut(&session) {
@@ -97,7 +104,6 @@ impl Cache {
         }
         values.prune(None);
     }
-
     fn revision(&self, session: SessionId) -> Option<u64> {
         self.values
             .lock()
@@ -106,73 +112,96 @@ impl Cache {
             .get(&session)
             .copied()
     }
-
-    fn get(&self, reference: &Reference) -> Option<Arc<Detail>> {
-        let mut values = self.values.lock().expect("tool detail cache lock");
-        let index = values
+    fn get(&self, reference: &Reference) -> Option<Loaded> {
+        self.values
+            .lock()
+            .expect("tool detail cache lock")
+            .get(reference)
+    }
+    fn valid(&self, reference: &Reference, detail: &Loaded) -> bool {
+        self.values
+            .lock()
+            .expect("tool detail cache lock")
             .entries
             .iter()
-            .position(|entry| entry.reference == *reference)?;
-        let cached = values.entries.remove(index)?;
-        let detail = cached.detail.clone();
-        values.entries.push_back(cached);
-        Some(detail)
+            .any(|entry| {
+                entry.valid
+                    && entry.reference == *reference
+                    && Arc::ptr_eq(&entry.value.detail, &detail.detail)
+            })
     }
-
-    fn pin(&self, reference: &Reference, detail: &Arc<Detail>) -> bool {
-        let bytes = allocation(detail, reference);
+    fn pin<'a>(
+        &self,
+        reference: &Reference,
+        detail: &Loaded,
+        replace: impl IntoIterator<Item = (&'a Reference, &'a Loaded)>,
+    ) -> Option<Vec<Reference>> {
         let mut values = self.values.lock().expect("tool detail cache lock");
+        if let Some(entry) = values.entries.iter_mut().find(|entry| {
+            entry.valid
+                && entry.reference == *reference
+                && Arc::ptr_eq(&entry.value.detail, &detail.detail)
+        }) {
+            entry.pins += 1;
+            return Some(Vec::new());
+        }
+        let replace = replace
+            .into_iter()
+            .filter_map(|(reference, detail)| {
+                values.entries.iter().position(|entry| {
+                    entry.pins == 1
+                        && entry.reference == *reference
+                        && Arc::ptr_eq(&entry.value.detail, &detail.detail)
+                })
+            })
+            .collect::<Vec<_>>();
         let pinned = values
             .entries
             .iter()
-            .filter(|entry| {
-                values.pins.contains_key(&entry.reference) && entry.reference != *reference
-            })
-            .map(|entry| entry.bytes)
+            .filter(|entry| entry.pins != 0)
+            .map(|entry| entry.value.bytes)
             .sum::<usize>();
-        if pinned + bytes > MAX_BYTES {
-            return false;
+        let reclaimable = replace
+            .iter()
+            .map(|index| values.entries[*index].value.bytes)
+            .sum::<usize>();
+        if pinned - reclaimable + detail.bytes > MAX_BYTES {
+            return None;
         }
-        values.entries.retain(|entry| entry.reference != *reference);
-        while values.entries.len() >= MAX_ENTRIES
-            || values
-                .entries
-                .iter()
-                .map(|entry| entry.bytes)
-                .sum::<usize>()
-                + bytes
-                > MAX_BYTES
-        {
-            let Some(index) = values
-                .entries
-                .iter()
-                .position(|entry| !values.pins.contains_key(&entry.reference))
-            else {
-                // The item count is an LRU target. Pinned entries may exceed it;
-                // their combined retained allocation still fits the hard byte budget.
+        // Admission and releasing sole-owned pins share this lock. A peer pin
+        // cannot change the budget after we decide to replace visible values.
+        let mut required = pinned + detail.bytes;
+        let mut evicted = Vec::new();
+        for index in replace {
+            if required <= MAX_BYTES {
                 break;
-            };
-            values.entries.remove(index);
-        }
-        values.entries.push_back(Cached {
-            reference: reference.clone(),
-            detail: detail.clone(),
-            bytes,
-        });
-        *values.pins.entry(reference.clone()).or_default() += 1;
-        true
-    }
-
-    fn unpin(&self, reference: &Reference) {
-        let mut values = self.values.lock().expect("tool detail cache lock");
-        if let Some(count) = values.pins.get_mut(reference) {
-            *count -= 1;
-            if *count == 0 {
-                values.pins.remove(reference);
             }
+            let entry = &mut values.entries[index];
+            required -= entry.value.bytes;
+            entry.pins = 0;
+            evicted.push(entry.reference.clone());
         }
+        values
+            .entries
+            .retain(|entry| entry.valid || entry.pins != 0);
+        assert!(
+            values.insert(reference.clone(), detail.clone(), 1),
+            "tool detail admission must fit its reserved budget"
+        );
+        Some(evicted)
     }
-
+    fn unpin(&self, reference: &Reference, detail: &Loaded) {
+        let mut values = self.values.lock().expect("tool detail cache lock");
+        if let Some(entry) = values.entries.iter_mut().find(|entry| {
+            entry.reference == *reference && Arc::ptr_eq(&entry.value.detail, &detail.detail)
+        }) {
+            entry.pins -= 1;
+        }
+        values
+            .entries
+            .retain(|entry| entry.valid || entry.pins != 0);
+        values.prune(None);
+    }
     pub(crate) fn reconcile(&self, page: &Page) {
         let mut values = self.values.lock().expect("tool detail cache lock");
         let changed = values
@@ -184,22 +213,21 @@ impl Cache {
                 reading.invalidated = true;
             }
         }
-        values.entries.retain(|cached| {
-            if cached.reference.session != page.session {
-                return true;
+        for entry in &mut values.entries {
+            if entry.reference.session == page.session
+                && (changed || !matches_page(&entry.reference, page))
+            {
+                entry.valid = false;
             }
-            if changed {
-                return false;
-            }
-            matches_page(&cached.reference, page)
-        });
+        }
+        // Invalidated allocations stay charged until their presentation releases them.
+        values
+            .entries
+            .retain(|entry| entry.valid || entry.pins != 0);
         values.revisions.insert(page.session, page.revision);
         values.prune(Some(page.session));
-        drop(values);
-        self.changes.send_modify(|sequence| *sequence += 1);
     }
-
-    fn finish(&self, reference: &Reference, id: u64, detail: Option<(Arc<Detail>, usize)>) -> bool {
+    fn finish(&self, reference: &Reference, id: u64, detail: Option<Loaded>) -> bool {
         let mut values = self.values.lock().expect("tool detail cache lock");
         if !values
             .loading
@@ -209,41 +237,64 @@ impl Cache {
             return false;
         }
         let valid = !values.loading.remove(reference).unwrap().invalidated;
-        if valid && let Some((detail, bytes)) = detail {
-            values
-                .entries
-                .retain(|entry| !same_part(&entry.reference, reference));
-            while values.entries.len() >= MAX_ENTRIES
-                || values
-                    .entries
-                    .iter()
-                    .map(|entry| entry.bytes)
-                    .sum::<usize>()
-                    + bytes
-                    > MAX_BYTES
-            {
-                let Some(index) = values
-                    .entries
-                    .iter()
-                    .position(|entry| !values.pins.contains_key(&entry.reference))
-                else {
-                    values.prune(None);
-                    return valid;
-                };
-                values.entries.remove(index);
-            }
-            values.entries.push_back(Cached {
-                reference: reference.clone(),
-                detail,
-                bytes,
-            });
+        if valid && let Some(detail) = detail {
+            values.insert(reference.clone(), detail, 0);
         }
         values.prune(None);
         valid
     }
 }
-
 impl Values {
+    fn get(&mut self, reference: &Reference) -> Option<Loaded> {
+        let index = self
+            .entries
+            .iter()
+            .position(|entry| entry.valid && entry.reference == *reference)?;
+        let entry = self.entries.remove(index)?;
+        let detail = entry.value.clone();
+        self.entries.push_back(entry);
+        Some(detail)
+    }
+    fn insert(&mut self, reference: Reference, value: Loaded, pins: usize) -> bool {
+        if value.bytes > MAX_BYTES {
+            return false;
+        }
+        self.entries
+            .retain(|entry| entry.pins != 0 || !same_part(&entry.reference, &reference));
+        while self.entries.len() >= MAX_ENTRIES
+            || self
+                .entries
+                .iter()
+                .map(|entry| entry.value.bytes)
+                .sum::<usize>()
+                + value.bytes
+                > MAX_BYTES
+        {
+            let Some(index) = self.entries.iter().position(|entry| entry.pins == 0) else {
+                // Pinned item count is a soft target; retained bytes remain a hard limit.
+                if self
+                    .entries
+                    .iter()
+                    .map(|entry| entry.value.bytes)
+                    .sum::<usize>()
+                    + value.bytes
+                    <= MAX_BYTES
+                {
+                    break;
+                } else {
+                    return false;
+                }
+            };
+            self.entries.remove(index);
+        }
+        self.entries.push_back(Cached {
+            reference,
+            value,
+            pins,
+            valid: true,
+        });
+        true
+    }
     fn prune(&mut self, observed: Option<SessionId>) {
         self.revisions.retain(|session, _| {
             observed == Some(*session)
@@ -259,7 +310,6 @@ impl Values {
         });
     }
 }
-
 /// Conservative retained allocation size, including parsed containers, not JSON bytes.
 pub fn retained_bytes(value: &serde_json::Value) -> usize {
     use serde_json::Value;
@@ -324,13 +374,12 @@ fn same_part(left: &Reference, right: &Reference) -> bool {
 
 impl Client {
     pub fn cached_tool_detail(&self, reference: &Reference) -> Option<Arc<Detail>> {
-        self.details.get(reference)
+        self.details.get(reference).map(|value| value.detail)
     }
-
-    /// Explicit readers can request complete values without a presentation tracker.
+    /// Complete explicit reads share the same canonical cache as presentation trackers.
     pub async fn tool_detail(&self, reference: Reference) -> Result<Arc<Detail>, Fault> {
         match self.detail(reference).await? {
-            Read::Ready(detail) => Ok(detail),
+            Read::Ready(value) => Ok(value.detail),
             Read::TooLarge(limit) => Err(Fault::new(ErrorCode::InvalidRequest, limit.message())),
             Read::Superseded => Err(Fault::new(
                 ErrorCode::Cancelled,
@@ -338,20 +387,11 @@ impl Client {
             )),
         }
     }
-
-    /// Changed references and display limits are outcomes, not transport failures.
     pub async fn detail(&self, reference: Reference) -> Result<Read, Fault> {
-        if let Some(detail) = self.details.get(&reference) {
-            return Ok(Read::Ready(detail));
-        }
         let future = {
             let mut values = self.details.values.lock().expect("tool detail cache lock");
-            if let Some(cached) = values
-                .entries
-                .iter()
-                .find(|entry| entry.reference == reference)
-            {
-                return Ok(Read::Ready(cached.detail.clone()));
+            if let Some(detail) = values.get(&reference) {
+                return Ok(Read::Ready(detail));
             }
             if let Some(future) = values
                 .loading
@@ -378,25 +418,13 @@ impl Client {
                         .await
                         .map_err(|_| Fault::new(ErrorCode::Cancelled, "tool details are closed"))?;
                     let result = match client.read_tool_detail(&read.reference).await {
-                        Ok(Read::Ready(detail))
-                            if allocation(&detail, &read.reference) > MAX_BYTES =>
-                        {
-                            Ok(Read::TooLarge(Limit::Memory))
-                        }
-                        Err(error)
-                            if matches!(
-                                error.code,
-                                ErrorCode::RevisionConflict | ErrorCode::NotFound
-                            ) =>
-                        {
+                        Err(error) if error.code == ErrorCode::RevisionConflict => {
                             Ok(Read::Superseded)
                         }
                         result => result,
                     };
                     let detail = match &result {
-                        Ok(Read::Ready(detail)) => {
-                            Some((detail.clone(), allocation(detail, &read.reference)))
-                        }
+                        Ok(Read::Ready(detail)) => Some(detail.clone()),
                         _ => None,
                     };
                     if !read.finish(detail) {
@@ -407,7 +435,7 @@ impl Client {
                 .boxed()
                 .shared();
                 values.loading.insert(
-                    reference.clone(),
+                    reference,
                     Reading {
                         id,
                         invalidated: false,
@@ -419,7 +447,6 @@ impl Client {
         };
         future.await
     }
-
     async fn read_tool_detail(&self, reference: &Reference) -> Result<Read, Fault> {
         let mut text = String::new();
         let mut total = None;
@@ -476,23 +503,28 @@ impl Client {
                 "tool detail card belongs to another conversation",
             ));
         }
-        Ok(Read::Ready(Arc::new(detail)))
+        let bytes = allocation(&detail, reference);
+        if bytes > MAX_BYTES {
+            return Ok(Read::TooLarge(Limit::Memory));
+        }
+        Ok(Read::Ready(Loaded {
+            detail: Arc::new(detail),
+            bytes,
+        }))
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum Read {
-    Ready(Arc<Detail>),
+    Ready(Loaded),
     TooLarge(Limit),
     Superseded,
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Limit {
     Transfer,
     Memory,
 }
-
 impl Limit {
     pub fn message(self) -> &'static str {
         match self {
@@ -501,9 +533,7 @@ impl Limit {
         }
     }
 }
-
 mod tracker;
 pub use tracker::{State, Tracker};
-
 #[cfg(test)]
 mod tests;

@@ -261,3 +261,36 @@ fn uses_captured_child_titles_and_role_names() {
     child.name = Some(" \n ".into());
     assert!(display::child_title(Some(&page), &child).is_none());
 }
+
+#[test]
+fn published_only_content_has_no_empty_disclosure() {
+    let page = returned(Summary {
+        has_details: true,
+        published: true,
+        ..Default::default()
+    });
+    let call = collect(&page).remove(0);
+    let result = json!({"sailry_content":{"version":1,"blocks":[{
+        "kind":"file","path":"index.html","mime":"text/html"
+    }]},"text":"Original HTML"});
+    let mut detail = sailry_protocol::tool::detail::Detail {
+        arguments: json!({"path":"index.html"}),
+        content: Presentation::Content.content(&result),
+        result: Some(result),
+        resolved: None,
+        images: vec![],
+    };
+    assert!(!call.with_detail(Arc::new(detail.clone())).details(&page));
+    detail
+        .content
+        .as_mut()
+        .unwrap()
+        .blocks
+        .push(sailry_protocol::tool::Block::Text(
+            sailry_protocol::tool::Text {
+                path: "/text".into(),
+                notices: vec![],
+            },
+        ));
+    assert!(call.with_detail(Arc::new(detail)).details(&page));
+}

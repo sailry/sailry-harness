@@ -118,6 +118,17 @@ pub struct Diff {
 }
 
 impl Content {
+    /// Published cards and files have their own answer surface, outside tool details.
+    pub fn has_details(&self, result: &Value) -> bool {
+        self.blocks.iter().any(|block| match block {
+            Block::File(_) | Block::Artifact { .. } | Block::Card(_) => false,
+            Block::Text(text) => {
+                !text.notices.is_empty() || text.read(result).is_some_and(|text| !text.is_empty())
+            }
+            _ => true,
+        })
+    }
+
     pub fn valid(&self) -> bool {
         let mut images = std::collections::BTreeSet::new();
         self.version == 1
@@ -152,15 +163,6 @@ impl Content {
                 }
             })
             && serde_json::to_vec(self).is_ok_and(|bytes| bytes.len() <= MAX_BYTES)
-    }
-
-    pub fn has_visible(&self, result: &Value) -> bool {
-        self.blocks.iter().any(|block| match block {
-            Block::Text(text) => {
-                !text.notices.is_empty() || text.read(result).is_some_and(|value| !value.is_empty())
-            }
-            _ => true,
-        })
     }
 }
 

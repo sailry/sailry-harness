@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' show part;
-import 'conversation.dart' show canonicalJson, check, execute, until;
+import 'conversation.dart' show canonicalJson, check, detail, execute, until;
 
 void complete(Map<String, dynamic> view) {
   check(view['older_error'] == null, 'older history read succeeds');
@@ -202,13 +202,8 @@ Future<void> main() async {
   );
   messages(page, 46, 45, 'ffi-history');
   for (final call in all['calls'] as List) {
-    final detail = jsonDecode(
-      await updates.toolOutput(
-        entry: call['source']['entry'],
-        index: call['source']['index'],
-      ),
-    );
-    final file = detail['result']['data'];
+    final selected = await detail(updates, call as Map<String, dynamic>);
+    final file = selected['result']['data'];
     check(
       call['state'] == 'returned' &&
           file['path'] == '资料.txt' &&

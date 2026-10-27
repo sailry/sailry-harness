@@ -1,14 +1,13 @@
-//! One presentation declares its references; Client owns their loading and lifetime.
+//! One presentation owns selected values; their allocations share the Client budget.
 use super::*;
-use sailry_link::CancellationToken;
+use std::collections::BTreeSet;
 use std::time::Duration;
-use tokio::time::Instant;
-use tokio::{runtime::Handle, sync::watch, task::AbortHandle};
+use tokio::{runtime::Handle, sync::watch, task::AbortHandle, time::Instant};
 
 #[derive(Clone, Debug)]
 pub enum State {
     Loading,
-    Ready(Arc<Detail>),
+    Ready(Loaded),
     Failed {
         fault: Fault,
         retry_at: Option<Instant>,
@@ -17,178 +16,139 @@ pub enum State {
     Superseded,
 }
 
+#[derive(Clone)]
 pub struct Tracker(Arc<Tracked>);
-
 struct Tracked {
     client: Arc<Client>,
     runtime: Handle,
-    slots: Mutex<BTreeMap<Reference, Slot>>,
-    fixed: bool,
+    slots: Mutex<Slots>,
     changed: watch::Sender<u64>,
-    stop: CancellationToken,
 }
-
-enum Status {
-    Ready(Weak<Detail>),
-    Other(State),
+#[derive(Default)]
+struct Slots {
+    values: BTreeMap<Reference, Slot>,
+    next: u64,
+    dirty: BTreeSet<Reference>,
 }
-
 struct Slot {
-    state: Status,
-    task: Option<AbortHandle>,
-    generation: Arc<()>,
+    state: State,
+    task: AbortHandle,
+    id: u64,
     revision: Option<u64>,
     reported: bool,
 }
 
 impl Tracker {
     pub fn new(client: Arc<Client>, runtime: Handle) -> Self {
-        Self::create(client, runtime, true)
-    }
-
-    /// Observed history uses the ordinary LRU; an evicted old result is skipped until explicitly retried.
-    pub fn observe(client: Arc<Client>, runtime: Handle) -> Self {
-        Self::create(client, runtime, false)
-    }
-
-    fn create(client: Arc<Client>, runtime: Handle, fixed: bool) -> Self {
-        let tracked = Arc::new(Tracked {
+        Self(Arc::new(Tracked {
             client,
             runtime,
-            fixed,
             slots: Mutex::default(),
             changed: watch::channel(0).0,
-            stop: CancellationToken::new(),
-        });
-        let weak = Arc::downgrade(&tracked);
-        let stop = tracked.stop.clone();
-        let mut changes = tracked.client.details.changes.subscribe();
-        tracked.runtime.spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = stop.cancelled() => return,
-                    changed = changes.changed() => if changed.is_err() { return; },
-                }
-                let Some(tracked) = weak.upgrade() else {
-                    return;
-                };
-                let mut slots = tracked.slots.lock().expect("tool tracker lock");
-                let mut changed = false;
-                for (reference, slot) in slots.iter_mut() {
-                    if matches!(slot.state, Status::Ready(_))
-                        && (tracked.fixed && tracked.client.cached_tool_detail(reference).is_none()
-                            || tracked
-                                .client
-                                .details
-                                .revision(reference.session)
-                                .is_some_and(|revision| Some(revision) != slot.revision))
-                    {
-                        if tracked.fixed {
-                            tracked.client.details.unpin(reference);
-                        }
-                        slot.state = Status::Other(State::Superseded);
-                        changed = true;
-                    }
-                }
-                if changed {
-                    tracked.changed.send_modify(|sequence| *sequence += 1);
-                }
-            }
-        });
-        Self(tracked)
+        }))
     }
-
     pub fn subscribe(&self) -> watch::Receiver<u64> {
         self.0.changed.subscribe()
     }
-
-    /// Only declared references remain pinned. Ready values share Client allocations.
-    pub fn set(&self, references: impl IntoIterator<Item = Reference>) {
-        let references = references
+    pub fn changes(&self) -> Vec<Reference> {
+        std::mem::take(&mut self.0.slots.lock().expect("tool tracker lock").dirty)
             .into_iter()
-            .collect::<std::collections::BTreeSet<_>>();
-        let mut slots = self.0.slots.lock().expect("tool tracker lock");
-        let previous = slots.len();
-        slots.retain(|reference, slot| {
-            if references.contains(reference) {
-                return true;
-            }
-            if let Some(task) = &slot.task {
-                task.abort();
-            }
-            if matches!(slot.state, Status::Ready(_)) {
-                if self.0.fixed {
-                    self.0.client.details.unpin(reference);
-                }
-            }
-            self.0.client.details.untrack(reference.session);
-            false
-        });
-        let removed = previous != slots.len();
-        for reference in references {
-            if slots.get(&reference).is_some_and(|slot| {
-                let revision = self.0.client.details.revision(reference.session);
-                revision.is_none_or(|revision| Some(revision) == slot.revision)
-            }) {
-                continue;
-            }
-            Self::start(&self.0, &mut slots, reference);
-        }
-        if removed {
-            self.0.changed.send_modify(|sequence| *sequence += 1);
-        }
+            .collect()
     }
-
-    pub fn retry(&self, reference: &Reference) {
-        let mut slots = self.0.slots.lock().expect("tool tracker lock");
-        if let Some(slot) = slots.get(reference) {
-            if matches!(slot.state, Status::Other(State::Loading))
-                || matches!(&slot.state, Status::Ready(detail) if detail.strong_count() != 0)
-            {
-                return;
-            }
-            if let Some(task) = &slot.task {
-                task.abort();
-            }
-        }
-        Self::start(&self.0, &mut slots, reference.clone());
-    }
-
-    pub fn state(&self, reference: &Reference) -> State {
+    pub fn references(&self) -> Vec<Reference> {
         self.0
             .slots
             .lock()
             .expect("tool tracker lock")
-            .get(reference)
-            .map_or(State::Superseded, |slot| match &slot.state {
-                Status::Ready(detail) => detail.upgrade().map_or(State::Superseded, State::Ready),
-                Status::Other(state) => state.clone(),
-            })
+            .values
+            .keys()
+            .cloned()
+            .collect()
     }
-
-    /// Presentation feedback consumes a terminal failure once per explicit attempt.
+    pub fn set(&self, references: impl IntoIterator<Item = Reference>) {
+        let references = references.into_iter().collect::<BTreeSet<_>>();
+        let mut slots = self.0.slots.lock().expect("tool tracker lock");
+        let removed = slots
+            .values
+            .keys()
+            .filter(|reference| !references.contains(*reference))
+            .cloned()
+            .collect::<Vec<_>>();
+        for reference in removed {
+            self.0.remove(&mut slots, &reference);
+        }
+        for reference in references {
+            let current = self.0.client.details.revision(reference.session);
+            if slots
+                .values
+                .get(&reference)
+                .is_some_and(|slot| current.is_none_or(|revision| Some(revision) == slot.revision))
+            {
+                continue;
+            }
+            Self::start(&self.0, &mut slots, reference);
+        }
+    }
+    pub fn include(&self, reference: Reference) {
+        let mut slots = self.0.slots.lock().expect("tool tracker lock");
+        if !slots.values.contains_key(&reference) {
+            Self::start(&self.0, &mut slots, reference);
+        }
+    }
+    pub fn remove(&self, reference: &Reference) {
+        self.0.remove(
+            &mut self.0.slots.lock().expect("tool tracker lock"),
+            reference,
+        );
+    }
+    pub fn retry(&self, reference: &Reference) {
+        let mut slots = self.0.slots.lock().expect("tool tracker lock");
+        let state = self.0.state(&mut slots, reference);
+        if matches!(state, State::Loading) {
+            return;
+        }
+        if matches!(state, State::Ready(_)) {
+            slots.next += 1;
+            let id = slots.next;
+            if let Some(slot) = slots.values.get_mut(reference) {
+                slot.id = id;
+            }
+            return;
+        }
+        Self::start(&self.0, &mut slots, reference.clone());
+    }
+    pub fn state(&self, reference: &Reference) -> State {
+        self.0.state(
+            &mut self.0.slots.lock().expect("tool tracker lock"),
+            reference,
+        )
+    }
     pub fn failures(&self) -> Vec<(Reference, Fault)> {
         self.0
             .slots
             .lock()
             .expect("tool tracker lock")
+            .values
             .iter_mut()
             .filter_map(|(reference, slot)| {
-                if let Status::Other(State::Failed {
-                    fault,
-                    retry_at: None,
-                }) = &slot.state
-                    && !slot.reported
-                {
-                    slot.reported = true;
-                    Some((reference.clone(), fault.clone()))
-                } else {
-                    None
+                if slot.reported {
+                    return None;
                 }
+                let fault = match &slot.state {
+                    State::Failed {
+                        fault,
+                        retry_at: None,
+                    } => fault.clone(),
+                    State::TooLarge(limit) => {
+                        Fault::new(ErrorCode::InvalidRequest, limit.message())
+                    }
+                    _ => return None,
+                };
+                slot.reported = true;
+                Some((reference.clone(), fault))
             })
             .collect()
     }
-
     pub async fn wait(&self, reference: &Reference) -> State {
         let mut changed = self.subscribe();
         loop {
@@ -208,93 +168,163 @@ impl Tracker {
             }
         }
     }
-
-    fn start(tracked: &Arc<Tracked>, slots: &mut BTreeMap<Reference, Slot>, reference: Reference) {
-        if let Some(previous) = slots.remove(&reference) {
-            if let Some(task) = previous.task {
-                task.abort();
-            }
-            if tracked.fixed && matches!(previous.state, Status::Ready(_)) {
-                tracked.client.details.unpin(&reference);
+    fn start(tracked: &Arc<Tracked>, slots: &mut Slots, reference: Reference) {
+        if let Some(previous) = slots.values.remove(&reference) {
+            previous.task.abort();
+            if let State::Ready(detail) = previous.state {
+                tracked.client.details.unpin(&reference, &detail);
             }
         } else {
             tracked.client.details.track(reference.session);
         }
-        let generation = Arc::new(());
-        let query_generation = generation.clone();
+        slots.next += 1;
+        let id = slots.next;
         let revision = tracked.client.details.revision(reference.session);
         let weak = Arc::downgrade(tracked);
         let client = tracked.client.clone();
-        let stop = tracked.stop.clone();
         let query = reference.clone();
         let task = tracked.runtime.spawn(async move {
-            for (index, delay) in [Duration::ZERO, Duration::from_millis(200), Duration::from_secs(1), Duration::from_secs(3)].into_iter().enumerate() {
-                tokio::select! { _ = stop.cancelled() => return, _ = tokio::time::sleep(delay) => {} }
-                let Some(tracked) = weak.upgrade() else { return; };
-                if !tracked.publish(&query, &query_generation, State::Loading) { return; }
-                drop(tracked);
-                let result = tokio::select! { _ = stop.cancelled() => return, result = client.detail(query.clone()) => result };
-                let Some(tracked) = weak.upgrade() else { return; };
+            let delays = [
+                Duration::ZERO,
+                Duration::from_millis(200),
+                Duration::from_secs(1),
+                Duration::from_secs(3),
+            ];
+            for (index, delay) in delays.into_iter().enumerate() {
+                if index != 0 {
+                    tokio::time::sleep(delay).await;
+                    let Some(tracked) = weak.upgrade() else {
+                        return;
+                    };
+                    if !tracked.publish(&query, id, State::Loading) {
+                        return;
+                    }
+                }
+                let result = client.detail(query.clone()).await;
+                let Some(tracked) = weak.upgrade() else {
+                    return;
+                };
                 let state = match result {
-                    Ok(Read::Ready(detail)) if !tracked.fixed || tracked.client.details.pin(&query, &detail) => State::Ready(detail),
-                    Ok(Read::Ready(_)) => State::TooLarge(Limit::Memory),
+                    Ok(Read::Ready(detail)) => State::Ready(detail),
                     Ok(Read::TooLarge(limit)) => State::TooLarge(limit),
                     Ok(Read::Superseded) => State::Superseded,
-                    Err(fault) => State::Failed { fault, retry_at: [Duration::from_millis(200), Duration::from_secs(1), Duration::from_secs(3)].get(index).map(|delay| Instant::now() + *delay) },
+                    Err(fault) => State::Failed {
+                        fault,
+                        retry_at: delays.get(index + 1).map(|delay| Instant::now() + *delay),
+                    },
                 };
-                let retry = matches!(state, State::Failed { retry_at: Some(_), .. });
-                if !tracked.publish(&query, &query_generation, state) || !retry { return; }
+                let retry = matches!(
+                    state,
+                    State::Failed {
+                        retry_at: Some(_),
+                        ..
+                    }
+                );
+                if !tracked.publish(&query, id, state) || !retry {
+                    return;
+                }
             }
         });
-        slots.insert(
-            reference,
+        slots.values.insert(
+            reference.clone(),
             Slot {
-                state: Status::Other(State::Loading),
-                task: Some(task.abort_handle()),
-                generation,
+                state: State::Loading,
+                task: task.abort_handle(),
+                id,
                 revision,
                 reported: false,
             },
         );
-        tracked.changed.send_modify(|sequence| *sequence += 1);
+        tracked.notify(slots, reference);
     }
 }
-
 impl Tracked {
-    fn publish(&self, reference: &Reference, generation: &Arc<()>, state: State) -> bool {
-        let mut slots = self.slots.lock().expect("tool tracker lock");
-        let Some(slot) = slots.get_mut(reference) else {
-            if self.fixed && matches!(state, State::Ready(_)) {
-                self.client.details.unpin(reference);
+    fn notify(&self, slots: &mut Slots, reference: Reference) {
+        if slots.values.contains_key(&reference) {
+            slots.dirty.insert(reference);
+        } else {
+            slots.dirty.remove(&reference);
+        }
+        self.changed.send_modify(|sequence| *sequence += 1);
+    }
+    fn remove(&self, slots: &mut Slots, reference: &Reference) {
+        if let Some(slot) = slots.values.remove(reference) {
+            slot.task.abort();
+            if let State::Ready(detail) = slot.state {
+                self.client.details.unpin(reference, &detail);
             }
+            self.client.details.untrack(reference.session);
+            self.notify(slots, reference.clone());
+        }
+    }
+    fn state(&self, slots: &mut Slots, reference: &Reference) -> State {
+        let Some(slot) = slots.values.get_mut(reference) else {
+            return State::Superseded;
+        };
+        if let State::Ready(detail) = &slot.state
+            && !self.client.details.valid(reference, detail)
+        {
+            self.client.details.unpin(reference, detail);
+            slot.state = State::Superseded;
+            self.notify(slots, reference.clone());
+        }
+        slots.values[reference].state.clone()
+    }
+    fn publish(&self, reference: &Reference, id: u64, mut state: State) -> bool {
+        let mut slots = self.slots.lock().expect("tool tracker lock");
+        let Some(slot) = slots.values.get(reference) else {
             return false;
         };
-        if !Arc::ptr_eq(&slot.generation, generation) {
-            if self.fixed && matches!(state, State::Ready(_)) {
-                self.client.details.unpin(reference);
-            }
+        if slot.id != id {
             return false;
         }
-        slot.state = match state {
-            State::Ready(detail) => Status::Ready(Arc::downgrade(&detail)),
-            state => Status::Other(state),
-        };
-        self.changed.send_modify(|sequence| *sequence += 1);
+        if self
+            .client
+            .details
+            .revision(reference.session)
+            .is_some_and(|revision| Some(revision) != slot.revision)
+        {
+            state = State::Superseded;
+        }
+        if let State::Ready(detail) = &state {
+            let mut replace = slots
+                .values
+                .iter()
+                .filter_map(|(reference, slot)| match &slot.state {
+                    State::Ready(detail) => Some((slot.id, reference, detail)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            replace.sort_unstable_by_key(|(id, _, _)| *id);
+            match self.client.details.pin(
+                reference,
+                detail,
+                replace
+                    .into_iter()
+                    .map(|(_, reference, detail)| (reference, detail)),
+            ) {
+                Some(evicted) => {
+                    for reference in evicted {
+                        let slot = slots.values.get_mut(&reference).unwrap();
+                        slot.state = State::TooLarge(Limit::Memory);
+                        slot.reported = false;
+                        self.notify(&mut slots, reference);
+                    }
+                }
+                None => state = State::TooLarge(Limit::Memory),
+            }
+        }
+        slots.values.get_mut(reference).unwrap().state = state;
+        self.notify(&mut slots, reference.clone());
         true
     }
 }
-
 impl Drop for Tracked {
     fn drop(&mut self) {
-        self.stop.cancel();
-        for (reference, slot) in self.slots.get_mut().expect("tool tracker lock") {
-            if let Some(task) = &slot.task {
-                task.abort();
-            }
-            if matches!(slot.state, Status::Ready(_)) {
-                if self.fixed {
-                    self.client.details.unpin(reference);
-                }
+        for (reference, slot) in &self.slots.get_mut().expect("tool tracker lock").values {
+            slot.task.abort();
+            if let State::Ready(detail) = &slot.state {
+                self.client.details.unpin(reference, detail);
             }
             self.client.details.untrack(reference.session);
         }

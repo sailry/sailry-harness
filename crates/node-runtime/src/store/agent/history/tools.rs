@@ -53,7 +53,7 @@ impl Raw {
                 .is_some_and(|metadata| !metadata.diagnostics.is_empty());
         let content = content(self);
         let visible = if let Some(content) = &content {
-            content.has_visible(result)
+            content.has_details(result)
         } else if resolved
             .as_ref()
             .is_some_and(|resolved| resolved.output.is_some())

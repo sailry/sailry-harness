@@ -14,7 +14,7 @@ struct Observation {
     history: sailry_client::conversation::View,
     client: std::sync::Arc<sailry_client::Client>,
     prefix: String,
-    details: std::sync::Arc<sailry_client::conversation::details::Tracker>,
+    runtime: tokio::runtime::Handle,
 }
 
 impl Default for Observations {
@@ -52,28 +52,13 @@ impl Observations {
                     false
                 } else {
                     let binding = chat.binding();
-                    let client = binding.client;
-                    let details = values
-                        .get(&id)
-                        .filter(|previous| {
-                            previous.client.target() == client.target() && previous.prefix == prefix
-                        })
-                        .map(|previous| previous.details.clone())
-                        .unwrap_or_else(|| {
-                            std::sync::Arc::new(
-                                sailry_client::conversation::details::Tracker::observe(
-                                    client.clone(),
-                                    binding.runtime.handle().clone(),
-                                ),
-                            )
-                        });
                     values.insert(
                         id.clone(),
                         Observation {
                             history: history.clone(),
-                            client,
+                            client: binding.client,
                             prefix: prefix.clone(),
-                            details,
+                            runtime: binding.runtime.handle().clone(),
                         },
                     );
                     true
@@ -101,24 +86,14 @@ impl Observations {
                         return Err(HostError::new("plugin view is closed"));
                     }
                     let observed = receiver.borrow_and_update().clone();
-                    let mut value = BTreeMap::new();
-                    for (id, observed) in observed {
-                        match read(observed, stop.clone()).await {
-                            Ok(snapshot) => {
-                                value.insert(id, snapshot);
-                            }
-                            Err(error) => {
-                                if stop.is_cancelled() {
-                                    return Err(error);
-                                }
-                                eprintln!("assistant observation failed: {error}");
-                            }
-                        }
-                    }
-                    let bytes = serde_json::to_vec(&value)
-                        .map_err(|error| HostError::new(error.to_string()))?;
-                    let cursor = blake3::hash(&bytes).to_hex().to_string();
+                    // A cursor identifies the bounded source projection, so unchanged
+                    // history never reloads an evicted successful detail just to compare JSON.
+                    let cursor = cursor(&observed)?;
                     if cursor != seen {
+                        let mut value = BTreeMap::new();
+                        for (id, observed) in observed {
+                            value.insert(id, read(observed, stop.clone()).await?);
+                        }
                         return encode(json!({"cursor":cursor,"conversations":value}));
                     }
                     tokio::select! {
@@ -134,22 +109,21 @@ impl Observations {
     }
 }
 
-async fn read(observation: Observation, stop: CancellationToken) -> Result<Value, HostError> {
-    tokio::select! {
-        _ = stop.cancelled() => Err(HostError::new("plugin view is closed")),
-        value = snapshot(&observation) => value,
-    }
-}
+type Selected<'a> = (
+    &'a sailry_client::conversation::tools::Call,
+    &'a str,
+    sailry_protocol::tool::detail::Reference,
+    i64,
+    Option<u64>,
+);
 
-async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
-    use sailry_client::conversation::details::State;
-    let history = &observation.history;
-    let Some(snapshot) = &history.snapshot else {
-        observation.details.set([]);
-        return Ok(json!({"connected":history.connected,"calls":[]}));
+fn selected(observation: &Observation) -> Vec<Selected<'_>> {
+    let Some(snapshot) = &observation.history.snapshot else {
+        return Vec::new();
     };
     let page = &snapshot.page;
-    let selected = history
+    observation
+        .history
         .calls
         .iter()
         .filter_map(|call| {
@@ -166,41 +140,100 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
                 .map(|entry| entry.sequence);
             Some((call, name, reference, source.timestamp_ms, sequence))
         })
+        .collect()
+}
+
+fn cursor(observed: &BTreeMap<String, Observation>) -> Result<String, HostError> {
+    let source = observed
+        .iter()
+        .map(|(id, observation)| {
+            let page = observation.history.snapshot.as_ref().map(|snapshot| {
+                (
+                    snapshot.page.session,
+                    snapshot.page.revision,
+                    snapshot
+                        .page
+                        .entries
+                        .iter()
+                        .map(|entry| entry.sequence)
+                        .max(),
+                )
+            });
+            let calls = selected(observation)
+                .into_iter()
+                .map(|(call, name, reference, timestamp, sequence)| {
+                    (
+                        format!("{}:{}", call.turn, call.source.key()),
+                        name,
+                        reference,
+                        call.state,
+                        timestamp,
+                        sequence,
+                    )
+                })
+                .collect::<Vec<_>>();
+            (id, observation.history.connected, page, calls)
+        })
         .collect::<Vec<_>>();
-    observation.details.set(
-        selected
-            .iter()
-            .map(|(_, _, reference, _, _)| reference.clone()),
+    Ok(blake3::hash(
+        &serde_json::to_vec(&source).map_err(|error| HostError::new(error.to_string()))?,
+    )
+    .to_hex()
+    .to_string())
+}
+
+async fn read(observation: Observation, stop: CancellationToken) -> Result<Value, HostError> {
+    tokio::select! {
+        _ = stop.cancelled() => Err(HostError::new("plugin view is closed")),
+        value = snapshot(&observation) => value,
+    }
+}
+
+async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
+    use sailry_client::conversation::details::State;
+    let history = &observation.history;
+    let Some(snapshot) = &history.snapshot else {
+        return Ok(json!({"connected":history.connected,"calls":[]}));
+    };
+    let details = sailry_client::conversation::details::Tracker::new(
+        observation.client.clone(),
+        observation.runtime.clone(),
     );
+    let page = &snapshot.page;
     let mut calls = Vec::new();
-    let mut retained = 0;
-    // Prefer recent calls when the returned snapshot itself reaches the display budget.
-    for (call, name, reference, timestamp_ms, sequence) in selected.into_iter().rev() {
-        let State::Ready(detail) = observation.details.wait(&reference).await else {
-            continue;
+    let mut errors = Vec::new();
+    // Returned JSON belongs to the plugin caller. The Client only retains the
+    // current canonical detail, even when the complete snapshot exceeds its budget.
+    for (call, name, reference, timestamp_ms, sequence) in selected(observation) {
+        details.set([reference.clone()]);
+        let state = details.wait(&reference).await;
+        details.remove(&reference);
+        let key = format!("{}:{}", call.turn, call.source.key());
+        let detail = match state {
+            State::Ready(detail) => detail,
+            State::Failed { fault, .. } => {
+                errors.push(json!({"key":key,"message":fault.message}));
+                continue;
+            }
+            State::TooLarge(limit) => {
+                errors.push(json!({"key":key,"message":limit.message()}));
+                continue;
+            }
+            State::Superseded => continue,
+            State::Loading => unreachable!("wait returns a settled detail"),
         };
-        let bytes = sailry_client::conversation::details::retained_bytes(&detail.arguments)
-            + detail
-                .result
-                .as_ref()
-                .map_or(0, sailry_client::conversation::details::retained_bytes);
-        if retained + bytes > sailry_client::conversation::details::MAX_BYTES {
-            continue;
-        }
-        retained += bytes;
         let result = detail.result.as_ref().map(|value| {
             serde_json::from_value(value.clone())
                 .ok()
                 .and_then(|output| public_output(output).ok())
                 .unwrap_or_else(|| value.clone())
         });
-        calls.push(json!({"key":format!("{}:{}",call.turn,call.source.key()),"name":name,"arguments":detail.arguments,
+        calls.push(json!({"key":key,"name":name,"arguments":detail.arguments,
             "state":call.state,"timestamp_ms":timestamp_ms,"result":result,"sequence":sequence.map(|sequence|sequence.to_string())}));
     }
-    calls.reverse();
     Ok(
         json!({"connected":history.connected,"session":page.session,"revision":page.revision.to_string(),
-        "latest":page.entries.iter().map(|entry|entry.sequence).max().map(|value|value.to_string()),"calls":calls}),
+        "latest":page.entries.iter().map(|entry|entry.sequence).max().map(|value|value.to_string()),"calls":calls,"errors":errors}),
     )
 }
 

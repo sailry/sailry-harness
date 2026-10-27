@@ -134,9 +134,7 @@ class _ToolRecordState extends State<ToolRecord> {
         pendingApproval ||
         question.isNotEmpty;
     final input = object(resolved['input']);
-    final approvalView = object(
-      detail?['approval_view'] ?? call['approval_view'],
-    );
+    final approvalView = object(call['approval_view']);
     final enabled = widget.enabled && !_busy;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),

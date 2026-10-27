@@ -2,7 +2,7 @@ use super::*;
 use sailry_link::{Admission, Pending, Subscription, Transport};
 use sailry_protocol::*;
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicUsize, Ordering},
 };
 use tracing::instrument::WithSubscriber as _;
@@ -11,6 +11,12 @@ use tracing::instrument::WithSubscriber as _;
 struct Capture(Arc<Mutex<Vec<u8>>>);
 impl Capture {
     fn dispatch(&self) -> tracing::Dispatch {
+        // Keep scoped subscribers on tracing-core's multi-dispatch interest path.
+        // Its single-dispatch fast path can otherwise cache a cold callsite as
+        // disabled when an unobserved parallel test registers it first.
+        static REGISTRY: OnceLock<tracing::Dispatch> = OnceLock::new();
+        REGISTRY
+            .get_or_init(|| tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default()));
         tracing::Dispatch::new(
             tracing_subscriber::fmt()
                 .json()

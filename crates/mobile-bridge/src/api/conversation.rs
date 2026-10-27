@@ -11,12 +11,12 @@ mod tools;
 
 #[frb(opaque)]
 pub struct ConversationUpdates {
-    client: Arc<Client>,
     receiver: Mutex<watch::Receiver<View>>,
     current: watch::Receiver<View>,
     details: sailry_client::conversation::details::Tracker,
     detail_changes: Mutex<watch::Receiver<u64>>,
     selected: std::sync::Mutex<Vec<tools::Selection>>,
+    sent: std::sync::Mutex<std::collections::BTreeSet<sailry_protocol::tool::detail::Reference>>,
     stop: CancellationToken,
     task: JoinHandle<()>,
     older: tokio::sync::mpsc::Sender<HistoryRequest>,
@@ -42,7 +42,7 @@ impl ConversationUpdates {
             details,
             detail_changes,
             selected: Default::default(),
-            client,
+            sent: Default::default(),
             current: receiver.clone(),
             receiver: Mutex::new(receiver),
             stop,
@@ -67,21 +67,8 @@ impl ConversationUpdates {
                     let selection = self.selected.lock().expect("tool selection lock");
                     self.details.set(tools::references(&current, &selection));
                 }
-                tools::view(&current, Some(&self.details))
+                tools::view(&current, Some(&self.details), &mut self.sent.lock().expect("sent details lock"))
             } => result,
-        }
-    }
-
-    /// Resolve selected output without blocking the pending update reader.
-    pub async fn tool_output(&self, entry: String, index: u32) -> Result<String, String> {
-        if self.stop.is_cancelled() {
-            return Err("conversation subscription is closed".into());
-        }
-        let current = self.current.borrow().clone();
-        tokio::select! {
-            biased;
-            _ = self.stop.cancelled() => Err("conversation subscription is closed".into()),
-            result = tools::output(&self.client, &current, &entry, index as usize) => result,
         }
     }
 

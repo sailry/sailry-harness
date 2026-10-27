@@ -199,7 +199,7 @@ export function theme(): { is_dark: boolean; colors: Record<string, string> };
                 export const BrowserAnnotationImage: { new(id: string, props: {token:string}): import("gpui-kit").Element };
                 export const BrowserSurface: { new(id: string, props?: {covered?:boolean}): import("gpui-kit").Element };
                 export const Conversation: { new(id: string, props?: { assistant?: string, resource?: { kind: "database" | "ssh", id: string }, session?: string, heading?: string, active?: boolean }): import("gpui-kit").Element };
-                export function nextAssistantTools(cursor: string): Promise<{cursor: string; conversations: Record<string, {connected: boolean; session?: string; revision?: string; latest?: string; calls: {key: string; name: string; arguments: unknown; state: string; timestamp_ms: number; result: unknown; sequence: string | null}[]}>}>;
+                export function nextAssistantTools(cursor: string): Promise<{cursor: string; conversations: Record<string, {connected: boolean; session?: string; revision?: string; latest?: string; calls: {key: string; name: string; arguments: unknown; state: string; timestamp_ms: number; result: unknown; sequence: string | null}[]; errors?: {key: string; message: string}[]}>}>;
                 export function context(): string;
                 export function prepare(command: string): string;
                 export function execute(request: string): Promise<string>;

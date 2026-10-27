@@ -149,7 +149,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         final following =
             !_scroll.hasClients || _scroll.position.extentBefore < 60;
         _error = null;
-        _view.value = value;
+        _view.value = mergeToolDetails(_view.value, value);
         for (final fault in objects(value['detail_errors'])) {
           showToast(
             context,

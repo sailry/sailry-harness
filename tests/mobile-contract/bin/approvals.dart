@@ -2,9 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
-import 'package:sailry_bridge/api/conversation.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, detail, execute, until;
 
 bool hasPending(Map<String, dynamic> snapshot) =>
     (snapshot['page']['approvals'] as List).any(
@@ -22,18 +21,6 @@ Map<String, dynamic> part(
 ) => (view['snapshot']['page']['entries'] as List).singleWhere(
   (entry) => entry['id'] == reference['entry'],
 )['parts'][reference['index']]['data'];
-
-Future<Map<String, dynamic>> detail(
-  ConversationUpdates updates,
-  Map<String, dynamic> call,
-) async =>
-    jsonDecode(
-          await updates.toolOutput(
-            entry: call['source']['entry'],
-            index: call['source']['index'],
-          ),
-        )
-        as Map<String, dynamic>;
 
 Future<void> main() async {
   final env = Platform.environment;

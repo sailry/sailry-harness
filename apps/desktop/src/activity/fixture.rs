@@ -69,7 +69,7 @@ impl Fixture {
                 models: vec![Model {
                     id: "fixture-a".into(),
                     display_name: None,
-                    context: 16000,
+                    context: 128000,
                     output: 2048,
                     capabilities: None,
                     vision: false,

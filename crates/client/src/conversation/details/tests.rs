@@ -11,8 +11,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Backend {
     reference: Reference,
     text: String,
+    texts: BTreeMap<String, String>,
     calls: AtomicUsize,
     failures: AtomicUsize,
+    failure_code: ErrorCode,
     total: Option<usize>,
     fail_at: Mutex<Option<usize>>,
     panic_at: Mutex<Option<usize>>,
@@ -38,8 +40,10 @@ impl Backend {
                 revision: "a".repeat(64),
             },
             text: serde_json::to_string(&detail).unwrap(),
+            texts: Default::default(),
             calls: AtomicUsize::new(0),
             failures: AtomicUsize::new(0),
+            failure_code: ErrorCode::Unavailable,
             total: None,
             fail_at: Mutex::new(None),
             panic_at: Mutex::new(None),
@@ -123,10 +127,7 @@ impl Transport for Backend {
                 })
                 .is_ok()
             {
-                return Err(Fault::new(
-                    ErrorCode::Unavailable,
-                    "injected detail failure",
-                ));
+                return Err(Fault::new(self.failure_code, "injected detail failure"));
             }
             if self
                 .fail_at
@@ -136,9 +137,10 @@ impl Transport for Backend {
             {
                 return Err(Fault::new(ErrorCode::Unavailable, "injected page failure"));
             }
+            let text = self.texts.get(entry).unwrap_or(&self.text);
             let offset = cursor.unwrap_or(0);
-            let mut end = offset.saturating_add(*limit).min(self.text.len());
-            while !self.text.is_char_boundary(end) {
+            let mut end = offset.saturating_add(*limit).min(text.len());
+            while !text.is_char_boundary(end) {
                 end -= 1;
             }
             let reference = Reference {
@@ -152,9 +154,9 @@ impl Transport for Backend {
             let output = Output::ToolDetail(DetailPage {
                 reference,
                 offset,
-                total_bytes: self.total.unwrap_or(self.text.len()),
-                next_offset: (end < self.text.len()).then_some(end),
-                text: self.text[offset..end].to_owned(),
+                total_bytes: self.total.unwrap_or(text.len()),
+                next_offset: (end < text.len()).then_some(end),
+                text: text[offset..end].to_owned(),
             });
             let (sender, completion) = tokio::sync::oneshot::channel();
             sender.send(Ok(output)).unwrap();
@@ -242,7 +244,14 @@ fn invalidates_changed_parts_during_a_read() {
     summary.revision = "b".repeat(64);
     cache.reconcile(&page);
     let detail = Arc::new(serde_json::from_str(&backend.text).unwrap());
-    assert!(!cache.finish(&backend.reference, 1, Some((detail, backend.text.len()))));
+    assert!(!cache.finish(
+        &backend.reference,
+        1,
+        Some(Loaded {
+            detail,
+            bytes: backend.text.len()
+        })
+    ));
     assert!(cache.get(&backend.reference).is_none());
 }
 
@@ -349,7 +358,14 @@ fn accounts_for_parsed_container_allocations() {
         },
     );
     let detail = Arc::new(serde_json::from_str(&backend.text).unwrap());
-    assert!(cache.finish(&backend.reference, 1, Some((detail, MAX_BYTES + 1))));
+    assert!(cache.finish(
+        &backend.reference,
+        1,
+        Some(Loaded {
+            detail,
+            bytes: MAX_BYTES + 1
+        })
+    ));
     assert!(cache.get(&backend.reference).is_none());
 }
 
@@ -528,8 +544,12 @@ async fn pins_visible_details_and_releases_their_allocations() {
                 .entries
                 .push_back(Cached {
                     reference: reference.clone(),
-                    bytes: allocation(&detail, reference),
-                    detail: detail.clone(),
+                    value: Loaded {
+                        bytes: allocation(&detail, reference),
+                        detail: detail.clone(),
+                    },
+                    pins: 0,
+                    valid: true,
                 });
             Arc::downgrade(&detail)
         })
@@ -548,7 +568,7 @@ async fn pins_visible_details_and_releases_their_allocations() {
         let State::Ready(detail) = tracker.state(reference) else {
             panic!("visible detail must remain ready");
         };
-        assert!(std::ptr::eq(Arc::as_ptr(&detail), expected.as_ptr()));
+        assert!(std::ptr::eq(Arc::as_ptr(&detail.detail), expected.as_ptr()));
     }
     assert!(
         client
@@ -558,7 +578,7 @@ async fn pins_visible_details_and_releases_their_allocations() {
             .unwrap()
             .entries
             .iter()
-            .map(|entry| entry.bytes)
+            .map(|entry| entry.value.bytes)
             .sum::<usize>()
             <= MAX_BYTES
     );
@@ -569,37 +589,57 @@ async fn pins_visible_details_and_releases_their_allocations() {
         client.tool_detail(reference).await.unwrap();
     }
     assert!(details.iter().all(|detail| detail.upgrade().is_none()));
-    assert!(client.details.values.lock().unwrap().pins.is_empty());
+    assert!(
+        client
+            .details
+            .values
+            .lock()
+            .unwrap()
+            .entries
+            .iter()
+            .all(|entry| entry.pins == 0)
+    );
 }
 
 #[tokio::test]
-async fn observes_eviction_without_reloading_unchanged_history() {
+async fn charges_invalidated_values_until_their_owner_releases() {
     let backend = Backend::new();
     let client = Arc::new(Client::new(backend.clone()));
-    let tracker = Tracker::observe(client.clone(), tokio::runtime::Handle::current());
+    client.details.reconcile(&backend.page(1));
+    let tracker = Tracker::new(client.clone(), tokio::runtime::Handle::current());
     tracker.set([backend.reference.clone()]);
     assert!(matches!(
         tracker.wait(&backend.reference).await,
         State::Ready(_)
     ));
-    for index in 0..=MAX_ENTRIES {
-        let mut reference = backend.reference.clone();
-        reference.entry = format!("other-{index}");
-        client.tool_detail(reference).await.unwrap();
+    client.details.reconcile(&backend.page(2));
+    {
+        let values = client.details.values.lock().unwrap();
+        assert_eq!(values.entries.len(), 1);
+        assert_eq!(values.entries[0].pins, 1);
+        assert!(!values.entries[0].valid);
     }
-    let count = backend.calls.load(Ordering::SeqCst);
-    tracker.set([backend.reference.clone()]);
     assert!(matches!(
         tracker.state(&backend.reference),
         State::Superseded
     ));
-    assert_eq!(backend.calls.load(Ordering::SeqCst), count);
+    assert!(client.details.values.lock().unwrap().entries.is_empty());
     tracker.retry(&backend.reference);
     assert!(matches!(
         tracker.wait(&backend.reference).await,
         State::Ready(_)
     ));
-    assert!(backend.calls.load(Ordering::SeqCst) > count);
+    tracker.set([]);
+    assert!(
+        client
+            .details
+            .values
+            .lock()
+            .unwrap()
+            .entries
+            .iter()
+            .all(|entry| entry.pins == 0)
+    );
 }
 
 #[tokio::test]
@@ -631,7 +671,16 @@ async fn drops_superseded_results_without_feedback() {
         State::Ready(_)
     ));
     tracker.set([]);
-    assert!(client.details.values.lock().unwrap().pins.is_empty());
+    assert!(
+        client
+            .details
+            .values
+            .lock()
+            .unwrap()
+            .entries
+            .iter()
+            .all(|entry| entry.pins == 0)
+    );
     assert!(client.details.values.lock().unwrap().tracked.is_empty());
 }
 
@@ -657,28 +706,85 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
     let first = backend.reference.clone();
     let mut second = first.clone();
     second.entry = "second".into();
-    tracker.set([first.clone(), second.clone()]);
-    let states = [tracker.wait(&first).await, tracker.wait(&second).await];
-    assert_eq!(
-        states
-            .iter()
-            .filter(|state| matches!(state, State::Ready(_)))
-            .count(),
-        1
-    );
-    assert_eq!(
-        states
-            .iter()
-            .filter(|state| matches!(state, State::TooLarge(Limit::Memory)))
-            .count(),
-        1
-    );
-    let retry = if matches!(states[0], State::TooLarge(_)) {
-        first
-    } else {
-        second
+    tracker.set([first.clone()]);
+    let State::Ready(detail) = tracker.wait(&first).await else {
+        panic!("first detail must be ready");
     };
-    drop(states);
+    let released = Arc::downgrade(&detail.detail);
+    drop(detail);
+    tracker.include(second.clone());
+    assert!(matches!(tracker.wait(&second).await, State::Ready(_)));
+    assert!(matches!(
+        tracker.state(&first),
+        State::TooLarge(Limit::Memory)
+    ));
+    assert!(released.upgrade().is_none());
+    let failures = tracker.failures();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].0, first);
+    assert_eq!(failures[0].1.message, Limit::Memory.message());
+    assert!(tracker.failures().is_empty());
+    {
+        let values = client.details.values.lock().unwrap();
+        assert_eq!(values.entries.len(), 1);
+        assert_eq!(values.entries[0].reference, second);
+        assert_eq!(values.entries[0].pins, 1);
+        assert!(
+            values
+                .entries
+                .iter()
+                .map(|entry| entry.value.bytes)
+                .sum::<usize>()
+                <= MAX_BYTES
+        );
+    }
+    let calls = backend.calls.load(Ordering::SeqCst);
+    tracker.set([first.clone(), second.clone()]);
+    assert!(matches!(
+        tracker.state(&first),
+        State::TooLarge(Limit::Memory)
+    ));
+    assert_eq!(backend.calls.load(Ordering::SeqCst), calls);
+    tracker.retry(&first);
+    assert!(matches!(tracker.wait(&first).await, State::Ready(_)));
+    assert!(matches!(
+        tracker.state(&second),
+        State::TooLarge(Limit::Memory)
+    ));
+    let failures = tracker.failures();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].0, second);
+    assert!(tracker.failures().is_empty());
+    let peer = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    peer.set([first.clone()]);
+    assert!(matches!(peer.wait(&first).await, State::Ready(_)));
+    peer.include(second.clone());
+    assert!(matches!(
+        peer.wait(&second).await,
+        State::TooLarge(Limit::Memory)
+    ));
+    assert!(matches!(peer.state(&first), State::Ready(_)));
+    assert!(matches!(tracker.state(&first), State::Ready(_)));
+    let failures = peer.failures();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].0, second);
+    assert!(peer.failures().is_empty());
+    assert!(tracker.failures().is_empty());
+    {
+        let values = client.details.values.lock().unwrap();
+        assert_eq!(values.entries.len(), 1);
+        assert_eq!(values.entries[0].reference, first);
+        assert_eq!(values.entries[0].pins, 2);
+    }
+    tracker.set([]);
+    peer.retry(&second);
+    assert!(matches!(peer.wait(&second).await, State::Ready(_)));
+    assert!(matches!(peer.state(&first), State::TooLarge(Limit::Memory)));
+    let failures = peer.failures();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].0, first);
+    assert!(peer.failures().is_empty());
+    peer.set([]);
     assert!(
         client
             .details
@@ -687,13 +793,135 @@ async fn limits_simultaneous_pins_and_allows_later_retry() {
             .unwrap()
             .entries
             .iter()
-            .map(|entry| entry.bytes)
-            .sum::<usize>()
-            <= MAX_BYTES
+            .all(|entry| entry.pins == 0)
     );
-    tracker.set([retry.clone()]);
-    tracker.retry(&retry);
-    assert!(matches!(tracker.wait(&retry).await, State::Ready(_)));
+}
+
+#[tokio::test]
+async fn preserves_ready_values_when_peers_block_admission() {
+    let detail = |size: usize| {
+        serde_json::to_string(&Detail {
+            arguments: serde_json::Value::String("x".repeat(size * 1024 * 1024)),
+            result: None,
+            resolved: None,
+            content: None,
+            images: vec![],
+        })
+        .unwrap()
+    };
+    let mut backend = Arc::try_unwrap(Backend::new()).ok().unwrap();
+    backend.text = detail(34);
+    backend
+        .texts
+        .insert(backend.reference.entry.clone(), detail(8));
+    backend.texts.insert("peer".into(), detail(32));
+    let first = backend.reference.clone();
+    let mut candidate = first.clone();
+    candidate.entry = "candidate".into();
+    let mut held = first.clone();
+    held.entry = "peer".into();
+    let backend = Arc::new(backend);
+    let client = Arc::new(Client::new(backend.clone()));
+    let tracker = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    let peer = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    tracker.set([first.clone()]);
+    let State::Ready(original) = tracker.wait(&first).await else {
+        panic!("first detail must be ready");
+    };
+    peer.set([held.clone()]);
+    let State::Ready(pinned) = peer.wait(&held).await else {
+        panic!("peer detail must be ready");
+    };
+    let candidate_size = allocation(&serde_json::from_str(&backend.text).unwrap(), &candidate);
+    assert!(pinned.bytes + candidate_size > MAX_BYTES);
+    tracker.include(candidate.clone());
+    assert!(matches!(
+        tracker.wait(&candidate).await,
+        State::TooLarge(Limit::Memory)
+    ));
+    let State::Ready(preserved) = tracker.state(&first) else {
+        panic!("blocked admission must preserve the visible detail");
+    };
+    assert!(Arc::ptr_eq(&original.detail, &preserved.detail));
+    assert!(matches!(peer.state(&held), State::Ready(_)));
+    let failures = tracker.failures();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].0, candidate);
+    assert!(tracker.failures().is_empty());
+    assert!(peer.failures().is_empty());
+    {
+        let values = client.details.values.lock().unwrap();
+        assert_eq!(values.entries.len(), 2);
+        assert!(values.entries.iter().all(|entry| entry.pins == 1));
+        assert!(
+            values
+                .entries
+                .iter()
+                .map(|entry| entry.value.bytes)
+                .sum::<usize>()
+                <= MAX_BYTES
+        );
+    }
+    drop((original, pinned, preserved));
+    peer.set([]);
+    tracker.retry(&candidate);
+    assert!(matches!(tracker.wait(&candidate).await, State::Ready(_)));
+    assert!(matches!(tracker.state(&first), State::Ready(_)));
+    assert!(tracker.failures().is_empty());
     tracker.set([]);
-    assert!(client.details.values.lock().unwrap().pins.is_empty());
+    assert!(
+        client
+            .details
+            .values
+            .lock()
+            .unwrap()
+            .entries
+            .iter()
+            .all(|entry| entry.pins == 0)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn missing_details_retry_and_report_the_failure() {
+    let mut backend = Arc::try_unwrap(Backend::new()).ok().unwrap();
+    backend.failure_code = ErrorCode::NotFound;
+    backend.failures.store(4, Ordering::SeqCst);
+    let backend = Arc::new(backend);
+    let tracker = Tracker::new(
+        Arc::new(Client::new(backend.clone())),
+        tokio::runtime::Handle::current(),
+    );
+    tracker.set([backend.reference.clone()]);
+    let State::Failed {
+        fault,
+        retry_at: None,
+    } = tracker.wait(&backend.reference).await
+    else {
+        panic!("missing detail must remain retryable");
+    };
+    assert_eq!(fault.code, ErrorCode::NotFound);
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 4);
+    assert_eq!(tracker.failures()[0].1.code, ErrorCode::NotFound);
+    assert!(tracker.failures().is_empty());
+    tracker.retry(&backend.reference);
+    assert!(matches!(
+        tracker.wait(&backend.reference).await,
+        State::Ready(_)
+    ));
+}
+
+#[tokio::test]
+async fn releases_unobserved_change_metadata() {
+    let backend = Backend::new();
+    let client = Arc::new(Client::new(backend.clone()));
+    let tracker = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    for index in 0..1000 {
+        let mut reference = backend.reference.clone();
+        reference.entry = format!("entry-{index}");
+        tracker.include(reference.clone());
+        tracker.remove(&reference);
+    }
+    assert!(tracker.references().is_empty());
+    assert!(tracker.changes().is_empty());
+    assert!(client.details.values.lock().unwrap().tracked.is_empty());
 }

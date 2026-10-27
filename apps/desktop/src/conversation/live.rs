@@ -147,8 +147,6 @@ pub(crate) struct View {
     navigation: navigation::Navigation,
     expanded: BTreeMap<(TurnId, String), bool>,
     details: sailry_client::conversation::details::Tracker,
-    detail_refs:
-        std::cell::RefCell<std::collections::BTreeSet<sailry_protocol::tool::detail::Reference>>,
     changes: BTreeMap<TurnId, Entity<messages::changes::Card>>,
     editing: Option<messages::Editing>,
     texts: std::cell::RefCell<BTreeMap<String, Entity<crate::content::markdown::State>>>,
@@ -401,9 +399,22 @@ impl View {
                                 )
                             });
                         }
+                        let changed = view
+                            .details
+                            .changes()
+                            .into_iter()
+                            .map(|reference| reference.turn)
+                            .collect::<std::collections::BTreeSet<_>>();
+                        let indexes = view
+                            .rows
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(index, turn)| changed.contains(turn).then_some(index))
+                            .collect::<Vec<_>>();
                         view.scroller.update(cx, |scroller, cx| {
-                            let count = scroller.item_count();
-                            scroller.remeasure_items(0..count, cx);
+                            for index in indexes {
+                                scroller.remeasure_items(index..index + 1, cx);
+                            }
                         });
                         cx.notify();
                     })
@@ -458,7 +469,6 @@ impl View {
             navigation: navigation::Navigation::new(cx),
             expanded: BTreeMap::new(),
             details,
-            detail_refs: Default::default(),
             changes: BTreeMap::new(),
             editing: None,
             texts: Default::default(),

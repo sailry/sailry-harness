@@ -1,14 +1,12 @@
 //! Canonical values supplement already published summary and permission updates.
 use super::*;
 use sailry_client::conversation::details::State;
-use sailry_protocol::conversation::Page;
 
 pub(super) fn start(
     adapter: Arc<Adapter>,
     opened: Arc<Opened>,
     source: SessionId,
     call: Call,
-    page: Arc<Page>,
     stamp: Stamp,
     mut receiver: watch::Receiver<View>,
     connection: &ConnectionTo<sdk::Client>,
@@ -16,6 +14,7 @@ pub(super) fn start(
     let connected = connection.clone();
     connection.spawn(async move {
         let id = call_id(source, &call);
+        let latest = receiver.clone();
         let current = async {
             loop {
                 let matches = {
@@ -30,11 +29,18 @@ pub(super) fn start(
                 }
             }
         };
-        tokio::select! {
+        let result=tokio::select! {
             _ = opened.stop.cancelled() => Ok(()),
             _ = current => Ok(()),
-            result = supplement(&adapter, &opened, source, &call, &page, &stamp, &id, &connected) => result,
+            result = supplement(&adapter, &opened, source, &stamp, &id, &latest, &connected) => result,
+        };
+        let presentation = opened.presentation.lock().await;
+        if presentation.stamps.get(&id).is_none_or(|current| {
+            current == &stamp || current.reference != stamp.reference
+        }) {
+            opened.details.remove(&stamp.reference);
         }
+        result
     })
 }
 
@@ -42,21 +48,32 @@ async fn supplement(
     adapter: &Adapter,
     opened: &Opened,
     source: SessionId,
-    call: &Call,
-    page: &Page,
     stamp: &Stamp,
     id: &str,
+    receiver: &watch::Receiver<View>,
     connection: &ConnectionTo<sdk::Client>,
 ) -> acp::Result<()> {
     let State::Ready(detail) = opened.details.wait(&stamp.reference).await else {
+        tracing::debug!(session=%source,call=%id,"tool detail supplement is unavailable");
+        return Ok(());
+    };
+    let latest = receiver.borrow().clone();
+    let Some(snapshot) = &latest.snapshot else {
+        return Ok(());
+    };
+    let page = &snapshot.page;
+    let Some(call) = latest.calls.iter().find(|call| {
+        call_id(source, call) == id
+            && call.detail_reference(page).as_ref() == Some(&stamp.reference)
+    }) else {
         return Ok(());
     };
     let session = acp::SessionId::new(opened.session.lock().await.id.to_string());
-    let mut presentation = opened.presentation.lock().await;
+    let presentation = opened.presentation.lock().await;
     if presentation.stamps.get(id) != Some(stamp) {
         return Ok(());
     }
-    let call = call.with_detail(detail);
+    let call = call.with_detail(detail.detail.clone());
     let mut context = context(source, &call);
     context["node"] = json!(adapter.client.target());
     let update = acp::ToolCallUpdate::new(
@@ -72,7 +89,5 @@ async fn supplement(
         acp::SessionUpdate::ToolCallUpdate(update),
         context,
     )?;
-    presentation.details.remove(&stamp.reference);
-    opened.details.set(presentation.details.iter().cloned());
     Ok(())
 }

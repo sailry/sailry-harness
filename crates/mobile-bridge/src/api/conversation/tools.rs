@@ -1,7 +1,9 @@
 //! Adapt shared Client decisions without reconstructing tool presentation in Dart.
 use sailry_client::conversation::View;
 use sailry_protocol::tool::Block;
+use sailry_protocol::tool::detail::Reference;
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 
 use sailry_client::conversation::details::{Limit, State, Tracker};
 
@@ -35,7 +37,12 @@ pub(super) fn references(
         .collect()
 }
 
-pub(super) fn view(view: &View, tracker: Option<&Tracker>) -> Result<String, String> {
+pub(super) fn view(
+    view: &View,
+    tracker: Option<&Tracker>,
+    sent: &mut BTreeSet<Reference>,
+) -> Result<String, String> {
+    let mut ready = BTreeSet::new();
     let mut value = serde_json::to_value(view).map_err(super::error)?;
     if let Some(snapshot) = &view.snapshot {
         let page = &snapshot.page;
@@ -67,6 +74,7 @@ pub(super) fn view(view: &View, tracker: Option<&Tracker>) -> Result<String, Str
             .as_array_mut()
             .expect("serialized calls are an array");
         for (value, call) in calls.iter_mut().zip(view.calls.iter()) {
+            let mut approval = call.approval_view(page);
             value["detail_state"] = Value::Null;
             value["detail"] = Value::Null;
             if let Some(tracker) = tracker
@@ -74,7 +82,17 @@ pub(super) fn view(view: &View, tracker: Option<&Tracker>) -> Result<String, Str
             {
                 value["detail_state"] = match tracker.state(&reference) {
                     State::Ready(detail) => {
-                        value["detail"] = packet(&call.with_detail(detail), page)?;
+                        ready.insert(reference.clone());
+                        let detailed = call.with_detail(detail.detail.clone());
+                        approval = detailed.approval_view(page);
+                        if sent.insert(reference.clone()) {
+                            value["detail"] = packet(&detailed, page)?;
+                        } else {
+                            value
+                                .as_object_mut()
+                                .expect("serialized call")
+                                .remove("detail");
+                        }
                         json!({"kind":"ready"})
                     }
                     State::Loading => json!({"kind":"loading"}),
@@ -89,7 +107,7 @@ pub(super) fn view(view: &View, tracker: Option<&Tracker>) -> Result<String, Str
             }
             value["children"] = json!(call.children(page));
             value["row"] = json!(call.row(page));
-            value["approval_view"] = json!(call.approval_view(page));
+            value["approval_view"] = json!(approval);
             value["revision"] = json!(
                 call.detail_reference(page)
                     .map(|reference| reference.revision)
@@ -104,6 +122,7 @@ pub(super) fn view(view: &View, tracker: Option<&Tracker>) -> Result<String, Str
             };
         }
     }
+    sent.retain(|reference| ready.contains(reference));
     value["detail_errors"] = json!(
         tracker
             .map(|tracker| tracker
@@ -114,34 +133,6 @@ pub(super) fn view(view: &View, tracker: Option<&Tracker>) -> Result<String, Str
             .unwrap_or_default()
     );
     serde_json::to_string(&value).map_err(super::error)
-}
-
-pub(super) async fn output(
-    client: &sailry_client::Client,
-    view: &View,
-    entry: &str,
-    index: usize,
-) -> Result<String, String> {
-    let snapshot = view
-        .snapshot
-        .as_ref()
-        .ok_or("conversation snapshot is unavailable")?;
-    let call = view
-        .calls
-        .iter()
-        .find(|call| call.source.entry == entry && call.source.index == index)
-        .ok_or("tool call is no longer available")?;
-    let reference = call
-        .detail_reference(&snapshot.page)
-        .ok_or("tool details are unavailable")?;
-    let detail = match client.detail(reference).await.map_err(super::error)? {
-        sailry_client::conversation::details::Read::Ready(detail) => detail,
-        sailry_client::conversation::details::Read::TooLarge(limit) => {
-            return Err(limit.message().into());
-        }
-        sailry_client::conversation::details::Read::Superseded => return Ok("null".into()),
-    };
-    serde_json::to_string(&packet(&call.with_detail(detail), &snapshot.page)?).map_err(super::error)
 }
 
 fn packet(
@@ -162,7 +153,6 @@ fn packet(
         "arguments":call.arguments(page), "result":call.result(page),
         "resolved":call.resolved(), "content":call.content(), "texts":texts,
         "output":call.output(page),
-        "approval_view":call.approval_view(page),
     }))
 }
 

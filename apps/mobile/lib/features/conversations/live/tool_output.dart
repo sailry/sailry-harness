@@ -55,3 +55,44 @@ bool detailFailed(Map<String, dynamic> call) {
 
 bool detailAllowsApproval(Map<String, dynamic> call) =>
     ['ready', 'too_large'].contains(object(call['detail_state'])['kind']);
+
+/// Omitted ready values retain the previously delivered allocation for that revision.
+Map<String, dynamic> mergeToolDetails(
+  Map<String, dynamic> previous,
+  Map<String, dynamic> next,
+) {
+  if (object(object(previous['snapshot'])['page'])['session'] !=
+      object(object(next['snapshot'])['page'])['session']) {
+    return next;
+  }
+  final existing = <(String, int), Map<String, dynamic>>{};
+  for (final call in objects(previous['calls'])) {
+    final source = object(call['source']);
+    if (source['entry'] case final String entry) {
+      if (source['index'] case final int index) existing[(entry, index)] = call;
+    }
+  }
+  for (final value in next['calls'] as List? ?? const []) {
+    if (value is! Map<String, dynamic>) continue;
+    final call = value;
+    if (call.containsKey('detail') ||
+        object(call['detail_state'])['kind'] != 'ready') {
+      continue;
+    }
+    final source = object(call['source']);
+    if (source['entry'] is! String || source['index'] is! int) continue;
+    final old = existing[(source['entry'] as String, source['index'] as int)];
+    if (old == null) continue;
+    final part = object(call['response'] ?? call['source']);
+    final oldPart = object(old['response'] ?? old['source']);
+    if (object(old['detail_state'])['kind'] == 'ready' &&
+        old['turn'] == call['turn'] &&
+        old['revision'] == call['revision'] &&
+        old['id'] == call['id'] &&
+        oldPart['entry'] == part['entry'] &&
+        oldPart['index'] == part['index']) {
+      call['detail'] = old['detail'];
+    }
+  }
+  return next;
+}

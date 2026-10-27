@@ -92,4 +92,90 @@ void main() {
     );
     expect(toolDetail({'detail': null}), isNull);
   });
+  test('ready deltas reuse only their exact loaded revision', () {
+    Map<String, dynamic> view(
+      String revision, {
+      bool include = false,
+      String kind = 'ready',
+      String session = 'session',
+    }) => {
+      'snapshot': {
+        'page': {'session': session},
+      },
+      'calls': [
+        <String, dynamic>{
+          'id': 'call',
+          'turn': 'turn',
+          'source': {'entry': 'entry', 'index': 0},
+          'revision': revision,
+          'detail_state': {'kind': kind},
+          if (include) 'detail': {'result': 'Complete output'},
+        },
+      ],
+    };
+    final first = view('one', include: true);
+    final detail = (first['calls'] as List)[0]['detail'];
+    final merged = mergeToolDetails(first, view('one'));
+    expect(identical((merged['calls'] as List)[0]['detail'], detail), isTrue);
+    expect(
+      (mergeToolDetails(first, view('two'))['calls'] as List)[0]['detail'],
+      isNull,
+    );
+    expect(
+      (mergeToolDetails(first, view('one', kind: 'loading'))['calls']
+          as List)[0]['detail'],
+      isNull,
+    );
+    expect(
+      (mergeToolDetails(first, view('one', session: 'other'))['calls']
+          as List)[0]['detail'],
+      isNull,
+    );
+    for (final change in [
+      {'turn': 'other'},
+      {'id': 'other'},
+      {
+        'response': {'entry': 'result', 'index': 0},
+      },
+    ]) {
+      final changed = view('one');
+      (changed['calls'] as List)[0].addAll(change);
+      expect(
+        (mergeToolDetails(first, changed)['calls'] as List)[0]['detail'],
+        isNull,
+      );
+    }
+    final released = view('one');
+    (released['calls'] as List)[0]['detail'] = null;
+    expect(
+      (mergeToolDetails(first, released)['calls'] as List)[0]['detail'],
+      isNull,
+    );
+  });
+  test('ready deltas preserve current approval facts', () {
+    final detail = <String, dynamic>{
+      'arguments': {'command': 'Exact command'},
+      'approval_view': {'unrestricted': false},
+    };
+    Map<String, dynamic> view(bool unrestricted, {bool include = false}) => {
+      'snapshot': {
+        'page': {'session': 'session'},
+      },
+      'calls': [
+        <String, dynamic>{
+          'id': 'call',
+          'turn': 'turn',
+          'source': {'entry': 'entry', 'index': 0},
+          'revision': 'same',
+          'detail_state': {'kind': 'ready'},
+          'approval_view': {'unrestricted': unrestricted},
+          if (include) 'detail': detail,
+        },
+      ],
+    };
+    final merged = mergeToolDetails(view(false, include: true), view(true));
+    final call = (merged['calls'] as List).single as Map;
+    expect(identical(call['detail'], detail), isTrue);
+    expect(call['approval_view'], {'unrestricted': true});
+  });
 }

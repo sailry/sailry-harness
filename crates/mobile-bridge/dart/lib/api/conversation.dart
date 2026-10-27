@@ -21,9 +21,6 @@ abstract class ConversationUpdates implements RustOpaqueInterface {
 
   Future<String> next();
 
-  /// Resolve selected output without blocking the pending update reader.
-  Future<String> toolOutput({required String entry, required int index});
-
   /// Declare mounted tool surfaces; this is controller state, not a Node command.
   Future<void> trackTools({required String selection});
 }

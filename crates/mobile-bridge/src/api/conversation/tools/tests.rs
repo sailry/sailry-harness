@@ -118,7 +118,7 @@ fn fixture(mode: Presentation, result: Value) -> (View, Arc<Detail>) {
 }
 
 fn serialized(view: &View) -> Value {
-    serde_json::from_str(&super::view(view, None).unwrap()).unwrap()
+    serde_json::from_str(&super::view(view, None, &mut Default::default()).unwrap()).unwrap()
 }
 
 fn summary(view: &mut View) -> &mut Summary {
@@ -273,7 +273,7 @@ impl Transport for Backend {
 }
 
 #[tokio::test]
-async fn output_does_not_wait_for_updates() {
+async fn sends_selected_details_once_per_revision() {
     use crate::api::conversation::ConversationUpdates;
     use sailry_link::CancellationToken;
     use tokio::sync::{Mutex, mpsc, watch};
@@ -289,7 +289,7 @@ async fn output_does_not_wait_for_updates() {
         total: None,
     };
     let client = Arc::new(Client::new(Arc::new(backend)));
-    let (_sender, receiver) = watch::channel(view);
+    let (sender, receiver) = watch::channel(view);
     let (older, _requests) = mpsc::channel(1);
     let details = Tracker::new(client.clone(), tokio::runtime::Handle::current());
     let detail_changes = Mutex::new(details.subscribe());
@@ -297,7 +297,7 @@ async fn output_does_not_wait_for_updates() {
         details,
         detail_changes,
         selected: Default::default(),
-        client,
+        sent: Default::default(),
         current: receiver.clone(),
         receiver: Mutex::new(receiver),
         stop: CancellationToken::new(),
@@ -310,17 +310,153 @@ async fn output_does_not_wait_for_updates() {
     };
     tokio::task::yield_now().await;
     assert!(updates.receiver.try_lock().is_err());
-    let packet: Value =
-        serde_json::from_str(&updates.tool_output("request".into(), 0).await.unwrap()).unwrap();
+    updates
+        .track_tools(json!({"items":[{"entry":"request","index":0}]}).to_string())
+        .unwrap();
+    let mut value: Value = serde_json::from_str(&pending.await.unwrap().unwrap()).unwrap();
+    while value["calls"][0]["detail_state"]["kind"] != "ready" {
+        value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
+    }
+    let packet = &value["calls"][0]["detail"];
     assert_eq!(
         packet["output"]["preview"],
         "Original output".repeat(10_000)
     );
     assert_eq!(packet["result"], "Original output".repeat(10_000));
-    assert!(updates.tool_output("different".into(), 0).await.is_err());
+    let mut current = sender.borrow().clone();
+    Arc::make_mut(current.snapshot.as_mut().unwrap()).sequence += 1;
+    sender.send_replace(current);
+    let repeated: Value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
+    assert_eq!(repeated["calls"][0]["detail_state"]["kind"], "ready");
+    assert!(repeated["calls"][0].get("detail").is_none());
+    updates
+        .track_tools(json!({"items":[]}).to_string())
+        .unwrap();
+    let released: Value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
+    assert!(released["calls"][0]["detail"].is_null());
+    updates
+        .track_tools(json!({"items":[{"entry":"request","index":0}]}).to_string())
+        .unwrap();
+    let mut restored: Value = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
+    while restored["calls"][0]["detail_state"]["kind"] != "ready" {
+        restored = serde_json::from_str(&updates.next().await.unwrap()).unwrap();
+    }
+    assert_eq!(
+        restored["calls"][0]["detail"]["result"],
+        "Original output".repeat(10_000)
+    );
     updates.close();
-    assert!(pending.await.unwrap().is_err());
-    assert!(updates.tool_output("request".into(), 0).await.is_err());
+    assert!(updates.next().await.is_err());
+    assert!(
+        updates
+            .track_tools(json!({"items":[]}).to_string())
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn refreshes_approval_facts_without_resending_details() {
+    use sailry_protocol::{
+        ApprovalId,
+        conversation::{Approval, ApprovalSource, ApprovalState},
+        process::Access,
+    };
+    let (mut current, mut detail) = fixture(Presentation::Details, Value::Null);
+    let snapshot = Arc::make_mut(current.snapshot.as_mut().unwrap());
+    let page = Arc::make_mut(&mut snapshot.page);
+    page.entries.truncate(1);
+    let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] else {
+        unreachable!()
+    };
+    summary.revision = "a".repeat(64);
+    let call = &mut Arc::make_mut(&mut current.calls)[0];
+    call.response = None;
+    call.state = State::Waiting;
+    let approval = Approval {
+        id: ApprovalId::new(),
+        session: page.session,
+        turn: call.turn,
+        entry: call.source.entry.clone(),
+        index: call.source.index,
+        state: ApprovalState::Pending,
+        source: ApprovalSource::User,
+        choice: None,
+        reason: None,
+        prefix: None,
+        can_remember: false,
+        startup: None,
+        ssh: None,
+        access: None,
+    };
+    call.approval = Some(approval.clone());
+    page.approvals.push(approval);
+    let full = display::Resolved {
+        label: None,
+        input: display::Input {
+            summary: Some(display::Text {
+                text: "Exact captured command".into(),
+                code: true,
+            }),
+            context: Some(display::Text {
+                text: "/exact/working/directory".into(),
+                code: false,
+            }),
+            ..Default::default()
+        },
+        output: None,
+        approval: vec![],
+        status: None,
+        command: None,
+        diagnostics: vec![],
+    };
+    Arc::make_mut(&mut detail).resolved = Some(full);
+    let reference = call.detail_reference(page).unwrap();
+    let client = Arc::new(Client::new(Arc::new(Backend {
+        reference: reference.clone(),
+        detail,
+        total: None,
+    })));
+    let tracker = Tracker::new(client, tokio::runtime::Handle::current());
+    tracker.set([reference.clone()]);
+    assert!(matches!(
+        tracker.wait(&reference).await,
+        sailry_client::conversation::details::State::Ready(_)
+    ));
+    let mut sent = BTreeSet::new();
+    let first: Value =
+        serde_json::from_str(&super::view(&current, Some(&tracker), &mut sent).unwrap()).unwrap();
+    assert_eq!(first["calls"][0]["approval_view"]["unrestricted"], false);
+    assert_eq!(
+        first["calls"][0]["approval_view"]["context"],
+        "/exact/working/directory"
+    );
+    assert!(first["calls"][0]["detail"].is_object());
+    assert!(first["calls"][0]["detail"].get("approval_view").is_none());
+    Arc::make_mut(&mut current.calls)[0]
+        .approval
+        .as_mut()
+        .unwrap()
+        .access = Some(Access::Unrestricted);
+    let snapshot = Arc::make_mut(current.snapshot.as_mut().unwrap());
+    snapshot.sequence += 1;
+    Arc::make_mut(&mut snapshot.page).approvals[0].access = Some(Access::Unrestricted);
+    assert_eq!(
+        current.calls[0].detail_reference(&snapshot.page),
+        Some(reference)
+    );
+    let latest: Value =
+        serde_json::from_str(&super::view(&current, Some(&tracker), &mut sent).unwrap()).unwrap();
+    assert_eq!(latest["calls"][0]["detail_state"]["kind"], "ready");
+    assert!(latest["calls"][0].get("detail").is_none());
+    assert_eq!(latest["calls"][0]["approval_view"]["unrestricted"], true);
+    assert_eq!(
+        latest["calls"][0]["approval_view"]["description"]["label"],
+        "Exact captured command"
+    );
+    assert_eq!(
+        latest["calls"][0]["approval_view"]["context"],
+        "/exact/working/directory"
+    );
 }
 
 #[tokio::test]
@@ -346,7 +482,7 @@ async fn selection_exposes_limits_and_releases_details() {
         details,
         detail_changes,
         selected: Default::default(),
-        client,
+        sent: Default::default(),
         current: receiver.clone(),
         receiver: Mutex::new(receiver),
         stop: CancellationToken::new(),
@@ -362,8 +498,10 @@ async fn selection_exposes_limits_and_releases_details() {
     ));
     let current = updates.current.borrow().clone();
     let summary = serialized(&current);
-    let value: Value =
-        serde_json::from_str(&super::view(&current, Some(&updates.details)).unwrap()).unwrap();
+    let value: Value = serde_json::from_str(
+        &super::view(&current, Some(&updates.details), &mut Default::default()).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         value["calls"][0]["detail_state"],
         json!({"kind":"too_large","limit":"transfer"})
@@ -372,12 +510,14 @@ async fn selection_exposes_limits_and_releases_details() {
         value["calls"][0]["approval_view"],
         summary["calls"][0]["approval_view"]
     );
-    assert!(value["detail_errors"].as_array().unwrap().is_empty());
+    assert_eq!(value["detail_errors"].as_array().unwrap().len(), 1);
     updates
         .track_tools(json!({"items":[]}).to_string())
         .unwrap();
-    let value: Value =
-        serde_json::from_str(&super::view(&current, Some(&updates.details)).unwrap()).unwrap();
+    let value: Value = serde_json::from_str(
+        &super::view(&current, Some(&updates.details), &mut Default::default()).unwrap(),
+    )
+    .unwrap();
     assert!(value["calls"][0]["detail_state"].is_null());
     assert!(value["calls"][0]["detail"].is_null());
     updates.close();

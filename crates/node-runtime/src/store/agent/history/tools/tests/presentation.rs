@@ -94,6 +94,26 @@ fn publishes_both_artifact_kinds_without_eager_content() {
 }
 
 #[test]
+fn published_files_require_inline_content_for_disclosure() {
+    let file = json!({"kind":"file","path":"index.html","mime":"text/html"});
+    let mut raw =
+        source(json!({"sailry_content":{"version":1,"blocks":[file]},"text":"Original HTML"}));
+    assert!(raw.summary().published);
+    assert!(!raw.summary().has_details);
+    assert!(raw.detail().content.is_some());
+    raw.result.as_mut().unwrap()["sailry_content"]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"kind":"text","path":"/text"}));
+    assert!(raw.summary().published);
+    assert!(raw.summary().has_details);
+    assert_eq!(
+        raw.detail().result.as_ref().unwrap()["text"],
+        "Original HTML"
+    );
+}
+
+#[test]
 fn preserves_failed_card_receipts() {
     let card = sailry_protocol::plugin::card::Summary {
         receipt: sailry_protocol::plugin::card::Receipt {

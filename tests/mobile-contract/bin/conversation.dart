@@ -377,15 +377,12 @@ Future<Fixture> create(
             null,
     'canonical projection retains a bounded detail reference',
   );
-  final pending = updates.next().then((_) => true, onError: (_) => true);
-  final selected = jsonDecode(
-    await updates
-        .toolOutput(
-          entry: call['source']['entry'],
-          index: call['source']['index'],
-        )
-        .timeout(const Duration(seconds: 2)),
-  );
+  final pending = updates.next();
+  final selected = await detail(
+    updates,
+    call,
+    first: pending,
+  ).timeout(const Duration(seconds: 2));
   check(
     selected['output']['preview'].contains('中文 tool result 🙂'),
     'pending observation does not block shared selected output',
@@ -398,7 +395,6 @@ Future<Fixture> create(
     'reference resolves to canonical tool output',
   );
   await updates.close();
-  await pending.timeout(const Duration(seconds: 2));
   var closed = false;
   try {
     await updates.next();
@@ -487,4 +483,35 @@ void checkStatistics(Map<String, dynamic> snapshot) {
         usage['reasoning'] == 0,
     'shared conversation totals cross FFI and reconnect',
   );
+}
+
+Future<Map<String, dynamic>> detail(
+  ConversationUpdates updates,
+  Map<String, dynamic> call, {
+  Future<String>? first,
+}) async {
+  await updates.trackTools(
+    selection: jsonEncode({
+      'items': [call['source']],
+    }),
+  );
+  while (true) {
+    final view = jsonDecode(await (first ?? updates.next()));
+    first = null;
+    final current = (view['calls'] as List)
+        .cast<Map<String, dynamic>>()
+        .singleWhere(
+          (value) =>
+              value['source']['entry'] == call['source']['entry'] &&
+              value['source']['index'] == call['source']['index'],
+        );
+    check(
+      (view['detail_errors'] as List).isEmpty,
+      'selected detail loads without errors',
+    );
+    if (current['detail_state']?['kind'] == 'ready' &&
+        current['detail'] is Map) {
+      return current['detail'] as Map<String, dynamic>;
+    }
+  }
 }

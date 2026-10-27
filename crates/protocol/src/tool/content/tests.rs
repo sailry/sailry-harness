@@ -305,7 +305,7 @@ mod text {
             };
             assert_eq!(text.read(&value), Some("完整内容 🙂\n```rust\n"));
             assert_eq!(text.notices[0].label("zh-CN"), "不完整");
-            assert!(content.has_visible(&value));
+            assert!(content.has_details(&value));
             assert!(
                 !serde_json::to_string(&content)
                     .unwrap()
@@ -338,7 +338,7 @@ mod text {
             !Presentation::Content
                 .content(&value)
                 .unwrap()
-                .has_visible(&value)
+                .has_details(&value)
         );
     }
 }
