@@ -115,7 +115,7 @@ worktrees or stash changes. Local builds and tests share the repository's root
 `CARGO_TARGET_DIR`. An explicit `--target-dir` selects the shared cache, and
 `--jobs N` controls build concurrency. Local commands leave concurrency to Cargo
 by default; CI defaults to two Cargo jobs. `CARGO_BUILD_JOBS` remains an explicit
-override. `BUILD_JOBS` controls native build tools separately.
+override and is passed through to Cargo, including `default` and negative values.
 The recipes and CI share command definitions; these entries do not install hooks.
 
 Select checks from affected behavior and dependency boundaries. Reuse passing

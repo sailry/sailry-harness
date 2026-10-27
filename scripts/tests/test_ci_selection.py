@@ -253,10 +253,21 @@ class Commands(unittest.TestCase):
 
     def test_limits_ci_only(self):
         for environment, expected in (({}, None), ({"CI": "false"}, None),
-                                      ({"CI": "true", "BUILD_JOBS": "1"}, "2"),
-                                      ({"CARGO_BUILD_JOBS": "4"}, "4")):
+                                      ({"CI": "true"}, "2")):
             with self.subTest(environment=environment), patch.dict(ci.os.environ, environment, clear=True):
                 self.assertEqual(ci.job_limit(), expected)
+
+    def test_leaves_environment_limits_to_cargo(self):
+        for value in ("4", "-1", "default"):
+            for is_ci in ("true", "false"):
+                environment = {"CI": is_ci, "CARGO_BUILD_JOBS": value}
+                with self.subTest(environment=environment), patch.dict(ci.os.environ, environment, clear=True):
+                    self.assertIsNone(ci.job_limit())
+                    for name in ("backend", "desktop", "host", "lint"):
+                        for command in ci.check_commands(name, ci.job_limit(), selection=ci.outputs(ci.LANES)):
+                            self.assertNotIn("--jobs", command["argv"])
+                            self.assertNotIn("--build-jobs", command["argv"])
+                    self.assertEqual(ci.os.environ["CARGO_BUILD_JOBS"], value)
 
     def test_runs_real_plugin_contracts_after_backend(self):
         commands = ci.check_commands("backend", env={"CARGO_TARGET_DIR":"/fixture/lane", "CARGO_BUILD_TARGET":"aarch64-apple-darwin"})

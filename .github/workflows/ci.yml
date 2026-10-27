@@ -94,7 +94,6 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '2'
       CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
-      BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -152,7 +151,6 @@ jobs:
     timeout-minutes: 240
     env:
       CARGO_BUILD_JOBS: '2'
-      BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -262,7 +260,6 @@ jobs:
     timeout-minutes: 150
     env:
       CARGO_BUILD_JOBS: '2'
-      BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -344,7 +341,6 @@ jobs:
     timeout-minutes: 150
     env:
       CARGO_BUILD_JOBS: '2'
-      BUILD_JOBS: '1'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -406,7 +402,6 @@ jobs:
     timeout-minutes: 240
     env:
       CARGO_BUILD_JOBS: '2'
-      BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0

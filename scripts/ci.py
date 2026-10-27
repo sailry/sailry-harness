@@ -518,7 +518,9 @@ def cache_usage():
 
 
 def job_limit():
-    return os.getenv("CARGO_BUILD_JOBS", "2" if os.getenv("CI") == "true" else None)
+    if "CARGO_BUILD_JOBS" in os.environ:
+        return None
+    return "2" if os.getenv("CI") == "true" else None
 
 
 def main():
