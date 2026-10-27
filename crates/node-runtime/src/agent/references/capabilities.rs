@@ -1,30 +1,34 @@
 //! Explicit mentions select a capability for this task without widening tool permissions.
 use super::*;
-use sailry_protocol::conversation::reference::Target;
-use std::collections::BTreeSet;
+use sailry_protocol::conversation::reference::{Reference, Target};
+use std::collections::{BTreeMap, BTreeSet};
 
-pub(in crate::agent) async fn instruction(
+pub(in crate::agent) fn tools(tools: &[catalog::Registration]) -> BTreeMap<String, Vec<String>> {
+    let mut captured = BTreeMap::<String, Vec<String>>::new();
+    for tool in tools {
+        if let Some(plugin) = &tool.plugin {
+            captured
+                .entry(plugin.clone())
+                .or_default()
+                .push(tool.tool.name().to_owned());
+        }
+    }
+    captured
+}
+
+pub(in crate::agent) async fn instruction<'a>(
     invocation: &Invocation,
+    references: impl Iterator<Item = &'a Reference>,
     resources: &crate::plugins::resources::Resources,
-    tools: &[catalog::Registration],
+    tools: &BTreeMap<String, Vec<String>>,
 ) -> Result<String, Fault> {
     let mut result = String::new();
     let mut loaded = BTreeSet::new();
-    for reference in invocation.message.references.iter().chain(
-        invocation
-            .followups
-            .iter()
-            .flat_map(|input| &input.message.references),
-    ) {
+    for reference in references {
         match &reference.target {
             Target::Plugin(name) => {
-                let names: Vec<_> = tools
-                    .iter()
-                    .filter(|tool| tool.plugin.as_deref() == Some(name.as_str()))
-                    .map(|tool| tool.tool.name())
-                    .collect();
                 result.push_str(&format!("\n\nThe user explicitly selected plugin {name} for this task. Use its applicable capabilities to fulfill the request. This selection does not itself execute an action or grant additional permissions."));
-                if !names.is_empty() {
+                if let Some(names) = tools.get(name) {
                     result.push_str(&format!("\nAvailable tools: {}", names.join(", ")));
                 }
                 if let Some(package) = invocation

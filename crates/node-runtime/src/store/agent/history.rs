@@ -12,10 +12,11 @@ pub(in crate::store) mod output;
 pub(super) mod pages;
 pub(in crate::store) mod tools;
 // Canonical telemetry remains available to statistics without consuming chat or prompt pages.
-pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((
+pub(super) const VISIBLE_EVENT: &str = "CASE WHEN
     json_extract(e.body,'$.author')='system'
     AND json_extract(e.body,'$.content') IS NULL
-    AND (json_extract(e.body,'$.usage_metadata') IS NULL
+THEN NOT coalesce((
+    (json_extract(e.body,'$.usage_metadata') IS NULL
          OR (json_extract(e.body,'$.event_metadata.sailry_model_purpose')='compaction'
              AND json_type(e.body,'$.event_metadata.sailry_model_observation') IS 'text'))
     AND json_extract(e.body,'$.error_code') IS NULL
@@ -33,12 +34,11 @@ pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((
     AND json_extract(e.body,'$.actions.artifact_delta')='{}'
     AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.actions') action WHERE NOT (
         action.type='null'
-        OR (action.key='state_delta' AND NOT EXISTS (SELECT 1 FROM json_each(action.value) field
-            WHERE field.key!='sailry.context.masked_outputs'))
+        OR action.key='state_delta'
         OR (action.key IN ('artifact_delta','workflow_positions') AND action.value='{}')
         OR (action.key IN ('skip_summarization','escalate','input_screened') AND action.value=0)
     ))
-),0)";
+),0) ELSE 1 END";
 #[cfg(test)]
 mod tests;
 mod web_search;

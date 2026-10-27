@@ -273,6 +273,45 @@ fn appends_only_changed_runtime_context() {
 }
 
 #[test]
+fn appends_capabilities_without_repeating_policy() {
+    let turn = TurnId::new();
+    let snapshot = Snapshot::default();
+    let mut values = current(WorkMode::Code);
+    let first = capture(turn, &HashMap::new(), &snapshot, values.clone(), &[])
+        .unwrap()
+        .unwrap();
+    let state: HashMap<String, Value> = first.actions.state_delta.into_iter().collect();
+    let original = values[0].1.clone();
+    let capability = "\n\nThe user explicitly selected plugin files for this task.";
+    values[0].1.push_str(capability);
+    let changed = capture(turn, &state, &snapshot, values, &[])
+        .unwrap()
+        .unwrap();
+    let text = changed
+        .content()
+        .unwrap()
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<String>();
+    assert!(text.contains(capability));
+    assert!(!text.contains(&original));
+    assert_eq!(
+        changed.actions.state_delta[POLICY],
+        json!(original + capability)
+    );
+    let mut state = state;
+    state.extend(changed.actions.state_delta);
+    let retained = context(&state).unwrap();
+    let text = serde_json::to_string(&retained).unwrap();
+    assert!(text.contains("The user explicitly selected plugin files for this task."));
+    assert!(text.contains("This turn uses Ask permission"));
+}
+
+#[test]
 fn materializes_exact_captured_context() {
     let guide = instructions::key("AGENTS.md");
     let mut initial = Event::new("first");

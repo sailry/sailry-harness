@@ -169,6 +169,18 @@ async fn fresh_input_precedes_stopped_queue() {
             .turn,
         active
     );
+    let mut event = AdkEvent::new(active.id.to_string());
+    event.author = "user".into();
+    event.set_content(adk_core::Content::new("user").with_text("Active input"));
+    history::append(
+        &mut fixture.database,
+        fixture.session,
+        active.id,
+        event,
+        &fixture.events,
+    )
+    .await
+    .unwrap();
     let mut captured = Vec::new();
     for text in ["First waiting input", "Second waiting input"] {
         let Output::QueuedTurn(turn) = command(
@@ -212,7 +224,7 @@ async fn fresh_input_precedes_stopped_queue() {
         .await
         .unwrap();
     assert!(
-        !can_resume(&fixture.database.connection, fixture.session)
+        can_resume(&fixture.database.connection, fixture.session)
             .await
             .unwrap()
     );
@@ -337,6 +349,18 @@ async fn fresh_input_precedes_stopped_queue() {
             .unwrap();
         assert_eq!(invocation.turn, turn);
         assert_eq!(invocation.message.text, input);
+        let mut event = AdkEvent::new(turn.id.to_string());
+        event.author = "user".into();
+        event.set_content(adk_core::Content::new("user").with_text(input));
+        history::append(
+            &mut fixture.database,
+            fixture.session,
+            turn.id,
+            event,
+            &fixture.events,
+        )
+        .await
+        .unwrap();
         runs::finish(
             &mut fixture.database,
             turn.id,

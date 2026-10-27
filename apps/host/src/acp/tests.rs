@@ -248,7 +248,10 @@ async fn retains_node_ownership_on_disconnect_and_cancel() {
             if explicit {
                 editor.send(json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":fixture.session.id}}));
                 let cancelled = editor.reply(3, None).await;
-                assert_eq!(cancelled["result"]["stopReason"], "cancelled");
+                assert_eq!(
+                    cancelled["result"]["stopReason"], "cancelled",
+                    "{cancelled}"
+                );
                 assert_eq!(fixture.settled().await.runs[0].status, Status::Cancelled);
                 editor.close().await;
             } else {

@@ -27,6 +27,8 @@ pub(in crate::store) async fn execute(
         } => {
             validate(message)?;
             let run = check_item(db, *turn, *expected_revision).await?;
+            let mut session = super::super::super::commands::session(db, run.session).await?;
+            super::super::super::sessions::writable(&session)?;
             let mut query = db
                 .prepare("SELECT input IS NOT NULL FROM agent_runs WHERE turn=?1")
                 .await
@@ -43,8 +45,6 @@ pub(in crate::store) async fn execute(
                     "admitted input is immutable; submit an edited message",
                 ));
             }
-            let mut session = super::super::super::commands::session(db, run.session).await?;
-            super::super::super::sessions::writable(&session)?;
             session.config = super::super::permissions::config(db, run.turn).await?;
             session.roles = super::super::super::sessions::roles::for_turn(db, run.turn).await?;
             super::super::references::validate(

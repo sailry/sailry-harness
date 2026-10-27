@@ -204,15 +204,17 @@ impl Session {
         ingress: &Arc<Ingress>,
         invocation: &Invocation,
         inputs: &[sailry_protocol::conversation::QueuedMessage],
+        capabilities: &str,
         stop: &CancellationToken,
     ) -> Result<Option<Content>, Fault> {
         let current = Self::load(ingress, invocation).await?;
-        let policy = current
+        let mut policy = current
             .state
             .get(POLICY)
             .and_then(Value::as_str)
             .ok_or_else(|| Fault::invalid("captured policy is unavailable"))?
             .to_owned();
+        policy.push_str(capabilities);
         let environment = super::environment(ingress, invocation, stop).await;
         let personal = super::personal(ingress, invocation.worktree, stop).await?;
         let personal = if personal.is_empty() {
@@ -273,7 +275,16 @@ fn capture(
     let mut content = Vec::new();
     for (key, value) in current {
         if state.get(key) != Some(&Value::String(value.clone())) {
-            content.push(value.clone());
+            let text = if key == POLICY {
+                state
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .and_then(|previous| value.strip_prefix(previous))
+                    .unwrap_or(&value)
+            } else {
+                &value
+            };
+            content.push(text.to_owned());
             event
                 .actions
                 .state_delta

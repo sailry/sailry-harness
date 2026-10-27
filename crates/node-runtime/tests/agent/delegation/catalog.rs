@@ -4,6 +4,10 @@ fn tool(name: &str) -> String {
     crate::agent_support::plugin_tool("delegation", name)
 }
 
+fn discover(name: &str) -> (String, Value) {
+    ("tool_search".into(), json!({"query":tool(name),"limit":1}))
+}
+
 async fn submit(client: &Client, session: &Session, message: &str) -> QueuedTurn {
     let Output::QueuedTurn(turn) = client
         .execute(client.prepare(Command::SubmitTurn {
@@ -187,6 +191,7 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                 )
             );
             assert!(tools.contains("load_skill"));
+            assert!(tools.contains("tool_search"));
             let delegation = !stage.starts_with("delegation");
             assert_eq!(
                 instruction.contains("delegation:compare-worktrees"),
@@ -201,17 +206,12 @@ async fn scopes_skill_policy_to_admitted_inventory() {
                 "{stage}"
             );
             for name in ["spawn_agent", "guide_agent", "wait_agent"] {
-                assert_eq!(
-                    tools.contains(tool(name).as_str()),
-                    delegation,
-                    "{stage} {name}"
-                );
+                assert!(!tools.contains(tool(name).as_str()), "{stage} {name}");
             }
             let worktrees = stage == "enabled";
             for name in ["create_worktree", "register_worktree"] {
-                assert_eq!(
-                    tools.contains(plugin_tool("worktrees", name).as_str()),
-                    worktrees,
+                assert!(
+                    !tools.contains(plugin_tool("worktrees", name).as_str()),
                     "{stage} {name}"
                 );
             }
@@ -261,18 +261,15 @@ async fn edits_catalog_and_applies_future_capture() {
             node.local()
         });
         let server=Server::scripted_tools(vec![
+            discover("add_agent"),
             (tool("add_agent"),json!({"key":"catalog-review","name":"Catalog review","instructions":"Inspect catalog changes","read_only":true,"max_turns":3})),
+            discover("list_agents"),
             (tool("list_agents"),json!({})),
         ]).await;
         install(&client).await;
         let (session, _) = configured_session(&client, &server.endpoint, &root).await;
         let mut config = session.config.clone();
         config.permission = Permission::Full;
-        config
-            .options
-            .entry("delegation".into())
-            .or_default()
-            .insert("mode".into(), json!("multitask"));
         let Output::Session(mut session) = client
             .execute(client.prepare(Command::SetSessionConfig {
                 session: session.id,
@@ -288,10 +285,12 @@ async fn edits_catalog_and_applies_future_capture() {
         let turn = submit(&client, &session, "Add a catalog definition").await;
         let page = finished(&client, session.id, turn.id).await;
         let output = results(&client, &page).await;
-        assert_eq!(output.len(), 2, "{output:?}");
-        assert_eq!(output[0]["revision"], "1", "{output:?}");
+        assert_eq!(output.len(), 4, "{output:?}");
+        assert_eq!(output[0]["tools"][0]["name"], tool("add_agent"));
+        assert_eq!(output[1]["revision"], "1", "{output:?}");
+        assert_eq!(output[2]["tools"][0]["name"], tool("list_agents"));
         assert_eq!(
-            output[1]["agents"].as_array().unwrap().len(),
+            output[3]["agents"].as_array().unwrap().len(),
             catalog(&client).await.len()
         );
         let added = catalog(&client)
@@ -302,6 +301,7 @@ async fn edits_catalog_and_applies_future_capture() {
         assert_eq!(read(&client, session.id).await.roles, original);
         assert_eq!(turn.roles, original);
         server.replace_tools(vec![
+            discover("edit_agent"),
             (
                 tool("edit_agent"),
                 json!({"id":added.id,"expected_revision":"1","name":"Edited catalog review"}),
@@ -340,7 +340,7 @@ async fn edits_catalog_and_applies_future_capture() {
             panic!("session expected")
         };
         session = updated;
-        server.replace_tools(vec![(tool("apply_agents"),json!({"agents":[{"id":edited.id,"revision":edited.revision.to_string()}],"expected_session_revision":session.revision.to_string()}))]);
+        server.replace_tools(vec![discover("apply_agents"),(tool("apply_agents"),json!({"agents":[{"id":edited.id,"revision":edited.revision.to_string()}],"expected_session_revision":session.revision.to_string()}))]);
         let applying = submit(&client, &session, "Apply this exact selection").await;
         let (_, approval) = super::super::approvals::pending(&client, session.id).await;
         let Output::QueuedTurn(queued) = client
@@ -378,10 +378,13 @@ async fn edits_catalog_and_applies_future_capture() {
         session = read(&client, session.id).await;
         assert_eq!(session.roles.profiles, vec![edited.clone()]);
 
-        server.replace_tools(vec![(
-            tool("spawn_agent"),
-            json!({"role":edited.key,"task":"Must retain the queued roster"}),
-        )]);
+        server.replace_tools(vec![
+            discover("spawn_agent"),
+            (
+                tool("spawn_agent"),
+                json!({"role":edited.key,"task":"Must retain the queued roster"}),
+            ),
+        ]);
         client
             .execute(client.prepare(Command::StartQueuedTurn { turn: queued.id }))
             .await
@@ -426,10 +429,13 @@ async fn edits_catalog_and_applies_future_capture() {
             );
         }
 
-        server.replace_tools(vec![(
-            tool("delete_agent"),
-            json!({"id":edited.id,"expected_revision":edited.revision.to_string()}),
-        )]);
+        server.replace_tools(vec![
+            discover("delete_agent"),
+            (
+                tool("delete_agent"),
+                json!({"id":edited.id,"expected_revision":edited.revision.to_string()}),
+            ),
+        ]);
         let deleting = submit(&client, &session, "Delete only this catalog definition").await;
         let (_, approval) = super::super::approvals::pending(&client, session.id).await;
         client

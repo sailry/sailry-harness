@@ -238,17 +238,16 @@ pub(super) async fn history(
     .all();
     // Prompt events omit telemetry; their completed boundary must use the same
     // projection rather than a later statistics-only canonical event.
-    let visible = history::VISIBLE_EVENT;
     let mut query = db
-        .prepare(&format!(
+        .prepare(
             "WITH ends AS (SELECT e.turn, max(e.sequence) AS last FROM conversation_events h
            JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1
            AND json_type(e.body,'$.actions.compaction') IS NULL
-           AND json_type(e.body,'$.content')='object' AND {visible} GROUP BY e.turn)
+           AND json_type(e.body,'$.content')='object' GROUP BY e.turn)
          SELECT e.id, e.turn, json_extract(r.body,'$.status'), e.sequence=ends.last
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-         JOIN agent_runs r ON r.turn=e.turn JOIN ends ON ends.turn=e.turn WHERE h.session=?1"
-        ))
+         JOIN agent_runs r ON r.turn=e.turn JOIN ends ON ends.turn=e.turn WHERE h.session=?1",
+        )
         .await
         .map_err(|error| adk_error(storage_error(error)))?;
     let owners = {

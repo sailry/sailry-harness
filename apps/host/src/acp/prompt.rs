@@ -119,16 +119,20 @@ impl Adapter {
                             .data(json!({"sailry":context})),
                     );
                 }
-                if page.queue.paused && page.queue.items.iter().any(|item| item.turn == turn.id) {
-                    context["state"] = json!("paused");
-                    return Err(
-                        sdk::Error::new(-32000, "The admitted turn is paused in Sailry")
-                            .data(json!({"sailry":context})),
-                    );
-                }
                 if let Some(run) = page.runs.iter().find(|run| run.turn == turn.id) {
                     context["revision"] = json!(run.revision);
                     context["state"] = json!(run.status);
+                    if run.status == Status::Queued
+                        && page.queue.paused
+                        && page.queue.items.iter().any(|item| item.turn == turn.id)
+                    {
+                        context["state"] = json!("paused");
+                        return Err(sdk::Error::new(
+                            -32000,
+                            "The admitted turn is paused in Sailry",
+                        )
+                        .data(json!({"sailry":context})));
+                    }
                     let stop = match run.status {
                         Status::Queued | Status::Running | Status::Stopping => None,
                         Status::Completed

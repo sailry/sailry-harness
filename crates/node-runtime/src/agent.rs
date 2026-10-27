@@ -503,8 +503,20 @@ async fn execute_with(
     }
     instruction.push_str("\n\n");
     instruction.push_str(prompt::recipient(invocation.child.is_some()));
+    let capability_tools = references::capabilities::tools(&extensions.tools);
     policy.push_str(
-        &references::capabilities::instruction(&invocation, &resources, &extensions.tools).await?,
+        &references::capabilities::instruction(
+            &invocation,
+            invocation.message.references.iter().chain(
+                invocation
+                    .followups
+                    .iter()
+                    .flat_map(|input| &input.message.references),
+            ),
+            &resources,
+            &capability_tools,
+        )
+        .await?,
     );
     if let Some(title) = title::instruction(
         invocation.title.as_deref(),
@@ -573,6 +585,8 @@ async fn execute_with(
             ingress,
             invocation,
             context.clone(),
+            resources,
+            capability_tools,
             stop.clone(),
         ));
     if let Some(hooks) = hooks {

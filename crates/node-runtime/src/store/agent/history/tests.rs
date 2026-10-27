@@ -59,6 +59,57 @@ fn captured() -> AdkEvent {
 }
 
 #[tokio::test]
+async fn preserves_action_visibility() {
+    let fixture = Fixture::new().await;
+    let mut telemetry = AdkEvent::new("telemetry");
+    telemetry.author = "system".into();
+    telemetry
+        .provider_metadata
+        .insert("sailry_execution_phases".into(), "{}".into());
+    let mut approved = telemetry.clone();
+    approved.actions.tool_confirmation_decision = Some(adk_core::ToolConfirmationDecision::Approve);
+    let mut denied = telemetry.clone();
+    denied.actions.tool_confirmation_decision = Some(adk_core::ToolConfirmationDecision::Deny);
+    let mut transfer = telemetry.clone();
+    transfer.actions.transfer_to_agent = Some("reviewer".into());
+    let mut masked = telemetry.clone();
+    masked.actions.state_delta.insert(
+        "sailry.context.masked_outputs".into(),
+        serde_json::json!([]),
+    );
+    let mut changed = masked.clone();
+    changed
+        .actions
+        .state_delta
+        .insert("saved".into(), serde_json::json!(1));
+    let mut query = fixture
+        .database
+        .connection
+        .prepare(&format!(
+            "SELECT {VISIBLE_EVENT} FROM (SELECT ?1 AS body) e"
+        ))
+        .await
+        .unwrap();
+    for (event, expected) in [
+        (telemetry, false),
+        (approved, true),
+        (denied, true),
+        (transfer, true),
+        (masked, false),
+        (changed, true),
+    ] {
+        let body = encode(&event).unwrap();
+        let visible = query
+            .query_row([body.as_slice()])
+            .await
+            .unwrap()
+            .get::<bool>(0)
+            .unwrap();
+        assert_eq!(visible, expected, "{:?}", event.actions);
+    }
+}
+
+#[tokio::test]
 async fn hides_canonical_runtime_context() {
     let fixture = Fixture::new().await;
     let mut event = AdkEvent::new("context");

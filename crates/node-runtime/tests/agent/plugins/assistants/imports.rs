@@ -2,6 +2,8 @@ use super::*;
 use std::collections::BTreeMap;
 
 const PROVIDER: &str = "assistant-tools";
+const TOOL_CONTEXT: &str = "Captured imported tool context";
+const RESOURCE_CONTEXT: &str = "Provider-owned resource instructions";
 
 async fn provider(fixture: &process::Fixture, revision: u64, version: &str) -> plugin::Info {
     let root = fixture.root.join("provider");
@@ -14,6 +16,9 @@ async fn provider(fixture: &process::Fixture, revision: u64, version: &str) -> p
         format!(
             r#"
 import {{ context, readSettings, readFile, getValue }} from 'sailry/sdk';
+export function initialize({{tools,resources}}) {{
+  return {{tools, instruction:{TOOL_CONTEXT:?} + (resources ? '\n' + {RESOURCE_CONTEXT:?} : '')}};
+}}
 export async function inspect() {{
   const scope = context();
   const settings = await readSettings();
@@ -45,7 +50,7 @@ export function hidden() {{ throw new Error('Unselected tool executed'); }}
         "name":PROVIDER,"version":version,"extensions":{"dev.sailry.platform":{
             "api_version":"v1","actions":["files.read","storage.read","storage.write"],
             "settings_schema":"dev.sailry.platform/settings.json",
-            "host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],"handlers":["inspect","hidden"]},
+            "host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],"handlers":["initialize","inspect","hidden"],"turn":{"initialize":"initialize"}},
             "tools":[
                 {"name":"inspect","description":"Read the assistant scratch file",
                     "handler":{"name":"inspect","parameters":{"type":"object","properties":{}}}},
@@ -447,10 +452,13 @@ async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
             "read_skill_resource".into(),
             "ask_user".into(),
             "set_session_title".into(),
-            "compact_context".into()
+            "compact_context".into(),
+            "read_tool_output".into()
         ])
     );
     let messages = request["messages"].to_string();
+    assert_eq!(messages.matches(TOOL_CONTEXT).count(), 1);
+    assert!(!messages.contains(RESOURCE_CONTEXT));
     assert!(messages.contains("assistant-notes:review"));
     assert!(!messages.contains("assistant-tools:hidden"));
     assert!(!messages.contains("MCP server assistant-tools/hidden"));

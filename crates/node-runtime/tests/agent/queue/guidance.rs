@@ -262,6 +262,11 @@ async fn rejects_unsupported_guidance_attachments() {
         tools(&mut fixture).await;
         let mut provider = fixture.provider.clone();
         provider.models[0].tools = false;
+        provider.models[0].capabilities = Some(discovery::Capabilities {
+            vision: Some(false),
+            tools: Some(false),
+            ..Default::default()
+        });
         let Output::Provider(provider) = fixture
             .client
             .execute(fixture.client.prepare(Command::PutProvider {
@@ -273,10 +278,12 @@ async fn rejects_unsupported_guidance_attachments() {
         else {
             panic!("provider expected")
         };
+        assert!(!provider.models[0].tools);
+        assert!(!provider.models[0].vision);
         fixture.provider = provider;
         let active = fixture.push("Initial task").await;
         fixture.server.wait_count(1).await;
-        let file = attachment(&fixture, b"Guidance attachment").await;
+        let file = attachment(&fixture, b"Unsupported binary\0\xff").await;
         let selected = held(
             &fixture,
             Input {

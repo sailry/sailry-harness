@@ -3,7 +3,7 @@ use super::*;
 use adk_core::{
     AdkError, AfterModelCallback, BeforeModelCallback, BeforeModelResult, Content, LlmRequest,
 };
-use std::sync::Mutex;
+use std::{collections::BTreeMap, sync::Mutex};
 
 #[derive(Default)]
 struct Inputs {
@@ -26,6 +26,8 @@ pub(super) fn bind(
     ingress: &Arc<Ingress>,
     invocation: &Arc<Invocation>,
     context: Arc<compaction::active::Context>,
+    resources: Arc<crate::plugins::resources::Resources>,
+    tools: BTreeMap<String, Vec<String>>,
     stop: CancellationToken,
 ) -> BeforeModelCallback {
     let ingress = ingress.clone();
@@ -34,11 +36,14 @@ pub(super) fn bind(
     let session = invocation.turn.session;
     let child = invocation.child.is_some();
     let inputs = Arc::new(Mutex::new(Inputs::default()));
+    let tools = Arc::new(tools);
     Box::new(move |callback, mut request| {
         let ingress = ingress.clone();
         let invocation = invocation.clone();
         let context = context.clone();
         let inputs = inputs.clone();
+        let resources = resources.clone();
+        let tools = tools.clone();
         let stop = stop.clone();
         Box::pin(async move {
             let frontier = request.contents.len();
@@ -54,11 +59,20 @@ pub(super) fn bind(
                     .await
                     .map_err(model_error)?;
                 let pending = batch.pending();
-                let mut contents = prompt::Session::refresh(&ingress, &invocation, &queued, &stop)
-                    .await
-                    .map_err(model_error)?
-                    .into_iter()
-                    .collect::<Vec<_>>();
+                let capabilities = references::capabilities::instruction(
+                    &invocation,
+                    queued.iter().flat_map(|input| &input.message.references),
+                    &resources,
+                    &tools,
+                )
+                .await
+                .map_err(model_error)?;
+                let mut contents =
+                    prompt::Session::refresh(&ingress, &invocation, &queued, &capabilities, &stop)
+                        .await
+                        .map_err(model_error)?
+                        .into_iter()
+                        .collect::<Vec<_>>();
                 context.preflight(&pending, request.tools.clone()).await?;
                 contents.extend(pending);
                 if stop.is_cancelled() {

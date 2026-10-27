@@ -82,6 +82,21 @@ impl Fixture {
             panic!("turn expected");
         };
         runs::claim(&mut database, &events).await.unwrap().unwrap();
+        let mut event = AdkEvent::new("fixture");
+        event.author = "user".into();
+        event.set_content(adk_core::Content::new("user").with_text("fixture"));
+        event
+            .provider_metadata
+            .insert(INPUT_TURN.into(), turn.id.to_string());
+        event
+            .provider_metadata
+            .insert(INPUT_SOURCE.into(), "user".into());
+        event
+            .provider_metadata
+            .insert(INPUT_PART.into(), "0".into());
+        history::append(&mut database, session.id, turn.id, event, &events)
+            .await
+            .unwrap();
         let request = ToolConfirmationRequest {
             acting: None,
             origin: None,
@@ -226,7 +241,10 @@ async fn retains_unconsumed_answers() {
         .await
         .unwrap()
         .page;
-    assert_eq!(page.entries.len(), 1);
+    assert_eq!(page.entries.len(), 2);
+    assert_eq!(page.entries[0].author, "user");
+    assert_eq!(page.entries[0].parts, vec![Part::Text("fixture".into())]);
+    assert_eq!(page.entries[1].author, "assistant");
     assert_eq!(page.questions, vec![answered]);
     assert_eq!(page.runs[0].status, Status::Interrupted);
     assert_eq!(
@@ -320,7 +338,10 @@ async fn restart_interrupts_waiting() {
         .page;
     assert_eq!(page.questions[0].id, question.id);
     assert_eq!(page.questions[0].state, State::Interrupted);
-    assert_eq!(page.entries.len(), 1);
+    assert_eq!(page.entries.len(), 2);
+    assert_eq!(page.entries[0].author, "user");
+    assert_eq!(page.entries[0].parts, vec![Part::Text("fixture".into())]);
+    assert_eq!(page.entries[1].author, "assistant");
     assert!(
         resolve(
             &database.connection,

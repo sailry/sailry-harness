@@ -288,10 +288,14 @@ async fn validates_role_requirements() {
             } else {
                 node.local()
             });
-            let parent = Server::parallel(vec![(
-                crate::agent_support::plugin_tool("delegation", "spawn_agent"),
-                json!({"role": "review", "task": "Bounded child task"}),
-            )])
+            let spawn = crate::agent_support::plugin_tool("delegation", "spawn_agent");
+            let parent = Server::tools(vec![
+                ("tool_search".into(), json!({"query":spawn,"limit":1})),
+                (
+                    spawn.clone(),
+                    json!({"role": "review", "task": "Bounded child task"}),
+                ),
+            ])
             .await;
             let child = Server::tools(vec![(
                 plugin_tool("files", "list_directory"),
@@ -336,26 +340,30 @@ async fn validates_role_requirements() {
             let page = finished(&client, session.id, turn.id).await;
             assert_eq!(page.runs[0].status, Status::Completed);
             let output = results(&client, &page).await;
-            assert!(output[0].get("error").is_some(), "{output:?}");
+            assert_eq!(output.len(), 2, "{output:?}");
+            assert_eq!(output[0]["tools"][0]["name"], spawn);
+            assert!(output[1].get("error").is_some(), "{output:?}");
             let view = super::super::progress::observe(&client, session.id).await;
-            assert_eq!(view.calls.len(), 1);
+            assert_eq!(view.calls.len(), 2);
+            assert_eq!(view.calls[0].name, "tool_search");
+            assert_eq!(view.calls[1].name, spawn);
             if skills {
                 assert_eq!(
-                    view.calls[0]
+                    view.calls[1]
                         .failure
                         .as_ref()
                         .and_then(|failure| failure.code),
                     Some(ErrorCode::InvalidRequest)
                 );
-                assert_eq!(output[0]["error"]["code"], "invalid_request");
+                assert_eq!(output[1]["error"]["code"], "invalid_request");
                 assert_eq!(
-                    output[0]["error"]["message"],
+                    output[1]["error"]["message"],
                     "skill is not listed in this turn's catalog"
                 );
                 assert_eq!(child.requests.lock().unwrap().len(), 0);
                 assert!(children(&client, session.id, 0).await.is_empty());
             } else {
-                assert!(view.calls[0].failure.is_none());
+                assert!(view.calls[1].failure.is_none());
                 assert_eq!(child.requests.lock().unwrap().len(), 1);
                 let children = children(&client, session.id, 1).await;
                 let page = history(&client, children[0].id).await;

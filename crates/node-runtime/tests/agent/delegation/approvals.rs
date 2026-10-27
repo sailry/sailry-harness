@@ -47,10 +47,27 @@ async fn isolates_call_identity() {
         ])
         .await;
         let (session, _, _) = setup(&client, &root, &parent, &child).await;
+        let mut config = session.config.clone();
+        config
+            .options
+            .entry("delegation".into())
+            .or_default()
+            .insert("mode".into(), json!("multitask"));
+        let Output::Session(session) = client
+            .execute(client.prepare(Command::SetSessionConfig {
+                session: session.id,
+                expected_revision: session.revision,
+                config,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
         let Output::QueuedTurn(turn) = client
             .execute(client.prepare(Command::SubmitTurn {
                 session: session.id,
-                expected_revision: 2,
+                expected_revision: session.revision,
                 message: "Delegate both tasks".into(),
             }))
             .await

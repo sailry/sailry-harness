@@ -646,10 +646,17 @@ async fn synchronous_spawn_waits_for_child() {
 #[tokio::test]
 async fn default_background_child_inherits_permissions() {
     for remote in [false, true] {
-        let parent = Server::parallel(vec![(
-            plugin_tool("delegation", "spawn_agent"),
-            json!({"task":"Independent default child","background":true}),
-        )])
+        let spawn = plugin_tool("delegation", "spawn_agent");
+        let parent = Server::prompt_tools(
+            "Parent-only private context".into(),
+            vec![
+                ("tool_search".into(), json!({"query":spawn,"limit":1})),
+                (
+                    spawn.clone(),
+                    json!({"task":"Independent default child","background":true}),
+                ),
+            ],
+        )
         .await;
         let fixture = Fixture::start(remote, parent, Server::start(false).await).await;
         let active = fixture.push("Parent-only private context").await;
@@ -672,10 +679,10 @@ async fn default_background_child_inherits_permissions() {
                 .parts
                 .contains(&Part::Text("Parent-only private context".into()))
         }));
-        assert_eq!(
-            results(&fixture.client, &parent).await[0]["session"],
-            json!(child.id)
-        );
+        let output = results(&fixture.client, &parent).await;
+        assert_eq!(output.len(), 2, "{output:?}");
+        assert_eq!(output[0]["tools"][0]["name"], spawn);
+        assert_eq!(output[1]["session"], json!(child.id));
         fixture.close().await;
     }
 }

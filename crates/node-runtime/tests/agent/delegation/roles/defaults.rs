@@ -127,7 +127,13 @@ fn context(request: &Value, personal: &str) -> String {
         let role = &tool["function"]["parameters"]["properties"]["role"];
         assert!(role.get("enum").is_none());
         assert_eq!(role["type"], json!(["string", "null"]));
-        assert!(instructions.contains("review (Review): Inspect the delegated task"));
+        assert!(
+            request["messages"]
+                .to_string()
+                .contains("review (Review): Inspect the delegated task"),
+            "{:?}",
+            request["messages"]
+        );
         assert!(!purpose.contains("Frozen review instructions"));
     }
     request["messages"].to_string()
@@ -197,6 +203,7 @@ async fn inherits_assistant_and_reuses_frozen_context() {
         else {
             panic!("turn expected")
         };
+        assert_eq!(first.roles.profiles, vec![fixture.role.clone()]);
         let mut provider = fixture
             .snapshot()
             .await

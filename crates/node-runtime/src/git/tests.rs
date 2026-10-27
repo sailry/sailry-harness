@@ -90,7 +90,9 @@ async fn content_reads_bypass_scan_queue() {
             root.clone(),
             Command::ListGitChanges {
                 worktree,
-                target: None,
+                target: Some(GitChangeTarget::Worktree {
+                    scope: GitDiffScope::All,
+                }),
                 cursor: None,
                 limit: 10,
             },

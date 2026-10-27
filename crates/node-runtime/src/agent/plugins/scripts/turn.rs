@@ -107,11 +107,7 @@ impl Turn {
         Ok(Initialized {
             owner,
             tools: result.tools,
-            instruction: if resources {
-                result.instruction
-            } else {
-                String::new()
-            },
+            instruction: result.instruction,
             parameters: result.parameters,
         })
     }

@@ -549,12 +549,38 @@ impl Context {
             0
         };
         self.restore_masks().await?;
+        let masks = self.state.masked()?;
+        let tokens = if masks.is_empty() {
+            Some(self.tokens(&request, pending).await?)
+        } else {
+            None
+        };
+        if !forced
+            && tokens.is_some_and(|tokens| {
+                self.summarizer
+                    .budget
+                    .is_none_or(|budget| tokens < budget * PREPARE_PERCENT / 100)
+            })
+        {
+            // Ordinary requests already have ADK's history. Canonical boundaries
+            // and result revisions are needed only for a changed projection.
+            let mut projected = request.clone();
+            if matches!(
+                model::history::limit(&mut projected, self.window(), &Default::default()),
+                Ok(None)
+            ) {
+                return Ok(projected);
+            }
+        }
         let history = self.history().await?;
         let revisions = model::history::revisions(&history.events);
         // Summary boundaries match the unmasked request; masks are reapplied last.
         let mut projected = request.clone();
-        model::history::remask(&mut projected, &self.state.masked()?, &revisions);
-        let tokens = self.tokens(&projected, pending).await?;
+        model::history::remask(&mut projected, &masks, &revisions);
+        let tokens = match tokens {
+            Some(tokens) => tokens,
+            None => self.tokens(&projected, pending).await?,
+        };
         let above = |tokens| self.summarizer.needs_compaction(Some(tokens));
         if !forced && !above(tokens) {
             if self

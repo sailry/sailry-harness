@@ -357,8 +357,8 @@ async fn failure_preserves_context() {
                 .count();
             assert_eq!(attempts, retries + 1);
             assert_eq!(
-                attempts, 6,
-                "one summary attempt must use one bounded retry chain"
+                attempts, 2,
+                "one summary attempt must share one recovery request"
             );
             assert_eq!(requests.len() - attempts, 5);
             attempts
