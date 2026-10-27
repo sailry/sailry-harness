@@ -91,13 +91,6 @@ struct Stream {
     budget: Arc<Budget>,
 }
 
-#[cfg(test)]
-impl Default for Stream {
-    fn default() -> Self {
-        Self::new(tempfile::NamedTempFile::new(), Arc::default(), STREAM_LIMIT)
-    }
-}
-
 impl Stream {
     fn new(
         created: std::io::Result<tempfile::NamedTempFile>,
@@ -140,9 +133,6 @@ impl Stream {
             return;
         }
         let Some(writer) = &mut self.writer else {
-            if self.path.is_none() {
-                self.error = Some("command output retention is closed".into());
-            }
             return;
         };
         let prefix = self.limit.min(PREFIX_LIMIT);
@@ -291,7 +281,10 @@ impl Stream {
         let mut file = File::open(path).map_err(failure)?;
         let (head_end, tail_start, written) = self.ranges(&mut file).map_err(failure)?;
         let gap = tail_start > head_end && written > head_end;
-        let offset = if gap && offset == head_end {
+        let offset = if gap
+            && (offset == head_end
+                || self.writer.is_some() && (head_end..tail_start).contains(&offset))
+        {
             tail_start
         } else {
             offset
@@ -380,16 +373,6 @@ fn failure(error: std::io::Error) -> Fault {
 pub(crate) struct Retained {
     stdout: Mutex<Stream>,
     stderr: Mutex<Stream>,
-}
-
-#[cfg(test)]
-impl Default for Retained {
-    fn default() -> Self {
-        Self {
-            stdout: Mutex::default(),
-            stderr: Mutex::default(),
-        }
-    }
 }
 
 impl Retained {

@@ -7,20 +7,15 @@ mod commands;
 mod files;
 mod git;
 mod window;
+pub(in crate::agent) use window::protected;
 pub(in crate::agent) use window::{
-    Masks, PREPARED, Prepared, Revisions, masked, prepare, remask, revisions, take_prepared,
+    Masks, PREPARED, Prepared, clear_prepared, masked, prepare, revisions, take_prepared,
 };
-pub(in crate::agent) use window::{limit, mask, protected};
 #[cfg(test)]
 mod tests;
 
 const LIMIT: usize = 32 * 1024;
 const EDGE: usize = 16 * 1024;
-
-#[cfg(test)]
-fn project(contents: &mut [Content]) {
-    window::Prepared::new(contents, &Revisions::new()).project(contents);
-}
 
 fn eligible(original: &Value, name: &str, id: &str) -> bool {
     if original.get("output").is_some_and(|source| {

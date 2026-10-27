@@ -90,7 +90,7 @@ impl Context {
         tools: &std::collections::HashMap<String, serde_json::Value>,
     ) -> adk_core::Result<Option<Event>> {
         let mut summarizer = self.summarizer.clone();
-        summarizer.tools = Some(tools.clone());
+        summarizer.tools = tools.clone();
         summarizer.masks = Some(self.state.masked()?);
         summarizer
             .summarize_with(
@@ -126,7 +126,7 @@ impl Context {
         &self,
         request: &LlmRequest,
         pending: &[Content],
-        outputs: &model::history::Prepared,
+        outputs: &model::history::Prepared<'_>,
     ) -> adk_core::Result<u64> {
         Ok(match self.usage().await?.filter(|usage| usage.observed) {
             Some(usage) => usage
@@ -145,7 +145,7 @@ impl Context {
     fn mask(
         &self,
         request: &mut LlmRequest,
-        outputs: &mut model::history::Prepared,
+        outputs: &mut model::history::Prepared<'_>,
         protect: u64,
         minimum: u64,
     ) -> adk_core::Result<u64> {
@@ -159,7 +159,7 @@ impl Context {
     fn retain(
         &self,
         request: &mut LlmRequest,
-        outputs: &mut model::history::Prepared,
+        outputs: &mut model::history::Prepared<'_>,
         applied: bool,
     ) -> adk_core::Result<u64> {
         outputs.remask(request, &self.state.masked()?);
@@ -299,6 +299,7 @@ impl Context {
             })?;
         let checkpoint = Checkpoint::new(request, index, content.clone(), offset);
         request.contents.splice(1..index, [content.clone()]);
+        model::history::clear_prepared(request);
         request.previous_response_id = None;
         if !self.rebuilt.load(Ordering::Relaxed) {
             *self
@@ -401,7 +402,7 @@ impl Context {
             return Ok(());
         };
         let mut summarizer = self.summarizer.clone();
-        summarizer.tools = Some(tools.clone());
+        summarizer.tools = tools.clone();
         summarizer.masks = Some(self.state.masked()?);
         *candidate = Some(Candidate::start(
             history.events[..cut].to_vec(),
@@ -462,7 +463,7 @@ impl Context {
         &self,
         request: &LlmRequest,
         pending: &[Content],
-        outputs: &model::history::Prepared,
+        outputs: &model::history::Prepared<'_>,
     ) -> adk_core::Result<()> {
         self.state.mask(model::history::masked(request))?;
         let mut canonical = request.clone();
@@ -548,7 +549,7 @@ impl Context {
             self.rebuild(request, &materialized, invocation, pending)?;
         }
         let revisions = model::history::revisions(&materialized.events);
-        let mut outputs = model::history::prepare(request, &revisions);
+        let mut outputs = model::history::prepare(request, Some(&revisions));
         self.retain(request, &mut outputs, true)?;
         match outputs.limit(request, self.window()) {
             Ok(projection) => {
@@ -603,8 +604,25 @@ impl Context {
         };
         self.restore_masks().await?;
         let masks = self.state.masked()?;
+        // ADK removes the IDs it generated for providers without call IDs.
+        // Only those requests need canonical results before ordinary sizing.
+        let anonymous_history = if forced_history.is_none()
+            && request
+                .contents
+                .iter()
+                .flat_map(|content| &content.parts)
+                .any(|part| matches!(part, Part::FunctionResponse { id: None, .. }))
+        {
+            Some(self.history().await?)
+        } else {
+            None
+        };
+        let revisions = forced_history
+            .as_ref()
+            .or(anonymous_history.as_ref())
+            .map(|history| model::history::revisions(&history.events));
         let mut projected = request.clone();
-        let mut outputs = model::history::prepare(&mut projected, &Default::default());
+        let mut outputs = model::history::prepare(&mut projected, revisions.as_ref());
         // Raw ADK results identify their canonical revision by their own hash.
         // Saved masks alone do not require reading the full canonical history.
         outputs.remask(&mut projected, &masks);
@@ -617,20 +635,27 @@ impl Context {
         {
             // Ordinary requests already have ADK's history. Canonical boundaries
             // and result revisions are needed only for a changed projection.
-            if matches!(outputs.limit(&mut projected, self.window()), Ok(None)) {
-                return Ok(projected);
+            match outputs.limit(&mut projected, self.window()) {
+                Ok(projection) => {
+                    if self.state.project(projection)? {
+                        self.invalidate(&projected, pending, &outputs).await?;
+                    }
+                    return Ok(projected);
+                }
+                Err(error) if model::context_overflow(&error) => {}
+                Err(error) => return Err(error),
             }
-            projected = request.clone();
-            outputs = model::history::prepare(&mut projected, &Default::default());
         }
-        let history = match forced_history {
-            Some(history) => history,
-            None => self.history().await?,
+        let near_history = if forced_history.is_none() && anonymous_history.is_none() {
+            Some(self.history().await?)
+        } else {
+            None
         };
-        let revisions = model::history::revisions(&history.events);
-        outputs.set_revisions(&revisions);
-        // Summary boundaries match the unmasked request; masks are reapplied last.
-        outputs.remask(&mut projected, &masks);
+        let history = forced_history
+            .as_ref()
+            .or(anonymous_history.as_ref())
+            .or(near_history.as_ref())
+            .expect("context history was loaded");
         let above = |tokens| self.summarizer.needs_compaction(Some(tokens));
         if !forced && !above(tokens) {
             if self
@@ -646,17 +671,10 @@ impl Context {
             }
             return Ok(projected);
         }
-        // Compare with the normal request before adding masks. Ordinary output
-        // formatting alone must not count as recovery from a failed summary.
+        // Only a failed summary needs the ordinary-formatting baseline. Keep
+        // the prepared slots instead of serializing and indexing them again.
         let mut baseline = projected.clone();
         let mut baseline_outputs = outputs.clone();
-        if let Err(error) = baseline_outputs.limit(&mut baseline, self.window())
-            && !model::context_overflow(&error)
-        {
-            return Err(error);
-        }
-        let initial = baseline_outputs.tokens(&baseline)?;
-        drop(baseline);
         let mut saved = 0;
         if !forced {
             // Masking older results usually suffices; a prepared summary stays
@@ -674,7 +692,6 @@ impl Context {
                 return Ok(projected);
             }
         }
-        drop(projected);
         let prepared = match self.prepared(&history).await {
             Ok(Some(prepared)) => Ok(Some(prepared)),
             Ok(None) => match self.cut(&history, &request, invocation, !pending.is_empty())? {
@@ -688,6 +705,7 @@ impl Context {
             },
             Err(error) => Err(error),
         };
+        let mut recovered_history = None;
         let result = match prepared {
             Ok(Some((cut, Some(summary)))) => {
                 match self
@@ -704,7 +722,13 @@ impl Context {
                     .await
                 {
                     Ok(_) => return Ok(request),
-                    Err(error) => Err(error),
+                    Err(error) => {
+                        // Commit can rebuild after a durable summary. Its new
+                        // contents require new slots; failed generation does not.
+                        projected = request.clone();
+                        recovered_history = Some(self.history().await?);
+                        Err(error)
+                    }
                 }
             }
             Ok(_) => Ok(()),
@@ -714,7 +738,17 @@ impl Context {
             Err(error)
                 if failure::classify(&error) == (Stage::History, Reason::HistoryMismatch) =>
             {
-                self.rebuild(&mut request, &self.history().await?, invocation, pending)?;
+                if recovered_history.is_none() {
+                    recovered_history = Some(self.history().await?);
+                }
+                self.rebuild(
+                    &mut projected,
+                    recovered_history
+                        .as_ref()
+                        .expect("recovery history was loaded"),
+                    invocation,
+                    pending,
+                )?;
                 if pending.is_empty() {
                     self.rebuilt.store(true, Ordering::Relaxed);
                 }
@@ -724,11 +758,29 @@ impl Context {
             Err(error) => return Err(error),
             Ok(()) => None,
         };
-        let mut outputs = model::history::prepare(&mut request, &revisions);
-        saved += self.retain(&mut request, &mut outputs, false)?;
-        let projection = outputs.limit(&mut request, self.window())?;
+        let recovered_revisions = recovered_history
+            .as_ref()
+            .map(|history| model::history::revisions(&history.events));
+        if let Some(revisions) = &recovered_revisions {
+            outputs = model::history::prepare(&mut projected, Some(revisions));
+        }
+        saved += self.retain(&mut projected, &mut outputs, false)?;
+        let projection = outputs.limit(&mut projected, self.window())?;
         let changed = self.state.project(projection)?;
-        let after = outputs.tokens(&request)?;
+        let after = outputs.tokens(&projected)?;
+        let initial = if failure
+            .as_ref()
+            .is_some_and(|error| !failure::transient(error))
+        {
+            if let Err(error) = baseline_outputs.limit(&mut baseline, self.window())
+                && !model::context_overflow(&error)
+            {
+                return Err(error);
+            }
+            baseline_outputs.tokens(&baseline)?
+        } else {
+            0
+        };
         let failure = match failure {
             // Exhausted transient retries continue with the retained context.
             Some(error) if !failure::transient(&error) && after >= initial => return Err(error),
@@ -738,12 +790,12 @@ impl Context {
             self.state.record(tokens)?;
         }
         if saved > 0 || changed {
-            self.invalidate(&request, pending, &outputs).await?;
+            self.invalidate(&projected, pending, &outputs).await?;
         }
         if let Some(error) = failure {
             self.notice(&error, SummaryMode::Automatic, true).await?;
         }
-        Ok(request)
+        Ok(projected)
     }
 
     pub(in crate::agent) async fn preflight(

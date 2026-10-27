@@ -132,7 +132,11 @@ pub(super) fn convert(
         messages,
         system: (!system.is_empty()).then(|| system.join("\n\n")),
         tools,
-        tool_choice: wire::Choice::Auto,
+        tool_choice: if super::super::call::is_summary() {
+            wire::Choice::None
+        } else {
+            wire::Choice::Auto
+        },
         reasoning: wire::Reasoning {
             effort,
             replay: capabilities.reasoning,

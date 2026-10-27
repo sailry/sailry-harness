@@ -1,5 +1,5 @@
 use super::*;
-use adk_core::FunctionResponseData;
+use adk_core::{FunctionResponseData, LlmRequest};
 
 fn response(name: &str, value: Value) -> Content {
     Content {
@@ -36,7 +36,11 @@ fn bounds_mcp_without_rewriting_history() {
     let output = json!({"text":[format!("begin\n{}\nfinal failure 中文🙂", "日志🙂".repeat(60_000))],"isError":true});
     let canonical = vec![response("mcp_fixture_logs", output.clone())];
     let mut request = canonical.clone();
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let projected = value(&request[0]);
     assert_eq!(value(&canonical[0]), &output);
     assert!(
@@ -77,7 +81,11 @@ fn bounds_mcp_without_rewriting_history() {
     assert_eq!(function_response.inline_data[0].data, vec![1, 2, 3]);
     assert_eq!(annotations, &Some(json!({"preserved":true})));
     let once = serde_json::to_value(&request).unwrap();
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     assert_eq!(serde_json::to_value(&request).unwrap(), once);
 }
 
@@ -92,7 +100,11 @@ fn leaves_small_and_unrecognized_results_unchanged() {
         ),
     ];
     let canonical = serde_json::to_value(&request).unwrap();
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     assert_eq!(serde_json::to_value(&request).unwrap(), canonical);
 }
 
@@ -107,7 +119,11 @@ fn reuses_only_the_loaded_guide_revision() {
     });
     let canonical = vec![response("plugin_files_read", output.clone())];
     let mut request = canonical.clone();
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     assert_eq!(value(&request[0])["already_loaded"], true);
     assert!(
         value(&request[0])["text"]
@@ -120,7 +136,11 @@ fn reuses_only_the_loaded_guide_revision() {
     changed["data"]["revision"] = json!("changed");
     changed["sailry_context"] = json!("Newly discovered guide context");
     let mut request = vec![response("plugin_files_read", changed)];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     assert!(value(&request[0]).get("already_loaded").is_none());
     assert!(
         value(&request[0])["text"]
@@ -150,7 +170,11 @@ fn numbers_file_text_with_bounded_lines() {
         path:"src/fixture.rs".into(),lines,size:100_000,revision:"revision".into(),offset:0,next_offset:Some(100),
     }});
     let mut request = vec![response("plugin_files_read", original.clone())];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let projected = value(&request[0]);
     let text = projected["text"].as_str().unwrap();
     assert!(text.starts_with("src/fixture.rs\nLines 1–100; 100000 bytes; revision revision\n"));
@@ -166,7 +190,11 @@ fn projects_unwrapped_file_operation_results() {
     let original = json!({"path":"source.txt","lines":[{"number":1,"text":"first ".repeat(800)}],
         "size":4800,"revision":"canonical-revision","offset":0,"next_offset":null});
     let mut request = vec![response("declared_file_reader", original.clone())];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     assert!(
         value(&request[0])["text"]
             .as_str()
@@ -210,7 +238,11 @@ fn groups_search_and_keeps_match_context() {
         }],
     };
     let mut request = vec![call, response("plugin_files_search", output)];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let text = value(&request[1])["text"].as_str().unwrap();
     assert_eq!(text.matches("a/long/path/to/fixture.rs").count(), 1);
     assert_eq!(text.matches("needle中文🙂").count(), 12);
@@ -238,7 +270,11 @@ fn locates_matches_without_decoding_other_arguments() {
         }],
     };
     let mut request = vec![call, response("plugin_files_search", output)];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let text = value(&request[1])["text"].as_str().unwrap();
     assert!(text.contains("needle中文🙂"));
     assert!(text.chars().count() < 400);
@@ -261,7 +297,11 @@ fn normalizes_progress_without_changing_raw() {
     }});
     let canonical = vec![response("plugin_commands_run", output)];
     let mut request = canonical.clone();
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     assert_eq!(value(&request[0])["data"]["stdout"]["text"], normalized);
     assert_eq!(value(&canonical[0])["data"]["stdout"]["text"], raw);
     assert!(
@@ -287,7 +327,11 @@ fn bounds_complete_command_diagnostics() {
             original["sailry_command"] = json!({"id":"00000000-0000-4000-8000-000000000001"});
             let canonical = vec![response("plugin_commands_run", original.clone())];
             let mut request = canonical.clone();
-            project(&mut request);
+            let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+            prepare(&mut outgoing, None)
+                .limit(&mut outgoing, None)
+                .unwrap();
+            request = outgoing.contents;
             let projected = value(&request[0]);
             let data = projected.get("data").unwrap_or(projected);
             let stdout = data["stdout"]["text"].as_str().unwrap();
@@ -314,7 +358,11 @@ fn preserves_both_command_stream_edges() {
         "outcome":{"kind":"exited","data":1},"elapsed_ms":23
     });
     let mut request = vec![response("declared_command", original.clone())];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let projected = value(&request[0]);
     for stream in ["stdout", "stderr"] {
         let text = projected[stream]["text"].as_str().unwrap();
@@ -414,7 +462,11 @@ async fn restarts_lossy_captures_at_raw_zero() {
         }
         original["sailry_command"] = preview;
         let mut request = vec![response("declared_command", original)];
-        project(&mut request);
+        let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+        prepare(&mut outgoing, None)
+            .limit(&mut outgoing, None)
+            .unwrap();
+        request = outgoing.contents;
         let projected = &value(&request[0])["data"]["stdout"];
         assert!(projected["text"].as_str().unwrap().contains(&format!(
             "read_command id={} stream=stdout offset=0",
@@ -453,7 +505,11 @@ fn preserves_raw_preview_coordinates() {
             "total_bytes":total,"retained_bytes":4 * 1024 * 1024,"retained_tail_offset":total - 3 * 1024 * 1024,"retained_end":total,"invalid_utf8":false}}
     });
     let mut request = vec![response("declared_command", original.clone())];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let projected = value(&request[0]);
     let stream = &projected["data"]["stdout"];
     let text = stream["text"].as_str().unwrap();
@@ -485,12 +541,65 @@ fn avoids_read_hints_outside_retained_capacity() {
         "stdout":{"text":"captured ".repeat(6000),"truncated":true,"invalid_utf8":false}, "stderr":{"text":"","truncated":false,"invalid_utf8":false}},
         "sailry_command":{"id":"empty", "stdout":{"tail":"last failure","tail_offset":200_000,"total_bytes":200_012,"retained_bytes":0,"retained_head_bytes":0,"retained_tail_offset":0,"retained_end":0,"invalid_utf8":false}}});
     let mut request = vec![response("declared_command", original)];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let text = value(&request[0])["data"]["stdout"]["text"]
         .as_str()
         .unwrap();
     assert!(text.contains("read_tool_output"));
     assert!(!text.contains("read_command"));
+}
+
+#[test]
+fn omits_unreadable_tail_hints() {
+    for (retained, end) in [(4096, 4096), (14, 14)] {
+        let original = json!({"kind":"command_result","data":{
+            "stdout":{"text":"prefix ".repeat(2000),"truncated":true,"invalid_utf8":false},
+            "stderr":{"text":"","truncated":false,"invalid_utf8":false}},
+            "sailry_command":{"id":"retained","stdout":{
+                "tail":"last failure","tail_offset":200_000,"total_bytes":200_012,
+                "retained_bytes":retained,"retained_head_bytes":end,"retained_tail_offset":end,"retained_end":end,"invalid_utf8":false}}});
+        let mut request = LlmRequest::new("fixture", vec![response("declared_command", original)]);
+        prepare(&mut request, None)
+            .limit(&mut request, None)
+            .unwrap();
+        let output = &value(&request.contents[0])["data"]["stdout"];
+        let text = output["text"].as_str().unwrap();
+        assert!(text.contains("read_command id=retained stream=stdout offset=0"));
+        assert!(!text.contains("preview tail starts"));
+        assert!(!text.contains("offset=200000"));
+        assert_eq!(output["tail_offset"], 200_000);
+        assert_eq!(output["retained_end"], end);
+    }
+}
+
+#[test]
+fn separates_head_and_tail_encoding() {
+    let tail = format!("{}tail with replacement �", "t".repeat(60 * 1024));
+    let original = json!({"kind":"command_output","data":{
+        "stdout":{"text":tail,"invalid_utf8":true,"truncated":true},
+        "stderr":{"text":"","invalid_utf8":false,"truncated":false}},
+        "sailry_command":{"id":"background","stdout":{
+            "head":"h".repeat(8192),"head_invalid_utf8":false,
+            "tail":"last replacement �","tail_offset":100_000,"total_bytes":100_019,
+            "retained_bytes":100_019,"retained_end":100_019,"retained_tail_offset":8192,"invalid_utf8":true}}});
+    let mut request = LlmRequest::new("fixture", vec![response("declared_command", original)]);
+    prepare(&mut request, None)
+        .limit(&mut request, None)
+        .unwrap();
+    let output = &value(&request.contents[0])["data"]["stdout"];
+    assert_eq!(output["head_bytes"], 8192);
+    assert_eq!(output["omitted_bytes"], 100_000 - 8192);
+    assert_eq!(output["invalid_utf8"], true);
+    assert!(
+        output["text"]
+            .as_str()
+            .unwrap()
+            .contains("read_command id=background stream=stdout offset=8192")
+    );
 }
 
 #[test]
@@ -502,7 +611,11 @@ fn measures_offsets_before_terminal_normalization() {
     let original = json!({"kind":"command_result","sailry_command":{"id":"raw"},"data":{
         "stdout":{"text":raw,"truncated":false,"invalid_utf8":false}, "stderr":{"text":"","truncated":false,"invalid_utf8":false}}});
     let mut request = vec![response("declared_command", original)];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let projected = &value(&request[0])["data"]["stdout"];
     let head = projected["head_bytes"].as_u64().unwrap() as usize;
     let tail = projected["tail_offset"].as_u64().unwrap() as usize;
@@ -520,7 +633,11 @@ fn continues_file_pages_without_duplicate_hint() {
     let original = json!({"path":"source.txt", "lines":(1..=50).map(|number| json!({"number":number,"text":"x".repeat(1_000)})).collect::<Vec<_>>(),
         "size":50_000,"revision":"original","offset":0,"next_offset":null});
     let mut request = vec![response("declared_file_reader", original)];
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let projected = value(&request[0]);
     let text = projected["text"].as_str().unwrap();
     let offset = projected["next_offset"].as_u64().unwrap();
@@ -537,7 +654,11 @@ fn shortens_log_without_changing_canonical_entries() {
     }]}});
     let canonical = vec![response("plugin_git_log", output.clone())];
     let mut request = canonical.clone();
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let entry = &value(&request[0])["data"]["entries"][0];
     assert_eq!(
         entry["message"],
@@ -561,7 +682,11 @@ fn removes_only_sparse_status_fields() {
     }});
     let canonical = vec![response("plugin_git_status", output.clone())];
     let mut request = canonical.clone();
-    project(&mut request);
+    let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+    prepare(&mut outgoing, None)
+        .limit(&mut outgoing, None)
+        .unwrap();
+    request = outgoing.contents;
     let data = &value(&request[0])["data"];
     for key in ["staged", "deleted", "ahead"] {
         assert!(data.get(key).is_none());

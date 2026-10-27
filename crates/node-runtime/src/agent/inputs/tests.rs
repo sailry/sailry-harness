@@ -130,7 +130,7 @@ async fn writes_context_before_new_input() {
 }
 
 #[tokio::test]
-async fn preserves_context_with_duplicate_inputs() {
+async fn appends_changed_context_after_existing_input() {
     let directory = tempfile::tempdir().unwrap();
     let node = crate::Node::start_empty(directory.path().join("node"))
         .await
@@ -175,6 +175,20 @@ async fn preserves_context_with_duplicate_inputs() {
         )
         .await
         .unwrap();
+    let mut retried = context.clone();
+    retried.id = "retried-context".into();
+    batch
+        .append(
+            &node.ingress,
+            session,
+            owner,
+            "fixture",
+            "user",
+            None,
+            Some(retried),
+        )
+        .await
+        .unwrap();
     let history = node
         .ingress
         .sessions(owner)
@@ -216,6 +230,106 @@ async fn preserves_context_with_duplicate_inputs() {
         panic!("conversation history expected")
     };
     assert!(history.page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, sailry_protocol::conversation::Part::Text(text) if text == "Original user text")));
+    node.ingress.agents.finish(owner);
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn resumes_partially_saved_inputs() {
+    let directory = tempfile::tempdir().unwrap();
+    let node = crate::Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let (session, owner) = running(&node).await;
+    let mut batch = Batch {
+        entries: vec![Entry {
+            turn: owner,
+            references: vec![],
+            content: Content::new("user").with_text("Original user text"),
+            capability: None,
+        }],
+    };
+    let mut context = Event::new("context-fixture");
+    context.author = "system".into();
+    context
+        .provider_metadata
+        .insert(prompt::session::METADATA.into(), "context".into());
+    context.set_content(Content::new("user").with_text("Changed runtime context"));
+    context.actions.state_delta.insert(
+        prompt::session::POLICY.into(),
+        serde_json::json!("Changed policy"),
+    );
+    batch
+        .append(
+            &node.ingress,
+            session,
+            owner,
+            "fixture",
+            "user",
+            None,
+            Some(context.clone()),
+        )
+        .await
+        .unwrap();
+    let client = Client::new(node.local());
+    let Output::QueuedTurn(next) = client
+        .execute(client.prepare(Command::QueueTurn {
+            session,
+            expected_revision: 1,
+            message: "Remaining input".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("queued input expected")
+    };
+    batch.entries.push(Entry {
+        turn: next.id,
+        references: vec![],
+        content: Content::new("user").with_text("Remaining input"),
+        capability: None,
+    });
+    let original_context = context.id.clone();
+    context.id = "retried-context".into();
+    batch
+        .append(
+            &node.ingress,
+            session,
+            owner,
+            "fixture",
+            "user",
+            None,
+            Some(context),
+        )
+        .await
+        .unwrap();
+    let history = node
+        .ingress
+        .sessions(owner)
+        .get(GetRequest {
+            app_name: APP.into(),
+            user_id: USER.into(),
+            session_id: session.to_string(),
+            num_recent_events: None,
+            after: None,
+        })
+        .await
+        .unwrap();
+    let events = history.events().all();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0].id, original_context);
+    assert_eq!(
+        events[1].provider_metadata[crate::store::agent::INPUT_TURN],
+        owner.to_string()
+    );
+    assert_eq!(
+        events[2].provider_metadata[crate::store::agent::INPUT_TURN],
+        next.id.to_string()
+    );
+    assert_eq!(
+        events[2].content().unwrap().parts[0].text(),
+        Some("Remaining input")
+    );
     node.ingress.agents.finish(owner);
     node.shutdown().await.unwrap();
 }

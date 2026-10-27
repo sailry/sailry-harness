@@ -52,6 +52,7 @@ impl Running {
         let (input, received) = mpsc::channel(32);
         let cancelled = stop.clone();
         let closing = closed.clone();
+        let retained = Arc::new(crate::process::output::Retained::new(root, Arc::default()));
         let task = tokio::spawn(async move {
             execute(
                 launch,
@@ -60,7 +61,7 @@ impl Running {
                 &closing,
                 &progress,
                 received,
-                Arc::new(crate::process::output::Retained::default()),
+                retained,
             )
             .await
         });

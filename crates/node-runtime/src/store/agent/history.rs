@@ -1,6 +1,6 @@
 use super::*;
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 pub(in crate::store::agent) mod canonical;
 mod citations;
@@ -418,7 +418,7 @@ async fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> R
     remember(db, session, names).await
 }
 
-async fn remember(
+pub(in crate::store) async fn remember(
     db: &Connection,
     session: SessionId,
     names: BTreeSet<String>,
@@ -447,6 +447,37 @@ async fn remember(
             params![session.to_string(), LOADED_TOOLS, encode(&loaded)?]).await.map_err(storage_error)?;
     }
     Ok(())
+}
+
+pub(in crate::store) async fn missing_tools(
+    db: &Connection,
+) -> Result<BTreeMap<SessionId, BTreeSet<String>>, Fault> {
+    let mut query = db
+        .prepare(
+            "SELECT DISTINCT h.session,json_extract(part.value,'$.name')
+         FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+         JOIN json_each(e.body,'$.content.parts') part
+         WHERE json_type(part.value,'$.name')='text' AND json_type(part.value,'$.args') IS NOT NULL
+           AND NOT EXISTS(SELECT 1 FROM agent_state state JOIN json_each(state.body) loaded
+             WHERE state.owner=h.session AND state.key=?1
+               AND loaded.value=json_extract(part.value,'$.name'))",
+        )
+        .await
+        .map_err(storage_error)?;
+    let mut rows = query.query([LOADED_TOOLS]).await.map_err(storage_error)?;
+    let mut missing = BTreeMap::<SessionId, BTreeSet<String>>::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let session = row
+            .get::<String>(0)
+            .map_err(storage_error)?
+            .parse()
+            .map_err(storage_error)?;
+        missing
+            .entry(session)
+            .or_default()
+            .insert(row.get(1).map_err(storage_error)?);
+    }
+    Ok(missing)
 }
 
 pub(in crate::store::agent) async fn called(

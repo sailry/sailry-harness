@@ -680,8 +680,14 @@ pub(super) fn execute<'a>(
             );
         }),
         Operation::Attachment { turn, id, reply } => Box::pin(async move {
-            let result = match calls::active(&database.connection, turn).await {
-                Ok(_run) => super::attachments::turns::source(&database.connection, turn, id).await,
+            let result = match runs::get(&database.connection, turn).await {
+                Ok(run) if run.status == Status::Running => {
+                    super::attachments::turns::source(&database.connection, turn, id).await
+                }
+                Ok(_) => Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "attachment request is no longer running",
+                )),
                 Err(error) => Err(error),
             };
             let _ = reply.send(result);

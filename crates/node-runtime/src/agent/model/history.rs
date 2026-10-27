@@ -12,6 +12,11 @@ use std::sync::Arc;
 mod mcp;
 pub(in crate::agent) mod output;
 
+#[cfg(test)]
+thread_local! {
+    static PREPARATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 struct Model {
     inner: Arc<dyn Llm>,
     origin: ProviderOrigin,
@@ -99,7 +104,7 @@ pub(super) fn wrap(
 /// Projects history for one request owner and stamps that owner on its responses.
 ///
 /// Every native path, API-key, OAuth and plugin, generates through this boundary.
-pub(super) async fn generate<F, Fut>(
+pub(in crate::agent) async fn generate<F, Fut>(
     mut request: LlmRequest,
     origin: ProviderOrigin,
     window: Option<Window>,
@@ -109,12 +114,25 @@ where
     F: FnOnce(LlmRequest) -> Fut,
     Fut: std::future::Future<Output = adk_core::Result<LlmResponseStream>>,
 {
+    let prepared = output::take_prepared(&mut request, window);
     project(&mut request, &origin);
-    let prepared = output::take_prepared(&mut request, window)?;
     if !prepared {
-        output::prepare(&mut request, &Default::default()).limit(&mut request, window)?;
-        output::take_prepared(&mut request, window)?;
+        output::prepare(&mut request, None).limit(&mut request, window)?;
+        output::take_prepared(&mut request, window);
     }
+    for content in &mut request.contents {
+        content.strip_generated_call_ids();
+        for part in &mut content.parts {
+            if let Part::FunctionResponse {
+                function_response, ..
+            } = part
+                && let Some(fields) = function_response.response.as_object_mut()
+            {
+                fields.remove("sailry_output");
+            }
+        }
+    }
+    super::tool_choice::prepare(&mut request, &origin.provider);
     Ok(responses(generate(request).await?, origin))
 }
 
@@ -123,19 +141,10 @@ fn project(request: &mut LlmRequest, origin: &ProviderOrigin) {
     coalesce(&mut request.contents);
 }
 
+pub(in crate::agent) use output::protected;
 pub(in crate::agent) use output::{
-    Masks, PREPARED, Prepared, Revisions, masked, prepare, remask, revisions,
+    Masks, PREPARED, Prepared, clear_prepared, masked, prepare, revisions,
 };
-pub(in crate::agent) use output::{mask, protected};
-
-/// Returns a fingerprint of results shortened for the window, if any.
-pub(in crate::agent) fn limit(
-    request: &mut LlmRequest,
-    window: Option<Window>,
-    revisions: &Revisions,
-) -> adk_core::Result<Option<String>> {
-    output::limit(request, window, revisions)
-}
 
 fn stamp(response: &mut LlmResponse, origin: &ProviderOrigin) {
     let metadata = response
@@ -445,7 +454,7 @@ mod tests {
                 }],
             }],
         );
-        prepare(&mut request, &Default::default())
+        prepare(&mut request, None)
             .limit(
                 &mut request,
                 Some(Window {
@@ -466,7 +475,7 @@ mod tests {
             expected
         );
         let projected = serde_json::to_vec(&request.contents).unwrap();
-        prepare(&mut request, &Default::default())
+        prepare(&mut request, None)
             .limit(
                 &mut request,
                 Some(Window {
@@ -476,6 +485,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(serde_json::to_vec(&request.contents).unwrap(), projected);
+        let preparations = PREPARATIONS.get();
         let stream = generate(
             request,
             origin(&provider(), "fixture", None, None),
@@ -484,6 +494,7 @@ mod tests {
                 output: 100,
             }),
             |request| async move {
+                assert_eq!(PREPARATIONS.get(), preparations + 1);
                 assert!(
                     request
                         .config
@@ -501,9 +512,209 @@ mod tests {
                 };
                 assert_eq!(function_response.response["output"]["call"], "mcp-call");
                 assert_eq!(function_response.response["output"]["revision"], expected);
+                assert!(function_response.response.get("sailry_output").is_none());
+                assert!(
+                    !function_response
+                        .response
+                        .to_string()
+                        .contains("sailry_output")
+                );
                 Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
             },
         )
+        .await
+        .unwrap();
+        drop(stream);
+    }
+
+    #[tokio::test]
+    async fn preserves_anonymous_revision_on_fallback() {
+        let text = "Canonical evidence 中文 🙂 ".repeat(200);
+        for original in [
+            serde_json::json!({"text":text}),
+            serde_json::json!(text),
+            serde_json::json!([text]),
+        ] {
+            let mut event = adk_core::Event::new("captured");
+            event.set_content(Content {
+                role: "function".into(),
+                parts: vec![Part::FunctionResponse {
+                    id: Some("adk-call-fixture".into()),
+                    function_response: adk_core::FunctionResponseData::new(
+                        "ordinary_fixture",
+                        original.clone(),
+                    ),
+                    annotations: None,
+                }],
+            });
+            let expected = blake3::hash(original.to_string().as_bytes())
+                .to_hex()
+                .to_string();
+            let revisions = revisions(std::slice::from_ref(&event));
+            let mut request = LlmRequest::new(
+                "fixture",
+                vec![
+                    Content {
+                        role: "model".into(),
+                        parts: vec![Part::FunctionCall {
+                            id: Some("adk-call-fixture".into()),
+                            name: "ordinary_fixture".into(),
+                            args: serde_json::json!({}),
+                            thought_signature: None,
+                        }],
+                    },
+                    event.content().unwrap().clone(),
+                ],
+            );
+            request.contents[1].strip_generated_call_ids();
+            prepare(&mut request, Some(&revisions))
+                .limit(
+                    &mut request,
+                    Some(Window {
+                        context: 10_000,
+                        output: 100,
+                    }),
+                )
+                .unwrap();
+            let Part::FunctionResponse {
+                id,
+                function_response,
+                ..
+            } = &request.contents[1].parts[0]
+            else {
+                unreachable!()
+            };
+            let mut visible = function_response.response.clone();
+            if let Some(fields) = visible.as_object_mut() {
+                fields.remove("sailry_output");
+                assert!(id.is_none());
+                assert_eq!(
+                    function_response.response["sailry_output"]["revision"],
+                    expected
+                );
+            } else {
+                assert_eq!(id.as_deref(), Some("adk-call-fixture"));
+            }
+            assert_eq!(visible, original);
+            let stream = generate(
+                request,
+                origin(&provider(), "fixture", None, None),
+                Some(Window {
+                    context: 1_000,
+                    output: 100,
+                }),
+                |request| async move {
+                    assert!(
+                        request
+                            .contents
+                            .iter()
+                            .flat_map(|content| &content.parts)
+                            .all(|part| match part {
+                                Part::FunctionCall { id, .. }
+                                | Part::FunctionResponse { id, .. } => id.is_none(),
+                                _ => true,
+                            })
+                    );
+                    let Part::FunctionResponse {
+                        function_response, ..
+                    } = &request.contents[1].parts[0]
+                    else {
+                        unreachable!()
+                    };
+                    assert_eq!(
+                        function_response.response["output"]["call"],
+                        "adk-call-fixture"
+                    );
+                    assert_eq!(function_response.response["output"]["revision"], expected);
+                    assert!(function_response.response.get("sailry_output").is_none());
+                    assert!(
+                        !function_response
+                            .response
+                            .to_string()
+                            .contains("sailry_output")
+                    );
+                    assert!(
+                        function_response.response.to_string().len() < original.to_string().len()
+                    );
+                    Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
+                },
+            )
+            .await
+            .unwrap();
+            drop(stream);
+        }
+    }
+
+    #[tokio::test]
+    async fn consumes_prepared_before_provider_history() {
+        let origin = origin(&provider(), "fixture", None, None);
+        let owned = serde_json::json!({
+            "provider_origin":origin,
+            "conversation_history_parts":[{"thinking":"Owned reasoning","signature":"signed"}]
+        });
+        let mut request = LlmRequest::new(
+            "fixture",
+            vec![
+                Content::new("user").with_text("Exact user input"),
+                Content::new("model").with_thinking("Foreign reasoning"),
+                adk_core::history::with_provider_parts(
+                    &Content::new("model")
+                        .with_text("First")
+                        .with_text(" second"),
+                    Some(&owned),
+                ),
+                Content {
+                    role: "function".into(),
+                    parts: vec![Part::FunctionResponse {
+                        id: Some("call".into()),
+                        function_response: adk_core::FunctionResponseData::with_inline_data(
+                            "mcp_fixture",
+                            serde_json::json!({"output":{"value":1},"text":["{\"value\":1}"]}),
+                            vec![adk_core::InlineDataPart {
+                                mime_type: "image/png".into(),
+                                data: vec![1, 2, 3],
+                                uri: None,
+                                annotations: None,
+                            }],
+                        ),
+                        annotations: Some(serde_json::json!({"retained":true})),
+                    }],
+                },
+            ],
+        );
+        let window = Some(Window {
+            context: 10_000,
+            output: 100,
+        });
+        prepare(&mut request, None)
+            .limit(&mut request, window)
+            .unwrap();
+        let preparations = PREPARATIONS.get();
+        let mut expected = request.clone();
+        project(&mut expected, &origin);
+        let Part::FunctionResponse {
+            function_response, ..
+        } = &mut expected.contents[2].parts[0]
+        else {
+            unreachable!()
+        };
+        function_response
+            .response
+            .as_object_mut()
+            .unwrap()
+            .remove("sailry_output");
+        let expected = serde_json::to_vec(&expected.contents).unwrap();
+        let stream = generate(request, origin, window, |request| async move {
+            assert_eq!(PREPARATIONS.get(), preparations);
+            assert_eq!(serde_json::to_vec(&request.contents).unwrap(), expected);
+            assert!(
+                !serde_json::to_string(&request)
+                    .unwrap()
+                    .contains("sailry_output")
+            );
+            assert!(!request.config.unwrap().extensions.contains_key(PREPARED));
+            Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
+        })
         .await
         .unwrap();
         drop(stream);

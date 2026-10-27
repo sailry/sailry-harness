@@ -358,7 +358,10 @@ only a candidate whose immutable prefix and instructions still match,
 retaining content appended after that prefix. Summary requests preserve the normal
 request prefix at preparation time, including tool declarations and exact owner
 context at its original positions, then append a user request for the handoff.
-They keep the captured model,
+Supported provider request adapters disable tool invocation without removing those
+declarations. Historical attachments retain their ordinary session visibility;
+reading them during maintenance does not authorize tool execution.
+Summary requests keep the captured model,
 reasoning effort and configured maximum output where the provider supports it.
 A failed summary never permits replay. Model-requested compaction below half the
 trigger returns current usage without changing context.
@@ -384,6 +387,9 @@ summary or projection invalidates stale context-size facts, then recomputes the
 effective estimate; helper usage still contributes to totals. Mask selections use
 canonical call and revision identities in existing session state, so reloading or
 summarizing later retains the same projected prefix and exact original references.
+Providers without call IDs resolve request-only references against canonical
+results. Temporary identities and projection metadata are removed at the provider
+boundary.
 Repeated attempts require more than 10% token growth, and one forced context-length
 recovery belongs to the original admitted task. A final unsafe or
 terminal compaction failure halts the task and pauses its queue; unconsumed input

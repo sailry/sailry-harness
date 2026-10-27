@@ -82,9 +82,9 @@ fn preserves_active_declarations() {
         }),
     )]
     .into();
-    summarizer.tools = Some(tools);
+    summarizer.tools = tools;
     let events = history();
-    let ordinary = summarizer.canonical_request(&events, &[], summarizer.tools.clone().unwrap());
+    let ordinary = summarizer.canonical_request(&events, &[], summarizer.tools.clone());
     let summary = summarizer.prepare(&events).unwrap().request;
     assert!(summary.tools.contains_key("previously_called"));
     assert_eq!(summary.tools, ordinary.tools);
@@ -117,7 +117,12 @@ fn preserves_already_masked_prefix() {
     );
     ordinary.contents.extend(history::prefix(&events));
     let revisions = model::history::revisions(&events);
-    assert!(model::history::mask(&mut ordinary, 0, 1, &revisions).unwrap() > 0);
+    assert!(
+        model::history::prepare(&mut ordinary, Some(&revisions))
+            .mask(&mut ordinary, 0, 1)
+            .unwrap()
+            > 0
+    );
     summarizer.masks = Some(model::history::masked(&ordinary));
     let summary = summarizer.prepare(&events).unwrap().request;
     assert_eq!(

@@ -59,7 +59,7 @@ pub(super) async fn upgrade(
         Err(turso::Error::QueryReturnedNoRows) => {
             transaction
                 .execute(
-                    "INSERT INTO node(singleton,identity) VALUES(1,?1)",
+                    "INSERT INTO node(singleton,identity,tool_defaults) VALUES(1,?1,1)",
                     [&node.0[..]],
                 )
                 .await?;

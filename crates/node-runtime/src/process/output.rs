@@ -225,15 +225,6 @@ impl Drain {
         Self::with_retained(stdout, stderr, false, None)
     }
 
-    #[cfg(test)]
-    pub fn with_tail(
-        stdout: impl AsyncRead + Unpin + Send + 'static,
-        stderr: impl AsyncRead + Unpin + Send + 'static,
-        tail: bool,
-    ) -> Self {
-        Self::with_retained(stdout, stderr, tail, None)
-    }
-
     pub fn with_retained(
         stdout: impl AsyncRead + Unpin + Send + 'static,
         stderr: impl AsyncRead + Unpin + Send + 'static,
@@ -383,7 +374,7 @@ mod tests {
         use tokio::io::AsyncWriteExt;
         for tail in [false, true] {
             let (mut writer, reader) = tokio::io::duplex(64);
-            let mut drain = Drain::with_tail(reader, tokio::io::empty(), tail);
+            let mut drain = Drain::with_retained(reader, tokio::io::empty(), tail, None);
             let text = "中文进度 123 🙂";
             writer.write_all(&text.as_bytes()[..2]).await.unwrap();
             tokio::time::timeout(Duration::from_secs(1), async {

@@ -188,6 +188,9 @@ fn stdio_peer() {
                             json!({"isError":true,"content":[{"type":"text","text":"Original MCP failure\n参数错误 🙂"}]})
                         } else if value == "business_flags" {
                             json!({"isError":false,"content":[],"structuredContent":{"isError":true,"error":"domain row"}})
+                        } else if value.as_str().is_some_and(|value| value.starts_with("large_")) {
+                            let output = json!({"label":value,"text":format!("First {value}\n{}\nFinal {value}","Evidence 中文 🙂 ".repeat(4000))});
+                            json!({"isError":false,"content":[{"type":"text","text":output.to_string()}],"structuredContent":output})
                         } else {
                             json!({"content":[],"structuredContent":{"error":"business value","id":"business-id","node":[119,14,79],"text":"Literal 内容 🙂"}})
                         }})

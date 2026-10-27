@@ -589,6 +589,17 @@ async fn persists_retained_masks_without_resummarizing() {
             ["native-read-2", second["output"]["revision"]],
             ["native-read-3", third["output"]["revision"]],
         ]);
+        assert_eq!(
+            bodies
+                .iter()
+                .map(|body| serde_json::from_slice::<adk_core::Event>(body).unwrap())
+                .filter(|event| event
+                    .provider_metadata
+                    .contains_key("sailry_context_projection"))
+                .count(),
+            1,
+            "the next model boundary must reuse the saved context size"
+        );
         assert!(
             bodies
                 .iter()

@@ -5,6 +5,8 @@ use crate::store::{
 };
 use tokio::sync::{mpsc, oneshot};
 
+mod defaults;
+
 tokio::task_local! {
     static WRITES: mpsc::UnboundedSender<oneshot::Sender<()>>;
 }

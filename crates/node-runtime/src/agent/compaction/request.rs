@@ -12,15 +12,15 @@ impl Summarizer {
         };
         let output = self.summary_output();
         let input = context.saturating_sub(output);
-        let revisions = model::history::Revisions::new();
         for percent in [85, 70, 50, 35] {
             let mut candidate = request.clone();
-            model::history::mask(&mut candidate, 0, 0, &revisions)?;
+            let mut outputs = model::history::prepare(&mut candidate, None);
+            outputs.mask(&mut candidate, 0, 0)?;
             let window = model::history::Window {
                 context: input.saturating_mul(percent) / 100 + output,
                 output,
             };
-            if model::history::limit(&mut candidate, Some(window), &revisions).is_ok()
+            if outputs.limit(&mut candidate, Some(window)).is_ok()
                 && self.fits_request(&candidate)?
             {
                 return Ok(candidate);
@@ -49,6 +49,7 @@ impl Summarizer {
                     && model::summary_retry() =>
             {
                 let mut repair = request;
+                model::history::clear_prepared(&mut repair);
                 repair
                     .contents
                     .push(Content::new("model").with_text(response.text));

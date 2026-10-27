@@ -3,10 +3,52 @@ use super::*;
 use crate::agent::{compaction::estimate, model::history::Window};
 use adk_core::LlmRequest;
 use std::collections::BTreeSet;
-use std::io::Write;
+use std::sync::OnceLock;
 
 /// Stored result revisions by call; references must match the canonical read path.
-pub(in crate::agent) type Revisions = BTreeMap<String, BTreeSet<String>>;
+#[derive(Default)]
+pub(in crate::agent) struct Revisions<'a> {
+    values: BTreeMap<&'a str, Vec<(&'a Value, OnceLock<String>)>>,
+    anonymous: BTreeMap<&'a str, Vec<Canonical<'a>>>,
+}
+
+struct Canonical<'a> {
+    id: &'a str,
+    value: &'a Value,
+    arguments: Option<&'a Value>,
+}
+
+impl Revisions<'_> {
+    fn unique(&self, id: &str) -> Option<&str> {
+        let values = self.values.get(id)?;
+        let (value, cached) = values.first()?;
+        let first = cached.get_or_init(|| hash(value));
+        values
+            .iter()
+            .skip(1)
+            .all(|(value, cached)| cached.get_or_init(|| hash(value)) == first)
+            .then_some(first.as_str())
+    }
+
+    fn anonymous(
+        &self,
+        name: &str,
+        value: &Value,
+        consumed: &BTreeSet<String>,
+    ) -> Option<(&str, Option<&Value>)> {
+        let candidates = self.anonymous.get(name)?;
+        let result = candidates
+            .iter()
+            .find(|result| !consumed.contains(result.id) && result.value == value)?;
+        let arguments = candidates
+            .iter()
+            .filter(|candidate| candidate.value == value)
+            .all(|candidate| candidate.arguments == result.arguments)
+            .then_some(result.arguments)
+            .flatten();
+        Some((result.id, arguments))
+    }
+}
 pub(in crate::agent) type Masks = BTreeSet<(String, String)>;
 
 pub(in crate::agent) fn protected(name: &str, value: &Value) -> bool {
@@ -19,25 +61,53 @@ pub(in crate::agent) fn protected(name: &str, value: &Value) -> bool {
         })
 }
 
-pub(in crate::agent) fn revisions(events: &[adk_core::Event]) -> Revisions {
-    collect(events.iter().filter_map(adk_core::Event::content))
-}
-
-fn collect<'a>(contents: impl Iterator<Item = &'a Content>) -> Revisions {
-    contents
+pub(in crate::agent) fn revisions(events: &[adk_core::Event]) -> Revisions<'_> {
+    let mut revisions = Revisions::default();
+    let mut calls = BTreeMap::new();
+    for part in events
+        .iter()
+        .filter_map(adk_core::Event::content)
         .flat_map(|content| &content.parts)
-        .filter_map(|part| match part {
+        .map(Part::provider_part)
+    {
+        match part {
+            Part::FunctionCall {
+                id: Some(id),
+                name,
+                args,
+                ..
+            } if id.starts_with(adk_core::GENERATED_CALL_ID_PREFIX) => {
+                calls.insert(id.as_str(), (name.as_str(), args));
+            }
             Part::FunctionResponse {
                 id: Some(id),
                 function_response,
                 ..
-            } if !id.is_empty() => Some((id.clone(), hash(&function_response.response))),
-            _ => None,
-        })
-        .fold(Revisions::new(), |mut revisions, (id, revision)| {
-            revisions.entry(id).or_default().insert(revision);
-            revisions
-        })
+            } if !id.is_empty() => {
+                revisions
+                    .values
+                    .entry(id)
+                    .or_default()
+                    .push((&function_response.response, OnceLock::new()));
+                if id.starts_with(adk_core::GENERATED_CALL_ID_PREFIX) {
+                    revisions
+                        .anonymous
+                        .entry(&function_response.name)
+                        .or_default()
+                        .push(Canonical {
+                            id,
+                            value: &function_response.response,
+                            arguments: calls
+                                .get(id.as_str())
+                                .filter(|(name, _)| *name == function_response.name)
+                                .map(|(_, arguments)| *arguments),
+                        });
+                }
+            }
+            _ => {}
+        }
+    }
+    revisions
 }
 
 fn hash(value: &Value) -> String {
@@ -46,24 +116,42 @@ fn hash(value: &Value) -> String {
         .to_string()
 }
 
-#[cfg(test)]
-fn source(value: &Value, id: &str, revisions: &Revisions) -> Value {
-    encoded_source(value, id, revisions, &value.to_string())
+fn source(value: &Value) -> Option<&Value> {
+    value
+        .get("sailry_output")
+        .or_else(|| value.get("output"))
+        .filter(|source| {
+            source["call"].as_str().is_some_and(|id| !id.is_empty())
+                && source["revision"].as_str().is_some_and(|revision| {
+                    revision.len() == 64 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+        })
 }
 
-fn encoded_source(value: &Value, id: &str, revisions: &Revisions, encoded: &str) -> Value {
-    if let Some(source) = value.get("sailry_output").or_else(|| value.get("output"))
-        && source["call"].as_str() == Some(id)
-        && source["revision"].as_str().is_some_and(|revision| {
-            revision.len() == 64 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-    {
+fn encode(value: &Value) -> String {
+    match value.as_object() {
+        Some(fields) if fields.contains_key("sailry_output") => serde_json::to_string(
+            &fields
+                .iter()
+                .filter(|(key, _)| key.as_str() != "sailry_output")
+                .collect::<BTreeMap<_, _>>(),
+        )
+        .unwrap(),
+        _ => value.to_string(),
+    }
+}
+
+fn encoded_source(
+    value: &Value,
+    id: &str,
+    revisions: Option<&Revisions<'_>>,
+    encoded: &str,
+) -> Value {
+    if let Some(source) = source(value).filter(|source| source["call"].as_str() == Some(id)) {
         return source.clone();
     }
-    if let Some(known) = revisions.get(id)
-        && known.len() == 1
-    {
-        return json!({"call":id,"revision":known.first().unwrap()});
+    if let Some(known) = revisions.and_then(|revisions| revisions.unique(id)) {
+        return json!({"call":id,"revision":known});
     }
     json!({"call":id,"revision":blake3::hash(encoded.as_bytes()).to_hex().to_string()})
 }
@@ -85,25 +173,27 @@ struct Slot {
 }
 
 #[derive(Clone)]
-pub(in crate::agent) struct Prepared {
+pub(in crate::agent) struct Prepared<'a> {
     slots: Vec<Slot>,
-    revisions: Revisions,
+    revisions: Option<&'a Revisions<'a>>,
 }
 
-pub(in crate::agent) fn prepare(request: &mut LlmRequest, revisions: &Revisions) -> Prepared {
+pub(in crate::agent) fn prepare<'a>(
+    request: &mut LlmRequest,
+    revisions: Option<&'a Revisions<'a>>,
+) -> Prepared<'a> {
+    #[cfg(test)]
+    super::super::PREPARATIONS.with(|count| count.set(count.get() + 1));
     if let Some(config) = &mut request.config {
         config.extensions.remove(PREPARED);
     }
     Prepared::new(&mut request.contents, revisions)
 }
 
-impl Prepared {
-    pub(in crate::agent) fn set_revisions(&mut self, revisions: &Revisions) {
-        self.revisions = revisions.clone();
-    }
-
-    pub(super) fn new(contents: &mut [Content], revisions: &Revisions) -> Self {
+impl<'a> Prepared<'a> {
+    fn new(contents: &mut [Content], revisions: Option<&'a Revisions<'a>>) -> Self {
         let mut calls = BTreeMap::new();
+        let mut consumed = BTreeSet::new();
         let mut slots = Vec::new();
         for (content, message) in contents.iter_mut().enumerate() {
             for (part, value) in message.parts.iter_mut().enumerate() {
@@ -112,48 +202,89 @@ impl Prepared {
                     name,
                     args,
                     ..
-                } = value
+                } = value.provider_part()
                 {
                     calls.insert(id.clone(), (name.clone(), args.clone()));
                     continue;
                 }
-                if !matches!(value, Part::FunctionResponse { id: Some(id), .. } if !id.is_empty()) {
-                    continue;
-                }
                 let Part::FunctionResponse {
-                    id: Some(id),
+                    id: part_id,
                     function_response,
                     ..
                 } = value
                 else {
-                    unreachable!()
+                    continue;
                 };
+                let known = source(&function_response.response).filter(|source| {
+                    part_id
+                        .as_deref()
+                        .is_none_or(|id| source["call"].as_str() == Some(id))
+                });
+                let anonymous = (part_id.is_none() && known.is_none())
+                    .then(|| {
+                        revisions.and_then(|revisions| {
+                            revisions.anonymous(
+                                &function_response.name,
+                                &function_response.response,
+                                &consumed,
+                            )
+                        })
+                    })
+                    .flatten();
+                let Some(id) = part_id
+                    .as_deref()
+                    .filter(|id| !id.is_empty())
+                    .or_else(|| known.and_then(|source| source["call"].as_str()))
+                    .or_else(|| anonymous.map(|(id, _)| id))
+                    .map(str::to_owned)
+                else {
+                    continue;
+                };
+                consumed.insert(id.clone());
+                if part_id.is_none() && !function_response.response.is_object() {
+                    // Scalars and arrays cannot hold the private reference.
+                    // The model boundary strips this internal identity again.
+                    *part_id = Some(id.clone());
+                }
                 let overhead = estimate::response(function_response, 0);
-                let mut encoded = function_response.response.to_string();
-                let mut canonical = None;
+                let mut encoded = if known.is_some() {
+                    encode(&function_response.response)
+                } else {
+                    function_response.response.to_string()
+                };
+                let identified = known.is_some();
+                let mut canonical = known.cloned().or_else(|| {
+                    anonymous.map(|_| {
+                        json!({"call":id,"revision":blake3::hash(encoded.as_bytes()).to_hex().to_string()})
+                    })
+                });
+                let arguments = calls
+                    .get(&id)
+                    .filter(|(name, _)| name == &function_response.name)
+                    .map(|(_, arguments)| arguments.clone())
+                    .or_else(|| anonymous.and_then(|(_, arguments)| arguments.cloned()));
                 if function_response.name.starts_with("mcp_")
                     && let Some(deduplicated) =
                         super::super::mcp::deduplicate(&function_response.response)
                 {
-                    canonical = Some(encoded_source(
-                        &function_response.response,
-                        id,
-                        revisions,
-                        &encoded,
-                    ));
+                    let source = canonical.get_or_insert_with(|| {
+                        encoded_source(&function_response.response, &id, revisions, &encoded)
+                    });
+                    encoded = encode(&deduplicated);
                     function_response.response = deduplicated;
-                    function_response.response["sailry_output"] =
-                        canonical.as_ref().unwrap().clone();
-                    encoded = function_response.response.to_string();
+                    function_response.response["sailry_output"] = source.clone();
+                } else if !identified
+                    && let Some(source) = &canonical
+                    && let Some(fields) = function_response.response.as_object_mut()
+                {
+                    // Keep the canonical identity for a later window fallback;
+                    // the provider boundary removes this request-only field.
+                    fields.insert("sailry_output".into(), source.clone());
                 }
-                let arguments = calls
-                    .get(id)
-                    .filter(|(name, _)| name == &function_response.name)
-                    .map(|(_, arguments)| arguments.clone());
                 slots.push(Slot {
                     content,
                     part,
-                    id: id.clone(),
+                    id,
                     name: function_response.name.clone(),
                     arguments,
                     source: canonical,
@@ -164,10 +295,7 @@ impl Prepared {
                 });
             }
         }
-        Self {
-            slots,
-            revisions: revisions.clone(),
-        }
+        Self { slots, revisions }
     }
 
     pub(in crate::agent) fn tokens(&self, request: &LlmRequest) -> adk_core::Result<u64> {
@@ -251,7 +379,7 @@ impl Prepared {
         tokens
     }
 
-    fn value<'a>(slot: &Slot, request: &'a LlmRequest) -> &'a Value {
+    fn value<'r>(slot: &Slot, request: &'r LlmRequest) -> &'r Value {
         let Part::FunctionResponse {
             function_response, ..
         } = &request.contents[slot.content].parts[slot.part]
@@ -261,14 +389,14 @@ impl Prepared {
         &function_response.response
     }
 
-    fn reference(slot: &mut Slot, value: &Value, revisions: &Revisions) -> Value {
+    fn reference(slot: &mut Slot, value: &Value, revisions: Option<&Revisions<'_>>) -> Value {
         slot.source
             .get_or_insert_with(|| encoded_source(value, &slot.id, revisions, &slot.encoded))
             .clone()
     }
 
-    fn replace(slot: &mut Slot, contents: &mut [Content], value: Value) {
-        slot.encoded = value.to_string();
+    fn replace(slot: &mut Slot, contents: &mut [Content], value: Value, encoded: String) {
+        slot.encoded = encoded;
         slot.tokens = estimate::text(&slot.encoded);
         let Part::FunctionResponse {
             function_response, ..
@@ -295,7 +423,7 @@ impl Prepared {
             if !super::eligible(original, &slot.name, &slot.id) {
                 continue;
             }
-            let source = Self::reference(slot, original, &self.revisions);
+            let source = Self::reference(slot, original, self.revisions);
             if let Some(mut candidate) = super::candidate(
                 original,
                 &slot.name,
@@ -306,8 +434,9 @@ impl Prepared {
                 if let Some(context) = original.get("sailry_context") {
                     candidate["sailry_context"] = context.clone();
                 }
-                if candidate.to_string().len() < slot.encoded.len() {
-                    Self::replace(slot, contents, candidate);
+                let encoded = candidate.to_string();
+                if encoded.len() < slot.encoded.len() {
+                    Self::replace(slot, contents, candidate, encoded);
                 }
             }
         }
@@ -329,7 +458,7 @@ impl Prepared {
             if !maskable(&slot.id, &slot.name, value) {
                 continue;
             }
-            let source = Self::reference(slot, value, &self.revisions);
+            let source = Self::reference(slot, value, self.revisions);
             if !calls.contains(&(
                 slot.id.clone(),
                 source["revision"].as_str().unwrap().to_owned(),
@@ -337,7 +466,8 @@ impl Prepared {
                 continue;
             }
             let replacement = super::clip(value, &source, &slot.encoded, 500, true);
-            Self::replace(slot, &mut request.contents, replacement);
+            let encoded = replacement.to_string();
+            Self::replace(slot, &mut request.contents, replacement, encoded);
             request.previous_response_id = None;
         }
     }
@@ -358,21 +488,25 @@ impl Prepared {
             if keep || !maskable(&slot.id, &slot.name, value) {
                 continue;
             }
-            let source = Self::reference(slot, value, &self.revisions);
+            let source = Self::reference(slot, value, self.revisions);
             let replacement = super::clip(value, &source, &slot.encoded, 500, true);
-            let reduction = slot
-                .tokens
-                .saturating_sub(estimate::text(&replacement.to_string()));
+            let encoded = replacement.to_string();
+            let reduction = slot.tokens.saturating_sub(estimate::text(&encoded));
             if reduction > 0 {
                 saved += reduction;
-                replacements.push((index, replacement));
+                replacements.push((index, replacement, encoded));
             }
         }
         if saved < minimum {
             return Ok(0);
         }
-        for (index, replacement) in replacements {
-            Self::replace(&mut self.slots[index], &mut request.contents, replacement);
+        for (index, replacement, encoded) in replacements {
+            Self::replace(
+                &mut self.slots[index],
+                &mut request.contents,
+                replacement,
+                encoded,
+            );
         }
         if saved > 0 {
             request.previous_response_id = None;
@@ -424,13 +558,13 @@ impl Prepared {
                     if slot.tokens <= share || protected(&slot.name, value) {
                         continue;
                     }
-                    let source = Self::reference(slot, value, &self.revisions);
+                    let source = Self::reference(slot, value, self.revisions);
                     let replacement = super::clip(value, &source, &slot.encoded, budget, false);
                     let encoded = replacement.to_string();
                     if estimate::text(&encoded) < slot.tokens {
                         replaced.update(slot.id.as_bytes());
                         replaced.update(encoded.as_bytes());
-                        Self::replace(slot, &mut request.contents, replacement);
+                        Self::replace(slot, &mut request.contents, replacement, encoded);
                         request.previous_response_id = None;
                         changed = true;
                     }
@@ -454,116 +588,41 @@ impl Prepared {
             .get_or_insert_with(Default::default)
             .extensions
             .remove(PREPARED);
-        let stamp = signature(request, window, Some(self))?;
+        let stamp = boundary(request, window);
         request
             .config
             .as_mut()
             .unwrap()
             .extensions
-            .insert(PREPARED.into(), json!(stamp));
+            .insert(PREPARED.into(), stamp);
         Ok(fingerprint)
     }
 }
 
-struct Writer(blake3::Hasher);
-impl Write for Writer {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.update(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
+fn boundary(request: &LlmRequest, window: Option<Window>) -> Value {
+    json!([
+        request.model,
+        window.map(|window| (window.context, window.output)),
+        request
+            .config
+            .as_ref()
+            .and_then(|config| config.max_output_tokens),
+    ])
 }
 
-fn signature(
-    request: &LlmRequest,
-    window: Option<Window>,
-    prepared: Option<&Prepared>,
-) -> adk_core::Result<String> {
-    let mut writer = Writer(blake3::Hasher::new());
-    let error = |_| adk_core::AdkError::model("prepared tool output could not be encoded");
-    serde_json::to_writer(
-        &mut writer,
-        &(
-            &request.model,
-            &request.config,
-            &request.tools,
-            &request.previous_response_id,
-            window.map(|window| (window.context, window.output)),
-        ),
-    )
-    .map_err(error)?;
-    let mut slots = prepared.map(|prepared| prepared.slots.iter().peekable());
-    for (content, message) in request.contents.iter().enumerate() {
-        serde_json::to_writer(&mut writer, &(&message.role, message.parts.len())).map_err(error)?;
-        for (part, value) in message.parts.iter().enumerate() {
-            if let Part::FunctionResponse {
-                id,
-                function_response,
-                annotations,
-            } = value
-            {
-                serde_json::to_writer(
-                    &mut writer,
-                    &(
-                        id,
-                        &function_response.name,
-                        &function_response.inline_data,
-                        &function_response.file_data,
-                        annotations,
-                    ),
-                )
-                .map_err(error)?;
-                if let Some(slots) = &mut slots
-                    && let Some(slot) = slots.peek()
-                    && (slot.content, slot.part) == (content, part)
-                {
-                    writer.0.update(slot.encoded.as_bytes());
-                    slots.next();
-                } else {
-                    serde_json::to_writer(&mut writer, &function_response.response)
-                        .map_err(error)?;
-                }
-            } else {
-                serde_json::to_writer(&mut writer, value).map_err(error)?;
-            }
-        }
-    }
-    Ok(writer.0.finalize().to_hex().to_string())
-}
-
-pub(in crate::agent) fn take_prepared(
-    request: &mut LlmRequest,
-    window: Option<Window>,
-) -> adk_core::Result<bool> {
+/// Only controlled request builders issue this marker, and rebuilding clears it.
+pub(in crate::agent) fn take_prepared(request: &mut LlmRequest, window: Option<Window>) -> bool {
     let marker = request
         .config
         .as_mut()
         .and_then(|config| config.extensions.remove(PREPARED));
-    let Some(Value::String(marker)) = marker else {
-        return Ok(false);
-    };
-    Ok(signature(request, window, None)? == marker)
+    marker.is_some_and(|marker| marker == boundary(request, window))
 }
 
-pub(in crate::agent) fn mask(
-    request: &mut LlmRequest,
-    protect: u64,
-    minimum: u64,
-    revisions: &Revisions,
-) -> adk_core::Result<u64> {
-    prepare(request, revisions).mask(request, protect, minimum)
-}
-pub(in crate::agent) fn remask(request: &mut LlmRequest, calls: &Masks, revisions: &Revisions) {
-    prepare(request, revisions).remask(request, calls);
-}
-pub(in crate::agent) fn limit(
-    request: &mut LlmRequest,
-    window: Option<Window>,
-    revisions: &Revisions,
-) -> adk_core::Result<Option<String>> {
-    prepare(request, revisions).limit(request, window)
+pub(in crate::agent) fn clear_prepared(request: &mut LlmRequest) {
+    if let Some(config) = &mut request.config {
+        config.extensions.remove(PREPARED);
+    }
 }
 
 fn maskable(id: &str, name: &str, value: &Value) -> bool {
@@ -577,13 +636,13 @@ pub(in crate::agent) fn masked(request: &LlmRequest) -> Masks {
         .flat_map(|content| &content.parts)
         .filter_map(|part| match part {
             Part::FunctionResponse {
-                id: Some(id),
+                id,
                 function_response,
                 ..
             } if function_response.response.get("masked") == Some(&Value::Bool(true)) => {
-                function_response.response["output"]["revision"]
-                    .as_str()
-                    .map(|revision| (id.clone(), revision.into()))
+                let source = source(&function_response.response)?;
+                let id = id.as_deref().or_else(|| source["call"].as_str())?;
+                Some((id.into(), source["revision"].as_str()?.into()))
             }
             _ => None,
         })

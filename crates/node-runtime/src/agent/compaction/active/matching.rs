@@ -40,6 +40,7 @@ impl Checkpoint {
         request
             .contents
             .splice(1..self.index, [self.summary.clone()]);
+        model::history::clear_prepared(request);
         request.previous_response_id = None;
         Ok(())
     }
@@ -91,6 +92,7 @@ pub(super) fn rebuild(
         ));
     }
     request.contents.truncate(1);
+    model::history::clear_prepared(request);
     request.contents.extend(
         events
             .iter()
@@ -272,6 +274,83 @@ mod tests {
                 annotations: None,
             }],
         }
+    }
+
+    #[tokio::test]
+    async fn limits_rebuilt_requests_before_generation() {
+        let preamble = Content::new("system").with_text("Captured instructions");
+        let original = json!({"text":"retained evidence ".repeat(2000)});
+        let mut event = Event::new("completed");
+        event.set_content(Content {
+            role: "function".into(),
+            parts: vec![Part::FunctionResponse {
+                id: Some("evidence".into()),
+                function_response: FunctionResponseData::new("mcp_fixture", original.clone()),
+                annotations: None,
+            }],
+        });
+        let mut request = LlmRequest::new(
+            "fixture",
+            vec![
+                preamble.clone(),
+                Content::new("user").with_text("Old prefix"),
+            ],
+        );
+        let window = Some(model::history::Window {
+            context: 1000,
+            output: 100,
+        });
+        model::history::prepare(&mut request, None)
+            .limit(&mut request, window)
+            .unwrap();
+        assert!(
+            request
+                .config
+                .as_ref()
+                .unwrap()
+                .extensions
+                .contains_key(model::history::PREPARED)
+        );
+        rebuild(&mut request, &[event], &preamble, "current").unwrap();
+        assert!(
+            !request
+                .config
+                .as_ref()
+                .unwrap()
+                .extensions
+                .contains_key(model::history::PREPARED)
+        );
+        let revision = blake3::hash(original.to_string().as_bytes())
+            .to_hex()
+            .to_string();
+        let stream = model::history::generate(
+            request,
+            adk_core::ProviderOrigin {
+                provider: "responses".into(),
+                model: "fixture".into(),
+                scope: "fixture".into(),
+            },
+            window,
+            |request| async move {
+                let Part::FunctionResponse {
+                    function_response, ..
+                } = &request.contents[1].parts[0]
+                else {
+                    panic!("retained result expected")
+                };
+                assert_eq!(function_response.response["output"]["call"], "evidence");
+                assert_eq!(function_response.response["output"]["revision"], revision);
+                assert!(estimate::request(&request).unwrap() <= 900);
+                assert_eq!(
+                    request.contents[0].parts[0].text(),
+                    Some("Captured instructions")
+                );
+                Ok(Box::pin(futures::stream::empty()) as adk_core::LlmResponseStream)
+            },
+        )
+        .await
+        .unwrap();
+        drop(stream);
     }
 
     #[test]

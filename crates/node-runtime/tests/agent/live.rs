@@ -1,6 +1,9 @@
 //! Opt-in billable model acceptance using caller-selected credentials and isolated files.
 use super::*;
 
+#[path = "live/compaction.rs"]
+mod compaction;
+
 #[derive(serde::Deserialize)]
 struct Source {
     endpoint: String,

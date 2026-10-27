@@ -60,7 +60,7 @@ pub(super) async fn read(
                          FROM conversation_events latest JOIN agent_events latest_input ON latest_input.sequence=latest.sequence
                          JOIN agent_runs latest_run ON latest_run.turn=latest_input.turn
                          WHERE latest.session=?1 AND json_extract(latest_input.body,'$.author')='user'
-                           AND json_extract(latest_run.body,'$.notice')=0
+                           AND coalesce(json_extract(latest_run.body,'$.notice'),0)=0
                          ORDER BY latest.sequence DESC LIMIT 1))))
              ORDER BY h.sequence,CAST(part.key AS INTEGER)"#,
             )

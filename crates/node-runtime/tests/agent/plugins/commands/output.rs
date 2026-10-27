@@ -105,6 +105,128 @@ async fn reads_large_failure_tail_at_original_offsets() {
 }
 
 #[tokio::test]
+async fn rejects_business_ids_as_command_streams() {
+    for remote in [false, true] {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let server = Server::held_after_tool(vec![(name("run_command"),json!({
+            "command":"i=0; while [ \"$i\" -lt 4000 ]; do printf 'original command evidence\\n'; i=$((i+1)); done"
+        }))],gate.clone()).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
+        planning::configure(&mut fixture, WorkMode::Code).await;
+        let Output::QueuedTurn(turn) = execute(
+            &fixture,
+            Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "Inspect retained output".into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected")
+        };
+        let projected = projected(&server).await;
+        let source: OutputReference = serde_json::from_value(projected["output"].clone()).unwrap();
+        let id: RequestId = projected["sailry_command"]["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let business = json!({"kind":"business_record","data":{"info":{"id":id},"text":"Preserved business output"}});
+        let replacement = business.clone();
+        let call = source.call.clone();
+        let turn_id = turn.id;
+        // Seed a canonical business result that happens to name a live command.
+        // The dispatch must use the result kind rather than that coincidental ID.
+        fixture.node.with_storage(move |db| Box::pin(async move {
+            let mut rows = db.prepare("SELECT sequence,body FROM agent_events WHERE turn=?1 ORDER BY sequence")
+                .await.map_err(crate::database_fixture::fault)?
+                .query([turn_id.to_string()]).await.map_err(crate::database_fixture::fault)?;
+            let mut replacement_event = None;
+            while let Some(row) = rows.next().await.map_err(crate::database_fixture::fault)? {
+                let sequence: i64 = row.get(0).map_err(crate::database_fixture::fault)?;
+                let body: Vec<u8> = row.get(1).map_err(crate::database_fixture::fault)?;
+                let mut event: adk_core::Event = serde_json::from_slice(&body).unwrap();
+                let mut changed = false;
+                if let Some(content) = event.llm_response.content.as_mut() {
+                    for part in &mut content.parts {
+                        if let adk_core::Part::FunctionResponse {id:Some(id),function_response,..} = part
+                            && id == &call
+                        {
+                            function_response.response = replacement.clone();
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+                if changed {
+                    replacement_event = Some((sequence,serde_json::to_vec(&event).unwrap()));
+                }
+            }
+            drop(rows);
+            let (sequence,body) = replacement_event.expect("canonical command result");
+            db.execute("UPDATE agent_events SET body=?1 WHERE sequence=?2",turso::params![body,sequence])
+                .await.map_err(crate::database_fixture::fault)?;
+            Ok(())
+        })).await.unwrap();
+        let output = OutputReference {
+            call: source.call,
+            revision: blake3::hash(business.to_string().as_bytes())
+                .to_hex()
+                .to_string(),
+        };
+        let error = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadToolOutput {
+                turn: turn.id,
+                output: output.clone(),
+                stream: Some(OutputStream::Stdout),
+                offset: 0,
+                limit: 4096,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(error.message, "tool result has no retained command stream");
+        let Output::ToolOutput(page) = execute(
+            &fixture,
+            Command::ReadToolOutput {
+                turn: turn.id,
+                output,
+                stream: None,
+                offset: 0,
+                limit: 4096,
+            },
+        )
+        .await
+        else {
+            panic!("canonical business output expected")
+        };
+        assert_eq!(page.text, business.to_string());
+        assert!(page.next_offset.is_none());
+        let Output::CommandOutputPage(page) = execute(
+            &fixture,
+            Command::ReadCommandPage {
+                session: fixture.session.id,
+                id,
+                stream: OutputStream::Stdout,
+                offset: 0,
+                limit: 4096,
+            },
+        )
+        .await
+        else {
+            panic!("actual command stream expected")
+        };
+        assert!(page.text.starts_with("original command evidence"));
+        gate.notify_one();
+        finished(&fixture.client, fixture.session.id, turn.id).await;
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn retains_foreground_streams_and_canonical_results() {
     for remote in [false, true] {
         let gate = Arc::new(tokio::sync::Notify::new());

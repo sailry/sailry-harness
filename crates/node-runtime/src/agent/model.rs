@@ -16,6 +16,7 @@ pub(crate) mod registry;
 mod retry;
 mod streaming;
 pub(super) mod timing;
+mod tool_choice;
 mod transport;
 use adk_core::Llm;
 use adk_model::{
@@ -331,6 +332,7 @@ fn native(
         None => adapter,
     };
     let key = if injection.is_some() { "" } else { key };
+    let adapter = tool_choice::adapter(provider.api, adapter);
     let inner: Arc<dyn Llm> = match provider.api {
         ModelApi::Plugin => {
             return Err(Fault::new(

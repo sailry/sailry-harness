@@ -21,7 +21,8 @@ fn info() -> Info {
 
 #[test]
 fn pages_complete_unicode_after_finish() {
-    let retained = Retained::default();
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
     let text = format!("header\n{}\nlast failure", "中文🙂".repeat(20_000));
     for bytes in text.as_bytes().chunks(8191) {
         retained.append(OutputStream::Stdout, bytes);
@@ -56,7 +57,8 @@ fn pages_complete_unicode_after_finish() {
 
 #[test]
 fn pages_large_output_without_truncation() {
-    let retained = Retained::default();
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
     let chunk = vec![b'x'; PAGE];
     let mut expected = blake3::Hasher::new();
     let mut total = 0;
@@ -105,7 +107,7 @@ fn pages_large_output_without_truncation() {
 
 #[test]
 fn preserves_raw_and_reports_unavailable_retention() {
-    let mut stream = Stream::default();
+    let mut stream = Stream::new(tempfile::NamedTempFile::new(), Arc::default(), STREAM_LIMIT);
     stream.append(b"\x1b[31m1%\r2%\rDone\x1b[0m\n");
     let original = stream.page(info(), OutputStream::Stdout, 0, 1024).unwrap();
     assert_eq!(original.text, "\x1b[31m1%\r2%\rDone\x1b[0m\n");
@@ -121,7 +123,8 @@ fn preserves_raw_and_reports_unavailable_retention() {
 
 #[test]
 fn releases_only_owned_output_files() {
-    let retained = Retained::default();
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
     retained.append(OutputStream::Stdout, b"original");
     retained.finish();
     let path = retained
@@ -139,7 +142,7 @@ fn releases_only_owned_output_files() {
 
 #[test]
 fn reports_the_retention_limit() {
-    let mut stream = Stream::default();
+    let mut stream = Stream::new(tempfile::NamedTempFile::new(), Arc::default(), STREAM_LIMIT);
     stream.limit = 12;
     stream.append(b"first bytes ");
     stream.append(b"remaining bytes");
@@ -211,7 +214,8 @@ fn returns_unused_reservations_on_finish() {
 
 #[test]
 fn reports_raw_size_beyond_stream_quota() {
-    let retained = Retained::default();
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
     let raw = vec![b'x'; STREAM_LIMIT + PAGE];
     retained.append(OutputStream::Stdout, &raw);
     retained.append(OutputStream::Stdout, b"last failure");
@@ -234,7 +238,8 @@ fn reports_raw_size_beyond_stream_quota() {
 
 #[test]
 fn pages_rolling_tail_at_original_offsets() {
-    let retained = Retained::default();
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
     let prefix = b"test suite started\n";
     retained.append(OutputStream::Stdout, prefix);
     let logs = vec![b'x'; 20 * 1024 * 1024];
@@ -292,7 +297,8 @@ fn pages_rolling_tail_at_original_offsets() {
 
 #[test]
 fn pages_unicode_across_the_retention_gap() {
-    let retained = Retained::default();
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
     let text = format!("x{}", "中文🙂".repeat(500_000));
     for bytes in text.as_bytes().chunks(8191) {
         retained.append(OutputStream::Stdout, bytes);
@@ -333,7 +339,8 @@ fn pages_unicode_across_the_retention_gap() {
 
 #[test]
 fn late_bytes_preserve_finished_pages() {
-    let retained = Retained::default();
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
     retained.append(OutputStream::Stdout, b"saved evidence");
     retained.finish();
     retained.append(OutputStream::Stdout, &vec![b'x'; 70 * 1024]);
@@ -346,6 +353,37 @@ fn late_bytes_preserve_finished_pages() {
     assert_eq!(
         retained.preview(info().id).unwrap()["stdout"]["retained_end"],
         14
+    );
+}
+
+#[test]
+fn resumes_stale_cursors_while_running() {
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
+    retained.append(OutputStream::Stdout, &vec![b'x'; STREAM_LIMIT + 70 * 1024]);
+    let page = retained
+        .page(info(), OutputStream::Stdout, PREFIX_LIMIT - 100, 100)
+        .unwrap();
+    let stale = page.next_offset.unwrap();
+    retained.append(OutputStream::Stdout, &vec![b'y'; PAGE * 2]);
+    let current = retained.preview(info().id).unwrap()["stdout"]["retained_tail_offset"]
+        .as_u64()
+        .unwrap() as usize;
+    assert!(stale < current && stale > PREFIX_LIMIT);
+    let resumed = retained
+        .page(info(), OutputStream::Stdout, stale, PAGE)
+        .unwrap();
+    assert_eq!(resumed.offset, current);
+    assert_eq!(resumed.text.len(), PAGE);
+    assert_eq!(resumed.text, "x".repeat(PAGE));
+    assert_eq!(resumed.next_offset, Some(current + PAGE));
+    retained.finish();
+    assert_eq!(
+        retained
+            .page(info(), OutputStream::Stdout, stale, PAGE)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
     );
 }
 

@@ -23,6 +23,65 @@ fn summaries(page: &Page) -> usize {
 }
 
 #[tokio::test]
+async fn hydrates_historical_attachments() {
+    for remote in [false, true] {
+        let server = Server::summary(100).await;
+        let fixture = fixture(remote, &server).await;
+        super::budget::model(&fixture, 64_000, 2_048, true).await;
+        std::fs::write(
+            fixture.root.join("source.txt"),
+            "Attachment evidence\n".repeat(200),
+        )
+        .unwrap();
+        let attachment = super::budget::image(&fixture).await;
+        let Output::QueuedTurn(original) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: 1,
+                message: Input {
+                    text: "Preserve this image and the file evidence".into(),
+                    attachments: vec![attachment],
+                    ..Default::default()
+                },
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        let before = finished(&fixture.client, fixture.session.id, original.id).await;
+        assert_eq!(
+            before.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            before.runs
+        );
+        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            after.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            after.runs
+        );
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(summaries(&after), 1);
+        {
+            let requests = server.requests.lock().unwrap();
+            let summary = requests.last().unwrap();
+            assert!(agent_support::compaction::is_summary(summary));
+            assert_eq!(summary["tools"], requests[requests.len() - 2]["tools"]);
+            assert_eq!(summary["tool_choice"], "none");
+            assert!(messages(summary).contains("data:image/png;base64,"));
+            assert!(!messages(summary).contains("sailry-attachment://"));
+        }
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn skips_empty_and_summarizes_small_context() {
     for remote in [false, true] {
         let server = Server::summary(100).await;

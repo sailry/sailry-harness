@@ -120,7 +120,7 @@ async fn manual_inner(
     summarizer.masks = Some(prompt_session.output_masks().map_err(|error| {
         adk_core::AdkError::session("saved output masks are invalid").with_source(error)
     })?);
-    summarizer.tools = Some(prompt_session.tools());
+    summarizer.tools = prompt_session.tools();
     summarizer.preamble = Some(
         Content::new("system").with_text(prompt_session.instruction(prompt::baseline().to_owned())),
     );
@@ -154,7 +154,7 @@ struct Summarizer {
     output: Option<i32>,
     instruction: Option<Instruction>,
     preamble: Option<Content>,
-    tools: Option<std::collections::HashMap<String, serde_json::Value>>,
+    tools: std::collections::HashMap<String, serde_json::Value>,
     masks: Option<model::history::Masks>,
     focus: Option<String>,
     stop: CancellationToken,
@@ -224,7 +224,7 @@ impl Summarizer {
                 text: invocation.message.text.clone(),
             }),
             preamble: None,
-            tools: None,
+            tools: Default::default(),
             masks: None,
             focus: (invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction
                 && !invocation.message.text.trim().is_empty())
@@ -346,15 +346,24 @@ impl Summarizer {
         let mut request = self.canonical_request(
             events,
             &[Content::new("user").with_text(handoff)],
-            self.tools.clone().unwrap_or_default(),
+            self.tools.clone(),
         );
         request.config = Some(GenerateContentConfig {
             max_output_tokens: Some(output.min(i32::MAX as u64) as i32),
             ..Default::default()
         });
+        let revisions = model::history::revisions(events);
+        let mut outputs = model::history::prepare(&mut request, Some(&revisions));
         if let Some(masks) = &self.masks {
-            model::history::remask(&mut request, masks, &model::history::revisions(events));
+            outputs.remask(&mut request, masks);
         }
+        // The same projection supplies source measurement and the actual
+        // provider request. Immutable overflow is handled by input recovery.
+        let _ = outputs.limit(
+            &mut request,
+            self.context
+                .map(|context| model::history::Window { context, output }),
+        );
         Ok(Prepared {
             request,
             verbatim,
@@ -364,19 +373,7 @@ impl Summarizer {
     }
 
     fn source_tokens(&self, events: &[Event], request: &LlmRequest) -> adk_core::Result<u64> {
-        let mut projected = request.clone();
-        // An oversized immutable prefix is handled by the bounded recovery
-        // path. Its already-projected tool values still define the eligible
-        // material rather than inflating it with durable raw bytes.
-        let _ = model::history::limit(
-            &mut projected,
-            self.context.map(|context| model::history::Window {
-                context,
-                output: self.summary_output(),
-            }),
-            &model::history::revisions(events),
-        );
-        let mut results = projected
+        let mut results = request
             .contents
             .iter()
             .flat_map(|content| &content.parts)

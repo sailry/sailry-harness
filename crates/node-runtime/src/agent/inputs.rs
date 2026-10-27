@@ -117,6 +117,19 @@ impl Batch {
             })
             .await
             .map_err(model::error)?;
+        let state = session.state().all();
+        if context.as_ref().is_some_and(|context| {
+            !context.actions.state_delta.is_empty()
+                && context
+                    .actions
+                    .state_delta
+                    .iter()
+                    .all(|(key, value)| state.get(key) == Some(value))
+        }) {
+            // A partially saved batch already committed its context with the
+            // first input. Retrying must not append it again after that input.
+            context = None;
+        }
         let present: BTreeSet<_> = session
             .events()
             .all()

@@ -125,7 +125,7 @@ pub(super) async fn model(fixture: &Fixture, context: u32, output: u32, vision: 
         .unwrap();
 }
 
-async fn image(fixture: &Fixture) -> AttachmentId {
+pub(super) async fn image(fixture: &Fixture) -> AttachmentId {
     let mut bytes = Vec::new();
     image::codecs::png::PngEncoder::new(&mut bytes)
         .write_image(&[128, 64, 32, 255], 1, 1, image::ExtendedColorType::Rgba8)

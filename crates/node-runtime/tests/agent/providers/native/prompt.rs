@@ -446,6 +446,11 @@ async fn preserves_native_summary_instructions() {
                 let ordinary = ordinary.as_array().unwrap();
                 assert_eq!(&messages[..ordinary.len()], ordinary);
                 if api == ModelApi::Gemini {
+                    assert_eq!(
+                        summary["toolConfig"],
+                        json!({"function_calling_config":{"mode":"NONE"}})
+                    );
+                    assert!(normal.get("toolConfig").is_none());
                     // ADK builds Gemini declarations from an unordered map.
                     assert_eq!(declarations(summary), declarations(&normal));
                     let mut summary = summary.clone();
@@ -453,6 +458,7 @@ async fn preserves_native_summary_instructions() {
                     for body in [&mut summary, &mut normal] {
                         body.as_object_mut().unwrap().remove("tools");
                         body.as_object_mut().unwrap().remove("generationConfig");
+                        body.as_object_mut().unwrap().remove("toolConfig");
                         body["contents"]
                             .as_array_mut()
                             .unwrap()
@@ -460,6 +466,8 @@ async fn preserves_native_summary_instructions() {
                     }
                     assert_eq!(summary, normal);
                 } else {
+                    assert_eq!(summary["tool_choice"], json!({"type":"none"}));
+                    assert_ne!(normal["tool_choice"], summary["tool_choice"]);
                     assert_eq!(summary["tools"], normal["tools"]);
                 }
                 let request = messages.last().unwrap();

@@ -1,7 +1,8 @@
 CREATE TABLE IF NOT EXISTS node (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     identity BLOB NOT NULL CHECK(length(identity)=32),
-    plugin_defaults INTEGER NOT NULL DEFAULT 0 CHECK(plugin_defaults IN (0,1))
+    plugin_defaults INTEGER NOT NULL DEFAULT 0 CHECK(plugin_defaults IN (0,1)),
+    tool_defaults INTEGER NOT NULL DEFAULT 0 CHECK(tool_defaults IN (0,1))
 );
 CREATE TABLE counters (
     namespace TEXT PRIMARY KEY,

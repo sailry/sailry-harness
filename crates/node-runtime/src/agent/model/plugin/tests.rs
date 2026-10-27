@@ -20,6 +20,36 @@ fn capabilities() -> Capabilities {
     }
 }
 
+#[tokio::test]
+async fn retains_declarations_without_summary_tool_calls() {
+    let mut input = LlmRequest::new("example", vec![Content::new("user").with_text("Summarize")]);
+    input.tools.insert(
+        "lookup".into(),
+        json!({"name":"lookup","parameters":{"type":"object"}}),
+    );
+    let convert = || {
+        request::convert(
+            input.clone(),
+            "http://localhost",
+            "session",
+            Effort::Default,
+            Default::default(),
+            &capabilities(),
+            false,
+        )
+        .unwrap()
+    };
+    let ordinary = convert();
+    let summary = crate::agent::model::summary_scope(async { convert() }).await;
+    assert!(matches!(ordinary.tool_choice, wire::Choice::Auto));
+    assert!(matches!(summary.tool_choice, wire::Choice::None));
+    assert_eq!(
+        serde_json::to_value(&ordinary.tools).unwrap(),
+        serde_json::to_value(&summary.tools).unwrap()
+    );
+    assert!(matches!(convert().tool_choice, wire::Choice::Auto));
+}
+
 #[test]
 fn retains_multimodal_history_and_options() {
     let mut input = LlmRequest::new(

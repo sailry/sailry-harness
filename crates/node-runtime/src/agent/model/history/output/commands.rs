@@ -40,27 +40,44 @@ pub(super) fn project(
                 .as_str()
                 .or_else(|| data[stream]["text"].as_str())
                 .unwrap_or("");
-            let invalid_head =
-                data[stream]["invalid_utf8"] == true || preview["head_invalid_utf8"] == true;
+            let invalid_head = if preview["head"].is_string() {
+                preview["head_invalid_utf8"] == true
+            } else {
+                data[stream]["invalid_utf8"] == true
+            };
             let (head_bytes, _) =
                 crate::process::output::edges(captured.as_bytes(), STREAM_EDGE, 0);
             let head = &captured[..head_bytes];
             let omitted = tail_offset.saturating_sub(head_bytes as u64);
+            let retained = preview["retained_bytes"].as_u64().unwrap_or(0);
+            let retained_tail = preview["retained_tail_offset"].as_u64().unwrap_or(0);
+            let retained_end = preview["retained_end"].as_u64().unwrap_or(retained);
             let hint = super::hint(
                 original,
                 Some(stream),
-                Some(if invalid_head { 0 } else { head_bytes as u64 }),
+                Some(if invalid_head || head_bytes as u64 >= retained_end {
+                    0
+                } else {
+                    head_bytes as u64
+                }),
             );
             let omission = if invalid_head {
                 format!("captured output omitted; {total} raw bytes total")
             } else {
                 format!("{omitted} of {total} raw bytes omitted")
             };
-            let retained = preview["retained_bytes"].as_u64().unwrap_or(0);
-            let retained_tail = preview["retained_tail_offset"].as_u64().unwrap_or(0);
-            let retained_end = preview["retained_end"].as_u64().unwrap_or(retained);
+            let tail_location = if tail_offset < retained_end {
+                format!("; preview tail starts at offset={tail_offset}")
+            } else {
+                String::new()
+            };
+            let retained_location = if retained_tail < retained_end {
+                format!("; retained tail starts at offset={retained_tail}")
+            } else {
+                String::new()
+            };
             data[stream] = json!({
-                "text":format!("{}\n[... {omission}; {hint}; preview tail starts at offset={tail_offset}; retained tail starts at offset={retained_tail}; retained output ends at offset={retained_end} ...]\n{}", normalize(head), normalize(tail)),
+                "text":format!("{}\n[... {omission}; {hint}{tail_location}{retained_location}; retained output ends at offset={retained_end} ...]\n{}", normalize(head), normalize(tail)),
                 "truncated":true,"invalid_utf8":invalid_head || preview["invalid_utf8"] == true,
                 "total_bytes":total,
                 "tail_offset":tail_offset,"retained_bytes":retained,"retained_tail_offset":retained_tail,"retained_end":retained_end,

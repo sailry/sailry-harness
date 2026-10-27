@@ -72,8 +72,7 @@ impl Context {
         // Keep the canonical request intact for commit's exact tail match.
         let tokens = {
             let mut measured = request.clone();
-            let mut outputs =
-                model::history::prepare(&mut measured, &model::history::revisions(events));
+            let mut outputs = model::history::prepare(&mut measured, None);
             outputs.remask(&mut measured, &self.state.masked()?);
             self.tokens(&measured, &[], &outputs).await?
         };

@@ -351,6 +351,21 @@ async fn retains_capability_across_guidance_and_notices() {
         loaded[1].content().unwrap().parts[0].text(),
         Some("Background task completed")
     );
+    // Earlier task runs default to ordinary input when notice is absent.
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE agent_runs SET body=CAST(json_remove(body,'$.notice') AS BLOB) WHERE turn IN (?1,?2)",
+            params![owner.to_string(), guidance.id.to_string()],
+        )
+        .await
+        .unwrap();
+    let earlier = load(&fixture, turn).await;
+    assert_eq!(
+        serde_json::to_value(earlier[0].content()).unwrap(),
+        serde_json::to_value(loaded[0].content()).unwrap()
+    );
 }
 
 #[tokio::test]

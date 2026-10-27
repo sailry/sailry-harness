@@ -1,27 +1,5 @@
 //! Omit duplicate MCP text only from outgoing model requests.
-#[cfg(test)]
-use adk_core::{Content, Part};
 use serde_json::Value;
-
-#[cfg(test)]
-fn project(contents: &mut [Content]) {
-    for content in contents {
-        for part in &mut content.parts {
-            let Part::FunctionResponse {
-                function_response, ..
-            } = part
-            else {
-                continue;
-            };
-            if !function_response.name.starts_with("mcp_") {
-                continue;
-            }
-            if let Some(value) = deduplicate(&function_response.response) {
-                function_response.response = value;
-            }
-        }
-    }
-}
 
 pub(super) fn deduplicate(value: &Value) -> Option<Value> {
     let (Some(output), Some(text)) = (
@@ -56,7 +34,7 @@ pub(super) fn deduplicate(value: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adk_core::FunctionResponseData;
+    use adk_core::{Content, FunctionResponseData, LlmRequest, Part};
     use serde_json::json;
 
     fn response(name: &str, value: Value) -> Content {
@@ -101,8 +79,16 @@ mod tests {
             json!({"output":output,"text":[serde_json::to_string_pretty(&output).unwrap()]}),
         )];
         let mut request = canonical.clone();
-        project(&mut request);
-        assert_eq!(value(&request[0]), &json!({"output":output}));
+        let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+        super::super::prepare(&mut outgoing, None)
+            .limit(&mut outgoing, None)
+            .unwrap();
+        request = outgoing.contents;
+        let source = json!({"call":"call", "revision":blake3::hash(value(&canonical[0]).to_string().as_bytes()).to_hex().to_string()});
+        assert_eq!(
+            value(&request[0]),
+            &json!({"output":output,"sailry_output":source})
+        );
         assert!(value(&canonical[0])["text"].is_array());
         let mut expected = canonical[0].clone();
         let Part::FunctionResponse {
@@ -111,10 +97,14 @@ mod tests {
         else {
             unreachable!()
         };
-        function_response.response = json!({"output":output});
+        function_response.response = json!({"output":output,"sailry_output":source});
         assert_eq!(encoded(&request), encoded(&[expected]));
         let projected = encoded(&request);
-        project(&mut request);
+        let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+        super::super::prepare(&mut outgoing, None)
+            .limit(&mut outgoing, None)
+            .unwrap();
+        request = outgoing.contents;
         assert_eq!(encoded(&request), projected);
     }
 
@@ -125,10 +115,15 @@ mod tests {
             "mcp_fixture_read",
             json!({"output":output,"text":[output.to_string(),"Extra details", "{\"value\":2}",null],"sailry_content":{"text":"Original"},"isError":true}),
         )];
-        project(&mut request);
+        let source = json!({"call":"call", "revision":blake3::hash(value(&request[0]).to_string().as_bytes()).to_hex().to_string()});
+        let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+        super::super::prepare(&mut outgoing, None)
+            .limit(&mut outgoing, None)
+            .unwrap();
+        request = outgoing.contents;
         assert_eq!(
             value(&request[0]),
-            &json!({"output":output,"text":["Extra details","{\"value\":2}",null],"sailry_content":{"text":"Original"},"isError":true})
+            &json!({"output":output,"text":["Extra details","{\"value\":2}",null],"sailry_content":{"text":"Original"},"isError":true,"sailry_output":source})
         );
     }
 
@@ -149,7 +144,11 @@ mod tests {
             ),
         ];
         let mut request = canonical.clone();
-        project(&mut request);
+        let mut outgoing = LlmRequest::new("fixture", std::mem::take(&mut request));
+        super::super::prepare(&mut outgoing, None)
+            .limit(&mut outgoing, None)
+            .unwrap();
+        request = outgoing.contents;
         assert_eq!(encoded(&request), encoded(&canonical));
     }
 }
