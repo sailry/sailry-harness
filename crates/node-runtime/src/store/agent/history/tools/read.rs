@@ -176,7 +176,9 @@ pub(in crate::store) async fn page(
             true
         };
         if valid {
-            return slice(reference, &text, cursor.unwrap_or(0), limit);
+            let page = slice(reference.clone(), &text, cursor.unwrap_or(0), limit)?;
+            cache.complete(&reference, page.next_offset.is_some());
+            return Ok(page);
         }
     }
     let source =
@@ -206,8 +208,10 @@ pub(in crate::store) async fn page(
     let text: std::sync::Arc<str> = serde_json::to_string(&raw.detail())
         .map_err(storage_error)?
         .into();
-    cache.insert(reference.clone(), stamp, text.clone(), raw.source);
-    slice(reference, &text, cursor.unwrap_or(0), limit)
+    let page = slice(reference.clone(), &text, cursor.unwrap_or(0), limit)?;
+    cache.insert(reference.clone(), stamp, text, raw.source)?;
+    cache.complete(&reference, page.next_offset.is_some());
+    Ok(page)
 }
 
 pub(super) fn slice(

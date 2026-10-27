@@ -14,6 +14,9 @@ pub struct ConversationUpdates {
     client: Arc<Client>,
     receiver: Mutex<watch::Receiver<View>>,
     current: watch::Receiver<View>,
+    details: sailry_client::conversation::details::Tracker,
+    detail_changes: Mutex<watch::Receiver<u64>>,
+    selected: std::sync::Mutex<Vec<tools::Selection>>,
     stop: CancellationToken,
     task: JoinHandle<()>,
     older: tokio::sync::mpsc::Sender<HistoryRequest>,
@@ -30,7 +33,15 @@ impl ConversationUpdates {
                 .watch_conversation(session, sender, cancellation, requests)
                 .await;
         });
+        let details = sailry_client::conversation::details::Tracker::new(
+            client.clone(),
+            tokio::runtime::Handle::current(),
+        );
+        let detail_changes = Mutex::new(details.subscribe());
         Self {
+            details,
+            detail_changes,
+            selected: Default::default(),
             client,
             current: receiver.clone(),
             receiver: Mutex::new(receiver),
@@ -46,8 +57,17 @@ impl ConversationUpdates {
             _ = self.stop.cancelled() => Err("conversation subscription is closed".into()),
             result = async {
                 let mut receiver = self.receiver.lock().await;
-                receiver.changed().await.map_err(error)?;
-                tools::view(&receiver.borrow_and_update())
+                let mut changes = self.detail_changes.lock().await;
+                tokio::select! {
+                    changed = receiver.changed() => changed.map_err(error)?,
+                    changed = changes.changed() => changed.map_err(error)?,
+                }
+                let current = receiver.borrow_and_update().clone();
+                {
+                    let selection = self.selected.lock().expect("tool selection lock");
+                    self.details.set(tools::references(&current, &selection));
+                }
+                tools::view(&current, Some(&self.details))
             } => result,
         }
     }
@@ -65,7 +85,25 @@ impl ConversationUpdates {
         }
     }
 
+    /// Declare mounted tool surfaces; this is controller state, not a Node command.
+    pub fn track_tools(&self, selection: String) -> Result<(), String> {
+        if self.stop.is_cancelled() {
+            return Err("conversation subscription is closed".into());
+        }
+        let selection: tools::Selected = serde_json::from_str(&selection).map_err(error)?;
+        let current = self.current.borrow().clone();
+        let mut selected = self.selected.lock().expect("tool selection lock");
+        let references = tools::references(&current, &selection.items);
+        self.details.set(references);
+        for reference in tools::references(&current, &selection.retry) {
+            self.details.retry(&reference);
+        }
+        *selected = selection.items;
+        Ok(())
+    }
+
     pub fn close(&self) {
+        self.details.set([]);
         self.stop.cancel();
     }
 

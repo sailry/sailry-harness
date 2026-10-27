@@ -107,7 +107,13 @@ impl View {
                 && call.source.index == approval.index
         })?;
         let reference = call.detail_reference(&snapshot.page)?;
-        self.detail(&reference)?;
+        if !matches!(
+            self.details.state(&reference),
+            sailry_client::conversation::details::State::Ready(_)
+                | sailry_client::conversation::details::State::TooLarge(_)
+        ) {
+            return None;
+        }
         Some(approval)
     }
 

@@ -63,7 +63,7 @@ enum Reply {
     Overflow,
     EarlyLength,
     Summary {
-        usage: i32,
+        usage: Arc<Vec<i32>>,
         fail_summary: bool,
     },
     LoopCompaction {
@@ -311,15 +311,19 @@ impl Server {
         .await
     }
     pub async fn summary(usage: i32) -> Self {
+        Self::summary_sequence(vec![usage]).await
+    }
+    pub async fn summary_sequence(usage: Vec<i32>) -> Self {
+        assert!(!usage.is_empty());
         Self::serve(Reply::Summary {
-            usage,
+            usage: Arc::new(usage),
             fail_summary: false,
         })
         .await
     }
     pub async fn summary_failure(usage: i32) -> Self {
         Self::serve(Reply::Summary {
-            usage,
+            usage: Arc::new(vec![usage]),
             fail_summary: true,
         })
         .await
@@ -670,8 +674,19 @@ async fn respond(
         fail_summary,
     } = reply
     {
-        records.lock().unwrap().push(body.clone());
-        return compaction::respond_plain(stream, &body, usage, fail_summary).await;
+        let index = {
+            let mut records = records.lock().unwrap();
+            let index = records.len();
+            records.push(body.clone());
+            index
+        };
+        return compaction::respond_plain(
+            stream,
+            &body,
+            usage[index.min(usage.len() - 1)],
+            fail_summary,
+        )
+        .await;
     }
     if let Reply::LoopCompaction {
         fail_summary,

@@ -14,12 +14,23 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
-const MAX_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 64;
 
-#[derive(Default)]
 pub(crate) struct Cache {
     values: Mutex<Values>,
+    changes: tokio::sync::watch::Sender<u64>,
+    reads: Arc<tokio::sync::Semaphore>,
+}
+
+impl Default for Cache {
+    fn default() -> Self {
+        Self {
+            values: Mutex::default(),
+            changes: tokio::sync::watch::channel(0).0,
+            reads: Arc::new(tokio::sync::Semaphore::new(4)),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -28,22 +39,24 @@ struct Values {
     revisions: BTreeMap<SessionId, u64>,
     loading: BTreeMap<Reference, Reading>,
     next: u64,
+    pins: BTreeMap<Reference, usize>,
+    tracked: BTreeMap<SessionId, usize>,
 }
 
 struct Reading {
     id: u64,
     invalidated: bool,
-    future: WeakShared<BoxFuture<'static, Result<Arc<Detail>, Fault>>>,
+    future: WeakShared<BoxFuture<'static, Result<Read, Fault>>>,
 }
 
-struct Read {
+struct ReadGuard {
     cache: Weak<Cache>,
     reference: Reference,
     id: u64,
     complete: bool,
 }
 
-impl Read {
+impl ReadGuard {
     fn finish(&mut self, detail: Option<(Arc<Detail>, usize)>) -> bool {
         self.complete = true;
         self.cache
@@ -52,7 +65,7 @@ impl Read {
     }
 }
 
-impl Drop for Read {
+impl Drop for ReadGuard {
     fn drop(&mut self) {
         if !self.complete
             && let Some(cache) = self.cache.upgrade()
@@ -69,6 +82,31 @@ struct Cached {
 }
 
 impl Cache {
+    fn track(&self, session: SessionId) {
+        let mut values = self.values.lock().expect("tool detail cache lock");
+        *values.tracked.entry(session).or_default() += 1;
+    }
+
+    fn untrack(&self, session: SessionId) {
+        let mut values = self.values.lock().expect("tool detail cache lock");
+        if let Some(count) = values.tracked.get_mut(&session) {
+            *count -= 1;
+            if *count == 0 {
+                values.tracked.remove(&session);
+            }
+        }
+        values.prune(None);
+    }
+
+    fn revision(&self, session: SessionId) -> Option<u64> {
+        self.values
+            .lock()
+            .expect("tool detail cache lock")
+            .revisions
+            .get(&session)
+            .copied()
+    }
+
     fn get(&self, reference: &Reference) -> Option<Arc<Detail>> {
         let mut values = self.values.lock().expect("tool detail cache lock");
         let index = values
@@ -79,6 +117,60 @@ impl Cache {
         let detail = cached.detail.clone();
         values.entries.push_back(cached);
         Some(detail)
+    }
+
+    fn pin(&self, reference: &Reference, detail: &Arc<Detail>) -> bool {
+        let bytes = allocation(detail, reference);
+        let mut values = self.values.lock().expect("tool detail cache lock");
+        let pinned = values
+            .entries
+            .iter()
+            .filter(|entry| {
+                values.pins.contains_key(&entry.reference) && entry.reference != *reference
+            })
+            .map(|entry| entry.bytes)
+            .sum::<usize>();
+        if pinned + bytes > MAX_BYTES {
+            return false;
+        }
+        values.entries.retain(|entry| entry.reference != *reference);
+        while values.entries.len() >= MAX_ENTRIES
+            || values
+                .entries
+                .iter()
+                .map(|entry| entry.bytes)
+                .sum::<usize>()
+                + bytes
+                > MAX_BYTES
+        {
+            let Some(index) = values
+                .entries
+                .iter()
+                .position(|entry| !values.pins.contains_key(&entry.reference))
+            else {
+                // The item count is an LRU target. Pinned entries may exceed it;
+                // their combined retained allocation still fits the hard byte budget.
+                break;
+            };
+            values.entries.remove(index);
+        }
+        values.entries.push_back(Cached {
+            reference: reference.clone(),
+            detail: detail.clone(),
+            bytes,
+        });
+        *values.pins.entry(reference.clone()).or_default() += 1;
+        true
+    }
+
+    fn unpin(&self, reference: &Reference) {
+        let mut values = self.values.lock().expect("tool detail cache lock");
+        if let Some(count) = values.pins.get_mut(reference) {
+            *count -= 1;
+            if *count == 0 {
+                values.pins.remove(reference);
+            }
+        }
     }
 
     pub(crate) fn reconcile(&self, page: &Page) {
@@ -103,6 +195,8 @@ impl Cache {
         });
         values.revisions.insert(page.session, page.revision);
         values.prune(Some(page.session));
+        drop(values);
+        self.changes.send_modify(|sequence| *sequence += 1);
     }
 
     fn finish(&self, reference: &Reference, id: u64, detail: Option<(Arc<Detail>, usize)>) -> bool {
@@ -119,21 +213,24 @@ impl Cache {
             values
                 .entries
                 .retain(|entry| !same_part(&entry.reference, reference));
-            // Wire-size validation admits the newest detail. Its parsed allocation
-            // may occupy the cache alone, rather than reporting uncached success.
-            while !values.entries.is_empty()
-                && (values.entries.len() >= MAX_ENTRIES
-                    || values
-                        .entries
-                        .iter()
-                        .map(|entry| entry.bytes)
-                        .sum::<usize>()
-                        + bytes
-                        > MAX_BYTES)
+            while values.entries.len() >= MAX_ENTRIES
+                || values
+                    .entries
+                    .iter()
+                    .map(|entry| entry.bytes)
+                    .sum::<usize>()
+                    + bytes
+                    > MAX_BYTES
             {
-                if values.entries.pop_front().is_none() {
-                    break;
-                }
+                let Some(index) = values
+                    .entries
+                    .iter()
+                    .position(|entry| !values.pins.contains_key(&entry.reference))
+                else {
+                    values.prune(None);
+                    return valid;
+                };
+                values.entries.remove(index);
             }
             values.entries.push_back(Cached {
                 reference: reference.clone(),
@@ -150,6 +247,7 @@ impl Values {
     fn prune(&mut self, observed: Option<SessionId>) {
         self.revisions.retain(|session, _| {
             observed == Some(*session)
+                || self.tracked.contains_key(session)
                 || self
                     .entries
                     .iter()
@@ -191,10 +289,13 @@ pub fn retained_bytes(value: &serde_json::Value) -> usize {
 
 fn allocation(detail: &Detail, reference: &Reference) -> usize {
     let metadata = serde_json::json!([detail.resolved, detail.content, detail.images]);
+    // Include both cache storage and the pin map's reference/node allocation.
     std::mem::size_of::<Cached>()
-        + reference.entry.capacity()
-        + reference.revision.capacity()
-        + reference.call.as_ref().map_or(0, String::capacity)
+        + 2 * std::mem::size_of::<Reference>()
+        + 4 * std::mem::size_of::<usize>()
+        + 2 * reference.entry.capacity()
+        + 2 * reference.revision.capacity()
+        + 2 * reference.call.as_ref().map_or(0, String::capacity)
         + retained_bytes(&detail.arguments)
         + detail.result.as_ref().map_or(0, retained_bytes)
         + 2 * retained_bytes(&metadata)
@@ -226,10 +327,22 @@ impl Client {
         self.details.get(reference)
     }
 
-    /// Publish only complete, identity-checked JSON; a failed page never enters the cache.
+    /// Explicit readers can request complete values without a presentation tracker.
     pub async fn tool_detail(&self, reference: Reference) -> Result<Arc<Detail>, Fault> {
+        match self.detail(reference).await? {
+            Read::Ready(detail) => Ok(detail),
+            Read::TooLarge(limit) => Err(Fault::new(ErrorCode::InvalidRequest, limit.message())),
+            Read::Superseded => Err(Fault::new(
+                ErrorCode::Cancelled,
+                "tool detail read was superseded",
+            )),
+        }
+    }
+
+    /// Changed references and display limits are outcomes, not transport failures.
+    pub async fn detail(&self, reference: Reference) -> Result<Read, Fault> {
         if let Some(detail) = self.details.get(&reference) {
-            return Ok(detail);
+            return Ok(Read::Ready(detail));
         }
         let future = {
             let mut values = self.details.values.lock().expect("tool detail cache lock");
@@ -238,7 +351,7 @@ impl Client {
                 .iter()
                 .find(|entry| entry.reference == reference)
             {
-                return Ok(cached.detail.clone());
+                return Ok(Read::Ready(cached.detail.clone()));
             }
             if let Some(future) = values
                 .loading
@@ -251,24 +364,43 @@ impl Client {
                 values.next += 1;
                 let id = values.next;
                 let client = Client::new(self.transport.clone());
-                let read = Read {
+                let read = ReadGuard {
                     cache: Arc::downgrade(&self.details),
                     reference: reference.clone(),
                     id,
                     complete: false,
                 };
+                let reads = self.details.reads.clone();
                 let future = async move {
                     let mut read = read;
-                    let result = client.read_tool_detail(&read.reference).await.map(Arc::new);
-                    let detail = result
-                        .as_ref()
-                        .ok()
-                        .map(|detail| (detail.clone(), allocation(detail, &read.reference)));
+                    let _permit = reads
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| Fault::new(ErrorCode::Cancelled, "tool details are closed"))?;
+                    let result = match client.read_tool_detail(&read.reference).await {
+                        Ok(Read::Ready(detail))
+                            if allocation(&detail, &read.reference) > MAX_BYTES =>
+                        {
+                            Ok(Read::TooLarge(Limit::Memory))
+                        }
+                        Err(error)
+                            if matches!(
+                                error.code,
+                                ErrorCode::RevisionConflict | ErrorCode::NotFound
+                            ) =>
+                        {
+                            Ok(Read::Superseded)
+                        }
+                        result => result,
+                    };
+                    let detail = match &result {
+                        Ok(Read::Ready(detail)) => {
+                            Some((detail.clone(), allocation(detail, &read.reference)))
+                        }
+                        _ => None,
+                    };
                     if !read.finish(detail) {
-                        return Err(Fault::new(
-                            ErrorCode::RevisionConflict,
-                            "conversation changed while loading tool details",
-                        ));
+                        return Ok(Read::Superseded);
                     }
                     result
                 }
@@ -288,7 +420,7 @@ impl Client {
         future.await
     }
 
-    async fn read_tool_detail(&self, reference: &Reference) -> Result<Detail, Fault> {
+    async fn read_tool_detail(&self, reference: &Reference) -> Result<Read, Fault> {
         let mut text = String::new();
         let mut total = None;
         loop {
@@ -308,9 +440,11 @@ impl Client {
                     "tool detail response expected",
                 ));
             };
+            if page.total_bytes > MAX_BYTES {
+                return Ok(Read::TooLarge(Limit::Transfer));
+            }
             if page.reference != *reference
                 || page.offset != text.len()
-                || page.total_bytes > MAX_BYTES
                 || page.text.len() > DETAIL_PAGE_BYTES
                 || total.is_some_and(|total| total != page.total_bytes)
                 || page.offset.saturating_add(page.text.len()) > page.total_bytes
@@ -342,9 +476,34 @@ impl Client {
                 "tool detail card belongs to another conversation",
             ));
         }
-        Ok(detail)
+        Ok(Read::Ready(Arc::new(detail)))
     }
 }
+
+#[derive(Clone, Debug)]
+pub enum Read {
+    Ready(Arc<Detail>),
+    TooLarge(Limit),
+    Superseded,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Limit {
+    Transfer,
+    Memory,
+}
+
+impl Limit {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::Transfer => "tool details exceed the transfer size limit",
+            Self::Memory => "tool details exceed the display memory budget",
+        }
+    }
+}
+
+mod tracker;
+pub use tracker::{State, Tracker};
 
 #[cfg(test)]
 mod tests;

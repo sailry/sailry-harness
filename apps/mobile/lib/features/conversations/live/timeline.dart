@@ -67,7 +67,7 @@ class LiveTimeline extends StatefulWidget {
   final bool sending;
   final ArtifactActions? artifactActions;
   final ValueListenable<Map<String, dynamic>>? artifactChanges;
-  final OutputLoader? toolOutput;
+  final ToolSelectionChanged? toolOutput;
 
   @override
   State<LiveTimeline> createState() => _LiveTimelineState();

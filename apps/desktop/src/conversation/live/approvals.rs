@@ -52,10 +52,20 @@ impl View {
                 self.request_details(reference.clone(), false, cx);
                 let hydrated = self.detailed(call, page);
                 let call = &hydrated;
-                let loaded = call.detail.is_some();
-                let failed = reference
+                let state = reference
                     .as_ref()
-                    .is_some_and(|reference| self.detail_failed.borrow().contains(reference));
+                    .map(|reference| self.details.state(reference));
+                let loaded = call.detail.is_some()
+                    || matches!(
+                        state,
+                        Some(sailry_client::conversation::details::State::TooLarge(_))
+                    );
+                let failed = reference.as_ref().is_some_and(|reference| {
+                    matches!(
+                        self.details.state(reference),
+                        sailry_client::conversation::details::State::Failed { retry_at: None, .. }
+                    )
+                });
                 let approval = call.approval.as_ref().unwrap();
                 let id = approval.id;
                 let details = details(call, page);

@@ -201,20 +201,26 @@ Future<void> main() async {
     'large older turn is hydrated and tools remain associated',
   );
   messages(page, 46, 45, 'ffi-history');
-  check(
-    (all['calls'] as List).every((call) {
-      final file = part(all, call['response'])['result']['data'];
-      return call['state'] == 'returned' &&
+  for (final call in all['calls'] as List) {
+    final detail = jsonDecode(
+      await updates.toolOutput(
+        entry: call['source']['entry'],
+        index: call['source']['index'],
+      ),
+    );
+    final file = detail['result']['data'];
+    check(
+      call['state'] == 'returned' &&
           file['path'] == '资料.txt' &&
           file['offset'] == 0 &&
           file['next_offset'] == null &&
           jsonEncode(file['lines']) ==
               jsonEncode([
                 {'number': 1, 'text': 'History 中文 🙂'},
-              ]);
-    }),
-    'canonical tool results retain their complete Unicode content',
-  );
+              ]),
+      'canonical tool results retain their complete Unicode content',
+    );
+  }
   await execute(connection, 'stop_turn', {'turn': turn['id']});
   final stopped = await until(
     updates,

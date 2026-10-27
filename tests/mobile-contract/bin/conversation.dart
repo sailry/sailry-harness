@@ -218,7 +218,7 @@ Future<Fixture> create(
       'models': [
         {
           'id': 'ffi-fixture',
-          'context': 4096,
+          'context': 128000,
           'output': 128,
           'vision': false,
           'tools': true,
@@ -372,13 +372,10 @@ Future<Fixture> create(
     (entry) => entry['id'] == response['entry'],
   );
   check(
-    jsonEncode(
-          entry['parts'][response['index']]['data']['result']['data']['lines'],
-        ) ==
-        jsonEncode([
-          {'number': 1, 'text': '中文 tool result 🙂'},
-        ]),
-    'reference resolves to canonical tool output',
+    entry['parts'][response['index']]['data']['result'] == null &&
+        entry['parts'][response['index']]['data']['summary']['revision'] !=
+            null,
+    'canonical projection retains a bounded detail reference',
   );
   final pending = updates.next().then((_) => true, onError: (_) => true);
   final selected = jsonDecode(
@@ -390,8 +387,15 @@ Future<Fixture> create(
         .timeout(const Duration(seconds: 2)),
   );
   check(
-    selected['preview'].contains('中文 tool result 🙂'),
+    selected['output']['preview'].contains('中文 tool result 🙂'),
     'pending observation does not block shared selected output',
+  );
+  check(
+    jsonEncode(selected['result']['data']['lines']) ==
+        jsonEncode([
+          {'number': 1, 'text': '中文 tool result 🙂'},
+        ]),
+    'reference resolves to canonical tool output',
   );
   await updates.close();
   await pending.timeout(const Duration(seconds: 2));
@@ -421,6 +425,46 @@ Future<void> restore(Connection connection, Fixture fixture) async {
   check(
     snapshot['calls'][0]['state'] == 'returned',
     'reopened FFI restores shared tool association',
+  );
+  final call = (snapshot['calls'] as List).singleWhere(
+    (call) => call['id'] == 'ffi-call',
+  );
+  await updates.trackTools(
+    selection: jsonEncode({
+      'items': [call['source']],
+    }),
+  );
+  final detail = await Future(() async {
+    while (true) {
+      final view = jsonDecode(await updates.next());
+      final current = (view['calls'] as List).singleWhere(
+        (value) => value['id'] == 'ffi-call',
+      );
+      check(
+        (view['detail_errors'] as List).isEmpty,
+        'tracked details load without errors',
+      );
+      if (current['detail_state']?['kind'] == 'ready') {
+        return current['detail'];
+      }
+    }
+  }).timeout(const Duration(seconds: 2));
+  check(
+    detail['output']['preview'].contains('中文 tool result 🙂'),
+    'tracked details cross the native bridge and remote Node',
+  );
+  check(
+    jsonEncode(detail['result']['data']['lines']) ==
+        jsonEncode([
+          {'number': 1, 'text': '中文 tool result 🙂'},
+        ]),
+    'tracked details preserve the complete canonical result',
+  );
+  await updates.trackTools(selection: jsonEncode({'items': []}));
+  final released = await until(updates, (_) => true);
+  check(
+    (released['calls'] as List).every((call) => call['detail'] == null),
+    'unmounted references release their projected details',
   );
   check(fixture.requests == 2, 'recovery does not call model or tool again');
   checkStatistics(snapshot['snapshot']);

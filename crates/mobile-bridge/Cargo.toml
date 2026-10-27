@@ -15,6 +15,7 @@ sailry-client.workspace = true
 sailry-link.workspace = true
 sailry-protocol.workspace = true
 sailry-speech.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 

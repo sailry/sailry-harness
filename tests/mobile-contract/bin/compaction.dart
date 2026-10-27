@@ -30,6 +30,7 @@ Future<void> main() async {
   for (final text in [
     requirement,
     if (manual) latest,
+    if (!manual) 'Earlier context',
     if (!manual) 'Recent context',
     if (!manual) 'Current task',
   ]) {
@@ -99,7 +100,8 @@ Future<void> main() async {
   if (manual) {
     check(
       (original.single['data'] as String).endsWith(
-        'Latest user instruction (verbatim data)\n$latest',
+        'Latest user instruction (verbatim data)\n$latest\n\n'
+        'File ledger (canonical tool results)\nRead: source.txt',
       ),
       'the latest explicit safety instruction is retained verbatim',
     );

@@ -23,7 +23,7 @@ use std::{
     sync::{Arc, atomic::AtomicU64},
 };
 use tokio::{
-    sync::{Mutex, Semaphore, mpsc, watch},
+    sync::{Mutex, mpsc, watch},
     task::JoinHandle,
 };
 
@@ -31,7 +31,6 @@ pub(super) struct Adapter {
     client: Arc<Client>,
     sessions: Mutex<BTreeMap<SessionId, Arc<Opened>>>,
     stop: CancellationToken,
-    details: Semaphore,
 }
 
 struct Opened {
@@ -41,6 +40,7 @@ struct Opened {
     stop: CancellationToken,
     observer: JoinHandle<std::result::Result<(), Fault>>,
     presentation: Mutex<observe::Presentation>,
+    details: sailry_client::conversation::details::Tracker,
     history: AtomicU64,
     problem: watch::Sender<Option<Problem>>,
 }
@@ -70,7 +70,6 @@ impl Adapter {
             client,
             sessions: Mutex::new(BTreeMap::new()),
             stop: CancellationToken::new(),
-            details: Semaphore::new(4),
         })
     }
 

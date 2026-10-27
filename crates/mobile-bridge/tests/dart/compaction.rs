@@ -26,17 +26,22 @@ fn run(manual: bool) {
     )
     .unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let server = runtime.block_on(support::Server::compaction_sequence(
-        false,
-        "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂".into(),
+    let server = runtime.block_on(async {
         if manual {
-            vec![100]
+            support::Server::compaction_sequence(
+                false,
+                "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂"
+                    .into(),
+                vec![100],
+            )
+            .await
         } else {
-            // Cross the 4096-token model's automatic budget after a complete
-            // tool exchange, then report the reduced context after summary.
-            vec![100, 100, 100, 3500, 100]
-        },
-    ));
+            // The 128000-token window triggers at 102400. The first completed
+            // turn crosses it; the summary and subsequent requests report the
+            // reduced context. Large model prose leaves the input verbatim.
+            support::Server::summary_sequence(vec![120_000, 100]).await
+        }
+    });
     let (node, sessions) = runtime.block_on(tools::sessions(
         directory.path(),
         &server.endpoint,
@@ -76,7 +81,9 @@ fn run(manual: bool) {
                 _ => None,
             })
             .unwrap();
-        assert!(summary.ends_with(latest));
+        assert!(summary.ends_with(&format!(
+            "Latest user instruction (verbatim data)\n{latest}\n\nFile ledger (canonical tool results)\nRead: source.txt"
+        )));
         assert!(summary.len() <= 6552);
         let requests = server.requests.lock().unwrap();
         assert!(support::compaction::is_summary(&requests[3]));

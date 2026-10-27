@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../content/code.dart';
 import '../../../runtime/json.dart';
 
-typedef OutputLoader =
-    Future<Map<String, dynamic>?> Function(String entry, int index);
+typedef ToolSelectionChanged =
+    void Function(Object owner, List<Map<String, dynamic>> calls, bool retry);
 
 bool toolFailed(Map<String, dynamic> call) =>
     object(call['row'])['failed'] == true;

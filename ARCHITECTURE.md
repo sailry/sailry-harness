@@ -563,6 +563,13 @@ facts share the existing turn observation and canonical history owner, preservin
 error inspection without classifying arbitrary business fields as failures.
 Model results and durable tool output remain unchanged.
 
+Client owns one bounded detail cache and per-view trackers for loading, retries,
+revision invalidation and visible-reference pins. Desktop, ACP, plugin observers
+and Mobile consume those states instead of retaining separate detail caches.
+Oversized details preserve summary-based approval; superseded reads are silent.
+Node keeps active paged reads out of its ordinary detail LRU until completion or
+their lease expires.
+
 Model declarations are captured in the existing session catalog and reused while
 their exact definition inputs match. Common tools follow declared operations and
 selected mode or role scope; additional tools are discovered through `tool_search`

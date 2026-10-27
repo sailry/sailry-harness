@@ -314,6 +314,10 @@ impl Adapter {
             stop,
             observer,
             presentation: Mutex::new(observe::Presentation::default()),
+            details: sailry_client::conversation::details::Tracker::new(
+                self.client.clone(),
+                tokio::runtime::Handle::current(),
+            ),
             history: AtomicU64::new(oldest.unwrap_or(u64::MAX)),
             problem,
         });

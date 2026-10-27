@@ -118,7 +118,7 @@ fn fixture(mode: Presentation, result: Value) -> (View, Arc<Detail>) {
 }
 
 fn serialized(view: &View) -> Value {
-    serde_json::from_str(&super::view(view).unwrap()).unwrap()
+    serde_json::from_str(&super::view(view, None).unwrap()).unwrap()
 }
 
 fn summary(view: &mut View) -> &mut Summary {
@@ -174,8 +174,7 @@ fn resolves_literal_content_only_in_detail_packet() {
     assert!(encoded["calls"][0].get("output_deferred").is_none());
     assert_eq!(encoded["calls"][0]["details"], true);
     let page = &view.snapshot.as_ref().unwrap().page;
-    let packet: Value =
-        serde_json::from_str(&packet(&view.calls[0].with_detail(detail), page).unwrap()).unwrap();
+    let packet = packet(&view.calls[0].with_detail(detail), page).unwrap();
     assert_eq!(packet["texts"], json!(["Original\ntext 🙂", null]));
     assert_eq!(
         packet["result"]["output"]["escaped/key"]["~value"][0],
@@ -216,12 +215,9 @@ fn failure_does_not_select_success_preview() {
         encoded["calls"][0]["resolved"]["output"]["preview"],
         "Claimed success"
     );
-    let packet: Value = serde_json::from_str(
-        &packet(
-            &view.calls[0].with_detail(detail),
-            &view.snapshot.as_ref().unwrap().page,
-        )
-        .unwrap(),
+    let packet = packet(
+        &view.calls[0].with_detail(detail),
+        &view.snapshot.as_ref().unwrap().page,
     )
     .unwrap();
     assert_eq!(packet["output"], Value::Null);
@@ -232,6 +228,7 @@ fn failure_does_not_select_success_preview() {
 struct Backend {
     reference: sailry_protocol::tool::detail::Reference,
     detail: Arc<Detail>,
+    total: Option<usize>,
 }
 
 impl Transport for Backend {
@@ -258,7 +255,7 @@ impl Transport for Backend {
                     sailry_protocol::tool::detail::Page {
                         reference: self.reference.clone(),
                         offset,
-                        total_bytes: text.len(),
+                        total_bytes: self.total.unwrap_or(text.len()),
                         next_offset: (end < text.len()).then_some(end),
                         text: text[offset..end].into(),
                     },
@@ -289,11 +286,17 @@ async fn output_does_not_wait_for_updates() {
             .detail_reference(&view.snapshot.as_ref().unwrap().page)
             .unwrap(),
         detail,
+        total: None,
     };
     let client = Arc::new(Client::new(Arc::new(backend)));
     let (_sender, receiver) = watch::channel(view);
     let (older, _requests) = mpsc::channel(1);
+    let details = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    let detail_changes = Mutex::new(details.subscribe());
     let updates = Arc::new(ConversationUpdates {
+        details,
+        detail_changes,
+        selected: Default::default(),
         client,
         current: receiver.clone(),
         receiver: Mutex::new(receiver),
@@ -318,4 +321,64 @@ async fn output_does_not_wait_for_updates() {
     updates.close();
     assert!(pending.await.unwrap().is_err());
     assert!(updates.tool_output("request".into(), 0).await.is_err());
+}
+
+#[tokio::test]
+async fn selection_exposes_limits_and_releases_details() {
+    use crate::api::conversation::ConversationUpdates;
+    use sailry_link::CancellationToken;
+    use tokio::sync::{Mutex, mpsc, watch};
+    let (view, detail) = fixture(Presentation::Details, json!("Original output"));
+    let reference = view.calls[0]
+        .detail_reference(&view.snapshot.as_ref().unwrap().page)
+        .unwrap();
+    let backend = Backend {
+        reference: reference.clone(),
+        detail,
+        total: Some(sailry_client::conversation::details::MAX_BYTES + 1),
+    };
+    let client = Arc::new(Client::new(Arc::new(backend)));
+    let (_sender, receiver) = watch::channel(view);
+    let (older, _requests) = mpsc::channel(1);
+    let details = Tracker::new(client.clone(), tokio::runtime::Handle::current());
+    let detail_changes = Mutex::new(details.subscribe());
+    let updates = ConversationUpdates {
+        details,
+        detail_changes,
+        selected: Default::default(),
+        client,
+        current: receiver.clone(),
+        receiver: Mutex::new(receiver),
+        stop: CancellationToken::new(),
+        task: tokio::spawn(std::future::pending()),
+        older,
+    };
+    updates
+        .track_tools(json!({"items":[{"entry":"request","index":0}]}).to_string())
+        .unwrap();
+    assert!(matches!(
+        updates.details.wait(&reference).await,
+        sailry_client::conversation::details::State::TooLarge(Limit::Transfer)
+    ));
+    let current = updates.current.borrow().clone();
+    let summary = serialized(&current);
+    let value: Value =
+        serde_json::from_str(&super::view(&current, Some(&updates.details)).unwrap()).unwrap();
+    assert_eq!(
+        value["calls"][0]["detail_state"],
+        json!({"kind":"too_large","limit":"transfer"})
+    );
+    assert_eq!(
+        value["calls"][0]["approval_view"],
+        summary["calls"][0]["approval_view"]
+    );
+    assert!(value["detail_errors"].as_array().unwrap().is_empty());
+    updates
+        .track_tools(json!({"items":[]}).to_string())
+        .unwrap();
+    let value: Value =
+        serde_json::from_str(&super::view(&current, Some(&updates.details)).unwrap()).unwrap();
+    assert!(value["calls"][0]["detail_state"].is_null());
+    assert!(value["calls"][0]["detail"].is_null());
+    updates.close();
 }

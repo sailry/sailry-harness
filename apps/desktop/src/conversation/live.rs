@@ -146,15 +146,8 @@ pub(crate) struct View {
     sent: BTreeMap<TurnId, outgoing::Message>,
     navigation: navigation::Navigation,
     expanded: BTreeMap<(TurnId, String), bool>,
-    detail_values: std::cell::RefCell<
-        BTreeMap<
-            sailry_protocol::tool::detail::Reference,
-            Arc<sailry_protocol::tool::detail::Detail>,
-        >,
-    >,
-    detail_loading:
-        std::cell::RefCell<std::collections::BTreeSet<sailry_protocol::tool::detail::Reference>>,
-    detail_failed:
+    details: sailry_client::conversation::details::Tracker,
+    detail_refs:
         std::cell::RefCell<std::collections::BTreeSet<sailry_protocol::tool::detail::Reference>>,
     changes: BTreeMap<TurnId, Entity<messages::changes::Card>>,
     editing: Option<messages::Editing>,
@@ -384,6 +377,43 @@ impl View {
                 .is_some_and(|model| model.source == binding.client.target())
         });
         crate::updater::recovery::register(window, cx);
+        let details = sailry_client::conversation::details::Tracker::new(
+            binding.client.clone(),
+            binding.runtime.handle().clone(),
+        );
+        let mut detail_changes = details.subscribe();
+        let detail_stop = stop.clone();
+        cx.spawn(async move |view, cx| {
+            loop {
+                tokio::select! {
+                    _ = detail_stop.cancelled() => return,
+                    changed = detail_changes.changed() => if changed.is_err() { return; },
+                }
+                if view
+                    .update(cx, |view, cx| {
+                        for (_, error) in view.details.failures() {
+                            let _ = cx.update_window(view.history_window, |_, window, cx| {
+                                crate::feedback::error(
+                                    "",
+                                    &diagnostic::display(&error.message),
+                                    window,
+                                    cx,
+                                )
+                            });
+                        }
+                        view.scroller.update(cx, |scroller, cx| {
+                            let count = scroller.item_count();
+                            scroller.remeasure_items(0..count, cx);
+                        });
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        })
+        .detach();
         Self {
             contributions,
             contribution_metadata,
@@ -427,9 +457,8 @@ impl View {
             sent: BTreeMap::new(),
             navigation: navigation::Navigation::new(cx),
             expanded: BTreeMap::new(),
-            detail_values: Default::default(),
-            detail_loading: Default::default(),
-            detail_failed: Default::default(),
+            details,
+            detail_refs: Default::default(),
             changes: BTreeMap::new(),
             editing: None,
             texts: Default::default(),

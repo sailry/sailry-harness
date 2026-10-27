@@ -55,7 +55,11 @@ impl Transport for Backend {
                 panic!("detail read expected")
             };
             self.0.fetch_add(1, Ordering::Relaxed);
-            if self.1.lock().unwrap().remove(&entry) {
+            let failed = {
+                let mut failures = self.1.lock().unwrap();
+                failures.contains(&format!("always:{entry}")) || failures.remove(&entry)
+            };
+            if failed {
                 return Err(Fault::new(
                     ErrorCode::Unavailable,
                     "injected tool detail failure",
@@ -69,7 +73,11 @@ impl Transport for Backend {
                 images: vec![],
             })
             .unwrap();
-            let full = self.2.as_ref().unwrap_or(&small);
+            let full = self
+                .2
+                .as_ref()
+                .filter(|_| entry != "entry-1")
+                .unwrap_or(&small);
             let offset = cursor.unwrap_or(0);
             let end = (offset + limit).min(full.len());
             let text = full[offset..end].to_owned();
@@ -103,7 +111,7 @@ impl Transport for Backend {
 }
 
 fn history(session: sailry_protocol::SessionId, turn: TurnId) -> sailry_client::conversation::View {
-    let entries = (0..65).map(|index| json!({
+    let entries = (0..3).map(|index| json!({
         "sequence":index+1, "id":format!("entry-{index}"), "turn":turn,
         "author":"assistant", "branch":"", "timestamp_ms":index,
         "parts":[
@@ -155,7 +163,7 @@ fn history(session: sailry_protocol::SessionId, turn: TurnId) -> sailry_client::
         calls,
         snapshot: Some(Arc::new(Snapshot {
             node: NodeId([53; 32]),
-            sequence: 65,
+            sequence: 3,
             page: Arc::new(page),
             missing: vec![],
             drafts: vec![],
@@ -166,24 +174,37 @@ fn history(session: sailry_protocol::SessionId, turn: TurnId) -> sailry_client::
     }
 }
 
+fn observation(
+    history: sailry_client::conversation::View,
+    client: Arc<Client>,
+    runtime: tokio::runtime::Handle,
+) -> Observation {
+    Observation {
+        history,
+        details: Arc::new(sailry_client::conversation::details::Tracker::observe(
+            client.clone(),
+            runtime,
+        )),
+        client,
+        prefix: "plugin_fixture_".into(),
+    }
+}
+
 #[tokio::test]
 async fn reads_only_changed_calls() {
     let backend = Backend::new();
-    let mut observation = Observation {
-        history: history(sailry_protocol::SessionId::new(), TurnId::new()),
-        client: Arc::new(Client::new(backend.clone())),
-        runtime: tokio::runtime::Handle::current(),
-        prefix: "plugin_fixture_".into(),
-        cache: Default::default(),
-    };
+    let mut observation = observation(
+        history(sailry_protocol::SessionId::new(), TurnId::new()),
+        Arc::new(Client::new(backend.clone())),
+        tokio::runtime::Handle::current(),
+    );
     let first = snapshot(&observation).await.unwrap();
-    assert_eq!(first["calls"].as_array().unwrap().len(), 65);
-    assert_eq!(backend.0.load(Ordering::Relaxed), 65);
+    assert_eq!(first["calls"].as_array().unwrap().len(), 3);
+    assert_eq!(backend.0.load(Ordering::Relaxed), 3);
     assert_eq!(snapshot(&observation).await.unwrap(), first);
-    assert_eq!(backend.0.load(Ordering::Relaxed), 65);
+    assert_eq!(backend.0.load(Ordering::Relaxed), 3);
     let view = observation.history.snapshot.as_mut().unwrap();
-    let page = &mut Arc::make_mut(view).page;
-    let page = Arc::make_mut(page);
+    let page = Arc::make_mut(&mut Arc::make_mut(view).page);
     let sailry_protocol::conversation::Part::ToolResult { summary, .. } =
         &mut page.entries[0].parts[1]
     else {
@@ -191,64 +212,43 @@ async fn reads_only_changed_calls() {
     };
     summary.revision = "b".repeat(64);
     snapshot(&observation).await.unwrap();
-    assert_eq!(backend.0.load(Ordering::Relaxed), 66);
+    assert_eq!(backend.0.load(Ordering::Relaxed), 4);
     observation.history.snapshot = None;
-    snapshot(&observation).await.unwrap();
-    let cache = observation.cache.lock().await;
-    assert!(cache.values.is_empty());
-    assert_eq!(cache.bytes, 0);
+    assert!(
+        snapshot(&observation).await.unwrap()["calls"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
-async fn metadata_updates_reuse_captured_details() {
+async fn metadata_updates_reuse_existing_details() {
     let backend = Backend::new();
-    let mut observation = Observation {
-        history: history(sailry_protocol::SessionId::new(), TurnId::new()),
-        client: Arc::new(Client::new(backend.clone())),
-        runtime: tokio::runtime::Handle::current(),
-        prefix: "plugin_fixture_".into(),
-        cache: Default::default(),
-    };
+    let mut observation = observation(
+        history(sailry_protocol::SessionId::new(), TurnId::new()),
+        Arc::new(Client::new(backend.clone())),
+        tokio::runtime::Handle::current(),
+    );
     snapshot(&observation).await.unwrap();
     let view = Arc::make_mut(observation.history.snapshot.as_mut().unwrap());
     Arc::make_mut(&mut view.page).entries[0].timestamp_ms = 1234;
     let changed = snapshot(&observation).await.unwrap();
     assert_eq!(changed["calls"][0]["timestamp_ms"], 1234);
-    assert_eq!(backend.0.load(Ordering::Relaxed), 65);
+    assert_eq!(backend.0.load(Ordering::Relaxed), 3);
 }
 
-#[core::prelude::v1::test]
-fn retains_compact_values_over_parsed_budget() {
-    let history = history(sailry_protocol::SessionId::new(), TurnId::new());
-    let page = &history.snapshot.as_ref().unwrap().page;
-    let stamp = Stamp {
-        tool: history.calls[0].stamp(page).unwrap(),
-        timestamp_ms: 0,
-        sequence: None,
-    };
-    let mut text = String::with_capacity(MAX_CAPTURE_BYTES);
-    text.push('x');
-    let value = Value::String(text);
-    assert!(sailry_client::conversation::details::retained_bytes(&value) > MAX_CAPTURE_BYTES);
-    let mut cache = Cache::default();
-    cache.insert("oversized".into(), stamp, &value).unwrap();
-    assert_eq!(cache.values.len(), 1);
-    assert!(cache.bytes < 16 * 1024);
-}
-
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_failed_call_does_not_hide_peers() {
     let backend = Backend::new();
-    backend.1.lock().unwrap().insert("entry-0".into());
-    let observation = Observation {
-        history: history(sailry_protocol::SessionId::new(), TurnId::new()),
-        client: Arc::new(Client::new(backend.clone())),
-        runtime: tokio::runtime::Handle::current(),
-        prefix: "plugin_fixture_".into(),
-        cache: Default::default(),
-    };
+    backend.1.lock().unwrap().insert("always:entry-0".into());
+    let observation = observation(
+        history(sailry_protocol::SessionId::new(), TurnId::new()),
+        Arc::new(Client::new(backend.clone())),
+        tokio::runtime::Handle::current(),
+    );
     let partial = snapshot(&observation).await.unwrap();
-    assert_eq!(partial["calls"].as_array().unwrap().len(), 64);
+    assert_eq!(partial["calls"].as_array().unwrap().len(), 2);
     assert!(
         partial["calls"]
             .as_array()
@@ -256,9 +256,18 @@ async fn a_failed_call_does_not_hide_peers() {
             .iter()
             .all(|call| call["timestamp_ms"] != 0)
     );
+    let reads = backend.0.load(Ordering::Relaxed);
+    assert_eq!(reads, 6);
+    assert_eq!(snapshot(&observation).await.unwrap(), partial);
+    assert_eq!(backend.0.load(Ordering::Relaxed), reads);
+    backend.1.lock().unwrap().clear();
+    let reference = observation.history.calls[0]
+        .detail_reference(&observation.history.snapshot.as_ref().unwrap().page)
+        .unwrap();
+    observation.details.retry(&reference);
     let recovered = snapshot(&observation).await.unwrap();
-    assert_eq!(recovered["calls"].as_array().unwrap().len(), 65);
-    assert_eq!(backend.0.load(Ordering::Relaxed), 66);
+    assert_eq!(recovered["calls"].as_array().unwrap().len(), 3);
+    assert_eq!(backend.0.load(Ordering::Relaxed), reads + 1);
 }
 
 #[core::prelude::v1::test]
@@ -268,95 +277,82 @@ fn dispatches_on_the_binding_runtime() {
         .build()
         .unwrap();
     let backend = Backend::new();
-    let observation = Observation {
-        history: history(sailry_protocol::SessionId::new(), TurnId::new()),
-        client: Arc::new(Client::new(backend)),
-        runtime: runtime.handle().clone(),
-        prefix: "plugin_fixture_".into(),
-        cache: Default::default(),
-    };
+    let observation = observation(
+        history(sailry_protocol::SessionId::new(), TurnId::new()),
+        Arc::new(Client::new(backend)),
+        runtime.handle().clone(),
+    );
     assert!(tokio::runtime::Handle::try_current().is_err());
     let value = futures::executor::block_on(read(observation, CancellationToken::new())).unwrap();
-    assert_eq!(value["calls"].as_array().unwrap().len(), 65);
+    assert_eq!(value["calls"].as_array().unwrap().len(), 3);
 }
 
 #[tokio::test]
-async fn compact_snapshots_reuse_large_parsed_values() {
+async fn eviction_keeps_other_sessions_live() {
     let detail = Detail {
-        arguments: json!({"path":"fixture.txt"}),
-        result: Some(Value::Array(vec![Value::Null; 600_000])),
+        arguments: Value::Null,
+        result: Some(Value::String("x".repeat(34 * 1024 * 1024))),
         resolved: None,
         content: None,
-        images: Vec::new(),
+        images: vec![],
     };
     let text = serde_json::to_string(&detail).unwrap();
     let parsed: Detail = serde_json::from_str(&text).unwrap();
     assert!(
+        sailry_client::conversation::details::retained_bytes(parsed.result.as_ref().unwrap())
+            < sailry_client::conversation::details::MAX_BYTES
+    );
+    assert!(
         2 * sailry_client::conversation::details::retained_bytes(parsed.result.as_ref().unwrap())
-            > MAX_CAPTURE_BYTES
+            > sailry_client::conversation::details::MAX_BYTES
     );
     drop(parsed);
     drop(detail);
     let backend = Backend::large(text);
-    let mut history = history(sailry_protocol::SessionId::new(), TurnId::new());
-    Arc::make_mut(&mut history.calls).truncate(2);
-    let observation = Observation {
-        history,
-        client: Arc::new(Client::new(backend.clone())),
-        runtime: tokio::runtime::Handle::current(),
-        prefix: "plugin_fixture_".into(),
-        cache: Default::default(),
-    };
-    let first = snapshot(&observation).await.unwrap();
-    assert_eq!(first["calls"].as_array().unwrap().len(), 2);
-    let reads = backend.0.load(Ordering::Relaxed);
-    assert!(reads > 2);
-    assert_eq!(snapshot(&observation).await.unwrap(), first);
-    assert_eq!(backend.0.load(Ordering::Relaxed), reads);
-    assert!(observation.cache.lock().await.bytes < 8 * 1024 * 1024);
-}
-
-#[tokio::test]
-async fn over_capacity_snapshots_do_not_refetch() {
-    let backend = Backend::new();
-    let mut history = history(sailry_protocol::SessionId::new(), TurnId::new());
-    Arc::make_mut(&mut history.calls).truncate(2);
-    let page = &history.snapshot.as_ref().unwrap().page;
-    let mut cache = Cache::default();
-    let value = Value::String("x".repeat(MAX_CAPTURE_BYTES / 2));
-    for (index, call) in history.calls.iter().enumerate() {
-        let stamp = Stamp {
-            tool: call.stamp(page).unwrap(),
-            timestamp_ms: index as i64,
-            sequence: Some(index as u64 + 1),
-        };
-        let key = format!("{}:{}", call.turn, call.source.key());
-        assert_eq!(cache.insert(key, stamp, &value).is_ok(), index == 0);
-    }
-    drop(value);
-    assert!(
-        cache
-            .values
-            .iter()
-            .all(|(_, captured)| captured.value.is_none())
-    );
-    let mut observation = Observation {
-        history,
-        client: Arc::new(Client::new(backend.clone())),
-        runtime: tokio::runtime::Handle::current(),
-        prefix: "plugin_fixture_".into(),
-        cache: Arc::new(tokio::sync::Mutex::new(cache)),
-    };
-    assert!(snapshot(&observation).await.is_err());
-    assert!(snapshot(&observation).await.is_err());
-    assert_eq!(backend.0.load(Ordering::Relaxed), 0);
-    Arc::make_mut(&mut observation.history.calls).truncate(1);
+    let client = Arc::new(Client::new(backend.clone()));
+    let current = history(sailry_protocol::SessionId::new(), TurnId::new());
+    let mut initial = current.clone();
+    Arc::make_mut(&mut initial.calls).truncate(1);
+    let initial_page = Arc::make_mut(initial.snapshot.as_mut().unwrap());
+    initial_page.sequence = 1;
+    Arc::make_mut(&mut initial_page.page).entries.truncate(1);
+    let oldest = initial.calls[0]
+        .detail_reference(&initial.snapshot.as_ref().unwrap().page)
+        .unwrap();
+    let mut observed = observation(initial, client.clone(), tokio::runtime::Handle::current());
+    let initial = snapshot(&observed).await.unwrap();
+    assert_eq!(initial["calls"].as_array().unwrap().len(), 1);
+    assert_eq!(initial["calls"][0]["timestamp_ms"], 0);
+    drop(initial);
+    observed.history = current;
+    let first = snapshot(&observed).await.unwrap();
+    let calls = first["calls"].as_array().unwrap();
+    assert_eq!(calls.len(), 2);
     assert_eq!(
-        snapshot(&observation).await.unwrap()["calls"]
+        calls
+            .iter()
+            .map(|call| call["timestamp_ms"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert!(matches!(
+        observed.details.state(&oldest),
+        sailry_client::conversation::details::State::Superseded
+    ));
+    let reads = backend.0.load(Ordering::Relaxed);
+    snapshot(&observed).await.unwrap();
+    assert_eq!(backend.0.load(Ordering::Relaxed), reads);
+    let mut peer = history(sailry_protocol::SessionId::new(), TurnId::new());
+    Arc::make_mut(&mut peer.calls).retain(|call| call.source.entry == "entry-1");
+    let peer = observation(peer, client, tokio::runtime::Handle::current());
+    assert_eq!(
+        snapshot(&peer).await.unwrap()["calls"]
             .as_array()
             .unwrap()
             .len(),
         1
     );
-    assert_eq!(backend.0.load(Ordering::Relaxed), 1);
+    assert_eq!(backend.0.load(Ordering::Relaxed), reads + 1);
+    snapshot(&observed).await.unwrap();
+    assert_eq!(backend.0.load(Ordering::Relaxed), reads + 1);
 }

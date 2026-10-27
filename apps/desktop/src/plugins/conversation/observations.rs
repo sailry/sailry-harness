@@ -13,107 +13,8 @@ pub(super) struct Observations(watch::Sender<BTreeMap<String, Observation>>);
 struct Observation {
     history: sailry_client::conversation::View,
     client: std::sync::Arc<sailry_client::Client>,
-    runtime: tokio::runtime::Handle,
     prefix: String,
-    cache: std::sync::Arc<tokio::sync::Mutex<Cache>>,
-}
-
-struct Captured {
-    stamp: Stamp,
-    value: Option<Box<str>>,
-    bytes: usize,
-    required: usize,
-}
-
-const MAX_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
-
-#[derive(Default)]
-struct Cache {
-    values: BTreeMap<String, Captured>,
-    bytes: usize,
-}
-
-impl Cache {
-    fn clear(&mut self) {
-        self.values.clear();
-        self.bytes = 0;
-    }
-
-    fn retain(&mut self, retained: &BTreeMap<String, Stamp>) {
-        self.values.retain(|key, entry| {
-            retained
-                .get(key)
-                .is_some_and(|stamp| stamp.tool == entry.stamp.tool)
-        });
-        self.bytes = self.values.values().map(|entry| entry.bytes).sum();
-    }
-
-    fn check(&self) -> Result<(), HostError> {
-        if self
-            .values
-            .values()
-            .map(|entry| entry.required)
-            .sum::<usize>()
-            > MAX_CAPTURE_BYTES
-        {
-            Err(HostError::new(
-                "assistant tool snapshot exceeds cache capacity",
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn remove(&mut self, key: &str) {
-        if let Some(captured) = self.values.remove(key) {
-            self.bytes -= captured.bytes;
-        }
-    }
-
-    fn insert(&mut self, key: String, stamp: Stamp, value: &Value) -> Result<(), HostError> {
-        self.remove(&key);
-        let encoded = serde_json::to_string(value)
-            .map_err(|error| HostError::new(error.to_string()))?
-            .into_boxed_str();
-        let metadata =
-            stamp.tool.retained_bytes() + key.capacity() + std::mem::size_of::<Captured>();
-        let required = metadata + encoded.len();
-        let fits = self
-            .values
-            .values()
-            .map(|entry| entry.required)
-            .sum::<usize>()
-            + required
-            <= MAX_CAPTURE_BYTES;
-        if !fits {
-            for captured in self.values.values_mut() {
-                if let Some(value) = captured.value.take() {
-                    captured.bytes -= value.len();
-                    self.bytes -= value.len();
-                }
-            }
-        }
-        let value = fits.then_some(encoded);
-        let bytes = metadata + value.as_ref().map_or(0, |value| value.len());
-        self.bytes += bytes;
-        self.values.insert(
-            key,
-            Captured {
-                stamp,
-                value,
-                bytes,
-                required,
-            },
-        );
-        self.check()
-    }
-}
-
-#[derive(PartialEq, Eq)]
-struct Stamp {
-    tool: sailry_client::conversation::tools::Stamp,
-    timestamp_ms: i64,
-    sequence: Option<u64>,
+    details: std::sync::Arc<sailry_client::conversation::details::Tracker>,
 }
 
 impl Default for Observations {
@@ -152,21 +53,27 @@ impl Observations {
                 } else {
                     let binding = chat.binding();
                     let client = binding.client;
-                    let cache = values
+                    let details = values
                         .get(&id)
                         .filter(|previous| {
                             previous.client.target() == client.target() && previous.prefix == prefix
                         })
-                        .map(|previous| previous.cache.clone())
-                        .unwrap_or_default();
+                        .map(|previous| previous.details.clone())
+                        .unwrap_or_else(|| {
+                            std::sync::Arc::new(
+                                sailry_client::conversation::details::Tracker::observe(
+                                    client.clone(),
+                                    binding.runtime.handle().clone(),
+                                ),
+                            )
+                        });
                     values.insert(
                         id.clone(),
                         Observation {
                             history: history.clone(),
                             client,
-                            runtime: binding.runtime.handle().clone(),
                             prefix: prefix.clone(),
-                            cache,
+                            details,
                         },
                     );
                     true
@@ -196,8 +103,17 @@ impl Observations {
                     let observed = receiver.borrow_and_update().clone();
                     let mut value = BTreeMap::new();
                     for (id, observed) in observed {
-                        let snapshot = read(observed, stop.clone()).await?;
-                        value.insert(id, snapshot);
+                        match read(observed, stop.clone()).await {
+                            Ok(snapshot) => {
+                                value.insert(id, snapshot);
+                            }
+                            Err(error) => {
+                                if stop.is_cancelled() {
+                                    return Err(error);
+                                }
+                                eprintln!("assistant observation failed: {error}");
+                            }
+                        }
                     }
                     let bytes = serde_json::to_vec(&value)
                         .map_err(|error| HostError::new(error.to_string()))?;
@@ -219,122 +135,69 @@ impl Observations {
 }
 
 async fn read(observation: Observation, stop: CancellationToken) -> Result<Value, HostError> {
-    let runtime = observation.runtime.clone();
-    runtime
-        .spawn(async move {
-            tokio::select! {
-                biased;
-                _ = stop.cancelled() => Err(HostError::new("plugin view is closed")),
-                value = snapshot(&observation) => value,
-            }
-        })
-        .await
-        .map_err(|_| HostError::new("assistant observation stopped"))?
+    tokio::select! {
+        _ = stop.cancelled() => Err(HostError::new("plugin view is closed")),
+        value = snapshot(&observation) => value,
+    }
 }
 
 async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
+    use sailry_client::conversation::details::State;
     let history = &observation.history;
     let Some(snapshot) = &history.snapshot else {
-        observation.cache.lock().await.clear();
+        observation.details.set([]);
         return Ok(json!({"connected":history.connected,"calls":[]}));
     };
     let page = &snapshot.page;
-    let mut calls = Vec::new();
-    let mut retained = history
+    let selected = history
         .calls
         .iter()
-        .filter(|call| call.name.starts_with(&observation.prefix))
         .filter_map(|call| {
+            let name = call.name.strip_prefix(&observation.prefix)?;
+            let reference = call.detail_reference(page)?;
             let source = page
                 .entries
                 .iter()
                 .find(|entry| entry.id == call.source.entry)?;
-            let response = call
+            let sequence = call
                 .response
                 .as_ref()
-                .and_then(|response| page.entries.iter().find(|entry| entry.id == response.entry));
-            Some((
-                format!("{}:{}", call.turn, call.source.key()),
-                Stamp {
-                    tool: call.stamp(page)?,
-                    timestamp_ms: source.timestamp_ms,
-                    sequence: response.map(|entry| entry.sequence),
-                },
-            ))
+                .and_then(|response| page.entries.iter().find(|entry| entry.id == response.entry))
+                .map(|entry| entry.sequence);
+            Some((call, name, reference, source.timestamp_ms, sequence))
         })
-        .collect::<BTreeMap<_, _>>();
-    let mut cache = observation.cache.lock().await;
-    cache.retain(&retained);
-    cache.check()?;
-    for call in history.calls.iter() {
-        let Some(name) = call.name.strip_prefix(&observation.prefix) else {
+        .collect::<Vec<_>>();
+    observation.details.set(
+        selected
+            .iter()
+            .map(|(_, _, reference, _, _)| reference.clone()),
+    );
+    let mut calls = Vec::new();
+    let mut retained = 0;
+    // Prefer recent calls when the returned snapshot itself reaches the display budget.
+    for (call, name, reference, timestamp_ms, sequence) in selected.into_iter().rev() {
+        let State::Ready(detail) = observation.details.wait(&reference).await else {
             continue;
         };
-        let key = format!("{}:{}", call.turn, call.source.key());
-        let Some(stamp) = retained.remove(&key) else {
+        let bytes = sailry_client::conversation::details::retained_bytes(&detail.arguments)
+            + detail
+                .result
+                .as_ref()
+                .map_or(0, sailry_client::conversation::details::retained_bytes);
+        if retained + bytes > sailry_client::conversation::details::MAX_BYTES {
             continue;
-        };
-        if let Some(previous) = cache
-            .values
-            .get(&key)
-            .filter(|previous| previous.stamp == stamp)
-        {
-            if let Some(value) = &previous.value {
-                calls.push(
-                    serde_json::from_str(value)
-                        .map_err(|error| HostError::new(error.to_string()))?,
-                );
-                continue;
-            }
         }
-        let previous = cache
-            .values
-            .get(&key)
-            .filter(|previous| previous.value.is_some());
-        let changed = match observation
-            .client
-            .changed_tool_call(call, page, previous.map(|previous| &previous.stamp.tool))
-            .await
-        {
-            Ok(changed) => changed,
-            Err(error) => {
-                eprintln!(
-                    "assistant tool detail read failed for {}:{}: {}",
-                    page.session,
-                    call.source.key(),
-                    error.message
-                );
-                cache.remove(&key);
-                continue;
-            }
-        };
-        let Some((hydrated, _)) = changed else {
-            let mut value: Value = serde_json::from_str(
-                previous
-                    .expect("unchanged captured tool")
-                    .value
-                    .as_deref()
-                    .unwrap(),
-            )
-            .map_err(|error| HostError::new(error.to_string()))?;
-            value["timestamp_ms"] = json!(stamp.timestamp_ms);
-            value["sequence"] = json!(stamp.sequence.map(|sequence| sequence.to_string()));
-            calls.push(value.clone());
-            cache.insert(key, stamp, &value)?;
-            continue;
-        };
-        let detail = hydrated.detail.as_ref().expect("hydrated tool detail");
+        retained += bytes;
         let result = detail.result.as_ref().map(|value| {
             serde_json::from_value(value.clone())
                 .ok()
                 .and_then(|output| public_output(output).ok())
                 .unwrap_or_else(|| value.clone())
         });
-        let value = json!({"key":key,"name":name,"arguments":detail.arguments,
-            "state":call.state,"timestamp_ms":stamp.timestamp_ms,"result":result,"sequence":stamp.sequence.map(|sequence|sequence.to_string())});
-        calls.push(value.clone());
-        cache.insert(key, stamp, &value)?;
+        calls.push(json!({"key":format!("{}:{}",call.turn,call.source.key()),"name":name,"arguments":detail.arguments,
+            "state":call.state,"timestamp_ms":timestamp_ms,"result":result,"sequence":sequence.map(|sequence|sequence.to_string())}));
     }
+    calls.reverse();
     Ok(
         json!({"connected":history.connected,"session":page.session,"revision":page.revision.to_string(),
         "latest":page.entries.iter().map(|entry|entry.sequence).max().map(|value|value.to_string()),"calls":calls}),

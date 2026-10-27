@@ -265,7 +265,16 @@ impl View {
                 .child(self.copy_result(&key, call, page, cx))
                 .children(
                     call.detail_reference(page)
-                        .filter(|reference| self.detail_loading.borrow().contains(reference))
+                        .filter(|reference| {
+                            matches!(
+                                self.details.state(reference),
+                                sailry_client::conversation::details::State::Loading
+                                    | sailry_client::conversation::details::State::Failed {
+                                        retry_at: Some(_),
+                                        ..
+                                    }
+                            )
+                        })
                         .map(|_| gpui_kit::component::spinner::Spinner::new()),
                 )
                 .into_any_element();

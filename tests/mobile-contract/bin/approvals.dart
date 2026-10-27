@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
+import 'package:sailry_bridge/api/conversation.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'conversation.dart' show check, execute, until;
 
@@ -21,6 +22,18 @@ Map<String, dynamic> part(
 ) => (view['snapshot']['page']['entries'] as List).singleWhere(
   (entry) => entry['id'] == reference['entry'],
 )['parts'][reference['index']]['data'];
+
+Future<Map<String, dynamic>> detail(
+  ConversationUpdates updates,
+  Map<String, dynamic> call,
+) async =>
+    jsonDecode(
+          await updates.toolOutput(
+            entry: call['source']['entry'],
+            index: call['source']['index'],
+          ),
+        )
+        as Map<String, dynamic>;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -68,7 +81,7 @@ Future<void> main() async {
         first['index'] == call['source']['index'],
     'approval and call reference the same canonical part',
   );
-  final arguments = part(waiting, call['source'])['arguments'];
+  final arguments = (await detail(updates, call))['arguments'];
   final fullText = List.filled(
     100,
     '完整的审批正文 🙂\nA literal sample: ```rust\nlet value = 1;\n```\n',
@@ -166,12 +179,13 @@ Future<void> main() async {
         calls.every((call) => call['state'] == 'returned'),
     'approval decisions remain distinct from returned tool state',
   );
+  final outputs = [for (final call in calls) await detail(updates, call)];
   check(
-    part(finished, calls[0]['response'])['result']['kind'] == 'file_written',
+    outputs[0]['result']['kind'] == 'file_written',
     'approved write returns actual service result',
   );
   check(
-    part(finished, calls[1]['response'])['result']['error'] != null,
+    outputs[1]['result']['error'] != null,
     'denial returns to ADK without claiming a write',
   );
   final saved = await execute(connection, 'read_file', {
@@ -200,10 +214,7 @@ Future<void> main() async {
     (snapshot) =>
         (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
   );
-  final interrupted = part(
-    cancelled,
-    cancelled['calls'][0]['response'],
-  )['result'];
+  final interrupted = (await detail(updates, cancelled['calls'][0]))['result'];
   check(
     cancelled['calls'][0]['state'] == 'returned' &&
         cancelled['calls'][0]['approval']['state'] == 'cancelled' &&

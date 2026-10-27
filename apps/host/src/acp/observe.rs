@@ -10,6 +10,7 @@ use std::{collections::BTreeSet, future::Future, num::NonZeroU64, pin::Pin};
 pub(super) struct Presentation {
     text: BTreeMap<(SessionId, String, usize), String>,
     stamps: BTreeMap<String, Stamp>,
+    details: BTreeSet<sailry_protocol::tool::detail::Reference>,
     permissions: BTreeSet<ApprovalId>,
     children: BTreeSet<SessionId>,
     views: BTreeMap<SessionId, watch::Receiver<View>>,
@@ -20,6 +21,11 @@ impl Presentation {
         let prefix = format!("{source}:");
         self.stamps
             .retain(|id, _| !id.starts_with(&prefix) || current.contains(id));
+        self.details.retain(|reference| {
+            self.stamps
+                .values()
+                .any(|stamp| stamp.reference == *reference)
+        });
     }
 }
 
@@ -222,7 +228,9 @@ fn render<'a>(
                     notify(connection, &session, update, context)?;
                     details.push((call.clone(), stamp.clone()));
                 }
-                presentation.stamps.insert(id, stamp);
+                if let Some(previous) = presentation.stamps.insert(id, stamp) {
+                    presentation.details.remove(&previous.reference);
+                }
             }
             if let Some(approval) = &call.approval
                 && approval.state == ApprovalState::Pending
@@ -243,6 +251,10 @@ fn render<'a>(
             .filter(|child| presentation.children.insert(child.run.session))
             .map(|child| child.run.clone())
             .collect::<Vec<_>>();
+        for (_, stamp) in &details {
+            presentation.details.insert(stamp.reference.clone());
+        }
+        opened.details.set(presentation.details.iter().cloned());
         drop(presentation);
         for (call, approval) in permissions {
             permission(

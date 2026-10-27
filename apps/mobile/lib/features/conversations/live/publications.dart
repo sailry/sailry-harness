@@ -1,14 +1,10 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
-import '../../../runtime/json.dart';
-import '../../../ui/toast.dart';
-import 'presentation.dart';
 import 'tool_display.dart';
 import 'tool_output.dart';
 
-/// Only the mounted publication surface requests the existing publication data.
+/// Published references are retained only while this surface is mounted.
 class PublicationDetails extends StatefulWidget {
   const PublicationDetails({
     super.key,
@@ -19,7 +15,7 @@ class PublicationDetails extends StatefulWidget {
   });
   final List<Map<String, dynamic>> calls;
   final bool enabled;
-  final OutputLoader? load;
+  final ToolSelectionChanged? load;
   final Widget Function(BuildContext, List<Map<String, dynamic>>) builder;
 
   @override
@@ -27,13 +23,7 @@ class PublicationDetails extends StatefulWidget {
 }
 
 class _PublicationDetailsState extends State<PublicationDetails> {
-  final _details = <Object, DeferredOutput>{};
-
-  Object _key(Map<String, dynamic> call) => (
-    object(call['source'])['entry'],
-    object(call['source'])['index'],
-    call['revision'],
-  );
+  final _selection = Object();
 
   @override
   void didChangeDependencies() {
@@ -47,56 +37,19 @@ class _PublicationDetailsState extends State<PublicationDetails> {
     _sync();
   }
 
-  void _changed() {
-    if (mounted) setState(() {});
-  }
-
-  void _sync() {
-    final calls = widget.calls.where((call) => call['published'] == true);
-    final keys = calls.map(_key).toSet();
-    for (final key
-        in _details.keys.where((key) => !keys.contains(key)).toList()) {
-      _details.remove(key)?.dispose();
-    }
-    if (!widget.enabled || !TickerMode.of(context)) return;
-    for (final call in calls) {
-      final key = _key(call);
-      final detail = _details.putIfAbsent(key, () {
-        return DeferredOutput()..addListener(_changed);
-      });
-      detail.bind(call);
-      if (detail.failed) continue;
-      unawaited(_load(key, detail, call));
-    }
-  }
-
-  Future<void> _load(
-    Object key,
-    DeferredOutput detail,
-    Map<String, dynamic> call, {
-    bool retry = false,
-  }) async {
-    try {
-      await detail.resolve(
-        call,
-        expanded: true,
-        enabled: widget.enabled,
-        load: widget.load,
-        publication: true,
-        retry: retry,
-      );
-    } catch (error) {
-      if (mounted && identical(_details[key], detail)) {
-        showToast(context, failureLabel(error, translate: context.tr));
-      }
-    }
+  void _sync({bool retry = false}) {
+    widget.load?.call(
+      _selection,
+      widget.enabled && TickerMode.valuesOf(context).enabled
+          ? widget.calls.where((call) => call['published'] == true).toList()
+          : [],
+      retry,
+    );
   }
 
   @override
   void dispose() {
-    for (final detail in _details.values) {
-      detail.dispose();
-    }
+    widget.load?.call(_selection, [], false);
     super.dispose();
   }
 
@@ -107,23 +60,13 @@ class _PublicationDetailsState extends State<PublicationDetails> {
     children: [
       widget.builder(context, [
         for (final call in widget.calls)
-          {...call, 'content': _details[_key(call)]?.value?['content']},
+          {...call, 'content': toolDetail(call)?['content']},
       ]),
-      if (_details.values.any((detail) => detail.failed))
+      if (widget.calls.any(detailFailed))
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton(
-            onPressed: widget.enabled
-                ? () {
-                    for (final call in widget.calls) {
-                      final key = _key(call);
-                      final detail = _details[key];
-                      if (detail != null && detail.failed) {
-                        unawaited(_load(key, detail, call, retry: true));
-                      }
-                    }
-                  }
-                : null,
+            onPressed: widget.enabled ? () => _sync(retry: true) : null,
             child: Text(context.tr('retry')),
           ),
         ),

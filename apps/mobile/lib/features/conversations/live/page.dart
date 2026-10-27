@@ -21,6 +21,7 @@ import 'turn_draft.dart';
 import 'queue.dart';
 import 'children.dart';
 import 'presentation.dart';
+import 'tool_output.dart';
 import 'timeline.dart';
 import 'background_data.dart';
 import 'statistics.dart';
@@ -68,6 +69,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   final _scroll = ScrollController();
   final _view = ValueNotifier<Map<String, dynamic>>({});
   ConversationUpdates? _updates;
+  final _toolSelection = ToolSelection();
+  Future<void> _trackingTools = Future.value();
   bool _closed = false;
   bool _initialSubmitted = false;
   bool _historyBusy = false;
@@ -139,6 +142,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
       );
       if (_closed) return;
       _updates = updates;
+      _toolSelection.reset();
       while (!_closed) {
         final value = object(jsonDecode(await updates.next()));
         if (_closed || !mounted) break;
@@ -146,6 +150,12 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
             !_scroll.hasClients || _scroll.position.extentBefore < 60;
         _error = null;
         _view.value = value;
+        for (final fault in objects(value['detail_errors'])) {
+          showToast(
+            context,
+            failureLabel(fault['message'], translate: context.tr),
+          );
+        }
         if (value['removed'] == true) {
           final route = ModalRoute.of(context);
           if (route != null) Navigator.of(context).removeRoute(route);
@@ -183,6 +193,22 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         updates.dispose();
       }
     }
+  }
+
+  void _trackTools(Object owner, List<Map<String, dynamic>> calls, bool retry) {
+    final selection = _toolSelection.update(owner, calls, retry: retry);
+    final updates = _updates;
+    if (_closed || updates == null || selection == null) return;
+    _trackingTools = _trackingTools.then((_) async {
+      if (_closed || !identical(_updates, updates)) return;
+      try {
+        await updates.trackTools(selection: selection);
+      } catch (error) {
+        if (mounted && !_closed) {
+          showToast(context, failureLabel(error, translate: context.tr));
+        }
+      }
+    });
   }
 
   void _rebuild() {
@@ -578,17 +604,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                                 session: _session,
                                 host: widget.host,
                                 command: _command,
-                                toolOutput: (entry, index) async {
-                                  final updates = _updates;
-                                  if (_closed || updates == null) return null;
-                                  final output = jsonDecode(
-                                    await updates.toolOutput(
-                                      entry: entry,
-                                      index: index,
-                                    ),
-                                  );
-                                  return output == null ? null : object(output);
-                                },
+                                toolOutput: _trackTools,
                                 onOpenChild: _openChild,
                                 onTurnAction: _canUseHistory
                                     ? _turnAction

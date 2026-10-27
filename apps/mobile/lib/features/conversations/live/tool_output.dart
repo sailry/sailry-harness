@@ -1,90 +1,57 @@
-import 'package:flutter/foundation.dart';
+import 'dart:convert';
 
 import '../../../runtime/json.dart';
-import 'tool_display.dart' show OutputLoader;
 
-/// Retains only the lazily requested presentation for the current tool result.
-class DeferredOutput extends ChangeNotifier {
-  Object? _identity;
-  Object? _loading;
-  Object? _failed;
-  Map<String, dynamic>? _value;
-  bool _disposed = false;
+/// Mounted surfaces declare references; values and retry state remain in Client.
+class ToolSelection {
+  final _views = <Object, Set<(String, int)>>{};
+  String? _last;
 
-  Map<String, dynamic>? get value => _value;
-  bool get failed => _failed == _identity && _identity != null;
-
-  void bind(Map<String, dynamic> call) {
-    final source = object(call['source']);
-    final response = object(call['response']);
-    final identity = (
-      source['entry'],
-      source['index'],
-      response['entry'],
-      response['index'],
-      call['revision'],
-    );
-    if (_identity == identity) return;
-    _identity = identity;
-    _loading = null;
-    _failed = null;
-    _value = null;
-  }
-
-  Future<void> resolve(
-    Map<String, dynamic> call, {
-    required bool expanded,
-    required bool enabled,
-    OutputLoader? load,
-    bool publication = false,
+  String? update(
+    Object owner,
+    List<Map<String, dynamic>> calls, {
     bool retry = false,
-  }) async {
-    bind(call);
-    final approval = object(call['approval'])['state'] == 'pending';
-    if (_disposed ||
-        (!expanded && !approval) ||
-        !enabled ||
-        (!approval &&
-            (publication
-                ? call['published'] != true
-                : call['details'] != true)) ||
-        (failed && !retry) ||
-        _value != null ||
-        _loading != null ||
-        load == null) {
-      return;
-    }
-    final identity = _identity;
-    _failed = null;
-    final request = Object();
-    final source = object(call['source']);
-    _loading = request;
-    bool current() =>
-        !_disposed && _identity == identity && identical(_loading, request);
-    try {
-      final output = await load(
-        source['entry'] as String,
-        source['index'] as int,
-      );
-      if (current()) {
-        _value = output;
-        if (output == null) _failed = identity;
-        notifyListeners();
+  }) {
+    final selected = <(String, int)>{};
+    for (final call in calls) {
+      final source = object(call['source']);
+      if (source['entry'] case final String entry) {
+        if (source['index'] case final int index) selected.add((entry, index));
       }
-    } catch (_) {
-      if (current()) {
-        _failed = identity;
-        notifyListeners();
-        rethrow;
-      }
-    } finally {
-      if (current()) _loading = null;
     }
+    if (selected.isEmpty) {
+      _views.remove(owner);
+    } else {
+      _views[owner] = selected;
+    }
+    final items = _views.values.expand((value) => value).toSet().toList()
+      ..sort((a, b) {
+        final order = a.$1.compareTo(b.$1);
+        return order == 0 ? a.$2.compareTo(b.$2) : order;
+      });
+    Map<String, dynamic> item((String, int) value) => {
+      'entry': value.$1,
+      'index': value.$2,
+    };
+    final identity = jsonEncode(items.map(item).toList());
+    if (_last == identity && !retry) return null;
+    _last = identity;
+    return jsonEncode({
+      'items': items.map(item).toList(),
+      'retry': retry ? selected.map(item).toList() : [],
+    });
   }
 
-  @override
-  void dispose() {
-    _disposed = true;
-    super.dispose();
-  }
+  void reset() => _last = null;
 }
+
+Map<String, dynamic>? toolDetail(Map<String, dynamic> call) =>
+    call['detail'] is Map ? object(call['detail']) : null;
+
+bool detailFailed(Map<String, dynamic> call) {
+  final state = object(call['detail_state']);
+  return state['kind'] == 'failed' && state['retrying'] != true;
+}
+
+bool detailAllowsApproval(Map<String, dynamic> call) =>
+    ['ready', 'too_large'].contains(object(call['detail_state'])['kind']);

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import '../../resources/file_page.dart';
 import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
@@ -39,7 +37,7 @@ class ToolRecord extends StatefulWidget {
   final ConversationCommand command;
   final bool enabled;
   final bool continuing;
-  final OutputLoader? toolOutput;
+  final ToolSelectionChanged? toolOutput;
   @override
   State<ToolRecord> createState() => _ToolRecordState();
 }
@@ -47,54 +45,44 @@ class ToolRecord extends StatefulWidget {
 class _ToolRecordState extends State<ToolRecord> {
   bool _busy = false;
   bool _expanded = false;
-  final _output = DeferredOutput();
+  final _selection = Object();
 
   @override
-  void initState() {
-    super.initState();
-    _output.bind(widget.call);
-    _output.addListener(_outputChanged);
-    unawaited(_resolveOutput());
-  }
-
-  void _outputChanged() {
-    if (mounted) setState(() {});
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _select();
   }
 
   @override
   void didUpdateWidget(covariant ToolRecord oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _output.bind(widget.call);
-    unawaited(_resolveOutput());
+    _select();
   }
 
-  Future<void> _resolveOutput({bool retry = false}) async {
-    try {
-      await _output.resolve(
-        widget.call,
-        expanded: _expanded,
-        enabled: widget.enabled,
-        load: widget.toolOutput,
-        retry: retry,
-      );
-    } catch (error) {
-      if (mounted &&
-          widget.enabled &&
-          (_expanded ||
-              object(widget.call['approval'])['state'] == 'pending')) {
-        showToast(context, failureLabel(error, translate: context.tr));
-      }
-    }
+  void _select({bool retry = false}) {
+    final pending = object(widget.call['approval'])['state'] == 'pending';
+    widget.toolOutput?.call(
+      _selection,
+      widget.enabled &&
+              TickerMode.valuesOf(context).enabled &&
+              (pending || (_expanded && widget.call['details'] == true))
+          ? [widget.call]
+          : [],
+      retry,
+    );
   }
 
   @override
   void dispose() {
-    _output.dispose();
+    widget.toolOutput?.call(_selection, [], false);
     super.dispose();
   }
 
   Future<void> _approve(String decision) async {
-    if (_busy || (decision == 'approve' && _output.value == null)) return;
+    if (_busy ||
+        (decision == 'approve' && !detailAllowsApproval(widget.call))) {
+      return;
+    }
     setState(() {
       _busy = true;
     });
@@ -115,7 +103,7 @@ class _ToolRecordState extends State<ToolRecord> {
 
   @override
   Widget build(BuildContext context) {
-    final detail = _output.value;
+    final detail = toolDetail(widget.call);
     final call = {
       ...widget.call,
       if (detail != null) ...{
@@ -163,7 +151,7 @@ class _ToolRecordState extends State<ToolRecord> {
               expandable: expandable,
               onChanged: (expanded) {
                 _expanded = expanded;
-                if (expanded) unawaited(_resolveOutput());
+                _select();
               },
               title: ToolHeading(
                 call: call,
@@ -219,13 +207,11 @@ class _ToolRecordState extends State<ToolRecord> {
                         call['turn'],
                       ),
                     ),
-                  if (!pendingApproval && _output.failed)
+                  if (!pendingApproval && detailFailed(widget.call))
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton(
-                        onPressed: enabled
-                            ? () => unawaited(_resolveOutput(retry: true))
-                            : null,
+                        onPressed: enabled ? () => _select(retry: true) : null,
                         child: Text(context.tr('retry')),
                       ),
                     ),
@@ -249,11 +235,9 @@ class _ToolRecordState extends State<ToolRecord> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  if (_output.failed)
+                  if (detailFailed(widget.call))
                     TextButton(
-                      onPressed: enabled
-                          ? () => unawaited(_resolveOutput(retry: true))
-                          : null,
+                      onPressed: enabled ? () => _select(retry: true) : null,
                       child: Text(context.tr('retry')),
                     ),
                   TextButton(
@@ -262,7 +246,7 @@ class _ToolRecordState extends State<ToolRecord> {
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: enabled && detail != null
+                    onPressed: enabled && detailAllowsApproval(widget.call)
                         ? () => _approve('approve')
                         : null,
                     child: Text(context.tr('allowShort')),

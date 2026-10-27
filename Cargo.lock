@@ -14783,6 +14783,7 @@ dependencies = [
  "sailry-node-runtime",
  "sailry-protocol",
  "sailry-speech",
+ "serde",
  "serde_json",
  "sqlx",
  "tempfile",

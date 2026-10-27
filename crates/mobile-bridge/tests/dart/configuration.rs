@@ -32,7 +32,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str, model: &str) -> Pr
                 models: vec![Model {
                     id: model.into(),
                     display_name: None,
-                    context: 4096,
+                    context: 128_000,
                     output: 128,
                     vision: false,
                     tools: false,
