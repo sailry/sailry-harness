@@ -273,56 +273,17 @@ pub(super) struct Details {
 }
 
 pub(super) fn details(call: &Call, page: &Page) -> Details {
-    let access = call.approval.as_ref().and_then(|approval| {
-        (approval.access == Some(sailry_protocol::process::Access::Unrestricted))
-            .then(|| tr("approval_unrestricted"))
-    });
-    let Some(display) = call.summary(page).and_then(|_| call.resolved()) else {
-        return Details {
-            access,
-            ..Default::default()
-        };
+    let view = call.approval_view(page);
+    let localize = |value: sailry_protocol::tool::LocalText| {
+        SharedString::from(value.label(&rust_i18n::locale()).to_owned())
     };
-    let description: Option<SharedString> = display
-        .approval
-        .first()
-        .map(|prompt| prompt.label(&rust_i18n::locale()).to_owned())
-        .or_else(|| {
-            display
-                .input
-                .target
-                .as_ref()
-                .or(display.input.summary.as_ref())
-                .map(|field| field.text.clone())
-        })
-        .map(Into::into);
-    let code = display
-        .input
-        .summary
-        .as_ref()
-        .is_some_and(|field| field.code && Some(field.text.as_str()) == description.as_deref());
     Details {
-        prompt: description.clone().or_else(|| {
-            display
-                .label
-                .as_ref()
-                .map(|label| label.label(&rust_i18n::locale()).to_owned().into())
-        }),
-        context: display
-            .input
-            .context
-            .as_ref()
-            .map(|field| field.text.clone()),
-        notices: display
-            .approval
-            .iter()
-            .map(|prompt| prompt.label(&rust_i18n::locale()).to_owned())
-            .filter(|notice| Some(notice.as_str()) != description.as_deref())
-            .map(Into::into)
-            .collect(),
-        description,
-        access,
-        code,
+        prompt: view.prompt.map(localize),
+        context: view.context,
+        description: view.description.map(localize),
+        access: view.unrestricted.then(|| tr("approval_unrestricted")),
+        notices: view.notices.into_iter().map(localize).collect(),
+        code: view.code,
     }
 }
 

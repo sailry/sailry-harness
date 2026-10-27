@@ -195,10 +195,10 @@ impl View {
                 let summary = self
                     .preparing_summary(summary(call, page), &[call], page)
                     .continuing(continuing);
-                if !has_content(call, page) {
+                if !call.details(page) {
                     return self.activity(call, format!("live-{turn}-{key}"), summary, cx);
                 }
-                let has_result = has_content(call, page);
+                let has_result = call.details(page);
                 let references = call.detail_reference(page).into_iter().collect::<Vec<_>>();
                 let open = has_result
                     && self
@@ -598,12 +598,8 @@ fn summary(call: &Call, page: &Page) -> Summary {
     }
 }
 
-fn has_content(call: &Call, page: &Page) -> bool {
-    call.details(page)
-}
-
 fn expandable(calls: &[&Call], page: &Page) -> bool {
-    calls.len() > 1 || calls.iter().any(|call| has_content(call, page))
+    calls.len() > 1 || calls.iter().any(|call| call.details(page))
 }
 
 fn activity_path(call: &Call) -> Option<&str> {

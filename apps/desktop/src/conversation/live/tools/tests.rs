@@ -37,7 +37,6 @@ fn call(state: State, code: Option<ErrorCode>) -> Call {
         approval: None,
         question: None,
         progress: None,
-        content: None,
         resolved: None,
         detail: None,
     }
@@ -282,7 +281,7 @@ fn raw_copy_requires_loaded_diagnostics() {
     let (call, page) = raw_fixture(result.clone());
     let original = page.clone();
     assert!(call.raw_result(&page));
-    assert!(has_content(&call, &page));
+    assert!(call.details(&page));
     assert!(expandable(&[&call], &page));
     assert!(!summary(&call, &page).detail.hide_caret);
     assert!(!summary(&call, &page).detail.failed);
@@ -320,7 +319,7 @@ fn groups_calls_without_details() {
         assert!(expandable(&calls, &page));
         assert!(!group_summary(&calls, &page).detail.hide_caret);
         for call in calls {
-            assert!(!has_content(call, &page));
+            assert!(!call.details(&page));
             assert!(summary(call, &page).detail.hide_caret);
             assert!(inspector::copy(call, &page).is_none());
             assert_eq!(call.result(&page), Some(&result));
@@ -341,7 +340,7 @@ fn declared_content_keeps_expansion() {
     let content = call.presentation.content(&result);
     assert!(content.is_some());
     std::sync::Arc::make_mut(call.detail.as_mut().unwrap()).content = content;
-    assert!(has_content(&call, &page));
+    assert!(call.details(&page));
     assert!(expandable(&[&call], &page));
     assert!(!summary(&call, &page).detail.hide_caret);
     assert!(inspector::copy(&call, &page).is_none());
@@ -359,7 +358,7 @@ fn failed_raw_keeps_diagnostics() {
         unreachable!()
     };
     facts.diagnostics = true;
-    assert!(has_content(&call, &page));
+    assert!(call.details(&page));
     assert!(expandable(&[&call], &page));
     assert!(!summary(&call, &page).detail.hide_caret);
     assert!(summary(&call, &page).detail.failed);

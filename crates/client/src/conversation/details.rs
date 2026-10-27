@@ -1,5 +1,9 @@
 //! Explicit detail reads share one bounded cache across a controller's views.
 use crate::Client;
+use futures::{
+    FutureExt,
+    future::{BoxFuture, Shared},
+};
 use sailry_protocol::{
     Command, ErrorCode, Fault, Output, SessionId,
     conversation::{Page, Part},
@@ -16,14 +20,20 @@ const MAX_ENTRIES: usize = 64;
 #[derive(Default)]
 pub(crate) struct Cache {
     values: Mutex<Values>,
-    reading: tokio::sync::Mutex<()>,
 }
 
 #[derive(Default)]
 struct Values {
     entries: VecDeque<Cached>,
     revisions: BTreeMap<SessionId, u64>,
-    loading: Option<(Reference, bool)>,
+    loading: BTreeMap<Reference, Reading>,
+    next: u64,
+}
+
+struct Reading {
+    id: u64,
+    invalidated: bool,
+    future: Shared<BoxFuture<'static, Result<Arc<Detail>, Fault>>>,
 }
 
 struct Cached {
@@ -49,13 +59,12 @@ impl Cache {
         let mut values = self.values.lock().expect("tool detail cache lock");
         let changed = values
             .revisions
-            .insert(page.session, page.revision)
-            .is_some_and(|previous| previous != page.revision);
-        if let Some((reference, invalidated)) = &mut values.loading
-            && reference.session == page.session
-            && (changed || !matches_page(reference, page))
-        {
-            *invalidated = true;
+            .get(&page.session)
+            .is_some_and(|previous| *previous != page.revision);
+        for (reference, reading) in &mut values.loading {
+            if reference.session == page.session && (changed || !matches_page(reference, page)) {
+                reading.invalidated = true;
+            }
         }
         values.entries.retain(|cached| {
             if cached.reference.session != page.session {
@@ -66,27 +75,17 @@ impl Cache {
             }
             matches_page(&cached.reference, page)
         });
+        values.revisions.insert(page.session, page.revision);
+        values.prune(Some(page.session));
     }
 
-    fn begin(&self, reference: &Reference) -> Option<u64> {
-        let mut values = self.values.lock().expect("tool detail cache lock");
-        values.loading = Some((reference.clone(), false));
-        values.revisions.get(&reference.session).copied()
-    }
-
-    fn finish(
-        &self,
-        reference: &Reference,
-        revision: Option<u64>,
-        detail: Option<(Arc<Detail>, usize)>,
-    ) -> bool {
+    fn finish(&self, reference: &Reference, id: u64, detail: Option<(Arc<Detail>, usize)>) -> bool {
         let mut values = self.values.lock().expect("tool detail cache lock");
         let valid = values
             .loading
-            .take()
-            .is_some_and(|(loading, invalidated)| loading == *reference && !invalidated)
-            && values.revisions.get(&reference.session).copied() == revision;
-        if valid && let Some((detail, bytes)) = detail {
+            .remove(reference)
+            .is_some_and(|reading| reading.id == id && !reading.invalidated);
+        if valid && let Some((detail, bytes)) = detail.filter(|(_, bytes)| *bytes <= MAX_BYTES) {
             values
                 .entries
                 .retain(|entry| !same_part(&entry.reference, reference));
@@ -109,8 +108,63 @@ impl Cache {
                 bytes,
             });
         }
+        values.prune(None);
         valid
     }
+}
+
+impl Values {
+    fn prune(&mut self, observed: Option<SessionId>) {
+        self.revisions.retain(|session, _| {
+            observed == Some(*session)
+                || self
+                    .entries
+                    .iter()
+                    .any(|entry| entry.reference.session == *session)
+                || self
+                    .loading
+                    .keys()
+                    .any(|reference| reference.session == *session)
+        });
+    }
+}
+
+/// Conservative retained allocation size, including parsed containers, not JSON bytes.
+pub fn retained_bytes(value: &serde_json::Value) -> usize {
+    use serde_json::Value;
+    let heap = match value {
+        Value::String(text) => text.capacity(),
+        Value::Array(values) => {
+            values.capacity() * std::mem::size_of::<Value>()
+                + values
+                    .iter()
+                    .map(|value| retained_bytes(value) - std::mem::size_of::<Value>())
+                    .sum::<usize>()
+        }
+        Value::Object(values) => values
+            .iter()
+            .map(|(key, value)| {
+                // BTreeMap nodes include spare entries and links; charge those per entry.
+                key.capacity()
+                    + 2 * std::mem::size_of::<(String, Value)>()
+                    + 3 * std::mem::size_of::<usize>()
+                    + retained_bytes(value)
+            })
+            .sum(),
+        _ => 0,
+    };
+    std::mem::size_of::<Value>() + heap
+}
+
+fn allocation(detail: &Detail, reference: &Reference) -> usize {
+    let metadata = serde_json::json!([detail.resolved, detail.content, detail.images]);
+    std::mem::size_of::<Cached>()
+        + reference.entry.capacity()
+        + reference.revision.capacity()
+        + reference.call.as_ref().map_or(0, String::capacity)
+        + retained_bytes(&detail.arguments)
+        + detail.result.as_ref().map_or(0, retained_bytes)
+        + 2 * retained_bytes(&metadata)
 }
 
 fn matches_page(reference: &Reference, page: &Page) -> bool {
@@ -144,33 +198,60 @@ impl Client {
         if let Some(detail) = self.details.get(&reference) {
             return Ok(detail);
         }
-        let _reading = self.details.reading.lock().await;
-        if let Some(detail) = self.details.get(&reference) {
-            return Ok(detail);
-        }
-        let revision = self.details.begin(&reference);
-        match self.read_tool_detail(&reference).await {
-            Ok((detail, bytes)) => {
-                let detail = Arc::new(detail);
-                if !self
-                    .details
-                    .finish(&reference, revision, Some((detail.clone(), bytes)))
-                {
-                    return Err(Fault::new(
-                        ErrorCode::RevisionConflict,
-                        "conversation changed while loading tool details",
-                    ));
+        let future = {
+            let mut values = self.details.values.lock().expect("tool detail cache lock");
+            if let Some(cached) = values
+                .entries
+                .iter()
+                .find(|entry| entry.reference == reference)
+            {
+                return Ok(cached.detail.clone());
+            }
+            if let Some(reading) = values.loading.get(&reference) {
+                reading.future.clone()
+            } else {
+                values.next += 1;
+                let id = values.next;
+                let client = Client::new(self.transport.clone());
+                let cache = Arc::downgrade(&self.details);
+                let reading = reference.clone();
+                let task = tokio::spawn(async move {
+                    let result = client.read_tool_detail(&reading).await.map(Arc::new);
+                    if let Some(cache) = cache.upgrade() {
+                        let detail = result
+                            .as_ref()
+                            .ok()
+                            .map(|detail| (detail.clone(), allocation(detail, &reading)));
+                        if !cache.finish(&reading, id, detail) {
+                            return Err(Fault::new(
+                                ErrorCode::RevisionConflict,
+                                "conversation changed while loading tool details",
+                            ));
+                        }
+                    }
+                    result
+                });
+                let future = async move {
+                    task.await
+                        .map_err(|_| Fault::new(ErrorCode::Internal, "tool detail read stopped"))?
                 }
-                Ok(detail)
+                .boxed()
+                .shared();
+                values.loading.insert(
+                    reference.clone(),
+                    Reading {
+                        id,
+                        invalidated: false,
+                        future: future.clone(),
+                    },
+                );
+                future
             }
-            Err(error) => {
-                self.details.finish(&reference, revision, None);
-                Err(error)
-            }
-        }
+        };
+        future.await
     }
 
-    async fn read_tool_detail(&self, reference: &Reference) -> Result<(Detail, usize), Fault> {
+    async fn read_tool_detail(&self, reference: &Reference) -> Result<Detail, Fault> {
         let mut text = String::new();
         let mut total = None;
         loop {
@@ -224,7 +305,7 @@ impl Client {
                 "tool detail card belongs to another conversation",
             ));
         }
-        Ok((detail, text.len()))
+        Ok(detail)
     }
 }
 

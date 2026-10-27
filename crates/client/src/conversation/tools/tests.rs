@@ -8,6 +8,52 @@ use serde_json::json;
 mod questions;
 mod rows;
 
+#[test]
+fn shares_localized_approval_facts() {
+    let mut page = page();
+    let command = sailry_protocol::tool::LocalText {
+        label: "Run the captured command".into(),
+        locales: [("zh-CN".into(), "运行捕获的命令".into())].into(),
+    };
+    let notice = sailry_protocol::tool::LocalText {
+        label: "Writes outside the worktree".into(),
+        locales: Default::default(),
+    };
+    let Part::ToolCall { summary, .. } = &mut page.entries[0].parts[0] else {
+        unreachable!()
+    };
+    summary.resolved = Some(display::Resolved {
+        label: Some(command.clone()),
+        input: display::Input {
+            summary: Some(display::Text {
+                text: command.label.clone(),
+                code: true,
+            }),
+            context: Some(display::Text {
+                text: "/project".into(),
+                code: false,
+            }),
+            ..Default::default()
+        },
+        approval: vec![command.clone(), notice.clone()],
+        output: None,
+        status: None,
+        command: None,
+        diagnostics: vec![],
+    });
+    let call = collect(&page).remove(0);
+    let view = call.approval_view(&page);
+    assert_eq!(view.description, Some(command.clone()));
+    assert_eq!(view.prompt, Some(command));
+    assert_eq!(
+        view.description.as_ref().unwrap().label("zh-CN"),
+        "运行捕获的命令"
+    );
+    assert_eq!(view.context.as_deref(), Some("/project"));
+    assert_eq!(view.notices, [notice]);
+    assert!(view.code);
+}
+
 fn input_summary(value: Value) -> Box<sailry_protocol::tool::detail::Summary> {
     Box::new(sailry_protocol::tool::detail::Summary {
         question: Some(Box::new(serde_json::from_value(value).unwrap())),

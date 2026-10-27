@@ -120,7 +120,6 @@ fn history(session: sailry_protocol::SessionId, turn: TurnId) -> sailry_client::
                 approval: None,
                 question: None,
                 progress: None,
-                content: None,
                 resolved: None,
                 detail: None,
             })
@@ -169,5 +168,43 @@ async fn reads_only_changed_calls() {
     assert_eq!(backend.0.load(Ordering::Relaxed), 66);
     observation.history.snapshot = None;
     snapshot(&observation).await.unwrap();
-    assert!(observation.cache.lock().await.is_empty());
+    let cache = observation.cache.lock().await;
+    assert!(cache.values.is_empty());
+    assert_eq!(cache.bytes, 0);
+}
+
+#[tokio::test]
+async fn metadata_updates_reuse_captured_details() {
+    let backend = Arc::new(Backend(AtomicUsize::new(0)));
+    let mut observation = Observation {
+        history: history(sailry_protocol::SessionId::new(), TurnId::new()),
+        client: Arc::new(Client::new(backend.clone())),
+        prefix: "plugin_fixture_".into(),
+        cache: Default::default(),
+    };
+    snapshot(&observation).await.unwrap();
+    let view = Arc::make_mut(observation.history.snapshot.as_mut().unwrap());
+    Arc::make_mut(&mut view.page).entries[0].timestamp_ms = 1234;
+    let changed = snapshot(&observation).await.unwrap();
+    assert_eq!(changed["calls"][0]["timestamp_ms"], 1234);
+    assert_eq!(backend.0.load(Ordering::Relaxed), 65);
+}
+
+#[core::prelude::v1::test]
+fn rejects_values_over_retained_budget() {
+    let history = history(sailry_protocol::SessionId::new(), TurnId::new());
+    let page = &history.snapshot.as_ref().unwrap().page;
+    let stamp = Stamp {
+        tool: history.calls[0].stamp(page).unwrap(),
+        timestamp_ms: 0,
+        sequence: None,
+    };
+    let mut text = String::with_capacity(MAX_CAPTURE_BYTES);
+    text.push('x');
+    let value = Value::String(text);
+    assert!(sailry_client::conversation::details::retained_bytes(&value) > MAX_CAPTURE_BYTES);
+    let mut cache = Cache::default();
+    cache.insert("oversized".into(), stamp, value);
+    assert!(cache.values.is_empty());
+    assert_eq!(cache.bytes, 0);
 }

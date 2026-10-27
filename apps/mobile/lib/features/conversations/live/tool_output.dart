@@ -7,10 +7,12 @@ import 'tool_display.dart' show OutputLoader;
 class DeferredOutput extends ChangeNotifier {
   Object? _identity;
   Object? _loading;
+  Object? _failed;
   Map<String, dynamic>? _value;
   bool _disposed = false;
 
   Map<String, dynamic>? get value => _value;
+  bool get failed => _failed == _identity && _identity != null;
 
   void bind(Map<String, dynamic> call) {
     final source = object(call['source']);
@@ -25,6 +27,7 @@ class DeferredOutput extends ChangeNotifier {
     if (_identity == identity) return;
     _identity = identity;
     _loading = null;
+    _failed = null;
     _value = null;
   }
 
@@ -34,6 +37,7 @@ class DeferredOutput extends ChangeNotifier {
     required bool enabled,
     OutputLoader? load,
     bool publication = false,
+    bool retry = false,
   }) async {
     bind(call);
     final approval = object(call['approval'])['state'] == 'pending';
@@ -44,13 +48,14 @@ class DeferredOutput extends ChangeNotifier {
             (publication
                 ? call['published'] != true
                 : call['details'] != true)) ||
-        (!approval && !publication && call['output_deferred'] != true) ||
+        (failed && !retry) ||
         _value != null ||
         _loading != null ||
         load == null) {
       return;
     }
     final identity = _identity;
+    _failed = null;
     final request = Object();
     final source = object(call['source']);
     _loading = request;
@@ -61,12 +66,17 @@ class DeferredOutput extends ChangeNotifier {
         source['entry'] as String,
         source['index'] as int,
       );
-      if (current() && output != null) {
+      if (current()) {
         _value = output;
+        if (output == null) _failed = identity;
         notifyListeners();
       }
     } catch (_) {
-      if (current()) rethrow;
+      if (current()) {
+        _failed = identity;
+        notifyListeners();
+        rethrow;
+      }
     } finally {
       if (current()) _loading = null;
     }

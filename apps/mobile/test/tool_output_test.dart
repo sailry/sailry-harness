@@ -8,7 +8,6 @@ void main() {
     'source': {'entry': 'request', 'index': 0},
     'response': {'entry': response, 'index': 0},
     'details': true,
-    'output_deferred': true,
   };
 
   test('loads only visible connected details once', () async {
@@ -30,7 +29,7 @@ void main() {
       );
     }
     await output.resolve(
-      {...call(), 'output_deferred': false},
+      {...call(), 'details': false},
       expanded: true,
       enabled: true,
       load: load,
@@ -42,7 +41,7 @@ void main() {
     expect(output.value, {'preview': 'Original output'});
   });
 
-  test('unavailable output retries after reconnect', () async {
+  test('unavailable output requires explicit retry', () async {
     final output = DeferredOutput();
     addTearDown(output.dispose);
     var reads = 0;
@@ -54,6 +53,15 @@ void main() {
     await output.resolve(call(), expanded: true, enabled: false, load: load);
     expect(reads, 1);
     await output.resolve(call(), expanded: true, enabled: true, load: load);
+    expect(reads, 1);
+    expect(output.failed, isTrue);
+    await output.resolve(
+      call(),
+      expanded: true,
+      enabled: true,
+      load: load,
+      retry: true,
+    );
     expect(reads, 2);
     expect(output.value, {'preview': 'Recovered output'});
   });
@@ -66,7 +74,6 @@ void main() {
       ...call(),
       'response': null,
       'details': false,
-      'output_deferred': false,
       'approval': {'state': 'pending'},
     };
     await output.resolve(
@@ -79,6 +86,71 @@ void main() {
       },
     );
     expect(output.value?['arguments'], arguments);
+  });
+
+  test('approval updates do not repeat a failed read', () async {
+    final output = DeferredOutput();
+    addTearDown(output.dispose);
+    var reads = 0;
+    final approval = {
+      ...call(),
+      'response': null,
+      'approval': {'state': 'pending'},
+    };
+    Future<Map<String, dynamic>?> load(String _, int _) async {
+      reads++;
+      throw StateError('Details unavailable');
+    }
+
+    await expectLater(
+      output.resolve(approval, expanded: false, enabled: true, load: load),
+      throwsStateError,
+    );
+    for (var index = 0; index < 5; index++) {
+      await output.resolve(
+        approval,
+        expanded: false,
+        enabled: true,
+        load: load,
+      );
+    }
+    expect(reads, 1);
+    expect(output.failed, isTrue);
+    await output.resolve(
+      approval,
+      expanded: false,
+      enabled: true,
+      retry: true,
+      load: (_, _) async => {
+        'arguments': {'path': 'captured.txt'},
+      },
+    );
+    expect(output.value?['arguments'], {'path': 'captured.txt'});
+    expect(output.failed, isFalse);
+  });
+
+  test('a changed revision clears the failed identity', () async {
+    final output = DeferredOutput();
+    addTearDown(output.dispose);
+    await expectLater(
+      output.resolve(
+        {...call(), 'revision': 'old'},
+        expanded: true,
+        enabled: true,
+        load: (_, _) async => throw StateError('Details unavailable'),
+      ),
+      throwsStateError,
+    );
+    await output.resolve(
+      {...call(), 'revision': 'new'},
+      expanded: true,
+      enabled: true,
+      load: (_, _) async => {
+        'arguments': {'path': 'current.txt'},
+      },
+    );
+    expect(output.value?['arguments'], {'path': 'current.txt'});
+    expect(output.failed, isFalse);
   });
 
   test('coalesces reads and rejects replaced output', () async {
@@ -110,37 +182,41 @@ void main() {
     expect(output.value, {'preview': 'Replacement'});
   });
 
-  test('ignores stale failures and retries current errors', () async {
-    final output = DeferredOutput();
-    addTearDown(output.dispose);
-    final first = Completer<Map<String, dynamic>?>();
-    final pending = output.resolve(
-      call(),
-      expanded: true,
-      enabled: true,
-      load: (_, _) => first.future,
-    );
-    output.bind(call('replacement'));
-    first.completeError(StateError('Stale result'));
-    await pending;
-    expect(output.value, isNull);
-    await expectLater(
-      output.resolve(
+  test(
+    'ignores stale failures and explicitly retries current errors',
+    () async {
+      final output = DeferredOutput();
+      addTearDown(output.dispose);
+      final first = Completer<Map<String, dynamic>?>();
+      final pending = output.resolve(
+        call(),
+        expanded: true,
+        enabled: true,
+        load: (_, _) => first.future,
+      );
+      output.bind(call('replacement'));
+      first.completeError(StateError('Stale result'));
+      await pending;
+      expect(output.value, isNull);
+      await expectLater(
+        output.resolve(
+          call('replacement'),
+          expanded: true,
+          enabled: true,
+          load: (_, _) async => throw StateError('Current error'),
+        ),
+        throwsStateError,
+      );
+      await output.resolve(
         call('replacement'),
         expanded: true,
         enabled: true,
-        load: (_, _) async => throw StateError('Current error'),
-      ),
-      throwsStateError,
-    );
-    await output.resolve(
-      call('replacement'),
-      expanded: true,
-      enabled: true,
-      load: (_, _) async => {'preview': 'Retried output'},
-    );
-    expect(output.value, {'preview': 'Retried output'});
-  });
+        retry: true,
+        load: (_, _) async => {'preview': 'Retried output'},
+      );
+      expect(output.value, {'preview': 'Retried output'});
+    },
+  );
 
   test('closing the owner discards pending output', () async {
     final output = DeferredOutput();

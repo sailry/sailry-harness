@@ -14,6 +14,7 @@ tracing.workspace = true
 sailry-protocol.workspace = true
 sailry-link.workspace = true
 tokio.workspace = true
+futures.workspace = true
 serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 blake3.workspace = true

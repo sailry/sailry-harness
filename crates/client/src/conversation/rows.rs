@@ -17,6 +17,7 @@ pub struct Row<'a> {
     pub text_offset: usize,
     pub text_last: bool,
     pub continuation: bool,
+    pub commentary: bool,
     pub entry: Option<&'a Entry>,
 }
 
@@ -28,7 +29,7 @@ impl Serialize for Row<'_> {
             (_, Some(text), Part::Thinking(_)) => Cow::Owned(Part::Thinking(text.clone())),
             _ => Cow::Borrowed(self.part),
         };
-        let mut row = serializer.serialize_struct("Row", 7)?;
+        let mut row = serializer.serialize_struct("Row", 9)?;
         row.serialize_field("source", &self.source)?;
         row.serialize_field("draft", &self.draft)?;
         row.serialize_field("end", &self.end)?;
@@ -36,6 +37,11 @@ impl Serialize for Row<'_> {
         row.serialize_field("text_offset", &self.text_offset)?;
         row.serialize_field("text_last", &self.text_last)?;
         row.serialize_field("continuation", &self.continuation)?;
+        row.serialize_field("commentary", &self.commentary)?;
+        row.serialize_field(
+            "work",
+            &super::reply::is_work(part.as_ref(), self.commentary),
+        )?;
         row.end()
     }
 }
@@ -91,6 +97,7 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
                     index: start,
                 },
                 draft: entry.is_none(),
+                commentary: commentary.contains_key(&start),
                 end: index,
                 part,
                 image: None,
@@ -133,6 +140,7 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
                     rows.push(Row {
                         source: row.source.clone(),
                         draft: row.draft,
+                        commentary: row.commentary,
                         end: row.end,
                         part,
                         image: Some(image),

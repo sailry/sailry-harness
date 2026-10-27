@@ -45,8 +45,12 @@ List<(Map<String, dynamic>, int, Map<String, dynamic>)> displayRows(
   for (final row in objects(object(view['rows'])[turn])) {
     final source = object(row['source']);
     final entry = (row['draft'] == true ? drafts : entries)[source['entry']]!;
-    final part = object(row['part']);
-    if (part['kind'] == 'text') {
+    final part = {
+      ...object(row['part']),
+      'work': row['work'],
+      'commentary': row['commentary'],
+    };
+    if (part['kind'] == 'text' && row['commentary'] != true) {
       part['data'] = citedText(
         text(part['data']),
         objects(entry['citations']),

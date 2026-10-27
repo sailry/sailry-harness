@@ -28,9 +28,17 @@ async fn separates_commentary_from_answers() {
             .unwrap();
         assert!(commentary < call);
         let boundary = sailry_client::conversation::reply::boundary(
-            parts
+            page.entries
                 .iter()
-                .map(|part| sailry_client::conversation::reply::is_work(part)),
+                .filter(|entry| entry.turn == turn && entry.author != "user")
+                .flat_map(|entry| {
+                    entry.parts.iter().enumerate().map(|(index, part)| {
+                        sailry_client::conversation::reply::is_work(
+                            part,
+                            entry.commentary.contains_key(&index),
+                        )
+                    })
+                }),
         );
         let final_text = parts[boundary..]
             .iter()

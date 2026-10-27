@@ -58,7 +58,6 @@ fn history() -> (TurnId, View) {
             id: Some(id.clone()),
             name: name.into(),
             progress: None,
-            content: None,
             resolved: None,
             detail: None,
             source: Reference {

@@ -14565,6 +14565,7 @@ name = "sailry-client"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "futures",
  "pulldown-cmark",
  "sailry-link",
  "sailry-protocol",
@@ -14723,6 +14724,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

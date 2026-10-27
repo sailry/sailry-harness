@@ -121,7 +121,9 @@ pub(super) fn recovered(blocks: &[Block<'_>]) -> BTreeSet<String> {
             Block::Retry(key, _) if output => {
                 recovered.insert(key.clone());
             }
-            Block::Text(_, text) | Block::Thinking(_, text) if !text.trim().is_empty() => {
+            Block::Text(_, text) | Block::Commentary(_, text) | Block::Thinking(_, text)
+                if !text.trim().is_empty() =>
+            {
                 output = true;
             }
             Block::Search(entry)

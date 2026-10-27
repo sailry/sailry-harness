@@ -1,5 +1,5 @@
 use super::*;
-use sailry_client::conversation::tools::{Call, State};
+use sailry_client::conversation::tools::{Call, Stamp, State};
 use sailry_protocol::{
     ApprovalId, TurnId,
     conversation::{Approval, ApprovalState, Part, Status},
@@ -9,25 +9,11 @@ use std::{collections::BTreeSet, future::Future, num::NonZeroU64, pin::Pin};
 #[derive(Default)]
 pub(super) struct Presentation {
     text: BTreeMap<(SessionId, String, usize), String>,
-    calls: BTreeMap<String, acp::ToolCall>,
+    calls: BTreeSet<String>,
     stamps: BTreeMap<String, Stamp>,
     permissions: BTreeSet<ApprovalId>,
     children: BTreeSet<SessionId>,
     views: BTreeMap<SessionId, watch::Receiver<View>>,
-}
-
-#[derive(PartialEq, Eq)]
-struct Stamp {
-    reference: sailry_protocol::tool::detail::Reference,
-    call: Call,
-}
-
-impl Stamp {
-    fn new(call: &Call, reference: sailry_protocol::tool::detail::Reference) -> Self {
-        let mut call = call.clone();
-        call.detail = None;
-        Self { reference, call }
-    }
 }
 
 impl Presentation {
@@ -35,10 +21,8 @@ impl Presentation {
         let prefix = format!("{source}:");
         self.stamps
             .retain(|id, _| !id.starts_with(&prefix) || current.contains(id));
-    }
-
-    fn changed(&self, id: &str, stamp: &Stamp) -> bool {
-        self.stamps.get(id) != Some(stamp)
+        self.calls
+            .retain(|id| !id.starts_with(&prefix) || current.contains(id));
     }
 }
 
@@ -168,27 +152,6 @@ fn render<'a>(
         opened.presentation.lock().await.retain(source, &current);
         let session = acp::SessionId::new(parent.to_string());
         let page = &snapshot.page;
-        let mut calls = Vec::with_capacity(view.calls.len());
-        for call in view.calls.iter() {
-            let reference = call
-                .detail_reference(page)
-                .ok_or_else(|| invalid("tool detail identity is unavailable"))?;
-            let stamp = Stamp::new(call, reference.clone());
-            if !opened
-                .presentation
-                .lock()
-                .await
-                .changed(&call_id(source, call), &stamp)
-            {
-                continue;
-            }
-            let detail = adapter
-                .client
-                .tool_detail(reference)
-                .await
-                .map_err(|error| fault(error, None))?;
-            calls.push((call.with_detail(detail), stamp));
-        }
         let mut presentation = opened.presentation.lock().await;
         if source != parent {
             if let Some(question) = page.questions.iter().find(|question| {
@@ -215,6 +178,7 @@ fn render<'a>(
                     turn: entry.turn,
                     author: &entry.author,
                     parts: &entry.parts,
+                    commentary: &entry.commentary,
                 },
                 seed,
                 &session,
@@ -230,12 +194,36 @@ fn render<'a>(
                     turn: draft.turn,
                     author: &draft.author,
                     parts: &draft.parts,
+                    commentary: &draft.commentary,
                 },
                 seed,
                 &session,
                 connection,
             )?;
         }
+        drop(presentation);
+        let mut calls = Vec::with_capacity(view.calls.len());
+        for call in view.calls.iter() {
+            let previous = opened
+                .presentation
+                .lock()
+                .await
+                .stamps
+                .get(&call_id(source, call))
+                .cloned();
+            match adapter
+                .client
+                .changed_tool_call(call, page, previous.as_ref())
+                .await
+            {
+                Ok(Some(changed)) => calls.push(changed),
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(session = %source, call = %call.source.key(), %error.message, "tool detail read failed");
+                }
+            }
+        }
+        let mut presentation = opened.presentation.lock().await;
         let mut permissions = Vec::new();
         for (call, stamp) in calls {
             let id = call_id(source, &call);
@@ -247,21 +235,19 @@ fn render<'a>(
                 .raw_input(call.arguments(page).cloned())
                 .raw_output(call.result(page).cloned())
                 .content(
-                    call.result(page)
-                        .map(|result| {
+                    call.summary(page)
+                        .and_then(|summary| summary.resolved.as_ref())
+                        .and_then(|resolved| resolved.output.as_ref())
+                        .map(|output| {
                             vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
-                                acp::TextContent::new(
-                                    result
-                                        .as_str()
-                                        .map_or_else(|| result.to_string(), str::to_owned),
-                                ),
+                                acp::TextContent::new(output.preview.clone()),
                             ))]
                         })
                         .unwrap_or_default(),
                 )
                 .meta(metadata(context.clone()));
-            if let Some(previous) = presentation.calls.insert(id.clone(), tool.clone()) {
-                if previous != tool && !seed {
+            if !presentation.calls.insert(id.clone()) {
+                if !seed {
                     notify(
                         connection,
                         &session,
@@ -360,6 +346,7 @@ struct Chunk<'a> {
     turn: TurnId,
     author: &'a str,
     parts: &'a [Part],
+    commentary: &'a BTreeMap<usize, String>,
 }
 
 fn emit_parts(
@@ -375,10 +362,11 @@ fn emit_parts(
         turn,
         author,
         parts,
+        commentary,
     } = chunk;
     for (index, part) in parts.iter().enumerate() {
         let (value, thought) = match part {
-            Part::Text(value) => (value, false),
+            Part::Text(value) => (value, commentary.contains_key(&index)),
             Part::Thinking(value) => (value, true),
             _ => continue,
         };
@@ -403,7 +391,10 @@ fn emit_parts(
             continue;
         }
         let chunk = acp::ContentChunk::new(acp::ContentBlock::Text(acp::TextContent::new(delta)))
-            .message_id(acp::MessageId::new(format!("{source}:{entry}")))
+            .message_id(acp::MessageId::new(format!(
+                "{source}:{entry}:{}",
+                if thought { "thought" } else { "answer" }
+            )))
             .meta(metadata(
                 json!({"session":source,"turn":turn,"entry":entry,"part":index}),
             ));
@@ -430,11 +421,11 @@ fn call_id(session: SessionId, call: &Call) -> String {
 }
 
 fn title(call: &Call, page: &sailry_protocol::conversation::Page) -> String {
-    let title = call
-        .arguments(page)
-        .and_then(|arguments| arguments.get("description"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
+    let row = call.row(page);
+    let title = row
+        .label
+        .as_ref()
+        .map(|label| label.label.as_str())
         .unwrap_or(&call.name);
     if call.approval.as_ref().is_some_and(|approval| {
         approval.access == Some(sailry_protocol::process::Access::Unrestricted)
@@ -449,13 +440,7 @@ fn status(call: &Call, page: &sailry_protocol::conversation::Page) -> acp::ToolC
     match call.state {
         State::Waiting => acp::ToolCallStatus::Pending,
         State::Running => acp::ToolCallStatus::InProgress,
-        State::Returned
-            if call
-                .result(page)
-                .is_some_and(|value| value.get("error").is_some()) =>
-        {
-            acp::ToolCallStatus::Failed
-        }
+        State::Returned if call.row(page).failed => acp::ToolCallStatus::Failed,
         State::Returned => acp::ToolCallStatus::Completed,
         State::Cancelled | State::NotExecuted | State::Interrupted => acp::ToolCallStatus::Failed,
     }

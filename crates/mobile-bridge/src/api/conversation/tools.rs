@@ -37,6 +37,7 @@ pub(super) fn view(view: &View) -> Result<String, String> {
         for (value, call) in calls.iter_mut().zip(view.calls.iter()) {
             value["children"] = json!(call.children(page));
             value["row"] = json!(call.row(page));
+            value["approval_view"] = json!(call.approval_view(page));
             value["revision"] = json!(
                 call.detail_reference(page)
                     .map(|reference| reference.revision)
@@ -44,14 +45,11 @@ pub(super) fn view(view: &View) -> Result<String, String> {
             value["published"] = json!(call.summary(page).is_some_and(|summary| summary.published));
             value["hidden"] = json!(call.hidden(page));
             value["details"] = json!(call.details(page));
-            let deferred = call.details(page);
-            value["output_deferred"] = json!(deferred);
-            value["output"] = if deferred {
+            value["output"] = if call.details(page) {
                 Value::Null
             } else {
                 json!(call.output(page))
             };
-            value["texts"] = json!([]);
         }
     }
     serde_json::to_string(&value).map_err(super::error)
@@ -97,6 +95,7 @@ fn packet(
         "arguments":call.arguments(page), "result":call.result(page),
         "resolved":call.resolved(), "content":call.content(), "texts":texts,
         "output":call.output(page),
+        "approval_view":call.approval_view(page),
     }))
     .map_err(super::error)
 }

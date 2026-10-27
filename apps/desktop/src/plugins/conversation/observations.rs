@@ -14,18 +14,66 @@ struct Observation {
     history: sailry_client::conversation::View,
     client: std::sync::Arc<sailry_client::Client>,
     prefix: String,
-    cache: std::sync::Arc<tokio::sync::Mutex<BTreeMap<String, Captured>>>,
+    cache: std::sync::Arc<tokio::sync::Mutex<Cache>>,
 }
 
 struct Captured {
     stamp: Stamp,
     value: Value,
+    bytes: usize,
+}
+
+const MAX_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Default)]
+struct Cache {
+    values: BTreeMap<String, Captured>,
+    bytes: usize,
+}
+
+impl Cache {
+    fn clear(&mut self) {
+        self.values.clear();
+        self.bytes = 0;
+    }
+
+    fn retain(&mut self, retained: &std::collections::BTreeSet<String>) {
+        self.values.retain(|key, _| retained.contains(key));
+        self.bytes = self.values.values().map(|entry| entry.bytes).sum();
+    }
+
+    fn insert(&mut self, key: String, stamp: Stamp, value: Value) {
+        if let Some(previous) = self.values.remove(&key) {
+            self.bytes -= previous.bytes;
+        }
+        let bytes = sailry_client::conversation::details::retained_bytes(&value)
+            + stamp.tool.retained_bytes()
+            + key.capacity()
+            + std::mem::size_of::<Captured>();
+        if bytes > MAX_CAPTURE_BYTES {
+            return;
+        }
+        while self.bytes + bytes > MAX_CAPTURE_BYTES {
+            let Some((_, previous)) = self.values.pop_first() else {
+                break;
+            };
+            self.bytes -= previous.bytes;
+        }
+        self.bytes += bytes;
+        self.values.insert(
+            key,
+            Captured {
+                stamp,
+                value,
+                bytes,
+            },
+        );
+    }
 }
 
 #[derive(PartialEq, Eq)]
 struct Stamp {
-    reference: sailry_protocol::tool::detail::Reference,
-    call: sailry_client::conversation::tools::Call,
+    tool: sailry_client::conversation::tools::Stamp,
     timestamp_ms: i64,
     sequence: Option<u64>,
 }
@@ -148,7 +196,7 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
         let Some(name) = call.name.strip_prefix(&observation.prefix) else {
             continue;
         };
-        let Some(reference) = call.detail_reference(page) else {
+        let Some(tool) = call.stamp(page) else {
             continue;
         };
         let Some(source) = page
@@ -163,24 +211,35 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
             .as_ref()
             .and_then(|response| page.entries.iter().find(|entry| entry.id == response.entry));
         let key = format!("{}:{}", call.turn, call.source.key());
-        let mut metadata = call.clone();
-        metadata.detail = None;
         let stamp = Stamp {
-            reference: reference.clone(),
-            call: metadata,
+            tool,
             timestamp_ms: source.timestamp_ms,
             sequence: response.map(|entry| entry.sequence),
         };
         retained.insert(key.clone());
-        if let Some(previous) = cache.get(&key).filter(|previous| previous.stamp == stamp) {
+        if let Some(previous) = cache
+            .values
+            .get(&key)
+            .filter(|previous| previous.stamp == stamp)
+        {
             calls.push(previous.value.clone());
             continue;
         }
-        let detail = observation
+        let previous = cache.values.get(&key);
+        let changed = observation
             .client
-            .tool_detail(reference)
+            .changed_tool_call(call, page, previous.map(|previous| &previous.stamp.tool))
             .await
             .map_err(|error| HostError::new(error.message))?;
+        let Some((hydrated, _)) = changed else {
+            let mut value = previous.expect("unchanged captured tool").value.clone();
+            value["timestamp_ms"] = json!(stamp.timestamp_ms);
+            value["sequence"] = json!(stamp.sequence.map(|sequence| sequence.to_string()));
+            calls.push(value.clone());
+            cache.insert(key, stamp, value);
+            continue;
+        };
+        let detail = hydrated.detail.as_ref().expect("hydrated tool detail");
         let result = detail.result.as_ref().map(|value| {
             serde_json::from_value(value.clone())
                 .ok()
@@ -190,9 +249,9 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
         let value = json!({"key":key,"name":name,"arguments":detail.arguments,
             "state":call.state,"timestamp_ms":source.timestamp_ms,"result":result,"sequence":response.map(|entry|entry.sequence.to_string())});
         calls.push(value.clone());
-        cache.insert(key, Captured { stamp, value });
+        cache.insert(key, stamp, value);
     }
-    cache.retain(|key, _| retained.contains(key));
+    cache.retain(&retained);
     Ok(
         json!({"connected":history.connected,"session":page.session,"revision":page.revision.to_string(),
         "latest":page.entries.iter().map(|entry|entry.sequence).max().map(|value|value.to_string()),"calls":calls}),

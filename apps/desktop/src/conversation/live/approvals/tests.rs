@@ -51,7 +51,6 @@ fn sample(display: Option<Resolved>) -> (Call, Page) {
         approval: None,
         question: None,
         progress: None,
-        content: None,
         resolved: display.clone(),
         detail: None,
     };

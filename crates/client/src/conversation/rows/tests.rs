@@ -95,6 +95,11 @@ fn keeps_phase_boundaries_after_rebuild() {
             .collect::<Vec<_>>()
     };
     let rows = collect(&snapshot, &[], turn);
+    assert!(rows[0].commentary);
+    assert!(!rows[1].commentary);
+    let serialized = serde_json::to_value(&rows).unwrap();
+    assert_eq!(serialized[0]["work"], true);
+    assert_eq!(serialized[1]["work"], false);
     assert!(!rows[0].text_last);
     assert_eq!(rows[1].text_offset, 0);
     assert!(rows[1].text_last);

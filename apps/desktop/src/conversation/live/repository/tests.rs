@@ -79,7 +79,6 @@ fn call(run: &Run, returned: bool) -> Call {
         approval: None,
         question: None,
         progress: None,
-        content: None,
         resolved: None,
         detail: None,
     }

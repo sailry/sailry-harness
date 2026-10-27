@@ -14,3 +14,12 @@ fn keeps_final_prose_outside_work() {
     assert_eq!(answer_from(&blocks), 5);
     assert_eq!(answer_from(&blocks[5..]), 0);
 }
+
+#[test]
+fn keeps_commentary_before_reply_without_tools() {
+    let blocks = [
+        Block::Commentary("progress".into(), "Checking the request".into()),
+        Block::Text("answer".into(), "Final reply".into()),
+    ];
+    assert_eq!(answer_from(&blocks), 1);
+}

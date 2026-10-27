@@ -6,9 +6,13 @@ use sailry_protocol::{
 use serde::Serialize;
 use serde_json::Value;
 use std::{collections::BTreeMap, sync::Arc};
+mod approval;
+mod changes;
 pub mod display;
 mod presentation;
 mod row;
+pub use approval::ApprovalView;
+pub use changes::Stamp;
 pub use row::{Row, RowState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -59,8 +63,6 @@ pub struct Call {
     pub question: Option<sailry_protocol::conversation::question::Question>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<sailry_protocol::conversation::progress::Progress>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<sailry_protocol::tool::Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved: Option<display::Resolved>,
     #[serde(skip)]
@@ -246,7 +248,6 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
                         state: State::Waiting,
                         failure: None,
                         progress: None,
-                        content: None,
                         resolved: None,
                         detail: None,
                         question: page
@@ -304,7 +305,6 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
                             approval: None,
                             question: None,
                             progress: None,
-                            content: None,
                             resolved: None,
                             detail: None,
                         });

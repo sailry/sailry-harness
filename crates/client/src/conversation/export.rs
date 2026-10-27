@@ -158,7 +158,7 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
             continue;
         }
         for (index, part) in entry.parts.iter().enumerate() {
-            if entry.commentary.contains_key(&index) || super::reply::is_work(part) {
+            if super::reply::is_work(part, entry.commentary.contains_key(&index)) {
                 boundaries.insert(entry.turn, (entry.sequence, index));
             }
         }

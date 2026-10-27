@@ -20,6 +20,55 @@ fn answer(updates: &[Value]) -> String {
 }
 
 #[tokio::test]
+async fn detail_failure_keeps_observation_alive() {
+    for remote in [false, true] {
+        let model = models::Server::turn_tools(vec![(
+            models::plugin_tool("files", "read_file"),
+            json!({"path":"source.txt"}),
+        )])
+        .await;
+        let fixture = Fixture::with_detail_loss(remote, model).await;
+        std::fs::write(fixture.root().join("source.txt"), "Canonical source").unwrap();
+        let mut editor = fixture.editor().await;
+        editor.initialize().await;
+        editor.load(&fixture).await;
+        let completed = editor
+            .request(
+                3,
+                "session/prompt",
+                prompt(
+                    fixture.session.id,
+                    RequestId::new(),
+                    fixture.session.revision,
+                    "Read source.txt",
+                ),
+                None,
+            )
+            .await;
+        assert!(completed.get("result").is_some(), "{completed}");
+        assert!(matches!(
+            fixture
+                .loss
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|request| &request.command),
+            Some(Command::ReadToolDetail { .. })
+        ));
+        assert!(!answer(&editor.updates).is_empty());
+        assert!(
+            editor
+                .updates
+                .iter()
+                .any(|update| update["update"]["sessionUpdate"] == "tool_call")
+        );
+        assert_eq!(fixture.page().await.runs[0].status, Status::Completed);
+        editor.close().await;
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn streams_canonical_history_and_retries() {
     for remote in [false, true] {
         let fixture = Fixture::new(

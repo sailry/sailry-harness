@@ -9,7 +9,6 @@ fn call(index: usize) -> Call {
         id: Some(index.to_string()),
         name: "read_file".into(),
         progress: None,
-        content: None,
         resolved: None,
         detail: None,
         source: Reference {

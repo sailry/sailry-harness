@@ -68,6 +68,7 @@ impl View {
             .is_some_and(|worktree| repository::changed(&self.history, &next, worktree));
         self.approvals.observe(&next);
         self.history = next;
+        self.reconcile_details();
         if changed || self.outgoing.is_some() {
             self.sync_rows(cx);
         }

@@ -35,6 +35,10 @@ impl Fixture {
         Self::start(remote, model, Some(Loss::Decision)).await
     }
 
+    pub async fn with_detail_loss(remote: bool, model: models::Server) -> Self {
+        Self::start(remote, model, Some(Loss::Detail)).await
+    }
+
     async fn start(remote: bool, model: models::Server, lose: Option<Loss>) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project 中文");
@@ -348,6 +352,7 @@ impl Editor {
 enum Loss {
     Admission,
     Decision,
+    Detail,
 }
 
 struct Lost {
@@ -374,10 +379,17 @@ impl Transport for Lost {
             let selected = match self.kind {
                 Loss::Admission => matches!(request.command, Command::SubmitTurn { .. }),
                 Loss::Decision => matches!(request.command, Command::ResolveApproval { .. }),
+                Loss::Detail => matches!(request.command, Command::ReadToolDetail { .. }),
             };
             let lose = selected && self.pending.swap(false, Ordering::SeqCst);
             if lose {
                 *self.record.lock().unwrap() = Some(request.clone());
+                if matches!(self.kind, Loss::Detail) {
+                    return Err(Fault::new(
+                        ErrorCode::Unavailable,
+                        "injected tool detail failure",
+                    ));
+                }
             }
             let admitted = self.inner.dispatch(request).await?;
             if lose {

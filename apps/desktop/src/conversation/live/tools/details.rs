@@ -8,6 +8,24 @@ pub(super) enum Action {
 }
 
 impl View {
+    pub(in crate::conversation::live) fn reconcile_details(&self) {
+        let current: std::collections::BTreeSet<_> = std::iter::once(&self.history)
+            .chain(self.approvals.histories())
+            .flat_map(|history| {
+                history
+                    .calls
+                    .iter()
+                    .filter_map(|call| call.detail_reference(&history.snapshot.as_ref()?.page))
+            })
+            .collect();
+        self.detail_failed
+            .borrow_mut()
+            .retain(|reference| current.contains(reference));
+        self.detail_loading
+            .borrow_mut()
+            .retain(|reference| current.contains(reference));
+    }
+
     pub(super) fn load_detail(&self, reference: Reference, action: Action, cx: &mut Context<Self>) {
         let client = self.binding.client.clone();
         let stop = self.stop.clone();

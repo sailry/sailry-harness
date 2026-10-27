@@ -373,7 +373,7 @@ impl View {
             .into_iter()
             .enumerate()
             .map(|(index, block)| match block {
-                Block::Text(key, text) => div()
+                Block::Text(key, text) | Block::Commentary(key, text) => div()
                     .w_full()
                     .min_w_0()
                     .debug_selector(move || format!("live-turn-text-{turn}"))
@@ -381,7 +381,7 @@ impl View {
                         format!("{turn}-{key}"),
                         citations::presentation(&text).into_owned(),
                         self.turn_worktree(turn),
-                        true,
+                        index >= answer_from,
                         cx,
                     ))
                     .into_any_element(),

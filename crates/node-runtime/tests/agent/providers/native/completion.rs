@@ -180,9 +180,17 @@ async fn preserves_tools_before_empty_completion() {
             .flat_map(|entry| &entry.parts)
             .collect::<Vec<_>>();
         let boundary = sailry_client::conversation::reply::boundary(
-            parts
+            page.entries
                 .iter()
-                .map(|part| sailry_client::conversation::reply::is_work(part)),
+                .filter(|entry| entry.turn == turn && entry.author != "user")
+                .flat_map(|entry| {
+                    entry.parts.iter().enumerate().map(|(index, part)| {
+                        sailry_client::conversation::reply::is_work(
+                            part,
+                            entry.commentary.contains_key(&index),
+                        )
+                    })
+                }),
         );
         assert!(
             parts[boundary..]

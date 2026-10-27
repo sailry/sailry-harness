@@ -19,7 +19,6 @@ fn call(index: usize) -> Call {
         approval: None,
         question: None,
         progress: None,
-        content: None,
         resolved: None,
         detail: None,
     }
@@ -46,13 +45,13 @@ fn skips_unchanged_calls_beyond_client_cache() {
     for call in &calls {
         let id = call_id(session, call);
         let current = stamp(call);
-        assert!(presentation.changed(&id, &current));
+        assert_ne!(presentation.stamps.get(&id), Some(&current));
         presentation.stamps.insert(id, current);
     }
     assert!(
         calls
             .iter()
-            .all(|call| !presentation.changed(&call_id(session, call), &stamp(call)))
+            .all(|call| presentation.stamps.get(&call_id(session, call)) == Some(&stamp(call)))
     );
     let mut returned = calls[0].clone();
     returned.state = State::Returned;
@@ -62,10 +61,16 @@ fn skips_unchanged_calls_beyond_client_cache() {
     });
     let mut current = stamp(&returned);
     current.reference.entry = "result".into();
-    assert!(presentation.changed(&call_id(session, &returned), &current));
+    assert_ne!(
+        presentation.stamps.get(&call_id(session, &returned)),
+        Some(&current)
+    );
     let mut revised = stamp(&calls[1]);
     revised.reference.revision = "b".repeat(64);
-    assert!(presentation.changed(&call_id(session, &calls[1]), &revised));
+    assert_ne!(
+        presentation.stamps.get(&call_id(session, &calls[1])),
+        Some(&revised)
+    );
 }
 
 #[test]

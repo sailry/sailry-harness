@@ -44,7 +44,6 @@ fn fixture(mode: Presentation, result: Value) -> (View, Arc<Detail>) {
         approval: None,
         question: None,
         progress: None,
-        content: None,
         resolved: None,
         detail: None,
     };
@@ -154,7 +153,8 @@ fn preserves_bounded_facts_without_raw_values() {
     let encoded = serialized(&view);
     assert_eq!(encoded["calls"][0]["hidden"], false);
     assert_eq!(encoded["calls"][0]["row"]["failed"], true);
-    assert_eq!(encoded["calls"][0]["output_deferred"], true);
+    assert_eq!(encoded["calls"][0]["details"], true);
+    assert!(encoded["calls"][0].get("output_deferred").is_none());
 }
 
 #[test]
@@ -170,8 +170,9 @@ fn resolves_literal_content_only_in_detail_packet() {
         }}),
     );
     let encoded = serialized(&view);
-    assert_eq!(encoded["calls"][0]["texts"], json!([]));
-    assert_eq!(encoded["calls"][0]["output_deferred"], true);
+    assert!(encoded["calls"][0].get("texts").is_none());
+    assert!(encoded["calls"][0].get("output_deferred").is_none());
+    assert_eq!(encoded["calls"][0]["details"], true);
     let page = &view.snapshot.as_ref().unwrap().page;
     let packet: Value =
         serde_json::from_str(&packet(&view.calls[0].with_detail(detail), page).unwrap()).unwrap();

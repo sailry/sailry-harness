@@ -14,6 +14,7 @@ serde.workspace = true
 adk-acp.workspace = true
 tokio = { workspace = true, features = ["net"] }
 serde_json.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 sailry-node-runtime = { workspace = true, features = ["test-support"] }

@@ -28,7 +28,6 @@ class PublicationDetails extends StatefulWidget {
 
 class _PublicationDetailsState extends State<PublicationDetails> {
   final _details = <Object, DeferredOutput>{};
-  final _failed = <Object>{};
 
   Object _key(Map<String, dynamic> call) => (
     object(call['source'])['entry'],
@@ -58,7 +57,6 @@ class _PublicationDetailsState extends State<PublicationDetails> {
     for (final key
         in _details.keys.where((key) => !keys.contains(key)).toList()) {
       _details.remove(key)?.dispose();
-      _failed.remove(key);
     }
     if (!widget.enabled || !TickerMode.of(context)) return;
     for (final call in calls) {
@@ -66,7 +64,8 @@ class _PublicationDetailsState extends State<PublicationDetails> {
       final detail = _details.putIfAbsent(key, () {
         return DeferredOutput()..addListener(_changed);
       });
-      if (_failed.contains(key)) continue;
+      detail.bind(call);
+      if (detail.failed) continue;
       unawaited(_load(key, detail, call));
     }
   }
@@ -74,8 +73,9 @@ class _PublicationDetailsState extends State<PublicationDetails> {
   Future<void> _load(
     Object key,
     DeferredOutput detail,
-    Map<String, dynamic> call,
-  ) async {
+    Map<String, dynamic> call, {
+    bool retry = false,
+  }) async {
     try {
       await detail.resolve(
         call,
@@ -83,10 +83,10 @@ class _PublicationDetailsState extends State<PublicationDetails> {
         enabled: widget.enabled,
         load: widget.load,
         publication: true,
+        retry: retry,
       );
     } catch (error) {
       if (mounted && identical(_details[key], detail)) {
-        _failed.add(key);
         showToast(context, failureLabel(error, translate: context.tr));
       }
     }
@@ -101,8 +101,32 @@ class _PublicationDetailsState extends State<PublicationDetails> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.builder(context, [
-    for (final call in widget.calls)
-      {...call, 'content': _details[_key(call)]?.value?['content']},
-  ]);
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      widget.builder(context, [
+        for (final call in widget.calls)
+          {...call, 'content': _details[_key(call)]?.value?['content']},
+      ]),
+      if (_details.values.any((detail) => detail.failed))
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: widget.enabled
+                ? () {
+                    for (final call in widget.calls) {
+                      final key = _key(call);
+                      final detail = _details[key];
+                      if (detail != null && detail.failed) {
+                        unawaited(_load(key, detail, call, retry: true));
+                      }
+                    }
+                  }
+                : null,
+            child: Text(context.tr('retry')),
+          ),
+        ),
+    ],
+  );
 }

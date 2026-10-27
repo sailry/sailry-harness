@@ -1,6 +1,6 @@
 mod assets;
 pub mod children;
-pub(crate) mod details;
+pub mod details;
 pub mod export;
 mod history;
 #[cfg(test)]

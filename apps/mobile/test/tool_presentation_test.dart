@@ -33,11 +33,15 @@ void main() {
             'part': {'kind': 'text', 'data': 'B'},
             'text_offset': 2,
             'text_last': true,
+            'work': false,
+            'commentary': false,
           },
           {
             'source': {'entry': 'draft', 'index': 0},
             'draft': true,
             'part': {'kind': 'thinking', 'data': 'Working'},
+            'work': true,
+            'commentary': false,
           },
         ],
       },
@@ -47,14 +51,17 @@ void main() {
     expect(rows.first.$1['id'], 'entry');
     expect(rows.first.$2, 2);
     expect(rows.first.$3['data'], 'B [1](<https://example.com/source>)');
+    expect(rows.first.$3['work'], isFalse);
     expect(rows.last.$1['id'], 'draft');
     expect(rows.last.$3['data'], 'Working');
+    expect(rows.last.$3['work'], isTrue);
     expect(displayRows(view, 'other'), isEmpty);
     expect(jsonEncode(view), before);
   });
 
   test('business fields never establish execution failure', () {
     final call = {
+      'row': {'failed': false},
       'failure': null,
       'result': {
         'isError': false,
@@ -70,10 +77,17 @@ void main() {
     final before = jsonEncode(call);
     expect(toolFailed(call), isFalse);
     expect(jsonEncode(call), before);
-    expect(toolFailed({'failure': <String, dynamic>{}}), isTrue);
+    expect(
+      toolFailed({
+        'row': {'failed': true},
+        'failure': <String, dynamic>{},
+      }),
+      isTrue,
+    );
     for (final code in ['cancelled', 'outcome_unknown']) {
       expect(
         toolFailed({
+          'row': {'failed': false},
           'failure': {'code': code},
         }),
         isFalse,
@@ -82,9 +96,16 @@ void main() {
   });
 
   test('prepared output determines the existing disclosure body', () {
-    expect(hasToolContent({'details': false}), isFalse);
     expect(
       hasToolContent({
+        'row': {'has_details': false},
+        'details': false,
+      }),
+      isFalse,
+    );
+    expect(
+      hasToolContent({
+        'row': {'has_details': true},
         'output': {
           'preview': 'Batch edit preview',
           'body': {'text': '', 'empty': null},
@@ -92,9 +113,16 @@ void main() {
       }),
       isTrue,
     );
-    expect(hasToolContent({'output_deferred': true}), isTrue);
     expect(
       hasToolContent({
+        'row': {'has_details': true},
+        'details': true,
+      }),
+      isTrue,
+    );
+    expect(
+      hasToolContent({
+        'row': {'has_details': false},
         'content': {
           'blocks': [
             {'kind': 'image', 'index': 0},
@@ -106,6 +134,7 @@ void main() {
     );
     expect(
       hasToolContent({
+        'row': {'has_details': true},
         'content': {
           'blocks': [
             {'kind': 'text'},

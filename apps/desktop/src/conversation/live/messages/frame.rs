@@ -72,7 +72,9 @@ pub(super) fn phase(run: &Run, page: &Page, blocks: &[Block<'_>]) -> Option<&'st
         return None;
     }
     Some(match blocks.last() {
-        Some(Block::Text(..) | Block::Search(..) | Block::Images(..)) => "turn_generating",
+        Some(Block::Text(..) | Block::Commentary(..) | Block::Search(..) | Block::Images(..)) => {
+            "turn_generating"
+        }
         Some(Block::Thinking(..)) => "turn_thinking",
         _ => "turn_awaiting_response",
     })

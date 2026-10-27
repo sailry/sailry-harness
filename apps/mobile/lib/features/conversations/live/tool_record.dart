@@ -68,13 +68,14 @@ class _ToolRecordState extends State<ToolRecord> {
     unawaited(_resolveOutput());
   }
 
-  Future<void> _resolveOutput() async {
+  Future<void> _resolveOutput({bool retry = false}) async {
     try {
       await _output.resolve(
         widget.call,
         expanded: _expanded,
         enabled: widget.enabled,
         load: widget.toolOutput,
+        retry: retry,
       );
     } catch (error) {
       if (mounted &&
@@ -145,9 +146,9 @@ class _ToolRecordState extends State<ToolRecord> {
         pendingApproval ||
         question.isNotEmpty;
     final input = object(resolved['input']);
-    final inputText = {
-      for (final field in input.values) text(object(field)['text']),
-    };
+    final approvalView = object(
+      detail?['approval_view'] ?? call['approval_view'],
+    );
     final enabled = widget.enabled && !_busy;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -179,6 +180,15 @@ class _ToolRecordState extends State<ToolRecord> {
                       alignment: Alignment.centerLeft,
                       child: Text(arguments['prompt'] as String? ?? ''),
                     )
+                  else if (pendingApproval &&
+                      approvalView['description'] != null)
+                    approvalView['code'] == true
+                        ? CodeBlock(
+                            capturedLabel(context, approvalView['description']),
+                          )
+                        : SelectableText(
+                            capturedLabel(context, approvalView['description']),
+                          )
                   else if (pendingApproval && detail != null)
                     CodeBlock(
                       rawText(arguments),
@@ -209,24 +219,40 @@ class _ToolRecordState extends State<ToolRecord> {
                         call['turn'],
                       ),
                     ),
+                  if (!pendingApproval && _output.failed)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: enabled
+                            ? () => unawaited(_resolveOutput(retry: true))
+                            : null,
+                        child: Text(context.tr('retry')),
+                      ),
+                    ),
                 ],
               ),
             ),
-            for (final prompt in objects(resolved['approval']))
-              if (pendingApproval &&
-                  !inputText.contains(capturedLabel(context, prompt)))
+            if (pendingApproval && approvalView['context'] != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: SelectableText(text(approvalView['context'])),
+              ),
+            for (final prompt in objects(approvalView['notices']))
+              if (pendingApproval)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: SelectableText(capturedLabel(context, prompt)),
                 ),
+            if (pendingApproval && approvalView['unrestricted'] == true)
+              Text(context.tr('conversationFull')),
             if (pendingApproval)
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  if (detail == null)
+                  if (_output.failed)
                     TextButton(
                       onPressed: enabled
-                          ? () => unawaited(_resolveOutput())
+                          ? () => unawaited(_resolveOutput(retry: true))
                           : null,
                       child: Text(context.tr('retry')),
                     ),

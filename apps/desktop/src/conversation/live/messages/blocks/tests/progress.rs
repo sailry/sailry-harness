@@ -105,7 +105,6 @@ fn updates_preserve_failures() {
                     Part::ToolResult { summary, .. } => summary.progress.clone(),
                     _ => None,
                 },
-                content: None,
                 resolved: None,
                 detail: None,
                 state: State::Returned,
