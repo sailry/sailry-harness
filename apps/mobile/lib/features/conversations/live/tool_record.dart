@@ -54,6 +54,7 @@ class _ToolRecordState extends State<ToolRecord> {
     super.initState();
     _output.bind(widget.call);
     _output.addListener(_outputChanged);
+    unawaited(_resolveOutput());
   }
 
   void _outputChanged() {
@@ -64,7 +65,7 @@ class _ToolRecordState extends State<ToolRecord> {
   void didUpdateWidget(covariant ToolRecord oldWidget) {
     super.didUpdateWidget(oldWidget);
     _output.bind(widget.call);
-    if (_expanded) unawaited(_resolveOutput());
+    unawaited(_resolveOutput());
   }
 
   Future<void> _resolveOutput() async {
@@ -76,7 +77,10 @@ class _ToolRecordState extends State<ToolRecord> {
         load: widget.toolOutput,
       );
     } catch (error) {
-      if (mounted && _expanded && widget.enabled) {
+      if (mounted &&
+          widget.enabled &&
+          (_expanded ||
+              object(widget.call['approval'])['state'] == 'pending')) {
         showToast(context, failureLabel(error, translate: context.tr));
       }
     }
@@ -89,7 +93,7 @@ class _ToolRecordState extends State<ToolRecord> {
   }
 
   Future<void> _approve(String decision) async {
-    if (_busy) return;
+    if (_busy || (decision == 'approve' && _output.value == null)) return;
     setState(() {
       _busy = true;
     });
@@ -154,7 +158,7 @@ class _ToolRecordState extends State<ToolRecord> {
           children: [
             WorkDisclosure(
               key: PageStorageKey('tool-${source['entry']}-${source['index']}'),
-              autoExpanded: false,
+              autoExpanded: pendingApproval,
               expandable: expandable,
               onChanged: (expanded) {
                 _expanded = expanded;
@@ -175,6 +179,12 @@ class _ToolRecordState extends State<ToolRecord> {
                       alignment: Alignment.centerLeft,
                       child: Text(arguments['prompt'] as String? ?? ''),
                     )
+                  else if (pendingApproval && detail != null)
+                    CodeBlock(
+                      rawText(arguments),
+                      language: 'json',
+                      title: context.tr('toolArguments'),
+                    )
                   else if (resolved['label'] != null)
                     ToolInput(input: input)
                   else if (arguments.isNotEmpty && images.isEmpty)
@@ -191,7 +201,7 @@ class _ToolRecordState extends State<ToolRecord> {
                       documents: widget.documents,
                       call: call,
                       result: result,
-                      output: detail == null ? null : object(detail['output']),
+                      output: object(detail['output']),
                       host: widget.host,
                       worktree: turnWorktree(
                         widget.page,
@@ -213,13 +223,22 @@ class _ToolRecordState extends State<ToolRecord> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  if (detail == null)
+                    TextButton(
+                      onPressed: enabled
+                          ? () => unawaited(_resolveOutput())
+                          : null,
+                      child: Text(context.tr('retry')),
+                    ),
                   TextButton(
                     onPressed: enabled ? () => _approve('deny') : null,
                     child: Text(context.tr('deny')),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: enabled ? () => _approve('approve') : null,
+                    onPressed: enabled && detail != null
+                        ? () => _approve('approve')
+                        : null,
                     child: Text(context.tr('allowShort')),
                   ),
                 ],

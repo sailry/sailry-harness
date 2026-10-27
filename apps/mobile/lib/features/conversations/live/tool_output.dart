@@ -36,11 +36,15 @@ class DeferredOutput extends ChangeNotifier {
     bool publication = false,
   }) async {
     bind(call);
+    final approval = object(call['approval'])['state'] == 'pending';
     if (_disposed ||
-        !expanded ||
+        (!expanded && !approval) ||
         !enabled ||
-        (publication ? call['published'] != true : call['details'] != true) ||
-        (!publication && call['output_deferred'] != true) ||
+        (!approval &&
+            (publication
+                ? call['published'] != true
+                : call['details'] != true)) ||
+        (!approval && !publication && call['output_deferred'] != true) ||
         _value != null ||
         _loading != null ||
         load == null) {

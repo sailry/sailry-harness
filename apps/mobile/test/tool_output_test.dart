@@ -58,6 +58,29 @@ void main() {
     expect(output.value, {'preview': 'Recovered output'});
   });
 
+  test('loads current approval arguments before a result', () async {
+    final output = DeferredOutput();
+    addTearDown(output.dispose);
+    final arguments = {'path': 'notes.txt', 'text': 'Requested content'};
+    final approval = {
+      ...call(),
+      'response': null,
+      'details': false,
+      'output_deferred': false,
+      'approval': {'state': 'pending'},
+    };
+    await output.resolve(
+      approval,
+      expanded: false,
+      enabled: true,
+      load: (entry, index) async {
+        expect((entry, index), ('request', 0));
+        return {'arguments': arguments};
+      },
+    );
+    expect(output.value?['arguments'], arguments);
+  });
+
   test('coalesces reads and rejects replaced output', () async {
     final output = DeferredOutput();
     addTearDown(output.dispose);
