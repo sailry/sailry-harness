@@ -69,6 +69,192 @@ async fn detail_failure_keeps_observation_alive() {
 }
 
 #[tokio::test]
+async fn approval_and_retries_survive_unavailable_details() {
+    use std::sync::atomic::Ordering;
+    for remote in [false, true] {
+        let model = models::Server::turn_tools(vec![(
+            models::plugin_tool("files", "write_file"),
+            json!({"path":"approved.txt","text":"Approved from summary","expected_revision":null}),
+        )])
+        .await;
+        let fixture = Fixture::with_unavailable_details(remote, model).await;
+        let mut editor = fixture.editor().await;
+        editor.initialize().await;
+        editor.load(&fixture).await;
+        editor.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":prompt(
+            fixture.session.id, RequestId::new(), fixture.session.revision, "Write approved.txt") }));
+        let permission = loop {
+            let frame = editor.next().await;
+            if frame["method"] == "session/request_permission" {
+                editor.permissions.push(frame["params"].clone());
+                break frame;
+            }
+            assert_eq!(frame["method"], "session/update", "{frame}");
+            editor.updates.push(frame["params"].clone());
+        };
+        assert_eq!(permission["params"]["toolCall"]["status"], "pending");
+        assert!(
+            permission["params"]["toolCall"]["content"]
+                .as_array()
+                .is_some_and(|content| !content.is_empty())
+        );
+        let pending = fixture.page().await;
+        assert_eq!(pending.approvals[0].state, ApprovalState::Pending);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while fixture.detail_reads.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let count = fixture.detail_reads.load(Ordering::SeqCst);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while fixture.detail_reads.load(Ordering::SeqCst) == count {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("detail retry without a view change");
+        let unchanged = fixture.page().await;
+        assert_eq!(unchanged.entries, pending.entries);
+        assert_eq!(unchanged.approvals, pending.approvals);
+        editor.send(json!({"jsonrpc":"2.0","id":permission["id"],"result":{"outcome":{"outcome":"selected","optionId":"allow"}}}));
+        let completed = editor.reply(3, None).await;
+        assert_eq!(completed["result"]["stopReason"], "end_turn", "{completed}");
+        assert_eq!(fixture.page().await.runs[0].status, Status::Completed);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root().join("approved.txt")).unwrap(),
+            "Approved from summary"
+        );
+        assert_eq!(editor.permissions.len(), 1);
+        assert!(
+            editor
+                .updates
+                .iter()
+                .any(
+                    |update| update["update"]["sessionUpdate"] == "tool_call_update"
+                        && update["update"]["status"] == "completed"
+                )
+        );
+        editor.close().await;
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn resume_seeds_calls_without_detail_reads() {
+    use std::sync::atomic::Ordering;
+    for remote in [false, true] {
+        let model = models::Server::turn_tools(vec![(
+            models::plugin_tool("files", "read_file"),
+            json!({"path":"source.txt"}),
+        )])
+        .await;
+        let fixture = Fixture::with_detail_loss(remote, model).await;
+        std::fs::write(fixture.root().join("source.txt"), "Canonical source").unwrap();
+        let mut editor = fixture.editor().await;
+        editor.initialize().await;
+        editor.load(&fixture).await;
+        let completed = editor
+            .request(
+                3,
+                "session/prompt",
+                prompt(
+                    fixture.session.id,
+                    RequestId::new(),
+                    fixture.session.revision,
+                    "Read source.txt",
+                ),
+                None,
+            )
+            .await;
+        assert!(completed.get("result").is_some(), "{completed}");
+        let page = fixture.page().await;
+        let native = page
+            .entries
+            .iter()
+            .find_map(|entry| {
+                entry.parts.iter().enumerate().find_map(|(index, part)| {
+                    matches!(part, Part::ToolCall { .. })
+                        .then(|| format!("{}:{}-{index}", page.session, entry.id))
+                })
+            })
+            .unwrap();
+        editor.tool_output(&native).await;
+        editor.close().await;
+        let count = fixture.detail_reads.load(Ordering::SeqCst);
+        let mut resumed = fixture.editor().await;
+        resumed.initialize().await;
+        let resumed_result = resumed
+            .request(
+                2,
+                "session/resume",
+                json!({"sessionId":fixture.session.id,"cwd":fixture.root(),"mcpServers":[]}),
+                None,
+            )
+            .await;
+        assert!(resumed_result.get("result").is_some(), "{resumed_result}");
+        assert_eq!(fixture.detail_reads.load(Ordering::SeqCst), count);
+        assert!(resumed.updates.iter().all(|update| !matches!(
+            update["update"]["sessionUpdate"].as_str(),
+            Some("tool_call" | "tool_call_update")
+        )));
+        resumed.close().await;
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn commentary_arrives_as_thought_chunks() {
+    for remote in [false, true] {
+        let fixture = Fixture::responses(remote, models::Server::phases().await).await;
+        std::fs::write(fixture.root().join("phase.txt"), "Canonical phase fixture").unwrap();
+        let mut editor = fixture.editor().await;
+        editor.initialize().await;
+        editor.load(&fixture).await;
+        let completed = editor
+            .request(
+                3,
+                "session/prompt",
+                prompt(
+                    fixture.session.id,
+                    RequestId::new(),
+                    fixture.session.revision,
+                    "Read phase.txt",
+                ),
+                None,
+            )
+            .await;
+        assert_eq!(completed["result"]["stopReason"], "end_turn", "{completed}");
+        let thoughts = editor
+            .updates
+            .iter()
+            .filter(|update| update["update"]["sessionUpdate"] == "agent_thought_chunk")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            thoughts
+                .iter()
+                .filter_map(|update| update["update"]["content"]["text"].as_str())
+                .collect::<String>(),
+            models::phases::COMMENTARY
+        );
+        assert_eq!(answer(&editor.updates), models::phases::ANSWER);
+        let final_chunk = editor
+            .updates
+            .iter()
+            .find(|update| update["update"]["sessionUpdate"] == "agent_message_chunk")
+            .unwrap();
+        assert!(thoughts[0]["update"]["messageId"].is_string());
+        assert_ne!(
+            thoughts[0]["update"]["messageId"],
+            final_chunk["update"]["messageId"]
+        );
+        editor.close().await;
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn streams_canonical_history_and_retries() {
     for remote in [false, true] {
         let fixture = Fixture::new(
@@ -262,6 +448,9 @@ async fn maps_permission_to_captured_node_call() {
                     .iter()
                     .any(|update| update["update"]["sessionUpdate"] == "tool_call")
             );
+            let approval = &page.approvals[0];
+            let native = format!("{}:{}-{}", approval.session, approval.entry, approval.index);
+            editor.tool_output(&native).await;
             assert!(
                 editor
                     .updates

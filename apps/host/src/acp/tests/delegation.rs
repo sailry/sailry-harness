@@ -574,6 +574,7 @@ async fn executes_unrestricted_calls_in_full_mode() {
                 sailry_protocol::process::Outcome::Exited(0)
             );
             let native = format!("{}:{}-{}", approval.session, approval.entry, approval.index);
+            editor.tool_output(&native).await;
             assert!(editor.updates.iter().any(|update| {
                 update["update"]["toolCallId"] == native
                     && update["update"]["status"] == "completed"

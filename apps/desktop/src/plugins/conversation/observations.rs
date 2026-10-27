@@ -13,14 +13,16 @@ pub(super) struct Observations(watch::Sender<BTreeMap<String, Observation>>);
 struct Observation {
     history: sailry_client::conversation::View,
     client: std::sync::Arc<sailry_client::Client>,
+    runtime: tokio::runtime::Handle,
     prefix: String,
     cache: std::sync::Arc<tokio::sync::Mutex<Cache>>,
 }
 
 struct Captured {
     stamp: Stamp,
-    value: Value,
+    value: Option<Box<str>>,
     bytes: usize,
+    required: usize,
 }
 
 const MAX_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
@@ -37,28 +39,62 @@ impl Cache {
         self.bytes = 0;
     }
 
-    fn retain(&mut self, retained: &std::collections::BTreeSet<String>) {
-        self.values.retain(|key, _| retained.contains(key));
+    fn retain(&mut self, retained: &BTreeMap<String, Stamp>) {
+        self.values.retain(|key, entry| {
+            retained
+                .get(key)
+                .is_some_and(|stamp| stamp.tool == entry.stamp.tool)
+        });
         self.bytes = self.values.values().map(|entry| entry.bytes).sum();
     }
 
-    fn insert(&mut self, key: String, stamp: Stamp, value: Value) {
-        if let Some(previous) = self.values.remove(&key) {
-            self.bytes -= previous.bytes;
+    fn check(&self) -> Result<(), HostError> {
+        if self
+            .values
+            .values()
+            .map(|entry| entry.required)
+            .sum::<usize>()
+            > MAX_CAPTURE_BYTES
+        {
+            Err(HostError::new(
+                "assistant tool snapshot exceeds cache capacity",
+            ))
+        } else {
+            Ok(())
         }
-        let bytes = sailry_client::conversation::details::retained_bytes(&value)
-            + stamp.tool.retained_bytes()
-            + key.capacity()
-            + std::mem::size_of::<Captured>();
-        if bytes > MAX_CAPTURE_BYTES {
-            return;
+    }
+
+    fn remove(&mut self, key: &str) {
+        if let Some(captured) = self.values.remove(key) {
+            self.bytes -= captured.bytes;
         }
-        while self.bytes + bytes > MAX_CAPTURE_BYTES {
-            let Some((_, previous)) = self.values.pop_first() else {
-                break;
-            };
-            self.bytes -= previous.bytes;
+    }
+
+    fn insert(&mut self, key: String, stamp: Stamp, value: &Value) -> Result<(), HostError> {
+        self.remove(&key);
+        let encoded = serde_json::to_string(value)
+            .map_err(|error| HostError::new(error.to_string()))?
+            .into_boxed_str();
+        let metadata =
+            stamp.tool.retained_bytes() + key.capacity() + std::mem::size_of::<Captured>();
+        let required = metadata + encoded.len();
+        let fits = self
+            .values
+            .values()
+            .map(|entry| entry.required)
+            .sum::<usize>()
+            + required
+            <= MAX_CAPTURE_BYTES;
+        if !fits {
+            for captured in self.values.values_mut() {
+                if let Some(value) = captured.value.take() {
+                    captured.bytes -= value.len();
+                    self.bytes -= value.len();
+                }
+            }
         }
+        let value = fits.then_some(encoded);
+        let bytes = metadata + value.as_ref().map_or(0, |value| value.len());
         self.bytes += bytes;
         self.values.insert(
             key,
@@ -66,8 +102,10 @@ impl Cache {
                 stamp,
                 value,
                 bytes,
+                required,
             },
         );
+        self.check()
     }
 }
 
@@ -112,7 +150,8 @@ impl Observations {
                 }) {
                     false
                 } else {
-                    let client = chat.binding().client;
+                    let binding = chat.binding();
+                    let client = binding.client;
                     let cache = values
                         .get(&id)
                         .filter(|previous| {
@@ -125,6 +164,7 @@ impl Observations {
                         Observation {
                             history: history.clone(),
                             client,
+                            runtime: binding.runtime.handle().clone(),
                             prefix: prefix.clone(),
                             cache,
                         },
@@ -156,11 +196,7 @@ impl Observations {
                     let observed = receiver.borrow_and_update().clone();
                     let mut value = BTreeMap::new();
                     for (id, observed) in observed {
-                        let snapshot = tokio::select! {
-                            biased;
-                            _ = stop.cancelled() => return Err(HostError::new("plugin view is closed")),
-                            value = snapshot(&observed) => value?,
-                        };
+                        let snapshot = read(observed, stop.clone()).await?;
                         value.insert(id, snapshot);
                     }
                     let bytes = serde_json::to_vec(&value)
@@ -182,6 +218,20 @@ impl Observations {
     }
 }
 
+async fn read(observation: Observation, stop: CancellationToken) -> Result<Value, HostError> {
+    let runtime = observation.runtime.clone();
+    runtime
+        .spawn(async move {
+            tokio::select! {
+                biased;
+                _ = stop.cancelled() => Err(HostError::new("plugin view is closed")),
+                value = snapshot(&observation) => value,
+            }
+        })
+        .await
+        .map_err(|_| HostError::new("assistant observation stopped"))?
+}
+
 async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
     let history = &observation.history;
     let Some(snapshot) = &history.snapshot else {
@@ -190,53 +240,87 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
     };
     let page = &snapshot.page;
     let mut calls = Vec::new();
-    let mut retained = std::collections::BTreeSet::new();
+    let mut retained = history
+        .calls
+        .iter()
+        .filter(|call| call.name.starts_with(&observation.prefix))
+        .filter_map(|call| {
+            let source = page
+                .entries
+                .iter()
+                .find(|entry| entry.id == call.source.entry)?;
+            let response = call
+                .response
+                .as_ref()
+                .and_then(|response| page.entries.iter().find(|entry| entry.id == response.entry));
+            Some((
+                format!("{}:{}", call.turn, call.source.key()),
+                Stamp {
+                    tool: call.stamp(page)?,
+                    timestamp_ms: source.timestamp_ms,
+                    sequence: response.map(|entry| entry.sequence),
+                },
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut cache = observation.cache.lock().await;
+    cache.retain(&retained);
+    cache.check()?;
     for call in history.calls.iter() {
         let Some(name) = call.name.strip_prefix(&observation.prefix) else {
             continue;
         };
-        let Some(tool) = call.stamp(page) else {
-            continue;
-        };
-        let Some(source) = page
-            .entries
-            .iter()
-            .find(|entry| entry.id == call.source.entry)
-        else {
-            continue;
-        };
-        let response = call
-            .response
-            .as_ref()
-            .and_then(|response| page.entries.iter().find(|entry| entry.id == response.entry));
         let key = format!("{}:{}", call.turn, call.source.key());
-        let stamp = Stamp {
-            tool,
-            timestamp_ms: source.timestamp_ms,
-            sequence: response.map(|entry| entry.sequence),
+        let Some(stamp) = retained.remove(&key) else {
+            continue;
         };
-        retained.insert(key.clone());
         if let Some(previous) = cache
             .values
             .get(&key)
             .filter(|previous| previous.stamp == stamp)
         {
-            calls.push(previous.value.clone());
-            continue;
+            if let Some(value) = &previous.value {
+                calls.push(
+                    serde_json::from_str(value)
+                        .map_err(|error| HostError::new(error.to_string()))?,
+                );
+                continue;
+            }
         }
-        let previous = cache.values.get(&key);
-        let changed = observation
+        let previous = cache
+            .values
+            .get(&key)
+            .filter(|previous| previous.value.is_some());
+        let changed = match observation
             .client
             .changed_tool_call(call, page, previous.map(|previous| &previous.stamp.tool))
             .await
-            .map_err(|error| HostError::new(error.message))?;
+        {
+            Ok(changed) => changed,
+            Err(error) => {
+                eprintln!(
+                    "assistant tool detail read failed for {}:{}: {}",
+                    page.session,
+                    call.source.key(),
+                    error.message
+                );
+                cache.remove(&key);
+                continue;
+            }
+        };
         let Some((hydrated, _)) = changed else {
-            let mut value = previous.expect("unchanged captured tool").value.clone();
+            let mut value: Value = serde_json::from_str(
+                previous
+                    .expect("unchanged captured tool")
+                    .value
+                    .as_deref()
+                    .unwrap(),
+            )
+            .map_err(|error| HostError::new(error.to_string()))?;
             value["timestamp_ms"] = json!(stamp.timestamp_ms);
             value["sequence"] = json!(stamp.sequence.map(|sequence| sequence.to_string()));
             calls.push(value.clone());
-            cache.insert(key, stamp, value);
+            cache.insert(key, stamp, &value)?;
             continue;
         };
         let detail = hydrated.detail.as_ref().expect("hydrated tool detail");
@@ -247,11 +331,10 @@ async fn snapshot(observation: &Observation) -> Result<Value, HostError> {
                 .unwrap_or_else(|| value.clone())
         });
         let value = json!({"key":key,"name":name,"arguments":detail.arguments,
-            "state":call.state,"timestamp_ms":source.timestamp_ms,"result":result,"sequence":response.map(|entry|entry.sequence.to_string())});
+            "state":call.state,"timestamp_ms":stamp.timestamp_ms,"result":result,"sequence":stamp.sequence.map(|sequence|sequence.to_string())});
         calls.push(value.clone());
-        cache.insert(key, stamp, value);
+        cache.insert(key, stamp, &value)?;
     }
-    cache.retain(&retained);
     Ok(
         json!({"connected":history.connected,"session":page.session,"revision":page.revision.to_string(),
         "latest":page.entries.iter().map(|entry|entry.sequence).max().map(|value|value.to_string()),"calls":calls}),

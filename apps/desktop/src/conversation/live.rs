@@ -146,6 +146,12 @@ pub(crate) struct View {
     sent: BTreeMap<TurnId, outgoing::Message>,
     navigation: navigation::Navigation,
     expanded: BTreeMap<(TurnId, String), bool>,
+    detail_values: std::cell::RefCell<
+        BTreeMap<
+            sailry_protocol::tool::detail::Reference,
+            Arc<sailry_protocol::tool::detail::Detail>,
+        >,
+    >,
     detail_loading:
         std::cell::RefCell<std::collections::BTreeSet<sailry_protocol::tool::detail::Reference>>,
     detail_failed:
@@ -421,6 +427,7 @@ impl View {
             sent: BTreeMap::new(),
             navigation: navigation::Navigation::new(cx),
             expanded: BTreeMap::new(),
+            detail_values: Default::default(),
             detail_loading: Default::default(),
             detail_failed: Default::default(),
             changes: BTreeMap::new(),

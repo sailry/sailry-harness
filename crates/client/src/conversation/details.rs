@@ -2,7 +2,7 @@
 use crate::Client;
 use futures::{
     FutureExt,
-    future::{BoxFuture, Shared},
+    future::{BoxFuture, WeakShared},
 };
 use sailry_protocol::{
     Command, ErrorCode, Fault, Output, SessionId,
@@ -11,7 +11,7 @@ use sailry_protocol::{
 };
 use std::{
     collections::{BTreeMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 
 const MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -33,7 +33,33 @@ struct Values {
 struct Reading {
     id: u64,
     invalidated: bool,
-    future: Shared<BoxFuture<'static, Result<Arc<Detail>, Fault>>>,
+    future: WeakShared<BoxFuture<'static, Result<Arc<Detail>, Fault>>>,
+}
+
+struct Read {
+    cache: Weak<Cache>,
+    reference: Reference,
+    id: u64,
+    complete: bool,
+}
+
+impl Read {
+    fn finish(&mut self, detail: Option<(Arc<Detail>, usize)>) -> bool {
+        self.complete = true;
+        self.cache
+            .upgrade()
+            .is_some_and(|cache| cache.finish(&self.reference, self.id, detail))
+    }
+}
+
+impl Drop for Read {
+    fn drop(&mut self) {
+        if !self.complete
+            && let Some(cache) = self.cache.upgrade()
+        {
+            cache.finish(&self.reference, self.id, None);
+        }
+    }
 }
 
 struct Cached {
@@ -81,22 +107,29 @@ impl Cache {
 
     fn finish(&self, reference: &Reference, id: u64, detail: Option<(Arc<Detail>, usize)>) -> bool {
         let mut values = self.values.lock().expect("tool detail cache lock");
-        let valid = values
+        if !values
             .loading
-            .remove(reference)
-            .is_some_and(|reading| reading.id == id && !reading.invalidated);
-        if valid && let Some((detail, bytes)) = detail.filter(|(_, bytes)| *bytes <= MAX_BYTES) {
+            .get(reference)
+            .is_some_and(|reading| reading.id == id)
+        {
+            return false;
+        }
+        let valid = !values.loading.remove(reference).unwrap().invalidated;
+        if valid && let Some((detail, bytes)) = detail {
             values
                 .entries
                 .retain(|entry| !same_part(&entry.reference, reference));
-            while values.entries.len() >= MAX_ENTRIES
-                || values
-                    .entries
-                    .iter()
-                    .map(|entry| entry.bytes)
-                    .sum::<usize>()
-                    + bytes
-                    > MAX_BYTES
+            // Wire-size validation admits the newest detail. Its parsed allocation
+            // may occupy the cache alone, rather than reporting uncached success.
+            while !values.entries.is_empty()
+                && (values.entries.len() >= MAX_ENTRIES
+                    || values
+                        .entries
+                        .iter()
+                        .map(|entry| entry.bytes)
+                        .sum::<usize>()
+                        + bytes
+                        > MAX_BYTES)
             {
                 if values.entries.pop_front().is_none() {
                     break;
@@ -207,33 +240,37 @@ impl Client {
             {
                 return Ok(cached.detail.clone());
             }
-            if let Some(reading) = values.loading.get(&reference) {
-                reading.future.clone()
+            if let Some(future) = values
+                .loading
+                .get(&reference)
+                .filter(|reading| !reading.invalidated)
+                .and_then(|reading| reading.future.upgrade())
+            {
+                future
             } else {
                 values.next += 1;
                 let id = values.next;
                 let client = Client::new(self.transport.clone());
-                let cache = Arc::downgrade(&self.details);
-                let reading = reference.clone();
-                let task = tokio::spawn(async move {
-                    let result = client.read_tool_detail(&reading).await.map(Arc::new);
-                    if let Some(cache) = cache.upgrade() {
-                        let detail = result
-                            .as_ref()
-                            .ok()
-                            .map(|detail| (detail.clone(), allocation(detail, &reading)));
-                        if !cache.finish(&reading, id, detail) {
-                            return Err(Fault::new(
-                                ErrorCode::RevisionConflict,
-                                "conversation changed while loading tool details",
-                            ));
-                        }
+                let read = Read {
+                    cache: Arc::downgrade(&self.details),
+                    reference: reference.clone(),
+                    id,
+                    complete: false,
+                };
+                let future = async move {
+                    let mut read = read;
+                    let result = client.read_tool_detail(&read.reference).await.map(Arc::new);
+                    let detail = result
+                        .as_ref()
+                        .ok()
+                        .map(|detail| (detail.clone(), allocation(detail, &read.reference)));
+                    if !read.finish(detail) {
+                        return Err(Fault::new(
+                            ErrorCode::RevisionConflict,
+                            "conversation changed while loading tool details",
+                        ));
                     }
                     result
-                });
-                let future = async move {
-                    task.await
-                        .map_err(|_| Fault::new(ErrorCode::Internal, "tool detail read stopped"))?
                 }
                 .boxed()
                 .shared();
@@ -242,7 +279,7 @@ impl Client {
                     Reading {
                         id,
                         invalidated: false,
-                        future: future.clone(),
+                        future: future.downgrade().expect("unpolled detail future"),
                     },
                 );
                 future

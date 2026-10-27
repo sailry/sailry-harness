@@ -23,7 +23,7 @@ use std::{
     sync::{Arc, atomic::AtomicU64},
 };
 use tokio::{
-    sync::{Mutex, mpsc, watch},
+    sync::{Mutex, Semaphore, mpsc, watch},
     task::JoinHandle,
 };
 
@@ -31,6 +31,7 @@ pub(super) struct Adapter {
     client: Arc<Client>,
     sessions: Mutex<BTreeMap<SessionId, Arc<Opened>>>,
     stop: CancellationToken,
+    details: Semaphore,
 }
 
 struct Opened {
@@ -69,6 +70,7 @@ impl Adapter {
             client,
             sessions: Mutex::new(BTreeMap::new()),
             stop: CancellationToken::new(),
+            details: Semaphore::new(4),
         })
     }
 

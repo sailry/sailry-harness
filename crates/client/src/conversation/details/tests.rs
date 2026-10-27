@@ -13,6 +13,7 @@ struct Backend {
     text: String,
     calls: AtomicUsize,
     fail_at: Mutex<Option<usize>>,
+    panic_at: Mutex<Option<usize>>,
     blocked: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
@@ -37,6 +38,7 @@ impl Backend {
             text: serde_json::to_string(&detail).unwrap(),
             calls: AtomicUsize::new(0),
             fail_at: Mutex::new(None),
+            panic_at: Mutex::new(None),
             blocked: Mutex::new(None),
         })
     }
@@ -101,6 +103,8 @@ impl Transport for Backend {
                 panic!("detail read expected");
             };
             let count = self.calls.fetch_add(1, Ordering::SeqCst);
+            let panic = *self.panic_at.lock().unwrap();
+            assert_ne!(panic, Some(count), "injected detail panic");
             let blocked = (entry == &self.reference.entry && cursor.is_none())
                 .then(|| self.blocked.lock().unwrap().clone())
                 .flatten();
@@ -212,7 +216,7 @@ fn invalidates_changed_parts_during_a_read() {
         Reading {
             id: 1,
             invalidated: false,
-            future,
+            future: future.downgrade().unwrap(),
         },
     );
     let mut page = backend.page(1);
@@ -253,14 +257,27 @@ async fn independent_reads_do_not_block_approvals() {
 async fn shares_failures_without_caching_them() {
     let backend = Backend::new();
     *backend.fail_at.lock().unwrap() = Some(0);
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    *backend.blocked.lock().unwrap() = Some((started.clone(), release.clone()));
     let client = Client::new(backend.clone());
-    let (left, right) = tokio::join!(
-        client.tool_detail(backend.reference.clone()),
-        client.tool_detail(backend.reference.clone())
-    );
+    let reads = async {
+        tokio::join!(
+            client.tool_detail(backend.reference.clone()),
+            client.tool_detail(backend.reference.clone())
+        )
+    };
+    tokio::pin!(reads);
+    tokio::select! {
+        _ = started.notified() => {},
+        _ = &mut reads => panic!("detail read should wait"),
+    }
+    release.notify_one();
+    let (left, right) = reads.await;
     assert_eq!(left.unwrap_err().code, ErrorCode::Unavailable);
     assert_eq!(right.unwrap_err().code, ErrorCode::Unavailable);
     assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+    *backend.blocked.lock().unwrap() = None;
     assert!(client.tool_detail(backend.reference.clone()).await.is_ok());
 }
 
@@ -346,10 +363,121 @@ fn accounts_for_parsed_container_allocations() {
         Reading {
             id: 1,
             invalidated: false,
-            future: futures::future::pending().boxed().shared(),
+            future: futures::future::pending::<Result<Arc<Detail>, Fault>>()
+                .boxed()
+                .shared()
+                .downgrade()
+                .unwrap(),
         },
     );
     let detail = Arc::new(serde_json::from_str(&backend.text).unwrap());
     assert!(cache.finish(&backend.reference, 1, Some((detail, MAX_BYTES + 1))));
-    assert!(cache.get(&backend.reference).is_none());
+    assert!(cache.get(&backend.reference).is_some());
+}
+
+#[test]
+fn reads_without_a_tokio_caller() {
+    let backend = Backend::new();
+    let client = Client::new(backend.clone());
+    let detail =
+        futures::executor::block_on(client.tool_detail(backend.reference.clone())).unwrap();
+    assert_eq!(detail.arguments["body"], "Original argument".repeat(10_000));
+    assert!(client.cached_tool_detail(&backend.reference).is_some());
+}
+
+#[test]
+fn panic_cleans_the_inflight_reference() {
+    let backend = Backend::new();
+    *backend.panic_at.lock().unwrap() = Some(0);
+    let client = Client::new(backend.clone());
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        futures::executor::block_on(client.tool_detail(backend.reference.clone()))
+    }));
+    assert!(result.is_err());
+    assert!(client.details.values.lock().unwrap().loading.is_empty());
+    assert!(futures::executor::block_on(client.tool_detail(backend.reference.clone())).is_ok());
+}
+
+#[tokio::test]
+async fn cancellation_cleans_the_last_waiter() {
+    let backend = Backend::new();
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    *backend.blocked.lock().unwrap() = Some((started.clone(), release));
+    let client = Arc::new(Client::new(backend.clone()));
+    let reader = client.clone();
+    let reference = backend.reference.clone();
+    let pending = tokio::spawn(async move { reader.tool_detail(reference).await });
+    started.notified().await;
+    pending.abort();
+    assert!(pending.await.unwrap_err().is_cancelled());
+    assert!(client.details.values.lock().unwrap().loading.is_empty());
+    *backend.blocked.lock().unwrap() = None;
+    assert!(client.tool_detail(backend.reference.clone()).await.is_ok());
+}
+
+#[tokio::test]
+async fn replaces_invalidated_reads_without_erasing_successors() {
+    let backend = Backend::new();
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    *backend.blocked.lock().unwrap() = Some((started.clone(), release.clone()));
+    let client = Arc::new(Client::new(backend.clone()));
+    client.details.reconcile(&backend.page(1));
+    let reader = client.clone();
+    let reference = backend.reference.clone();
+    let old = tokio::spawn(async move { reader.tool_detail(reference).await });
+    started.notified().await;
+    client.details.reconcile(&backend.page(2));
+    let next_started = Arc::new(tokio::sync::Notify::new());
+    let next_release = Arc::new(tokio::sync::Notify::new());
+    *backend.blocked.lock().unwrap() = Some((next_started.clone(), next_release.clone()));
+    let reader = client.clone();
+    let reference = backend.reference.clone();
+    let next = tokio::spawn(async move { reader.tool_detail(reference).await });
+    next_started.notified().await;
+    let id = client.details.values.lock().unwrap().loading[&backend.reference].id;
+    release.notify_one();
+    assert_eq!(
+        old.await.unwrap().unwrap_err().code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(
+        client.details.values.lock().unwrap().loading[&backend.reference].id,
+        id
+    );
+    next_release.notify_one();
+    let detail = next.await.unwrap().unwrap();
+    assert!(Arc::ptr_eq(
+        &detail,
+        &client.cached_tool_detail(&backend.reference).unwrap()
+    ));
+}
+
+#[tokio::test]
+async fn keeps_oversized_parsed_details_available() {
+    let mut backend = Arc::try_unwrap(Backend::new()).ok().unwrap();
+    backend.text = serde_json::to_string(&Detail {
+        arguments: serde_json::Value::Array(vec![serde_json::Value::Null; 1_100_000]),
+        result: None,
+        resolved: None,
+        content: None,
+        images: vec![],
+    })
+    .unwrap();
+    assert!(backend.text.len() < MAX_BYTES);
+    let backend = Arc::new(backend);
+    let client = Client::new(backend.clone());
+    let detail = client.tool_detail(backend.reference.clone()).await.unwrap();
+    assert!(allocation(&detail, &backend.reference) > MAX_BYTES);
+    assert!(Arc::ptr_eq(
+        &detail,
+        &client.cached_tool_detail(&backend.reference).unwrap()
+    ));
+    let count = backend.calls.load(Ordering::SeqCst);
+    assert!(Arc::ptr_eq(
+        &detail,
+        &client.tool_detail(backend.reference.clone()).await.unwrap()
+    ));
+    assert_eq!(backend.calls.load(Ordering::SeqCst), count);
 }

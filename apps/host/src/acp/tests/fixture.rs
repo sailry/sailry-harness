@@ -7,7 +7,7 @@ use sailry_protocol::{
     conversation::{self, Change, Status},
 };
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -21,6 +21,7 @@ pub(super) struct Fixture {
     pub session: Session,
     pub model: models::Server,
     pub loss: Arc<std::sync::Mutex<Option<Request>>>,
+    pub detail_reads: Arc<AtomicUsize>,
     controller: Option<Link>,
     stop: CancellationToken,
     control: JoinHandle<()>,
@@ -28,18 +29,55 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub async fn new(remote: bool, model: models::Server, lose: bool) -> Self {
-        Self::start(remote, model, lose.then_some(Loss::Admission)).await
+        Self::start(
+            remote,
+            model,
+            lose.then_some(Loss::Admission),
+            conversation::ModelApi::ChatCompletions,
+        )
+        .await
     }
 
     pub async fn with_decision_loss(remote: bool, model: models::Server) -> Self {
-        Self::start(remote, model, Some(Loss::Decision)).await
+        Self::start(
+            remote,
+            model,
+            Some(Loss::Decision),
+            conversation::ModelApi::ChatCompletions,
+        )
+        .await
     }
 
     pub async fn with_detail_loss(remote: bool, model: models::Server) -> Self {
-        Self::start(remote, model, Some(Loss::Detail)).await
+        Self::start(
+            remote,
+            model,
+            Some(Loss::Detail),
+            conversation::ModelApi::ChatCompletions,
+        )
+        .await
     }
 
-    async fn start(remote: bool, model: models::Server, lose: Option<Loss>) -> Self {
+    pub async fn with_unavailable_details(remote: bool, model: models::Server) -> Self {
+        Self::start(
+            remote,
+            model,
+            Some(Loss::Details),
+            conversation::ModelApi::ChatCompletions,
+        )
+        .await
+    }
+
+    pub async fn responses(remote: bool, model: models::Server) -> Self {
+        Self::start(remote, model, None, conversation::ModelApi::Responses).await
+    }
+
+    async fn start(
+        remote: bool,
+        model: models::Server,
+        lose: Option<Loss>,
+        api: conversation::ModelApi,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project 中文");
         std::fs::create_dir(&root).unwrap();
@@ -47,6 +85,7 @@ impl Fixture {
         let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
+        node.set_model_retry_fixture(Duration::ZERO);
         let (controller, direct): (Option<Link>, Arc<dyn Transport>) = if remote {
             let controller =
                 Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -77,7 +116,7 @@ impl Fixture {
             };
             assert!(info.issues.is_empty(), "{:?}", info.issues);
         }
-        let provider = provider(&client, &model.endpoint).await;
+        let provider = configured(&client, &model.endpoint, api).await;
         let config = SessionConfig {
             features: Default::default(),
             assistant: None,
@@ -122,12 +161,14 @@ impl Fixture {
             panic!("session expected")
         };
         let loss = Arc::new(std::sync::Mutex::new(None));
+        let detail_reads = Arc::new(AtomicUsize::new(0));
         let transport: Arc<dyn Transport> = if let Some(kind) = lose {
             Arc::new(Lost {
                 inner: direct,
                 pending: AtomicBool::new(true),
                 kind,
                 record: loss.clone(),
+                detail_reads: detail_reads.clone(),
             })
         } else {
             direct
@@ -148,6 +189,7 @@ impl Fixture {
             session,
             model,
             loss,
+            detail_reads,
             controller,
             stop,
             control,
@@ -310,6 +352,21 @@ impl Editor {
         }
     }
 
+    pub async fn tool_output(&mut self, id: &str) -> Value {
+        loop {
+            if let Some(update) = self.updates.iter().find(|update| {
+                update["update"]["sessionUpdate"] == "tool_call_update"
+                    && update["update"]["toolCallId"] == id
+                    && update["update"].get("rawOutput").is_some()
+            }) {
+                return update.clone();
+            }
+            let frame = self.next().await;
+            assert_eq!(frame["method"], "session/update", "{frame}");
+            self.updates.push(frame["params"].clone());
+        }
+    }
+
     pub async fn initialize(&mut self) -> Value {
         self.request(
             1,
@@ -353,6 +410,7 @@ enum Loss {
     Admission,
     Decision,
     Detail,
+    Details,
 }
 
 struct Lost {
@@ -360,6 +418,7 @@ struct Lost {
     pending: AtomicBool,
     kind: Loss,
     record: Arc<std::sync::Mutex<Option<Request>>>,
+    detail_reads: Arc<AtomicUsize>,
 }
 impl Transport for Lost {
     fn target(&self) -> sailry_protocol::NodeId {
@@ -376,15 +435,22 @@ impl Transport for Lost {
         request: sailry_protocol::Request,
     ) -> Pending<'_, std::result::Result<Admission, Fault>> {
         Box::pin(async move {
+            if matches!(request.command, Command::ReadToolDetail { .. }) {
+                self.detail_reads.fetch_add(1, Ordering::SeqCst);
+            }
             let selected = match self.kind {
                 Loss::Admission => matches!(request.command, Command::SubmitTurn { .. }),
                 Loss::Decision => matches!(request.command, Command::ResolveApproval { .. }),
-                Loss::Detail => matches!(request.command, Command::ReadToolDetail { .. }),
+                Loss::Detail | Loss::Details => {
+                    matches!(request.command, Command::ReadToolDetail { .. })
+                }
             };
-            let lose = selected && self.pending.swap(false, Ordering::SeqCst);
+            let lose = selected
+                && (matches!(self.kind, Loss::Details)
+                    || self.pending.swap(false, Ordering::SeqCst));
             if lose {
                 *self.record.lock().unwrap() = Some(request.clone());
-                if matches!(self.kind, Loss::Detail) {
+                if matches!(self.kind, Loss::Detail | Loss::Details) {
                     return Err(Fault::new(
                         ErrorCode::Unavailable,
                         "injected tool detail failure",
@@ -410,6 +476,14 @@ pub(super) async fn execute(client: &Client, command: Command) -> Output {
 }
 
 pub(super) async fn provider(client: &Client, endpoint: &str) -> conversation::Provider {
+    configured(client, endpoint, conversation::ModelApi::ChatCompletions).await
+}
+
+async fn configured(
+    client: &Client,
+    endpoint: &str,
+    api: conversation::ModelApi,
+) -> conversation::Provider {
     let Output::Provider(provider) = execute(
         client,
         Command::PutProvider {
@@ -423,7 +497,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str) -> conversation::P
                 id: ProviderId::new(),
                 revision: 0,
                 name: "ACP model".into(),
-                api: conversation::ModelApi::ChatCompletions,
+                api,
                 authentication: Authentication::ApiKey,
                 endpoint: endpoint.into(),
                 enabled: true,
@@ -435,11 +509,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str) -> conversation::P
                         output: Some(4096),
                         capabilities: None,
                     }
-                    .configuration(
-                        None,
-                        conversation::ModelApi::ChatCompletions,
-                        Authentication::ApiKey,
-                    ),
+                    .configuration(None, api, Authentication::ApiKey),
                 ],
                 default_model: "fixture-a".into(),
                 credential: None,

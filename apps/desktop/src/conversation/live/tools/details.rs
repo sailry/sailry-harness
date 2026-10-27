@@ -1,6 +1,12 @@
-//! UI owns expansion and loading; complete values stay in the shared Client cache.
+//! Visible details retain the Client's shared values until their references leave the view.
 use super::*;
-use sailry_protocol::tool::detail::Reference;
+use sailry_protocol::tool::detail::{Detail as ToolDetail, Reference};
+
+type Values = std::cell::RefCell<BTreeMap<Reference, Arc<ToolDetail>>>;
+
+fn held(values: &Values, reference: &Reference) -> Option<Arc<ToolDetail>> {
+    values.borrow().get(reference).cloned()
+}
 
 pub(super) enum Action {
     Copy,
@@ -21,6 +27,9 @@ impl View {
         self.detail_failed
             .borrow_mut()
             .retain(|reference| current.contains(reference));
+        self.detail_values
+            .borrow_mut()
+            .retain(|reference, _| current.contains(reference));
         self.detail_loading
             .borrow_mut()
             .retain(|reference| current.contains(reference));
@@ -72,8 +81,15 @@ impl View {
 
     pub(in crate::conversation::live) fn detailed(&self, call: &Call, page: &Page) -> Call {
         call.detail_reference(page)
-            .and_then(|reference| self.binding.client.cached_tool_detail(&reference))
+            .and_then(|reference| self.detail(&reference))
             .map_or_else(|| call.clone(), |detail| call.with_detail(detail))
+    }
+
+    pub(in crate::conversation::live) fn detail(
+        &self,
+        reference: &Reference,
+    ) -> Option<Arc<ToolDetail>> {
+        held(&self.detail_values, reference)
     }
 
     pub(in crate::conversation::live) fn request_details(
@@ -83,10 +99,15 @@ impl View {
         cx: &mut Context<Self>,
     ) {
         for reference in references {
-            if self.binding.client.cached_tool_detail(&reference).is_some()
+            if self.detail(&reference).is_some()
                 || self.detail_loading.borrow().contains(&reference)
                 || !explicit && self.detail_failed.borrow().contains(&reference)
             {
+                continue;
+            }
+            if let Some(detail) = self.binding.client.cached_tool_detail(&reference) {
+                self.detail_values.borrow_mut().insert(reference, detail);
+                cx.notify();
                 continue;
             }
             self.detail_failed.borrow_mut().remove(&reference);
@@ -118,7 +139,12 @@ impl View {
                         return;
                     }
                     let error = match result {
-                        Ok(Some(Ok(_))) => None,
+                        Ok(Some(Ok(detail))) => {
+                            view.detail_values
+                                .borrow_mut()
+                                .insert(reference.clone(), detail);
+                            None
+                        }
                         Ok(Some(Err(error))) => Some(error),
                         Ok(None) => return,
                         Err(_) => Some(sailry_protocol::Fault::new(
@@ -217,6 +243,125 @@ fn copy_text(detail: &sailry_protocol::tool::detail::Detail) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sailry_link::{Admission, Pending, Subscription, Transport};
+    use sailry_protocol::{Command, Fault, NodeId, Output, Receipt, Request, Topic};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Source {
+        text: String,
+        reads: AtomicUsize,
+    }
+
+    impl Transport for Source {
+        fn target(&self) -> NodeId {
+            NodeId([71; 32])
+        }
+        fn subscribe(&self, _: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
+            Box::pin(async { Err(Fault::invalid("unused subscription")) })
+        }
+        fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
+            Box::pin(async move {
+                let Command::ReadToolDetail {
+                    session,
+                    turn,
+                    entry,
+                    index,
+                    call,
+                    expected_revision,
+                    cursor,
+                    limit,
+                } = request.command
+                else {
+                    panic!("detail read expected")
+                };
+                self.reads.fetch_add(1, Ordering::Relaxed);
+                let offset = cursor.unwrap_or(0);
+                let end = (offset + limit).min(self.text.len());
+                let (sender, completion) = tokio::sync::oneshot::channel();
+                sender
+                    .send(Ok(Output::ToolDetail(
+                        sailry_protocol::tool::detail::Page {
+                            reference: Reference {
+                                session,
+                                turn,
+                                entry,
+                                index,
+                                call,
+                                revision: expected_revision,
+                            },
+                            offset,
+                            total_bytes: self.text.len(),
+                            next_offset: (end < self.text.len()).then_some(end),
+                            text: self.text[offset..end].to_owned(),
+                        },
+                    )))
+                    .unwrap();
+                Ok(Admission {
+                    receipt: Receipt {
+                        id: request.id,
+                        durable: false,
+                    },
+                    completion,
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn holds_pending_details_across_cache_eviction() {
+        let text = serde_json::to_string(&ToolDetail {
+            arguments: serde_json::Value::Array(vec![serde_json::Value::Null; 1_100_000]),
+            result: None,
+            resolved: None,
+            content: None,
+            images: Vec::new(),
+        })
+        .unwrap();
+        let source = Arc::new(Source {
+            text,
+            reads: AtomicUsize::new(0),
+        });
+        let client = sailry_client::Client::new(source.clone());
+        let first = Reference {
+            session: SessionId::new(),
+            turn: TurnId::new(),
+            entry: "first".into(),
+            index: 0,
+            call: Some("first".into()),
+            revision: "a".repeat(64),
+        };
+        let second = Reference {
+            entry: "second".into(),
+            call: Some("second".into()),
+            ..first.clone()
+        };
+        let (left, right) = futures::join!(
+            client.tool_detail(first.clone()),
+            client.tool_detail(second.clone())
+        );
+        let left = left.unwrap();
+        let right = right.unwrap();
+        assert!(
+            sailry_client::conversation::details::retained_bytes(&left.arguments)
+                > 64 * 1024 * 1024
+        );
+        assert!(client.cached_tool_detail(&first).is_none());
+        assert!(client.cached_tool_detail(&second).is_some());
+        let values = Values::new(BTreeMap::from([
+            (first.clone(), left.clone()),
+            (second.clone(), right.clone()),
+        ]));
+        let reads = source.reads.load(Ordering::Relaxed);
+        assert!(Arc::ptr_eq(&held(&values, &first).unwrap(), &left));
+        assert!(Arc::ptr_eq(&held(&values, &second).unwrap(), &right));
+        assert_eq!(source.reads.load(Ordering::Relaxed), reads);
+        let released = Arc::downgrade(&left);
+        drop(left);
+        values
+            .borrow_mut()
+            .retain(|reference, _| reference == &second);
+        assert!(released.upgrade().is_none());
+    }
 
     #[core::prelude::v1::test]
     fn copies_the_complete_result() {

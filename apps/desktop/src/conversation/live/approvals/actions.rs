@@ -107,7 +107,7 @@ impl View {
                 && call.source.index == approval.index
         })?;
         let reference = call.detail_reference(&snapshot.page)?;
-        self.binding.client.cached_tool_detail(&reference)?;
+        self.detail(&reference)?;
         Some(approval)
     }
 

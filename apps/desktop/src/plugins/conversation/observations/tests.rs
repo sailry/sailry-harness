@@ -14,7 +14,21 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-struct Backend(AtomicUsize);
+struct Backend(
+    AtomicUsize,
+    std::sync::Mutex<std::collections::BTreeSet<String>>,
+    Option<String>,
+);
+
+impl Backend {
+    fn new() -> Arc<Self> {
+        Arc::new(Self(AtomicUsize::new(0), Default::default(), None))
+    }
+
+    fn large(text: String) -> Arc<Self> {
+        Arc::new(Self(AtomicUsize::new(0), Default::default(), Some(text)))
+    }
+}
 
 impl Transport for Backend {
     fn target(&self) -> NodeId {
@@ -25,6 +39,7 @@ impl Transport for Backend {
     }
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
+            assert!(tokio::runtime::Handle::try_current().is_ok());
             let Command::ReadToolDetail {
                 session,
                 turn,
@@ -33,14 +48,20 @@ impl Transport for Backend {
                 call,
                 expected_revision,
                 cursor,
+                limit,
                 ..
             } = request.command
             else {
                 panic!("detail read expected")
             };
-            assert!(cursor.is_none());
             self.0.fetch_add(1, Ordering::Relaxed);
-            let text = serde_json::to_string(&Detail {
+            if self.1.lock().unwrap().remove(&entry) {
+                return Err(Fault::new(
+                    ErrorCode::Unavailable,
+                    "injected tool detail failure",
+                ));
+            }
+            let small = serde_json::to_string(&Detail {
                 arguments: json!({"path":"fixture.txt"}),
                 result: Some(json!({"text":"A small result"})),
                 resolved: None,
@@ -48,6 +69,10 @@ impl Transport for Backend {
                 images: vec![],
             })
             .unwrap();
+            let full = self.2.as_ref().unwrap_or(&small);
+            let offset = cursor.unwrap_or(0);
+            let end = (offset + limit).min(full.len());
+            let text = full[offset..end].to_owned();
             let reference = Reference {
                 session,
                 turn,
@@ -60,9 +85,9 @@ impl Transport for Backend {
             sender
                 .send(Ok(Output::ToolDetail(DetailPage {
                     reference,
-                    offset: 0,
-                    total_bytes: text.len(),
-                    next_offset: None,
+                    offset,
+                    total_bytes: full.len(),
+                    next_offset: (end < full.len()).then_some(end),
                     text,
                 })))
                 .unwrap();
@@ -143,10 +168,11 @@ fn history(session: sailry_protocol::SessionId, turn: TurnId) -> sailry_client::
 
 #[tokio::test]
 async fn reads_only_changed_calls() {
-    let backend = Arc::new(Backend(AtomicUsize::new(0)));
+    let backend = Backend::new();
     let mut observation = Observation {
         history: history(sailry_protocol::SessionId::new(), TurnId::new()),
         client: Arc::new(Client::new(backend.clone())),
+        runtime: tokio::runtime::Handle::current(),
         prefix: "plugin_fixture_".into(),
         cache: Default::default(),
     };
@@ -175,10 +201,11 @@ async fn reads_only_changed_calls() {
 
 #[tokio::test]
 async fn metadata_updates_reuse_captured_details() {
-    let backend = Arc::new(Backend(AtomicUsize::new(0)));
+    let backend = Backend::new();
     let mut observation = Observation {
         history: history(sailry_protocol::SessionId::new(), TurnId::new()),
         client: Arc::new(Client::new(backend.clone())),
+        runtime: tokio::runtime::Handle::current(),
         prefix: "plugin_fixture_".into(),
         cache: Default::default(),
     };
@@ -191,7 +218,7 @@ async fn metadata_updates_reuse_captured_details() {
 }
 
 #[core::prelude::v1::test]
-fn rejects_values_over_retained_budget() {
+fn retains_compact_values_over_parsed_budget() {
     let history = history(sailry_protocol::SessionId::new(), TurnId::new());
     let page = &history.snapshot.as_ref().unwrap().page;
     let stamp = Stamp {
@@ -204,7 +231,132 @@ fn rejects_values_over_retained_budget() {
     let value = Value::String(text);
     assert!(sailry_client::conversation::details::retained_bytes(&value) > MAX_CAPTURE_BYTES);
     let mut cache = Cache::default();
-    cache.insert("oversized".into(), stamp, value);
-    assert!(cache.values.is_empty());
-    assert_eq!(cache.bytes, 0);
+    cache.insert("oversized".into(), stamp, &value).unwrap();
+    assert_eq!(cache.values.len(), 1);
+    assert!(cache.bytes < 16 * 1024);
+}
+
+#[tokio::test]
+async fn a_failed_call_does_not_hide_peers() {
+    let backend = Backend::new();
+    backend.1.lock().unwrap().insert("entry-0".into());
+    let observation = Observation {
+        history: history(sailry_protocol::SessionId::new(), TurnId::new()),
+        client: Arc::new(Client::new(backend.clone())),
+        runtime: tokio::runtime::Handle::current(),
+        prefix: "plugin_fixture_".into(),
+        cache: Default::default(),
+    };
+    let partial = snapshot(&observation).await.unwrap();
+    assert_eq!(partial["calls"].as_array().unwrap().len(), 64);
+    assert!(
+        partial["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|call| call["timestamp_ms"] != 0)
+    );
+    let recovered = snapshot(&observation).await.unwrap();
+    assert_eq!(recovered["calls"].as_array().unwrap().len(), 65);
+    assert_eq!(backend.0.load(Ordering::Relaxed), 66);
+}
+
+#[core::prelude::v1::test]
+fn dispatches_on_the_binding_runtime() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let backend = Backend::new();
+    let observation = Observation {
+        history: history(sailry_protocol::SessionId::new(), TurnId::new()),
+        client: Arc::new(Client::new(backend)),
+        runtime: runtime.handle().clone(),
+        prefix: "plugin_fixture_".into(),
+        cache: Default::default(),
+    };
+    assert!(tokio::runtime::Handle::try_current().is_err());
+    let value = futures::executor::block_on(read(observation, CancellationToken::new())).unwrap();
+    assert_eq!(value["calls"].as_array().unwrap().len(), 65);
+}
+
+#[tokio::test]
+async fn compact_snapshots_reuse_large_parsed_values() {
+    let detail = Detail {
+        arguments: json!({"path":"fixture.txt"}),
+        result: Some(Value::Array(vec![Value::Null; 600_000])),
+        resolved: None,
+        content: None,
+        images: Vec::new(),
+    };
+    let text = serde_json::to_string(&detail).unwrap();
+    let parsed: Detail = serde_json::from_str(&text).unwrap();
+    assert!(
+        2 * sailry_client::conversation::details::retained_bytes(parsed.result.as_ref().unwrap())
+            > MAX_CAPTURE_BYTES
+    );
+    drop(parsed);
+    drop(detail);
+    let backend = Backend::large(text);
+    let mut history = history(sailry_protocol::SessionId::new(), TurnId::new());
+    Arc::make_mut(&mut history.calls).truncate(2);
+    let observation = Observation {
+        history,
+        client: Arc::new(Client::new(backend.clone())),
+        runtime: tokio::runtime::Handle::current(),
+        prefix: "plugin_fixture_".into(),
+        cache: Default::default(),
+    };
+    let first = snapshot(&observation).await.unwrap();
+    assert_eq!(first["calls"].as_array().unwrap().len(), 2);
+    let reads = backend.0.load(Ordering::Relaxed);
+    assert!(reads > 2);
+    assert_eq!(snapshot(&observation).await.unwrap(), first);
+    assert_eq!(backend.0.load(Ordering::Relaxed), reads);
+    assert!(observation.cache.lock().await.bytes < 8 * 1024 * 1024);
+}
+
+#[tokio::test]
+async fn over_capacity_snapshots_do_not_refetch() {
+    let backend = Backend::new();
+    let mut history = history(sailry_protocol::SessionId::new(), TurnId::new());
+    Arc::make_mut(&mut history.calls).truncate(2);
+    let page = &history.snapshot.as_ref().unwrap().page;
+    let mut cache = Cache::default();
+    let value = Value::String("x".repeat(MAX_CAPTURE_BYTES / 2));
+    for (index, call) in history.calls.iter().enumerate() {
+        let stamp = Stamp {
+            tool: call.stamp(page).unwrap(),
+            timestamp_ms: index as i64,
+            sequence: Some(index as u64 + 1),
+        };
+        let key = format!("{}:{}", call.turn, call.source.key());
+        assert_eq!(cache.insert(key, stamp, &value).is_ok(), index == 0);
+    }
+    drop(value);
+    assert!(
+        cache
+            .values
+            .iter()
+            .all(|(_, captured)| captured.value.is_none())
+    );
+    let mut observation = Observation {
+        history,
+        client: Arc::new(Client::new(backend.clone())),
+        runtime: tokio::runtime::Handle::current(),
+        prefix: "plugin_fixture_".into(),
+        cache: Arc::new(tokio::sync::Mutex::new(cache)),
+    };
+    assert!(snapshot(&observation).await.is_err());
+    assert!(snapshot(&observation).await.is_err());
+    assert_eq!(backend.0.load(Ordering::Relaxed), 0);
+    Arc::make_mut(&mut observation.history.calls).truncate(1);
+    assert_eq!(
+        snapshot(&observation).await.unwrap()["calls"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(backend.0.load(Ordering::Relaxed), 1);
 }

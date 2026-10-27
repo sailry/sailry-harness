@@ -9,7 +9,6 @@ use std::{collections::BTreeSet, future::Future, num::NonZeroU64, pin::Pin};
 #[derive(Default)]
 pub(super) struct Presentation {
     text: BTreeMap<(SessionId, String, usize), String>,
-    calls: BTreeSet<String>,
     stamps: BTreeMap<String, Stamp>,
     permissions: BTreeSet<ApprovalId>,
     children: BTreeSet<SessionId>,
@@ -21,8 +20,6 @@ impl Presentation {
         let prefix = format!("{source}:");
         self.stamps
             .retain(|id, _| !id.starts_with(&prefix) || current.contains(id));
-        self.calls
-            .retain(|id| !id.starts_with(&prefix) || current.contains(id));
     }
 }
 
@@ -201,67 +198,31 @@ fn render<'a>(
                 connection,
             )?;
         }
-        drop(presentation);
-        let mut calls = Vec::with_capacity(view.calls.len());
-        for call in view.calls.iter() {
-            let previous = opened
-                .presentation
-                .lock()
-                .await
-                .stamps
-                .get(&call_id(source, call))
-                .cloned();
-            match adapter
-                .client
-                .changed_tool_call(call, page, previous.as_ref())
-                .await
-            {
-                Ok(Some(changed)) => calls.push(changed),
-                Ok(None) => {}
-                Err(error) => {
-                    tracing::warn!(session = %source, call = %call.source.key(), %error.message, "tool detail read failed");
-                }
-            }
-        }
-        let mut presentation = opened.presentation.lock().await;
         let mut permissions = Vec::new();
-        for (call, stamp) in calls {
-            let id = call_id(source, &call);
-            let title = title(&call, page);
-            let context = json!({"node":adapter.client.target(),"session":source,"turn":call.turn,"source":call.source,
-            "state":call.state,"approval":call.approval,"question":call.question});
-            let tool = acp::ToolCall::new(id.clone(), title)
-                .status(status(&call, page))
-                .raw_input(call.arguments(page).cloned())
-                .raw_output(call.result(page).cloned())
-                .content(
-                    call.summary(page)
-                        .and_then(|summary| summary.resolved.as_ref())
-                        .and_then(|resolved| resolved.output.as_ref())
-                        .map(|output| {
-                            vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
-                                acp::TextContent::new(output.preview.clone()),
-                            ))]
-                        })
-                        .unwrap_or_default(),
-                )
-                .meta(metadata(context.clone()));
-            if !presentation.calls.insert(id.clone()) {
+        let mut details = Vec::new();
+        for call in view.calls.iter() {
+            let id = call_id(source, call);
+            let Some(stamp) = call.stamp(page) else {
+                continue;
+            };
+            if presentation.stamps.get(&id) != Some(&stamp) {
+                let mut context = context(source, call);
+                context["node"] = json!(adapter.client.target());
+                let tool = acp::ToolCall::new(id.clone(), title(call, page))
+                    .status(status(call, page))
+                    .content(content(call, page))
+                    .meta(metadata(context.clone()));
+                let existing = presentation.stamps.contains_key(&id);
                 if !seed {
-                    notify(
-                        connection,
-                        &session,
-                        acp::SessionUpdate::ToolCallUpdate(tool.into()),
-                        context,
-                    )?;
+                    let update = if existing {
+                        acp::SessionUpdate::ToolCallUpdate(tool.into())
+                    } else {
+                        acp::SessionUpdate::ToolCall(tool)
+                    };
+                    notify(connection, &session, update, context)?;
+                    details.push((call.clone(), stamp.clone()));
                 }
-            } else if !seed {
-                notify(
-                    connection,
-                    &session,
-                    acp::SessionUpdate::ToolCall(tool),
-                    context,
-                )?;
+                presentation.stamps.insert(id, stamp);
             }
             if let Some(approval) = &call.approval
                 && approval.state == ApprovalState::Pending
@@ -269,7 +230,6 @@ fn render<'a>(
             {
                 permissions.push((call.clone(), approval.clone()));
             }
-            presentation.stamps.insert(id, stamp);
         }
         let children = page
             .children
@@ -291,6 +251,18 @@ fn render<'a>(
                 source,
                 call,
                 approval,
+                connection,
+            )?;
+        }
+        for (call, stamp) in details {
+            details::start(
+                adapter.clone(),
+                opened.clone(),
+                source,
+                call,
+                page.clone(),
+                stamp,
+                receiver.clone(),
                 connection,
             )?;
         }
@@ -337,6 +309,7 @@ fn render<'a>(
     })
 }
 
+mod details;
 #[cfg(test)]
 mod tests;
 
@@ -418,6 +391,38 @@ fn emit_parts(
 
 fn call_id(session: SessionId, call: &Call) -> String {
     format!("{session}:{}", call.source.key())
+}
+
+fn context(source: SessionId, call: &Call) -> Value {
+    json!({"session":source,"turn":call.turn,"source":call.source,
+        "state":call.state,"approval":call.approval,"question":call.question})
+}
+
+fn content(call: &Call, page: &sailry_protocol::conversation::Page) -> Vec<acp::ToolCallContent> {
+    let mut texts = Vec::new();
+    if call
+        .approval
+        .as_ref()
+        .is_some_and(|approval| approval.state == ApprovalState::Pending)
+    {
+        let view = call.approval_view(page);
+        texts.extend(view.description.map(|text| text.label));
+        texts.extend(view.context);
+        texts.extend(view.notices.into_iter().map(|text| text.label));
+    } else if let Some(output) = call
+        .summary(page)
+        .and_then(|summary| summary.resolved.as_ref())
+        .and_then(|resolved| resolved.output.as_ref())
+    {
+        texts.push(output.preview.clone());
+    }
+    texts
+        .into_iter()
+        .filter(|text| !text.is_empty())
+        .map(|text| {
+            acp::ToolCallContent::from(acp::ContentBlock::Text(acp::TextContent::new(text)))
+        })
+        .collect()
 }
 
 fn title(call: &Call, page: &sailry_protocol::conversation::Page) -> String {
@@ -538,22 +543,12 @@ async fn decide(
     let Some(page) = history else {
         return Ok(());
     };
-    let detail = adapter
-        .client
-        .tool_detail(
-            call.detail_reference(&page)
-                .ok_or_else(|| invalid("approval tool detail identity is unavailable"))?,
-        )
-        .await
-        .map_err(|error| fault(error, None))?;
-    let hydrated = call.with_detail(detail);
-    let call = &hydrated;
     let tool = acp::ToolCallUpdate::new(
         call_id(*source, call),
         acp::ToolCallUpdateFields::new()
             .title(title(call, &page))
             .status(acp::ToolCallStatus::Pending)
-            .raw_input(call.arguments(&page).cloned()),
+            .content(content(call, &page)),
     );
     let request = acp::RequestPermissionRequest::new(
         acp::SessionId::new(opened.session.lock().await.id.to_string()),
