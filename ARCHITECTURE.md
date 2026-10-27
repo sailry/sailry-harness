@@ -316,6 +316,9 @@ profile's `tmp` directory, separate from durable worktree outputs and attachment
 Command scratch is scoped to the admitted turn and retained while its commands
 still use it. Remote files opened by a controller use that controller's local
 profile for their retained copies, not the execution Node's temporary directory.
+Managed command output retains at most 64 MiB per stream in owned temporary files;
+output pages and previews identify truncated retention, while model summaries
+remain bounded.
 
 ADK-Rust is the agent execution engine. Node integrates Runner and SessionService
 with one authoritative durable event history. Client and UI projections are
@@ -330,6 +333,9 @@ Declared account operations use the ordinary durable request ledger; only public
 inputs are retained, and the Node injects authorization during execution.
 Neither source contributes to session usage statistics. External tool histories
 and third-party billing analysis remain outside that boundary.
+Streaming drafts and canonical entries preserve commentary message identities;
+interruption retains their native phase rather than converting progress into a
+final answer.
 Context observations pair provider-reported input and output tokens with the
 admitted model's frozen context limit; a later model change does not relabel an
 old observation. Pending-content estimates can trigger early compaction but are
@@ -337,22 +343,47 @@ not provider token measurements. Automatic compaction uses the lower of 80% of
 the context window, the remaining input capacity after output reserve, and an
 absolute threshold of 262,144 tokens. Each provider's model configuration may
 override that threshold; admitted turns retain their captured value.
-Before another request, compaction can summarize
-a completed historical prefix while preserving the current input and complete
-tool exchanges. Summary requests use the effective summary output token limit;
-input estimates guide prefix selection without rejecting a request. A failed
-summary never permits replay.
+Before new input enters ADK history, preflight checks its captured context window.
+At the trigger, ordinary old tool results are masked in one batch before deciding
+whether a summary is needed. The newest 50,000 output tokens and owner-managed
+plans and skills remain protected; a batch must save at least 30,000 tokens.
+At 85% of the compaction trigger, one cancellable background request can prepare
+a completed historical prefix. At the trigger, the existing model boundary applies
+only a candidate whose immutable prefix, instructions and mounted tools still match,
+retaining content appended after that prefix. Summary requests preserve the normal
+request prefix, including tool declarations and exact owner context at its original
+positions, then append a user request for the handoff. They keep the captured model,
+reasoning effort and configured maximum output where the provider supports it.
+A failed summary never permits replay. Model-requested compaction below half the
+trigger returns current usage without changing context.
 Eligible prefixes use canonical turn ownership and complete call-ID-paired tool
 batches, including prefixes within completed turns. Parallel results are matched
 only within their batch; original history and provider-added parts are retained.
-Automatic, explicit and model-requested compaction prefer complete prefixes that
-fit the estimated summary envelope, with an eligible complete fallback when none
-is estimated to fit. A complete nonempty text summary is accepted without a
-length comparison against its source. A persisted summary invalidates the old
-token observation; estimates can trigger later compaction until the next provider
-measurement. Automatic summary failures are reported and retain the prior
-context; estimated limits do not reject the ordinary model request.
-Request checkpoints are changed only after persistence succeeds and are local
+Automatic, explicit and model-requested compaction use complete prefixes and a
+validated user-role handoff using less than half the eligible model-visible
+prefix's estimated tokens; owner context is excluded from both sides of that
+comparison. Compaction records store only the generated handoff and file ledger.
+Runtime context, plans and loaded skills are restored from their existing owners
+and canonical references through the same composition path for live requests and
+reload. One shared secondary request can retry a transient service error, repair
+formatting or recover from an input capacity failure. Output exhaustion does not
+retry with smaller input. Authorization, content-filter, empty and invalid-handoff
+failures remain terminal. Exhausted transient summary retries retain the context
+and continue when it still fits the captured input capacity.
+Budget and no-reduction failures continue only when a request projection saves
+tokens and fits the captured input capacity. Request-only projections can shorten
+older ordinary tool results while retaining canonical raw output and references
+readable through the current session's `read_tool_output` service. Applying a
+summary or projection invalidates stale context-size facts, then recomputes the
+effective estimate; helper usage still contributes to totals. Mask selections use
+canonical call and revision identities in existing session state, so reloading or
+summarizing later retains the same projected prefix and exact original references.
+Repeated attempts require more than 10% token growth, and one forced context-length
+recovery belongs to the original admitted task. A final unsafe or
+terminal compaction failure halts the task and pauses its queue; unconsumed input
+remains available for explicit retry, and a new message checks preflight again.
+Request checkpoints change only after persistence succeeds. A mismatched checkpoint
+is discarded and rebuilt from the saved canonical window. These are local request
 projections, not another history writer.
 
 Account authorization workflows belong to model authentication packages.
@@ -515,6 +546,14 @@ raw results remain captured without a separate debug modal. Actual failed-call
 facts share the existing turn observation and canonical history owner, preserving
 error inspection without classifying arbitrary business fields as failures.
 Model results and durable tool output remain unchanged.
+
+Model declarations are captured in the existing session catalog and reused while
+their exact definition inputs match. Common tools follow declared operations and
+selected mode or role scope; additional tools are discovered through `tool_search`
+from the same captured catalog. Discovery adds declarations and their package
+context for later requests without executing tools or increasing permissions.
+Changed tool membership is intentional; unchanged loadouts retain the same request
+declarations. Package updates affect subsequent admission, preserving sent captures.
 
 Node freezes configuration, scope and package revisions at turn admission. Tools
 use the same approval, cancellation and durable outcome boundaries. Work mode
@@ -693,17 +732,18 @@ model result collection consumes the exact source execution; controller polling
 does not. Command summaries and bounded output tails survive restart, while
 complete output remains available only while its process cache entry is retained.
 
-Guidance is durably admitted before execution. While the recipient awaits or
-streams a model response, admission interrupts that response and retains its
-visible output; once the response's tools start, guidance waits until the whole
-tool batch settles, before the next model request. A new ADK invocation continues
-the same session history. If a
-queued input has a different capture, explicit guidance admits a replacement
-using the recipient's capture without modifying the original sent-turn record.
-A controller may also guide the running main-session task directly; that input
-waits behind any guidance already selected for the same boundary.
-Natural completion advances the queue automatically. Explicit
-Stop and restart preserve unconsumed input, references and attachments in a paused
+Guidance is durably admitted before execution. The current model response finishes
+normally, and guidance waits for its complete tool batch before the next model
+request. The same ADK invocation appends the selected user inputs in FIFO order;
+it retains its instructions, tool bindings, task and Stop owner. Sent request
+prefixes remain unchanged. Each guidance input keeps its own sent-turn identity
+and becomes consumed only when its canonical user entry commits, while model and
+tool output retain the original task owner and one public completion. If a queued
+input has a different capture, explicit guidance admits a replacement using the
+recipient's capture without modifying the original sent-turn record. A controller
+may also guide the running main-session task through the same boundary.
+Natural completion advances the queue automatically. Stop, failed preparation
+and restart preserve unconsumed inputs, references and attachments in a paused
 queue without automatic replay.
 
 Successful main-session planning completion ends execution and retains a pending
