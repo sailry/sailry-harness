@@ -32,6 +32,52 @@ async fn retries_busy_begin() -> Result<(), crate::Error> {
 }
 
 #[tokio::test(start_paused = true)]
+async fn retries_busy_snapshot_admission() -> Result<(), crate::Error> {
+    let directory = tempfile::tempdir()?;
+    let database = engine(&directory.path().join("node.turso")).await?;
+    let connection = connect(&database).await?;
+    let mut attempts = 0;
+    let transaction = read_with(&connection, |connection| {
+        attempts += 1;
+        let first = attempts == 1;
+        Box::pin(async move {
+            if first {
+                let transaction = begin_as(connection, TransactionBehavior::Deferred).await?;
+                assert!(!transaction.is_autocommit().map_err(storage_error)?);
+                return Err(storage_error(Error::Busy("read admission".into())));
+            }
+            start_read(connection).await
+        })
+    })
+    .await?;
+    assert_eq!(attempts, 2);
+    finish_read(transaction, Ok(())).await?;
+    assert!(connection.is_autocommit()?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn pins_snapshot_before_callback() -> Result<(), crate::Error> {
+    let directory = tempfile::tempdir()?;
+    let database = engine(&directory.path().join("node.turso")).await?;
+    let reader = connect(&database).await?;
+    let writer = connect(&database).await?;
+    writer
+        .execute("CREATE TABLE items(value INTEGER)", ())
+        .await?;
+    writer.execute("INSERT INTO items VALUES(1)", ()).await?;
+    reader.pragma_update("query_only", 1).await?;
+    let transaction = begin_read(&reader).await?;
+    writer.execute("INSERT INTO items VALUES(2)", ()).await?;
+    let count = integer(&transaction, "SELECT count(*) FROM items")
+        .await
+        .map_err(storage_error);
+    assert_eq!(finish_read(transaction, count).await?, 1);
+    assert_eq!(integer(&reader, "SELECT count(*) FROM items").await?, 2);
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
 async fn bounds_busy_attempts() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
     let database = engine(&directory.path().join("node.turso")).await?;

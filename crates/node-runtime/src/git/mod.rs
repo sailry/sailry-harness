@@ -258,7 +258,6 @@ impl Git {
         } else {
             Duration::from_secs(5)
         };
-        let expires = Instant::now() + deadline;
         let permit = if matches!(
             &command,
             Command::InspectGit { .. }
@@ -270,13 +269,15 @@ impl Git {
             Some(tokio::select! {
                 biased;
                 _ = closed.cancelled() => return Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
-                permit = tokio::time::timeout_at(expires.into(), gate.acquire_owned()) =>
-                    permit.map_err(|_| Fault::new(ErrorCode::Busy, "Git read deadline exceeded"))?
+                permit = tokio::time::timeout(deadline, gate.acquire_owned()) =>
+                    permit.map_err(|_| Fault::new(ErrorCode::Busy, "Git inspection queue is busy"))?
                         .map_err(|_| Fault::new(ErrorCode::Unavailable, "Git inspection is unavailable"))?,
             })
         } else {
             None
         };
+        // Waiting for another inspection must not consume this read's execution budget.
+        let expires = Instant::now() + deadline;
         let cancelled = closed.child_token();
         let _guard = cancelled.clone().drop_guard();
         let worker = tokio::task::spawn_blocking(move || {
@@ -436,7 +437,7 @@ impl Git {
         // an executing libgit2 call still cannot be preempted.
         tokio::select! {
             _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
-            result = tokio::time::timeout_at(expires.into(), worker) => result
+            result = tokio::time::timeout(deadline, worker) => result
                 .map_err(|_| Fault::new(ErrorCode::Busy, "Git read deadline exceeded"))?
                 .map_err(|_| Fault::new(ErrorCode::Internal, "Git worker failed"))?,
         }

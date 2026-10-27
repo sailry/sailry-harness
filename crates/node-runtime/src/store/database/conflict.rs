@@ -44,14 +44,24 @@ async fn begin_as(
     Ok(transaction)
 }
 
-/// Retry only transaction start, before any read callback or external effect runs.
+/// Acquire the native read snapshot before any callback or external effect runs.
 pub(in crate::store) async fn begin_read(
     connection: &Connection,
 ) -> Result<Transaction<'_>, Fault> {
-    read_with(connection, |connection| {
-        Box::pin(begin_as(connection, TransactionBehavior::Deferred))
-    })
-    .await
+    read_with(connection, |connection| Box::pin(start_read(connection))).await
+}
+
+async fn start_read(connection: &Connection) -> Result<Transaction<'_>, Fault> {
+    let transaction = begin_as(connection, TransactionBehavior::Deferred).await?;
+    // Turso 0.8.3 defers MVCC admission until the first table read. A schema
+    // read pins that snapshot inside the retry boundary without replaying work.
+    let mut rows = transaction
+        .query("SELECT rootpage FROM sqlite_schema LIMIT 1", ())
+        .await
+        .map_err(storage_error)?;
+    while rows.next().await.map_err(storage_error)?.is_some() {}
+    drop(rows);
+    Ok(transaction)
 }
 
 async fn read_with<'a>(

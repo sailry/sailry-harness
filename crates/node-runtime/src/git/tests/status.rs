@@ -94,6 +94,28 @@ fn shares_one_pending_scan() {
 }
 
 #[test]
+fn queued_reads_keep_execution_budget() {
+    let (_directory, root, git, command) = fixture();
+    runtime().block_on(async {
+        tokio::time::pause();
+        let gate = git.scans.root(&root);
+        let permit = gate.acquire_owned().await.unwrap();
+        let (release, blocker) = hold();
+        let mut read = Box::pin(git.inspect(root, command, CancellationToken::new()));
+        pending(read.as_mut()).await;
+        tokio::time::advance(Duration::from_secs(4)).await;
+        drop(permit);
+        pending(read.as_mut()).await;
+        tokio::time::advance(Duration::from_secs(2)).await;
+        pending(read.as_mut()).await;
+        tokio::time::resume();
+        release.send(()).unwrap();
+        blocker.await.unwrap();
+        assert_eq!(status(read.await).kind, RepositoryKind::Unborn);
+    });
+}
+
+#[test]
 fn isolates_caller_cancellation() {
     let (_directory, root, git, command) = fixture();
     runtime().block_on(async {
