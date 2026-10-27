@@ -196,21 +196,19 @@ rmcp = { git = "https://github.com/sailry/rust-sdk.git", rev = "5e8fb5a9502d0fd1
 portable-pty = { git = "https://github.com/sailry/wezterm.git", rev = "e814e06b5149d73ddbcb5be670b41855b2873c74" }
 
 [profile.release]
+opt-level = "z"
 strip = "symbols"
 
-# Keep development code and unwind metadata small without disabling unwinding.
+# Keep frequently rebuilt application code unoptimized during development.
 [profile.dev]
-opt-level = "z"
+opt-level = 0
 debug = "limited"
 split-debuginfo = "unpacked"
 incremental = false
 
-# Keep text geometry and layout hot paths optimized during desktop development.
+# Optimize stable dependencies and desktop geometry/layout hot paths.
 [profile.dev.package]
+"*" = { opt-level = 2 }
 gpui-base = { opt-level = 3 }
 gpui-fast = { opt-level = 3 }
 taffy = { opt-level = 3 }
-
-# Compile Node test targets without size optimization; release settings stay unchanged.
-[profile.test.package.sailry-node-runtime]
-opt-level = 0

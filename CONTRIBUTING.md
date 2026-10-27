@@ -43,6 +43,10 @@ profile; the argument takes precedence.
 An available Apple Development signing identity
 keeps the development app's OS permission identity stable; otherwise signing is ad hoc.
 
+For local Rust iteration, `dev` and `test` leave workspace code unoptimized,
+optimize stable dependencies at level 2, and retain level 3 for GPUI layout hot
+paths. Release builds use LLVM with size optimization (`opt-level = "z"`).
+
 ```sh
 just desktop /absolute/private/desktop-profile
 just host /absolute/private/host-profile
@@ -109,7 +113,9 @@ The checkout must match the candidate. Equal base and head require `--all`;
 worktrees or stash changes. Local builds and tests share the repository's root
 `target` directory; builds from another worktree select that same directory with
 `CARGO_TARGET_DIR`. An explicit `--target-dir` selects the shared cache, and
-`--jobs N` controls build concurrency.
+`--jobs N` controls build concurrency. Local commands leave concurrency to Cargo
+by default; CI defaults to two Cargo jobs. `CARGO_BUILD_JOBS` remains an explicit
+override. `BUILD_JOBS` controls native build tools separately.
 The recipes and CI share command definitions; these entries do not install hooks.
 
 Select checks from affected behavior and dependency boundaries. Reuse passing

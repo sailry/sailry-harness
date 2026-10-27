@@ -231,6 +231,33 @@ class Lint(unittest.TestCase):
 
 
 class Commands(unittest.TestCase):
+    def test_uses_cargo_default_locally(self):
+        for name in ("backend", "desktop", "host", "desktop-production", "host-production",
+                     "desktop-lifecycle", "host-mac", "databases", "mobile-contract", "lint"):
+            with self.subTest(name=name):
+                for command in ci.check_commands(name, selection=ci.outputs(ci.LANES)):
+                    self.assertNotIn("--jobs", command["argv"])
+                    self.assertNotIn("--build-jobs", command["argv"])
+                    self.assertNotIn(None, command["argv"])
+
+    def test_preserves_explicit_build_limits(self):
+        for name in ("backend", "desktop", "host", "desktop-production", "host-production", "lint"):
+            with self.subTest(name=name):
+                commands = ci.check_commands(name, "14", selection=ci.outputs(ci.LANES))
+                for command in commands:
+                    arguments = command["argv"]
+                    if arguments[0] != "cargo":
+                        continue
+                    flag = "--build-jobs" if arguments[1] == "nextest" else "--jobs"
+                    self.assertEqual(arguments[arguments.index(flag) + 1], "14")
+
+    def test_limits_ci_only(self):
+        for environment, expected in (({}, None), ({"CI": "false"}, None),
+                                      ({"CI": "true", "BUILD_JOBS": "1"}, "2"),
+                                      ({"CARGO_BUILD_JOBS": "4"}, "4")):
+            with self.subTest(environment=environment), patch.dict(ci.os.environ, environment, clear=True):
+                self.assertEqual(ci.job_limit(), expected)
+
     def test_runs_real_plugin_contracts_after_backend(self):
         commands = ci.check_commands("backend", env={"CARGO_TARGET_DIR":"/fixture/lane", "CARGO_BUILD_TARGET":"aarch64-apple-darwin"})
         self.assertEqual(len(commands), 3)

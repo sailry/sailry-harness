@@ -159,7 +159,7 @@ def lint_command(selection, jobs):
     if (not isinstance(selection, dict) or set(selection) != LANES
             or any(value not in {"true", "false"} for value in selection.values())):
         raise ValueError("Missing lint selection")
-    if not re.fullmatch(r"[1-9][0-9]*", jobs):
+    if jobs is not None and not re.fullmatch(r"[1-9][0-9]*", jobs):
         raise ValueError("Invalid lint job count")
     packages = lint_packages({lane for lane in LANES if selection[lane] == "true"})
     if not packages:
@@ -167,7 +167,7 @@ def lint_command(selection, jobs):
     command = ["cargo", "clippy", "--locked"]
     for package in packages:
         command.extend(["-p", package])
-    command.extend(["--all-targets", "--jobs", jobs, "--", "-D", "warnings"])
+    command.extend(["--all-targets", *(["--jobs", jobs] if jobs else []), "--", "-D", "warnings"])
     return command
 
 
@@ -177,11 +177,13 @@ def lint(selection, jobs):
     return subprocess.run(command, env=environment, check=False).returncode
 
 
-def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
+def check_commands(name, jobs=None, root=ROOT, selection=None, env=None):
     """The command source for CI phases and explicit local validation."""
-    if not re.fullmatch(r"[1-9][0-9]*", jobs):
+    if jobs is not None and not re.fullmatch(r"[1-9][0-9]*", jobs):
         raise ValueError("Invalid build job count")
     python = sys.executable
+    cargo_jobs = ["--jobs", jobs] if jobs else []
+    nextest_jobs = ["--build-jobs", jobs] if jobs else []
     environment = os.environ if env is None else env
     target = Path(environment.get("CARGO_TARGET_DIR", str(root / "target")))
     triple = environment.get("CARGO_BUILD_TARGET")
@@ -200,17 +202,17 @@ def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
         "workflows": [([os.getenv("ACTIONLINT", "actionlint"), "-shellcheck=", "-pyflakes="], ".")],
         "format": [(["cargo", "fmt", "--all", "--", "--check"], ".")],
         "backend": [
-            (backend + ["--timings", "--build-jobs", jobs, "--profile", "ci", "--test-threads=4"], "."),
-            (["cargo", "build", "--locked", "-p", "sailry-node-runtime", "--features", "test-support", "--example", "plugin-test-host", "--profile", "test", "--jobs", jobs], "."),
+            (backend + ["--timings", *nextest_jobs, "--profile", "ci", "--test-threads=4"], "."),
+            (["cargo", "build", "--locked", "-p", "sailry-node-runtime", "--features", "test-support", "--example", "plugin-test-host", "--profile", "test", *cargo_jobs], "."),
             ([python, "scripts/test-plugins.py", "--runtime-host", str(runtime_host)], "."),
         ],
-        "databases": [(backend + ["--build-jobs", jobs, "--profile", "databases", "--run-ignored", "only", "--filterset", "binary(databases)", "--test-threads=1"], ".")],
-        "desktop": [(desktop + ["--lib", "--bin", "sailry-desktop", "--timings", "--build-jobs", jobs, "--profile", "ci"], ".")],
-        "desktop-production": [(["cargo", "check", "--locked", "-p", "sailry-desktop", "--jobs", jobs], ".")],
-        "desktop-lifecycle": [(["cargo", "nextest", "run", "--locked", "-p", "sailry-desktop", "--test", "lifecycle", "--build-jobs", jobs, "--profile", "lifecycle"], ".")],
-        "host": [(host + ["--timings", "--build-jobs", jobs, "--profile", "ci", "--test-threads=4"], ".")],
-        "host-mac": [(host + ["--test", "lifecycle", "--timings", "--build-jobs", jobs, "--profile", "ci", "--test-threads=4"], ".")],
-        "host-production": [(["cargo", "check", "--locked", "-p", "sailry-host", "--jobs", jobs], ".")],
+        "databases": [(backend + [*nextest_jobs, "--profile", "databases", "--run-ignored", "only", "--filterset", "binary(databases)", "--test-threads=1"], ".")],
+        "desktop": [(desktop + ["--lib", "--bin", "sailry-desktop", "--timings", *nextest_jobs, "--profile", "ci"], ".")],
+        "desktop-production": [(["cargo", "check", "--locked", "-p", "sailry-desktop", *cargo_jobs], ".")],
+        "desktop-lifecycle": [(["cargo", "nextest", "run", "--locked", "-p", "sailry-desktop", "--test", "lifecycle", *nextest_jobs, "--profile", "lifecycle"], ".")],
+        "host": [(host + ["--timings", *nextest_jobs, "--profile", "ci", "--test-threads=4"], ".")],
+        "host-mac": [(host + ["--test", "lifecycle", "--timings", *nextest_jobs, "--profile", "ci", "--test-threads=4"], ".")],
+        "host-production": [(["cargo", "check", "--locked", "-p", "sailry-host", *cargo_jobs], ".")],
         "desktop-source": [
             ([python, "scripts/ci.py", "fixtures", "desktop"], "."),
             ([python, "-m", "unittest", "discover", "-s", "apps/desktop/src/content/files/preview/web", "-v"], "."),
@@ -224,8 +226,8 @@ def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
         "mobile-contract": [
             (["dart", "pub", "get", "--enforce-lockfile"], "tests/mobile-contract"),
             (["dart", "analyze"], "tests/mobile-contract"),
-            (["cargo", "build", "--locked", "-p", "sailry-mobile-bridge", "--lib", "--jobs", jobs], "."),
-            (["cargo", "test", "--locked", "-p", "sailry-mobile-bridge", "--test", "dart", "--timings", "--jobs", jobs, "--", "--ignored", "--skip", "mcp_peer::stdio_peer", "--test-threads=4", "--nocapture"], "."),
+            (["cargo", "build", "--locked", "-p", "sailry-mobile-bridge", "--lib", *cargo_jobs], "."),
+            (["cargo", "test", "--locked", "-p", "sailry-mobile-bridge", "--test", "dart", "--timings", *cargo_jobs, "--", "--ignored", "--skip", "mcp_peer::stdio_peer", "--test-threads=4", "--nocapture"], "."),
         ],
         "mobile-format": [(["dart", "format", "--output=none", "--set-exit-if-changed", "lib", "preview", "test", "tool"], "apps/mobile")],
         "mobile-check": [(["flutter", "analyze", "--no-pub"], "apps/mobile"), (["flutter", "test", "--no-pub"], "apps/mobile")],
@@ -275,7 +277,7 @@ def parser_environment(root, env, libraries):
     return environment
 
 
-def run_check(name, jobs="2", root=ROOT, selection=None, env=None):
+def run_check(name, jobs=None, root=ROOT, selection=None, env=None):
     commands = check_commands(name, jobs, root, selection, env)
     if name in {"backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
         env = parser_environment(root, env, libraries=True)
@@ -340,7 +342,7 @@ def local(arguments):
     parser.add_argument("--candidate", action="store_true")
     parser.add_argument("--event", choices=("push", "pull_request"), default="push")
     parser.add_argument("--all", action="store_true", dest="full")
-    parser.add_argument("--jobs", default=os.getenv("BUILD_JOBS", os.getenv("CARGO_BUILD_JOBS", "2")))
+    parser.add_argument("--jobs")
     parser.add_argument("--target-dir", type=Path)
     parser.add_argument("--plan", action="store_true")
     args = parser.parse_args(arguments)
@@ -515,13 +517,17 @@ def cache_usage():
             output.write(message + "\n\n")
 
 
+def job_limit():
+    return os.getenv("CARGO_BUILD_JOBS", "2" if os.getenv("CI") == "true" else None)
+
+
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "local":
         raise SystemExit(local(sys.argv[2:]))
     elif len(sys.argv) == 3 and sys.argv[1] == "check":
         try:
             selection = json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES)))) if sys.argv[2] == "lint" else None
-            raise SystemExit(run_check(sys.argv[2], os.getenv("BUILD_JOBS", os.getenv("CARGO_BUILD_JOBS", "2")), selection=selection))
+            raise SystemExit(run_check(sys.argv[2], job_limit(), selection=selection))
         except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
             raise SystemExit(str(error)) from error
     elif len(sys.argv) == 3 and sys.argv[1] == "source-cache" and sys.argv[2] in {"save", "restore"}:
@@ -536,7 +542,7 @@ def main():
         cache_usage()
     elif sys.argv[1:] == ["lint"]:
         try:
-            raise SystemExit(lint(json.loads(os.environ["CHECK_SCOPE"]), os.environ["BUILD_JOBS"]))
+            raise SystemExit(lint(json.loads(os.environ["CHECK_SCOPE"]), job_limit()))
         except (ValueError, KeyError) as error:
             raise SystemExit(str(error)) from error
     elif sys.argv[1:] == ["select"]:
