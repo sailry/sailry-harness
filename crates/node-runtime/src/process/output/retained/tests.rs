@@ -131,3 +131,19 @@ fn releases_only_owned_output_files() {
     drop(retained);
     assert!(!path.exists());
 }
+
+#[test]
+fn reports_the_retention_limit() {
+    let mut stream = Stream::default();
+    stream.limit = 12;
+    stream.append(b"first bytes ");
+    stream.append(b"remaining bytes");
+    stream.finish();
+    let page = stream.page(info(), OutputStream::Stdout, 0, 1024).unwrap();
+    assert_eq!(page.text, "first bytes ");
+    assert!(page.truncated);
+    assert_eq!(page.total_bytes, 27);
+    assert!(page.next_offset.is_none());
+    assert_eq!(stream.retained, 12);
+    assert_eq!(std::fs::metadata(stream.path.as_ref().unwrap()).unwrap().len(), 12);
+}

@@ -10,6 +10,7 @@ use std::{
 };
 
 const MODEL_LIMIT: usize = 32 * 1024 * 1024;
+const RETAINED_LIMIT: usize = 64 * 1024 * 1024;
 const PAGE: usize = 32 * 1024;
 const HEAD: usize = 8 * 1024;
 const TAIL: usize = 24 * 1024;
@@ -19,6 +20,7 @@ struct Stream {
     path: Option<tempfile::TempPath>,
     error: Option<String>,
     retained: usize,
+    limit: usize,
     total: u64,
     head: Vec<u8>,
     tail: Vec<u8>,
@@ -41,6 +43,7 @@ impl Stream {
             path: None,
             error,
             retained: 0,
+            limit: RETAINED_LIMIT,
             total: 0,
             head: Vec::new(),
             tail: Vec::new(),
@@ -65,8 +68,9 @@ impl Stream {
             self.error = Some("command output retention is closed".into());
             return;
         };
-        match writer.write_all(bytes) {
-            Ok(()) => self.retained += bytes.len(),
+        let count = bytes.len().min(self.limit.saturating_sub(self.retained));
+        match writer.write_all(&bytes[..count]) {
+            Ok(()) => self.retained += count,
             Err(error) => {
                 self.error = Some(error.to_string());
                 self.writer.take();
