@@ -37,12 +37,29 @@ async fn freezes_config_and_history() {
         // Neither model request completes until both child Runners have reached this endpoint.
         let child = Server::gate(2).await;
         let (session, mut provider, mut role) = setup(&client, &root, &parent, &child).await;
+        let mut config = session.config.clone();
+        config
+            .options
+            .entry("delegation".into())
+            .or_default()
+            .insert("mode".into(), json!("multitask"));
+        let Output::Session(session) = client
+            .execute(client.prepare(Command::SetSessionConfig {
+                session: session.id,
+                expected_revision: session.revision,
+                config,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
         let mut updates = client.subscribe().await.unwrap();
         let mut projection = sailry_client::Projection::new(node.id(), 1);
         projection.apply(1, updates.next().await.unwrap()).unwrap();
         let request = client.prepare(Command::QueueTurn {
             session: session.id,
-            expected_revision: 2,
+            expected_revision: session.revision,
             message: "Delegate both independent tasks".into(),
         });
         let Output::QueuedTurn(turn) = client.execute(request.clone()).await.unwrap() else {

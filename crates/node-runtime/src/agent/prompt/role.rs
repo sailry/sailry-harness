@@ -24,11 +24,24 @@ pub(in crate::agent) fn bind(
         let mounted = mounted.clone();
         Box::pin(async move {
             promote(&mut request, &expected)?;
-            let loaded = session::loaded(
+            let mut loaded = session::loaded(
                 context
                     .state()
                     .and_then(|state| state.get(session::LOADED_TOOLS))
                     .as_ref(),
+            );
+            loaded.extend(
+                request
+                    .contents
+                    .iter()
+                    .flat_map(|content| &content.parts)
+                    .filter_map(|part| {
+                        if let adk_core::Part::FunctionCall { name, .. } = part {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    }),
             );
             let mut mounted = mounted
                 .lock()

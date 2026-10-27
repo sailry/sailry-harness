@@ -22,6 +22,7 @@ pub(crate) struct Sessions {
     input_turn: TurnId,
     input_source: &'static str,
     references: Vec<reference::Reference>,
+    capability_part: Option<usize>,
     notices: Vec<sailry_protocol::conversation::background::Notice>,
     notice_input: Option<String>,
     groupings: std::collections::BTreeMap<String, sailry_protocol::tool::Grouping>,
@@ -39,6 +40,7 @@ impl Sessions {
             input_turn: turn,
             input_source: "user",
             references: Vec::new(),
+            capability_part: None,
             notices: Vec::new(),
             notice_input: None,
             presentations: Default::default(),
@@ -61,6 +63,11 @@ impl Sessions {
 
     pub(crate) fn with_references(mut self, references: Vec<reference::Reference>) -> Self {
         self.references = references;
+        self
+    }
+
+    pub(crate) fn with_capability_part(mut self, part: Option<usize>) -> Self {
+        self.capability_part = part;
         self
     }
 
@@ -491,23 +498,15 @@ impl Sessions {
                 );
             }
             let index = usize::from(!self.references.is_empty()) + usize::from(notice);
-            let capability = if self.references.iter().any(|reference| {
-                matches!(
-                    reference.target,
-                    reference::Target::Plugin(_) | reference::Target::Skill { .. }
+            let capability = self.capability_part;
+            if capability.is_some_and(|part| {
+                !matches!(
+                    event.content().and_then(|content| content.parts.get(part)),
+                    Some(adk_core::Part::Text { .. })
                 )
             }) {
-                event
-                    .content()
-                    .map(|content| &content.parts)
-                    .filter(|parts| {
-                        parts.len() > index
-                            && matches!(parts.last(), Some(adk_core::Part::Text { .. }))
-                    })
-                    .map(|parts| parts.len() - 1)
-            } else {
-                None
-            };
+                return Err(AdkError::session("capability content is missing"));
+            }
             if event.content().is_some_and(|content| {
                 matches!(content.parts.get(index), Some(adk_core::Part::Text { .. }))
             }) && capability != Some(index)

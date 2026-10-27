@@ -506,7 +506,7 @@ async fn execute_with(
     inputs
         .select(&invocation, &resources, &capability_tools)
         .await?;
-    let (input_turn, input_references, content) = inputs.current();
+    let (input_turn, input_references, content, capability_part) = inputs.current();
     if let Some(title) = title::instruction(
         invocation.title.as_deref(),
         tool_capable,
@@ -620,6 +620,7 @@ async fn execute_with(
             })
             .with_notices(invocation.notices.clone(), invocation.notice_input.clone())
             .with_references(input_references)
+            .with_capability_part(capability_part)
             .with_groupings(catalog.groupings())
             .with_displays(catalog.displays())
             .with_connection_context(bindings.clone(), invocation.connections.resources())

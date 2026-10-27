@@ -40,6 +40,65 @@ fn discover(name: &str) -> (String, Value) {
 }
 
 #[tokio::test]
+async fn mounts_flagship_tools_without_discovery() {
+    for remote in [false, true] {
+        let server = Server::scripted_tools(vec![]).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files", "delegation"]).await;
+        let spawn = plugin_tool("delegation", "spawn_agent");
+        for flagship in [true, false] {
+            let mut config = fixture.session.config.clone();
+            config.options = serde_json::from_value(json!({"delegation":{
+                "mode":if flagship { "multitask" } else { "" }
+            }}))
+            .unwrap();
+            let Output::Session(session) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("session expected")
+            };
+            fixture.session = session;
+            let Output::QueuedTurn(turn) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SubmitTurn {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    message: "Inspect the project".into(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("turn expected")
+            };
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(
+                page.runs
+                    .iter()
+                    .find(|run| run.turn == turn.id)
+                    .unwrap()
+                    .status,
+                Status::Completed
+            );
+            let requests = server.requests.lock().unwrap();
+            let names = tool_names(requests.last().unwrap());
+            assert_eq!(names.contains(&spawn.as_str()), flagship);
+            if !flagship {
+                assert!(names.contains(&"tool_search"));
+            }
+        }
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn preserves_queued_write_authority() {
     for remote in [false, true] {
         let server = Server::tools(vec![(

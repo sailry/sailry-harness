@@ -6,7 +6,15 @@ use sailry_protocol::conversation::{QueuedMessage, reference::Reference};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct Batch {
-    entries: Vec<(TurnId, Vec<Reference>, Content)>,
+    entries: Vec<Entry>,
+}
+
+#[derive(Clone)]
+struct Entry {
+    turn: TurnId,
+    references: Vec<Reference>,
+    content: Content,
+    capability: Option<usize>,
 }
 
 impl Batch {
@@ -16,33 +24,37 @@ impl Batch {
         resources: &crate::plugins::resources::Resources,
         tools: &BTreeMap<String, Vec<String>>,
     ) -> Result<(), Fault> {
-        for (_, references, content) in &mut self.entries {
+        for entry in &mut self.entries {
             let instruction = references::capabilities::instruction(
                 invocation,
-                references.iter(),
+                entry.references.iter(),
                 resources,
                 tools,
             )
             .await?;
             if !instruction.is_empty() {
-                content.parts.push(Part::Text { text: instruction });
+                entry.capability = Some(entry.content.parts.len());
+                entry.content.parts.push(Part::Text { text: instruction });
             }
         }
         Ok(())
     }
 
     pub async fn capture(ingress: &Ingress, invocation: &Invocation) -> Result<Self, Fault> {
-        let mut entries = vec![(
-            invocation.input_turn.unwrap_or(invocation.turn.id),
-            invocation.message.references.clone(),
-            attachments::input(ingress, invocation).await?,
-        )];
+        let mut entries = vec![Entry {
+            turn: invocation.input_turn.unwrap_or(invocation.turn.id),
+            references: invocation.message.references.clone(),
+            content: attachments::input(ingress, invocation).await?,
+            capability: None,
+        }];
         for input in &invocation.followups {
-            entries.push((
-                input.turn.id,
-                input.message.references.clone(),
-                attachments::message(ingress, invocation.turn.id, &input.message, None).await?,
-            ));
+            entries.push(Entry {
+                turn: input.turn.id,
+                references: input.message.references.clone(),
+                content: attachments::message(ingress, invocation.turn.id, &input.message, None)
+                    .await?,
+                capability: None,
+            });
         }
         Ok(Self { entries })
     }
@@ -54,26 +66,30 @@ impl Batch {
     ) -> Result<Self, Fault> {
         let mut entries = Vec::with_capacity(inputs.len());
         for input in inputs {
-            entries.push((
-                input.turn.id,
-                input.message.references.clone(),
-                attachments::message(ingress, owner, &input.message, None).await?,
-            ));
+            entries.push(Entry {
+                turn: input.turn.id,
+                references: input.message.references.clone(),
+                content: attachments::message(ingress, owner, &input.message, None).await?,
+                capability: None,
+            });
         }
         Ok(Self { entries })
     }
 
-    pub fn current(&self) -> (TurnId, Vec<Reference>, Content) {
-        self.entries
-            .last()
-            .expect("an invocation has input")
-            .clone()
+    pub fn current(&self) -> (TurnId, Vec<Reference>, Content, Option<usize>) {
+        let entry = self.entries.last().expect("an invocation has input");
+        (
+            entry.turn,
+            entry.references.clone(),
+            entry.content.clone(),
+            entry.capability,
+        )
     }
 
     pub fn pending(&self) -> Vec<Content> {
         self.entries
             .iter()
-            .map(|(_, _, content)| content.clone())
+            .map(|entry| entry.content.clone())
             .collect()
     }
 
@@ -152,8 +168,8 @@ impl Batch {
                     .cloned()
             })
             .collect();
-        for (turn, references, content) in &self.entries[..count] {
-            if present.contains(&turn.to_string()) {
+        for entry in &self.entries[..count] {
+            if present.contains(&entry.turn.to_string()) {
                 continue;
             }
             if !ingress.agents.running(owner) {
@@ -164,15 +180,31 @@ impl Batch {
             }
             let mut event = Event::new(invocation);
             event.author = "user".into();
-            event.set_content(content.clone());
+            event.set_content(entry.content.clone());
             crate::store::agent::Sessions::new(ingress.clone(), owner)
-                .with_input_turn(*turn)
+                .with_input_turn(entry.turn)
                 .with_input_source(source)
-                .with_references(references.clone())
+                .with_references(entry.references.clone())
+                .with_capability_part(entry.capability)
                 .append_with_context(&target.to_string(), event, context.take())
+                .await
+                .map_err(model::error)?;
+        }
+        if let Some(context) = context {
+            if !ingress.agents.running(owner) {
+                return Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "guidance recipient is no longer running",
+                ));
+            }
+            crate::store::agent::Sessions::new(ingress.clone(), owner)
+                .append_with_context(&target.to_string(), context, None)
                 .await
                 .map_err(model::error)?;
         }
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

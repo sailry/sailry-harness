@@ -10,6 +10,7 @@ struct Inputs {
     insertions: Vec<(usize, Vec<Content>)>,
     queued: Option<Vec<sailry_protocol::conversation::QueuedMessage>>,
     calls: bool,
+    rounds: u32,
 }
 
 impl Inputs {
@@ -39,7 +40,12 @@ pub(super) fn bind(
     let child = invocation.child.is_some();
     let inputs = Arc::new(Mutex::new(Inputs::default()));
     let tools = Arc::new(tools);
-    let continuation = continue_pending(&ingress, owner, inputs.clone(), stop.clone());
+    let limit = invocation
+        .child
+        .as_ref()
+        .and_then(|child| child.role.as_ref())
+        .and_then(|role| role.max_turns);
+    let continuation = continue_pending(&ingress, owner, inputs.clone(), stop.clone(), limit);
     let before: BeforeModelCallback = Box::new(move |callback, mut request| {
         let ingress = ingress.clone();
         let invocation = invocation.clone();
@@ -56,6 +62,7 @@ pub(super) fn bind(
                     .map_err(|_| AdkError::agent("guidance history is unavailable"))?;
                 inputs.apply(&mut request)?;
                 inputs.calls = false;
+                inputs.rounds = inputs.rounds.saturating_add(1);
             }
             if stop.is_cancelled() {
                 return Err(AdkError::agent("guidance was cancelled"));
@@ -130,6 +137,7 @@ fn continue_pending(
     owner: TurnId,
     inputs: Arc<Mutex<Inputs>>,
     stop: CancellationToken,
+    limit: Option<u32>,
 ) -> AfterModelCallback {
     let ingress = ingress.clone();
     Box::new(move |_, mut response| {
@@ -137,7 +145,7 @@ fn continue_pending(
         let inputs = inputs.clone();
         let stop = stop.clone();
         Box::pin(async move {
-            let (calls, claimed) = {
+            let (calls, claimed, rounds) = {
                 let mut inputs = inputs
                     .lock()
                     .map_err(|_| AdkError::agent("guidance history is unavailable"))?;
@@ -147,11 +155,12 @@ fn continue_pending(
                         .iter()
                         .any(|part| matches!(part, adk_core::Part::FunctionCall { .. }))
                 });
-                (inputs.calls, inputs.queued.is_some())
+                (inputs.calls, inputs.queued.is_some(), inputs.rounds)
             };
             if response.partial
                 || stop.is_cancelled()
                 || calls
+                || limit.is_some_and(|limit| rounds >= limit)
                 || !(response.turn_complete || response.finish_reason.is_some())
                 || !ingress.agents.running(owner)
             {
@@ -169,7 +178,7 @@ fn continue_pending(
                     .map_err(|_| AdkError::agent("guidance history is unavailable"))?
                     .queued = Some(queued);
             }
-            if continuation {
+            if continuation && !stop.is_cancelled() && ingress.agents.running(owner) {
                 let metadata = response
                     .provider_metadata
                     .get_or_insert_with(|| serde_json::json!({}));
@@ -184,6 +193,122 @@ fn continue_pending(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Callback;
+
+    #[async_trait::async_trait]
+    impl adk_core::ReadonlyContext for Callback {
+        fn invocation_id(&self) -> &str {
+            "guidance-fixture"
+        }
+        fn agent_name(&self) -> &str {
+            "assistant"
+        }
+        fn user_id(&self) -> &str {
+            "user"
+        }
+        fn app_name(&self) -> &str {
+            "app"
+        }
+        fn session_id(&self) -> &str {
+            "session"
+        }
+        fn branch(&self) -> &str {
+            ""
+        }
+        fn user_content(&self) -> &Content {
+            static CONTENT: std::sync::OnceLock<Content> = std::sync::OnceLock::new();
+            CONTENT.get_or_init(|| Content::new("user"))
+        }
+    }
+
+    impl adk_core::CallbackContext for Callback {
+        fn artifacts(&self) -> Option<Arc<dyn adk_core::Artifacts>> {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn continues_already_claimed_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let node = crate::Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let owner = TurnId::new();
+        let stop = CancellationToken::new();
+        node.ingress
+            .agents
+            .register(owner, SessionId::new(), stop.clone());
+        let inputs = Arc::new(Mutex::new(Inputs {
+            queued: Some(Vec::new()),
+            rounds: 1,
+            ..Default::default()
+        }));
+        let callback = continue_pending(&node.ingress, owner, inputs.clone(), stop.clone(), None);
+        for _ in 0..2 {
+            let response = callback(
+                Arc::new(Callback),
+                adk_core::LlmResponse {
+                    turn_complete: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(response.provider_metadata.unwrap()["continue_turn"], true);
+            assert!(inputs.lock().unwrap().queued.is_some());
+        }
+        stop.cancel();
+        assert!(
+            callback(
+                Arc::new(Callback),
+                adk_core::LlmResponse {
+                    turn_complete: true,
+                    ..Default::default()
+                }
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+        assert!(inputs.lock().unwrap().queued.is_some());
+        node.ingress.agents.finish(owner);
+        node.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn leaves_input_at_iteration_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let node = crate::Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let owner = TurnId::new();
+        let stop = CancellationToken::new();
+        node.ingress
+            .agents
+            .register(owner, SessionId::new(), stop.clone());
+        let inputs = Arc::new(Mutex::new(Inputs {
+            rounds: 1,
+            ..Default::default()
+        }));
+        let callback = continue_pending(&node.ingress, owner, inputs.clone(), stop, Some(1));
+        assert!(
+            callback(
+                Arc::new(Callback),
+                adk_core::LlmResponse {
+                    turn_complete: true,
+                    ..Default::default()
+                }
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+        assert!(inputs.lock().unwrap().queued.is_none());
+        node.ingress.agents.finish(owner);
+        node.shutdown().await.unwrap();
+    }
 
     #[test]
     fn preserves_each_prefix_across_requests() {

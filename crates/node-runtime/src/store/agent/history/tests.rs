@@ -37,6 +37,46 @@ async fn running(fixture: &mut Fixture) -> TurnId {
     turn
 }
 
+#[tokio::test]
+async fn retains_called_and_discovered_tools() {
+    let mut fixture = Fixture::new().await;
+    let call = |name: &str| adk_core::Part::FunctionCall {
+        name: name.into(),
+        id: Some(name.into()),
+        args: serde_json::json!({}),
+        thought_signature: None,
+    };
+    let mut invoked = AdkEvent::new("called-tools");
+    invoked.author = "assistant".into();
+    invoked.set_content(adk_core::Content {
+        role: "model".into(),
+        parts: vec![call("first"), call("second")],
+    });
+    let mut discovered = AdkEvent::new("discovered-tools");
+    discovered.author = "system".into();
+    discovered
+        .actions
+        .state_delta
+        .insert(LOADED_TOOLS.into(), serde_json::json!(["third"]));
+    fixture.append([invoked, discovered]).await;
+    let expected = serde_json::json!(["first", "second", "third"]);
+    assert_eq!(
+        state(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()[LOADED_TOOLS],
+        expected
+    );
+    rebuild_session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(
+        state(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()[LOADED_TOOLS],
+        expected
+    );
+}
+
 fn captured() -> AdkEvent {
     let mut event = AdkEvent::new("captured-write");
     event.author = "tool".into();

@@ -220,7 +220,15 @@ async fn restores_frozen_input() {
                 .to_string()
                 .contains("Selected workspace contents")
         );
-        assert_eq!(parent.requests.lock().unwrap().len(), 1);
+        let parent_requests = parent.requests.lock().unwrap().clone();
+        assert_eq!(parent_requests.len(), 1);
+        assert!(
+            parent_requests[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["function"]["name"] == plugin_tool("delegation", "spawn_agent"))
+        );
         let Output::Session(branch) = client
             .execute(client.prepare(Command::ForkConversation {
                 session: session.id,

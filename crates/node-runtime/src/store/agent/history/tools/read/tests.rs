@@ -104,3 +104,65 @@ async fn preserves_order_branch_and_ambiguity() {
         json!({"path":"first"})
     );
 }
+
+#[tokio::test]
+async fn skips_unrequested_call_projection() {
+    let mut fixture = Fixture::new().await;
+    let mut unrelated = [
+        event("main", "other", Some("other name")),
+        event("main", "read", Some("other id")),
+    ];
+    let mut content = unrelated[1].content().unwrap().clone();
+    if let adk_core::Part::FunctionCall { id, .. } = &mut content.parts[0] {
+        *id = Some("unrequested".into());
+    }
+    unrelated[1].set_content(content);
+    let result = event("main", "read", None);
+    let turn = fixture
+        .append(
+            unrelated
+                .clone()
+                .into_iter()
+                .chain([event("main", "read", Some("requested")), result.clone()]),
+        )
+        .await;
+    let db = &fixture.database.connection;
+    // Invalid display metadata on an unrelated call must never be evaluated.
+    for mut call in unrelated {
+        call.provider_metadata
+            .insert("dev.sailry.tool_display".into(), "[]".into());
+        assert_eq!(
+            db.execute(
+                "UPDATE agent_events SET body=?1 WHERE turn=?2 AND json_extract(body,'$.id')=?3",
+                params![
+                    serde_json::to_vec(&call).unwrap(),
+                    turn.to_string(),
+                    call.id
+                ],
+            )
+            .await
+            .unwrap(),
+            1
+        );
+    }
+    let sequence = db
+        .prepare("SELECT sequence FROM agent_events WHERE turn=?1 AND json_extract(body,'$.id')=?2")
+        .await
+        .unwrap()
+        .query_row(params![turn.to_string(), result.id.clone()])
+        .await
+        .unwrap()
+        .get::<i64>(0)
+        .unwrap() as u64;
+    let sources = Sources::new(db, &[(sequence, turn, result.clone())])
+        .await
+        .unwrap();
+    assert_eq!(
+        with_sources(db, turn, sequence, &result, 0, Some(&sources))
+            .await
+            .unwrap()
+            .unwrap()
+            .arguments,
+        json!({"path":"requested"})
+    );
+}

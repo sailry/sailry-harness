@@ -85,14 +85,28 @@ impl Sources {
                 .into_iter()
                 .flat_map(|content| &content.parts)
             {
+                let identity = match part {
+                    adk_core::Part::FunctionCall {
+                        id: Some(id), name, ..
+                    } => Some((id.as_str(), name.as_str())),
+                    adk_core::Part::ServerToolCall { server_tool_call }
+                        if server_tool_call["type"] == "web_search_call"
+                            || server_tool_call["name"] == "web_search"
+                                && server_tool_call.get("input").is_some() =>
+                    {
+                        server_tool_call["id"].as_str().map(|id| (id, "web_search"))
+                    }
+                    _ => None,
+                };
+                let Some((id, name)) = identity else {
+                    continue;
+                };
+                if !requests.contains(&(turn, event.branch.clone(), id.to_owned(), name.to_owned()))
+                {
+                    continue;
+                }
                 if let Some(mut raw) = call(db, turn, &event, part).await?
                     && let Some(id) = raw.id.clone()
-                    && requests.contains(&(
-                        turn,
-                        event.branch.clone(),
-                        id.clone(),
-                        raw.name.clone(),
-                    ))
                 {
                     raw.source = Some(sequence);
                     sources

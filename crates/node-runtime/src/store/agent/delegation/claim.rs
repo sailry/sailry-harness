@@ -46,12 +46,12 @@ pub(in crate::store::agent) async fn claim(
         if limit.is_some_and(|limit| active >= limit) {
             return Ok(Status::Queued);
         }
-        // Unselected guidance still belongs to its existing queue owner. It must
-        // not block unrelated children while its preceding execution is running.
+        // Untargeted pending input still belongs to its queue owner. Tagged
+        // guidance retains its pending row until canonical input is appended.
         let next: Option<String> = {
             let mut statement = tx.prepare("SELECT a.turn FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn JOIN turns t ON t.id=a.turn JOIN turns parent ON parent.id=d.parent_turn
              WHERE parent.session=?1 AND a.ready=1 AND json_extract(a.body,'$.status')='queued'
-               AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn)
+               AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn AND p.recipient IS NULL)
                AND NOT EXISTS(SELECT 1 FROM agent_runs running JOIN turns current ON current.id=running.turn WHERE current.session=t.session AND json_extract(running.body,'$.status') IN ('running','stopping'))
              ORDER BY t.rowid LIMIT 1").await.map_err(storage_error)?;
             match statement.query_row([owner.to_string()]).await {

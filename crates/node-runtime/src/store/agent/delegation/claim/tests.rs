@@ -356,6 +356,54 @@ async fn keeps_guidance_out_of_unrelated_fifo() {
 }
 
 #[tokio::test]
+async fn admits_guidance_after_the_recipient_finishes() {
+    let mut fixture = Fixture::new().await;
+    let parent = parent(&mut fixture).await;
+    limit(&fixture, 2).await;
+    let recipient = queued(&mut fixture, parent, 0).await;
+    assert_eq!(claim(&mut fixture, recipient.id).await, Status::Running);
+    let Output::QueuedTurn(guidance) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::GuideTurn {
+            recipient: recipient.id,
+            expected_revision: recipient.revision,
+            message: "Continue after the recipient".into(),
+        },
+    )
+    .await
+    else {
+        panic!("guided turn expected")
+    };
+    assert_eq!(claim(&mut fixture, guidance.id).await, Status::Queued);
+    finish(&mut fixture, recipient.id).await;
+    let invocation = runs::claim_guidance(&mut fixture.database, recipient.id, &fixture.events)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(invocation.turn.id, guidance.id);
+    assert_eq!(invocation.message.text, "Continue after the recipient");
+    assert!(invocation.child.is_some());
+    assert_eq!(claim(&mut fixture, guidance.id).await, Status::Running);
+    let queue = queue::read(&fixture.database.connection, guidance.session)
+        .await
+        .unwrap();
+    assert!(!queue.paused);
+    let pending = fixture
+        .database
+        .connection
+        .prepare("SELECT recipient FROM agent_pending WHERE turn=?1")
+        .await
+        .unwrap()
+        .query_row([guidance.id.to_string()])
+        .await
+        .unwrap()
+        .get::<String>(0)
+        .unwrap();
+    assert_eq!(pending, recipient.id.to_string());
+}
+
+#[tokio::test]
 async fn applies_increases_without_recapturing_waiters() {
     let mut fixture = Fixture::new().await;
     let parent = parent(&mut fixture).await;

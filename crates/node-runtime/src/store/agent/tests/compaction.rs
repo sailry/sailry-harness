@@ -209,6 +209,71 @@ async fn materializes_only_canonical_owner_sources() {
 }
 
 #[tokio::test]
+async fn retains_only_latest_input_capability() {
+    for newer in [false, true] {
+        let mut fixture = Fixture::new().await;
+        let selected = |text: &str| {
+            let mut event = AdkEvent::new("selected-capability");
+            event.author = "user".into();
+            event
+                .provider_metadata
+                .insert(CAPABILITY_PART.into(), "1".into());
+            event.set_content(
+                adk_core::Content::new("user")
+                    .with_text("User task")
+                    .with_text(text),
+            );
+            event
+        };
+        let anchor = event("Completed evidence");
+        fixture
+            .append([
+                selected("Earlier selection"),
+                selected("Latest selection"),
+                anchor.clone(),
+            ])
+            .await;
+        if newer {
+            let mut input = AdkEvent::new("unselected-input");
+            input.author = "user".into();
+            input.set_content(
+                adk_core::Content::new("user").with_text("Next task without a selection"),
+            );
+            fixture.append([input]).await;
+        }
+        let turn = fixture.append([summary(&anchor)]).await;
+        let loaded = load(&fixture, turn).await;
+        let text = serde_json::to_string(loaded[0].content().unwrap()).unwrap();
+        assert!(!text.contains("Earlier selection"));
+        assert_eq!(text.contains("Latest selection"), !newer);
+    }
+}
+
+#[tokio::test]
+async fn merges_disjoint_discovered_tools() {
+    let mut fixture = Fixture::new().await;
+    let discovered = |name: &str| {
+        let mut event = AdkEvent::new("discovered-tools");
+        event.author = "system".into();
+        event
+            .actions
+            .state_delta
+            .insert(LOADED_TOOLS.into(), serde_json::json!([name]));
+        event
+    };
+    let anchor = event("Completed discovery");
+    fixture
+        .append([discovered("first"), discovered("second"), anchor.clone()])
+        .await;
+    let turn = fixture.append([summary(&anchor)]).await;
+    let loaded = load(&fixture, turn).await;
+    assert_eq!(
+        loaded[0].actions.state_delta[LOADED_TOOLS],
+        serde_json::json!(["first", "second"])
+    );
+}
+
+#[tokio::test]
 async fn ignores_clock_rewinds() {
     let mut fixture = Fixture::new().await;
     let original = event("Original evidence");

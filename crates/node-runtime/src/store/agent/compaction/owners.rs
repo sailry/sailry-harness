@@ -2,7 +2,7 @@
 use super::*;
 use adk_core::Part;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 pub(super) async fn read(
     db: &Connection,
@@ -10,6 +10,7 @@ pub(super) async fn read(
     boundary: i64,
 ) -> Result<(HashMap<String, Value>, Vec<Part>), Fault> {
     let mut state = HashMap::new();
+    let mut loaded = BTreeSet::new();
     {
         let mut statement = db
             .prepare(
@@ -31,10 +32,19 @@ pub(super) async fn read(
             .map_err(storage_error)?;
         while let Some(row) = rows.next().await.map_err(storage_error)? {
             let body = row.get::<String>(0).map_err(storage_error)?;
-            state.extend(
-                serde_json::from_str::<HashMap<String, Value>>(&body).map_err(storage_error)?,
-            );
+            let mut delta: HashMap<String, Value> =
+                serde_json::from_str(&body).map_err(storage_error)?;
+            if let Some(value) = delta.remove(LOADED_TOOLS) {
+                loaded.extend(
+                    serde_json::from_value::<BTreeSet<String>>(value).map_err(storage_error)?,
+                );
+            }
+            state.extend(delta);
         }
+    }
+    loaded.extend(history::called(db, session, boundary).await?);
+    if !loaded.is_empty() {
+        state.insert(LOADED_TOOLS.into(), serde_json::json!(loaded));
     }
     let mut sources = Vec::new();
     {
@@ -48,7 +58,10 @@ pub(super) async fn read(
                IN ('load_skill','read_skill_resource','plan_review')
                OR json_type(part.value,'$.functionResponse.response.progress')='object'
                OR (json_extract(e.body,'$.author')='user'
-                   AND CAST(part.key AS TEXT)=json_extract(e.body,'$.event_metadata."sailry.context.capability_part"')))
+                   AND CAST(part.key AS TEXT)=json_extract(e.body,'$.event_metadata."sailry.context.capability_part"')
+                   AND h.sequence=(SELECT max(latest.sequence) FROM conversation_events latest
+                     JOIN agent_events input ON input.sequence=latest.sequence
+                     WHERE latest.session=?1 AND json_extract(input.body,'$.author')='user')))
              ORDER BY h.sequence,CAST(part.key AS INTEGER)"#,
             )
             .await

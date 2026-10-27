@@ -1,6 +1,6 @@
 use super::*;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 pub(in crate::store::agent) mod canonical;
 mod citations;
@@ -84,6 +84,16 @@ pub(super) async fn append_with_context(
             let publication = database.publication.clone();
             let transaction = crate::store::database::conflict::begin(&database.connection).await?;
             let prepared: Result<_, Fault> = async {
+                if event
+                    .provider_metadata
+                    .contains_key(crate::agent::CONTEXT_METADATA)
+                    && runs::get(&transaction, turn).await?.status != Status::Running
+                {
+                    return Err(Fault::new(
+                        ErrorCode::Conflict,
+                        "context recipient is no longer running",
+                    ));
+                }
                 let context = if let Some((owner, event)) = context {
                     if runs::get(&transaction, owner).await?.status != Status::Running {
                         return Err(Fault::new(
@@ -383,7 +393,7 @@ pub(super) async fn insert(
 
 async fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> Result<(), Fault> {
     for (key, value) in &event.actions.state_delta {
-        if key.starts_with(adk_session::KEY_PREFIX_TEMP) {
+        if key.starts_with(adk_session::KEY_PREFIX_TEMP) || key == LOADED_TOOLS {
             continue;
         }
         let owner = if key.starts_with(adk_session::KEY_PREFIX_APP)
@@ -395,7 +405,85 @@ async fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> R
         };
         db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body", params![owner, key.as_str(), encode(value)?]).await.map_err(storage_error)?;
     }
+    let mut names = event
+        .actions
+        .state_delta
+        .get(LOADED_TOOLS)
+        .map(|value| {
+            serde_json::from_value::<BTreeSet<String>>(value.clone()).map_err(storage_error)
+        })
+        .transpose()?
+        .unwrap_or_default();
+    names.extend(
+        event
+            .content()
+            .into_iter()
+            .flat_map(|content| &content.parts)
+            .filter_map(|part| {
+                if let adk_core::Part::FunctionCall { name, .. } = part {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            }),
+    );
+    remember(db, session, names).await
+}
+
+async fn remember(
+    db: &Connection,
+    session: SessionId,
+    names: BTreeSet<String>,
+) -> Result<(), Fault> {
+    if names.is_empty() {
+        return Ok(());
+    }
+    let mut query = db
+        .prepare("SELECT body FROM agent_state WHERE owner=?1 AND key=?2")
+        .await
+        .map_err(storage_error)?;
+    let mut loaded: BTreeSet<String> = match query
+        .query_row(params![session.to_string(), LOADED_TOOLS])
+        .await
+    {
+        Ok(row) => serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+            .map_err(storage_error)?,
+        Err(turso::Error::QueryReturnedNoRows) => BTreeSet::new(),
+        Err(error) => return Err(storage_error(error)),
+    };
+    drop(query);
+    let previous = loaded.len();
+    loaded.extend(names);
+    if loaded.len() != previous {
+        db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body",
+            params![session.to_string(), LOADED_TOOLS, encode(&loaded)?]).await.map_err(storage_error)?;
+    }
     Ok(())
+}
+
+pub(in crate::store::agent) async fn called(
+    db: &Connection,
+    session: SessionId,
+    boundary: i64,
+) -> Result<BTreeSet<String>, Fault> {
+    let mut query = db
+        .prepare(
+            "SELECT DISTINCT json_extract(part.value,'$.name')
+        FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+        JOIN json_each(e.body,'$.content.parts') part WHERE h.session=?1 AND h.sequence<=?2
+        AND json_type(part.value,'$.name')='text' AND json_type(part.value,'$.args') IS NOT NULL",
+        )
+        .await
+        .map_err(storage_error)?;
+    let mut rows = query
+        .query(params![session.to_string(), boundary])
+        .await
+        .map_err(storage_error)?;
+    let mut names = BTreeSet::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        names.insert(row.get::<String>(0).map_err(storage_error)?);
+    }
+    Ok(names)
 }
 
 pub(super) async fn state(
@@ -476,11 +564,22 @@ pub(in crate::store) async fn rebuild_session(
                 {
                     continue;
                 }
+                if key == LOADED_TOOLS {
+                    remember(
+                        db,
+                        session,
+                        serde_json::from_value(value).map_err(storage_error)?,
+                    )
+                    .await?;
+                    continue;
+                }
                 db.execute("INSERT INTO agent_state(owner,key,body) VALUES(?1,?2,?3) ON CONFLICT(owner,key) DO UPDATE SET body=excluded.body",
                 params![session.to_string(), key.as_str(), encode(&value)?]).await.map_err(storage_error)?;
             }
         }
     }
+    drop(query);
+    remember(db, session, called(db, session, i64::MAX).await?).await?;
     Ok(())
 }
 

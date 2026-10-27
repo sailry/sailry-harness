@@ -729,3 +729,119 @@ async fn waits_for_the_awaited_child_response() {
         fixture.close().await;
     }
 }
+
+#[tokio::test]
+async fn runs_guidance_after_iteration_limit() {
+    for remote in [false, true] {
+        let release = sailry_link::CancellationToken::new();
+        let parent = Server::turn_tools(vec![(
+            plugin_tool("delegation", "spawn_agent"),
+            json!({"role":"review","task":"Initial child task"}),
+        )])
+        .await;
+        let child = Server::markdown_held("Natural child answer".into(), release.clone()).await;
+        let mut fixture = Fixture::start(remote, parent, child).await;
+        let mut role = fixture.role.clone();
+        role.max_turns = Some(1);
+        let Output::Role(role) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutRole {
+                role,
+                expected_revision: fixture.role.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("role expected");
+        };
+        fixture.role = role;
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetSessionRoles {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                roles: vec![fixture.role.reference()],
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected");
+        };
+        fixture.session = session;
+        let parent = fixture.push("Parent request").await;
+        fixture.child.wait_count(1).await;
+        let child = children(&fixture.client, fixture.session.id, 1)
+            .await
+            .pop()
+            .unwrap();
+        let recipient = history(&fixture.client, child.id).await.runs[0].clone();
+        let message = "Continue after the role budget";
+        let Output::QueuedTurn(guided) = fixture
+            .client
+            .execute(prepare(&fixture, &recipient, message.into()))
+            .await
+            .unwrap()
+        else {
+            panic!("guided turn expected");
+        };
+        let capture = fixture
+            .client
+            .read_turn_capture(fixture.session.id, parent.id)
+            .await
+            .unwrap();
+        assert_eq!(capture.roles.profiles, vec![fixture.role.clone()]);
+        let origin = child.delegation.as_ref().unwrap();
+        assert_eq!(origin.turn, parent.id);
+        assert_eq!(origin.role, Some(fixture.role.id));
+        let before = history(&fixture.client, child.id).await;
+        assert_eq!(status(&before, recipient.turn), Status::Running);
+        assert_eq!(status(&before, guided.id), Status::Queued);
+        assert!(!before.queue.paused);
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        release.cancel();
+        fixture.child.wait_count(2).await;
+        let page = finished(&fixture.client, child.id, guided.id).await;
+        assert_eq!(status(&page, recipient.turn), Status::Completed);
+        assert_eq!(status(&page, guided.id), Status::Completed);
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == guided.id)
+                .unwrap()
+                .joined,
+            None
+        );
+        assert!(page.queue.items.is_empty());
+        assert!(!page.queue.paused);
+        for turn in [recipient.turn, guided.id] {
+            assert!(page.entries.iter().any(|entry| {
+                entry.turn == turn
+                    && entry.author == "assistant"
+                    && entry
+                        .parts
+                        .contains(&Part::Text("Natural child answer".into()))
+            }));
+        }
+        assert!(page.entries.iter().any(|entry| {
+            entry.turn == guided.id
+                && entry.author == "user"
+                && entry.parts.contains(&Part::Text(message.into()))
+        }));
+        let parent_page = finished(&fixture.client, fixture.session.id, parent.id).await;
+        assert_eq!(status(&parent_page, parent.id), Status::Completed);
+        let guided_child = parent_page
+            .children
+            .iter()
+            .find(|child| child.run.turn == guided.id)
+            .unwrap();
+        assert_eq!(&guided_child.origin, origin.as_ref());
+        let returned = results(&fixture.client, &parent_page).await;
+        assert_eq!(returned[0]["turn"], json!(guided.id));
+        assert_eq!(returned[0]["status"], "completed");
+        let requests = fixture.child.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        assert!(!requests[0]["messages"].to_string().contains(message));
+        assert!(requests[1]["messages"].to_string().contains(message));
+        fixture.close().await;
+    }
+}

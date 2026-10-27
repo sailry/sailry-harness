@@ -58,6 +58,7 @@ pub(super) use search::search;
 pub(crate) use sessions::{CAPABILITY_PART, INPUT_PART, INPUT_SOURCE, INPUT_TURN, Sessions};
 
 pub(crate) const SESSION_TITLE: &str = "sailry.session_title";
+pub(crate) const LOADED_TOOLS: &str = "sailry.context.loaded_tools";
 
 pub(crate) const APP: &str = "sailry";
 pub(crate) const USER: &str = "node";

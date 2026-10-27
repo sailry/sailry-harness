@@ -273,7 +273,7 @@ fn appends_only_changed_runtime_context() {
 }
 
 #[test]
-fn retains_mounted_tools_after_deferral() {
+fn defers_temporarily_mounted_tools() {
     let turn = TurnId::new();
     let mut snapshot = Snapshot::default();
     snapshot.declarations(&tools("Initially selected tool"));
@@ -287,21 +287,34 @@ fn retains_mounted_tools_after_deferral() {
     .unwrap()
     .unwrap();
     let state: HashMap<String, Value> = first.actions.state_delta.into_iter().collect();
-    assert_eq!(
-        loaded(state.get(LOADED_TOOLS)),
-        BTreeSet::from(["fixture".into()])
-    );
+    assert!(loaded(state.get(LOADED_TOOLS)).is_empty());
     let mut deferred = tools("Initially selected tool");
     deferred[0].deferred = true;
     let declarations = snapshot.declarations(&deferred);
-    assert!(
-        project_with_loaded(declarations, &loaded(state.get(LOADED_TOOLS))).contains_key("fixture")
-    );
+    assert!(project_with_loaded(declarations, &loaded(state.get(LOADED_TOOLS))).is_empty());
     let changed = capture(turn, &state, &snapshot, current(WorkMode::Code), &[])
         .unwrap()
         .unwrap();
     assert!(!changed.actions.state_delta.contains_key(LOADED_TOOLS));
     assert!(!changed.actions.state_delta.contains_key(POLICY));
+}
+
+#[test]
+fn restores_latest_selected_capability() {
+    let (_, parts) = compose(
+        HashMap::new(),
+        &[
+            Part::Text {
+                text: "Earlier selected skill".into(),
+            },
+            Part::Text {
+                text: "Latest selected skill".into(),
+            },
+        ],
+    );
+    let text = serde_json::to_string(&parts).unwrap();
+    assert!(text.contains("Latest selected skill"));
+    assert!(!text.contains("Earlier selected skill"));
 }
 
 #[test]

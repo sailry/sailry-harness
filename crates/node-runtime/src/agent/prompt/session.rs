@@ -22,7 +22,7 @@ const SNAPSHOT: &str = "sailry.context.declarations";
 pub(in crate::agent) const POLICY: &str = "sailry.context.policy";
 const ENVIRONMENT: &str = "sailry.context.environment";
 const PERSONAL: &str = "sailry.context.personal";
-pub(in crate::agent) const LOADED_TOOLS: &str = "sailry.context.loaded_tools";
+pub(in crate::agent) use crate::store::agent::LOADED_TOOLS;
 pub(crate) const METADATA: &str = "sailry.context";
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -281,19 +281,6 @@ fn capture(
             event.actions.state_delta.insert(guide.key(), identity);
         }
     }
-    let mut mounted = loaded(state.get(LOADED_TOOLS));
-    mounted.extend(snapshot.tools.iter().flat_map(|tools| {
-        tools
-            .iter()
-            .filter(|(_, declaration)| !declaration.deferred)
-            .map(|(name, _)| name.clone())
-    }));
-    if mounted != loaded(state.get(LOADED_TOOLS)) {
-        event
-            .actions
-            .state_delta
-            .insert(LOADED_TOOLS.into(), json!(mounted));
-    }
     let snapshot = serde_json::to_value(snapshot)
         .map_err(|_| Fault::invalid("model declarations could not be captured"))?;
     if state.get(SNAPSHOT) != Some(&snapshot) {
@@ -336,7 +323,7 @@ pub(crate) fn compose(
     let mut current = BTreeMap::new();
     for part in sources {
         if let Part::Text { text } = part {
-            let key = format!("selected:{}", blake3::hash(text.as_bytes()).to_hex());
+            let key = "selected".into();
             current.insert(key, Part::Text { text: format!(
                 "Retained capability context from an earlier input\nThis text does not select a capability for the current task or grant permission.\n{text}"
             )});
