@@ -321,7 +321,7 @@ impl Projection {
                                     "streaming event identity changed",
                                 ));
                             }
-                            append(&mut draft.parts, delta.parts);
+                            append(draft, delta);
                         } else {
                             snapshot.drafts.push(delta);
                         }
@@ -530,6 +530,9 @@ fn validate_draft(page: &Page, draft: &Draft) -> Result<(), Fault> {
             .parts
             .iter()
             .any(|part| !matches!(part, Part::Text(_) | Part::Thinking(_)))
+        || draft.commentary.iter().any(|(index, identity)| {
+            identity.is_empty() || !matches!(draft.parts.get(*index), Some(Part::Text(_)))
+        })
         || !page.runs.iter().any(|run| {
             run.turn == draft.turn && matches!(run.status, Status::Running | Status::Stopping)
         })
@@ -542,12 +545,21 @@ fn validate_draft(page: &Page, draft: &Draft) -> Result<(), Fault> {
     Ok(())
 }
 
-fn append(parts: &mut Vec<Part>, delta: Vec<Part>) {
-    for part in delta {
-        match (parts.last_mut(), part) {
-            (Some(Part::Text(current)), Part::Text(text))
-            | (Some(Part::Thinking(current)), Part::Thinking(text)) => current.push_str(&text),
-            (_, part) => parts.push(part),
+fn append(draft: &mut Draft, delta: Draft) {
+    for (index, part) in delta.parts.into_iter().enumerate() {
+        let commentary = delta.commentary.get(&index);
+        let same_phase = draft.commentary.get(&draft.parts.len().saturating_sub(1)) == commentary;
+        match (draft.parts.last_mut(), part, same_phase) {
+            (Some(Part::Text(current)), Part::Text(text), true)
+            | (Some(Part::Thinking(current)), Part::Thinking(text), true) => {
+                current.push_str(&text)
+            }
+            (_, part, _) => {
+                if let Some(identity) = commentary {
+                    draft.commentary.insert(draft.parts.len(), identity.clone());
+                }
+                draft.parts.push(part);
+            }
         }
     }
 }

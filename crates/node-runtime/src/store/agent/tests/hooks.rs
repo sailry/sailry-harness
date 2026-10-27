@@ -133,28 +133,20 @@ async fn retains_guidance_capture() {
                 .message,
             input
         );
-        assert!(
-            queue::guidance::yield_run(&mut fixture.database, active, &fixture.events)
-                .await
-                .unwrap()
-        );
-        runs::finish(
-            &mut fixture.database,
-            active,
-            Status::Continued,
-            None,
-            &fixture.events,
-        )
-        .await
-        .unwrap();
-        let continuation = runs::claim(&mut fixture.database, &fixture.events)
+        let inputs = runs::guidance::take(&mut fixture.database, active, &fixture.events)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(continuation.turn.id, selected);
-        assert_eq!(continuation.hooks, recipient.hooks);
-        assert_eq!(continuation.message, input);
-        let launch = hooks::claim(&fixture.database.connection, selected, Phase::TurnEnd, 0).await;
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].turn.id, selected);
+        assert_eq!(inputs[0].message, input);
+        assert_eq!(
+            hooks::frozen(&fixture.database.connection, active)
+                .await
+                .unwrap(),
+            recipient.hooks
+        );
+        let launch = hooks::claim(&fixture.database.connection, active, Phase::TurnEnd, 0).await;
         if initial.enabled {
             launch.unwrap();
         } else {

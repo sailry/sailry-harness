@@ -28,6 +28,7 @@ fn retains_failure_identity_between_text() {
             usage: None,
             citations: vec![],
             search_suggestions: None,
+            commentary: Default::default(),
         };
         let history = View {
             snapshot: Some(Arc::new(Snapshot {

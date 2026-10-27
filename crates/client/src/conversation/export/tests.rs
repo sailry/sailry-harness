@@ -15,6 +15,7 @@ fn page(parts: Vec<Part>) -> Page {
             parts,
             citations: vec![],
             search_suggestions: None,
+            commentary: Default::default(),
             usage: None,
         }],
         runs: vec![],
@@ -76,6 +77,18 @@ fn joins_adjacent_text() {
     assert!(document.content.contains(
         "<pre><code class=\"language-mermaid\">flowchart LR\nA[用户下单] --&gt; B[支付]\n</code></pre>"
     ));
+}
+
+#[test]
+fn excludes_commentary_from_the_answer() {
+    let mut page = page(vec![
+        Part::Text("Checking the file.".into()),
+        Part::Text("Here is the answer".into()),
+    ]);
+    page.entries[0].author = "assistant".into();
+    page.entries[0].commentary.insert(0, "msg-progress".into());
+    let document = render(&page, "Conversation", Format::Markdown, "assets").unwrap();
+    assert_eq!(document.content, "Here is the answer\n\n");
 }
 
 #[test]

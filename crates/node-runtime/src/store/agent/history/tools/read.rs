@@ -3,6 +3,7 @@ use sailry_protocol::tool::detail::{MAX_DETAIL_PAGE_BYTES, Page, Reference};
 
 pub(in crate::store) async fn page(
     db: &Connection,
+    cache: &Cache,
     reference: Reference,
     cursor: Option<usize>,
     limit: usize,
@@ -20,6 +21,26 @@ pub(in crate::store) async fn page(
         || limit > MAX_DETAIL_PAGE_BYTES
     {
         return Err(Fault::invalid("tool detail page is invalid"));
+    }
+    let stamp =
+        super::super::canonical::sequence(db, reference.session, reference.turn, &reference.entry)
+            .await?;
+    if let Some((text, dependency)) = cache.get(&reference, stamp) {
+        let valid = if let Some(sequence) = dependency {
+            db.prepare("SELECT EXISTS(SELECT 1 FROM agent_events WHERE sequence=?1)")
+                .await
+                .map_err(storage_error)?
+                .query_row([sequence as i64])
+                .await
+                .map_err(storage_error)?
+                .get::<bool>(0)
+                .map_err(storage_error)?
+        } else {
+            true
+        };
+        if valid {
+            return slice(reference, &text, cursor.unwrap_or(0), limit);
+        }
     }
     let source =
         super::super::canonical::event(db, reference.session, reference.turn, &reference.entry)
@@ -45,16 +66,19 @@ pub(in crate::store) async fn page(
             "tool detail changed",
         ));
     }
-    slice(reference, raw.detail(), cursor.unwrap_or(0), limit)
+    let text: std::sync::Arc<str> = serde_json::to_string(&raw.detail())
+        .map_err(storage_error)?
+        .into();
+    cache.insert(reference.clone(), stamp, text.clone(), raw.source);
+    slice(reference, &text, cursor.unwrap_or(0), limit)
 }
 
 pub(super) fn slice(
     reference: Reference,
-    detail: Detail,
+    text: &str,
     offset: usize,
     limit: usize,
 ) -> Result<Page, Fault> {
-    let text = serde_json::to_string(&detail).map_err(storage_error)?;
     if limit == 0
         || limit > MAX_DETAIL_PAGE_BYTES
         || offset > text.len()
@@ -214,7 +238,7 @@ async fn source(
     };
     let mut statement = db
         .prepare(
-            "SELECT body FROM agent_events WHERE turn=?1 AND sequence<=?2
+            "SELECT sequence,body FROM agent_events WHERE turn=?1 AND sequence<=?2
          AND json_extract(body,'$.branch')=?3 AND EXISTS(
             SELECT 1 FROM json_each(body,'$.content.parts') part
             WHERE (json_extract(part.value,'$.id')=?4 AND json_extract(part.value,'$.name')=?5)
@@ -229,21 +253,21 @@ async fn source(
         .map_err(storage_error)?;
     let mut found = None;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
-        let event: AdkEvent =
-            serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
-                .map_err(storage_error)?;
+        let body = row.get::<Vec<u8>>(1).map_err(storage_error)?;
+        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
         for part in event
             .content()
             .into_iter()
             .flat_map(|content| &content.parts)
         {
-            if let Some(raw) = call(db, turn, &event, part).await?
+            if let Some(mut raw) = call(db, turn, &event, part).await?
                 && raw.id.as_deref() == Some(id)
                 && raw.name == name
             {
                 if found.is_some() {
                     return Ok(None);
                 }
+                raw.source = Some(row.get::<i64>(0).map_err(storage_error)? as u64);
                 found = Some(raw);
             }
         }

@@ -28,6 +28,8 @@ mod connector_fixture;
 mod database_fixture;
 #[path = "agent/delegation/mod.rs"]
 mod delegation;
+#[path = "agent/efficiency.rs"]
+mod efficiency;
 #[cfg(unix)]
 #[path = "agent/environment.rs"]
 mod environment;

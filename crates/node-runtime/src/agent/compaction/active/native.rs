@@ -10,7 +10,7 @@ impl Tool for Context {
     }
 
     fn description(&self) -> &str {
-        "Summarize completed context while retaining original history, the current tool batch, and two recent tool exchanges. Use only when context needs reducing. Returns compacted or skipped; a skipped request leaves context unchanged. This does not complete the task or authorize further work."
+        "Summarize completed context while retaining original history, the current tool batch, and two recent tool exchanges. Use only when context needs reducing. Returns compacted or skipped with current context usage; below half the compaction trigger, it skips without changing context. This does not complete the task or authorize further work."
     }
 
     fn parameters_schema(&self) -> Option<Value> {
@@ -42,7 +42,7 @@ impl Tool for Context {
             && !self.summarizer.stop.is_cancelled()
             && !context.is_cancelled()
         {
-            self.notice(error, SummaryMode::Manual, true).await?;
+            self.halt(error, SummaryMode::Manual).await?;
         }
         result
     }
@@ -50,13 +50,35 @@ impl Tool for Context {
 
 impl Context {
     async fn compact(&self, context: Arc<dyn ToolContext>) -> adk_core::Result<Value> {
+        let _boundary = self.gate.lock().await;
+        self.discard_candidate()?;
         let history = self.history().await?;
         let events = &history.events;
-        let Some(cut) = self
+        let mut request =
+            LlmRequest::new(self.summarizer.model.name(), vec![self.preamble.clone()]);
+        request
+            .contents
+            .extend(super::super::history::prefix(events));
+        request.tools = prompt::session::declarations(events)?;
+        let tokens = self.tokens(&request, &[]).await?;
+        let skipped = json!({
+            "status":"skipped", "context_tokens":tokens,
+            "trigger_tokens":self.summarizer.budget,
+        });
+        if self
             .summarizer
-            .prefix(events, self.candidates(&history, 2).into_iter())?
+            .budget
+            .is_some_and(|budget| tokens.saturating_mul(2) < budget)
+        {
+            return Ok(skipped);
+        }
+        let Some(cut) = self.summarizer.prefix(
+            events,
+            self.candidates(&history, 2).into_iter(),
+            self.summarizer.recent(),
+        )?
         else {
-            return Ok(json!({"status":"skipped"}));
+            return Ok(skipped);
         };
         let prior = &events[..cut];
         if prior.len() == 1
@@ -64,16 +86,13 @@ impl Context {
                 .provider_metadata
                 .contains_key(crate::store::agent::compaction::END_EVENT)
         {
-            return Ok(json!({"status":"skipped"}));
+            return Ok(skipped);
         }
-        let Some(summary) = self
-            .summarize(prior, false, history.frontier.as_deref())
-            .await?
-        else {
+        let Some(summary) = self.summarize(prior, false, &request.tools).await? else {
             if self.summarizer.stop.is_cancelled() {
                 return Err(AdkError::tool("context compaction was cancelled"));
             }
-            return Ok(json!({"status":"skipped"}));
+            return Ok(skipped);
         };
         if context.is_cancelled() || self.summarizer.stop.is_cancelled() {
             return Err(AdkError::tool("context compaction was cancelled"));
@@ -87,14 +106,13 @@ impl Context {
             .checkpoint
             .lock()
             .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
-        *self
-            .attempted
-            .lock()
-            .map_err(|_| invalid("context attempt state is unavailable"))? = None;
+        self.state
+            .record(self.summarizer.budget.unwrap_or(u64::MAX))?;
         // Later automatic callbacks must retain the exchanges protected here.
         self.retention.store(2, Ordering::Relaxed);
-        self.manual_applied.store(true, Ordering::Relaxed);
         self.applied.store(true, Ordering::Relaxed);
-        Ok(json!({"status":"compacted", "summary_id":id}))
+        Ok(
+            json!({"status":"compacted", "summary_id":id, "context_tokens":tokens, "trigger_tokens":self.summarizer.budget}),
+        )
     }
 }

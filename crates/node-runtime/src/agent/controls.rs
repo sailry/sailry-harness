@@ -10,18 +10,17 @@ use tokio::sync::Notify;
 struct Active {
     session: SessionId,
     stop: CancellationToken,
+    runner: CancellationToken,
     operations: usize,
     media: Option<super::media::Binding>,
     scratch: Option<Arc<tempfile::TempDir>>,
     python: Vec<crate::python::Access>,
     finishing: bool,
-    yielded: bool,
-    /// Awaiting or streaming a model response; no tool from this response has started.
-    modeling: bool,
-    model_gate: Arc<tokio::sync::Mutex<()>>,
     timeline: Arc<super::observation::Timeline>,
     sources: Arc<Mutex<Vec<super::model::observation::Source>>>,
     observations: Vec<Arc<Mutex<super::model::observation::Capture>>>,
+    compaction: Arc<super::compaction::active::State>,
+    halted: Option<Fault>,
 }
 
 struct Child {
@@ -56,18 +55,18 @@ impl Controls {
             turn,
             Active {
                 session,
+                runner: stop.child_token(),
                 stop,
                 operations: 0,
                 media: None,
                 scratch: None,
                 python: Vec::new(),
                 finishing: false,
-                yielded: false,
-                modeling: false,
-                model_gate: Default::default(),
                 observations: Vec::new(),
                 timeline: super::observation::Timeline::new(),
                 sources: Default::default(),
+                compaction: Default::default(),
+                halted: None,
             },
         );
     }
@@ -81,6 +80,15 @@ impl Controls {
             .unwrap()
             .get(&turn)
             .map(|active| active.sources.clone())
+            .unwrap_or_default()
+    }
+
+    pub(super) fn compaction(&self, turn: TurnId) -> Arc<super::compaction::active::State> {
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .map(|active| active.compaction.clone())
             .unwrap_or_default()
     }
 
@@ -168,7 +176,11 @@ impl Controls {
                 "stream belongs to another session",
             ));
         }
-        if active.finishing || active.stop.is_cancelled() || self.stopped.is_cancelled() {
+        if active.finishing
+            || active.stop.is_cancelled()
+            || active.runner.is_cancelled()
+            || self.stopped.is_cancelled()
+        {
             return Ok(());
         }
         // Serialize cancellation with publication; the feed checks its active turn again.
@@ -246,7 +258,6 @@ impl Controls {
 
     pub fn cancel(&self, turn: TurnId) {
         if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
-            active.yielded = false;
             active.stop.cancel();
             for ((parent, _), child) in self.children.lock().unwrap().iter() {
                 if *parent == active.session {
@@ -256,92 +267,41 @@ impl Controls {
         }
     }
 
-    pub fn yield_run(&self, turn: TurnId) {
-        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
-            // Guidance replaces the Runner, not its session-owned delegated work.
-            active.yielded |= !active.stop.is_cancelled();
-            active.stop.cancel();
-        }
-    }
-
-    pub(crate) fn model_started(&self, turn: TurnId) {
-        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
-            active.modeling = true;
-        }
-    }
-
-    /// Ends the model phase before tools run. Returns false once guidance has taken over;
-    /// an explicit Stop keeps its ordinary tool-phase settlement.
-    pub(crate) async fn model_settled(&self, turn: TurnId) -> bool {
-        let gate = self
-            .active
-            .lock()
-            .unwrap()
-            .get(&turn)
-            .map(|active| active.model_gate.clone());
-        let Some(gate) = gate else {
-            return true;
-        };
-        let _handoff = gate.lock().await;
-        let mut runs = self.active.lock().unwrap();
-        let Some(active) = runs.get_mut(&turn) else {
-            return true;
-        };
-        active.modeling = false;
-        !active.yielded
-    }
-
-    /// Keep the model-to-tool transition behind its own asynchronous handoff.
-    pub(crate) async fn interrupt_model(
-        &self,
-        turn: TurnId,
-        handoff: impl AsyncFnOnce() -> Result<bool, Fault>,
-    ) -> Result<bool, Fault> {
-        let gate = self
-            .active
-            .lock()
-            .unwrap()
-            .get(&turn)
-            .map(|active| active.model_gate.clone());
-        let Some(gate) = gate else {
-            return Ok(false);
-        };
-        let _handoff = gate.lock().await;
-        {
-            let runs = self.active.lock().unwrap();
-            let Some(active) = runs.get(&turn) else {
-                return Ok(false);
-            };
-            if !active.modeling
-                || active.finishing
-                || active.stop.is_cancelled()
-                || self.stopped.is_cancelled()
-            {
-                return Ok(false);
-            }
-        }
-        if !handoff().await? {
-            return Ok(false);
-        }
-        let mut runs = self.active.lock().unwrap();
-        let Some(active) = runs.get_mut(&turn) else {
-            return Ok(false);
-        };
-        if active.finishing || active.stop.is_cancelled() || self.stopped.is_cancelled() {
-            return Ok(false);
-        }
-        active.modeling = false;
-        active.yielded = true;
-        active.stop.cancel();
-        Ok(true)
-    }
-
-    pub fn yielded(&self, turn: TurnId) -> bool {
+    pub(super) fn runner(&self, turn: TurnId) -> Option<CancellationToken> {
         self.active
             .lock()
             .unwrap()
             .get(&turn)
-            .is_some_and(|active| active.yielded)
+            .map(|active| active.runner.clone())
+    }
+
+    pub(crate) fn halt(&self, turn: TurnId, error: Fault) {
+        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
+            active.halted.get_or_insert(error);
+            active.runner.cancel();
+        }
+    }
+
+    pub(super) fn failure(&self, turn: TurnId) -> Option<Fault> {
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .and_then(|active| active.halted.clone())
+    }
+
+    pub(crate) fn running(&self, turn: TurnId) -> bool {
+        !self.stopped.is_cancelled()
+            && self
+                .active
+                .lock()
+                .unwrap()
+                .get(&turn)
+                .is_some_and(|active| {
+                    !active.finishing
+                        && !active.stop.is_cancelled()
+                        && !active.runner.is_cancelled()
+                })
     }
 
     pub fn register_child(
@@ -390,7 +350,6 @@ impl Controls {
     pub fn stop(&self) {
         self.stopped.cancel();
         for active in self.active.lock().unwrap().values_mut() {
-            active.yielded = false;
             active.stop.cancel();
         }
         for child in self.children.lock().unwrap().values() {
@@ -469,104 +428,6 @@ mod tests {
         assert_eq!(controls.operations(turn), 0);
         controls.finish(turn);
         assert_eq!(controls.operations(turn), 0);
-    }
-
-    #[tokio::test]
-    async fn interrupts_only_model_phase() {
-        let controls = Controls::default();
-        let turn = TurnId::new();
-        let stop = CancellationToken::new();
-        controls.register(turn, SessionId::new(), stop.clone());
-        let handoff = async || Ok(true);
-        assert!(!controls.interrupt_model(turn, handoff).await.unwrap());
-        controls.model_started(turn);
-        assert!(
-            !controls
-                .interrupt_model(turn, async || Ok(false))
-                .await
-                .unwrap()
-        );
-        assert!(controls.model_settled(turn).await);
-        assert!(!controls.interrupt_model(turn, handoff).await.unwrap());
-        assert!(!stop.is_cancelled());
-        controls.model_started(turn);
-        assert!(controls.interrupt_model(turn, handoff).await.unwrap());
-        assert!(stop.is_cancelled() && controls.yielded(turn));
-        // Tools from an interrupted response never start.
-        assert!(!controls.model_settled(turn).await);
-        controls.cancel(turn);
-        assert!(controls.model_settled(turn).await);
-    }
-
-    #[tokio::test]
-    async fn handoff_keeps_other_turns_independent() {
-        let controls = Controls::default();
-        let first = TurnId::new();
-        let second = TurnId::new();
-        for turn in [first, second] {
-            controls.register(turn, SessionId::new(), CancellationToken::new());
-            controls.model_started(turn);
-        }
-        let release = tokio::sync::Notify::new();
-        let mut handoff = Box::pin(controls.interrupt_model(first, async || {
-            release.notified().await;
-            Ok(true)
-        }));
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(20), &mut handoff)
-                .await
-                .is_err()
-        );
-        assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                controls.model_settled(second)
-            )
-            .await
-            .unwrap()
-        );
-        assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_millis(20),
-                controls.model_settled(first)
-            )
-            .await
-            .is_err()
-        );
-        release.notify_one();
-        assert!(handoff.await.unwrap());
-        assert!(!controls.model_settled(first).await);
-    }
-
-    #[tokio::test]
-    async fn stop_wins_during_handoff() {
-        for shutdown in [false, true] {
-            let controls = Controls::default();
-            let turn = TurnId::new();
-            let stop = CancellationToken::new();
-            controls.register(turn, SessionId::new(), stop.clone());
-            controls.model_started(turn);
-            let release = tokio::sync::Notify::new();
-            let mut handoff = Box::pin(controls.interrupt_model(turn, async || {
-                release.notified().await;
-                Ok(true)
-            }));
-            assert!(
-                tokio::time::timeout(std::time::Duration::from_millis(20), &mut handoff)
-                    .await
-                    .is_err()
-            );
-            if shutdown {
-                controls.stop();
-            } else {
-                controls.cancel(turn);
-            }
-            release.notify_one();
-            assert!(!handoff.await.unwrap());
-            assert!(stop.is_cancelled());
-            assert!(!controls.yielded(turn));
-            assert!(controls.model_settled(turn).await);
-        }
     }
 
     #[tokio::test]
@@ -737,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn guidance_preserves_owned_children() {
+    fn completion_preserves_owned_children() {
         let controls = Controls::default();
         let parent = SessionId::new();
         let previous = TurnId::new();
@@ -745,13 +606,10 @@ mod tests {
         let child = CancellationToken::new();
         controls.register(previous, parent, CancellationToken::new());
         controls.register_child(parent, SessionId::new(), TurnId::new(), child.clone());
-        controls.yield_run(previous);
-        assert!(controls.yielded(previous));
         assert!(!child.is_cancelled());
         controls.finish(previous);
         controls.register(current, parent, CancellationToken::new());
         controls.cancel(current);
-        assert!(!controls.yielded(current));
         assert!(child.is_cancelled());
     }
 
@@ -786,23 +644,22 @@ mod tests {
     }
 
     #[test]
-    fn stop_overrides_handoff() {
+    fn cancellation_keeps_the_same_owner() {
         for shutdown in [false, true] {
             let controls = Controls::default();
             let turn = TurnId::new();
             let token = CancellationToken::new();
             controls.register(turn, SessionId::new(), token.clone());
-            controls.yield_run(turn);
-            assert!(controls.yielded(turn));
-            assert!(token.is_cancelled());
+            let runner = controls.runner(turn).unwrap();
+            assert!(controls.running(turn));
             if shutdown {
                 controls.stop();
             } else {
                 controls.cancel(turn);
             }
-            assert!(!controls.yielded(turn));
-            controls.yield_run(turn);
-            assert!(!controls.yielded(turn));
+            assert!(token.is_cancelled());
+            assert!(runner.is_cancelled());
+            assert!(!controls.running(turn));
         }
     }
 

@@ -54,6 +54,47 @@ async fn original_evidence(fixture: &Fixture, page: &Page) {
     }
 }
 
+async fn stored_revision(fixture: &Fixture, call: &'static str) -> String {
+    let bodies: Vec<Vec<u8>> = fixture
+        .node
+        .with_storage(|db| {
+            Box::pin(async move {
+                let mut rows = db
+                    .prepare("SELECT body FROM agent_events")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query(())
+                    .await
+                    .map_err(crate::database_fixture::fault)?;
+                let mut bodies = Vec::new();
+                while let Some(row) = rows.next().await.map_err(crate::database_fixture::fault)? {
+                    bodies.push(row.get(0).map_err(crate::database_fixture::fault)?);
+                }
+                Ok(bodies)
+            })
+        })
+        .await
+        .unwrap();
+    bodies
+        .iter()
+        .filter_map(|body| serde_json::from_slice::<adk_core::Event>(body).ok())
+        .filter_map(|event| event.llm_response.content)
+        .flat_map(|content| content.parts)
+        .find_map(|part| match part {
+            adk_core::Part::FunctionResponse {
+                id: Some(id),
+                function_response,
+                ..
+            } if id == call => Some(
+                blake3::hash(function_response.response.to_string().as_bytes())
+                    .to_hex()
+                    .to_string(),
+            ),
+            _ => None,
+        })
+        .unwrap()
+}
+
 pub(super) async fn statistics(fixture: &Fixture) -> Statistics {
     let mut updates = fixture
         .client
@@ -68,6 +109,9 @@ pub(super) async fn statistics(fixture: &Fixture) -> Statistics {
 
 pub(super) async fn model(fixture: &Fixture, context: u32, output: u32, vision: bool) {
     let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+    if provider.models[0].context != context {
+        provider.models[0].compaction_tokens = None;
+    }
     provider.models[0].context = context;
     provider.models[0].output = output;
     provider.models[0].vision = vision;
@@ -124,7 +168,7 @@ async fn image(fixture: &Fixture) -> AttachmentId {
 async fn uses_reported_tokens() {
     for remote in [false, true] {
         let server = Server::loop_usage(vec![Some(84_000)], 100).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         evidence(&fixture, 1000);
         model(&fixture, 1_050_000, 128_000, true).await;
         let attachment = image(&fixture).await;
@@ -207,14 +251,15 @@ async fn earlier_token_boundary() {
                 vec![
                     Some(100),
                     Some(100),
-                    Some(boundary - 20_000),
+                    // Below the background preparation threshold with the pending result.
+                    Some(boundary * 3 / 5),
                     Some(boundary - 10),
                     Some(100),
                 ],
                 boundary,
             )
             .await;
-            let fixture = Fixture::files(remote, &server).await;
+            let fixture = fixture(remote, &server).await;
             model(&fixture, context, output, false).await;
             if let Some(tokens) = configured {
                 let mut provider =
@@ -296,9 +341,10 @@ async fn pending_tool_growth() {
     for remote in [false, true] {
         for large in [false, true] {
             let server = Server::loop_usage(vec![Some(100)], 100).await;
-            let fixture = Fixture::files(remote, &server).await;
+            let fixture = fixture(remote, &server).await;
             for index in 1..=6 {
-                let bytes = if large && index == 3 { 64 } else { 48 } * 1024;
+                // One large result alone crosses the 24k trigger inside the 64k window.
+                let bytes = if large && index == 3 { 100 } else { 16 } * 1024;
                 let mut text = format!("Evidence {index}\n");
                 text.push_str(&"x".repeat(bytes - text.len()));
                 std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
@@ -337,6 +383,22 @@ async fn pending_tool_growth() {
                     assert!(content.contains("Evidence 3"));
                     assert!(!content.contains("Evidence 1"));
                 }
+                // The retained result still above the trigger is masked once,
+                // so the next step does not summarize again.
+                let retained = requests[4]["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|message| message["tool_call_id"] == "loop-3")
+                    .unwrap();
+                let masked: Value =
+                    serde_json::from_str(retained["content"].as_str().unwrap()).unwrap();
+                assert_eq!(masked["masked"], true);
+                assert_eq!(masked["output"]["call"], "loop-3");
+                assert_eq!(
+                    masked["output"]["revision"],
+                    stored_revision(&fixture, "loop-3").await
+                );
             } else {
                 assert!(messages(requests.last().unwrap()).contains("Evidence 1"));
             }
@@ -355,6 +417,40 @@ async fn pending_tool_growth() {
                 })
             );
             fixture.node.shutdown().await.unwrap();
+            if large {
+                let node = Node::start_empty(fixture.directory.path().join("node"))
+                    .await
+                    .unwrap();
+                let client = Client::new(if remote {
+                    fixture.controller.handle().remote(node.link().address())
+                } else {
+                    node.local()
+                });
+                submit(
+                    &client,
+                    fixture.session.id,
+                    "Continue with retained evidence after restart".into(),
+                )
+                .await;
+                let resumed = server.requests.lock().unwrap().last().unwrap().clone();
+                let original = requests.last().unwrap()["messages"].as_array().unwrap();
+                let current = resumed["messages"].as_array().unwrap();
+                assert_eq!(
+                    serde_json::to_vec(original).unwrap(),
+                    serde_json::to_vec(&current[..original.len()]).unwrap()
+                );
+                assert_eq!(
+                    server
+                        .requests
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|request| agent_support::compaction::is_summary(request))
+                        .count(),
+                    summary_count
+                );
+                node.shutdown().await.unwrap();
+            }
             fixture.controller.close().await.unwrap();
         }
     }
@@ -364,8 +460,8 @@ async fn pending_tool_growth() {
 async fn retains_low_usage_summary() {
     for remote in [false, true] {
         let server =
-            Server::loop_usage(vec![Some(100), Some(100), Some(14_000), Some(100)], 14_000).await;
-        let fixture = Fixture::files(remote, &server).await;
+            Server::loop_usage(vec![Some(100), Some(100), Some(26_000), Some(100)], 26_000).await;
+        let fixture = fixture(remote, &server).await;
         // Numbered lines add response metadata; pending results must stay below
         // the threshold so this test isolates retaining the first summary.
         evidence(&fixture, 600);
@@ -386,7 +482,7 @@ async fn retains_low_usage_summary() {
                     .any(|part| matches!(part, Part::Compaction(_)))
             })
             .unwrap();
-        assert_eq!(summary.usage.as_ref().unwrap().input, 14_000);
+        assert!(summary.usage.is_none());
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 8);
         assert_eq!(
@@ -432,9 +528,9 @@ async fn retains_low_usage_summary() {
 async fn compacts_before_plain_followup() {
     for remote in [false, true] {
         for output in [2_048, 16_000] {
-            let server = Server::summary(14_000).await;
-            let fixture = Fixture::files(remote, &server).await;
-            model(&fixture, 16_000, output, true).await;
+            let server = Server::summary(26_000).await;
+            let fixture = fixture(remote, &server).await;
+            model(&fixture, 64_000, output, true).await;
             let original = "Keep the original requirement ".repeat(120);
             let (_, _, before) =
                 submit(&fixture.client, fixture.session.id, original.clone()).await;
@@ -498,37 +594,47 @@ async fn compacts_before_plain_followup() {
 }
 
 #[tokio::test]
-async fn continues_overfull_context_on_summary_failure() {
+async fn retains_input_when_preflight_fails() {
     for remote in [false, true] {
-        let server = Server::summary_failure(20_000).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let server = Server::summary_failure(26_000).await;
+        let fixture = fixture(remote, &server).await;
         let (_, _, before) = submit(
             &fixture.client,
             fixture.session.id,
             "Retain this original requirement ".repeat(120),
         )
         .await;
-        assert_eq!(summaries(&before), 0);
+        let message = "Continue only after preparing context";
         let request = fixture.client.prepare(Command::SubmitTurn {
             session: fixture.session.id,
             expected_revision: 1,
-            message: "Continue only after preparing context".into(),
+            message: message.into(),
         });
         let Output::QueuedTurn(turn) = fixture.client.execute(request.clone()).await.unwrap()
         else {
-            panic!("turn expected")
+            panic!("turn expected");
         };
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
-        assert_eq!(run.status, Status::Completed, "{run:?}");
+        assert_eq!(
+            after
+                .runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Failed
+        );
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
-        assert_eq!(summaries(&after), 0);
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 3);
-        assert!(!agent_support::compaction::is_summary(&requests[0]));
-        assert!(agent_support::compaction::is_summary(&requests[1]));
-        assert!(!agent_support::compaction::is_summary(&requests[2]));
-        assert!(messages(&requests[2]).contains("Continue only after preparing context"));
+        assert!(
+            !after
+                .entries
+                .iter()
+                .any(|entry| entry.turn == turn.id && entry.author == "user")
+        );
+        assert!(after.queue.paused);
+        assert_eq!(after.queue.items.len(), 1);
+        assert_eq!(after.queue.items[0].turn, turn.id);
+        assert!(!after.queue.items[0].ready);
         assert!(
             after
                 .entries
@@ -536,76 +642,143 @@ async fn continues_overfull_context_on_summary_failure() {
                 .flat_map(|entry| &entry.parts)
                 .any(|part| {
                     matches!(part, Part::Resource(value) if value["type"] == "compaction_failure"
-                && value["failure"]["stage"] == "request"
                 && value["failure"]["reason"] == "service_rejected"
-                && value["failure"]["continued"] == true)
+                && value["failure"]["continued"] == false)
                 })
         );
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        let Output::QueuedMessage(retained) = fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::ReadQueuedTurn { turn: turn.id }),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("retained input expected");
+        };
+        assert_eq!(retained.message.text, message);
+        let Output::QueuedTurn(next) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: 1,
+                message: "Retry context preparation for the new request".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected");
+        };
+        let retried = finished(&fixture.client, fixture.session.id, next.id).await;
+        assert_eq!(
+            retried
+                .runs
+                .iter()
+                .find(|run| run.turn == next.id)
+                .unwrap()
+                .status,
+            Status::Failed
+        );
+        assert!(retried.queue.paused);
+        assert_eq!(retried.queue.items.len(), 2);
+        assert!(retried.queue.items.iter().any(|item| item.turn == turn.id));
+        assert!(retried.queue.items.iter().any(|item| item.turn == next.id));
+        assert!(
+            !retried
+                .entries
+                .iter()
+                .any(|entry| [turn.id, next.id].contains(&entry.turn) && entry.author == "user")
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3);
+        assert!(!agent_support::compaction::is_summary(&requests[0]));
+        assert!(
+            requests[1..]
+                .iter()
+                .all(agent_support::compaction::is_summary)
+        );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
 }
 
 #[tokio::test]
-async fn submits_context_beyond_local_estimates() {
+async fn holds_oversized_input_without_model_work() {
     for remote in [false, true] {
-        let server = Server::summary(20_000).await;
-        let fixture = Fixture::files(remote, &server).await;
-        model(&fixture, 16_000, 2_048, false).await;
-        // Even the verbatim instruction alone exceeds the estimated context.
-        // Both the summary and the next real provider request still succeed.
-        let original = "x".repeat(70 * 1024);
-        assert!(original.len() > 16_000 * 4);
-        let (_, first, before) =
-            submit(&fixture.client, fixture.session.id, original.clone()).await;
-        let (_, second, after) = submit(
+        let server = Server::summary(100).await;
+        let fixture = fixture(remote, &server).await;
+        model(&fixture, 64_000, 2_048, false).await;
+        let original = "x".repeat(256 * 1024);
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: 1,
+                message: original.clone().into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected");
+        };
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Failed
+        );
+        assert!(page.queue.paused);
+        assert_eq!(page.queue.items[0].turn, turn.id);
+        assert!(
+            !page
+                .entries
+                .iter()
+                .any(|entry| entry.turn == turn.id && entry.author == "user")
+        );
+        assert!(server.requests.lock().unwrap().is_empty());
+        let Output::QueuedMessage(retained) = fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::ReadQueuedTurn { turn: turn.id }),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("retained input expected");
+        };
+        assert_eq!(retained.message.text, original);
+        let (_, next, page) = submit(
             &fixture.client,
             fixture.session.id,
-            "Continue with the original constraint".into(),
+            "A small independent request".into(),
         )
         .await;
-        for turn in [first, second] {
-            assert_eq!(
-                after
-                    .runs
-                    .iter()
-                    .find(|run| run.turn == turn)
-                    .unwrap()
-                    .status,
-                Status::Completed
-            );
-        }
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
-        assert!(
-            after
-                .entries
+        assert_eq!(
+            page.runs
                 .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| matches!(part, Part::Text(text) if text == &original))
+                .find(|run| run.turn == next)
+                .unwrap()
+                .status,
+            Status::Completed
         );
-        assert_eq!(summaries(&after), 1);
         assert!(
-            !after
-                .entries
+            page.queue
+                .items
                 .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| {
-                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")
-                })
+                .any(|item| item.turn == turn.id && !item.ready)
         );
-        {
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 3);
-            assert!(!agent_support::compaction::is_summary(&requests[0]));
-            assert!(agent_support::compaction::is_summary(&requests[1]));
-            assert!(!agent_support::compaction::is_summary(&requests[2]));
-            let retained = messages(&requests[2]);
-            assert!(retained.contains(&original));
-            assert!(retained.contains("Prepared summary"));
-            assert!(!retained.contains("compaction_failure"));
-        }
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        assert!(!messages(&server.requests.lock().unwrap()[0]).contains(&original));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

@@ -21,6 +21,31 @@ pub(super) struct Model {
     pub session: SessionId,
     pub stop: CancellationToken,
     pub limit: u64,
+    pub compaction: bool,
+}
+
+pub(super) fn context_overflow(error: &AdkError) -> bool {
+    if matches!(
+        error.category,
+        adk_core::ErrorCategory::Unauthorized
+            | adk_core::ErrorCategory::Forbidden
+            | adk_core::ErrorCategory::RateLimited
+            | adk_core::ErrorCategory::Cancelled
+    ) || matches!(error.details.upstream_status_code, Some(401 | 403 | 429))
+        || error
+            .details
+            .metadata
+            .get("incomplete_reason")
+            .and_then(serde_json::Value::as_str)
+            == Some("content_filter")
+    {
+        return false;
+    }
+    error.code == "model.sailry.context_overflow"
+        || matches!(
+            classification::Failure::new(error).class,
+            classification::Class::Terminal(Stop::ContextWindowExceeded)
+        )
 }
 
 #[async_trait]
@@ -53,6 +78,7 @@ impl Llm for Model {
         let session = self.session;
         let stop = self.stop.clone();
         let limit = self.limit;
+        let compaction = self.compaction;
         let mut identity = super::call::current().unwrap_or_default();
         identity.node = Some(ingress.node);
         identity.turn = turn;
@@ -68,6 +94,10 @@ impl Llm for Model {
                 ingress.agents.timeline(turn),
                 ingress.agents.sources(turn),
             );
+            capture
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .compaction = self.compaction;
             ingress.agents.observe_model(turn, capture.clone());
             capture
         });
@@ -158,7 +188,13 @@ impl Llm for Model {
                         limit,
                         at,
                         delay,
-                    } => (attempt, limit, at, delay),
+                    } => {
+                        if compaction && !super::call::summary_retry() {
+                            recovery.entry.recovery_decision = Some("attempts_exhausted");
+                            break Err(terminal(error, Stop::AttemptsExhausted));
+                        }
+                        (attempt, limit, at, delay)
+                    }
                 };
                 let fallback = (failure.switch
                     || (failure.transport == Some(Transport::WebSocket) && attempt == limit))

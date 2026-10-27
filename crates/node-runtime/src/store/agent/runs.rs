@@ -1,6 +1,6 @@
 use super::*;
 
-mod guidance;
+pub(super) mod guidance;
 mod input;
 pub(super) use input::{capture, hydrate};
 
@@ -263,7 +263,8 @@ pub(super) async fn list(
 }
 
 pub(in crate::store) async fn start(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
-    let run = get(db, turn).await?;
+    let previous = get(db, turn).await?;
+    let run = retry(db, turn).await?;
     if run.status != Status::Queued {
         return Err(Fault::new(ErrorCode::Conflict, "turn is no longer queued"));
     }
@@ -274,16 +275,50 @@ pub(in crate::store) async fn start(db: &Connection, turn: TurnId) -> Result<Run
     .await
     .map_err(storage_error)?;
     super::queue::bump(db, run.session).await?;
+    if previous.status != Status::Queued {
+        super::queue::pause(db, run.session, false).await?;
+    }
+    Ok(run)
+}
+
+pub(in crate::store::agent) async fn retry(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
+    let mut run = get(db, turn).await?;
+    if run.status == Status::Queued {
+        return Ok(run);
+    }
+    if !super::queue::retained(db, turn).await? {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "turn input has already been consumed",
+        ));
+    }
+    run.status = Status::Queued;
+    run.error = None;
+    run.started_ms = None;
+    run.finished_ms = None;
+    put(db, &run).await?;
     Ok(run)
 }
 
 pub(in crate::store) async fn stop(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
     let mut run = get(db, turn).await?;
     visible(db, run.session, turn).await?;
-    if run.status == Status::Queued {
+    if run.status == Status::Queued || super::queue::retained(db, turn).await? {
         super::background::release(db, turn, true).await?;
         super::queue::remove(db, turn, run.session).await?;
-        super::super::attachments::turns::clear(db, turn).await?;
+        let mut query = db
+            .prepare("SELECT input IS NULL FROM agent_runs WHERE turn=?1")
+            .await
+            .map_err(storage_error)?;
+        let row = query
+            .query_row([turn.to_string()])
+            .await
+            .map_err(storage_error)?;
+        let uncaptured: bool = row.get(0).map_err(storage_error)?;
+        drop(query);
+        if uncaptured {
+            super::super::attachments::turns::clear(db, turn).await?;
+        }
     } else if matches!(run.status, Status::Running | Status::Stopping) {
         super::queue::pause(db, run.session, true).await?;
         super::queue::guidance::clear(db, run.session, Some(turn)).await?;
@@ -293,19 +328,6 @@ pub(in crate::store) async fn stop(db: &Connection, turn: TurnId) -> Result<Run,
         Status::Running => Status::Stopping,
         status => status,
     };
-    put(db, &run).await?;
-    Ok(run)
-}
-
-pub(super) async fn handoff(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
-    let mut run = get(db, turn).await?;
-    if run.status != Status::Running {
-        return Err(Fault::new(
-            ErrorCode::Conflict,
-            "guidance recipient is not running",
-        ));
-    }
-    run.status = Status::Stopping;
     put(db, &run).await?;
     Ok(run)
 }
@@ -478,6 +500,7 @@ async fn claim_with(
         turn: queued.turn,
         provider,
         message: queued.message,
+        input_turn: None,
         followups,
         child: if recipient.is_some() {
             super::delegation::child(&transaction, run.turn).await?
@@ -506,7 +529,11 @@ async fn claim_with(
     )
     .await?;
     put(&transaction, &run).await?;
-    super::queue::remove(&transaction, run.turn, run.session).await?;
+    if run.kind == RunKind::Task {
+        super::queue::bump(&transaction, run.session).await?;
+    } else {
+        super::queue::remove(&transaction, run.turn, run.session).await?;
+    }
     let queue = super::queue::read(&transaction, run.session).await?;
     let envelope = changed(&transaction, database.node, run.session).await?;
     let child = super::children::get(&transaction, &run).await?;
@@ -590,9 +617,12 @@ pub(super) async fn finish_with(
             "turn execution has already ended",
         ));
     }
-    run.status = if matches!(run.status, Status::Stopping | Status::Cancelled)
-        && !matches!(status, Status::Continued | Status::Interrupted)
-    {
+    let stopped = run.status == Status::Cancelled
+        || (run.status == Status::Stopping
+            && super::queue::read(&database.connection, run.session)
+                .await?
+                .paused);
+    run.status = if stopped && !matches!(status, Status::Continued | Status::Interrupted) {
         Status::Cancelled
     } else {
         status
@@ -607,6 +637,32 @@ pub(super) async fn finish_with(
         .map_err(storage_error)?;
     run.error = error;
     run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+    let restored = guidance::restore(&transaction, turn).await?;
+    if matches!(
+        run.status,
+        Status::Failed | Status::Cancelled | Status::Interrupted
+    ) {
+        let retained = transaction.execute("UPDATE agent_runs SET ready=0 WHERE turn=?1 AND EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=?1)", [turn.to_string()]).await.map_err(storage_error)? > 0;
+        let mut query = transaction.prepare("SELECT EXISTS(SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.event_metadata.sailry_compaction_failure') IS NOT NULL AND json_extract(json_extract(body,'$.event_metadata.sailry_compaction_failure'),'$.continued')=0)").await.map_err(storage_error)?;
+        let halted: bool = query
+            .query_row([turn.to_string()])
+            .await
+            .map_err(storage_error)?
+            .get(0)
+            .map_err(storage_error)?;
+        drop(query);
+        if retained || halted {
+            transaction
+                .execute(
+                    "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1",
+                    [turn.to_string()],
+                )
+                .await
+                .map_err(storage_error)?;
+            super::queue::pause(&transaction, run.session, true).await?;
+            super::queue::guidance::clear(&transaction, run.session, Some(turn)).await?;
+        }
+    }
     if queued_child {
         super::queue::remove(&transaction, turn, run.session).await?;
     }
@@ -669,6 +725,11 @@ pub(super) async fn finish_with(
     let notices =
         super::super::database::record(&transaction, database.node, notice.into_iter().collect())
             .await?;
+    let mut restored_children = Vec::with_capacity(restored.len());
+    for restored in restored {
+        let child = super::children::get(&transaction, &restored).await?;
+        restored_children.push((restored, child));
+    }
     let publication = publication.lock().await;
     crate::store::database::conflict::commit(transaction).await?;
     let mut diagnostic = crate::logging::Entry::new(
@@ -716,6 +777,14 @@ pub(super) async fn finish_with(
     }
     // The question is pending consent, never a Running or Waiting execution.
     super::feed::run(database, run.clone()).await;
+    for (restored, child) in restored_children {
+        super::feed::run(database, restored).await;
+        if let Some(child) = child {
+            database
+                .feeds
+                .publish(database.node, child.origin.session, Change::Child(child));
+        }
+    }
     for question in questions {
         database
             .feeds
@@ -771,6 +840,13 @@ pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
             run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
         }
         run.status = Status::Interrupted;
+        db.execute(
+            "UPDATE agent_runs SET ready=0 WHERE turn=?1",
+            [run.turn.to_string()],
+        )
+        .await
+        .map_err(storage_error)?;
+        let _ = guidance::restore(db, run.turn).await?;
         super::approvals::close(db, run.turn, ApprovalState::Interrupted).await?;
         super::questions::close(db, run.turn, question::State::Interrupted).await?;
         super::queue::pause(db, run.session, true).await?;

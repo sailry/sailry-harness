@@ -1,4 +1,4 @@
-//! Compact complete canonical prefixes through ADK's per-model callback.
+//! Prepare immutable prefixes in the background and apply at a safe model boundary.
 use super::*;
 use crate::store::agent::{ContextUsage, compaction::History};
 use adk_core::BeforeModelResult;
@@ -7,34 +7,37 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+mod background;
 mod matching;
 mod native;
+mod recovery;
+mod state;
+#[cfg(test)]
+mod tests;
+use background::Candidate;
 use matching::{Checkpoint, tail};
+pub(in crate::agent) use state::State;
 
-pub(super) struct Context {
+const PREPARE_PERCENT: u64 = 85;
+const PROTECTED_OUTPUT: u64 = 50_000;
+const MINIMUM_SAVING: u64 = 30_000;
+pub(crate) const MASKS: &str = "sailry.context.masked_outputs";
+pub(crate) const PROJECTION: &str = "sailry_context_projection";
+
+pub(in crate::agent) struct Context {
     ingress: Arc<Ingress>,
     service: Arc<dyn SessionService>,
     session: sailry_protocol::SessionId,
     summarizer: Summarizer,
     preamble: Content,
     applied: AtomicBool,
-    manual_applied: AtomicBool,
+    rebuilt: AtomicBool,
+    restored: AtomicBool,
     retention: AtomicUsize,
-    attempted: Mutex<Option<Attempt>>,
+    state: Arc<State>,
     checkpoint: Mutex<Option<Arc<Checkpoint>>>,
-}
-
-struct Attempt {
-    end: String,
-    length: usize,
-    // A larger retention window alone is not newly completed work.
-    frontier: Option<String>,
-}
-
-impl Attempt {
-    fn advances(&self, next: &Self) -> bool {
-        self.end != next.end && next.length > self.length && self.frontier != next.frontier
-    }
+    candidate: Mutex<Option<Candidate>>,
+    gate: tokio::sync::Mutex<()>,
 }
 
 impl Context {
@@ -45,6 +48,7 @@ impl Context {
         summarizer: Summarizer,
         instruction: String,
     ) -> Self {
+        let state = ingress.agents.compaction(summarizer.turn);
         Self {
             ingress,
             service,
@@ -52,43 +56,37 @@ impl Context {
             summarizer,
             preamble: Content::new("system").with_text(instruction),
             applied: AtomicBool::new(false),
-            manual_applied: AtomicBool::new(false),
+            rebuilt: AtomicBool::new(false),
+            restored: AtomicBool::new(false),
             retention: AtomicUsize::new(1),
-            attempted: Mutex::new(None),
+            state,
             checkpoint: Mutex::new(None),
+            candidate: Mutex::new(None),
+            gate: Default::default(),
         }
+    }
+
+    pub(in crate::agent) fn model(self: &Arc<Self>, model: Arc<dyn Llm>) -> Arc<dyn Llm> {
+        recovery::wrap(self.clone(), model)
+    }
+
+    fn window(&self) -> Option<model::history::Window> {
+        Some(model::history::Window {
+            context: self.summarizer.context?,
+            output: self.summarizer.output.unwrap_or(4096).max(0) as u64,
+        })
     }
 
     async fn summarize(
         &self,
         events: &[Event],
         automatic: bool,
-        frontier: Option<&str>,
+        tools: &std::collections::HashMap<String, serde_json::Value>,
     ) -> adk_core::Result<Option<Event>> {
-        let last = events
-            .iter()
-            .rev()
-            .find(|event| event.content().is_some())
-            .map(|event| event.id.clone());
-        if automatic && let Some(last) = last {
-            let mut attempted = self
-                .attempted
-                .lock()
-                .map_err(|_| invalid("context attempt state is unavailable"))?;
-            let next = Attempt {
-                end: last,
-                length: events.len(),
-                frontier: frontier.map(str::to_owned),
-            };
-            if attempted
-                .as_ref()
-                .is_some_and(|previous| !previous.advances(&next))
-            {
-                return Ok(None);
-            }
-            *attempted = Some(next);
-        }
-        self.summarizer
+        let mut summarizer = self.summarizer.clone();
+        summarizer.tools = Some(tools.clone());
+        summarizer.masks = Some(self.state.masked()?);
+        summarizer
             .summarize_with(
                 events,
                 if automatic {
@@ -119,6 +117,35 @@ impl Context {
         usage
             .tokens
             .saturating_add(estimate::tokens(&usage.pending))
+    }
+
+    /// A provider observation is authoritative for the content it measured; only
+    /// later canonical content and pending input are estimated. Without one, the
+    /// projected request is estimated.
+    async fn tokens(&self, request: &LlmRequest, pending: &[Content]) -> adk_core::Result<u64> {
+        Ok(match self.usage().await?.filter(|usage| usage.observed) {
+            Some(usage) => Self::projected(&usage).saturating_add(
+                pending
+                    .iter()
+                    .map(|content| 4 + content.parts.iter().map(estimate::part).sum::<u64>())
+                    .sum::<u64>(),
+            ),
+            None => estimate::request(request)?,
+        })
+    }
+
+    fn mask(
+        &self,
+        request: &mut LlmRequest,
+        protect: u64,
+        minimum: u64,
+        revisions: &model::history::Revisions,
+    ) -> adk_core::Result<u64> {
+        let saved = model::history::mask(request, protect, minimum, revisions)?;
+        if saved > 0 {
+            self.state.mask(model::history::masked(request))?;
+        }
+        Ok(saved)
     }
 
     fn candidates(&self, history: &History, keep: usize) -> Vec<usize> {
@@ -176,15 +203,49 @@ impl Context {
         &self,
         history: &History,
         request: &LlmRequest,
-        keep: usize,
         invocation: &str,
+        pending: bool,
     ) -> adk_core::Result<Option<usize>> {
         self.summarizer.prefix(
             &history.events,
-            self.candidates(history, keep).into_iter().filter(|cut| {
-                tail(request, &history.events[*cut..], &self.preamble, invocation).is_some()
-            }),
+            self.candidates(history, self.retention.load(Ordering::Relaxed))
+                .into_iter()
+                .filter(|cut| {
+                    pending
+                        || tail(request, &history.events[*cut..], &self.preamble, invocation)
+                            .is_some()
+                }),
+            self.summarizer.recent(),
         )
+    }
+
+    fn rebuild(
+        &self,
+        request: &mut LlmRequest,
+        history: &History,
+        invocation: &str,
+        pending: &[Content],
+    ) -> adk_core::Result<()> {
+        *self
+            .checkpoint
+            .lock()
+            .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
+        match matching::rebuild(request, &history.events, &self.preamble, invocation) {
+            Ok(()) => {
+                request.contents.extend_from_slice(pending);
+                Ok(())
+            }
+            // A changed preamble keeps the supplied request uncompacted; the
+            // saved summary still applies to a fresh runner.
+            Err(error)
+                if failure::classify(&error) == (Stage::History, Reason::HistoryMismatch) =>
+            {
+                self.summarizer
+                    .failure(SummaryMode::Automatic, "rebuild", &error);
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn saved(
@@ -218,17 +279,425 @@ impl Context {
         let checkpoint = Checkpoint::new(request, index, content.clone(), offset);
         request.contents.splice(1..index, [content.clone()]);
         request.previous_response_id = None;
-        *self
-            .checkpoint
-            .lock()
-            .map_err(|_| invalid("context checkpoint is unavailable"))? =
-            Some(Arc::new(checkpoint));
-        *self
-            .attempted
-            .lock()
-            .map_err(|_| invalid("context attempt state is unavailable"))? = None;
+        if !self.rebuilt.load(Ordering::Relaxed) {
+            *self
+                .checkpoint
+                .lock()
+                .map_err(|_| invalid("context checkpoint is unavailable"))? =
+                Some(Arc::new(checkpoint));
+        }
         self.applied.store(true, Ordering::Relaxed);
         Ok(())
+    }
+
+    async fn reconcile(
+        &self,
+        request: &mut LlmRequest,
+        invocation: &str,
+    ) -> adk_core::Result<usize> {
+        if self.rebuilt.load(Ordering::Relaxed) {
+            self.rebuild(request, &self.history().await?, invocation, &[])?;
+            return Ok(0);
+        }
+        let checkpoint = self
+            .checkpoint
+            .lock()
+            .map_err(|_| invalid("context checkpoint is unavailable"))?
+            .clone();
+        if let Some(checkpoint) = checkpoint {
+            if checkpoint.apply(request, &self.preamble).is_ok() {
+                return Ok(checkpoint.offset());
+            }
+            // A stale live checkpoint is disposable. Rebuild through the same
+            // canonical SessionService window that a fresh Runner receives.
+            self.rebuilt.store(true, Ordering::Relaxed);
+            self.rebuild(request, &self.history().await?, invocation, &[])?;
+        } else if self.applied.load(Ordering::Relaxed) {
+            let history = self.history().await?;
+            let summary = history.events.first().filter(|event| {
+                event
+                    .provider_metadata
+                    .contains_key(crate::store::agent::compaction::END_EVENT)
+            });
+            if let Some(summary) = summary {
+                if self
+                    .saved(request, &history.events[1..], summary, 0, invocation)
+                    .is_ok()
+                {
+                    return Ok(self
+                        .checkpoint
+                        .lock()
+                        .map_err(|_| invalid("context checkpoint is unavailable"))?
+                        .as_ref()
+                        .expect("saved summary has a checkpoint")
+                        .offset());
+                }
+            }
+            self.rebuilt.store(true, Ordering::Relaxed);
+            self.rebuild(request, &history, invocation, &[])?;
+        }
+        Ok(0)
+    }
+
+    fn discard_candidate(&self) -> adk_core::Result<()> {
+        self.candidate
+            .lock()
+            .map_err(|_| invalid("prepared context is unavailable"))?
+            .take();
+        Ok(())
+    }
+
+    fn prepare_background(
+        &self,
+        history: &History,
+        tokens: u64,
+        tools: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> adk_core::Result<()> {
+        let masks = self.state.masked()?;
+        let mut candidate = self
+            .candidate
+            .lock()
+            .map_err(|_| invalid("prepared context is unavailable"))?;
+        if candidate
+            .as_ref()
+            .is_some_and(|candidate| !candidate.matches(history, &self.preamble, tools, &masks))
+        {
+            candidate.take();
+        }
+        if candidate.is_some() {
+            return Ok(());
+        }
+        // Only an attempted foreground or applied summary advances the growth gate.
+        if !self.state.allows(tokens, false)? {
+            return Ok(());
+        }
+        let Some(cut) = self.summarizer.prefix(
+            &history.events,
+            self.candidates(history, self.retention.load(Ordering::Relaxed))
+                .into_iter(),
+            self.summarizer.recent(),
+        )?
+        else {
+            return Ok(());
+        };
+        let mut summarizer = self.summarizer.clone();
+        summarizer.tools = Some(tools.clone());
+        summarizer.masks = Some(self.state.masked()?);
+        *candidate = Some(Candidate::start(
+            history.events[..cut].to_vec(),
+            self.preamble.clone(),
+            summarizer,
+        ));
+        Ok(())
+    }
+
+    async fn prepared(
+        &self,
+        history: &History,
+        wait: bool,
+        tools: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> adk_core::Result<Option<(usize, Option<Event>)>> {
+        let masks = self.state.masked()?;
+        let candidate = {
+            let mut candidate = self
+                .candidate
+                .lock()
+                .map_err(|_| invalid("prepared context is unavailable"))?;
+            if candidate
+                .as_ref()
+                .is_some_and(|candidate| !candidate.matches(history, &self.preamble, tools, &masks))
+            {
+                candidate.take();
+            }
+            if candidate
+                .as_ref()
+                .is_some_and(|candidate| wait || candidate.ready())
+            {
+                candidate.take()
+            } else {
+                None
+            }
+        };
+        match candidate {
+            Some(candidate) => candidate.finish().await.map(Some),
+            None => Ok(None),
+        }
+    }
+
+    async fn restore_masks(&self) -> adk_core::Result<()> {
+        if self.restored.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let session = self
+            .service
+            .get(adk_session::GetRequest {
+                app_name: APP.into(),
+                user_id: USER.into(),
+                session_id: self.session.to_string(),
+                num_recent_events: Some(0),
+                after: None,
+            })
+            .await?;
+        if let Some(value) = session.state().get(MASKS) {
+            self.state.mask(
+                serde_json::from_value(value)
+                    .map_err(|_| invalid("saved output masks are invalid"))?,
+            )?;
+        }
+        self.restored.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    async fn invalidate(&self, request: &LlmRequest, pending: &[Content]) -> adk_core::Result<()> {
+        self.state.mask(model::history::masked(request))?;
+        let mut canonical = request.clone();
+        canonical
+            .contents
+            .truncate(canonical.contents.len().saturating_sub(pending.len()));
+        let tokens = estimate::request(&canonical)?;
+        let mut event = Event::new(self.summarizer.turn.to_string());
+        event.author = "system".into();
+        event
+            .actions
+            .state_delta
+            .insert(MASKS.into(), json!(self.state.masked()?));
+        event
+            .provider_metadata
+            .insert(PROJECTION.into(), json!({"tokens":tokens}).to_string());
+        self.service
+            .append_event(&self.session.to_string(), event)
+            .await
+    }
+
+    async fn apply(
+        &self,
+        request: &mut LlmRequest,
+        history: &History,
+        cut: usize,
+        summary: Event,
+        offset: usize,
+        invocation: &str,
+        pending: &[Content],
+    ) -> adk_core::Result<()> {
+        let current = self.history().await?;
+        if current.events.len() < cut
+            || !history.events[..cut]
+                .iter()
+                .zip(&current.events)
+                .all(|(captured, current)| captured.id == current.id)
+        {
+            return Err(invalid_at(
+                Stage::History,
+                Reason::HistoryMismatch,
+                "prepared context no longer matches canonical history",
+            ));
+        }
+        if pending.is_empty()
+            && tail(request, &history.events[cut..], &self.preamble, invocation).is_none()
+        {
+            return Err(invalid_at(
+                Stage::History,
+                Reason::HistoryMismatch,
+                "model context does not match the prepared summary",
+            ));
+        }
+        self.service
+            .append_event(&self.session.to_string(), summary.clone())
+            .await
+            .map_err(save_error)?;
+        // The canonical read path rehydrates owner context for both live
+        // application and a fresh Runner. Persisted handoffs contain no copies.
+        let materialized = self.history().await?;
+        let summary = materialized
+            .events
+            .first()
+            .filter(|event| event.id == summary.id)
+            .ok_or_else(|| {
+                invalid_at(
+                    Stage::History,
+                    Reason::HistoryMismatch,
+                    "saved summary is no longer the active context boundary",
+                )
+            })?;
+        self.applied.store(true, Ordering::Relaxed);
+        if !pending.is_empty() {
+            self.rebuild(request, &materialized, invocation, pending)?;
+        } else if self
+            .saved(request, &history.events[cut..], summary, offset, invocation)
+            .is_err()
+        {
+            self.rebuilt.store(true, Ordering::Relaxed);
+            self.rebuild(request, &materialized, invocation, pending)?;
+        }
+        Ok(())
+    }
+
+    async fn transform(
+        &self,
+        invocation: &str,
+        mut request: LlmRequest,
+        pending: &[Content],
+        forced: bool,
+    ) -> adk_core::Result<LlmRequest> {
+        let _boundary = self.gate.lock().await;
+        if self.summarizer.stop.is_cancelled() {
+            return Err(invalid("context compaction was cancelled"));
+        }
+        let offset = if pending.is_empty() {
+            self.reconcile(&mut request, invocation).await?
+        } else {
+            0
+        };
+        self.restore_masks().await?;
+        let history = self.history().await?;
+        let revisions = model::history::revisions(&history.events);
+        // Summary boundaries match the unmasked request; masks are reapplied last.
+        let mut projected = request.clone();
+        model::history::remask(&mut projected, &self.state.masked()?, &revisions);
+        let tokens = self.tokens(&projected, pending).await?;
+        let above = |tokens| self.summarizer.needs_compaction(Some(tokens));
+        if !forced && !above(tokens) {
+            if self
+                .summarizer
+                .budget
+                .is_some_and(|budget| tokens >= budget * PREPARE_PERCENT / 100)
+            {
+                self.prepare_background(&history, tokens, &request.tools)?;
+            }
+            let projection = model::history::limit(&mut projected, self.window(), &revisions)?;
+            if self.state.project(projection)? {
+                self.invalidate(&projected, pending).await?;
+            }
+            return Ok(projected);
+        }
+        if !forced {
+            // Masking older results usually suffices; a prepared summary stays
+            // available for a later boundary.
+            let saved = self.mask(&mut projected, PROTECTED_OUTPUT, MINIMUM_SAVING, &revisions)?;
+            if saved > 0 && !above(tokens.saturating_sub(saved)) {
+                let projection = model::history::limit(&mut projected, self.window(), &revisions)?;
+                self.state.project(projection)?;
+                self.invalidate(&projected, pending).await?;
+                return Ok(projected);
+            }
+        }
+        // Failures are judged against the request sent without compaction.
+        if let Err(error) = model::history::limit(&mut projected, self.window(), &revisions)
+            && !model::context_overflow(&error)
+        {
+            return Err(error);
+        }
+        let initial = estimate::request(&projected)?;
+        drop(projected);
+        let prepared = match self.prepared(&history, true, &request.tools).await {
+            Ok(Some(prepared)) => Ok(Some(prepared)),
+            Ok(None) => match self.cut(&history, &request, invocation, !pending.is_empty())? {
+                Some(cut) if self.state.allows(tokens, forced)? => self
+                    .summarize(&history.events[..cut], true, &request.tools)
+                    .await
+                    .map(|summary| Some((cut, summary))),
+                // A gated attempt or no eligible completed prefix is not a
+                // failed summary; immutable input still has to fit the window.
+                _ => Ok(None),
+            },
+            Err(error) => Err(error),
+        };
+        let mut applied = false;
+        let result = match prepared {
+            Ok(Some((cut, Some(summary)))) => {
+                let result = self
+                    .apply(
+                        &mut request,
+                        &history,
+                        cut,
+                        summary,
+                        offset,
+                        invocation,
+                        pending,
+                    )
+                    .await;
+                applied = result.is_ok();
+                result
+            }
+            Ok(_) => Ok(()),
+            Err(error) => Err(error),
+        };
+        let failure = match result {
+            Err(error)
+                if failure::classify(&error) == (Stage::History, Reason::HistoryMismatch) =>
+            {
+                self.rebuild(&mut request, &self.history().await?, invocation, pending)?;
+                if pending.is_empty() {
+                    self.rebuilt.store(true, Ordering::Relaxed);
+                }
+                None
+            }
+            Err(error) if failure::projectable(&error) || failure::transient(&error) => Some(error),
+            Err(error) => return Err(error),
+            Ok(()) => None,
+        };
+        model::history::remask(&mut request, &self.state.masked()?, &revisions);
+        let mut saved = self.mask(&mut request, PROTECTED_OUTPUT, MINIMUM_SAVING, &revisions)?;
+        if applied && above(estimate::request(&request)?) {
+            // Retained results that keep the new window above the trigger are
+            // masked now rather than summarized again at the next step.
+            saved += self.mask(&mut request, 0, 0, &revisions)?;
+        }
+        let projection = model::history::limit(&mut request, self.window(), &revisions)?;
+        let changed = self.state.project(projection)?;
+        let after = estimate::request(&request)?;
+        let failure = match failure {
+            // Exhausted transient retries continue with the retained context.
+            Some(error) if !failure::transient(&error) && after >= initial => return Err(error),
+            failure => failure,
+        };
+        if applied {
+            self.state.record(after)?;
+        } else if failure.is_some() {
+            self.state.record(tokens)?;
+        }
+        if applied || saved > 0 || changed {
+            self.invalidate(&request, pending).await?;
+        }
+        if let Some(error) = failure {
+            self.notice(&error, SummaryMode::Automatic, true).await?;
+        }
+        Ok(request)
+    }
+
+    pub(in crate::agent) async fn preflight(
+        &self,
+        pending: &[Content],
+        tools: std::collections::HashMap<String, serde_json::Value>,
+    ) -> adk_core::Result<()> {
+        let history = self.history().await?;
+        let mut request =
+            LlmRequest::new(self.summarizer.model.name(), vec![self.preamble.clone()]);
+        request.contents.extend(
+            history
+                .events
+                .iter()
+                .filter_map(|event| super::history::project(event, "")),
+        );
+        request.contents.extend_from_slice(pending);
+        request.tools = tools;
+        let result = self
+            .transform("", request, pending, false)
+            .await
+            .map(|_| ())
+            .map_err(|error| {
+                if model::context_overflow(&error) {
+                    request_error(error)
+                } else {
+                    error
+                }
+            });
+        if let Err(error) = &result
+            && !self.summarizer.stop.is_cancelled()
+        {
+            self.halt(error, SummaryMode::Automatic).await?;
+        }
+        result
     }
 
     pub(super) async fn before(
@@ -236,196 +705,30 @@ impl Context {
         invocation: &str,
         request: LlmRequest,
     ) -> adk_core::Result<BeforeModelResult> {
-        let result = self.before_inner(invocation, request).await;
+        let result = self
+            .transform(invocation, request, &[], false)
+            .await
+            .map_err(|error| {
+                if model::context_overflow(&error) {
+                    request_error(error)
+                } else {
+                    error
+                }
+            });
         if let Err(error) = &result
             && !self.summarizer.stop.is_cancelled()
         {
-            self.notice(
-                error,
-                if self.manual_applied.load(Ordering::Relaxed) {
-                    SummaryMode::Manual
-                } else {
-                    SummaryMode::Automatic
-                },
-                false,
-            )
-            .await?;
+            self.halt(error, SummaryMode::Automatic).await?;
         }
-        result
+        result.map(BeforeModelResult::Continue)
     }
 
-    async fn before_inner(
-        &self,
-        invocation: &str,
-        mut request: LlmRequest,
-    ) -> adk_core::Result<BeforeModelResult> {
-        if self.summarizer.stop.is_cancelled() {
-            return Err(invalid("context compaction was cancelled"));
-        }
-        let checkpoint = self
-            .checkpoint
-            .lock()
-            .map_err(|_| invalid("context checkpoint is unavailable"))?
-            .clone();
-        let mut offset = if let Some(checkpoint) = &checkpoint {
-            checkpoint.apply(&mut request, &self.preamble)?;
-            checkpoint.offset()
-        } else {
-            0
-        };
-        if self.applied.load(Ordering::Relaxed) && checkpoint.is_none() {
-            let history = self.history().await?;
-            let summary = history
-                .events
-                .first()
-                .filter(|event| {
-                    event
-                        .provider_metadata
-                        .contains_key(crate::store::agent::compaction::END_EVENT)
-                })
-                .ok_or_else(|| {
-                    invalid_at(
-                        Stage::History,
-                        Reason::HistoryMismatch,
-                        "persisted context summary is missing",
-                    )
-                })?;
-            self.saved(&mut request, &history.events[1..], summary, 0, invocation)?;
-            offset = self
-                .checkpoint
-                .lock()
-                .map_err(|_| invalid("context checkpoint is unavailable"))?
-                .as_ref()
-                .unwrap()
-                .offset();
-        }
-        let usage = self.usage().await?;
-        // Estimates trigger compaction only after a summary invalidates the
-        // provider observation. Do not rescan a measured request every batch.
-        let projected = match usage.as_ref() {
-            Some(usage) if usage.observed => Some(Self::projected(usage)),
-            Some(_) => Some(estimate::request(&request)?),
-            None => None,
-        };
-        let compact = self.summarizer.needs_compaction(projected);
-        if !compact {
-            return Ok(BeforeModelResult::Continue(request));
-        }
-        self.manual_applied.store(false, Ordering::Relaxed);
-        let history = self.history().await?;
-        let keep = self.retention.load(Ordering::Relaxed);
-        let Some(cut) = self.cut(&history, &request, keep, invocation)? else {
-            let candidates = self.candidates(&history, keep);
-            let mismatch = !candidates.is_empty()
-                && !candidates.iter().any(|cut| {
-                    tail(
-                        &request,
-                        &history.events[*cut..],
-                        &self.preamble,
-                        invocation,
-                    )
-                    .is_some()
-                });
-            if mismatch {
-                let key = self
-                    .candidates(&history, keep)
-                    .first()
-                    .and_then(|cut| {
-                        history.events[..*cut]
-                            .iter()
-                            .rev()
-                            .find(|event| event.content().is_some())
-                    })
-                    .map(|event| format!("match:{}", event.id));
-                let warn = {
-                    let mut attempted = self
-                        .attempted
-                        .lock()
-                        .map_err(|_| invalid("context attempt state is unavailable"))?;
-                    let length = self
-                        .candidates(&history, keep)
-                        .first()
-                        .copied()
-                        .unwrap_or(0);
-                    let next = key.map(|end| Attempt {
-                        end,
-                        length,
-                        frontier: history.frontier.clone(),
-                    });
-                    let warn = next.as_ref().is_some_and(|next| {
-                        attempted
-                            .as_ref()
-                            .is_none_or(|previous| previous.advances(next))
-                    });
-                    if warn {
-                        *attempted = next;
-                    }
-                    warn
-                };
-                if warn {
-                    self.notice(
-                        &invalid_at(
-                            Stage::History,
-                            Reason::HistoryMismatch,
-                            "model context does not match the persisted summary",
-                        ),
-                        SummaryMode::Automatic,
-                        true,
-                    )
-                    .await?;
-                }
-            }
-            return Ok(BeforeModelResult::Continue(request));
-        };
-        // The helper model owns bounded transient retries. Never repeat a
-        // completed invalid summary or a failed save through another loop.
-        let result = self
-            .summarize(&history.events[..cut], true, history.frontier.as_deref())
-            .await;
-        let result = match result {
-            Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
-                // Verify canonical matching before persisting a new boundary.
-                tail(&request, &history.events[cut..], &self.preamble, invocation).ok_or_else(
-                    || {
-                        invalid_at(
-                            Stage::History,
-                            Reason::HistoryMismatch,
-                            "model context does not match the persisted summary",
-                        )
-                    },
-                )?;
-                match self
-                    .service
-                    .append_event(&self.session.to_string(), summary.clone())
-                    .await
-                {
-                    Ok(()) => {
-                        self.saved(
-                            &mut request,
-                            &history.events[cut..],
-                            &summary,
-                            offset,
-                            invocation,
-                        )?;
-                        return Ok(BeforeModelResult::Continue(request));
-                    }
-                    Err(error) => {
-                        self.summarizer
-                            .failure(SummaryMode::Automatic, "persistence", &error);
-                        Err(save_error(error))
-                    }
-                }
-            }
-            other => other,
-        };
-        let failure = result.err();
-        if self.summarizer.stop.is_cancelled() {
-            return Err(invalid("context compaction was cancelled"));
-        }
-        if let Some(error) = failure {
-            self.notice(&error, SummaryMode::Automatic, true).await?;
-        }
-        Ok(BeforeModelResult::Continue(request))
+    async fn halt(&self, error: &adk_core::AdkError, mode: SummaryMode) -> adk_core::Result<()> {
+        self.discard_candidate()?;
+        self.ingress
+            .agents
+            .halt(self.summarizer.turn, model::error(error));
+        self.notice(error, mode, false).await
     }
 
     async fn notice(
@@ -448,160 +751,9 @@ impl Context {
 
 #[async_trait]
 impl BaseEventsSummarizer for Context {
-    async fn summarize_events(&self, window: &[Event]) -> adk_core::Result<Option<Event>> {
-        let result = self.after(window).await;
-        if let Err(error) = &result
-            && !self.summarizer.stop.is_cancelled()
-        {
-            self.notice(error, SummaryMode::Automatic, true).await?;
-        }
-        result
-    }
-}
-
-impl Context {
-    async fn after(&self, window: &[Event]) -> adk_core::Result<Option<Event>> {
-        let usage = self.usage().await?;
-        let tokens = usage.as_ref().map(Self::projected);
-        if !self.summarizer.needs_compaction(tokens) || self.summarizer.stop.is_cancelled() {
-            return Ok(None);
-        }
-        let Some(last) = window.last() else {
-            return Ok(None);
-        };
-        let history = self.history().await?;
-        let Some(end) = history.events.iter().position(|event| event.id == last.id) else {
-            return Ok(None);
-        };
-        let candidates = history
-            .completed
-            .iter()
-            .rev()
-            .copied()
-            .filter(|cut| *cut <= end + 1);
-        let Some(cut) = self.summarizer.prefix(&history.events, candidates)? else {
-            return Ok(None);
-        };
-        match self
-            .summarize(&history.events[..cut], true, history.frontier.as_deref())
-            .await
-        {
-            Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
-                // Own persistence through the same canonical service so a rejected
-                // checkpoint is observable, rather than ADK logging it silently.
-                match self
-                    .service
-                    .append_event(&self.session.to_string(), summary)
-                    .await
-                {
-                    Ok(()) => {
-                        *self
-                            .checkpoint
-                            .lock()
-                            .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
-                        *self
-                            .attempted
-                            .lock()
-                            .map_err(|_| invalid("context attempt state is unavailable"))? = None;
-                        self.applied.store(true, Ordering::Relaxed);
-                    }
-                    Err(error) => {
-                        self.summarizer
-                            .failure(SummaryMode::Automatic, "persistence", &error);
-                        self.notice(&save_error(error), SummaryMode::Automatic, true)
-                            .await?;
-                    }
-                }
-                // The event is already persisted; do not ask Runner to append it twice.
-                Ok(None)
-            }
-            Err(error) => {
-                self.notice(&error, SummaryMode::Automatic, true).await?;
-                Ok(None)
-            }
-            _ => Ok(None),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn retries_only_after_completed_work() {
-        let previous = Attempt {
-            end: "first".into(),
-            length: 4,
-            frontier: Some("turn:third".into()),
-        };
-        let retained = Attempt {
-            end: "second".into(),
-            length: 6,
-            frontier: Some("turn:third".into()),
-        };
-        assert!(!previous.advances(&retained));
-        let metadata = Attempt {
-            end: "retry".into(),
-            length: 12,
-            frontier: Some("turn:third".into()),
-        };
-        assert!(!previous.advances(&metadata));
-        let exchange = Attempt {
-            end: "next".into(),
-            length: 8,
-            frontier: Some("exchange:result".into()),
-        };
-        assert!(previous.advances(&exchange));
-        assert!(!previous.advances(&Attempt {
-            end: previous.end.clone(),
-            ..exchange
-        }));
-        assert!(!previous.advances(&Attempt {
-            end: "older".into(),
-            length: 3,
-            frontier: Some("exchange:new".into())
-        }));
-    }
-
-    #[test]
-    fn preserves_retained_provider_parts() {
-        let preamble = Content::new("system").with_text("Instructions");
-        let content = Content::new("model").with_text("Repeated response");
-        let mut event = Event::new("invocation");
-        let mut augmented = content.clone();
-        augmented.parts.push(Part::Thinking {
-            thinking: "Retained reasoning".into(),
-            signature: Some("retained-signature".into()),
-        });
-        event.set_content(augmented.clone());
-        let mut request = LlmRequest {
-            model: "fixture".into(),
-            contents: vec![
-                preamble.clone().with_text("Scoped project instructions"),
-                content,
-                augmented.clone(),
-            ],
-            config: None,
-            tools: Default::default(),
-            previous_response_id: None,
-        };
-        let index = tail(&request, &[event.clone()], &preamble, "current").unwrap();
-        assert_eq!(index, 2);
-        request
-            .contents
-            .splice(1..index, [Content::new("model").with_text("Summary")]);
-        assert_eq!(request.contents[2].parts, augmented.parts);
-        assert!(
-            tail(
-                &request,
-                &[event.clone()],
-                &Content::new("system").with_text("Changed instructions"),
-                "current",
-            )
-            .is_none()
-        );
-        request.contents[2].parts.reverse();
-        assert!(tail(&request, &[event], &preamble, "current").is_none());
+    async fn summarize_events(&self, _window: &[Event]) -> adk_core::Result<Option<Event>> {
+        // A completed ADK epoch cannot start a second persistence path. The next
+        // ordinary admission/before-model boundary owns applying its candidate.
+        Ok(None)
     }
 }

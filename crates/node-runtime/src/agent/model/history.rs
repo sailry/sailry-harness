@@ -10,11 +10,28 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 mod mcp;
-mod output;
+pub(in crate::agent) mod output;
 
 struct Model {
     inner: Arc<dyn Llm>,
     origin: ProviderOrigin,
+    window: Option<Window>,
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::agent) struct Window {
+    pub(in crate::agent) context: u64,
+    pub(in crate::agent) output: u64,
+}
+
+impl Window {
+    pub(in crate::agent) fn new(provider: &Provider, model: &str) -> Option<Self> {
+        let model = provider.models.iter().find(|entry| entry.id == model)?;
+        (model.context > 0).then_some(Self {
+            context: u64::from(model.context),
+            output: u64::from(model.output),
+        })
+    }
 }
 
 pub(super) fn origin(
@@ -67,8 +84,16 @@ pub(super) fn origin(
     }
 }
 
-pub(super) fn wrap(inner: Arc<dyn Llm>, origin: ProviderOrigin) -> Arc<dyn Llm> {
-    Arc::new(Model { inner, origin })
+pub(super) fn wrap(
+    inner: Arc<dyn Llm>,
+    origin: ProviderOrigin,
+    window: Option<Window>,
+) -> Arc<dyn Llm> {
+    Arc::new(Model {
+        inner,
+        origin,
+        window,
+    })
 }
 
 /// Projects history for one request owner and stamps that owner on its responses.
@@ -77,6 +102,7 @@ pub(super) fn wrap(inner: Arc<dyn Llm>, origin: ProviderOrigin) -> Arc<dyn Llm> 
 pub(super) async fn generate<F, Fut>(
     mut request: LlmRequest,
     origin: ProviderOrigin,
+    window: Option<Window>,
     generate: F,
 ) -> adk_core::Result<LlmResponseStream>
 where
@@ -84,14 +110,39 @@ where
     Fut: std::future::Future<Output = adk_core::Result<LlmResponseStream>>,
 {
     project(&mut request, &origin);
+    limit(&mut request, window, &Revisions::new())?;
     Ok(responses(generate(request).await?, origin))
 }
 
 fn project(request: &mut LlmRequest, origin: &ProviderOrigin) {
     adk_core::history::for_provider(&mut request.contents, origin);
     mcp::project(&mut request.contents);
-    output::project(&mut request.contents);
     coalesce(&mut request.contents);
+}
+
+pub(in crate::agent) use output::{Masks, Revisions, masked, remask, revisions};
+
+/// Returns a fingerprint of results shortened for the window, if any.
+pub(in crate::agent) fn limit(
+    request: &mut LlmRequest,
+    window: Option<Window>,
+    revisions: &Revisions,
+) -> adk_core::Result<Option<String>> {
+    output::project(&mut request.contents);
+    output::limit(request, window, revisions)
+}
+
+pub(in crate::agent) fn mask(
+    request: &mut LlmRequest,
+    protect: u64,
+    minimum: u64,
+    revisions: &Revisions,
+) -> adk_core::Result<u64> {
+    output::mask(request, protect, minimum, revisions)
+}
+
+pub(in crate::agent) fn protected(name: &str, value: &serde_json::Value) -> bool {
+    output::protected(name, value)
 }
 
 fn stamp(response: &mut LlmResponse, origin: &ProviderOrigin) {
@@ -135,7 +186,7 @@ impl Llm for Model {
         request: LlmRequest,
         stream: bool,
     ) -> adk_core::Result<LlmResponseStream> {
-        generate(request, self.origin.clone(), |request| {
+        generate(request, self.origin.clone(), self.window, |request| {
             self.inner.generate_content(request, stream)
         })
         .await

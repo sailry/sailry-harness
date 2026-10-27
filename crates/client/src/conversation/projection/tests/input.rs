@@ -56,6 +56,7 @@ fn canonical_user_replaces_capture() {
         ],
         citations: Vec::new(),
         search_suggestions: None,
+        commentary: Default::default(),
         usage: None,
     };
     projection
@@ -139,6 +140,7 @@ fn invalid_user_event_preserves_capture() {
         parts: vec![Part::Text("Rejected event".into())],
         citations: Vec::new(),
         search_suggestions: None,
+        commentary: Default::default(),
         usage: None,
     };
     assert!(
@@ -247,6 +249,7 @@ fn groups_joined_inputs_before_their_response() {
             parts: vec![Part::Text(run.input.as_ref().unwrap().message.text.clone())],
             citations: Vec::new(),
             search_suggestions: None,
+            commentary: Default::default(),
             usage: None,
         });
     }

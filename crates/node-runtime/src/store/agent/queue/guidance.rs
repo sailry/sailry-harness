@@ -1,4 +1,4 @@
-//! Durable guidance hands off only at ADK's settled before-model boundary.
+//! Durable guidance joins the active invocation at its next settled model boundary.
 use super::*;
 
 #[cfg(test)]
@@ -10,10 +10,7 @@ pub(in crate::store) async fn recipient(
     expected_revision: Option<u64>,
 ) -> Result<Run, Fault> {
     let run = runs::get(db, turn).await?;
-    let handing_off = run.status == Status::Stopping
-        && !read(db, run.session).await?.paused
-        && pending(db, turn).await?.is_some();
-    if run.kind != RunKind::Task || !(run.status == Status::Running || handing_off) {
+    if run.kind != RunKind::Task || run.status != Status::Running {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "guidance requires an active task recipient",
@@ -183,6 +180,7 @@ pub(super) async fn select(
         changed.push(runs::get(db, turn.id).await?);
         turn.id
     };
+    runs::retry(db, selected).await?;
     tag(db, selected, target.turn).await?;
     if !changed.iter().any(|run| run.turn == selected) {
         changed.push(runs::get(db, selected).await?);
@@ -295,67 +293,6 @@ pub(in crate::store) async fn recover(db: &Connection) -> Result<(), Fault> {
         clear(db, session, None).await?;
     }
     Ok(())
-}
-
-pub(in crate::store) async fn yield_run(
-    database: &mut Database,
-    target: TurnId,
-    events: &broadcast::Sender<EventEnvelope>,
-) -> Result<bool, Fault> {
-    let publication = database.publication.clone();
-    let mut write = Some(database.write().await?);
-    let result: Result<_, Fault> = async {
-        let mut transaction = database
-            .connection
-            .unchecked_transaction()
-            .await
-            .map_err(storage_error)?;
-        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
-        let target = runs::get(&transaction, target).await?;
-        if target.kind != RunKind::Task || target.status != Status::Running {
-            return Ok(false);
-        }
-        // A later explicit Stop wins over admission; never revive a paused intent.
-        if read(&transaction, target.session).await?.paused {
-            return Ok(false);
-        }
-        let Some(source) = pending(&transaction, target.turn).await? else {
-            return Ok(false);
-        };
-        compatible(
-            &transaction,
-            &runs::get(&transaction, source).await?,
-            &target,
-        )
-        .await?;
-        let run = runs::handoff(&transaction, target.turn).await?;
-        let queue = read(&transaction, target.session).await?;
-        let envelope = super::super::changed(&transaction, database.node, target.session).await?;
-        let child = super::super::children::get(&transaction, &run).await?;
-        let publication = publication.lock().await;
-        crate::store::database::conflict::commit(transaction).await?;
-        drop(write.take());
-        publication.send(events, envelope);
-        database
-            .feeds
-            .publish(database.node, target.session, Change::Queue(queue));
-        super::super::feed::run(database, run).await;
-        if let Some(child) = child {
-            database
-                .feeds
-                .publish(database.node, child.origin.session, Change::Child(child));
-        }
-        Ok(true)
-    }
-    .await;
-    if let Some(write) = write {
-        if let Err(error) = crate::store::database::conflict::rollback(&database.connection).await {
-            database.connection.hold_write(write);
-            return Err(error);
-        }
-        drop(write);
-    }
-    result
 }
 
 pub(in crate::store) async fn retain(

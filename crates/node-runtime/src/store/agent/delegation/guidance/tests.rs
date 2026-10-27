@@ -130,41 +130,22 @@ async fn captures_input_and_call_ancestry() {
             .len(),
         2
     );
-    assert!(
-        queue::guidance::yield_run(&mut fixture.database, child.turn.id, &fixture.events)
-            .await
-            .unwrap()
-    );
-    assert_eq!(
-        runs::get(&fixture.database.connection, child.turn.id)
-            .await
-            .unwrap()
-            .status,
-        Status::Stopping
-    );
-    finish(&mut fixture, child.turn.id).await;
-    assert_eq!(
-        runs::get(&fixture.database.connection, child.turn.id)
-            .await
-            .unwrap()
-            .status,
-        Status::Cancelled
-    );
-    let next = runs::claim_guidance(&mut fixture.database, child.turn.id, &fixture.events)
+    let inputs = runs::guidance::take(&mut fixture.database, child.turn.id, &fixture.events)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(
-        claim(&mut fixture.database, next.turn.id, &fixture.events)
+        runs::get(&fixture.database.connection, child.turn.id)
             .await
-            .unwrap(),
+            .unwrap()
+            .status,
         Status::Running
     );
-    assert_eq!(next.turn.id, source.id);
-    assert_eq!(next.message, message);
-    assert_eq!(next.followups.len(), 1);
-    assert_eq!(next.followups[0].turn.id, second.id);
-    assert_eq!(next.followups[0].message.text, "Another guide");
+    assert_eq!(inputs.len(), 2);
+    assert_eq!(inputs[0].turn.id, source.id);
+    assert_eq!(inputs[0].message, message);
+    assert_eq!(inputs[1].turn.id, second.id);
+    assert_eq!(inputs[1].message.text, "Another guide");
     let claimed = history::pages::read(&fixture.database.connection, child.turn.session, None, 20)
         .await
         .unwrap();
@@ -174,7 +155,8 @@ async fn captures_input_and_call_ancestry() {
         .iter()
         .find(|run| run.turn == source.id)
         .unwrap();
-    assert_eq!(claimed.status, Status::Running);
+    assert_eq!(claimed.status, Status::Continued);
+    assert_eq!(claimed.joined, Some(child.turn.id));
     assert_eq!(claimed.input.as_ref().unwrap().message, message);
     assert_eq!(
         claimed.input.as_ref().unwrap().attachments[0].id,
@@ -186,13 +168,14 @@ async fn captures_input_and_call_ancestry() {
             .to_string()
             .contains(&role.instructions)
     );
-    assert_eq!(next.child.unwrap().role, Some(role));
+    assert_eq!(child.child.unwrap().role, Some(role));
     let summaries = fixture.read(None, 20).await.page.children;
     assert_eq!(summaries.len(), 3);
-    assert_eq!(summaries[0].run.status, Status::Cancelled);
-    assert_eq!(summaries[1].run.status, Status::Running);
+    assert_eq!(summaries[0].run.status, Status::Running);
+    assert_eq!(summaries[1].run.status, Status::Continued);
+    assert_eq!(summaries[1].run.joined, Some(child.turn.id));
     assert_eq!(summaries[0].origin, summaries[1].origin);
-    assert_eq!(summaries[2].run.joined, Some(source.id));
+    assert_eq!(summaries[2].run.joined, Some(child.turn.id));
     assert_eq!(summaries[2].run.status, Status::Continued);
 }
 
@@ -229,8 +212,51 @@ async fn preserves_stopped_queue() {
 }
 
 #[tokio::test]
+async fn removes_withdrawn_guidance() {
+    let mut fixture = setup().await;
+    let parent = start(&mut fixture).await;
+    let child = invoke(&mut fixture, parent, json!({"role":null,"task":"Inspect"}))
+        .await
+        .unwrap();
+    let request = prepare(&fixture, &child, "Inspect the next file".into());
+    let Output::QueuedTurn(source) = execute(&mut fixture, request).await.unwrap() else {
+        panic!("turn expected")
+    };
+    let item = queue::read(&fixture.database.connection, child.turn.session)
+        .await
+        .unwrap()
+        .items
+        .remove(0);
+    let request = Request::new(
+        fixture.database.node,
+        Command::WithdrawGuidance {
+            turn: source.id,
+            expected_revision: item.revision,
+        },
+    );
+    let Output::Queue(update) = execute(&mut fixture, request).await.unwrap() else {
+        panic!("queue expected")
+    };
+    assert!(update.queue.items.is_empty());
+    assert_eq!(
+        runs::get(&fixture.database.connection, source.id)
+            .await
+            .unwrap()
+            .status,
+        Status::Cancelled
+    );
+    assert_eq!(
+        runs::get(&fixture.database.connection, child.turn.id)
+            .await
+            .unwrap()
+            .status,
+        Status::Running
+    );
+}
+
+#[tokio::test]
 async fn explicit_stop_retains_readable_input() {
-    for yielded in [false, true] {
+    for claimed in [false, true] {
         let mut fixture = setup().await;
         let parent = start(&mut fixture).await;
         let child = invoke(&mut fixture, parent, json!({"role":null,"task":"Inspect"}))
@@ -241,12 +267,13 @@ async fn explicit_stop_retains_readable_input() {
         let Output::QueuedTurn(source) = execute(&mut fixture, request).await.unwrap() else {
             panic!("turn expected")
         };
-        if yielded {
-            assert!(
-                queue::guidance::yield_run(&mut fixture.database, child.turn.id, &fixture.events)
+        if claimed {
+            let inputs =
+                runs::guidance::take(&mut fixture.database, child.turn.id, &fixture.events)
                     .await
                     .unwrap()
-            );
+                    .unwrap();
+            assert_eq!(inputs[0].turn.id, source.id);
         }
         runs::stop(&fixture.database.connection, child.turn.id)
             .await

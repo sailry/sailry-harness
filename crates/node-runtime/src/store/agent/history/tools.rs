@@ -4,14 +4,17 @@ use sailry_protocol::tool::{
     Display, Failure, Grouping, Presentation, ResultDisplay,
     detail::{Delegation, Detail, Resolved, Summary},
 };
+mod cache;
 mod display;
 mod read;
 #[cfg(test)]
 mod tests;
+pub(in crate::store) use cache::Cache;
 pub(in crate::store) use read::page;
 pub(in crate::store::agent) use read::raw;
 
 pub(in crate::store::agent) struct Raw {
+    source: Option<u64>,
     pub id: Option<String>,
     pub name: String,
     pub arguments: Value,
@@ -26,6 +29,7 @@ pub(in crate::store::agent) struct Raw {
 impl Raw {
     pub(in crate::store::agent) fn new(id: Option<String>, name: String, arguments: Value) -> Self {
         Self {
+            source: None,
             id,
             name,
             arguments,
@@ -119,10 +123,8 @@ impl Raw {
                 .arguments
                 .get("path")
                 .and_then(Value::as_str)
-                .filter(|path| {
-                    !path.is_empty() && path.chars().count() <= 200 && !path.contains(['\r', '\n'])
-                })
-                .map(str::to_owned),
+                .filter(|path| !path.is_empty() && !path.contains(['\r', '\n']))
+                .map(|path| clip(path, 200, true)),
             title: text(&self.arguments, "title", 200),
             resource: text(&self.arguments, "skill", 200),
             summary_id: text(result, "summary_id", 200),
@@ -350,15 +352,19 @@ fn bound(value: &mut Resolved) {
         &mut value.input.summary,
         &mut value.input.context,
         &mut value.input.content,
+        &mut value.input.target,
     ]
     .into_iter()
     .flatten()
     {
         field.text = clip(&field.text, 200, true);
     }
-    if value.input.target.as_ref().is_some_and(|target| {
-        target.text.chars().count() > 200 || target.text.contains(['\r', '\n'])
-    }) {
+    if value
+        .input
+        .target
+        .as_ref()
+        .is_some_and(|target| target.text.contains(['\r', '\n']))
+    {
         value.input.target = None;
     }
     value.approval.truncate(4);
@@ -374,10 +380,11 @@ fn bound(value: &mut Resolved) {
     }
     if let Some(output) = &mut value.output {
         output.preview = clip(&output.preview, 2048, false);
-        output
-            .paths
-            .retain(|path| path.chars().count() <= 200 && !path.contains(['\r', '\n']));
+        output.paths.retain(|path| !path.contains(['\r', '\n']));
         output.paths.truncate(32);
+        for path in &mut output.paths {
+            *path = clip(path, 200, true);
+        }
         output.notices.truncate(4);
         for notice in &mut output.notices {
             local(notice, 200);

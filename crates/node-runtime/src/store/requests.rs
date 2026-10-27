@@ -75,11 +75,6 @@ impl Ingress {
                 sailry_protocol::Command::SaveSearchSettings(_)
             );
             let launch = super::routing::launches(&request.command);
-            let guiding = match &request.command {
-                sailry_protocol::Command::GuideTurn { recipient, .. }
-                | sailry_protocol::Command::GuideQueuedTurn { recipient, .. } => Some(*recipient),
-                _ => None,
-            };
             let sending = match request.command {
                 sailry_protocol::Command::SendQueuedTurn { turn, .. } => Some(turn),
                 _ => None,
@@ -148,15 +143,6 @@ impl Ingress {
                 if agent::stopping(&database.connection, turn).await {
                     agents.cancel(turn);
                 }
-            }
-            if let Some(recipient) = guiding
-                && let Err(error) = agents
-                    .interrupt_model(recipient, async || {
-                        agent::queue::guidance::yield_run(&mut database, recipient, events).await
-                    })
-                    .await
-            {
-                eprintln!("guidance could not interrupt the model response: {error}");
             }
             if let Some(selected) = sending
                 && let Ok(turns) = agent::queue::stopping(&database.connection, selected).await

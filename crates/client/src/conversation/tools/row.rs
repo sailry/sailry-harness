@@ -69,8 +69,15 @@ impl Call {
         Row {
             label: resolved.and_then(|resolved| resolved.label.clone()),
             icon: summary.and_then(|summary| summary.icon.clone()),
-            detail: resolved
-                .and_then(|resolved| resolved.input.summary.clone())
+            detail: summary
+                .filter(|_| failed && !denied)
+                .and_then(|summary| summary.error.as_ref())
+                .filter(|error| !error.trim().is_empty())
+                .map(|error| Text {
+                    text: error.clone(),
+                    code: false,
+                })
+                .or_else(|| resolved.and_then(|resolved| resolved.input.summary.clone()))
                 .or_else(|| {
                     summary
                         .and_then(|summary| summary.path.as_ref())

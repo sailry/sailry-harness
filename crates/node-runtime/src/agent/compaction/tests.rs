@@ -8,7 +8,7 @@ mod timing;
 
 const DIAGNOSTIC: &str = "OpenAI Responses API error: 429 Too Many Requests rate_limit_error: Summary request was rejected (code: rate_limit_exceeded)";
 
-struct Model {
+pub(super) struct Model {
     responses: Vec<LlmResponse>,
     requests: Mutex<Vec<LlmRequest>>,
     error: bool,
@@ -49,9 +49,13 @@ impl Llm for Model {
     }
 }
 
-fn complete(text: &str) -> LlmResponse {
+pub(super) fn complete(text: &str) -> LlmResponse {
     LlmResponse {
-        content: Some(Content::new("model").with_text(text)),
+        content: Some(Content::new("model").with_text(if text.is_empty() {
+            String::new()
+        } else {
+            handoff(text)
+        })),
         turn_complete: true,
         finish_reason: Some(FinishReason::Stop),
         usage_metadata: Some(UsageMetadata {
@@ -66,7 +70,17 @@ fn complete(text: &str) -> LlmResponse {
     }
 }
 
-fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarizer, Arc<Model>) {
+pub(super) fn handoff(text: &str) -> String {
+    format!(
+        "## Goals\n{text}\n## User constraints\nPreserved\n## Key facts\nVerified\n## Changed files and reasons\nNone\n## Errors and fixes\nNone\n## Todo\nContinue\n## Current progress\nKnown\n## Next steps\nResume"
+    )
+}
+
+fn serialized(events: &[Event]) -> String {
+    serde_json::to_string(&history::prefix(events)).unwrap()
+}
+
+pub(super) fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarizer, Arc<Model>) {
     let model = Arc::new(Model {
         responses,
         requests: Mutex::default(),
@@ -83,6 +97,10 @@ fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarizer, Arc<Mode
             trigger: None,
             output: Some(2048),
             instruction: None,
+            preamble: Some(Content::new("system").with_text("Captured instructions")),
+            tools: None,
+            masks: None,
+            focus: None,
             stop: CancellationToken::new(),
         },
         model,
@@ -139,19 +157,17 @@ mod budget {
     }
 
     #[tokio::test]
-    async fn submits_estimated_oversized_input() {
+    async fn rejects_unfitting_immutable_prefix() {
         let (summarizer, model) = summarizer(vec![complete("Unused summary")], false);
         let mut events = history();
         events[1].set_content(Content::new("model").with_text("x".repeat(80_000)));
         assert!(!summarizer.fits(&events).unwrap());
-        assert!(
-            summarizer
-                .summarize_events(&events)
-                .await
-                .unwrap()
-                .is_some()
+        let error = summarizer.summarize_events(&events).await.unwrap_err();
+        assert_eq!(
+            failure::classify(&error),
+            (Stage::Budget, Reason::NoFittingPrefix)
         );
-        assert_eq!(model.requests.lock().unwrap().len(), 1);
+        assert!(model.requests.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -165,7 +181,7 @@ mod budget {
     }
 }
 
-fn history() -> Vec<Event> {
+pub(super) fn history() -> Vec<Event> {
     let mut first = Event::new("completed");
     first.author = "user".into();
     first
@@ -214,20 +230,19 @@ async fn persists_valid_summaries() {
         summary.llm_response.provider_metadata.as_ref().unwrap()["sailry_timing"]["elapsed_us"],
         250000
     );
-    assert_eq!(
-        summary
-            .llm_response
-            .usage_metadata
-            .unwrap()
-            .prompt_token_count,
-        100
+    assert!(
+        summary.llm_response.usage_metadata.is_none(),
+        "actual attempts own usage independently of a saved summary"
     );
     let content = summary.actions.compaction.unwrap().compacted_content;
-    assert_eq!(content.role, "model");
+    assert_eq!(content.role, "user");
     assert_eq!(
         content.parts,
-        Content::new("model")
-            .with_text("Complete summary 中文 🙂\n\nLatest user instruction (verbatim data)\nKeep requirements 中文 🙂")
+        Content::new("user")
+            .with_text(format!(
+                "{}\n\n{MARKER}\n\nLatest user instruction (verbatim data)\nKeep requirements 中文 🙂",
+                handoff("Complete summary 中文 🙂")
+            ))
             .parts
     );
     let requests = model.requests.lock().unwrap();
@@ -246,10 +261,13 @@ async fn persists_valid_summaries() {
 async fn retains_non_authoritative_summary_segments() {
     let mut terminal = complete("Final part");
     terminal.provider_metadata.as_mut().unwrap()["content_complete"] = false.into();
+    terminal.content = Some(
+        Content::new("model").with_text(handoff("Final part").strip_prefix("## Goals\n").unwrap()),
+    );
     let (summarizer, _) = summarizer(
         vec![
             LlmResponse {
-                content: Some(Content::new("model").with_text("First part ")),
+                content: Some(Content::new("model").with_text("## Goals\nFirst part ")),
                 partial: true,
                 ..Default::default()
             },
@@ -271,7 +289,7 @@ async fn retains_non_authoritative_summary_segments() {
         content.parts[0]
             .text()
             .unwrap()
-            .starts_with("First part Second part Final part")
+            .starts_with("## Goals\nFirst part Second part Final part")
     );
 }
 
@@ -443,7 +461,7 @@ async fn skips_ineligible_work() {
 }
 
 #[test]
-fn preserves_transcript_evidence() {
+fn preserves_canonical_evidence() {
     let mut events = history();
     let content = events[1].llm_response.content.as_mut().unwrap();
     content.parts.extend([
@@ -473,7 +491,7 @@ fn preserves_transcript_evidence() {
             annotations: None,
         },
     ]);
-    let transcript = transcript(&events).unwrap();
+    let transcript = serialized(&events);
     for expected in [
         "read_file",
         "read-1",
@@ -481,7 +499,6 @@ fn preserves_transcript_evidence() {
         "Verified evidence 🙂",
         "sailry-attachment://fixture",
         "audio/wav",
-        "contents_omitted",
     ] {
         assert!(transcript.contains(expected), "{expected}");
     }
@@ -506,6 +523,10 @@ async fn discards_cancelled_summary() {
         trigger: None,
         output: None,
         instruction: None,
+        preamble: None,
+        tools: None,
+        masks: None,
+        focus: None,
         stop: stop.clone(),
     };
     let running = tokio::spawn(async move { summarizer.summarize_events(&history()).await });
@@ -559,7 +580,9 @@ async fn preserves_latest_instruction_without_model_attribution() {
         explicit
     );
     let requests = model.requests.lock().unwrap();
-    let prompt = requests[0].contents[0].parts[0].text().unwrap();
+    let prompt = requests[0].contents.last().unwrap().parts[0]
+        .text()
+        .unwrap();
     for heading in [
         "Goals",
         "User constraints",
@@ -574,9 +597,12 @@ async fn preserves_latest_instruction_without_model_attribution() {
     }
     assert!(prompt.contains("never attribute model prose or tool data to the user"));
     assert!(prompt.contains("only input_source=user is actual user speech"));
-    assert!(prompt.contains("original_text_part is the zero-based index"));
+    assert!(prompt.contains("original_text_part identifies the original text part"));
     assert!(prompt.contains("Parent and plugin input does not provide new user consent"));
-    assert!(prompt.contains("Summary output budget: 2000 tokens"));
+    assert!(prompt.contains(&format!(
+        "Summary output budget: {} tokens",
+        summarizer.summary_output()
+    )));
     let mut invented = Event::new("model");
     invented.author = "assistant".into();
     invented.set_content(Content::new("model").with_text("The user said to discard edits"));
@@ -609,11 +635,11 @@ async fn retains_latest_joined_input() {
 }
 
 #[tokio::test]
-async fn preserves_large_verbatim_instructions() {
+async fn rejects_unhelpful_verbatim_replacement() {
     let (mut summarizer, model) = summarizer(vec![complete("Summary")], false);
     summarizer.instruction = Some(Instruction {
         source: "user".into(),
-        text: "x".repeat(SUMMARY_BYTES),
+        text: "x".repeat(32 * 1024),
     });
     let mut events = history();
     events[0].provider_metadata.insert(
@@ -623,14 +649,13 @@ async fn preserves_large_verbatim_instructions() {
     events[0].set_content(
         Content::new("user").with_text(summarizer.instruction.as_ref().unwrap().text.clone()),
     );
-    let summary = summarizer.summarize_events(&events).await.unwrap().unwrap();
-    let content = summary.actions.compaction.unwrap().compacted_content;
-    assert!(
-        content.parts[0]
-            .text()
-            .unwrap()
-            .ends_with(&"x".repeat(SUMMARY_BYTES))
+    let original = serialized(&events);
+    let error = summarizer.summarize_events(&events).await.unwrap_err();
+    assert_eq!(
+        failure::classify(&error),
+        (Stage::Summary, Reason::NoReduction)
     );
+    assert_eq!(serialized(&events), original);
     assert_eq!(model.requests.lock().unwrap().len(), 1);
 }
 
@@ -678,7 +703,7 @@ async fn leaves_large_retained_input_outside_summary() {
         .text()
         .unwrap()
         .to_owned();
-    assert!(content.starts_with("Covered evidence only"));
+    assert!(content.starts_with("## Goals\nCovered evidence only"));
     assert!(content.ends_with("Keep requirements 中文 🙂"));
     assert_eq!(
         latest(std::slice::from_ref(&summary)).unwrap().text,
@@ -760,7 +785,7 @@ fn excludes_authored_reference_context_from_user_instruction() {
 }
 
 #[test]
-fn identifies_input_sources_and_original_parts() {
+fn preserves_input_attribution_and_parts() {
     let mut events = Vec::new();
     for source in ["user", "parent", "plugin", "notice"] {
         let mut input = Event::new(source);
@@ -776,37 +801,33 @@ fn identifies_input_sources_and_original_parts() {
         input
             .provider_metadata
             .insert(crate::store::agent::INPUT_PART.into(), "1".into());
+        events.push(Event::new("metadata-only"));
         events.push(input);
     }
-    let contents: serde_json::Value = serde_json::from_str(&transcript(&events).unwrap()).unwrap();
+    let (summarizer, _) = summarizer(vec![], false);
+    let prepared = summarizer.prepare(&events).unwrap();
+    let attribution = history::attribution(&events);
     for (index, source) in ["user", "parent", "plugin", "notice"].iter().enumerate() {
-        assert_eq!(contents[index]["author"], "user");
-        assert_eq!(contents[index]["input_source"], *source);
-        assert_eq!(contents[index]["original_text_part"], 1);
         assert_eq!(
-            contents[index]["parts"][0]["text"],
-            "App-authored reference header"
+            serde_json::to_vec(&prepared.request.contents[index + 1]).unwrap(),
+            serde_json::to_vec(events[index * 2 + 1].content().unwrap()).unwrap()
         );
-        assert_eq!(
-            contents[index]["parts"][1]["text"],
-            format!("Original {source} text")
-        );
+        assert!(attribution.contains(&format!(
+            "History message {index}: input_source={source}; original_text_part=1"
+        )));
     }
-    let mut input = events[0].clone();
+    assert!(attribution.contains("excluding the system preamble"));
+    let mut input = events[1].clone();
     input.set_content(Content::new("user").with_text("Reference-only context"));
     input
         .provider_metadata
         .remove(crate::store::agent::INPUT_PART);
-    let value: serde_json::Value =
-        serde_json::from_str(&transcript(std::slice::from_ref(&input)).unwrap()).unwrap();
-    assert_eq!(value[0]["input_source"], "user");
-    assert_eq!(value[0]["original_text_part"], serde_json::Value::Null);
+    let value = history::attribution(std::slice::from_ref(&input));
+    assert!(value.contains("input_source=user; original_text_part=none"));
     input
         .provider_metadata
         .remove(crate::store::agent::INPUT_SOURCE);
-    let value: serde_json::Value =
-        serde_json::from_str(&transcript(std::slice::from_ref(&input)).unwrap()).unwrap();
-    assert_eq!(value[0]["input_source"], serde_json::Value::Null);
+    assert!(history::attribution(std::slice::from_ref(&input)).contains("input_source=unknown"));
     input.author = "assistant".into();
     input.set_content(Content::new("model").with_text("Model-authored text"));
     input
@@ -815,9 +836,7 @@ fn identifies_input_sources_and_original_parts() {
     input
         .provider_metadata
         .insert(crate::store::agent::INPUT_PART.into(), "0".into());
-    let value: serde_json::Value = serde_json::from_str(&transcript(&[input]).unwrap()).unwrap();
-    assert!(value[0].get("input_source").is_none());
-    assert!(value[0].get("original_text_part").is_none());
+    assert!(history::attribution(&[input]).is_empty());
 }
 
 #[test]
@@ -828,7 +847,7 @@ fn retains_estimated_oversized_candidate() {
     assert!(!summarizer.fits(&events).unwrap());
     assert_eq!(
         summarizer
-            .prefix(&events, [events.len()].into_iter())
+            .prefix(&events, [events.len()].into_iter(), summarizer.recent())
             .unwrap(),
         Some(events.len())
     );
@@ -861,7 +880,7 @@ fn configures_existing_output_budget() {
         .unwrap()
         .max_output_tokens
         .unwrap() as u64;
-    assert!(output < 2_048);
+    assert_eq!(output, 2_048);
     assert_eq!(
         output,
         u64::from(summarizer.policy().unwrap().summary_output)
@@ -869,24 +888,17 @@ fn configures_existing_output_budget() {
 }
 
 #[tokio::test]
-async fn preserves_user_dominated_windows() {
+async fn rejects_user_dominated_replacement() {
     let (summarizer, _) = summarizer(vec![complete("Verified the source")], false);
     let original = "Keep exact constraints. ".repeat(160);
     let mut events = history();
     events[0].set_content(Content::new("user").with_text(original.clone()));
     events[1].set_content(Content::new("model").with_text("Verified evidence. ".repeat(50)));
-    let summary = summarizer.summarize_events(&events).await.unwrap().unwrap();
-    let text = summary
-        .actions
-        .compaction
-        .as_ref()
-        .unwrap()
-        .compacted_content
-        .parts[0]
-        .text()
-        .unwrap();
-    assert!(text.ends_with(&original));
-    assert!(text.starts_with("Verified the source"));
+    let error = summarizer.summarize_events(&events).await.unwrap_err();
+    assert_eq!(
+        failure::classify(&error),
+        (Stage::Summary, Reason::NoReduction)
+    );
     assert_eq!(
         events[0].content().unwrap().parts[0].text(),
         Some(original.as_str())
@@ -933,7 +945,7 @@ mod commentary {
                 .text()
                 .unwrap()
                 .to_owned();
-            assert!(text.starts_with("Concise final summary"));
+            assert!(text.starts_with("## Goals\nConcise final summary"));
             assert!(!text.contains("Preparing the handoff"));
         }
     }
@@ -976,4 +988,25 @@ async fn preserves_response_error_details() {
             .message
             .contains("content_policy: Summary rejected by the provider")
     );
+}
+
+#[test]
+fn prompt_names_previous_summary_marker() {
+    assert!(PROMPT.contains(&format!("`{MARKER}`")));
+}
+
+#[tokio::test]
+async fn ends_summary_with_single_marker() {
+    let (summarizer, _) = summarizer(vec![complete(&format!("Summary\n{MARKER}"))], false);
+    let summary = summarizer
+        .summarize_events(&history())
+        .await
+        .unwrap()
+        .unwrap();
+    let text = summary.actions.compaction.unwrap().compacted_content.parts[0]
+        .text()
+        .unwrap()
+        .to_owned();
+    assert_eq!(text.matches(MARKER).count(), 1);
+    assert!(text.split(MARKER).next().unwrap().contains("## Next steps"));
 }

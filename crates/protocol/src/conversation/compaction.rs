@@ -30,6 +30,8 @@ pub enum Reason {
     RateLimited,
     AuthorizationFailed,
     ServiceRejected,
+    ContextOverflow,
+    ContentFiltered,
     EmptySummary,
     IncompleteResponse,
     TruncatedSummary,

@@ -1,6 +1,7 @@
 use super::*;
 mod authorization;
 mod call;
+pub(in crate::agent) use call::{summary_retry, summary_scope};
 mod cloud;
 mod diagnostics;
 mod errors;
@@ -78,21 +79,10 @@ pub(super) async fn build(
             session: invocation.turn.session,
             stop: stop.clone(),
             limit: provider.retry_limit(),
+            compaction: matches!(purpose, Purpose::Compaction),
         }),
         ingress: ingress.clone(),
         turn: invocation.turn.id,
-        current: invocation
-            .message
-            .attachments
-            .iter()
-            .chain(
-                invocation
-                    .followups
-                    .iter()
-                    .flat_map(|input| &input.message.attachments),
-            )
-            .copied()
-            .collect(),
         vision: metadata.is_none_or(|model| model.vision)
             && provider
                 .binding
@@ -144,6 +134,7 @@ pub(super) async fn configured(
         session,
         stop: stop.clone(),
         limit: provider.retry_limit(),
+        compaction: false,
     }))
 }
 
@@ -151,6 +142,7 @@ pub(super) async fn configured(
 pub(super) enum Purpose {
     Main,
     Helper,
+    Compaction,
 }
 
 async fn configure(
@@ -253,6 +245,7 @@ async fn configure(
                 credential.into_iter().map(|(_, secret)| secret).collect(),
             ),
             origin,
+            history::Window::new(provider, &config.model),
         )
     } else {
         crate::providers::login::validate(provider)?;
@@ -281,6 +274,10 @@ async fn configure(
     } else {
         inner
     })
+}
+
+pub(in crate::agent) fn context_overflow(error: &adk_core::AdkError) -> bool {
+    retry::context_overflow(error)
 }
 
 fn request_retry() -> adk_model::request_retry::RequestRetryConfig {

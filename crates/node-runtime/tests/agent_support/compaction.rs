@@ -5,12 +5,21 @@ pub const PRIVATE_SENTINEL: &str = "PRIVATE_SUMMARY_PROVIDER_BODY_SENTINEL";
 pub fn is_summary(body: &Value) -> bool {
     body["messages"].as_array().is_some_and(|messages| {
         messages.iter().any(|message| {
-            message["role"] == "system"
+            message["role"] == "user"
                 && message["content"]
                     .as_str()
-                    .is_some_and(|text| text.starts_with("Summarize this conversation"))
+                    .is_some_and(|text| text.starts_with("Update the existing handoff"))
         })
     })
+}
+
+pub fn handoff(text: &str) -> String {
+    if text.trim().is_empty() || text.starts_with("## Goals\n") {
+        return text.into();
+    }
+    format!(
+        "## Goals\n{text}\n## User constraints\nRetained\n## Key facts\nVerified\n## Changed files and reasons\nNone\n## Errors and fixes\nNone\n## Todo\nContinue\n## Current progress\nKnown\n## Next steps\nResume"
+    )
 }
 
 pub async fn respond(
@@ -38,16 +47,39 @@ pub async fn respond_usage(
         return stream.shutdown().await;
     }
     let messages = body["messages"].as_array().unwrap();
+    // A handoff is a user message; it replaces the exchange that already read.
     let read = !summary
-        && !messages
-            .iter()
-            .any(|message| message["role"] == "tool" || message["role"] == "assistant");
+        && !messages.iter().any(|message| {
+            message["role"] == "tool"
+                || message["role"] == "assistant"
+                || message["content"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("--- End of context handoff ---"))
+        });
     let delta = if read {
         json!({"role":"assistant","tool_calls":[{"index":0,"id":"evidence-call","type":"function","function":{"name":plugin_tool("files", "read_file"),"arguments":json!({"path":"source.txt","limit":sailry_protocol::MAX_FILE_LINES}).to_string()}}]})
     } else {
-        json!({"role":"assistant","content":if summary { text } else { "Verified response" }})
+        json!({"role":"assistant","content":if summary { handoff(text) } else { "Verified response".into() }})
     };
     reply_usage(stream, body, delta, read, Some(input_tokens)).await
+}
+
+pub async fn reject_overflow(mut stream: TcpStream) -> std::io::Result<()> {
+    let body = json!({"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 70000 tokens > 64000 maximum"}}).to_string();
+    stream.write_all(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+    stream.shutdown().await
+}
+
+pub async fn reject_length(stream: TcpStream, body: &Value) -> std::io::Result<()> {
+    reply_finish(
+        stream,
+        body,
+        json!({"role":"assistant", "content":""}),
+        false,
+        Some(100),
+        "length",
+    )
+    .await
 }
 
 pub async fn respond_plain(
@@ -60,9 +92,9 @@ pub async fn respond_plain(
         return respond_usage(stream, body, Some(400), "Unused", input_tokens).await;
     }
     let content = if is_summary(body) {
-        "Prepared summary".into()
+        handoff("Prepared summary")
     } else {
-        "Conversation evidence ".repeat(200)
+        "Conversation evidence ".repeat(600)
     };
     reply_usage(
         stream,
@@ -111,6 +143,9 @@ pub async fn respond_loop(
     let input_tokens = usage[completed.min(usage.len() - 1)];
     reply_usage(stream, body, delta, read, input_tokens).await
 }
+
+/// Explicit compaction is skipped below half the 24k fixture trigger.
+pub const NATIVE_USAGE: i32 = 13_000;
 
 pub async fn respond_native(
     stream: TcpStream,
@@ -174,7 +209,8 @@ pub async fn respond_native(
         } else {
             json!({"role":"assistant","content":"Compaction request handled"})
         };
-        return reply(stream, body, delta, call).await;
+        let usage = if completed == 3 { NATIVE_USAGE } else { 100 };
+        return reply_usage(stream, body, delta, call, Some(usage)).await;
     }
     let start = start.expect("native compaction request is missing its user task");
     let compact = task.is_some_and(|text| text.contains("Compact prior evidence"));
@@ -189,11 +225,8 @@ pub async fn respond_native(
     } else {
         json!({"role":"assistant","content":"Compaction request handled"})
     };
-    reply(stream, body, delta, call).await
-}
-
-async fn reply(stream: TcpStream, body: &Value, delta: Value, read: bool) -> std::io::Result<()> {
-    reply_usage(stream, body, delta, read, Some(100)).await
+    let usage = if call { NATIVE_USAGE } else { 100 };
+    reply_usage(stream, body, delta, call, Some(usage)).await
 }
 
 pub async fn respond_truncated(stream: TcpStream, body: &Value) -> std::io::Result<()> {
@@ -339,7 +372,7 @@ pub async fn respond_exchange(
         body,
         delta,
         read,
-        Some(if read { 14_000 } else { 100 }),
+        Some(if read { 26_000 } else { 100 }),
     )
     .await
 }

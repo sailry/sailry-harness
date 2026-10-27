@@ -52,7 +52,12 @@ fn bounds_mcp_without_rewriting_history() {
             .unwrap()
             .contains("bytes omitted")
     );
-    assert!(projected["text"].as_str().unwrap().contains("read_command"));
+    assert!(
+        projected["text"]
+            .as_str()
+            .unwrap()
+            .contains("read_tool_output")
+    );
     assert_eq!(projected["isError"], true);
     assert_eq!(projected["output"]["call"], "call");
     assert_eq!(
@@ -108,7 +113,7 @@ fn reuses_only_the_loaded_guide_revision() {
         value(&request[0])["text"]
             .as_str()
             .unwrap()
-            .contains("read_command with output")
+            .contains("read_tool_output with output")
     );
     assert_eq!(value(&canonical[0]), &output);
     let mut changed = output;
@@ -157,6 +162,32 @@ fn numbers_file_text_with_bounded_lines() {
 }
 
 #[test]
+fn projects_unwrapped_file_operation_results() {
+    let original = json!({"path":"source.txt","lines":[{"number":1,"text":"first ".repeat(800)}],
+        "size":4800,"revision":"canonical-revision","offset":0,"next_offset":null});
+    let mut request = vec![response("declared_file_reader", original.clone())];
+    project(&mut request);
+    assert!(
+        value(&request[0])["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("source.txt\nLines 1–1")
+    );
+    assert!(
+        value(&request[0])["text"]
+            .as_str()
+            .unwrap()
+            .contains("bytes omitted")
+    );
+    assert_eq!(
+        value(&request[0])["output"]["revision"],
+        blake3::hash(original.to_string().as_bytes())
+            .to_hex()
+            .to_string()
+    );
+}
+
+#[test]
 fn groups_search_and_keeps_match_context() {
     let long = format!("{}needle中文🙂{}", "前".repeat(1000), "后".repeat(1000));
     let rows = (1..=12)
@@ -187,6 +218,33 @@ fn groups_search_and_keeps_match_context() {
 }
 
 #[test]
+fn locates_matches_without_decoding_other_arguments() {
+    let line = format!(
+        "{}needle中文🙂{}",
+        "before ".repeat(200),
+        " after".repeat(200)
+    );
+    let output = json!({"kind":"search_results","data":sailry_protocol::SearchResults {
+        matches:vec![sailry_protocol::SearchMatch {path:"fixture.rs".into(),line_number:1,
+            line,matched:true,truncated:false}], ..Default::default()
+    }});
+    let call = Content {
+        role: "model".into(),
+        parts: vec![Part::FunctionCall {
+            name: "plugin_files_search".into(),
+            args: json!({"query":"needle中文","limit":"unused metadata"}),
+            id: Some("call".into()),
+            thought_signature: None,
+        }],
+    };
+    let mut request = vec![call, response("plugin_files_search", output)];
+    project(&mut request);
+    let text = value(&request[1])["text"].as_str().unwrap();
+    assert!(text.contains("needle中文🙂"));
+    assert!(text.chars().count() < 400);
+}
+
+#[test]
 fn normalizes_progress_without_changing_raw() {
     let progress = (0..100)
         .map(|percent| format!("\x1b[32m{percent}%\x1b[0m\r"))
@@ -209,6 +267,39 @@ fn normalizes_progress_without_changing_raw() {
     assert!(
         serde_json::to_vec(&request).unwrap().len() < serde_json::to_vec(&canonical).unwrap().len()
     );
+}
+
+#[test]
+fn bounds_complete_command_diagnostics() {
+    for command in ["cargo test", "fixture-command"] {
+        for wrapped in [false, true] {
+            let data = json!({
+                "info":{"command":command,"id":"00000000-0000-4000-8000-000000000001"},
+                "stdout":{"text":format!("failures:\n{}\nlast failure", "diagnostic row\n".repeat(4000)),
+                    "truncated":false,"invalid_utf8":false},
+                "stderr":{"text":"","truncated":false,"invalid_utf8":false}
+            });
+            let original = if wrapped {
+                json!({"kind":"command_result","data":data})
+            } else {
+                data
+            };
+            let canonical = vec![response("plugin_commands_run", original.clone())];
+            let mut request = canonical.clone();
+            project(&mut request);
+            let projected = value(&request[0]);
+            assert!(projected["text"].as_str().unwrap().len() < LIMIT + 1024);
+            assert!(projected["text"].as_str().unwrap().contains("last failure"));
+            assert!(
+                projected["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("read_command id=00000000-0000-4000-8000-000000000001")
+            );
+            assert_eq!(projected["output"]["call"], "call");
+            assert_eq!(value(&canonical[0]), &original);
+        }
+    }
 }
 
 #[test]

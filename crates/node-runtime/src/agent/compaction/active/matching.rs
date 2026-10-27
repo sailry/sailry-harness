@@ -74,24 +74,34 @@ pub(super) fn tail(
 }
 
 fn project(event: &Event, invocation: &str) -> Option<Content> {
-    let original = event.content()?;
-    let metadata = event.llm_response.provider_metadata.as_ref();
-    // Runner requires ownership when replaying prior invocations; LlmAgent's
-    // current invocation appends provider parts before that replay boundary.
-    let mut content = if event.invocation_id == invocation
-        || adk_core::history::provider_origin(metadata).is_some()
-    {
-        adk_core::history::with_provider_parts(original, metadata)
-    } else {
-        original.clone()
-    };
-    content.role = match (event.author.as_str(), original.role.as_str()) {
-        ("user", _) => "user",
-        (_, "function" | "tool") => original.role.as_str(),
-        _ => "model",
+    super::super::history::project(event, invocation)
+}
+
+pub(super) fn rebuild(
+    request: &mut LlmRequest,
+    events: &[Event],
+    preamble: &Content,
+    invocation: &str,
+) -> adk_core::Result<()> {
+    if !preamble_matches(request, preamble) {
+        return Err(invalid_at(
+            Stage::History,
+            Reason::HistoryMismatch,
+            "model preamble does not match its captured instructions",
+        ));
     }
-    .into();
-    Some(content)
+    request.contents.truncate(1);
+    request.contents.extend(
+        events
+            .iter()
+            .filter_map(|event| project(event, invocation))
+            .map(|mut content| {
+                content.strip_generated_call_ids();
+                content
+            }),
+    );
+    request.previous_response_id = None;
+    Ok(())
 }
 
 fn response(content: &Content) -> Option<(&str, &str)> {
@@ -212,6 +222,46 @@ fn generated(actual: &[Content], stored: &[&Content], prefix: &[&Content]) -> bo
 mod tests {
     use super::*;
     use adk_core::FunctionResponseData;
+
+    #[test]
+    fn rebuilds_the_same_saved_window() {
+        let preamble = Content::new("system").with_text("Captured instructions");
+        let handoff = Content::new("user").with_text("Saved handoff");
+        let mut live = Event::new("summary");
+        live.author = "system".into();
+        live.actions.compaction = Some(EventCompaction {
+            start_timestamp: live.timestamp,
+            end_timestamp: live.timestamp,
+            compacted_content: handoff.clone(),
+        });
+        let mut loaded = live.clone();
+        loaded.actions.compaction = None;
+        loaded.author = "user".into();
+        loaded.set_content(handoff);
+        let mut current = Event::new("current");
+        current.author = "user".into();
+        current.set_content(Content::new("user").with_text("Latest request"));
+        let mut request = LlmRequest::new(
+            "fixture",
+            vec![
+                preamble.clone(),
+                Content::new("user").with_text("Stale original prefix"),
+            ],
+        );
+        request.previous_response_id = Some("stale-response".into());
+        rebuild(&mut request, &[live, current.clone()], &preamble, "current").unwrap();
+        let live = request.contents.clone();
+        rebuild(&mut request, &[loaded, current], &preamble, "current").unwrap();
+        assert_eq!(request.contents.len(), live.len());
+        for (loaded, live) in request.contents.iter().zip(&live) {
+            assert_eq!(loaded.role, live.role);
+            assert_eq!(loaded.parts, live.parts);
+        }
+        assert_eq!(request.contents.len(), 3);
+        assert_eq!(request.contents[1].role, "user");
+        assert_eq!(request.contents[2].parts[0].text(), Some("Latest request"));
+        assert!(request.previous_response_id.is_none());
+    }
 
     fn result(id: &str, text: &str) -> Content {
         Content {

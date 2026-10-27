@@ -17,12 +17,9 @@ pub(crate) fn resolve(
         .max(1)
         .min(u64::from(compaction.unwrap_or(DEFAULT_TRIGGER).max(1)))
         .min(u64::from(context.saturating_sub(output_reserve)).max(1));
-    // Scale both independent windows down with small models. Large models do
-    // not need a huge handoff simply because their ordinary output cap is high.
-    let summary_output = output
-        .max(1)
-        .min((context / 8).max(1))
-        .min((super::SUMMARY_BYTES / 4) as u32);
+    // The model's output window includes reasoning. The prompt bounds the
+    // visible handoff without starving that captured reasoning configuration.
+    let summary_output = output.max(1).min(context);
     Some(Budget {
         model: model.into(),
         context_limit: context,
@@ -44,8 +41,8 @@ mod tests {
         assert_eq!(budget.model, "captured-model");
         assert_eq!(budget.trigger_tokens, 136_000);
         assert_eq!(budget.output_reserve, 64_000);
-        assert_eq!(budget.summary_output, 8192);
-        assert_eq!(budget.summary_input, 191_808);
+        assert_eq!(budget.summary_output, 64_000);
+        assert_eq!(budget.summary_input, 136_000);
         assert_eq!(budget.recent_tokens, 20_000);
     }
 
@@ -54,8 +51,8 @@ mod tests {
         let budget = resolve("small", 4096, 2048, None).unwrap();
         assert_eq!(budget.trigger_tokens, 2048);
         assert_eq!(budget.output_reserve, 2048);
-        assert_eq!(budget.summary_output, 512);
-        assert_eq!(budget.summary_input, 3584);
+        assert_eq!(budget.summary_output, 2048);
+        assert_eq!(budget.summary_input, 2048);
         assert_eq!(budget.recent_tokens, 512);
         assert_eq!(resolve("unknown", 0, 0, None), None);
     }

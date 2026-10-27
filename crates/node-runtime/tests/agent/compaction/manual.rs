@@ -3,6 +3,7 @@ use serde_json::json;
 
 async fn compact(client: &Client, session: SessionId, revision: u64) -> (Request, QueuedTurn) {
     let request = client.prepare(Command::CompactContext {
+        focus: None,
         session,
         expected_revision: revision,
     });
@@ -24,8 +25,8 @@ fn summaries(page: &Page) -> usize {
 #[tokio::test]
 async fn skips_empty_and_summarizes_small_context() {
     for remote in [false, true] {
-        let server = Server::start(false).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let server = Server::summary(100).await;
+        let fixture = fixture(remote, &server).await;
         let (_, empty) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, empty.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
@@ -58,14 +59,14 @@ async fn skips_empty_and_summarizes_small_context() {
 async fn accepts_a_short_two_turn_handoff() {
     for remote in [false, true] {
         let server = Server::compaction(false).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         super::budget::model(&fixture, 500_000, 128_000, false).await;
         let sessions = (0..7)
             .map(|index| {
                 json!({
                     "id":format!("retained-session-{index}"),
                     "title":format!("Saved session {index}"),
-                    "detail":"Retained metadata only. ".repeat(12)
+                    "detail":"Retained metadata only. ".repeat(80)
                 })
             })
             .collect::<Vec<_>>();
@@ -110,16 +111,17 @@ async fn accepts_a_short_two_turn_handoff() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|message| message["role"] == "system")
+                .rev()
+                .find(|message| message["role"] == "user")
                 .unwrap()["content"]
                 .as_str()
                 .unwrap();
-            assert!(prompt.contains("Summary output budget: 8192 tokens"));
+            assert!(prompt.contains("Summary output budget: 128000 tokens"));
             let output = summary["max_completion_tokens"]
                 .as_u64()
                 .or_else(|| summary["max_tokens"].as_u64())
                 .unwrap();
-            assert_eq!(output, 8_192);
+            assert_eq!(output, 128_000);
         }
         fixture.client.execute(request).await.unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), count + 1);
@@ -131,8 +133,8 @@ async fn accepts_a_short_two_turn_handoff() {
 #[tokio::test]
 async fn preserves_verbatim_only_history() {
     for remote in [false, true] {
-        let server = Server::start(false).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let server = Server::summary(100).await;
+        let fixture = fixture(remote, &server).await;
         let original = "Retain exact constraints 中文 🙂 ".repeat(200);
         let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
         assert!(original.len() > 1_024);
@@ -159,10 +161,9 @@ async fn preserves_verbatim_only_history() {
 async fn supports_unknown_usage() {
     for remote in [false, true] {
         let server = Server::loop_usage(vec![None], 100).await;
-        let fixture = Fixture::files(remote, &server).await;
-        // The complete history exceeds this real window. Summarize only the
-        // largest complete exchange prefix that fits and retain all later work.
-        super::budget::model(&fixture, 16_000, 2_048, false).await;
+        let fixture = fixture(remote, &server).await;
+        // Unknown usage still permits explicit compaction of the complete history.
+        super::budget::model(&fixture, 128_000, 2_048, false).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -189,7 +190,7 @@ async fn supports_unknown_usage() {
             let summary = requests.last().unwrap();
             assert!(agent_support::compaction::is_summary(summary));
             assert!(messages(summary).contains("Unmetered evidence 1"));
-            assert!(!messages(summary).contains("Unmetered evidence 6"));
+            assert!(messages(summary).contains("Unmetered evidence 6"));
         }
         usage(&fixture.client, 1).await;
         fixture.node.shutdown().await.unwrap();
@@ -201,7 +202,7 @@ async fn supports_unknown_usage() {
 async fn restores_branch_history() {
     for remote in [false, true] {
         let server = Server::compaction(false).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
             "Exact tool evidence 中文 🙂\n".repeat(200),
@@ -219,13 +220,17 @@ async fn restores_branch_history() {
         let entry = page.entries.last().unwrap();
         assert_eq!(entry.turn, turn.id);
         assert_eq!(entry.author, "system");
-        assert!(entry.usage.is_some());
+        // Summary usage is billed to a hidden compaction event; statistics follow.
+        assert!(entry.usage.is_none());
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);
         let summary = &requests[2];
         assert!(agent_support::compaction::is_summary(summary));
-        assert!(
-            summary["tools"].is_null() || summary["tools"].as_array().is_some_and(Vec::is_empty)
+        assert_eq!(summary["tools"], requests[1]["tools"]);
+        let normal = requests[1]["messages"].as_array().unwrap();
+        assert_eq!(
+            summary["messages"].as_array().unwrap()[..normal.len()],
+            normal[..]
         );
         assert!(messages(summary).contains("Exact tool evidence 中文 🙂"));
         assert!(messages(summary).contains("evidence-call"));
@@ -333,7 +338,7 @@ async fn restores_branch_history() {
 async fn preserves_failed_context() {
     for remote in [false, true] {
         let server = Server::compaction(true).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         std::fs::write(fixture.root.join("source.txt"), "Keep evidence").unwrap();
         let (_, _, before) = submit(
             &fixture.client,
@@ -428,7 +433,7 @@ async fn preserves_cancelled_configuration() {
     for remote in [false, true] {
         let server = Server::compaction(false).await;
         let slow = Server::start(true).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
             "Queue evidence\n".repeat(200),
@@ -549,6 +554,7 @@ async fn preserves_cancelled_configuration() {
         let error = fixture
             .client
             .execute(fixture.client.prepare(Command::CompactContext {
+                focus: None,
                 session: fixture.session.id,
                 expected_revision: 1,
             }))
@@ -626,26 +632,26 @@ async fn preserves_cancelled_configuration() {
 }
 
 #[tokio::test]
-async fn submits_estimated_oversized_original_input() {
+async fn rejects_unhelpful_covered_input() {
     for remote in [false, true] {
         let server = Server::summary(100).await;
-        let fixture = Fixture::files(remote, &server).await;
-        super::budget::model(&fixture, 16_000, 2_048, false).await;
+        let fixture = fixture(remote, &server).await;
+        super::budget::model(&fixture, 128_000, 2_048, false).await;
         let original = "x".repeat(31 * 1024);
         let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
         let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
         let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
-        assert_eq!(run.status, Status::Completed, "{run:?}");
+        assert_eq!(run.status, Status::Failed, "{run:?}");
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
-        assert_eq!(summaries(&after), 1);
+        assert_eq!(summaries(&after), 0);
         assert!(
-            !after
+            after
                 .entries
                 .iter()
                 .flat_map(|entry| &entry.parts)
                 .any(|part| {
-                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure" && value["failure"]["reason"]=="no_reduction")
                 })
         );
         assert!(
@@ -667,12 +673,16 @@ async fn submits_estimated_oversized_original_input() {
 }
 
 #[tokio::test]
-async fn accepts_larger_complete_handoffs() {
+async fn rejects_larger_complete_handoffs() {
     for remote in [false, true] {
         let handoff = "Verified complete handoff. ".repeat(2_000);
         let server = Server::compaction_text(false, handoff.clone()).await;
-        let fixture = Fixture::files(remote, &server).await;
-        std::fs::write(fixture.root.join("source.txt"), "Exact source evidence").unwrap();
+        let fixture = fixture(remote, &server).await;
+        std::fs::write(
+            fixture.root.join("source.txt"),
+            "Exact synthetic source evidence.\n".repeat(200),
+        )
+        .unwrap();
         let (_, _, before) = submit(
             &fixture.client,
             fixture.session.id,
@@ -681,22 +691,9 @@ async fn accepts_larger_complete_handoffs() {
         .await;
         let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(after.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(after.runs.last().unwrap().status, Status::Failed);
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
-        let summary = after
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| {
-                if let Part::Compaction(text) = part {
-                    Some(text)
-                } else {
-                    None
-                }
-            })
-            .unwrap();
-        assert!(summary.starts_with(&handoff));
-        assert_eq!(summaries(&after), 1);
+        assert_eq!(summaries(&after), 0);
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 3);
@@ -711,12 +708,12 @@ async fn accepts_larger_complete_handoffs() {
                 .unwrap();
             assert!(handoff.len() > transcript.len());
             assert!(
-            !after
+            after
                 .entries
                 .iter()
                 .flat_map(|entry| &entry.parts)
                 .any(|part| {
-                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")
+                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure" && value["failure"]["reason"]=="no_reduction")
                 })
         );
         }

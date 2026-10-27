@@ -15,6 +15,8 @@ mod categories;
 pub(super) const KEY: &str = "sailry_model_observation";
 
 pub(in crate::agent) struct Capture {
+    pub(super) compaction: bool,
+    usage: BTreeMap<u64, adk_core::UsageMetadata>,
     request: Request,
     context: crate::logging::Context,
     active: Option<u64>,
@@ -41,6 +43,8 @@ impl Capture {
         sources: Arc<Mutex<Vec<Source>>>,
     ) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
+            compaction: false,
+            usage: BTreeMap::new(),
             request: Request {
                 id: context.call.expect("model call identity").to_string(),
                 turn,
@@ -231,6 +235,14 @@ impl Capture {
     }
 
     pub(super) fn response(&mut self, response: &LlmResponse) {
+        if self.compaction
+            && let Some(usage) = &response.usage_metadata
+        {
+            let index = self.active.unwrap_or(0);
+            if !self.persisted.contains(&index) {
+                self.usage.insert(index, usage.clone());
+            }
+        }
         let Some(index) = self.active else {
             return;
         };
@@ -280,17 +292,32 @@ impl Capture {
     ) -> adk_core::Result<()> {
         // Call after response consumption and its observation scope have ended,
         // so terminal callbacks and final response usage have both arrived.
-        let (pending, diagnostics) = {
+        let (pending, diagnostics, fallback) = {
             let mut capture = capture.lock().unwrap_or_else(|poison| poison.into_inner());
-            (capture.pending(), capture.diagnostics())
+            let fallback = (capture.compaction && !capture.persisted.contains(&0))
+                .then(|| {
+                    capture
+                        .usage
+                        .get(&0)
+                        .map(|usage| (capture.request.clone(), usage.clone()))
+                })
+                .flatten();
+            let pending = capture
+                .pending()
+                .into_iter()
+                .map(|request| {
+                    let event = capture.project(&request);
+                    (request, event)
+                })
+                .collect::<Vec<_>>();
+            (pending, capture.diagnostics(), fallback)
         };
         // ADK callbacks only project into memory. Native diagnostics may perform
         // I/O, so emit outside the callback, lock and model observation scope.
         for entry in diagnostics {
             entry.emit();
         }
-        for request in pending {
-            let event = event(&request);
+        for (request, event) in pending {
             // Stable event IDs let the canonical history owner deduplicate an
             // overlapping finalizer or an uncertain append acknowledgement.
             ingress
@@ -303,7 +330,39 @@ impl Capture {
                 .persisted
                 .extend(request.attempts.iter().map(|attempt| attempt.index));
         }
+        if let Some((request, usage)) = fallback {
+            let mut event = event(&request);
+            event.id = format!("model:{}:usage", request.id);
+            event
+                .provider_metadata
+                .insert("sailry_model_purpose".into(), "compaction".into());
+            event.llm_response.usage_metadata = Some(usage);
+            ingress
+                .sessions(request.turn)
+                .append_event(&session.to_string(), event)
+                .await?;
+            capture
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .persisted
+                .insert(0);
+        }
         Ok(())
+    }
+
+    fn project(&self, request: &Request) -> adk_core::Event {
+        let mut event = event(request);
+        if self.compaction {
+            event
+                .provider_metadata
+                .insert("sailry_model_purpose".into(), "compaction".into());
+            event.llm_response.usage_metadata = request
+                .attempts
+                .first()
+                .and_then(|attempt| self.usage.get(&attempt.index))
+                .cloned();
+        }
+        event
     }
 
     fn pending(&self) -> Vec<Request> {

@@ -88,6 +88,7 @@ fn rejects_inconsistent_questions() {
         usage: None,
         citations: vec![],
         search_suggestions: None,
+        commentary: Default::default(),
         parts: vec![Part::ToolCall {
             presentation: Default::default(),
             grouping: Default::default(),
@@ -177,6 +178,7 @@ fn validates_plan_answers() {
             usage: None,
             citations: vec![],
             search_suggestions: None,
+            commentary: Default::default(),
             parts: vec![Part::ToolCall {
                 presentation: Default::default(),
                 grouping: Default::default(),
@@ -229,6 +231,7 @@ fn review_entry(question: &Question, spec: Spec) -> Entry {
         usage: None,
         citations: vec![],
         search_suggestions: None,
+        commentary: Default::default(),
         parts: vec![Part::ToolCall {
             presentation: Default::default(),
             grouping: Default::default(),

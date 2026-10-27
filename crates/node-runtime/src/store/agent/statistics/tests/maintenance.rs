@@ -51,7 +51,7 @@ async fn uses_captured_policy_until_queued_work_ends() {
     assert_eq!(captured.context_limit, 4096);
     assert_eq!(captured.trigger_tokens, 2048);
     assert_eq!(captured.output_reserve, 2048);
-    assert_eq!(captured.summary_output, 512);
+    assert_eq!(captured.summary_output, 2048);
     command(
         &mut fixture.database,
         &fixture.events,
@@ -69,7 +69,7 @@ async fn uses_captured_policy_until_queued_work_ends() {
     assert_eq!(current.context_limit, 200_000);
     assert_eq!(current.trigger_tokens, 136_000);
     assert_eq!(current.output_reserve, 64_000);
-    assert_eq!(current.summary_output, 8192);
+    assert_eq!(current.summary_output, 64_000);
 }
 
 #[tokio::test]
@@ -85,7 +85,7 @@ async fn locates_maintenance_beyond_loaded_history() {
     summary.actions.compaction = Some(adk_core::EventCompaction {
         start_timestamp: anchor.timestamp,
         end_timestamp: anchor.timestamp,
-        compacted_content: adk_core::Content::new("model").with_text("Verified handoff"),
+        compacted_content: adk_core::Content::new("user").with_text("Verified handoff"),
     });
     let summary_id = summary.id.clone();
     let summary_time = summary.timestamp.timestamp_millis();

@@ -276,6 +276,7 @@ fn model(request: &Value) {
         "list_sessions",
         "read_session",
         "search_session",
+        "read_tool_output",
     ] {
         assert!(tools.contains(name), "missing tool {name}");
     }
@@ -631,6 +632,11 @@ async fn history_requires_an_assistant_declaration() {
                     "{name}"
                 );
             }
+            assert!(
+                tools
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == "read_tool_output")
+            );
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

@@ -79,14 +79,20 @@ impl View {
         if !self.history_pending {
             self.history_pending = true;
             let owner = cx.weak_entity();
-            let _ = cx.update_window(self.history_window, move |_, window, _| {
-                window.on_next_frame(move |_, cx| {
-                    let _ = owner.update(cx, |view, cx| {
-                        view.history_pending = false;
-                        cx.notify();
+            if cx
+                .update_window(self.history_window, move |_, window, _| {
+                    window.on_next_frame(move |_, cx| {
+                        let _ = owner.update(cx, |view, cx| {
+                            view.history_pending = false;
+                            cx.notify();
+                        });
                     });
-                });
-            });
+                })
+                .is_err()
+            {
+                self.history_pending = false;
+                cx.notify();
+            }
         }
     }
     pub(super) fn sync_rows(&mut self, cx: &mut Context<Self>) {

@@ -23,6 +23,7 @@ pub(crate) use model::plugin::{
 mod plugins;
 mod prompt;
 pub(crate) use prompt::session::METADATA as CONTEXT_METADATA;
+pub(crate) use prompt::session::compose as compose_context;
 mod question;
 mod references;
 mod review;
@@ -109,6 +110,7 @@ async fn run(
     token: CancellationToken,
     owner: Option<CancellationToken>,
 ) -> Result<(Status, Option<String>), Fault> {
+    let invocation = Arc::new(invocation);
     let controls = &ingress.agents;
     let turn = invocation.turn.id;
     controls.start_timing(turn);
@@ -117,21 +119,28 @@ async fn run(
     let session = invocation.turn.session;
     let main = invocation.child.is_none();
     let callbacks = plugins::callbacks::capture(&invocation);
-    let hooks = crate::hooks::Binding::capture(ingress, &invocation, token.clone());
+    let runner = controls.runner(turn).unwrap_or_else(|| token.child_token());
+    let hooks = crate::hooks::Binding::capture(ingress, &invocation, runner.clone());
     let mut completion_review = None;
     let mut result = execute(
         ingress,
         tasks,
-        invocation,
-        token.clone(),
+        &invocation,
+        runner,
         hooks.clone(),
         &diagnostics,
         &mut completion_review,
     )
     .await;
+    if let Some(error) = controls.failure(turn)
+        && !result
+            .as_ref()
+            .is_err_and(|error| error.code == ErrorCode::OutcomeUnknown)
+    {
+        result = Err(error);
+    }
     if owner.as_ref().is_some_and(CancellationToken::is_cancelled) {
-        // Owner Stop or timeout must retain input before observers can see a
-        // terminal child run. A guidance handoff cancels only the Runner token.
+        // Owner Stop retains pending input before publishing the terminal child run.
         if let Err(error) = ingress.retain_guidance(turn).await {
             result = Err(error);
         }
@@ -140,7 +149,7 @@ async fn run(
         // Normal completion leaves background children with their session owner.
         // Interruption retains the existing cancellation and guidance settlement.
         let _settlement = diagnostics.span(Phase::ChildSettlement, None);
-        settle_children(ingress, session, turn, &token).await;
+        settle_children(ingress, session).await;
     }
     if !controls.stopped.is_cancelled()
         && !token.is_cancelled()
@@ -159,7 +168,7 @@ async fn run(
     // Completion hooks can fail or be interrupted after a successful Runner.
     if main && (token.is_cancelled() || result.is_err()) {
         let _settlement = diagnostics.span(Phase::ChildSettlement, None);
-        settle_children(ingress, session, turn, &token).await;
+        settle_children(ingress, session).await;
     }
     // Hook and tool process owners survive dropped ADK callback futures.
     {
@@ -254,35 +263,17 @@ async fn run(
     ))
 }
 
-async fn settle_children(
-    ingress: &Ingress,
-    session: SessionId,
-    turn: TurnId,
-    token: &CancellationToken,
-) {
+async fn settle_children(ingress: &Ingress, session: SessionId) {
     let controls = &ingress.agents;
-    if !ingress.pending_guidance(turn).await.unwrap_or(false) {
-        controls.cancel_children(session);
-    }
+    controls.cancel_children(session);
     loop {
         let changed = controls.changed.notified();
-        let guidance = controls.wake.notified();
-        tokio::pin!(changed, guidance);
+        tokio::pin!(changed);
         changed.as_mut().enable();
-        guidance.as_mut().enable();
         if !controls.has_children(session) {
             break;
         }
-        if !token.is_cancelled() && ingress.yield_guidance(turn).await.unwrap_or(false) {
-            break;
-        }
-        if token.is_cancelled() && ingress.pending_guidance(turn).await.unwrap_or(false) {
-            break;
-        }
-        tokio::select! {
-            _ = changed => {},
-            _ = guidance => {},
-        }
+        changed.await;
     }
 }
 
@@ -302,7 +293,7 @@ fn merge_failure(result: &mut Result<Option<String>, Fault>, error: Fault) {
 async fn execute(
     ingress: &Arc<Ingress>,
     tasks: &Tasks,
-    invocation: Invocation,
+    invocation: &Arc<Invocation>,
     stop: CancellationToken,
     hooks: Option<Arc<crate::hooks::Binding>>,
     diagnostics: &Diagnostics,
@@ -310,7 +301,7 @@ async fn execute(
 ) -> Result<Option<String>, Fault> {
     let session = invocation.turn.session;
     let mut connections = ingress.agents.mcp.take(session);
-    let result = execute_with(
+    let mut result = execute_with(
         ingress,
         tasks,
         invocation,
@@ -324,43 +315,47 @@ async fn execute(
         *completion_review = outcome.review;
         outcome.output
     });
-    if result.is_err() || stop.is_cancelled() {
-        ingress.model_clients.abandon(session);
-    }
-    // ADK can drop a tool future on interruption before its async cleanup runs.
-    // Retain browser cleanup at the same Node-owned boundary as MCP connections.
-    let browsers = if stop.is_cancelled() {
-        let _cleanup = diagnostics.span(Phase::BrowserCleanup, None);
-        ingress
-            .external_browser
-            .close(session)
-            .await
-            .map_err(|error| {
-                Fault::new(
-                    ErrorCode::OutcomeUnknown,
-                    format!("external browser cleanup failed after interruption: {error}"),
-                )
-            })
-    } else {
-        Ok(())
-    };
-    if result.is_ok() && !stop.is_cancelled() && connections.reusable() {
+    let reusable = result.is_ok() && !stop.is_cancelled();
+    let cleanup = if reusable && connections.reusable() {
         let settled = {
             let _settlement = diagnostics.span(Phase::McpSettle, None);
             connections.settle().await
         };
-        if let Err(error) = settled {
-            let _cleanup = diagnostics.span(Phase::McpClose, None);
-            connections.release().await?;
-            return Err(error);
+        match settled {
+            Ok(()) => {
+                let _cache = diagnostics.span(Phase::McpCache, None);
+                ingress.agents.mcp.put(session, connections).await
+            }
+            Err(error) => {
+                let _cleanup = diagnostics.span(Phase::McpClose, None);
+                match connections.release().await {
+                    Ok(()) => Err(error),
+                    Err(release) => Err(release),
+                }
+            }
         }
-        let _cache = diagnostics.span(Phase::McpCache, None);
-        ingress.agents.mcp.put(session, connections).await?;
     } else {
         let _cleanup = diagnostics.span(Phase::McpClose, None);
-        connections.close().await?;
+        connections.close().await
+    };
+    if let Err(error) = cleanup {
+        merge_failure(&mut result, error);
     }
-    browsers?;
+    if result.is_err() || stop.is_cancelled() {
+        ingress.model_clients.abandon(session);
+    }
+    if stop.is_cancelled() {
+        let _cleanup = diagnostics.span(Phase::BrowserCleanup, None);
+        if let Err(error) = ingress.external_browser.close(session).await {
+            merge_failure(
+                &mut result,
+                Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    format!("external browser cleanup failed after interruption: {error}"),
+                ),
+            );
+        }
+    }
     result
 }
 
@@ -373,7 +368,7 @@ struct Outcome {
 async fn execute_with(
     ingress: &Arc<Ingress>,
     tasks: &Tasks,
-    invocation: Invocation,
+    invocation: &Arc<Invocation>,
     stop: CancellationToken,
     connections: &mut mcp::Connections,
     hooks: Option<Arc<crate::hooks::Binding>>,
@@ -383,7 +378,7 @@ async fn execute_with(
         return Ok(Outcome::default());
     }
     let purpose = if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
-        model::Purpose::Helper
+        model::Purpose::Compaction
     } else {
         model::Purpose::Main
     };
@@ -473,6 +468,7 @@ async fn execute_with(
         ingress,
         tasks,
         &invocation,
+        prompt_session.loaded(),
         &stop,
         resources.clone(),
         connections,
@@ -482,12 +478,10 @@ async fn execute_with(
     let environment = prompt::environment(ingress, &invocation, &stop).await;
     for captured in &invocation.instructions {
         if tool_capable
-            && extensions.tools.iter().any(|registration| {
-                captured
-                    .any_tools
-                    .iter()
-                    .any(|name| name == registration.tool.name())
-            })
+            && captured
+                .any_tools
+                .iter()
+                .any(|name| extensions.mounted(name))
         {
             policy.push_str("\n\n");
             policy.push_str(&captured.text);
@@ -521,9 +515,9 @@ async fn execute_with(
         policy.push_str(&title);
     }
     let instruction = prompt_session.instruction(instruction);
-    let (compact, compaction_config, compact_tool) = compaction::bind(
+    let (compact, compaction_config, compact_tool, context) = compaction::bind(
         ingress,
-        model::build(ingress, &invocation, &stop, model::Purpose::Helper).await?,
+        model::build(ingress, &invocation, &stop, model::Purpose::Compaction).await?,
         &invocation,
         stop.clone(),
         instruction.clone(),
@@ -546,6 +540,7 @@ async fn execute_with(
         }
     }
     let declarations = prompt_session.declarations(&extensions.tools);
+    let preflight_tools = prompt::session::project(declarations.clone());
     prompt_session
         .append(ingress, &invocation, policy, environment, personal, &stop)
         .await?;
@@ -564,17 +559,22 @@ async fn execute_with(
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         // ADK requires a numeric ceiling; only explicit role budgets constrain tasks.
         .max_iterations(limit.unwrap_or(u32::MAX))
-        .model(model.clone())
+        .model(context.model(model.clone()))
         .expose_tool_error_messages(true)
         .on_tool_error(plugins::failure_callback())
         .instruction_provider(Box::new(move |_| {
             let instruction = instruction.clone();
             Box::pin(async move { Ok(instruction) })
         }))
-        .before_model_callback(guidance::bind(ingress, invocation.turn.id))
+        .after_model_callback(guidance::continue_pending(ingress, invocation.turn.id))
         .before_model_callback(approval::bind(ingress, invocation.turn.id, content.clone()))
         .before_model_callback(preamble)
-        .before_tool_callback(guidance::settle(ingress, invocation.turn.id));
+        .before_model_callback(guidance::bind(
+            ingress,
+            invocation,
+            context.clone(),
+            stop.clone(),
+        ));
     if let Some(hooks) = hooks {
         agent = agent
             .before_tool_callback(hooks.before())
@@ -650,6 +650,13 @@ async fn execute_with(
     if stop.is_cancelled() {
         return Ok(Outcome::default());
     }
+    context
+        .preflight(&inputs.pending(), preflight_tools)
+        .await
+        .map_err(model::error)?;
+    if stop.is_cancelled() {
+        return Ok(Outcome::default());
+    }
     inputs
         .append(
             ingress,
@@ -713,10 +720,6 @@ async fn execute_with(
                     if answer::present(&event) {
                         proposal = Some(event.id.clone());
                     }
-                }
-                if !event.llm_response.partial {
-                    // The terminal response is committed; only its tools can follow.
-                    ingress.agents.model_settled(turn).await;
                 }
                 if event.llm_response.partial {
                     if let Some(started) = durable_tool_start(&event) {

@@ -268,6 +268,11 @@ async fn edits_catalog_and_applies_future_capture() {
         let (session, _) = configured_session(&client, &server.endpoint, &root).await;
         let mut config = session.config.clone();
         config.permission = Permission::Full;
+        config
+            .options
+            .entry("delegation".into())
+            .or_default()
+            .insert("mode".into(), json!("multitask"));
         let Output::Session(mut session) = client
             .execute(client.prepare(Command::SetSessionConfig {
                 session: session.id,
@@ -399,9 +404,25 @@ async fn edits_catalog_and_applies_future_capture() {
                 .iter()
                 .find(|entry| entry["function"]["name"] == tool("spawn_agent"))
                 .unwrap();
+            let role = &declaration["function"]["parameters"]["properties"]["role"];
+            assert!(role.get("enum").is_none());
+            assert_eq!(role["type"], json!(["string", "null"]));
+            let first = requests
+                .iter()
+                .find_map(|request| {
+                    request["tools"]
+                        .as_array()?
+                        .iter()
+                        .find(|entry| entry["function"]["name"] == tool("spawn_agent"))
+                })
+                .unwrap();
             assert_eq!(
-                declaration["function"]["parameters"]["properties"]["role"]["enum"],
-                json!([edited.key, null])
+                declaration["function"]["parameters"],
+                first["function"]["parameters"]
+            );
+            assert!(
+                node_context(requests.last().unwrap(), "Work mode")
+                    .contains(&format!("{} ({})", edited.key, edited.name))
             );
         }
 

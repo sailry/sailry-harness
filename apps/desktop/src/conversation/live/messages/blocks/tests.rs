@@ -46,6 +46,7 @@ fn keeps_native_references_in_canonical_copy_source() {
                     usage: None,
                     citations: vec![],
                     search_suggestions: None,
+                    commentary: Default::default(),
                 }],
             }),
         })),
@@ -101,6 +102,7 @@ fn preserves_image_message_boundaries() {
         usage: None,
         citations: vec![],
         search_suggestions: None,
+        commentary: Default::default(),
     })
     .collect();
     let history = View {
@@ -204,6 +206,7 @@ fn retains_text_boundaries() {
                     usage: None,
                     citations: vec![],
                     search_suggestions: None,
+                    commentary: Default::default(),
                 }],
             }),
         })),
@@ -262,6 +265,7 @@ fn retains_text_boundaries() {
         turn,
         author: "assistant".into(),
         branch: String::new(),
+        commentary: Default::default(),
         parts: vec![Part::Text(" ".into())],
     });
     let blocks = collect(turn, &history);

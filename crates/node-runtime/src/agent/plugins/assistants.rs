@@ -74,9 +74,9 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
             "plugin assistant does not allow delegation",
         ));
     }
-    contribution
-        .tools
-        .retain(|entry| allowed.contains(entry.tool.name()));
+    contribution.tools.retain(|entry| {
+        entry.tool.name() == references::OUTPUT || allowed.contains(entry.tool.name())
+    });
     if !declaration.context.is_empty() {
         contribution.instruction.push_str("\n\n");
         contribution.instruction.push_str(&declaration.context);

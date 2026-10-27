@@ -31,6 +31,7 @@ pub(in crate::store) async fn compact(
     request: &Request,
     session: sailry_protocol::Session,
 ) -> Result<QueuedTurn, Fault> {
+    input(request.command.clone())?;
     capture(db, caller, request, session, RunKind::Compaction, true).await
 }
 
@@ -206,7 +207,7 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Queue, F
     .unwrap_or((0, false));
     // Bound previews, not user input. Editing fetches the complete original text separately.
     let mut query = db.prepare(
-        "SELECT a.body,p.revision,a.ready,r.body,p.recipient FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 ORDER BY p.position,t.rowid"
+        "SELECT a.body,p.revision,a.ready,r.body,p.recipient FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.author')='user'))) ORDER BY p.position,t.rowid"
     ).await.map_err(storage_error)?;
     let mut rows = query
         .query([session.to_string()])
@@ -256,7 +257,7 @@ pub(in crate::store) async fn message(
     turn: TurnId,
 ) -> Result<QueuedMessage, Fault> {
     let run = runs::get(db, turn).await?;
-    if run.status != Status::Queued {
+    if run.status != Status::Queued && !retained(db, turn).await? {
         return Err(Fault::new(ErrorCode::Conflict, "turn is no longer queued"));
     }
     let (revision, body, config, request): (u64, Vec<u8>, Vec<u8>, String) = {
@@ -315,7 +316,17 @@ fn input(command: Command) -> Result<Input, Fault> {
             response: question::Response::StartCoding { message, .. },
             ..
         } => Ok(message),
-        Command::CompactContext { .. } | Command::DeliverBackground { .. } => Ok(Input::default()),
+        Command::CompactContext { focus, .. } => {
+            let text = focus.unwrap_or_default();
+            if text.len() > 64 * 1024 {
+                return Err(Fault::invalid("context compaction focus is too long"));
+            }
+            Ok(Input {
+                text,
+                ..Default::default()
+            })
+        }
+        Command::DeliverBackground { .. } => Ok(Input::default()),
         _ => Err(storage_error("pending input is not a message")),
     }
 }
@@ -353,7 +364,7 @@ fn check_revision(actual: u64, expected: u64) -> Result<(), Fault> {
 
 async fn check_item(db: &Connection, turn: TurnId, expected: u64) -> Result<Run, Fault> {
     let run = runs::get(db, turn).await?;
-    if run.status != Status::Queued {
+    if run.status != Status::Queued && !retained(db, turn).await? {
         return Err(Fault::new(ErrorCode::Conflict, "turn is no longer queued"));
     }
     let revision = {
@@ -370,6 +381,18 @@ async fn check_item(db: &Connection, turn: TurnId, expected: u64) -> Result<Run,
     };
     check_revision(revision, expected)?;
     Ok(run)
+}
+
+pub(in crate::store::agent) async fn retained(
+    db: &Connection,
+    turn: TurnId,
+) -> Result<bool, Fault> {
+    let mut query = db.prepare("SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.turn=?1 AND json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.author')='user'))").await.map_err(storage_error)?;
+    let row = query
+        .query_row([turn.to_string()])
+        .await
+        .map_err(storage_error)?;
+    row.get(0).map_err(storage_error)
 }
 
 async fn reorder(

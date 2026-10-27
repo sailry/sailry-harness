@@ -10,7 +10,20 @@ pub(in crate::store::agent) async fn retain(
         let parts: Vec<_> = draft
             .parts
             .into_iter()
-            .filter_map(|part| match part {
+            .enumerate()
+            .filter_map(|(index, part)| match part {
+                Part::Text(text) if draft.commentary.contains_key(&index) => {
+                    Some(adk_core::Part::ServerToolCall {
+                        server_tool_call: serde_json::json!({
+                            "type": "message",
+                            "role": "assistant",
+                            "id": draft.commentary[&index],
+                            "phase": "commentary",
+                            "status": "incomplete",
+                            "content": [{"type": "output_text", "text": text, "annotations": []}],
+                        }),
+                    })
+                }
                 Part::Text(text) => Some(adk_core::Part::Text { text }),
                 Part::Thinking(thinking) => Some(adk_core::Part::Thinking {
                     thinking,

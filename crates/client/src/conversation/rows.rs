@@ -51,19 +51,35 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
         .entries
         .iter()
         .filter(|entry| entry.turn == turn && entry.author != "user")
-        .map(|entry| (entry.id.as_str(), entry.parts.as_slice(), Some(entry)))
+        .map(|entry| {
+            (
+                entry.id.as_str(),
+                entry.parts.as_slice(),
+                &entry.commentary,
+                Some(entry),
+            )
+        })
         .chain(
             snapshot
                 .drafts
                 .iter()
                 .filter(|draft| draft.turn == turn && draft.author != "user")
-                .map(|draft| (draft.id.as_str(), draft.parts.as_slice(), None)),
+                .map(|draft| {
+                    (
+                        draft.id.as_str(),
+                        draft.parts.as_slice(),
+                        &draft.commentary,
+                        None,
+                    )
+                }),
         );
     let mut rows: Vec<Row<'a>> = Vec::new();
-    for (id, parts, entry) in entries {
+    for (id, parts, commentary, entry) in entries {
         let mut index = 0;
         let mut offset = 0;
-        let last = parts.iter().rposition(|part| matches!(part, Part::Text(_)));
+        let last = parts.iter().enumerate().rposition(|(index, part)| {
+            matches!(part, Part::Text(_)) && !commentary.contains_key(&index)
+        });
         while index < parts.len() {
             let start = index;
             let part = &parts[index];
@@ -89,6 +105,9 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
             if let Part::Text(text) | Part::Thinking(text) = part {
                 let mut joined = text.clone();
                 while index < parts.len() {
+                    if commentary.get(&start) != commentary.get(&index) {
+                        break;
+                    }
                     match (part, &parts[index]) {
                         (Part::Text(_), Part::Text(next))
                         | (Part::Thinking(_), Part::Thinking(next)) => joined.push_str(next),
@@ -97,9 +116,12 @@ pub fn collect<'a>(snapshot: &'a Snapshot, calls: &[Call], turn: TurnId) -> Vec<
                     index += 1;
                 }
                 row.end = index;
-                row.text_last = last.is_some_and(|last| last < index);
+                row.text_last = !commentary.contains_key(&start)
+                    && last.is_some_and(|last| last >= start && last < index);
                 if matches!(part, Part::Text(_)) {
-                    offset += joined.chars().count();
+                    if !commentary.contains_key(&start) {
+                        offset += joined.chars().count();
+                    }
                     if joined.trim().is_empty() {
                         continue;
                     }

@@ -98,6 +98,7 @@ async fn preserves_commentary_part_indices() {
         .unwrap();
     assert_eq!(entry.parts.len(), 2);
     assert_eq!(entry.parts[0], Part::Text("Reading the source".into()));
+    assert_eq!(entry.commentary, [(0, event.id.clone())].into());
     assert!(matches!(&entry.parts[1],Part::ToolCall {id:Some(id),..} if id == "call"));
 }
 
@@ -113,6 +114,62 @@ fn projects_commentary_deltas() {
     assert!(commentary(&serde_json::json!({
         "type":"message","phase":"final_answer","content":[{"type":"output_text","text":"Answer"}]
     })).is_none());
+}
+
+#[tokio::test]
+async fn retains_interrupted_commentary_phase() {
+    let mut fixture = Fixture::new().await;
+    let turn = running(&mut fixture).await;
+    let session = fixture.session;
+    fixture
+        .database
+        .feeds
+        .delta(
+            fixture.database.node,
+            session,
+            Draft {
+                id: "progress".into(),
+                turn,
+                author: "assistant".into(),
+                branch: String::new(),
+                parts: vec![Part::Text("Checking the file".into())],
+                commentary: [(0, "msg-progress".into())].into(),
+            },
+        )
+        .unwrap();
+    let run = runs::get(&fixture.database.connection, turn).await.unwrap();
+    retain(&mut fixture.database, &run, &fixture.events)
+        .await
+        .unwrap();
+    let body: Vec<u8> = fixture
+        .database
+        .connection
+        .prepare("SELECT body FROM agent_events WHERE session=?1 AND id='progress'")
+        .await
+        .unwrap()
+        .query_row([session.to_string()])
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    let event: AdkEvent = serde_json::from_slice(&body).unwrap();
+    assert!(event.llm_response.interrupted);
+    let adk_core::Part::ServerToolCall { server_tool_call } = &event.content().unwrap().parts[0]
+    else {
+        panic!("commentary message expected")
+    };
+    assert_eq!(server_tool_call["phase"], "commentary");
+    assert_eq!(server_tool_call["id"], "msg-progress");
+    assert_eq!(server_tool_call["status"], "incomplete");
+    assert_eq!(
+        commentary(server_tool_call).as_deref(),
+        Some("Checking the file")
+    );
+    let entry = project(&fixture.database.connection, 1, turn, &event)
+        .await
+        .unwrap();
+    assert_eq!(entry.commentary, [(0, "msg-progress".into())].into());
+    assert_eq!(entry.parts, vec![Part::Text("Checking the file".into())]);
 }
 
 #[tokio::test]

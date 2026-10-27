@@ -122,8 +122,12 @@ fn context(request: &Value, personal: &str) -> String {
         let purpose = tool["function"]["parameters"]["properties"]["role"]["description"]
             .as_str()
             .unwrap();
-        assert!(purpose.contains("review (Review): Inspect the delegated task"));
-        assert!(purpose.contains("selection metadata only"));
+        assert!(purpose.contains("captured conversation roster"));
+        assert!(!purpose.contains("review (Review)"));
+        let role = &tool["function"]["parameters"]["properties"]["role"];
+        assert!(role.get("enum").is_none());
+        assert_eq!(role["type"], json!(["string", "null"]));
+        assert!(instructions.contains("review (Review): Inspect the delegated task"));
         assert!(!purpose.contains("Frozen review instructions"));
     }
     request["messages"].to_string()

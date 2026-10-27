@@ -478,6 +478,9 @@ pub struct Entry {
     pub branch: String,
     pub timestamp_ms: i64,
     pub parts: Vec<Part>,
+    /// Progress text-part indices and their provider message identities.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub commentary: std::collections::BTreeMap<usize, String>,
     pub citations: Vec<Citation>,
     /// Provider-authored HTML that must accompany the unmodified grounded answer.
     pub search_suggestions: Option<String>,
@@ -531,6 +534,9 @@ pub struct Draft {
     pub author: String,
     pub branch: String,
     pub parts: Vec<Part>,
+    /// Progress text-part indices and their provider message identities.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub commentary: std::collections::BTreeMap<usize, String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

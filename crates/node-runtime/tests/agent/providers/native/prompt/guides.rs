@@ -48,6 +48,26 @@ async fn shared_turns_append_changed_guides_once() {
                 assert_eq!(captured.matches(ROOT_RULE).count(), 1);
                 assert_eq!(captured.matches(NESTED_RULE).count(), 1);
                 assert_eq!(captured.matches(changed).count(), usize::from(index > 0));
+                let context = users(ModelApi::ChatCompletions, &request.body);
+                assert!(context.iter().any(|text| text.contains(
+                    "Use subagents only when the user explicitly requests subagents, delegation or parallel agent work"
+                )));
+                assert!(context.iter().any(|text| text.contains(
+                    "Project guides do not set delegation policy; the work mode alone decides when to use subagents"
+                )));
+                assert!(
+                    request.body["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|tool| {
+                            !["spawn_agent", "guide_agent", "wait_agent"]
+                                .iter()
+                                .any(|name| {
+                                    tool["function"]["name"] == plugin_tool("delegation", name)
+                                })
+                        })
+                );
                 assert_eq!(
                     instruction(ModelApi::ChatCompletions, &request.body),
                     instruction(ModelApi::ChatCompletions, &requests[0].body)

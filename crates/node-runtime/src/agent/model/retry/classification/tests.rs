@@ -116,6 +116,48 @@ fn distinguishes_http_and_stream_mappings() {
     }
 }
 
+#[test]
+fn distinguishes_context_and_filtered_completion() {
+    for code in [
+        "context_length_exceeded",
+        "prompt_too_long",
+        "max_context_length_exceeded",
+    ] {
+        let error = failure(Some(400), None, Some(code), None);
+        assert_eq!(
+            Failure::new(&error).class,
+            Class::Terminal(Stop::ContextWindowExceeded)
+        );
+        assert!(super::super::context_overflow(&error));
+    }
+    for message in [
+        "Anthropic API error: 400 invalid_request_error: prompt is too long: 210000 tokens > 200000 maximum",
+        "This model's maximum context length is 128000 tokens",
+        "error code: CONTEXT_LENGTH_EXCEEDED",
+    ] {
+        let mut error = failure(Some(400), None, None, Some("invalid_request_error"));
+        error.message = message.into();
+        assert_eq!(
+            Failure::new(&error).class,
+            Class::Terminal(Stop::ContextWindowExceeded),
+            "{message}"
+        );
+        assert!(super::super::context_overflow(&error));
+        error.details.upstream_status_code = Some(429);
+        assert!(!super::super::context_overflow(&error));
+    }
+    let mut filtered = failure(None, Some("response.incomplete"), None, None);
+    filtered
+        .details
+        .metadata
+        .insert("incomplete_reason".into(), "content_filter".into());
+    assert_eq!(
+        Failure::new(&filtered).class,
+        Class::Terminal(Stop::ResponseIncomplete)
+    );
+    assert!(!super::super::context_overflow(&filtered));
+}
+
 #[tokio::test(start_paused = true)]
 async fn applies_one_interval_to_retryable_failures() {
     for code in ["rate_limit_exceeded", "slow_down"] {

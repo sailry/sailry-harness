@@ -60,36 +60,28 @@ async fn follows_visible_delegations_without_duplication() {
     let Output::QueuedTurn(guidance) = execute(&mut fixture, request).await.unwrap() else {
         panic!("guided turn expected")
     };
-    assert!(
-        queue::guidance::yield_run(&mut fixture.database, child.turn.id, &fixture.events)
-            .await
-            .unwrap()
-    );
-    finish(&mut fixture, child.turn.id).await;
-    let claimed = runs::claim_guidance(&mut fixture.database, child.turn.id, &fixture.events)
+    let inputs = runs::guidance::take(&mut fixture.database, child.turn.id, &fixture.events)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        claim(&mut fixture.database, claimed.turn.id, &fixture.events)
-            .await
-            .unwrap(),
-        Status::Running
-    );
-    assert_eq!(claimed.turn.id, guidance.id);
+    assert_eq!(inputs[0].turn.id, guidance.id);
+    let mut input = AdkEvent::new(child.turn.id.to_string());
+    input.author = "user".into();
+    input.set_content(adk_core::Content::new("user").with_text(&inputs[0].message.text));
+    append(&mut fixture, child.turn.session, guidance.id, input).await;
     append(
         &mut fixture,
         child.turn.session,
-        guidance.id,
+        child.turn.id,
         event(40, 4_000),
     )
     .await;
-    finish(&mut fixture, guidance.id).await;
+    finish(&mut fixture, child.turn.id).await;
     let consumed = super::super::background::consume_child(
         &fixture.database.connection,
         first,
         child.turn.session,
-        guidance.id,
+        child.turn.id,
     )
     .await
     .unwrap();
@@ -113,7 +105,7 @@ async fn follows_visible_delegations_without_duplication() {
     assert_eq!(first_totals.responses, 1);
     assert_eq!(first_totals.delegated.responses, 2);
     assert_eq!(first_totals.delegated.tokens.as_ref().unwrap().input, 60);
-    let parents = statistics::parents(&fixture.database.connection, guidance.id)
+    let parents = statistics::parents(&fixture.database.connection, child.turn.id)
         .await
         .unwrap();
     assert_eq!(parents.len(), 2);

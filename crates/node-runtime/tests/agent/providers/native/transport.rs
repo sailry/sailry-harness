@@ -152,6 +152,7 @@ async fn keeps_compaction_on_http() {
         let Output::QueuedTurn(summary) = execute(
             &fixture.client,
             Command::CompactContext {
+                focus: None,
                 session: fixture.session.id,
                 expected_revision: fixture.session.revision,
             },

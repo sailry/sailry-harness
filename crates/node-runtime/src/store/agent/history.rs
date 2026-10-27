@@ -15,21 +15,27 @@ pub(in crate::store) mod tools;
 pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((
     json_extract(e.body,'$.author')='system'
     AND json_extract(e.body,'$.content') IS NULL
-    AND json_extract(e.body,'$.usage_metadata') IS NULL
+    AND (json_extract(e.body,'$.usage_metadata') IS NULL
+         OR (json_extract(e.body,'$.event_metadata.sailry_model_purpose')='compaction'
+             AND json_type(e.body,'$.event_metadata.sailry_model_observation') IS 'text'))
     AND json_extract(e.body,'$.error_code') IS NULL
     AND json_extract(e.body,'$.error_message') IS NULL
     AND json_extract(e.body,'$.turn_complete')=0
     AND json_extract(e.body,'$.interrupted')=0
     AND json_extract(e.body,'$.long_running_tool_ids')='[]'
     AND (json_type(e.body,'$.event_metadata.sailry_model_observation') IS 'text'
-         OR json_type(e.body,'$.event_metadata.sailry_execution_phases') IS 'text')
+         OR json_type(e.body,'$.event_metadata.sailry_execution_phases') IS 'text'
+         OR json_type(e.body,'$.event_metadata.sailry_context_projection') IS 'text')
     AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.event_metadata') metadata
-        WHERE metadata.key NOT IN ('sailry_model_observation','sailry_execution_phases'))
-    AND json_extract(e.body,'$.actions.state_delta')='{}'
+        WHERE metadata.key NOT IN ('sailry_model_observation','sailry_execution_phases','sailry_model_purpose','sailry_context_projection'))
+    AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.actions.state_delta') field
+        WHERE field.key!='sailry.context.masked_outputs')
     AND json_extract(e.body,'$.actions.artifact_delta')='{}'
     AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.actions') action WHERE NOT (
         action.type='null'
-        OR (action.key IN ('state_delta','artifact_delta','workflow_positions') AND action.value='{}')
+        OR (action.key='state_delta' AND NOT EXISTS (SELECT 1 FROM json_each(action.value) field
+            WHERE field.key!='sailry.context.masked_outputs'))
+        OR (action.key IN ('artifact_delta','workflow_positions') AND action.value='{}')
         OR (action.key IN ('skip_summarization','escalate','input_screened') AND action.value=0)
     ))
 ),0)";
@@ -206,6 +212,17 @@ pub(super) async fn insert(
             Err(error) => return Err(storage_error(error)),
         }
     };
+    if previous.is_none() && event.author == "user" {
+        let input = super::runs::get(db, turn).await?;
+        if let Some(owner) = input.joined
+            && super::runs::get(db, owner).await?.status != Status::Running
+        {
+            return Err(Fault::new(
+                ErrorCode::Conflict,
+                "guidance recipient is no longer running",
+            ));
+        }
+    }
     #[cfg(test)]
     tests::before_write().await?;
     super::presentation::preserve_failures(
@@ -324,6 +341,15 @@ pub(super) async fn insert(
     .map_err(storage_error)?;
     super::background::confirm(db, session, turn, &event).await?;
     apply_state(db, session, &event).await?;
+    if event.author == "user" {
+        // Pending input becomes delivered only with its authoritative user entry.
+        db.execute(
+            "DELETE FROM agent_pending WHERE turn=?1",
+            [turn.to_string()],
+        )
+        .await
+        .map_err(storage_error)?;
+    }
     Ok(Some(project(db, sequence, turn, &event).await?))
 }
 
@@ -514,6 +540,40 @@ pub(crate) async fn project(
     let references = super::references::project(event)?;
     let displays = super::presentation::displays(event)?;
     let failures = super::presentation::failures(event)?;
+    let skipped = usize::from(!references.is_empty())
+        + usize::from(
+            event
+                .provider_metadata
+                .contains_key(super::background::INPUT_IDS),
+        );
+    let hidden = event.author == "system"
+        && event
+            .provider_metadata
+            .contains_key(crate::agent::CONTEXT_METADATA);
+    let commentary = if hidden {
+        Default::default()
+    } else {
+        event
+            .content()
+            .into_iter()
+            .flat_map(|content| &content.parts)
+            .enumerate()
+            .skip(skipped)
+            .filter_map(|(index, part)| {
+                let adk_core::Part::ServerToolCall { server_tool_call } = part else {
+                    return None;
+                };
+                super::history::commentary(server_tool_call)?;
+                Some((
+                    index - skipped,
+                    server_tool_call["id"]
+                        .as_str()
+                        .unwrap_or(&event.id)
+                        .to_owned(),
+                ))
+            })
+            .collect()
+    };
     Ok(Entry {
         sequence,
         turn,
@@ -521,6 +581,7 @@ pub(crate) async fn project(
         author: event.author.clone(),
         branch: event.branch.clone(),
         timestamp_ms: event.timestamp.timestamp_millis(),
+        commentary,
         citations: citations::project(&event.llm_response),
         search_suggestions: event
             .llm_response
@@ -529,11 +590,7 @@ pub(crate) async fn project(
             .and_then(|metadata| metadata["searchEntryPoint"]["renderedContent"].as_str())
             .filter(|html| !html.is_empty())
             .map(str::to_owned),
-        parts: if event.author == "system"
-            && event
-                .provider_metadata
-                .contains_key(crate::agent::CONTEXT_METADATA)
-        {
+        parts: if hidden {
             Vec::new()
         } else {
             { let mut projected = Vec::new(); for value in event
@@ -541,7 +598,7 @@ pub(crate) async fn project(
             .into_iter()
             .flat_map(|content| &content.parts)
             .enumerate()
-            .skip(usize::from(!references.is_empty()) + usize::from(event.provider_metadata.contains_key(super::background::INPUT_IDS))) { projected.push((async |(index, part): (usize, &adk_core::Part)| {
+            .skip(skipped) { projected.push((async |(index, part): (usize, &adk_core::Part)| {
                 Ok(match part {
                     adk_core::Part::FileData {
                         file_uri,
@@ -567,7 +624,7 @@ pub(crate) async fn project(
                     adk_core::Part::ServerToolCall { server_tool_call }
                         if server_tool_call["type"] == "message"
                             && server_tool_call["phase"] == "commentary" => {
-                        Part::Text(commentary(server_tool_call).unwrap_or_default())
+                        Part::Text(self::commentary(server_tool_call).unwrap_or_default())
                     }
                     adk_core::Part::ServerToolCall { server_tool_call } => {
                         web_search::call(server_tool_call, displays.get("web_search")).map(tools::Raw::part).unwrap_or_else(|| {

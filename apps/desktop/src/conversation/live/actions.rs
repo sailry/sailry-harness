@@ -11,7 +11,7 @@ pub(super) enum Action {
     Configure,
     Move(WorktreeId),
     ForkAt(WorktreeId),
-    Compact,
+    Compact(Option<String>),
     Stop,
     Fork(TurnId),
     Rewind(TurnId),
@@ -61,6 +61,11 @@ impl View {
             && mode != self.current_mode()
         {
             self.select_mode(mode, window, cx);
+            return;
+        }
+        let text = self.input.read(cx).value().to_string();
+        if references::commands::leading(&text).is_some_and(|(name, _, _)| name == "compact") {
+            self.compact_context(compaction::focus(&text), window, cx);
             return;
         }
         if self.readonly()
@@ -462,6 +467,12 @@ impl View {
                             outgoing.turn = Some(turn.id);
                         }
                         view.retry = None;
+                        if let Action::Compact(Some(source)) = &action
+                            && view.input.read(cx).value().as_str() == source.as_str()
+                        {
+                            view.input
+                                .update(cx, |input, cx| input.set_value("", window, cx));
+                        }
                         if let Action::Send(message) = action {
                             view.accept_submission(&message.attachments);
                         }

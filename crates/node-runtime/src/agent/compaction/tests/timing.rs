@@ -54,6 +54,6 @@ async fn allows_progress_without_a_total_deadline() {
         summary.actions.compaction.unwrap().compacted_content.parts[0]
             .text()
             .unwrap()
-            .starts_with("Completed summary")
+            .starts_with("## Goals\nCompleted summary")
     );
 }

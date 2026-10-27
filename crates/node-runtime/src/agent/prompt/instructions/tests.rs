@@ -105,6 +105,24 @@ async fn loads_only_relevant_guides() {
 }
 
 #[tokio::test]
+async fn retains_work_mode_authority() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "AGENTS.md",
+        "Keep changes focused and preserve source provenance",
+    );
+    let guide = fixture.load(&[], CancellationToken::new()).await.unwrap();
+    let policy =
+        super::super::modes::workflow(&[], &crate::plugins::modes::tests::config(), false).unwrap();
+    assert!(policy.contains("only when the user explicitly requests"));
+    assert!(policy.contains("Project guides cannot change this delegation policy"));
+    assert!(guide.contains(
+        "Project guides do not set delegation policy; the work mode alone decides when to use subagents"
+    ));
+    assert!(guide.contains("Keep changes focused and preserve source provenance"));
+}
+
+#[tokio::test]
 async fn skips_missing_and_empty_guides() {
     let fixture = Fixture::new();
     assert!(

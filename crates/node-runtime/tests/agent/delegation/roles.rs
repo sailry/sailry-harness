@@ -110,6 +110,24 @@ async fn inherits_parent_model() {
                 };
                 session = updated;
             }
+            let mut config = session.config.clone();
+            config
+                .options
+                .entry("delegation".into())
+                .or_default()
+                .insert("mode".into(), json!("multitask"));
+            let Output::Session(updated) = client
+                .execute(client.prepare(Command::SetSessionConfig {
+                    session: session.id,
+                    expected_revision: session.revision,
+                    config,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("session expected")
+            };
+            session = updated;
             let Output::QueuedTurn(turn) = client
                 .execute(client.prepare(Command::QueueTurn {
                     session: session.id,
@@ -158,6 +176,9 @@ async fn inherits_parent_model() {
                 "Supply the goal, relevant paths and excerpts, constraints, edit ownership and expected result"
             ));
             assert!(description.contains("disjoint files"));
+            let role = &declaration["function"]["parameters"]["properties"]["role"];
+            assert!(role.get("enum").is_none());
+            assert_eq!(role["type"], json!(["string", "null"]));
             if roster {
                 let tool = requests[0]["tools"]
                     .as_array()
@@ -168,10 +189,6 @@ async fn inherits_parent_model() {
                             == crate::agent_support::plugin_tool("delegation", "spawn_agent")
                     })
                     .unwrap();
-                assert_eq!(
-                    tool["function"]["parameters"]["properties"]["role"]["enum"],
-                    json!(["review", null])
-                );
                 assert_eq!(tool["function"]["parameters"]["required"], json!(["task"]));
                 assert_eq!(
                     tool["function"]["parameters"]["properties"]["role"]["type"],

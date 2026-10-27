@@ -19,7 +19,10 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Statisti
     let observation = observation(db, session).await?;
     let context_tokens = observation.as_ref().and_then(|value| value.tokens);
     let context_limit = observation.as_ref().and_then(|value| value.context_limit);
-    let context_estimate = if observation.as_ref().is_some_and(|value| value.summary) {
+    let context_estimate = if observation
+        .as_ref()
+        .is_some_and(|value| value.summary || value.estimate.is_some())
+    {
         context_usage(db, session).await?.map(|usage| {
             usage
                 .tokens
@@ -76,6 +79,7 @@ pub(super) async fn parents(db: &Connection, turn: TurnId) -> Result<Vec<Session
 
 struct Observation {
     summary: bool,
+    estimate: Option<u64>,
     sequence: i64,
     tokens: Option<u64>,
     context_limit: Option<u32>,
@@ -93,6 +97,12 @@ pub(super) async fn context_usage(
     };
     let (sequence, tokens, observed, summary) = match observation.tokens {
         Some(tokens) => (observation.sequence, tokens, true, None),
+        None if observation.estimate.is_some() => (
+            observation.sequence,
+            observation.estimate.unwrap(),
+            false,
+            None,
+        ),
         None if observation.summary => {
             let Some((boundary, summary)) =
                 super::compaction::read(db, session).await.map_err(|_| {
@@ -108,13 +118,14 @@ pub(super) async fn context_usage(
     // Both reads use the caller's transaction. Only new canonical content is decoded;
     // the observation already includes its model response's output tokens.
     let mut query = db
-        .prepare(
+        .prepare(&format!(
             "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND h.sequence>?2
            AND json_type(e.body,'$.actions.compaction') IS NULL
            AND json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
-         ORDER BY h.sequence",
-        )
+           AND coalesce(json_extract(e.body,'$.event_metadata.sailry_model_purpose'),'')!='compaction'
+           AND {} ORDER BY h.sequence", super::history::VISIBLE_EVENT
+        ))
         .await
         .map_err(storage_error)?;
     let mut rows = query
@@ -140,9 +151,9 @@ async fn observation(db: &Connection, session: SessionId) -> Result<Option<Obser
     let latest = read_observation(db, session, false).await?;
     if latest
         .as_ref()
-        .is_some_and(|value| value.tokens.is_none() && !value.summary)
+        .is_some_and(|value| value.tokens.is_none() && !value.summary && value.estimate.is_none())
         && let Some(reset) = read_observation(db, session, true).await?
-        && reset.summary
+        && (reset.summary || reset.estimate.is_some())
     {
         // An unmetered response cannot replace a post-compaction estimate with
         // a real observation. Keep estimating the growing canonical window.
@@ -172,15 +183,22 @@ async fn read_observation(
          (SELECT json_extract(model.value,'$.context') FROM json_each(r.provider,'$.models') model
           WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
          coalesce(json_type(e.body,'$.actions.compaction')='object',0),
-         json_extract(revision.config,'$.model'),json_extract(e.body,'$.timestamp')
+         json_extract(revision.config,'$.model'),json_extract(e.body,'$.timestamp'),
+         CASE WHEN json_type(json_extract(e.body,'$.event_metadata.sailry_context_projection'),'$.tokens')='integer'
+           AND json_extract(json_extract(e.body,'$.event_metadata.sailry_context_projection'),'$.tokens')>=0
+         THEN json_extract(json_extract(e.body,'$.event_metadata.sailry_context_projection'),'$.tokens') END
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn
          LEFT JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
          WHERE h.session=?1 AND json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
+           AND (coalesce(json_extract(e.body,'$.event_metadata.sailry_model_purpose'),'')!='compaction'
+             OR json_type(e.body,'$.actions.compaction')='object')
            AND (json_extract(e.body,'$.content.role')='model'
            OR json_type(e.body,'$.usage_metadata')='object'
-           OR json_type(e.body,'$.actions.compaction')='object')
+           OR json_type(e.body,'$.actions.compaction')='object'
+           OR json_type(e.body,'$.event_metadata.sailry_context_projection')='text')
            AND (?2=0 OR json_type(e.body,'$.actions.compaction')='object'
+             OR json_type(e.body,'$.event_metadata.sailry_context_projection')='text'
              OR (json_extract(e.body,'$.usage_metadata.prompt_token_count')>=0
                  AND json_extract(e.body,'$.usage_metadata.candidates_token_count')>=0))
          ORDER BY h.sequence DESC LIMIT 1").await.map_err(storage_error)?;
@@ -197,9 +215,14 @@ async fn read_observation(
         .map_err(storage_error)?
         .map(|value| value as u64);
     let summary = row.get::<bool>(4).map_err(storage_error)?;
-    let measured = tokens.is_some() || summary;
+    let estimate = row
+        .get::<Option<i64>>(7)
+        .map_err(storage_error)?
+        .map(|value| value as u64);
+    let measured = tokens.is_some() || summary || estimate.is_some();
     Ok(Some(Observation {
         summary,
+        estimate,
         sequence: row.get(0).map_err(storage_error)?,
         context_limit: if measured {
             row.get::<Option<u32>>(3)

@@ -28,6 +28,7 @@ pub(in crate::store) struct Facts {
     pub removals: Mutex<BTreeMap<WorktreeId, removal::Pending>>,
     pub relocations: Mutex<BTreeMap<(NodeId, RequestId), Vec<PathBuf>>>,
     pub usage: store::agent::statistics::report::Cache,
+    pub tool_details: store::agent::history::tools::Cache,
     #[cfg(test)]
     pub plugin_checks: std::sync::atomic::AtomicUsize,
     #[cfg(any(test, feature = "test-support"))]
@@ -63,6 +64,7 @@ impl Facts {
             removals: Default::default(),
             relocations: Default::default(),
             usage: Default::default(),
+            tool_details: Default::default(),
             #[cfg(test)]
             plugin_checks: Default::default(),
             #[cfg(any(test, feature = "test-support"))]

@@ -6,8 +6,10 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 pub(super) mod capabilities;
+mod output;
 
-pub(super) const NAMES: [&str; 3] = ["list_sessions", "read_session", "search_session"];
+pub(super) const OUTPUT: &str = "read_tool_output";
+pub(super) const NAMES: [&str; 4] = ["list_sessions", "read_session", "search_session", OUTPUT];
 
 #[derive(Clone, Copy)]
 enum Kind {
@@ -29,7 +31,7 @@ pub(super) fn bind(
     invocation: &Invocation,
     stop: &CancellationToken,
 ) -> Vec<catalog::Registration> {
-    [Kind::List, Kind::Read, Kind::Search]
+    let mut tools: Vec<_> = [Kind::List, Kind::Read, Kind::Search]
         .into_iter()
         .map(|kind| {
             let tool: Arc<dyn Tool> = Arc::new(History {
@@ -63,7 +65,9 @@ pub(super) fn bind(
             registration.display = Some((registration.tool.name().into(), display));
             registration
         })
-        .collect()
+        .collect();
+    tools.extend(output::bind(ingress, invocation, stop));
+    tools
 }
 
 impl Kind {

@@ -251,14 +251,19 @@ impl Llm for Model {
         stream: bool,
     ) -> Result<LlmResponseStream, AdkError> {
         let prepared = self.prepare(&request, stream).await?;
-        super::history::generate(request, prepared.origin, move |request| async move {
-            let model = super::errors::wrap(prepared.entry, prepared.secrets);
-            let responses = scoped(prepared.scope, model, request, prepared.stream).await?;
-            Ok(match prepared.tools {
-                Some(tools) => claude::restore(responses, tools),
-                None => responses,
-            })
-        })
+        super::history::generate(
+            request,
+            prepared.origin,
+            super::history::Window::new(&self.provider, &self.config.model),
+            move |request| async move {
+                let model = super::errors::wrap(prepared.entry, prepared.secrets);
+                let responses = scoped(prepared.scope, model, request, prepared.stream).await?;
+                Ok(match prepared.tools {
+                    Some(tools) => claude::restore(responses, tools),
+                    None => responses,
+                })
+            },
+        )
         .await
     }
 }

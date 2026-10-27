@@ -109,6 +109,7 @@ async fn preserves_canonical_identity() {
     };
     let detail = history::tools::page(
         &fixture.database.connection,
+        &fixture.database.tool_details,
         tool::detail::Reference {
             session: page.session,
             turn: entry.turn,

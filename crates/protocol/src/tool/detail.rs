@@ -113,8 +113,15 @@ pub struct Output {
     pub preview_deferred: bool,
     pub notices: Vec<LocalText>,
     pub paths: Vec<String>,
+    /// Unique paths before the bounded collapsed-row list is shortened.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub path_count: usize,
     pub body: Option<Body>,
     pub table: Option<Table>,
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

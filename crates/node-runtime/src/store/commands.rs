@@ -704,6 +704,7 @@ pub(super) fn execute<'a>(
                 Output::ToolDetail(
                     super::agent::history::tools::page(
                         db,
+                        &super::agent::history::tools::Cache::default(),
                         sailry_protocol::tool::detail::Reference {
                             session: *session,
                             turn: *turn,
@@ -1255,6 +1256,7 @@ pub(super) fn execute<'a>(
         Command::CompactContext {
             session: id,
             expected_revision,
+            ..
         } => defer(move || async move {
             let session = session(db, *id).await?;
             check_revision(session.revision, *expected_revision)?;

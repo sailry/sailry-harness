@@ -244,6 +244,10 @@ async fn bounds_failed_inputs_without_truncation() {
     let mut expected = Vec::new();
     for _ in 0..5 {
         let turn = fixture.queued().await;
+        // Each failed run pauses dispatch; explicitly resume the next fixture input.
+        super::super::queue::pause(&fixture.database.connection, fixture.session, false)
+            .await
+            .unwrap();
         command(
             &mut fixture.database,
             &fixture.events,

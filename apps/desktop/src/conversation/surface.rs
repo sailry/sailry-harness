@@ -4,7 +4,6 @@
 use crate::tr;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{
-    clipboard::Clipboard,
     scroll::{ScrollableElement as _, ScrollableMask},
     text::{TextView, TextViewStyle},
     *,
@@ -261,14 +260,6 @@ pub(crate) fn notice(text: impl Into<SharedString>, cx: &App) -> Div {
         .text_sm()
         .text_color(cx.theme().muted_foreground)
         .child(text.into())
-}
-
-/// Compact copy action alongside the result.
-pub(crate) fn copy(id: String, value: impl Into<SharedString>) -> Clipboard {
-    Clipboard::new(id)
-        .value(value)
-        .tooltip(tr("tool_copy"))
-        .accessibility_label(tr("tool_copy"))
 }
 
 /// Keep file/tool text literal even when it contains Markdown fences or links.

@@ -1,7 +1,10 @@
 //! Promote only the captured preamble; dynamic context belongs to ADK history.
 use super::session::{self, Declaration};
 use adk_core::{AdkError, BeforeModelCallback, BeforeModelResult, Content, LlmRequest};
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 pub(in crate::agent) fn bind(
     instruction: String,
@@ -10,13 +13,33 @@ pub(in crate::agent) fn bind(
     let expected = Content::new("user").with_text(instruction);
     // Clone one captured map so provider iteration stays stable within this invocation.
     // A restored invocation validates the same schemas, not a persisted HashMap order.
-    let declarations = session::project(declarations);
-    Box::new(move |_, mut request| {
+    let mounted = Arc::new(Mutex::new((
+        Default::default(),
+        session::project(declarations.clone()),
+    )));
+    let declarations = Arc::new(declarations);
+    Box::new(move |context, mut request| {
         let expected = expected.clone();
         let declarations = declarations.clone();
+        let mounted = mounted.clone();
         Box::pin(async move {
             promote(&mut request, &expected)?;
-            request.tools = declarations;
+            let loaded = session::loaded(
+                context
+                    .state()
+                    .and_then(|state| state.get(session::LOADED_TOOLS))
+                    .as_ref(),
+            );
+            let mut mounted = mounted
+                .lock()
+                .map_err(|_| AdkError::agent("tool declarations are unavailable"))?;
+            if mounted.0 != loaded {
+                *mounted = (
+                    loaded.clone(),
+                    session::project_with_loaded((*declarations).clone(), &loaded),
+                );
+            }
+            request.tools = mounted.1.clone();
             Ok(BeforeModelResult::Continue(request))
         })
     })

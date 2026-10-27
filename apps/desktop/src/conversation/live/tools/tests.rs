@@ -94,6 +94,7 @@ fn keeps_last_title_while_earlier_tool_runs() {
         usage: None,
         citations: vec![],
         search_suggestions: None,
+        commentary: Default::default(),
         parts: vec![Part::ToolCall {
             id: last.id.clone(),
             name: last.name.clone(),
@@ -137,6 +138,7 @@ fn avoids_duplicate_file_context() {
             preview_deferred: false,
             notices: vec![],
             paths: vec!["docs".into()],
+            path_count: 1,
             body: None,
             table: None,
         }),
@@ -176,6 +178,7 @@ fn avoids_duplicate_file_context() {
         usage: None,
         citations: vec![],
         search_suggestions: None,
+        commentary: Default::default(),
     });
     call.detail = Some(std::sync::Arc::new(tool::detail::Detail {
         arguments: json!({"path":"docs"}),
@@ -235,6 +238,7 @@ fn raw_fixture(result: serde_json::Value) -> (Call, Page) {
         usage: None,
         citations: vec![],
         search_suggestions: None,
+        commentary: Default::default(),
     });
     let mut response = page.entries[0].clone();
     response.id = "result".into();

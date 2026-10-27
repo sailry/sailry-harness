@@ -805,6 +805,8 @@ pub enum Command {
     CompactContext {
         session: SessionId,
         expected_revision: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focus: Option<String>,
     },
     /// Makes a held turn eligible without bypassing the session pause or current run.
     StartQueuedTurn {

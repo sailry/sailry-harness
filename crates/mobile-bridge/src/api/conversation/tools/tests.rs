@@ -58,6 +58,7 @@ fn fixture(mode: Presentation, result: Value) -> (View, Arc<Detail>) {
         parts: vec![part],
         citations: vec![],
         search_suggestions: None,
+        commentary: Default::default(),
         usage: None,
     };
     let page = Page {
@@ -192,6 +193,7 @@ fn failure_does_not_select_success_preview() {
             preview_deferred: false,
             notices: vec![],
             paths: vec![],
+            path_count: 0,
             body: None,
             table: None,
         }),

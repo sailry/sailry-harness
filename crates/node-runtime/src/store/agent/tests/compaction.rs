@@ -17,7 +17,7 @@ fn summary(end: &AdkEvent) -> AdkEvent {
     summary.actions.compaction = Some(adk_core::EventCompaction {
         start_timestamp: end.timestamp,
         end_timestamp: end.timestamp,
-        compacted_content: adk_core::Content::new("model").with_text("Summary 中文 🙂"),
+        compacted_content: adk_core::Content::new("user").with_text("Summary 中文 🙂"),
     });
     summary
 }
@@ -62,6 +62,137 @@ async fn retains_summary_only_update_time() {
     .unwrap();
     assert_eq!(session.events().len(), 1);
     assert_eq!(session.last_update_time(), compacted.timestamp);
+}
+
+#[tokio::test]
+async fn materializes_only_canonical_owner_sources() {
+    use adk_core::{Content, FunctionResponseData, Part as AdkPart};
+    use serde_json::json;
+
+    let mut fixture = Fixture::new().await;
+    let mut captured = AdkEvent::new("captured-owners");
+    captured.author = "system".into();
+    captured.actions.state_delta.extend([
+        (
+            "sailry.context.policy".into(),
+            json!("Exact captured policy"),
+        ),
+        (
+            "sailry.context.environment".into(),
+            json!("Exact captured environment"),
+        ),
+        (
+            "sailry.context.masked_outputs".into(),
+            json!([["retained-call", "captured-revision"]]),
+        ),
+        (
+            "sailry.context.guide:AGENTS.md".into(),
+            json!({
+                "path":"AGENTS.md","revision":"captured","content":"Exact captured guide"
+            }),
+        ),
+        (
+            "sailry.context.declarations".into(),
+            json!({
+                "instruction":"Exact stable instruction","tools":{}
+            }),
+        ),
+    ]);
+    let mut owners = AdkEvent::new("captured-owners");
+    owners.author = "tool".into();
+    owners.set_content(Content {
+        role: "user".into(),
+        parts: [
+            ("earlier-plan", "update_plan", json!({"progress":{
+                "title":"Earlier plan", "steps":[{"description":"Superseded step","state":"pending"}]
+            }})),
+            ("current-plan", "update_plan", json!({"progress":{
+                "title":"Captured plan", "steps":[{"description":"Exact pending step","state":"pending"}]
+            }})),
+            ("loaded-skill", "load_skill", json!({
+                "skill":"fixture:review","path":"SKILL.md","content":"Exact loaded skill"
+            })),
+            ("loaded-resource", "read_skill_resource", json!({
+                "skill":"fixture:review","path":"reference.md","content":"Exact loaded resource"
+            })),
+        ].into_iter().map(|(id,name,value)| AdkPart::FunctionResponse {
+            id:Some(id.into()),
+            function_response:FunctionResponseData::new(name,value),
+            annotations:None,
+        }).collect(),
+    });
+    let anchor = event("Completed source evidence");
+    fixture.append([captured, owners, anchor.clone()]).await;
+    let compacted = summary(&anchor);
+    let stored = serde_json::to_vec(&compacted).unwrap();
+    let turn = fixture.append([compacted.clone()]).await;
+    let first = load(&fixture, turn).await;
+    let content = first[0].content().unwrap();
+    assert_eq!(content.role, "user");
+    let text = serde_json::to_string(content).unwrap();
+    for marker in [
+        "Exact captured policy",
+        "Exact captured environment",
+        "Exact captured guide",
+        "Exact pending step",
+        "Exact loaded skill",
+        "Exact loaded resource",
+    ] {
+        assert_eq!(text.matches(marker).count(), 1, "{marker}");
+        assert!(!String::from_utf8_lossy(&stored).contains(marker));
+    }
+    assert!(!text.contains("Superseded step"));
+    assert_eq!(
+        compacted
+            .actions
+            .compaction
+            .as_ref()
+            .unwrap()
+            .compacted_content
+            .parts
+            .len(),
+        1
+    );
+    assert!(compacted.actions.state_delta.is_empty());
+    assert_eq!(
+        first[0].actions.state_delta["sailry.context.declarations"]["instruction"],
+        "Exact stable instruction"
+    );
+    assert_eq!(
+        first[0].actions.state_delta["sailry.context.masked_outputs"],
+        json!([["retained-call", "captured-revision"]])
+    );
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    let reloaded = load(&fixture, turn).await;
+    assert_eq!(
+        serde_json::to_vec(&first[0].content()).unwrap(),
+        serde_json::to_vec(&reloaded[0].content()).unwrap()
+    );
+    let body: Vec<u8> = fixture
+        .database
+        .connection
+        .prepare("SELECT body FROM agent_events WHERE id=?1 AND turn=?2")
+        .await
+        .unwrap()
+        .query_row(params![compacted.id.as_str(), turn.to_string()])
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    let saved: AdkEvent = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        saved
+            .actions
+            .compaction
+            .unwrap()
+            .compacted_content
+            .parts
+            .len(),
+        1
+    );
+    assert!(saved.actions.state_delta.is_empty());
 }
 
 #[tokio::test]
@@ -306,13 +437,6 @@ async fn accepts_complete_batches() {
         .await
         .is_err()
     );
-    assert_eq!(
-        context::history(&fixture.database.connection, fixture.session, turn)
-            .await
-            .unwrap()
-            .frontier,
-        Some(format!("exchange:{}", results[1].id))
-    );
     let compacted = summary(&results[1]);
     history::append(
         &mut fixture.database,
@@ -427,8 +551,24 @@ async fn uses_real_turn_boundaries() {
         serde_json::to_string(&sailry_protocol::conversation::observation::Phases::default())
             .unwrap(),
     );
-    let prior = fixture
-        .append([original.clone(), retry, final_event.clone(), telemetry])
+    let mut projection = AdkEvent::new("projection-fixture");
+    projection.author = "system".into();
+    projection.provider_metadata.insert(
+        "sailry_context_projection".into(),
+        serde_json::json!({"tokens":128}).to_string(),
+    );
+    projection.actions.state_delta.insert(
+        "sailry.context.masked_outputs".into(),
+        serde_json::json!([["call", "revision"]]),
+    );
+    fixture
+        .append([
+            original.clone(),
+            retry,
+            final_event.clone(),
+            telemetry,
+            projection,
+        ])
         .await;
     let current = fixture.queued().await;
     let history = context::history(&fixture.database.connection, fixture.session, current)
@@ -438,7 +578,6 @@ async fn uses_real_turn_boundaries() {
     assert_eq!(history.events.len(), 3);
     assert_eq!(history.current, 3);
     assert_eq!(history.recent, None);
-    assert_eq!(history.frontier, Some(format!("turn:{prior}")));
     assert_eq!(history.events[0].id, original.id);
     assert_eq!(history.events[2].id, final_event.id);
     assert!(
@@ -479,4 +618,23 @@ async fn retains_recent_plain_turns() {
     assert_eq!(history.recent, Some(1));
     assert_eq!(history.events[history.recent.unwrap()].id, second.id);
     assert_eq!(history.completed, vec![1, 3, 4]);
+}
+
+#[tokio::test]
+async fn ignores_contentless_attempts_for_recency() {
+    let mut fixture = Fixture::new().await;
+    fixture.append([event("Original completed evidence")]).await;
+    let mut notice = AdkEvent::new("failed-preparation");
+    notice.author = "system".into();
+    notice.provider_metadata.insert(
+        "sailry_compaction_failure".into(),
+        serde_json::json!({"source":"automatic", "stage":"request", "reason":"service_rejected", "continued":false}).to_string(),
+    );
+    fixture.append([notice]).await;
+    let current = fixture.queued().await;
+    let history = context::history(&fixture.database.connection, fixture.session, current)
+        .await
+        .unwrap();
+    assert_eq!(history.completed, [1]);
+    assert_eq!(history.recent, None);
 }

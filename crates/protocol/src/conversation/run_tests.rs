@@ -53,6 +53,7 @@ fn encodes_context_command() {
     let command = Command::CompactContext {
         session,
         expected_revision: 7,
+        focus: None,
     };
     let body =
         json!({"kind": "compact_context", "data": {"session": session, "expected_revision": 7}});

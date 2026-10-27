@@ -4,6 +4,115 @@ use sailry_protocol::conversation::compaction::{Failure, Reason, Source, Stage};
 
 const CLASSIFICATION: &str = "sailry.compaction.classification";
 
+pub(super) fn request_reason(error: &adk_core::AdkError) -> Option<Reason> {
+    use adk_core::ErrorCategory;
+    match error.details.upstream_status_code {
+        Some(401 | 403) => return Some(Reason::AuthorizationFailed),
+        Some(429) => return Some(Reason::RateLimited),
+        _ => {}
+    }
+    match error.category {
+        ErrorCategory::Unauthorized | ErrorCategory::Forbidden => {
+            return Some(Reason::AuthorizationFailed);
+        }
+        ErrorCategory::RateLimited => return Some(Reason::RateLimited),
+        ErrorCategory::Cancelled => return None,
+        _ => {}
+    }
+    match error
+        .details
+        .metadata
+        .get("incomplete_reason")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("content_filter") => return Some(Reason::ContentFiltered),
+        Some("max_output_tokens") => return Some(Reason::TruncatedSummary),
+        _ => {}
+    }
+    if model::context_overflow(error) {
+        return Some(Reason::ContextOverflow);
+    }
+    None
+}
+
+pub(super) fn response_reason(response: &adk_core::LlmResponse) -> Option<Reason> {
+    let reason = response.provider_metadata.as_ref().and_then(|metadata| {
+        metadata
+            .get("incomplete_reason")
+            .or_else(|| metadata.pointer("/incomplete_details/reason"))
+            .or_else(|| metadata.pointer("/openai/incomplete_details/reason"))
+            .and_then(serde_json::Value::as_str)
+    });
+    match (reason, response.finish_reason) {
+        (Some("content_filter"), _)
+        | (_, Some(adk_core::FinishReason::Safety | adk_core::FinishReason::Recitation)) => {
+            Some(Reason::ContentFiltered)
+        }
+        (Some("max_output_tokens"), _) | (_, Some(adk_core::FinishReason::MaxTokens)) => {
+            Some(Reason::TruncatedSummary)
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn recoverable(error: &adk_core::AdkError) -> bool {
+    if error.category == adk_core::ErrorCategory::Cancelled {
+        return false;
+    }
+    let reason = request_reason(error).unwrap_or_else(|| classify(error).1);
+    // More output budget cannot come from a smaller input, so truncation fails here.
+    reason == Reason::ContextOverflow
+}
+
+/// Request failures that already used the model's bounded retry chain. The turn
+/// continues without a summary while its retained input fits the window.
+pub(super) fn transient(error: &adk_core::AdkError) -> bool {
+    if error.category == adk_core::ErrorCategory::Cancelled {
+        return false;
+    }
+    match classify(error) {
+        (Stage::Request, Reason::RequestTimeout | Reason::RateLimited | Reason::RequestFailed) => {
+            true
+        }
+        (Stage::Request, Reason::ServiceRejected) => error
+            .details
+            .upstream_status_code
+            .is_none_or(|status| status >= 500 || status == 408),
+        _ => false,
+    }
+}
+
+pub(super) fn projectable(error: &adk_core::AdkError) -> bool {
+    if error.category == adk_core::ErrorCategory::Cancelled {
+        return false;
+    }
+    if let Some(reason) = request_reason(error) {
+        return matches!(reason, Reason::ContextOverflow | Reason::TruncatedSummary);
+    }
+    matches!(
+        classify(error).1,
+        Reason::HistoryMismatch
+            | Reason::NoFittingPrefix
+            | Reason::TruncatedSummary
+            | Reason::SummaryTooLarge
+            | Reason::NoReduction
+    )
+}
+
+pub(super) fn preserve(source: &adk_core::AdkError, target: &mut adk_core::AdkError) {
+    if let Some(reason @ ("max_output_tokens" | "content_filter" | "interrupted")) = source
+        .details
+        .metadata
+        .get("incomplete_reason")
+        .and_then(serde_json::Value::as_str)
+    {
+        target
+            .details
+            .metadata
+            .insert("incomplete_reason".into(), json!(reason));
+    }
+}
+
 pub(super) fn annotate(
     mut error: adk_core::AdkError,
     stage: Stage,
@@ -98,6 +207,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn separates_budget_and_terminal_reasons() {
+        let incomplete = |reason: &str| {
+            let mut error = adk_core::AdkError::model("incomplete response");
+            error
+                .details
+                .metadata
+                .insert("incomplete_reason".into(), json!(reason));
+            error
+        };
+        let length = incomplete("max_output_tokens");
+        assert_eq!(request_reason(&length), Some(Reason::TruncatedSummary));
+        assert!(!recoverable(&length));
+        let filtered = incomplete("content_filter");
+        assert_eq!(request_reason(&filtered), Some(Reason::ContentFiltered));
+        assert!(!recoverable(&filtered));
+        for status in [401, 403, 429] {
+            let error = incomplete("max_output_tokens").with_upstream_status(status);
+            assert!(!recoverable(&error));
+        }
+        let overflow = adk_core::AdkError::new(
+            adk_core::ErrorComponent::Model,
+            adk_core::ErrorCategory::ResourceExhausted,
+            "model.sailry.context_overflow",
+            "retained context does not fit",
+        );
+        assert_eq!(request_reason(&overflow), Some(Reason::ContextOverflow));
+        assert!(recoverable(&overflow));
+        let mut safe = adk_core::AdkError::model("safe diagnostic");
+        let mut source = length;
+        source
+            .details
+            .metadata
+            .insert("body".into(), json!("private request echo"));
+        preserve(&source, &mut safe);
+        assert_eq!(safe.details.metadata.len(), 1);
+        assert_eq!(
+            safe.details.metadata["incomplete_reason"],
+            "max_output_tokens"
+        );
+    }
+
+    #[test]
     fn excludes_response_echoes() {
         let message = "Provider API failed: {\"error\":{\"message\":\"Service unavailable [redacted]\",\"code\":\"fixture\",\"type\":\"server_error\",\"prompt\":\"PRIVATE_PROMPT\"},\"response\":\"PRIVATE_BODY\"}";
         let cause = diagnostic(message);
@@ -188,6 +339,11 @@ mod tests {
                 .insert("body".into(), json!("private response"));
             let safe = request_error(error);
             assert_eq!(classify(&safe), (Stage::Request, reason));
+            assert_eq!(
+                transient(&safe),
+                reason != Reason::AuthorizationFailed,
+                "{category_name}"
+            );
             let failure = Failure {
                 source: Source::Automatic,
                 stage: Stage::Request,

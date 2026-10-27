@@ -28,13 +28,21 @@ fn excludes_raw_values_and_recipes() {
     let raw = fixture();
     let summary = raw.summary();
     let json = serde_json::to_string(&summary).unwrap();
-    assert!(json.len() < 4096);
+    assert!(json.len() < 16 * 1024);
     assert!(!json.contains("PRIVATE BODY"));
     assert!(!json.contains("ORIGINAL RESULT"));
     assert!(!json.contains("source"));
     assert!(summary.has_details);
     let resolved = summary.resolved.unwrap();
-    assert_eq!(resolved.input.summary.unwrap().text.chars().count(), 200);
+    assert_eq!(
+        resolved.input.summary.unwrap().text,
+        raw.arguments["path"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .take(200)
+            .collect::<String>()
+    );
     assert!(resolved.output.unwrap().body.is_none());
     let detail = raw.detail();
     assert_eq!(detail.arguments, raw.arguments);

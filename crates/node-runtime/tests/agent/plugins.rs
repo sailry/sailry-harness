@@ -10,6 +10,8 @@ mod cards;
 mod code_index;
 #[path = "plugins/commands.rs"]
 mod commands;
+#[path = "plugins/discovery.rs"]
+mod discovery;
 #[path = "plugins/errors.rs"]
 mod errors;
 #[path = "plugins/failures.rs"]

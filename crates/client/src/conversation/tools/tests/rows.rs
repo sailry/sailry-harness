@@ -56,6 +56,21 @@ fn distinguishes_errors_uncertainty_and_expected_absence() {
 }
 
 #[test]
+fn shows_captured_error_in_summary() {
+    let page = returned(Summary {
+        failure: Some(Failure {
+            code: Some(ErrorCode::Unavailable),
+        }),
+        error: Some("File could not be read".into()),
+        ..Default::default()
+    });
+    let calls = collect(&page);
+    let row = calls[0].row(&page);
+    assert_eq!(row.state, Some(RowState::Failed));
+    assert_eq!(row.detail.unwrap().text, "File could not be read");
+}
+
+#[test]
 fn preserves_terminal_and_active_states() {
     let page = page();
     for (state, code, warning, failed) in [

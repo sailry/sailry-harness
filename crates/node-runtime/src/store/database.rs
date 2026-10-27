@@ -270,6 +270,34 @@ impl Database {
                         .await
                         .map(Output::Usage);
                 }
+                if let Command::ReadToolDetail {
+                    session,
+                    turn,
+                    entry,
+                    index,
+                    call,
+                    expected_revision,
+                    cursor,
+                    limit,
+                } = &request.command
+                {
+                    return super::agent::history::tools::page(
+                        &transaction,
+                        &self.tool_details,
+                        sailry_protocol::tool::detail::Reference {
+                            session: *session,
+                            turn: *turn,
+                            entry: entry.clone(),
+                            index: *index,
+                            call: call.clone(),
+                            revision: expected_revision.clone(),
+                        },
+                        *cursor,
+                        *limit,
+                    )
+                    .await
+                    .map(Output::ToolDetail);
+                }
                 let (mut output, event) = commands::execute(
                     &transaction,
                     self.node,

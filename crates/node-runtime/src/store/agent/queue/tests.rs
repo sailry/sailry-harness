@@ -206,9 +206,9 @@ async fn fresh_input_precedes_stopped_queue() {
             .await
             .unwrap()
             .paused,
-        "queue did not resume before handoff"
+        "queue did not resume before Stop"
     );
-    runs::handoff(&fixture.database.connection, active.id)
+    runs::stop(&fixture.database.connection, active.id)
         .await
         .unwrap();
     assert!(

@@ -436,6 +436,7 @@ pub(super) async fn admit(
         }
         drop(publication);
         Ok(Invocation {
+            input_turn: None,
             instructions: super::super::captures::instructions(&database.connection, turn.id).await?,
             hooks: super::super::hooks::frozen(&database.connection, turn.id).await?,
             automatic: false,

@@ -1,11 +1,12 @@
 use super::*;
-use sailry_protocol::{FileLines, FileSearch, SearchMode, SearchResults};
+use sailry_protocol::{FileLines, SearchMode, SearchResults};
 
 const LINE_LIMIT: usize = 2 * 1024;
 const MATCH_CHARACTERS: usize = 300;
 
 pub(super) fn lines(original: &Value, source: &Value) -> Option<Value> {
-    let page: FileLines = serde_json::from_value(original.get("data")?.clone()).ok()?;
+    let page: FileLines =
+        serde_json::from_value(original.get("data").unwrap_or(original).clone()).ok()?;
     let mut body = String::new();
     let mut next = page.next_offset;
     let mut last = page.offset;
@@ -41,7 +42,7 @@ pub(super) fn lines(original: &Value, source: &Value) -> Option<Value> {
         page.revision
     );
     if omitted > 0 {
-        text.push_str("Use read_command with output, offset and limit for omitted text\n");
+        text.push_str("Use read_tool_output with output, offset and limit for omitted text\n");
     }
     if let Some(offset) = next {
         text.push_str(&format!("Continue read_file with offset={offset}\n"));
@@ -50,23 +51,36 @@ pub(super) fn lines(original: &Value, source: &Value) -> Option<Value> {
 }
 
 pub(super) fn search(original: &Value, arguments: Option<&Value>, source: &Value) -> Option<Value> {
-    let page: SearchResults = serde_json::from_value(original.get("data")?.clone()).ok()?;
+    let page: SearchResults =
+        serde_json::from_value(original.get("data").unwrap_or(original).clone()).ok()?;
     if page.mode != SearchMode::Content {
         return None;
     }
-    let options: Option<FileSearch> = arguments
-        .cloned()
-        .and_then(|value| serde_json::from_value(value).ok());
-    let matcher = options.as_ref().and_then(|options| {
-        let pattern = if options.regex {
-            options.query.clone()
+    let matcher = arguments.and_then(|options| {
+        let query = options.get("query")?.as_str()?;
+        let pattern = if options
+            .get("regex")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            query.to_owned()
         } else {
-            regex::escape(&options.query)
+            regex::escape(query)
         };
         regex::RegexBuilder::new(&pattern)
-            .case_insensitive(!options.case_sensitive)
+            .case_insensitive(
+                !options
+                    .get("case_sensitive")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            )
             .multi_line(true)
-            .dot_matches_new_line(options.multiline)
+            .dot_matches_new_line(
+                options
+                    .get("multiline")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            )
             .size_limit(1 << 20)
             .build()
             .ok()

@@ -61,6 +61,8 @@ impl Failure {
                 });
         let mut class = if local {
             Class::Terminal(Stop::LocalFailure)
+        } else if field("incomplete_reason") == Some("content_filter") {
+            Class::Terminal(Stop::ResponseIncomplete)
         } else if completed
             || (transport == Some(Transport::WebSocket)
                 && field("transport_phase") == Some("stream")
@@ -70,6 +72,19 @@ impl Failure {
             Class::Terminal(Stop::ResponseIncomplete)
         } else if error.category == adk_core::ErrorCategory::ResourceExhausted {
             Class::Terminal(Stop::LocalFailure)
+        } else if (matches!(
+            code,
+            Some("context_length_exceeded" | "prompt_too_long" | "max_context_length_exceeded")
+        ) || overflowed(&error.message))
+            && !matches!(status, Some(401 | 403 | 429))
+            && !matches!(
+                error.category,
+                adk_core::ErrorCategory::Unauthorized
+                    | adk_core::ErrorCategory::Forbidden
+                    | adk_core::ErrorCategory::RateLimited
+            )
+        {
+            Class::Terminal(Stop::ContextWindowExceeded)
         } else if let Some(status) = status.filter(|status| *status >= 400) {
             if status == 429 && code.is_none() && error.code == "model.plugin.quota" {
                 Class::Terminal(Stop::QuotaExceeded)
@@ -84,7 +99,7 @@ impl Failure {
             || error.code == "model.openai_responses.incomplete"
         {
             match field("incomplete_reason") {
-                Some("content_filter") => Class::Backoff,
+                Some("content_filter") => Class::Terminal(Stop::ResponseIncomplete),
                 _ => Class::Terminal(Stop::ResponseIncomplete),
             }
         } else if event == Some("error") && code == Some("flex_unavailable") {
@@ -211,7 +226,9 @@ fn http(status: u16, code: Option<&str>, kind: Option<&str>) -> Class {
 fn stream(code: Option<&str>) -> Class {
     match code {
         Some("rate_limit_exceeded" | "slow_down") => Class::Advice(Stop::RateLimited),
-        Some("context_length_exceeded") => Class::Terminal(Stop::ContextWindowExceeded),
+        Some("context_length_exceeded" | "prompt_too_long" | "max_context_length_exceeded") => {
+            Class::Terminal(Stop::ContextWindowExceeded)
+        }
         Some(
             "insufficient_quota"
             | "credit_balance_exhausted"
@@ -227,6 +244,19 @@ fn stream(code: Option<&str>) -> Class {
         Some("server_is_overloaded") => Class::Advice(Stop::ServerOverloaded),
         _ => Class::Backoff,
     }
+}
+
+/// Some providers report an oversized prompt only in the message, for example
+/// Anthropic's `invalid_request_error` with "prompt is too long".
+fn overflowed(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    [
+        "prompt is too long",
+        "context_length_exceeded",
+        "maximum context length",
+    ]
+    .iter()
+    .any(|text| message.contains(text))
 }
 
 fn plugin(error: &AdkError) -> Class {

@@ -2,6 +2,7 @@
 use adk_core::LlmResponseStream;
 use futures::Stream;
 use std::{
+    cell::Cell,
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -10,6 +11,18 @@ use std::{
 
 tokio::task_local! {
     static CURRENT: Arc<crate::logging::Context>;
+    static SUMMARY_RECOVERY: Cell<bool>;
+}
+
+pub(in crate::agent) async fn summary_scope<T>(future: impl Future<Output = T>) -> T {
+    SUMMARY_RECOVERY.scope(Cell::new(false), future).await
+}
+
+/// Transport retry, formatting repair and input-budget recovery share one attempt.
+pub(in crate::agent) fn summary_retry() -> bool {
+    SUMMARY_RECOVERY
+        .try_with(|used| !used.replace(true))
+        .unwrap_or(true)
 }
 
 pub(super) fn current() -> Option<crate::logging::Context> {

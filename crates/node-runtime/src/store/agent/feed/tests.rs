@@ -19,6 +19,7 @@ fn streaming() -> (Feeds, NodeId, SessionId, Draft) {
         turn,
         author: "assistant".into(),
         branch: String::new(),
+        commentary: Default::default(),
         parts: vec![Part::Text("x".into())],
     };
     (feeds, node, session, draft)
@@ -48,6 +49,28 @@ fn normalizes_first_delta() {
     feeds.publish(node, session, Change::Queue(Default::default()));
     let feed = &feeds.0.lock().unwrap()[&session];
     assert_eq!(feed.bytes, expected.iter().map(part_bytes).sum::<usize>());
+}
+
+#[test]
+fn separates_commentary_from_answers() {
+    let (feeds, node, session, mut draft) = streaming();
+    draft.parts = vec![Part::Text("Checking ".into())];
+    draft.commentary.insert(0, "msg-progress".into());
+    feeds.delta(node, session, draft.clone()).unwrap();
+    draft.parts = vec![Part::Text("the file.".into())];
+    feeds.delta(node, session, draft.clone()).unwrap();
+    draft.parts = vec![Part::Text("Here is the answer".into())];
+    draft.commentary.clear();
+    feeds.delta(node, session, draft.clone()).unwrap();
+    let sealed = feeds.seal(session, draft.turn);
+    assert_eq!(
+        sealed[0].parts,
+        [
+            Part::Text("Checking the file.".into()),
+            Part::Text("Here is the answer".into()),
+        ]
+    );
+    assert_eq!(sealed[0].commentary, [(0, "msg-progress".into())].into());
 }
 
 #[test]
@@ -164,6 +187,7 @@ async fn replays_retained_sequences() {
                     turn: run.turn,
                     author: "assistant".into(),
                     branch: String::new(),
+                    commentary: Default::default(),
                     parts: vec![Part::Text("x".into())],
                 },
             )
@@ -285,6 +309,7 @@ fn seals_stopping_before_cancellation() {
         turn: run.turn,
         author: "assistant".into(),
         branch: String::new(),
+        commentary: Default::default(),
         parts: vec![Part::Text("before stop".into())],
     };
     feeds.delta(node, session, draft.clone()).unwrap();
@@ -343,6 +368,7 @@ fn bounds_finalized_seals_without_eviction() {
                 parts: Vec::new(),
                 citations: Vec::new(),
                 search_suggestions: None,
+                commentary: Default::default(),
                 usage: None,
             }),
         );
@@ -359,6 +385,7 @@ fn bounds_finalized_seals_without_eviction() {
                     turn,
                     author: "assistant".into(),
                     branch: String::new(),
+                    commentary: Default::default(),
                     parts: vec![Part::Text("late".into())],
                 },
             )

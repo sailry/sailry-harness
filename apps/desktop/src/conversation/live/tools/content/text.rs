@@ -34,32 +34,3 @@ pub(super) fn render(
         surface::scroll(format!("{id}-scroll"), body)
     }
 }
-
-pub(super) fn copy(content: &Content, result: &serde_json::Value, locale: &str) -> String {
-    let text = content
-        .blocks
-        .iter()
-        .filter_map(|block| match block {
-            Block::Text(text) => text.read(result).filter(|text| !text.is_empty()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    if !text.is_empty() {
-        return text;
-    }
-    content
-        .blocks
-        .iter()
-        .flat_map(|block| match block {
-            Block::Text(text) => text
-                .notices
-                .iter()
-                .map(|notice| notice.label(locale))
-                .collect(),
-            Block::Notice { message } => vec![message.label(locale)],
-            _ => Vec::new(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}

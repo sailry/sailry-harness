@@ -37,6 +37,37 @@ pub(in crate::store::agent) async fn event(
     }
 }
 
+/// Canonical records are immutable; membership and sequence validate cached details.
+pub(in crate::store::agent) async fn sequence(
+    db: &Connection,
+    session: SessionId,
+    turn: TurnId,
+    entry: &str,
+) -> Result<u64, Fault> {
+    super::super::runs::visible(db, session, turn).await?;
+    if entry.is_empty() || entry.len() > 4096 {
+        return Err(Fault::invalid("tool detail entry is invalid"));
+    }
+    match db
+        .prepare(
+            "SELECT e.sequence FROM conversation_events h
+         JOIN agent_events e ON e.sequence=h.sequence
+         WHERE h.session=?1 AND e.turn=?2 AND e.id=?3 ORDER BY e.sequence DESC LIMIT 1",
+        )
+        .await
+        .map_err(storage_error)?
+        .query_row(params![session.to_string(), turn.to_string(), entry])
+        .await
+    {
+        Ok(row) => Ok(row.get::<i64>(0).map_err(storage_error)? as u64),
+        Err(turso::Error::QueryReturnedNoRows) => Err(Fault::new(
+            ErrorCode::NotFound,
+            "tool detail is not in this conversation",
+        )),
+        Err(error) => Err(storage_error(error)),
+    }
+}
+
 pub(super) async fn result(
     db: &Connection,
     session: SessionId,

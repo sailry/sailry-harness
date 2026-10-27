@@ -99,11 +99,7 @@ impl View {
                 cx,
             ));
         }
-        let copy = if literal {
-            text::copy(content, result, &rust_i18n::locale())
-        } else {
-            serde_json::to_string_pretty(result).unwrap_or_default()
-        };
+        let copy = copy(content, result, &rust_i18n::locale());
         surface::result(
             key,
             v_flex()
@@ -111,9 +107,45 @@ impl View {
                 .gap_2()
                 .children(blocks)
                 .into_any_element(),
-            (!copy.is_empty()).then(|| self.copy_result(key, copy)),
+            (!copy.is_empty()).then(|| self.copy_result(key, call, page, cx)),
             cx,
         )
         .into_any_element()
     }
+}
+
+pub(super) fn copy(content: &Content, result: &serde_json::Value, locale: &str) -> String {
+    if !content
+        .blocks
+        .iter()
+        .all(|block| matches!(block, Block::Text(_) | Block::Notice { .. }))
+    {
+        return serde_json::to_string_pretty(result).unwrap_or_default();
+    }
+    let text = content
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Text(text) => text.read(result).filter(|text| !text.is_empty()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !text.is_empty() {
+        return text;
+    }
+    content
+        .blocks
+        .iter()
+        .flat_map(|block| match block {
+            Block::Text(text) => text
+                .notices
+                .iter()
+                .map(|notice| notice.label(locale))
+                .collect(),
+            Block::Notice { message } => vec![message.label(locale)],
+            _ => Vec::new(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

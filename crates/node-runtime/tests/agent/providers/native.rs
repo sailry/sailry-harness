@@ -120,7 +120,7 @@ impl Fixture {
         provider.models.push(Model {
             id: "fixture-a".into(),
             display_name: None,
-            context: 2048,
+            context: 32_768,
             output: 512,
             vision: true,
             tools: true,

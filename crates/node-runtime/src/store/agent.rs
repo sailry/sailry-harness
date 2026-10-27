@@ -120,7 +120,7 @@ pub(super) enum Operation {
     Attachment {
         turn: TurnId,
         id: AttachmentId,
-        reply: oneshot::Sender<Result<attachment::Attachment, Fault>>,
+        reply: oneshot::Sender<Result<(attachment::Attachment, bool), Fault>>,
     },
     Image {
         session: SessionId,
@@ -259,14 +259,14 @@ pub(super) enum Operation {
         token: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Option<Invocation>, Fault>>,
     },
-    YieldGuidance {
-        recipient: TurnId,
-        reply: oneshot::Sender<Result<bool, Fault>>,
-    },
     ClaimGuidance {
         recipient: TurnId,
         token: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Option<Invocation>, Fault>>,
+    },
+    TakeGuidance {
+        recipient: TurnId,
+        reply: oneshot::Sender<Result<Option<Vec<QueuedMessage>>, Fault>>,
     },
     RetainGuidance {
         recipient: TurnId,
@@ -298,6 +298,7 @@ pub(crate) struct Invocation {
     pub provider: Option<Provider>,
     pub media: super::media::Models,
     pub message: Input,
+    pub input_turn: Option<TurnId>,
     pub followups: Vec<sailry_protocol::conversation::QueuedMessage>,
     pub child: Option<Child>,
     pub plugins: Vec<plugin::Info>,
@@ -369,6 +370,16 @@ impl Ingress {
         turn: TurnId,
         id: AttachmentId,
     ) -> Result<attachment::Attachment, Fault> {
+        self.attachment_source(turn, id)
+            .await
+            .map(|(attachment, _)| attachment)
+    }
+
+    pub(crate) async fn attachment_source(
+        &self,
+        turn: TurnId,
+        id: AttachmentId,
+    ) -> Result<(attachment::Attachment, bool), Fault> {
         let (reply, response) = oneshot::channel();
         self.submit(Job::Agent(Box::new(Operation::Attachment {
             turn,
@@ -418,18 +429,33 @@ impl Ingress {
             return Err(Fault::invalid("invalid streaming event"));
         }
         let references = references::project(&event)?;
+        let mut commentary = std::collections::BTreeMap::new();
         let parts = event
             .content()
             .into_iter()
             .flat_map(|content| &content.parts)
             .skip(usize::from(!references.is_empty()))
             .filter_map(|part| match part {
-                adk_core::Part::Text { text } => Some(Part::Text(text.clone())),
-                adk_core::Part::Thinking { thinking, .. } => Some(Part::Thinking(thinking.clone())),
+                adk_core::Part::Text { text } => Some((Part::Text(text.clone()), None)),
+                adk_core::Part::Thinking { thinking, .. } => {
+                    Some((Part::Thinking(thinking.clone()), None))
+                }
                 adk_core::Part::ServerToolCall { server_tool_call } => {
-                    history::commentary(server_tool_call).map(Part::Text)
+                    history::commentary(server_tool_call).map(|text| {
+                        (
+                            Part::Text(text),
+                            Some(server_tool_call["id"].as_str().unwrap_or(&event.id)),
+                        )
+                    })
                 }
                 _ => None,
+            })
+            .enumerate()
+            .map(|(index, (part, progress))| {
+                if let Some(identity) = progress {
+                    commentary.insert(index, identity.to_owned());
+                }
+                part
             })
             .collect();
         self.agents.stream(turn, session, || {
@@ -442,6 +468,7 @@ impl Ingress {
                     author: event.author,
                     branch: event.branch,
                     parts,
+                    commentary,
                 },
             )
         })
@@ -494,9 +521,12 @@ impl Ingress {
         response.await.map_err(|_| super::unavailable())?
     }
 
-    pub(crate) async fn yield_guidance(&self, recipient: TurnId) -> Result<bool, Fault> {
+    pub(crate) async fn take_guidance(
+        &self,
+        recipient: TurnId,
+    ) -> Result<Option<Vec<QueuedMessage>>, Fault> {
         let (reply, response) = oneshot::channel();
-        self.submit(Job::Agent(Box::new(Operation::YieldGuidance {
+        self.submit(Job::Agent(Box::new(Operation::TakeGuidance {
             recipient,
             reply,
         })))
@@ -649,9 +679,7 @@ pub(super) fn execute<'a>(
         }),
         Operation::Attachment { turn, id, reply } => Box::pin(async move {
             let result = match calls::active(&database.connection, turn).await {
-                Ok(_run) => {
-                    super::attachments::turns::resolve(&database.connection, turn, id).await
-                }
+                Ok(_run) => super::attachments::turns::source(&database.connection, turn, id).await,
                 Err(error) => Err(error),
             };
             let _ = reply.send(result);
@@ -1033,21 +1061,6 @@ pub(super) fn execute<'a>(
             }
             let _ = reply.send(result);
         }),
-        Operation::YieldGuidance { recipient, reply } => Box::pin(async move {
-            let result = if controls.stopped.is_cancelled() {
-                Ok(false)
-            } else {
-                queue::guidance::yield_run(database, recipient, events).await
-            };
-            if matches!(result, Ok(true)) {
-                controls.yield_run(recipient);
-            } else if matches!(result, Ok(false)) && !controls.stopped.is_cancelled() {
-                // Publish the model phase before replying. A guidance command admitted
-                // next must interrupt even if the before-model callback has not resumed.
-                controls.model_started(recipient);
-            }
-            let _ = reply.send(result);
-        }),
         Operation::ClaimGuidance {
             recipient,
             token,
@@ -1063,6 +1076,14 @@ pub(super) fn execute<'a>(
             if let Ok(Some(invocation)) = &result {
                 controls.register(invocation.turn.id, invocation.turn.session, token);
             }
+            let _ = reply.send(result);
+        }),
+        Operation::TakeGuidance { recipient, reply } => Box::pin(async move {
+            let result = if controls.stopped.is_cancelled() || !controls.running(recipient) {
+                Ok(None)
+            } else {
+                runs::guidance::take(database, recipient, events).await
+            };
             let _ = reply.send(result);
         }),
         Operation::RetainGuidance { recipient, reply } => Box::pin(async move {
@@ -1090,8 +1111,6 @@ pub(super) fn execute<'a>(
                     Status::Interrupted
                 } else if owner_stopped {
                     Status::Cancelled
-                } else if controls.yielded(turn) {
-                    Status::Continued
                 } else {
                     status
                 };

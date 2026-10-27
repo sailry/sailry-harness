@@ -27,6 +27,22 @@ pub(in crate::store) async fn execute(
         } => {
             validate(message)?;
             let run = check_item(db, *turn, *expected_revision).await?;
+            let mut query = db
+                .prepare("SELECT input IS NOT NULL FROM agent_runs WHERE turn=?1")
+                .await
+                .map_err(storage_error)?;
+            let row = query
+                .query_row([turn.to_string()])
+                .await
+                .map_err(storage_error)?;
+            let captured: bool = row.get(0).map_err(storage_error)?;
+            drop(query);
+            if captured {
+                return Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "admitted input is immutable; submit an edited message",
+                ));
+            }
             let mut session = super::super::super::commands::session(db, run.session).await?;
             super::super::super::sessions::writable(&session)?;
             session.config = super::super::permissions::config(db, run.turn).await?;
@@ -122,6 +138,32 @@ pub(in crate::store) async fn execute(
                 return Err(Fault::new(
                     ErrorCode::PermissionDenied,
                     "child queued input is read-only",
+                ));
+            }
+            let recipient = read(db, run.session)
+                .await?
+                .items
+                .into_iter()
+                .find(|item| item.turn == run.turn)
+                .and_then(|item| item.guidance)
+                .ok_or_else(|| {
+                    Fault::new(ErrorCode::Conflict, "queued input has no pending guidance")
+                })?;
+            if runs::get(db, recipient).await?.status == Status::Stopping {
+                return Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "guidance handoff has already started",
+                ));
+            }
+            if session.delegation.is_some() {
+                changed.push(runs::stop(db, run.turn).await?);
+                return Ok((
+                    Output::Queue(QueueUpdate {
+                        session: run.session,
+                        queue: read(db, run.session).await?,
+                        runs: changed,
+                    }),
+                    Some(super::super::activity::changed(db, run.session).await?),
                 ));
             }
             let affected = db

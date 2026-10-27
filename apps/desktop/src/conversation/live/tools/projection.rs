@@ -24,6 +24,9 @@ fn paths(calls: &[&Call]) -> Vec<SharedString> {
     let mut paths = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     for call in calls {
+        if call.detail.is_none() {
+            continue;
+        }
         let Some(output) = call
             .resolved()
             .and_then(|resolved| resolved.output.as_ref())
@@ -50,6 +53,16 @@ pub(super) fn group(
         return None;
     }
     let paths = paths(calls);
+    let declared = calls
+        .iter()
+        .filter_map(|call| {
+            call.resolved()?
+                .output
+                .as_ref()
+                .map(|output| output.path_count)
+        })
+        .max()
+        .unwrap_or_default();
     let failures: Vec<_> = calls
         .iter()
         .filter_map(|call| {
@@ -61,7 +74,7 @@ pub(super) fn group(
     let node = view.binding.client.target();
     let turn = first.turn;
     Some(Group {
-        count: paths.len().max(failures.len()),
+        count: paths.len().max(declared).max(failures.len()),
         content: v_flex()
             .gap_2()
             .children(paths.into_iter().enumerate().map(|(index, path)| {
@@ -133,7 +146,7 @@ pub(super) fn render(
         let path = body.path.as_deref();
         let mut actions = Vec::new();
         if !text.is_empty() {
-            actions.push(view.copy_result(key, text.to_owned()));
+            actions.push(view.copy_result(key, call, page, cx));
         }
         if let Some(style) = body.diff {
             return Some(view.path_result(
@@ -203,7 +216,7 @@ pub(super) fn render(
         );
     let mut actions = Vec::new();
     if !copy.is_empty() {
-        actions.push(view.copy_result(key, copy));
+        actions.push(view.copy_result(key, call, page, cx));
     }
     let path = call
         .resolved()

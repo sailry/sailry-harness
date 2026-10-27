@@ -448,9 +448,9 @@ async fn settles_batch_before_handoff() {
             }))
             .await
             .unwrap();
-        let page = finished(&fixture.client, child.id, guided.id).await;
-        assert_eq!(status(&page, recipient.turn), Status::Continued);
-        assert_eq!(status(&page, guided.id), Status::Completed);
+        let page = finished(&fixture.client, child.id, recipient.turn).await;
+        assert_eq!(status(&page, recipient.turn), Status::Completed);
+        assert_eq!(status(&page, guided.id), Status::Continued);
         assert_eq!(status(&page, next.id), Status::Continued);
         assert_eq!(
             page.runs
@@ -458,7 +458,7 @@ async fn settles_batch_before_handoff() {
                 .find(|run| run.turn == next.id)
                 .unwrap()
                 .joined,
-            Some(guided.id)
+            Some(recipient.turn)
         );
         assert!(page.queue.items.is_empty());
         assert_eq!(
@@ -505,11 +505,11 @@ async fn settles_batch_before_handoff() {
         assert_eq!(parent_page.children[0].run.turn, recipient.turn);
         assert_eq!(parent_page.children[1].run.turn, guided.id);
         assert_eq!(parent_page.children[2].run.turn, next.id);
-        assert_eq!(parent_page.children[2].run.joined, Some(guided.id));
+        assert_eq!(parent_page.children[2].run.joined, Some(recipient.turn));
         let returned = results(&fixture.client, &parent_page).await;
         assert_eq!(returned.len(), 1);
         assert_eq!(returned[0]["session"], json!(child.id));
-        assert_eq!(returned[0]["turn"], json!(guided.id));
+        assert_eq!(returned[0]["turn"], json!(recipient.turn));
         assert_eq!(returned[0]["status"], "completed");
         let requests = fixture.child.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
@@ -685,7 +685,7 @@ async fn preserves_stopped_and_interrupted_input() {
 }
 
 #[tokio::test]
-async fn interrupts_awaited_child_response() {
+async fn waits_for_the_awaited_child_response() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let parent = Server::turn_tools(vec![(
@@ -710,16 +710,20 @@ async fn interrupts_awaited_child_response() {
         else {
             panic!("guided turn expected")
         };
-        // The awaited child response yields before release; guidance runs next.
-        fixture.child.wait_count(2).await;
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        assert_eq!(
+            status(&history(&fixture.client, child.id).await, guided.id),
+            Status::Queued
+        );
         release.cancel();
-        let page = finished(&fixture.client, child.id, guided.id).await;
-        assert_eq!(status(&page, recipient.turn), Status::Continued);
-        assert_eq!(status(&page, guided.id), Status::Completed);
+        fixture.child.wait_count(2).await;
+        let page = finished(&fixture.client, child.id, recipient.turn).await;
+        assert_eq!(status(&page, recipient.turn), Status::Completed);
+        assert_eq!(status(&page, guided.id), Status::Continued);
         let page = finished(&fixture.client, fixture.session.id, parent.id).await;
         assert_eq!(
             results(&fixture.client, &page).await[0]["turn"],
-            json!(guided.id)
+            json!(recipient.turn)
         );
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
         fixture.close().await;

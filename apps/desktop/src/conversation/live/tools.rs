@@ -3,7 +3,7 @@ use crate::conversation::{
     disclosure::{self, Detail},
     surface::{self, diff},
 };
-use gpui_kit::component::collapsible::Collapsible;
+use gpui_kit::component::{button::ButtonVariants as _, collapsible::Collapsible};
 use gpui_kit::prelude::FluentBuilder as _;
 use sailry_client::conversation::tools::{Call, RowState, State};
 use sailry_protocol::conversation::{ApprovalState, Page};
@@ -260,8 +260,9 @@ impl View {
         if call.detail.is_none() && call.details(page) {
             let references = call.detail_reference(page).into_iter().collect::<Vec<_>>();
             self.request_details(references, false, cx);
-            return div()
+            return h_flex()
                 .p_2()
+                .child(self.copy_result(&key, call, page, cx))
                 .children(
                     call.detail_reference(page)
                         .filter(|reference| self.detail_loading.borrow().contains(reference))
@@ -364,13 +365,30 @@ impl View {
             .into_any_element()
     }
 
-    fn copy_result(&self, key: &str, text: String) -> AnyElement {
+    fn copy_result(
+        &self,
+        key: &str,
+        call: &Call,
+        page: &Page,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let reference = call.detail_reference(page);
         let selector = format!("live-tool-copy-{key}");
-        h_flex()
-            .id(selector.clone())
-            .debug_selector(move || selector.clone())
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .child(surface::copy(format!("{key}-copy"), text))
+        // Kit's Clipboard value_fn is synchronous. A Kit button keeps the same
+        // control while the shared Client loads every detail page before copying.
+        gpui_kit::component::button::Button::new(selector.clone())
+            .icon(IconName::Copy)
+            .ghost()
+            .xsmall()
+            .tooltip(tr("tool_copy"))
+            .accessibility_label(tr("tool_copy"))
+            .disabled(reference.is_none())
+            .on_click(cx.listener(move |view, _, _, cx| {
+                cx.stop_propagation();
+                if let Some(reference) = reference.clone() {
+                    view.load_detail(reference, details::Action::Copy, cx);
+                }
+            }))
             .into_any_element()
     }
 
@@ -387,6 +405,12 @@ impl View {
             let turn = call.turn;
             let worktree = self.turn_worktree(turn);
             let path = path.to_owned();
+            let reference = self
+                .history
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| call.detail_reference(&snapshot.page));
+            let loaded = call.detail.is_some();
             return disclosure::trigger(id, summary.icon, summary.label, summary.detail, false, cx)
                 .w_full()
                 .on_click(cx.listener(move |view, _, _, cx| {
@@ -394,7 +418,11 @@ impl View {
                         && view.turn_worktree(turn) == worktree
                         && let Some(worktree) = worktree
                     {
-                        cx.emit(Event::FileAt(worktree, path.clone()));
+                        if !loaded && let Some(reference) = reference.clone() {
+                            view.load_detail(reference, details::Action::Open(worktree), cx);
+                        } else {
+                            cx.emit(Event::FileAt(worktree, path.clone()));
+                        }
                     }
                 }))
                 .into_any_element();
@@ -460,7 +488,9 @@ impl View {
             .and_then(|snapshot| inspector::copy(call, &snapshot.page))
             .unwrap_or_else(|| body.copy_text());
         if !copy.is_empty() {
-            actions.push(self.copy_result(key, copy));
+            if let Some(snapshot) = &self.history.snapshot {
+                actions.push(self.copy_result(key, call, &snapshot.page, cx));
+            }
         }
         let tone = outcome_tone(call, result, cx);
         let notices = v_flex().children(body.notices.iter().map(|notice| {

@@ -54,6 +54,7 @@ pub(super) fn bind(
             };
             if let Some(tool) = tool {
                 let mut registration = ToolRegistration::managed(tool);
+                registration.capture(registration.tool.declaration());
                 registration.plugin = Some(package.summary.name.clone());
                 registration.display =
                     Some(("web_search".into(), declaration.display.clone().into()));

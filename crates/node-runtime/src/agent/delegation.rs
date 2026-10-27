@@ -206,7 +206,7 @@ impl Delegate {
             let _cancel = stop.clone().drop_guard();
             let mut active = Some(active);
             let mut observing = true;
-            // A boundary handoff cancels one Runner, never the parent-owned operation.
+            // The supervisor retains child ownership across later tasks in this session.
             let mut token = stop.child_token();
             let mut invocation = ingress.delegate(turn, request, arguments, message, token.clone()).await?;
             ingress.agents.register_child(parent, invocation.turn.session, invocation.turn.id, stop.clone());

@@ -98,6 +98,44 @@ fn preserves_result_names_and_aliases() {
 }
 
 #[test]
+fn bounds_paths_and_retains_complete_details() {
+    let mut paths: Vec<_> = (0..40)
+        .map(|index| format!("{}file-{index}.txt", "directory/".repeat(30)))
+        .collect();
+    paths.push(paths[0].clone());
+    let raw = source(
+        json!({"path":paths[0]}),
+        json!({"paths":paths}),
+        json!({
+            "label":"Read","input":{"summary":{"path":"/path"},"target":{"path":"/path"}},
+            "output":{"paths":{"value":{"source":"result","path":"/paths"},"item":""}}
+        }),
+    );
+    let summary = raw.summary();
+    let expected = raw.arguments["path"].as_str().unwrap();
+    assert!(expected.chars().count() > 200);
+    let preview: String = expected.chars().take(200).collect();
+    assert_eq!(summary.path.as_deref(), Some(preview.as_str()));
+    let resolved = summary.resolved.unwrap();
+    assert_eq!(resolved.input.summary.unwrap().text, preview);
+    assert_eq!(resolved.input.target.unwrap().text, preview);
+    let output = resolved.output.unwrap();
+    assert_eq!(output.paths.len(), 32);
+    assert_eq!(output.paths[0], preview);
+    assert_eq!(output.path_count, 40);
+    let detail = raw.detail();
+    let resolved = detail.resolved.unwrap();
+    assert_eq!(resolved.input.target.unwrap().text, expected);
+    let paths = resolved.output.unwrap().paths;
+    assert_eq!(paths.len(), 40);
+    assert_eq!(paths[0], expected);
+    assert_eq!(
+        detail.result.unwrap()["paths"].as_array().unwrap().len(),
+        41
+    );
+}
+
+#[test]
 fn preserves_captured_connection_and_session_names() {
     for format in ["connection", "session"] {
         let display = json!({"label":"Wait","input":{"summary":{

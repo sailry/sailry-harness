@@ -21,6 +21,7 @@ impl Call {
             preview_deferred: false,
             notices: Vec::new(),
             paths: Vec::new(),
+            path_count: 0,
             body: None,
             table: None,
         }))

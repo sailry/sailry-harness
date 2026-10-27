@@ -2,6 +2,9 @@ use super::*;
 use sailry_protocol::conversation::reference::{Reference, Target};
 use serde_json::json;
 
+#[cfg(unix)]
+#[path = "references/output.rs"]
+mod output;
 #[path = "references/scopes.rs"]
 mod scopes;
 

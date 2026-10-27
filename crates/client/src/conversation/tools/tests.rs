@@ -46,6 +46,7 @@ fn entry(sequence: u64, turn: TurnId, branch: &str, result: bool) -> Entry {
         usage: None,
         citations: vec![],
         search_suggestions: None,
+        commentary: Default::default(),
         parts: vec![if result {
             Part::ToolResult {
                 id: Some("call".into()),
@@ -368,6 +369,7 @@ fn reuses_calls_during_streaming() {
         turn: snapshot.page.runs[0].turn,
         author: "assistant".into(),
         branch: String::new(),
+        commentary: Default::default(),
         parts: vec![Part::Text("streaming".into())],
     });
     view.replace(Arc::new(snapshot.clone()), 0, 1, None);

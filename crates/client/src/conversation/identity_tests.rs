@@ -35,6 +35,7 @@ fn preserves_statistics_identity_across_drafts() {
         turn: TurnId::new(),
         author: "assistant".into(),
         branch: String::new(),
+        commentary: Default::default(),
         parts: vec![conversation::Part::Text("More text".into())],
     });
     snapshot.sequence = 1;

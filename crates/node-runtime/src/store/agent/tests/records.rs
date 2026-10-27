@@ -203,9 +203,19 @@ async fn reads_existing_event_bytes_without_rewriting() {
     summary.actions.compaction = Some(adk_core::EventCompaction {
         start_timestamp: call.timestamp,
         end_timestamp: result.timestamp,
-        compacted_content: adk_core::Content::new("model").with_text("Recorded summary"),
+        compacted_content: adk_core::Content::new("user").with_text("Recorded summary"),
     });
-    let (summary, summary_body) = recorded(&summary);
+    let (summary, _) = recorded(&summary);
+    // Archived handoff metadata keeps its original role and bytes.
+    let mut archived = summary.clone();
+    archived
+        .actions
+        .compaction
+        .as_mut()
+        .unwrap()
+        .compacted_content
+        .role = "model".into();
+    let (_, summary_body) = recorded(&archived);
     let compacted = fixture.append([summary.clone()]).await;
     let originals = [
         (turn, &event.id, &body),
@@ -262,7 +272,7 @@ async fn reads_existing_event_bytes_without_rewriting() {
     assert_eq!(
         serde_json::to_value(context[0].content()).unwrap(),
         serde_json::to_value(Some(
-            &adk_core::Content::new("model").with_text("Recorded summary")
+            &adk_core::Content::new("user").with_text("Recorded summary")
         ))
         .unwrap()
     );

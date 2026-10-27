@@ -9,6 +9,7 @@ mod management;
 mod model_tools;
 mod operations;
 mod scripts;
+mod search;
 mod selection;
 
 #[derive(Default)]
@@ -17,12 +18,23 @@ pub(super) struct Contribution {
     pub instruction: String,
     pub callbacks: Vec<(i16, adk_core::BeforeModelCallback)>,
     pub completion: Arc<AtomicBool>,
+    loaded: BTreeSet<String>,
+    instructions: std::collections::BTreeMap<String, String>,
+}
+
+impl Contribution {
+    pub(super) fn mounted(&self, name: &str) -> bool {
+        self.tools.iter().any(|entry| {
+            entry.tool.name() == name && (!entry.deferred || self.loaded.contains(name))
+        })
+    }
 }
 
 pub(super) async fn bind(
     ingress: &Arc<Ingress>,
     tasks: &Tasks,
     invocation: &Invocation,
+    loaded: BTreeSet<String>,
     stop: &CancellationToken,
     resources: Arc<crate::plugins::resources::Resources>,
     connections: &mut mcp::Connections,
@@ -47,7 +59,10 @@ pub(super) async fn bind(
             .and_then(|provider| provider.binding.as_ref())
             .and_then(|binding| binding.adapter.as_ref())
             .is_none_or(|adapter| adapter.capabilities.tools);
-    let mut bound = Contribution::default();
+    let mut bound = Contribution {
+        loaded,
+        ..Default::default()
+    };
     let mut skill_instruction = String::new();
     let mut connection_diagnostics = String::new();
     if !restricted || invocation.turn.config.assistant.is_some() {
@@ -109,11 +124,21 @@ pub(super) async fn bind(
         bound.completion = scripts.completion;
         bound.tools.extend(scripts.tools);
         bound.callbacks.extend(scripts.callbacks);
-        bound.instruction.push_str(&scripts.instruction);
+        bound.instructions = scripts.instructions;
         connection_diagnostics = diagnostics;
     }
     assistants::apply(invocation, &mut bound)?;
     selection::apply(invocation, &mut bound)?;
+    selection::defer(invocation, &mut bound.tools)?;
+    if let Some(search) = search::bind(
+        invocation,
+        stop,
+        &bound.tools,
+        &bound.instructions,
+        &bound.loaded,
+    ) {
+        bound.tools.push(search);
+    }
     if assistant.is_some()
         || bound
             .tools
@@ -136,10 +161,14 @@ pub(super) async fn bind(
             .push_str(&connection_instructions(invocation, &bound.tools));
     }
     for package in &invocation.plugins {
-        if bound
-            .tools
-            .iter()
-            .any(|tool| tool.plugin.as_deref() == Some(package.summary.name.as_str()))
+        let mounted = bound.tools.iter().any(|tool| {
+            bound.mounted(tool.tool.name())
+                && tool.plugin.as_deref() == Some(package.summary.name.as_str())
+        });
+        if mounted && let Some(instructions) = bound.instructions.get(&package.summary.name) {
+            bound.instruction.push_str(instructions);
+        }
+        if mounted
             && let Some(instructions) = package
                 .extension
                 .as_ref()

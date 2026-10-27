@@ -101,6 +101,7 @@ mod credentials {
             };
             let detail = history::tools::page(
                 &fixture.database.connection,
+                &fixture.database.tool_details,
                 tool::detail::Reference {
                     session: history.page.session,
                     turn,

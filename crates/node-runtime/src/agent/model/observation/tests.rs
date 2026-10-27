@@ -89,6 +89,48 @@ fn persists_each_recovered_attempt_once() {
 }
 
 #[test]
+fn retains_actual_helper_usage_after_failure() {
+    let capture = capture(None);
+    capture.lock().unwrap().compaction = true;
+    let observer = Capture::observer(&capture);
+    started(&observer);
+    {
+        let mut value = capture.lock().unwrap();
+        for output in [3, 7] {
+            value.response(&LlmResponse {
+                usage_metadata: Some(adk_core::UsageMetadata {
+                    prompt_token_count: 12,
+                    candidates_token_count: output,
+                    thinking_token_count: Some(2),
+                    cost: Some(0.125),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+        }
+    }
+    finished(&observer, wire::Outcome::Failed);
+    let value = capture.lock().unwrap();
+    let records = value.pending();
+    assert!(
+        value
+            .project(&records[0])
+            .llm_response
+            .usage_metadata
+            .is_none()
+    );
+    let event = value.project(&records[1]);
+    let usage = event.llm_response.usage_metadata.as_ref().unwrap();
+    assert_eq!(usage.candidates_token_count, 7);
+    assert_eq!(usage.thinking_token_count, Some(2));
+    assert_eq!(usage.cost, Some(0.125));
+    assert_eq!(
+        event.provider_metadata["sailry_model_purpose"],
+        "compaction"
+    );
+}
+
+#[test]
 fn ignores_duplicate_and_late_callbacks() {
     let timeline = crate::agent::observation::Timeline::new();
     let capture = capture(Some(timeline.clone()));

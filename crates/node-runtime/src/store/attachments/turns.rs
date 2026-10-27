@@ -106,29 +106,32 @@ pub(in crate::store) async fn resolve(
     turn: TurnId,
     id: AttachmentId,
 ) -> Result<Attachment, Fault> {
-    let worktree: Option<String> = {
-        let mut statement = db.prepare("SELECT a.worktree FROM attachments a WHERE a.id=?2 AND EXISTS(SELECT 1 FROM turn_attachments r JOIN conversation_turns h ON h.turn=r.turn JOIN turns t ON t.session=h.session JOIN agent_runs origin ON origin.turn=r.turn WHERE t.id=?1 AND r.attachment=a.id AND (r.turn=t.id OR (json_extract(origin.body,'$.status') IN ('completed','continued','failed','cancelled') AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=origin.turn))))").await.map_err(storage_error)?;
+    source(db, turn, id).await.map(|(attachment, _)| attachment)
+}
+
+/// Fresh inputs include guidance joined to this same running task.
+pub(in crate::store) async fn source(
+    db: &Connection,
+    turn: TurnId,
+    id: AttachmentId,
+) -> Result<(Attachment, bool), Fault> {
+    let selected: Option<(String, bool)> = {
+        let mut statement = db.prepare("SELECT a.worktree, EXISTS(SELECT 1 FROM turn_attachments own JOIN agent_runs source ON source.turn=own.turn WHERE own.attachment=a.id AND (own.turn=?1 OR json_extract(source.body,'$.joined')=?1)) FROM attachments a WHERE a.id=?2 AND EXISTS(SELECT 1 FROM turn_attachments r JOIN conversation_turns h ON h.turn=r.turn JOIN turns t ON t.session=h.session JOIN agent_runs origin ON origin.turn=r.turn WHERE t.id=?1 AND r.attachment=a.id AND (r.turn=t.id OR (json_extract(origin.body,'$.joined')=t.id AND json_extract(origin.body,'$.status')='continued') OR (json_extract(origin.body,'$.status') IN ('completed','continued','failed','cancelled') AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=origin.turn))))").await.map_err(storage_error)?;
         match statement
             .query_row(params![turn.to_string(), id.to_string()])
             .await
         {
             Ok(row) => {
-                let mapped: turso::Result<_> = row.get(0);
+                let mapped: turso::Result<_> = (|| Ok((row.get(0)?, row.get(1)?)))();
                 Some(mapped.map_err(storage_error)?)
             }
             Err(turso::Error::QueryReturnedNoRows) => None,
             Err(error) => return Err(storage_error(error)),
         }
     };
-    read(
-        db,
-        worktree
-            .ok_or_else(missing)?
-            .parse()
-            .map_err(storage_error)?,
-        id,
-    )
-    .await
+    let (worktree, current) = selected.ok_or_else(missing)?;
+    let attachment = read(db, worktree.parse().map_err(storage_error)?, id).await?;
+    Ok((attachment, current))
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ use serde_json::Value;
 
 /// Estimate the complete neutral envelope, including the summary prompt and JSON framing.
 /// This is not the provider's tokenizer or an exact context measurement.
-pub(super) fn request(request: &LlmRequest) -> adk_core::Result<u64> {
+pub(in crate::agent) fn request(request: &LlmRequest) -> adk_core::Result<u64> {
     let envelope = LlmRequest {
         model: request.model.clone(),
         contents: Vec::new(),
@@ -33,7 +33,7 @@ pub(crate) fn tokens(events: &[Event]) -> u64 {
         .sum()
 }
 
-fn part(part: &Part) -> u64 {
+pub(in crate::agent) fn part(part: &Part) -> u64 {
     match part {
         Part::Text { text: value }
         | Part::Thinking {
@@ -42,7 +42,20 @@ fn part(part: &Part) -> u64 {
         Part::FunctionCall { name, args, .. } => text(name) + json(args),
         Part::FunctionResponse {
             function_response, ..
-        } => text(&function_response.name) + json(&function_response.response),
+        } => {
+            text(&function_response.name)
+                + json(&function_response.response)
+                + function_response
+                    .inline_data
+                    .iter()
+                    .map(|part| media(&part.mime_type, &part.data))
+                    .sum::<u64>()
+                + function_response
+                    .file_data
+                    .iter()
+                    .map(|part| media(&part.mime_type, &[]))
+                    .sum::<u64>()
+        }
         Part::ProviderData { .. } => match part.provider_part() {
             Part::ProviderData { .. } => 0,
             inner => self::part(inner),
@@ -54,19 +67,56 @@ fn part(part: &Part) -> u64 {
         Part::EmbeddedResource {
             resource: EmbeddedResource::Text(resource),
         } => text(&resource.text),
-        // Binary length is unrelated to model token cost. The next provider
-        // observation accounts for media; the early threshold leaves headroom.
-        Part::InlineData { .. }
-        | Part::FileData { .. }
-        | Part::EmbeddedResource {
-            resource: EmbeddedResource::Blob(_),
-        } => 0,
+        Part::InlineData {
+            mime_type, data, ..
+        } => media(mime_type, data),
+        Part::FileData { mime_type, .. } => media(mime_type, &[]),
+        Part::EmbeddedResource {
+            resource: EmbeddedResource::Blob(blob),
+        } => media(blob.mime_type.as_deref().unwrap_or(""), &blob.data),
     }
 }
 
-fn text(value: &str) -> u64 {
-    // A lightweight UTF-8 text estimate, not a tokenizer or billed usage.
-    (value.len() as u64).div_ceil(4)
+pub(in crate::agent) fn text(value: &str) -> u64 {
+    let mut count = 0u64;
+    let mut ascii = 0u64;
+    for character in value.chars() {
+        if character.is_ascii() {
+            ascii += 1;
+            continue;
+        }
+        count += ascii.div_ceil(4);
+        ascii = 0;
+        let code = u32::from(character);
+        let cjk = matches!(code, 0x2e80..=0x9fff | 0xac00..=0xd7af | 0xf900..=0xfaff | 0xff00..=0xffef | 0x20000..=0x323af);
+        count += if cjk {
+            2
+        } else {
+            (character.len_utf8() as u64).div_ceil(2)
+        };
+    }
+    count + ascii.div_ceil(4)
+}
+
+fn media(mime: &str, data: &[u8]) -> u64 {
+    if !mime.starts_with("image/") {
+        return 0;
+    }
+    let dimensions = image::ImageReader::new(std::io::Cursor::new(data))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok());
+    // A dimension-based tile envelope, not a provider tokenizer. Unknown
+    // external images retain a nonzero allowance until usage is reported.
+    dimensions
+        .filter(|(width, height)| *width > 0 && *height > 0)
+        .map_or(1024, |(width, height)| {
+            85u64.saturating_add(
+                170u64
+                    .saturating_mul(u64::from(width).div_ceil(512))
+                    .saturating_mul(u64::from(height).div_ceil(512)),
+            )
+        })
 }
 
 fn json(value: &Value) -> u64 {
@@ -126,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn excludes_media_bytes() {
+    fn ignores_compressed_media_size() {
         let content = |size| {
             let mut response = FunctionResponseData::new("observe", json!({"status":"observed"}));
             response.inline_data.push(InlineDataPart {
@@ -160,7 +210,27 @@ mod tests {
             ])
         };
         let small = tokens(&[content(16)]);
-        assert!(small < 100);
+        assert!(small >= 3 * 1024);
         assert_eq!(tokens(&[content(2 * 1024 * 1024)]), small);
+    }
+
+    #[test]
+    fn accounts_for_cjk_and_dimensions() {
+        assert_eq!(text("abcd"), 1);
+        assert_eq!(text("中文测试"), 8);
+        assert!(text("中文测试") > text("abcd"));
+        let image = |width| {
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::new_rgba8(width, 16)
+                .write_to(&mut bytes, image::ImageFormat::Png)
+                .unwrap();
+            bytes.into_inner()
+        };
+        let small = media("image/png", &image(16));
+        let wider = media("image/png", &image(513));
+        assert_eq!(small, 255);
+        assert_eq!(wider, 425);
+        assert_eq!(media("image/png", &[]), 1024);
+        assert_eq!(media("audio/wav", &[]), 0);
     }
 }

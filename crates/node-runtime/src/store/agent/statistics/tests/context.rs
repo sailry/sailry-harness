@@ -1,4 +1,46 @@
 use super::*;
+
+#[tokio::test]
+async fn keeps_helper_usage_separate_from_context() {
+    let mut fixture = Fixture::new().await;
+    fixture.append([event(100, 20)]).await;
+    let helper = |input, output| {
+        let mut event = event(input, output);
+        event.author = "system".into();
+        event.llm_response.content = None;
+        event
+            .provider_metadata
+            .insert("sailry_model_purpose".into(), "compaction".into());
+        event
+    };
+    fixture.append([helper(800, 40)]).await;
+    let statistics = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(statistics.context_tokens, Some(120));
+    assert_eq!(statistics.usage.as_ref().unwrap().input, 900);
+    let mut projection = AdkEvent::new("projection");
+    projection.author = "system".into();
+    projection.provider_metadata.insert(
+        "sailry_context_projection".into(),
+        serde_json::json!({"tokens":60}).to_string(),
+    );
+    fixture.append([projection]).await;
+    fixture.append([helper(2000, 10)]).await;
+    let statistics = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(statistics.context_tokens, None);
+    assert_eq!(statistics.context_estimate, Some(60));
+    assert_eq!(statistics.usage.as_ref().unwrap().input, 2900);
+    assert_eq!(statistics.usage.as_ref().unwrap().output, 70);
+    fixture.append([event(30, 6)]).await;
+    let statistics = read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(statistics.context_tokens, Some(36));
+    assert_eq!(statistics.context_estimate, None);
+}
 use adk_core::{Content, FunctionResponseData, Part as AdkPart};
 
 fn user(text: &str) -> AdkEvent {
@@ -280,7 +322,7 @@ async fn estimates_only_after_summary_reset() {
     summary.actions.compaction = Some(adk_core::EventCompaction {
         start_timestamp: anchor.timestamp,
         end_timestamp: anchor.timestamp,
-        compacted_content: Content::new("model").with_text("Verified handoff"),
+        compacted_content: Content::new("user").with_text("Verified handoff"),
     });
     fixture.append([summary]).await;
     let growth = tool(&"Unobserved pending evidence ".repeat(3000));

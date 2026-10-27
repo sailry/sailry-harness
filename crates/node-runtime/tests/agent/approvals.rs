@@ -57,7 +57,7 @@ pub(super) async fn prepare_model(
     provider.models = vec![Model {
         id: "fixture-a".into(),
         display_name: None,
-        context: 16000,
+        context: 128000,
         output: 2048,
         vision: false,
         tools: true,

@@ -1,10 +1,74 @@
 use super::*;
 
 #[tokio::test]
+async fn reuses_masked_prefix_for_later_summary() {
+    for remote in [false, true] {
+        let server = Server::loop_usage(
+            vec![
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(100),
+                Some(26_000),
+                Some(100),
+            ],
+            100,
+        )
+        .await;
+        let fixture = fixture(remote, &server).await;
+        for index in 1..=6 {
+            let bytes = if index == 3 { 100 } else { 16 } * 1024;
+            let mut text = format!("Evidence {index}\n");
+            text.push_str(&"x".repeat(bytes - text.len()));
+            std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
+        }
+        submit(
+            &fixture.client,
+            fixture.session.id,
+            "Preserve all evidence across context windows".into(),
+        )
+        .await;
+        let requests = server.requests.lock().unwrap().clone();
+        let summaries: Vec<_> = requests
+            .iter()
+            .filter(|request| agent_support::compaction::is_summary(request))
+            .collect();
+        assert_eq!(summaries.len(), 2);
+        let normal = requests
+            .iter()
+            .filter(|request| !agent_support::compaction::is_summary(request))
+            .find(|request| {
+                request["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|message| {
+                        message["tool_call_id"] == "loop-3"
+                            && message["content"]
+                                .as_str()
+                                .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                                .is_some_and(|value| value["masked"] == true)
+                    })
+            })
+            .expect("an ordinary request with the retained masked result");
+        let prefix = normal["messages"].as_array().unwrap();
+        let summary = summaries[1]["messages"].as_array().unwrap();
+        assert_eq!(
+            serde_json::to_vec(prefix).unwrap(),
+            serde_json::to_vec(&summary[..prefix.len()]).unwrap()
+        );
+        assert_eq!(normal["tools"], summaries[1]["tools"]);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn resumes_without_replay() {
     for remote in [false, true] {
         let server = Server::loop_compaction(false).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -30,6 +94,13 @@ async fn resumes_without_replay() {
             .filter(|request| !agent_support::compaction::is_summary(request))
             .collect();
         assert_eq!(ordinary.len(), 7);
+        let prefix = ordinary[0]["messages"].as_array().unwrap();
+        let summary = summaries[0]["messages"].as_array().unwrap();
+        assert_eq!(
+            serde_json::to_vec(prefix).unwrap(),
+            serde_json::to_vec(&summary[..prefix.len()]).unwrap(),
+        );
+        assert_eq!(ordinary[0]["tools"], summaries[0]["tools"]);
         for (index, request) in ordinary.iter().enumerate().skip(3) {
             let content = messages(request);
             assert!(content.contains("Context summary fixture"));
@@ -61,7 +132,7 @@ async fn resumes_without_replay() {
         for index in 1..=6 {
             assert!(full.contains(&format!("Evidence {index}")));
         }
-        usage_total(&fixture.client, 11, 7 * 14000 + 4 * 100).await;
+        usage_total(&fixture.client, 11, 7 * 26000 + 4 * 100).await;
         fixture.client.execute(request.clone()).await.unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), 11);
         let Output::Session(branch) = fixture
@@ -109,7 +180,7 @@ async fn resumes_without_replay() {
 async fn cancels_before_next_model_call() {
     for remote in [false, true] {
         let server = Server::pending_loop_compaction().await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -148,7 +219,7 @@ async fn cancels_before_next_model_call() {
             assert!(content.contains(&format!("Evidence {index}")));
         }
         assert!(!content.contains("Evidence 4"));
-        usage_total(&fixture.client, 3, 3 * 14000).await;
+        usage_total(&fixture.client, 3, 3 * 26000).await;
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -158,7 +229,7 @@ async fn cancels_before_next_model_call() {
 async fn preserves_context_on_failure() {
     for remote in [false, true] {
         let server = Server::loop_compaction(true).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -197,13 +268,14 @@ async fn preserves_context_on_failure() {
                                             .contains(agent_support::compaction::PRIVATE_SENTINEL)
                                     );
                                     assert_eq!(value["failure"]["status"], 400);
+                                    assert_eq!(value["failure"]["continued"], false);
 
                                     warnings.push(entry.id.clone());
                                 }
                             }
                         }
                         sailry_protocol::conversation::Change::Run(run)
-                            if run.status == Status::Completed =>
+                            if run.status == Status::Failed =>
                         {
                             break;
                         }
@@ -213,12 +285,25 @@ async fn preserves_context_on_failure() {
             }
             warnings
         });
-        let (_, _, page) = submit(
-            &fixture.client,
-            fixture.session.id,
-            "Verify six files".into(),
-        )
-        .await;
+        let request = fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: 1,
+            message: "Verify six files".into(),
+        });
+        let Output::QueuedTurn(turn) = fixture.client.execute(request.clone()).await.unwrap()
+        else {
+            panic!("turn expected");
+        };
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Failed
+        );
+        assert!(page.queue.paused);
         assert!(!page.entries.iter().any(|entry| {
             entry
                 .parts
@@ -229,7 +314,7 @@ async fn preserves_context_on_failure() {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(live.len(), 4);
+        assert_eq!(live.len(), 1);
         let notices = super::super::configuration::snapshot(&fixture.client)
             .await
             .notifications;
@@ -249,7 +334,7 @@ async fn preserves_context_on_failure() {
 
         assert_eq!(
             live.iter().collect::<std::collections::BTreeSet<_>>().len(),
-            4
+            1
         );
         let mut restored = fixture
             .client
@@ -270,22 +355,26 @@ async fn preserves_context_on_failure() {
                 .iter()
                 .filter(|request| !agent_support::compaction::is_summary(request))
                 .count(),
-            7
+            3
         );
-        // The fixture returns a nonretryable HTTP 400.
-        // A changed complete prefix may retry; each prefix gets only one attempt.
+        // The terminal summary failure halts before any further model or tool work.
         let summaries: Vec<_> = requests
             .iter()
             .filter(|request| agent_support::compaction::is_summary(request))
             .collect();
-        assert_eq!(summaries.len(), 4);
-        assert_eq!(page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")).count(), 4);
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| matches!(part, Part::Resource(value) if value["type"] == "compaction_failure")).count(), 1);
         let content = messages(requests.last().unwrap());
         assert!(!content.contains("compaction_failure"));
-        for index in 1..=6 {
-            assert!(content.contains(&format!("Evidence {index}")));
+        let details = tool_details(&fixture.client, &page).await;
+        let full = serde_json::to_string(&details).unwrap();
+        for index in 1..=3 {
+            assert!(full.contains(&format!("Evidence {index}")));
         }
-        usage_total(&fixture.client, 7, 7 * 14000).await;
+        assert!(!full.contains("Evidence 4"));
+        fixture.client.execute(request).await.unwrap();
+        assert_eq!(server.requests.lock().unwrap().len(), 4);
+        usage_total(&fixture.client, 3, 3 * 26000).await;
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -295,7 +384,7 @@ async fn preserves_context_on_failure() {
 async fn retains_read_and_write_results() {
     for remote in [false, true] {
         let server = Server::file_compaction().await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         for index in 1..=3 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -381,6 +470,30 @@ async fn resumes_out_of_order_delegation_results() {
             )
             .unwrap();
         }
+        // The parent keeps the compact trigger used before the 128k delegation model.
+        let mut parent = configuration::snapshot(&fixture.client)
+            .await
+            .providers
+            .into_iter()
+            .find(|provider| provider.id == fixture.session.config.provider)
+            .expect("the session's parent provider");
+        parent
+            .models
+            .iter_mut()
+            .find(|model| model.id == fixture.session.config.model)
+            .expect("the parent session model")
+            .compaction_tokens = Some(24_000);
+        let Output::Provider(_) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: parent.revision,
+                provider: parent,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
         let mut provider = fixture.provider.clone();
         provider.id = sailry_protocol::ProviderId::new();
         provider.revision = 0;

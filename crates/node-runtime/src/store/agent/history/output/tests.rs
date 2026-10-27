@@ -86,6 +86,16 @@ async fn checks_visible_history_and_invocation_owner() {
         event
     };
     let value = serde_json::json!({"text": "Visible result"});
+    let previous = serde_json::json!({"text":"Earlier result with the same call ID"});
+    let previous_turn = fixture
+        .append([event("visible-call", previous.clone())])
+        .await;
+    let previous_reference = OutputReference {
+        call: "visible-call".into(),
+        revision: blake3::hash(previous.to_string().as_bytes())
+            .to_hex()
+            .to_string(),
+    };
     let reference = OutputReference {
         call: "visible-call".into(),
         revision: blake3::hash(value.to_string().as_bytes())
@@ -121,6 +131,11 @@ async fn checks_visible_history_and_invocation_owner() {
     assert_eq!(result.session, fork.id);
     assert_eq!(result.turn, visible);
     assert_eq!(result.value, value);
+    let earlier = resolve(db, caller, turn, &previous_reference)
+        .await
+        .unwrap();
+    assert_eq!(earlier.turn, previous_turn);
+    assert_eq!(earlier.value, previous);
     assert_eq!(
         resolve(db, caller, turn, &hidden_reference)
             .await

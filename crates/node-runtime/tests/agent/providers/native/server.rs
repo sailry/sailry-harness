@@ -201,15 +201,31 @@ async fn respond(
     let search = body["tools"]
         .as_array()
         .is_some_and(|tools| tools.iter().any(|tool| tool["google_search"].is_object()));
-    let summary = body["contents"][0]["parts"]
+    let summary = body["contents"]
         .as_array()
-        .is_some_and(|parts| {
-            parts.iter().any(|part| {
-                part["text"]
+        .into_iter()
+        .flatten()
+        .chain(body["messages"].as_array().into_iter().flatten())
+        .any(|message| {
+            let content = message.get("parts").or_else(|| message.get("content"));
+            content.is_some_and(|content| {
+                content
                     .as_str()
-                    .is_some_and(|text| text.starts_with("Summarize this conversation"))
+                    .is_some_and(|text| text.starts_with("Update the existing handoff"))
+                    || content.as_array().is_some_and(|parts| {
+                        parts.iter().any(|part| {
+                            part["text"]
+                                .as_str()
+                                .is_some_and(|text| text.starts_with("Update the existing handoff"))
+                        })
+                    })
             })
         });
+    let answer = match &reply {
+        Reply::Compaction(evidence) if !summary => evidence.clone(),
+        Reply::Compaction(_) => crate::agent_support::compaction::handoff(ANSWER),
+        _ => ANSWER.into(),
+    };
     let index = {
         let mut records = records.lock().unwrap();
         let index = records.len();
@@ -330,7 +346,7 @@ async fn respond(
             let delta = if tool {
                 json!({"type":"input_json_delta", "partial_json":json!({"path":"native.txt"}).to_string()})
             } else {
-                json!({"type":"text_delta", "text":ANSWER})
+                json!({"type":"text_delta", "text":answer})
             };
             for (name, event) in [
                 (
@@ -359,10 +375,6 @@ async fn respond(
             }
         }
         ModelApi::Gemini => {
-            let answer = match &reply {
-                Reply::Compaction(evidence) if !summary => evidence.as_str(),
-                _ => ANSWER,
-            };
             let usage = if matches!(reply, Reply::Usage) {
                 json!({"promptTokenCount":16, "candidatesTokenCount":3, "thoughtsTokenCount":1, "cachedContentTokenCount":6, "totalTokenCount":20})
             } else {

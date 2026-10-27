@@ -208,6 +208,7 @@ impl View {
             );
             return;
         }
+        let focus = super::super::compaction::focus(&self.input.read(cx).value());
         self.references.dismiss();
         if let Choice::External(entry) = &choice {
             self.references.command_keys.insert(
@@ -259,7 +260,7 @@ impl View {
                         .update(cx, |registry, cx| registry.activate(&entry.key, window, cx));
                 }
             }
-            Choice::Compact => self.compact_context(window, cx),
+            Choice::Compact => self.compact_context(focus, window, cx),
             Choice::Settings => cx.emit(Event::Settings(self.settings_node())),
             Choice::Prompt(_) => {}
             Choice::Skill(..) => {}

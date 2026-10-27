@@ -305,7 +305,7 @@ async fn invalidates_stale_context() {
     summary.actions.compaction = Some(adk_core::EventCompaction {
         start_timestamp: original.timestamp,
         end_timestamp: original.timestamp,
-        compacted_content: adk_core::Content::new("model").with_text("Summary"),
+        compacted_content: adk_core::Content::new("user").with_text("Summary"),
     });
     summary.llm_response.usage_metadata = event(400, 50).llm_response.usage_metadata;
     summary.llm_response.provider_metadata = timed(400, 50, 1_000).llm_response.provider_metadata;

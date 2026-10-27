@@ -57,6 +57,11 @@ async fn model(events: Vec<serde_json::Value>) -> (Arc<dyn Llm>, tokio::task::Jo
 }
 
 fn message(id: &str, phase: &str, text: &str) -> serde_json::Value {
+    let text = if phase == "final_answer" {
+        handoff(text)
+    } else {
+        text.into()
+    };
     json!({"type":"message", "id":id, "role":"assistant", "status":"completed", "phase":phase,
         "content":[{"type":"output_text", "text":text, "annotations":[]}]})
 }

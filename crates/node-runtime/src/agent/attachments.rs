@@ -108,7 +108,6 @@ pub(super) struct Model {
     pub(super) inner: Arc<dyn Llm>,
     pub(super) ingress: Arc<Ingress>,
     pub(super) turn: TurnId,
-    pub(super) current: Vec<AttachmentId>,
     pub(super) vision: bool,
     pub(super) api: Option<ModelApi>,
     pub(super) tools: bool,
@@ -137,7 +136,8 @@ impl Model {
                     continue;
                 }
                 let reference = id(file_uri)?;
-                let attachment = self.ingress.attachment(self.turn, reference).await?;
+                let (attachment, current) =
+                    self.ingress.attachment_source(self.turn, reference).await?;
                 if attachment.spec.media_type != *mime_type {
                     return Err(sailry_protocol::Fault::invalid(
                         "attachment media type mismatch",
@@ -174,9 +174,7 @@ impl Model {
                     // A previous unsupported input must not make every later
                     // plain-text turn fail. Keep its identity and state the
                     // missing contents without pretending they were read.
-                    None if !self.current.contains(&reference) => {
-                        file(&attachment, Some(UNAVAILABLE_NOTE))
-                    }
+                    None if !current => file(&attachment, Some(UNAVAILABLE_NOTE)),
                     None => {
                         return Err(sailry_protocol::Fault::invalid(
                             "attachment requires tools or a supported native model input",

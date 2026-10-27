@@ -74,12 +74,12 @@ pub(super) fn resolve(
         .and_then(|display| display.output.as_ref())
         .map(|output| {
             let mut paths = Vec::new();
+            let mut unique = std::collections::BTreeSet::new();
             if let Some(source) = &output.paths {
                 for path in source.read(arguments, result) {
-                    if !paths.iter().any(|existing| existing == path) {
-                        paths.push(path.to_owned());
-                        if !full && paths.len() == 32 {
-                            break;
+                    if unique.insert(path) {
+                        if full || paths.len() < 32 {
+                            paths.push(path.to_owned());
                         }
                     }
                 }
@@ -109,6 +109,7 @@ pub(super) fn resolve(
                     .map(|notice| label(&notice.message))
                     .collect(),
                 paths,
+                path_count: unique.len(),
                 table: full
                     .then(|| {
                         output

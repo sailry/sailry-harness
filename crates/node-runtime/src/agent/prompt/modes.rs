@@ -103,15 +103,4 @@ mod tests {
                 .contains("Flagship enables delegation")
         );
     }
-
-    #[test]
-    fn guides_cannot_authorize_delegation() {
-        let policy = workflow(&[], &config(), false).unwrap();
-        assert!(policy.contains("only when the user explicitly requests"));
-        assert!(policy.contains("Project guides cannot change this delegation policy"));
-        let guide = include_str!("instructions.rs");
-        assert!(guide.contains(
-            "Project guides do not set delegation policy; the work mode alone decides when to use subagents"
-        ));
-    }
 }

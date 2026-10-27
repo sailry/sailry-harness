@@ -21,6 +21,10 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         ));
     }
     contribution.tools.retain(|entry| {
+        // Paging an already-visible result adds no execution capability.
+        if entry.tool.name() == references::OUTPUT {
+            return true;
+        }
         if let Some(selected) = selected {
             return selected
                 .iter()
@@ -53,6 +57,48 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         })
     });
     Ok(())
+}
+
+/// Common worktree capabilities stay visible; other captured tools are discoverable.
+pub(super) fn defer(invocation: &Invocation, tools: &mut [ToolRegistration]) -> Result<(), Fault> {
+    if invocation.child.is_some() || invocation.turn.config.assistant.is_some() {
+        return Ok(());
+    }
+    let selected = crate::plugins::modes::selected(&invocation.plugins, &invocation.turn.config)?
+        .map(|(package, _)| package.summary.name.as_str());
+    for entry in tools {
+        entry.deferred = !initial(invocation, selected, entry);
+    }
+    Ok(())
+}
+
+fn initial(invocation: &Invocation, selected: Option<&str>, entry: &ToolRegistration) -> bool {
+    if entry.tool.is_builtin()
+        || entry.tool.is_agent_delegation() && invocation.message.selected_role().is_some()
+    {
+        return true;
+    }
+    let Some(owner) = entry.plugin.as_deref() else {
+        return references::NAMES.contains(&entry.tool.name())
+            || skills::NAMES.contains(&entry.tool.name());
+    };
+    if selected == Some(owner) {
+        return true;
+    }
+    invocation
+        .plugins
+        .iter()
+        .find(|package| package.summary.name == owner)
+        .and_then(|package| package.extension.as_ref())
+        .is_some_and(|extension| {
+            extension
+                .model_tools
+                .iter()
+                .any(|tool| model_tools::names(tool.capability).contains(&entry.tool.name()))
+                || extension.tools.iter().any(|tool| {
+                    operations::alias(owner, &tool.name) == entry.tool.name() && standard(tool)
+                })
+        })
 }
 
 fn matches(invocation: &Invocation, selection: &Selection, entry: &ToolRegistration) -> bool {

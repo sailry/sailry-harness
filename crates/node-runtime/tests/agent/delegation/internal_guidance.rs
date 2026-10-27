@@ -103,8 +103,8 @@ async fn main_direction_reaches_running_child() {
         assert_eq!(child.config.permission, sailry_protocol::Permission::Ask);
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
         let parent = history(&fixture.client, fixture.session.id).await;
-        assert_eq!(status(&parent, active.id), Status::Continued);
-        assert_eq!(status(&parent, directed.id), Status::Running);
+        assert_eq!(status(&parent, active.id), Status::Running);
+        assert_eq!(status(&parent, directed.id), Status::Continued);
         assert!(
             results(&fixture.client, &parent)
                 .await
@@ -155,20 +155,20 @@ async fn main_direction_reaches_running_child() {
             }))
             .await
             .unwrap();
-        let child_page = finished(&fixture.client, child.id, child_direction.turn.id).await;
-        let parent = finished(&fixture.client, fixture.session.id, directed.id).await;
-        assert_eq!(status(&child_page, first.turn), Status::Continued);
+        let child_page = finished(&fixture.client, child.id, first.turn).await;
+        let parent = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&child_page, first.turn), Status::Completed);
         assert_eq!(
             status(&child_page, child_direction.turn.id),
-            Status::Completed
+            Status::Continued
         );
-        assert_eq!(status(&parent, directed.id), Status::Completed);
+        assert_eq!(status(&parent, active.id), Status::Completed);
         let returned = results(&fixture.client, &parent).await;
         let final_child = returned
             .iter()
             .find(|result| result["status"] == "completed" && result["session"] == json!(child.id))
             .unwrap();
-        assert_eq!(final_child["turn"], json!(child_direction.turn.id));
+        assert_eq!(final_child["turn"], json!(first.turn));
         assert_eq!(final_child["response"], "answer-fixture-child");
         assert!(
             returned
@@ -239,19 +239,19 @@ async fn stop_preserves_child_direction_without_replay() {
             .pop()
             .unwrap();
         let (_, approval) = crate::approvals::pending(&fixture.client, child.id).await;
-        let directed = direction(&fixture, &active).await;
+        direction(&fixture, &active).await;
         let (_, queued) = guided(&fixture, child.id).await;
         fixture
             .client
             .execute(
                 fixture
                     .client
-                    .prepare(Command::StopTurn { turn: directed.id }),
+                    .prepare(Command::StopTurn { turn: active.id }),
             )
             .await
             .unwrap();
-        let parent = finished(&fixture.client, fixture.session.id, directed.id).await;
-        assert_eq!(status(&parent, directed.id), Status::Cancelled);
+        let parent = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&parent, active.id), Status::Cancelled);
         let child_page = finished(&fixture.client, child.id, approval.turn).await;
         assert_eq!(status(&child_page, approval.turn), Status::Cancelled);
         assert!(child_page.queue.paused);

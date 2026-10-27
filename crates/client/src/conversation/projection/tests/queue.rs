@@ -187,6 +187,7 @@ fn guides_in_queue_order_until_canonical_input() {
         usage: None,
         citations: Vec::new(),
         search_suggestions: None,
+        commentary: Default::default(),
         parts: vec![Part::Text("Second guide".into())],
     });
     assert_eq!(

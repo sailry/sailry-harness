@@ -87,7 +87,9 @@ pub(super) async fn bind(
         if let Some(callback) = initialized.owner.observer(contribution.completion.clone()) {
             contribution.callbacks.push((10, callback));
         }
-        contribution.instruction.push_str(&initialized.instruction);
+        contribution
+            .instructions
+            .insert(package.summary.name.clone(), initialized.instruction);
         parameters.extend(
             initialized
                 .parameters
@@ -214,6 +216,7 @@ pub(super) async fn bind(
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
+            registration.capture((&handler.parameters, Option::<Value>::None));
             registration.display = declaration.display.clone().map(|display| {
                 let display = match operation {
                     Some(operation) => operations::connections::display(

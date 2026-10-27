@@ -78,7 +78,7 @@ async fn tools(fixture: &mut Fixture) {
     provider.models = vec![Model {
         id: "fixture-a".into(),
         display_name: None,
-        context: 16000,
+        context: 128_000,
         output: 2048,
         vision: false,
         tools: true,
@@ -105,7 +105,7 @@ async fn tools(fixture: &mut Fixture) {
     fixture.provider = provider;
 }
 
-/// Starts a task waiting on a user answer, outside its interruptible model phase.
+/// Starts a task waiting on a user answer before its next model boundary.
 async fn asking(remote: bool) -> (Fixture, QueuedTurn) {
     let server = Server::tools(vec![(
         "ask_user".into(),
@@ -171,9 +171,9 @@ async fn settles_tool_batch() {
             }))
             .await
             .unwrap();
-        let page = finished(&fixture.client, fixture.session.id, selected.id).await;
-        assert_eq!(status(&page, active.id), Status::Continued);
-        assert_eq!(status(&page, selected.id), Status::Completed);
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&page, active.id), Status::Completed);
+        assert_eq!(status(&page, selected.id), Status::Continued);
         assert!(!page.queue.paused);
         assert!(page.queue.items.is_empty());
         let results: Vec<_> = page
@@ -188,7 +188,7 @@ async fn settles_tool_batch() {
             !page
                 .entries
                 .iter()
-                .filter(|entry| entry.turn == active.id && entry.author != "user")
+                .filter(|entry| entry.turn == selected.id && entry.author != "user")
                 .flat_map(|entry| &entry.parts)
                 .any(|part| matches!(part, Part::Text(_)))
         );
@@ -226,7 +226,7 @@ async fn settles_tool_batch() {
 }
 
 #[tokio::test]
-async fn interrupts_awaited_response() {
+async fn waits_for_the_awaited_response() {
     for remote in [false, true] {
         let release = CancellationToken::new();
         let server = Server::markdown_held("Natural answer".into(), release.clone()).await;
@@ -239,16 +239,177 @@ async fn interrupts_awaited_response() {
             .execute(guide(&fixture, selected.id, active.id, 1))
             .await
             .unwrap();
-        // The pending model response yields; guidance starts its own request.
-        fixture.server.wait_count(2).await;
         let page = history(&fixture.client, fixture.session.id).await;
-        assert_eq!(status(&page, active.id), Status::Continued);
-        assert_eq!(status(&page, selected.id), Status::Running);
+        assert_eq!(status(&page, active.id), Status::Running);
+        assert_eq!(status(&page, selected.id), Status::Queued);
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
         release.cancel();
-        let page = finished(&fixture.client, fixture.session.id, selected.id).await;
-        assert_eq!(status(&page, selected.id), Status::Completed);
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&page, active.id), Status::Completed);
+        assert_eq!(status(&page, selected.id), Status::Continued);
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
         assert!(page.queue.items.is_empty());
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn rejects_unsupported_guidance_attachments() {
+    for remote in [false, true] {
+        let release = CancellationToken::new();
+        let server = Server::markdown_held("Natural answer".into(), release.clone()).await;
+        let mut fixture = Fixture::with_server(remote, server).await;
+        tools(&mut fixture).await;
+        let mut provider = fixture.provider.clone();
+        provider.models[0].tools = false;
+        let Output::Provider(provider) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                provider,
+                expected_revision: fixture.provider.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        fixture.provider = provider;
+        let active = fixture.push("Initial task").await;
+        fixture.server.wait_count(1).await;
+        let file = attachment(&fixture, b"Guidance attachment").await;
+        let selected = held(
+            &fixture,
+            Input {
+                text: "Use this file".into(),
+                attachments: vec![file.id],
+                references: vec![],
+            },
+        )
+        .await;
+        fixture
+            .client
+            .execute(guide(&fixture, selected.id, active.id, 1))
+            .await
+            .unwrap();
+        release.cancel();
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&page, active.id), Status::Failed);
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        assert!(
+            page.entries
+                .iter()
+                .any(|entry| entry.turn == selected.id && entry.author == "user")
+        );
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn keeps_turn_through_repeated_guidance() {
+    for remote in [false, true] {
+        let question_args = |prompt: &str| json!({"prompt":prompt,"input":{"kind":"text","multiline":true,"max_bytes":1024}});
+        let server = Server::tools(vec![
+            ("ask_user".into(), question_args("First question")),
+            ("ask_user".into(), question_args("Second question")),
+        ])
+        .await;
+        let mut fixture = Fixture::with_server(remote, server).await;
+        tools(&mut fixture).await;
+        let active = fixture.push("Initial task").await;
+        let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+        std::fs::write(
+            fixture.directory.path().join("node/instructions.md"),
+            "Fresh preference at the guidance boundary",
+        )
+        .unwrap();
+        let first = held(&fixture, "Use the first detail".into()).await;
+        fixture
+            .client
+            .execute(guide(&fixture, first.id, active.id, 1))
+            .await
+            .unwrap();
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ResolveQuestion {
+                session: fixture.session.id,
+                question: question.id,
+                response: question::Response::Answer(question::Answer::Text("Continue".into())),
+            }))
+            .await
+            .unwrap();
+        let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+        let later = held(&fixture, "Also use the later detail".into()).await;
+        fixture
+            .client
+            .execute(guide(&fixture, later.id, active.id, 1))
+            .await
+            .unwrap();
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ResolveQuestion {
+                session: fixture.session.id,
+                question: question.id,
+                response: question::Response::Answer(question::Answer::Text("Continue".into())),
+            }))
+            .await
+            .unwrap();
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&page, active.id), Status::Completed);
+        assert!(page.queue.items.is_empty());
+        for input in [&active, &first, &later] {
+            assert_eq!(
+                page.entries
+                    .iter()
+                    .filter(|entry| entry.turn == input.id && entry.author == "user")
+                    .count(),
+                1
+            );
+        }
+        assert!(
+            page.entries
+                .iter()
+                .filter(|entry| entry.author == "assistant")
+                .all(|entry| entry.turn == active.id)
+        );
+        let requests = fixture.server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3);
+        assert!(
+            !requests[0]["messages"]
+                .to_string()
+                .contains("Fresh preference at the guidance boundary")
+        );
+        for request in &requests[1..] {
+            assert_eq!(
+                request["messages"]
+                    .to_string()
+                    .matches("Fresh preference at the guidance boundary")
+                    .count(),
+                1
+            );
+        }
+        for pair in requests.windows(2) {
+            let prefix = pair[0]["messages"].as_array().unwrap();
+            assert_eq!(
+                serde_json::to_vec(prefix).unwrap(),
+                serde_json::to_vec(&pair[1]["messages"].as_array().unwrap()[..prefix.len()])
+                    .unwrap()
+            );
+            assert_eq!(pair[0]["tools"], pair[1]["tools"]);
+        }
+        for text in ["Use the first detail", "Also use the later detail"] {
+            assert_eq!(
+                requests[2]["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|message| message["role"] == "user"
+                        && message["content"]
+                            .as_str()
+                            .is_some_and(|content| content.ends_with(text)))
+                    .count(),
+                1
+            );
+        }
         fixture.close().await;
     }
 }
@@ -315,12 +476,13 @@ async fn retains_recipient_hooks() {
             assert!(!selected.queue.paused);
             let selected = selected.queue.items[0].turn;
             assert_ne!(selected, source.id);
-            fixture.server.wait_count(2).await;
+            assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
             release.cancel();
-            let page = finished(&fixture.client, fixture.session.id, selected).await;
-            assert_eq!(status(&page, active.id), Status::Continued);
+            fixture.server.wait_count(2).await;
+            let page = finished(&fixture.client, fixture.session.id, active.id).await;
+            assert_eq!(status(&page, active.id), Status::Completed);
             assert_eq!(status(&page, source.id), Status::Cancelled);
-            assert_eq!(status(&page, selected), Status::Completed);
+            assert_eq!(status(&page, selected), Status::Continued);
             let output = fixture.directory.path().join("project/guidance-hooks.txt");
             if enabled {
                 assert_eq!(std::fs::read_to_string(output).unwrap(), "captured");
@@ -336,7 +498,11 @@ async fn retains_recipient_hooks() {
 #[tokio::test]
 async fn retains_streamed_text() {
     for remote in [false, true] {
-        let fixture = Fixture::start(remote, true).await;
+        let gates: Vec<_> = (0..3)
+            .map(|_| std::sync::Arc::new(tokio::sync::Notify::new()))
+            .collect();
+        let server = Server::staged(gates.clone()).await;
+        let fixture = Fixture::with_server(remote, server).await;
         let active = fixture.push("Initial task").await;
         let mut stream = fixture
             .client
@@ -344,7 +510,7 @@ async fn retains_streamed_text() {
             .await
             .unwrap();
         let streamed = |draft: &sailry_protocol::conversation::Draft| {
-            draft.turn == active.id && draft.parts == vec![Part::Text("partial-fixture".into())]
+            draft.turn == active.id && draft.parts == vec![Part::Text("First".into())]
         };
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -371,14 +537,18 @@ async fn retains_streamed_text() {
             .execute(guide(&fixture, selected.id, active.id, 1))
             .await
             .unwrap();
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        for gate in &gates {
+            gate.notify_one();
+        }
         fixture.server.wait_count(2).await;
         let page = history(&fixture.client, fixture.session.id).await;
-        assert_eq!(status(&page, active.id), Status::Continued);
+        assert_eq!(status(&page, active.id), Status::Running);
         assert_eq!(
             page.entries
                 .iter()
                 .filter(|entry| entry.turn == active.id
-                    && entry.parts == vec![Part::Text("partial-fixture".into())])
+                    && entry.parts == vec![Part::Text("First second third".into())])
                 .count(),
             1
         );
@@ -387,11 +557,11 @@ async fn retains_streamed_text() {
             .execute(
                 fixture
                     .client
-                    .prepare(Command::StopTurn { turn: selected.id }),
+                    .prepare(Command::StopTurn { turn: active.id }),
             )
             .await
             .unwrap();
-        finished(&fixture.client, fixture.session.id, selected.id).await;
+        finished(&fixture.client, fixture.session.id, active.id).await;
         fixture.close().await;
     }
 }
@@ -582,7 +752,7 @@ async fn retains_each_selection() {
             }))
             .await
             .unwrap();
-        let page = finished(&fixture.client, fixture.session.id, first.id).await;
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
         assert_eq!(status(&page, second.id), Status::Queued);
         assert_eq!(page.queue.items.len(), 1);
         assert_eq!(page.queue.items[0].turn, second.id);
@@ -608,6 +778,17 @@ async fn batches_inputs_with_one_output_owner() {
         .unwrap();
         let active = fixture.push("Initial task").await;
         let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+        std::fs::create_dir(fixture.directory.path().join("project/nested")).unwrap();
+        std::fs::write(
+            fixture.directory.path().join("project/nested/AGENTS.md"),
+            "Guidance folder instructions",
+        )
+        .unwrap();
+        std::fs::write(
+            fixture.directory.path().join("project/nested/evidence.txt"),
+            "Nested evidence",
+        )
+        .unwrap();
         let attachment = attachment(&fixture, b"Batch attachment evidence").await;
         let first = held(&fixture, "Read the evidence".into()).await;
         let second = held(
@@ -615,10 +796,16 @@ async fn batches_inputs_with_one_output_owner() {
             Input {
                 text: "Report both instructions 中文 🙂".into(),
                 attachments: vec![attachment.id],
-                references: vec![reference::Reference {
-                    target: reference::Target::Plugin("files".into()),
-                    label: "Files".into(),
-                }],
+                references: vec![
+                    reference::Reference {
+                        target: reference::Target::Plugin("files".into()),
+                        label: "Files".into(),
+                    },
+                    reference::Reference {
+                        target: reference::Target::File("nested/evidence.txt".into()),
+                        label: "Nested evidence".into(),
+                    },
+                ],
             },
         )
         .await;
@@ -658,12 +845,12 @@ async fn batches_inputs_with_one_output_owner() {
             }))
             .await
             .unwrap();
-        let page = finished(&fixture.client, fixture.session.id, first.id).await;
-        assert_eq!(status(&page, active.id), Status::Continued);
-        assert_eq!(status(&page, first.id), Status::Completed);
+        let page = finished(&fixture.client, fixture.session.id, active.id).await;
+        assert_eq!(status(&page, active.id), Status::Completed);
+        assert_eq!(status(&page, first.id), Status::Continued);
         let joined = page.runs.iter().find(|run| run.turn == second.id).unwrap();
         assert_eq!(joined.status, Status::Continued);
-        assert_eq!(joined.joined, Some(first.id));
+        assert_eq!(joined.joined, Some(active.id));
         assert!(page.queue.items.is_empty());
         let entries: Vec<_> = page
             .entries
@@ -691,9 +878,9 @@ async fn batches_inputs_with_one_output_owner() {
             .iter()
             .find(|call| call.name == plugin_tool("files", "read_file"))
             .unwrap();
-        assert_eq!(call.turn, first.id);
+        assert_eq!(call.turn, active.id);
         let reference = call.detail_reference(&page).unwrap();
-        assert_eq!(reference.turn, first.id);
+        assert_eq!(reference.turn, active.id);
         let detail = fixture.client.tool_detail(reference).await.unwrap();
         assert!(
             detail
@@ -731,6 +918,11 @@ async fn batches_inputs_with_one_output_owner() {
             requests[1]["messages"]
                 .to_string()
                 .contains("The user explicitly selected plugin files for this task.")
+        );
+        assert!(
+            requests[1]["messages"]
+                .to_string()
+                .contains("Guidance folder instructions")
         );
         assert_eq!(requests[0]["messages"][0], requests[1]["messages"][0]);
         assert_eq!(requests[0]["tools"], requests[1]["tools"]);

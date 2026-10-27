@@ -147,7 +147,7 @@ impl Connections {
                                     display
                                 })
                             });
-                            let mut registration = Registration::new(Arc::new(Bound {
+                            let bound = Arc::new(Bound {
                                 name: alias(&config.plugin, &config.name, &descriptor.name),
                                 description: format!("MCP {}/{}/{}\n{}", config.plugin, config.name, descriptor.name, descriptor.description.as_deref().unwrap_or("")),
                                 descriptor, package: connection.reference.clone(), toolset: connection.toolset.clone(), ingress: ingress.clone(), handler: connection.handler.clone(), poisoned: self.poisoned.clone(),
@@ -157,10 +157,12 @@ impl Connections {
                                 exclusive: exclusive.clone(),
                                 transport: connection.transport.clone(),
                                 closed: closed.clone(),
-                            }), presentation);
+                            });
+                            let mut registration = Registration::new(bound.clone(), presentation);
                             registration.grouping = grouping;
                             registration.display = display.map(|display| (registration.tool.name().into(), display));
                             registration.plugin = Some(config.plugin.clone());
+                            registration.capture((&bound.descriptor.input_schema, &bound.descriptor.output_schema));
                             tools.push(registration);
                         }
                         self.active.push(connection);

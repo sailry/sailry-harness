@@ -32,21 +32,51 @@ impl View {
             })
     }
 
-    pub(crate) fn compact_context(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn compact_context(
+        &mut self,
+        focus: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.can_compact() {
             return;
         }
+        let text = self.input.read(cx).value().to_string();
+        let source = references::commands::leading(&text)
+            .is_some_and(|(name, _, _)| name == "compact")
+            .then_some(text);
         let session = self.session.as_ref().expect("session was checked");
         self.execute(
             Command::CompactContext {
                 session: session.id,
                 expected_revision: session.revision,
+                focus,
             },
-            actions::Action::Compact,
+            actions::Action::Compact(source),
             window,
             cx,
         );
         self.focus(window, cx);
+    }
+}
+
+pub(super) fn focus(text: &str) -> Option<String> {
+    let (name, arguments, _) = references::commands::leading(text)?;
+    (name == "compact" && !arguments.trim().is_empty()).then(|| arguments.trim().to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[core::prelude::v1::test]
+    fn retains_manual_focus() {
+        assert_eq!(
+            focus(" /compact Keep pending questions\nand exact paths "),
+            Some("Keep pending questions\nand exact paths".into())
+        );
+        assert_eq!(focus("/compact"), None);
+        assert_eq!(focus("/compaction Keep exact paths"), None);
     }
 }
 

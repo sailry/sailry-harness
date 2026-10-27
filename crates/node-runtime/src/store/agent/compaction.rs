@@ -1,5 +1,6 @@
 //! Derive model context from canonical membership, never wall-clock ordering.
 use super::*;
+mod owners;
 
 pub(crate) const END_EVENT: &str = "sailry.context.end_event";
 
@@ -18,7 +19,7 @@ pub(super) async fn validate(
         .ok_or_else(|| sailry_protocol::Fault::invalid("context summary has no boundary"))?;
     if event.author != "system"
         || event.content().is_some()
-        || summary.compacted_content.role != "model"
+        || summary.compacted_content.role != "user"
         || summary.compacted_content.parts.is_empty()
         || summary
             .compacted_content
@@ -194,8 +195,15 @@ mapped }).await.map_err(|error| adk_error(storage_error(error)))?;
         .expect("selected compaction event");
     // ADK normally filters by timestamps. The Node instead resolves the exact
     // canonical event, so clock regressions and inherited turns cannot hide work.
-    event.author = "assistant".into();
-    event.set_content(summary.compacted_content);
+    event.author = "user".into();
+    let mut content = summary.compacted_content;
+    content.role = "user".into();
+    let (state, mut parts) = owners::read(db, session, sequence)
+        .await
+        .map_err(adk_error)?;
+    content.parts.append(&mut parts);
+    event.actions.state_delta.extend(state);
+    event.set_content(content);
     event.llm_response.usage_metadata = None;
     Ok(Some((sequence, event)))
 }
@@ -207,7 +215,6 @@ pub(crate) struct History {
     pub completed: Vec<usize>,
     pub current: usize,
     pub recent: Option<usize>,
-    pub frontier: Option<String>,
 }
 
 pub(super) async fn history(
@@ -236,7 +243,8 @@ pub(super) async fn history(
         .prepare(&format!(
             "WITH ends AS (SELECT e.turn, max(e.sequence) AS last FROM conversation_events h
            JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1
-           AND json_type(e.body,'$.actions.compaction') IS NULL AND {visible} GROUP BY e.turn)
+           AND json_type(e.body,'$.actions.compaction') IS NULL
+           AND json_type(e.body,'$.content')='object' AND {visible} GROUP BY e.turn)
          SELECT e.id, e.turn, json_extract(r.body,'$.status'), e.sequence=ends.last
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN agent_runs r ON r.turn=e.turn JOIN ends ON ends.turn=e.turn WHERE h.session=?1"
@@ -280,11 +288,15 @@ pub(super) async fn history(
         })
         .unwrap_or(events.len());
     let mut completed = Vec::new();
-    let mut frontier = None;
     let mut starts = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut exchanges = std::collections::HashMap::<String, Exchange>::new();
     for (index, event) in events.iter().enumerate() {
+        // Failure notices and other metadata do not create a recent interaction
+        // or hide the last model-visible boundary of an existing one.
+        if event.content().is_none() {
+            continue;
+        }
         let Some((owner, status, last)) = owners.get(&event.id) else {
             continue;
         };
@@ -295,14 +307,6 @@ pub(super) async fn history(
             starts.push(index);
         }
         let exchange = exchanges.entry(owner.clone()).or_default().push(event);
-        // Retries, media metadata and summaries do not establish new work.
-        if event.content().is_some() && !event.provider_metadata.contains_key(END_EVENT) {
-            if !matches!(status.as_str(), "queued" | "running" | "stopping") {
-                frontier = Some(format!("turn:{owner}"));
-            } else if *owner == turn.to_string() && exchange {
-                frontier = Some(format!("exchange:{}", event.id));
-            }
-        }
         if !matches!(status.as_str(), "queued" | "running" | "stopping") && (*last || exchange) {
             completed.push(index + 1);
         }
@@ -312,6 +316,5 @@ pub(super) async fn history(
         completed,
         current,
         recent: starts.iter().rev().nth(1).copied(),
-        frontier,
     })
 }

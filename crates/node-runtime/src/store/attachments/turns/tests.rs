@@ -68,6 +68,28 @@ async fn confines_history_resolution() {
         resolve(&db, current, attachment.id).await.unwrap(),
         attachment
     );
+    assert!(!source(&db, current, attachment.id).await.unwrap().1);
+    db.execute(
+        "UPDATE agent_runs SET body=?1 WHERE turn=?2",
+        params![
+            format!("{{\"status\":\"continued\",\"joined\":\"{current}\"}}"),
+            origin.to_string()
+        ],
+    )
+    .await
+    .unwrap();
+    db.execute("INSERT INTO agent_pending VALUES(?1)", [origin.to_string()])
+        .await
+        .unwrap();
+    let (resolved, current_input) = source(&db, current, attachment.id).await.unwrap();
+    assert_eq!(resolved, attachment);
+    assert!(current_input);
+    db.execute(
+        "DELETE FROM agent_pending WHERE turn=?1",
+        [origin.to_string()],
+    )
+    .await
+    .unwrap();
     for status in ["completed", "continued", "failed", "cancelled"] {
         db.execute(
             "UPDATE agent_runs SET body=?1 WHERE turn=?2",
@@ -125,6 +147,7 @@ async fn confines_history_resolution() {
         resolve(&db, current, attachment.id).await.unwrap(),
         attachment
     );
+    assert!(source(&db, current, attachment.id).await.unwrap().1);
     db.execute(
         "DELETE FROM conversation_turns WHERE turn=?1",
         [current.to_string()],

@@ -4,7 +4,7 @@ use super::*;
 async fn tracks_policy_observation_and_maintenance() {
     for remote in [false, true] {
         let server = Server::compaction(false).await;
-        let fixture = Fixture::files(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
             "Verified source facts\n".repeat(200),
@@ -34,8 +34,9 @@ async fn tracks_policy_observation_and_maintenance() {
         let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
         let mut switched = provider.models[0].clone();
         switched.id = "switched-model".into();
-        switched.context = 4096;
-        switched.output = 512;
+        // The switched window still holds the captured preamble and tool catalog.
+        switched.context = 128_000;
+        switched.output = 16_384;
         provider.models.push(switched);
         fixture
             .client
@@ -77,15 +78,16 @@ async fn tracks_policy_observation_and_maintenance() {
         assert_eq!(changed.context_model, observed.context_model);
         assert_eq!(changed.context_timestamp_ms, observed.context_timestamp_ms);
         let policy = changed.budget.unwrap();
-        assert_eq!(policy.context_limit, 4096);
-        assert_eq!(policy.output_reserve, 512);
-        assert_eq!(policy.trigger_tokens, 3276);
-        assert_eq!(policy.summary_output, 512);
-        assert_eq!(policy.summary_input, 3584);
+        assert_eq!(policy.context_limit, 128_000);
+        assert_eq!(policy.output_reserve, 16_384);
+        assert_eq!(policy.trigger_tokens, 24_000);
+        assert_eq!(policy.summary_output, 16_384);
+        assert_eq!(policy.summary_input, 111_616);
         drop(updates);
         let Output::QueuedTurn(turn) = fixture
             .client
             .execute(fixture.client.prepare(Command::CompactContext {
+                focus: None,
                 session: fixture.session.id,
                 expected_revision: 2,
             }))
@@ -134,7 +136,7 @@ async fn tracks_policy_observation_and_maintenance() {
         assert!(latest.context_tokens.is_some());
         assert_eq!(latest.context_estimate, None);
         assert_eq!(latest.context_model.as_deref(), Some("switched-model"));
-        assert_eq!(latest.context_limit, Some(4096));
+        assert_eq!(latest.context_limit, Some(128_000));
         assert_eq!(latest.last_compaction, Some(record.clone()));
         let Output::TurnHistory(found) = fixture
             .client

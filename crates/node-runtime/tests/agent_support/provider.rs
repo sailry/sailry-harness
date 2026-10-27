@@ -8,10 +8,12 @@ pub(crate) async fn seed(
     profile: &std::path::Path,
     node: sailry_protocol::NodeId,
 ) -> Provider {
-    let (mut provider, mut stored) = selected(model, id);
+    let (mut provider, mut stored) = selected(model, id).await;
     if let Some(credential) = &mut provider.credential {
         credential.node = node;
     }
+    provider.request_max_retries = Some(0);
+    provider.stream_max_retries = Some(0);
     stored["provider"] = serde_json::to_value(&provider).unwrap();
     stored["quota"] = serde_json::Value::Null;
     let (database, mut connection) =
@@ -29,26 +31,42 @@ pub(crate) async fn seed(
     provider
 }
 
-fn selected(model: &str, id: sailry_protocol::ProviderId) -> (Provider, serde_json::Value) {
+async fn selected(model: &str, id: sailry_protocol::ProviderId) -> (Provider, serde_json::Value) {
     let profile = std::env::var_os("SAILRY_ACCEPTANCE_PROFILE").expect("source profile required");
-    let path = std::fs::canonicalize(std::path::Path::new(&profile).join("storage/node.sqlite3"))
+    let path = std::fs::canonicalize(std::path::Path::new(&profile).join("storage/node.turso"))
         .expect("source profile database required");
-    let mut uri = url::Url::from_file_path(path).expect("source database file URI");
-    uri.query_pairs_mut()
-        .append_pair("mode", "ro")
-        .append_pair("immutable", "1");
-    let db = rusqlite::Connection::open_with_flags(
-        uri.as_str(),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-    )
-    .expect("read-only source database");
-    let body: Vec<u8> = db
-        .query_row(
-            "SELECT body FROM providers WHERE id=?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )
-        .expect("selected provider required");
+    let (database, connection) = crate::database_fixture::open(&path, true).await;
+    let selected = connection
+        .prepare("SELECT body FROM providers WHERE id=?1")
+        .await
+        .unwrap()
+        .query_row([id.to_string()])
+        .await;
+    let body = match selected {
+        Ok(row) => row,
+        Err(_) => {
+            let mut rows = connection
+                .query("SELECT body FROM providers", ())
+                .await
+                .unwrap();
+            let mut available = Vec::new();
+            while let Some(row) = rows.next().await.unwrap() {
+                if let Some((provider, _)) = read(&row.get::<Vec<u8>>(0).unwrap()) {
+                    available.push(serde_json::json!({
+                        "id":provider.id,"name":provider.name,"api":provider.api,
+                        "enabled":provider.enabled,"authentication":provider.authentication,
+                        "models":provider.models.iter().map(|model|&model.id).collect::<Vec<_>>()
+                    }));
+                }
+            }
+            panic!(
+                "Selected current provider is unavailable; configured metadata: {}",
+                serde_json::to_string(&available).unwrap()
+            );
+        }
+    };
+    let body = body.get::<Vec<u8>>(0).unwrap();
+    crate::database_fixture::close(database, connection).await;
     let (provider, stored) = read(&body).expect("listed selected provider required");
     assert!(
         provider.enabled && provider.models.iter().any(|value| value.id == model),

@@ -60,6 +60,8 @@ enum Reply {
         usage: Arc<Vec<i32>>,
     },
     TruncatedSummary,
+    Overflow,
+    EarlyLength,
     Summary {
         usage: i32,
         fail_summary: bool,
@@ -200,7 +202,7 @@ impl Server {
         Self::serve(Reply::LoopCompaction {
             fail_summary,
             pending_summary: false,
-            usage: Arc::new(vec![Some(14000)]),
+            usage: Arc::new(vec![Some(26000)]),
             summary_input: 100,
         })
         .await
@@ -209,7 +211,7 @@ impl Server {
         Self::serve(Reply::LoopCompaction {
             fail_summary: false,
             pending_summary: true,
-            usage: Arc::new(vec![Some(14000)]),
+            usage: Arc::new(vec![Some(26000)]),
             summary_input: 100,
         })
         .await
@@ -256,12 +258,28 @@ impl Server {
     pub async fn truncated_summary() -> Self {
         Self::serve(Reply::TruncatedSummary).await
     }
+    /// Rejects the fifth conversation request as too long until a summary exists.
+    pub async fn context_overflow() -> Self {
+        Self::serve(Reply::Overflow).await
+    }
+    pub async fn early_length() -> Self {
+        Self::serve(Reply::EarlyLength).await
+    }
     pub async fn recovering_summary() -> Self {
         Self::serve(Reply::Compaction {
             failure_status: Some(503),
             failure_count: 1,
             text: Arc::new("Verified tool evidence; continue remaining work".into()),
             usage: Arc::new(vec![100]),
+        })
+        .await
+    }
+    pub async fn unavailable_summaries() -> Self {
+        Self::serve(Reply::Compaction {
+            failure_status: Some(503),
+            failure_count: usize::MAX,
+            text: Arc::new(String::new()),
+            usage: Arc::new(vec![100, 26_000, 100]),
         })
         .await
     }
@@ -273,7 +291,7 @@ impl Server {
                 "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂"
                     .into(),
             ),
-            usage: Arc::new(vec![100, 100, 100, 14000]),
+            usage: Arc::new(vec![100, 100, 100, 26000]),
         })
         .await
     }
@@ -574,6 +592,33 @@ async fn respond(
             usage[index.min(usage.len() - 1)]
         };
         return compaction::respond_usage(stream, &body, failure_status, &text, input_tokens).await;
+    }
+    if matches!(reply, Reply::Overflow | Reply::EarlyLength) {
+        let (index, summaries) = {
+            let mut records = records.lock().unwrap();
+            let index = records
+                .iter()
+                .filter(|request| !compaction::is_summary(request))
+                .count();
+            let summaries = records.len() - index;
+            records.push(body.clone());
+            (index, summaries)
+        };
+        if !compaction::is_summary(&body) && index == 4 && summaries == 0 {
+            return if matches!(reply, Reply::EarlyLength) {
+                compaction::reject_length(stream, &body).await
+            } else {
+                compaction::reject_overflow(stream).await
+            };
+        }
+        return compaction::respond_usage(
+            stream,
+            &body,
+            None,
+            "Context summary fixture: overflow evidence retained",
+            100,
+        )
+        .await;
     }
     if let Reply::TruncatedSummary = reply {
         records.lock().unwrap().push(body.clone());

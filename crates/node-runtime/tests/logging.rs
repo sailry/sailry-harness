@@ -474,6 +474,7 @@ async fn observes_shared_lifecycles_without_payloads() {
             let Output::QueuedTurn(turn) = execute(
                 &client,
                 Command::CompactContext {
+                    focus: None,
                     session: session.id,
                     expected_revision: session.revision,
                 },

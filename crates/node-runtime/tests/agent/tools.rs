@@ -165,6 +165,7 @@ async fn reads_bound_worktree() {
             "list_sessions",
             "read_session",
             "search_session",
+            "read_tool_output",
             "compact_context",
             "set_session_title",
             "ask_user",
