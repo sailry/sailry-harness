@@ -23,6 +23,25 @@ fn summaries(page: &Page) -> usize {
         .count()
 }
 
+fn prompt(request: &Value) -> &str {
+    assert!(agent_support::compaction::is_summary(request));
+    assert!(
+        request
+            .get("tools")
+            .is_none_or(|tools| tools.as_array().is_some_and(Vec::is_empty))
+    );
+    assert!(request.get("tool_choice").is_none());
+    let messages = request["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], "system");
+    assert_eq!(messages[1]["role"], "user");
+    assert_eq!(
+        messages[1]["content"],
+        "Please summarize the conversation history provided in the system prompt."
+    );
+    messages[0]["content"].as_str().unwrap()
+}
+
 #[tokio::test]
 async fn loads_captured_plugin_context() {
     for remote in [false, true] {
@@ -70,9 +89,7 @@ async fn loads_captured_plugin_context() {
         {
             let requests = server.requests.lock().unwrap();
             let summary = requests.last().unwrap();
-            assert!(agent_support::compaction::is_summary(summary));
-            assert_eq!(summary["tools"], requests[requests.len() - 2]["tools"]);
-            assert_eq!(summary["tool_choice"], "none");
+            prompt(summary);
         }
         let (_, _, continued) = submit(
             &fixture.client,
@@ -87,7 +104,7 @@ async fn loads_captured_plugin_context() {
 }
 
 #[tokio::test]
-async fn bounds_materialized_attachments() {
+async fn formats_materialized_attachments() {
     let text = format!(
         "Inline payload start\n{}\nInline payload end",
         "Materialized attachment evidence. ".repeat(12_000)
@@ -219,15 +236,14 @@ async fn bounds_materialized_attachments() {
             {
                 let requests = server.requests.lock().unwrap();
                 let summary = requests.last().unwrap();
-                assert!(agent_support::compaction::is_summary(summary));
-                assert_eq!(summary["tools"], requests[requests.len() - 2]["tools"]);
-                assert_eq!(summary["tool_choice"], "none");
-                let text = messages(summary);
-                assert!(text.contains("Contents not included because they exceed"));
-                assert!(text.contains(&attachment.to_string()));
-                assert!(!text.contains("Inline payload start"));
-                assert!(!text.contains("Inline payload end"));
-                assert!(!text.contains("data:application/pdf;base64,"));
+                let text = prompt(summary);
+                if media_type == "application/pdf" {
+                    assert!(text.contains("[document: evidence.pdf (application/pdf)]"));
+                    assert!(!text.contains("data:application/pdf;base64,"));
+                } else {
+                    assert!(text.contains("Inline payload start"));
+                    assert!(text.contains("Inline payload end"));
+                }
                 assert!(!text.contains("sailry-attachment://"));
             }
             let Output::QueuedTurn(turn) = fixture
@@ -252,7 +268,7 @@ async fn bounds_materialized_attachments() {
 }
 
 #[tokio::test]
-async fn hydrates_historical_attachments() {
+async fn formats_historical_attachments() {
     for remote in [false, true] {
         let server = Server::summary(100).await;
         let fixture = fixture(remote, &server).await;
@@ -299,10 +315,8 @@ async fn hydrates_historical_attachments() {
         {
             let requests = server.requests.lock().unwrap();
             let summary = requests.last().unwrap();
-            assert!(agent_support::compaction::is_summary(summary));
-            assert_eq!(summary["tools"], requests[requests.len() - 2]["tools"]);
-            assert_eq!(summary["tool_choice"], "none");
-            assert!(messages(summary).contains("data:image/png;base64,"));
+            assert!(prompt(summary).contains("[image: image/png]"));
+            assert!(!messages(summary).contains("data:image/png;base64,"));
             assert!(!messages(summary).contains("sailry-attachment://"));
         }
         fixture.node.shutdown().await.unwrap();
@@ -311,17 +325,20 @@ async fn hydrates_historical_attachments() {
 }
 
 #[tokio::test]
-async fn skips_empty_and_summarizes_small_context() {
+async fn handles_empty_and_small_context() {
     for remote in [false, true] {
         let server = Server::summary(100).await;
         let fixture = fixture(remote, &server).await;
         let (_, empty) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, empty.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
-        assert!(page.entries.is_empty());
-        assert!(server.requests.lock().unwrap().is_empty());
+        assert_eq!(summaries(&page), 1);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            prompt(&requests[0]);
+        }
         let (_, _, before) = submit(&fixture.client, fixture.session.id, "Small".into()).await;
-        // Observation metadata does not replace the completed interaction boundary.
         let (_, small) = compact(&fixture.client, fixture.session.id, 1).await;
         let compacted = finished(&fixture.client, fixture.session.id, small.id).await;
         assert!(
@@ -331,13 +348,16 @@ async fn skips_empty_and_summarizes_small_context() {
                 .all(|run| run.status == Status::Completed)
         );
         assert_eq!(&compacted.entries[..before.entries.len()], before.entries);
-        assert_eq!(summaries(&compacted), 1);
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
-        // A summary without later work has no additional eligible history.
-        let (_, noop) = compact(&fixture.client, fixture.session.id, 1).await;
-        let unchanged = finished(&fixture.client, fixture.session.id, noop.id).await;
-        assert_eq!(unchanged.entries, compacted.entries);
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        assert_eq!(summaries(&compacted), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        let (_, repeated) = compact(&fixture.client, fixture.session.id, 1).await;
+        let repeated = finished(&fixture.client, fixture.session.id, repeated.id).await;
+        assert_eq!(
+            &repeated.entries[..compacted.entries.len()],
+            compacted.entries
+        );
+        assert_eq!(summaries(&repeated), 3);
+        assert_eq!(server.requests.lock().unwrap().len(), 4);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -394,17 +414,7 @@ async fn accepts_a_short_two_turn_handoff() {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), count + 1);
             let summary = requests.last().unwrap();
-            assert!(agent_support::compaction::is_summary(summary));
-            let prompt = summary["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .rev()
-                .find(|message| message["role"] == "user")
-                .unwrap()["content"]
-                .as_str()
-                .unwrap();
-            assert!(prompt.contains("Summary output budget: 128000 tokens"));
+            assert!(prompt(summary).contains("Retain those session identities"));
             let output = summary["max_completion_tokens"]
                 .as_u64()
                 .or_else(|| summary["max_tokens"].as_u64())
@@ -476,9 +486,9 @@ async fn supports_unknown_usage() {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 8);
             let summary = requests.last().unwrap();
-            assert!(agent_support::compaction::is_summary(summary));
-            assert!(messages(summary).contains("Unmetered evidence 1"));
-            assert!(messages(summary).contains("Unmetered evidence 6"));
+            let transcript = prompt(summary);
+            assert!(transcript.contains("Unmetered evidence 1"));
+            assert!(transcript.contains("Unmetered evidence 6"));
         }
         usage(&fixture.client, 1).await;
         fixture.node.shutdown().await.unwrap();
@@ -513,15 +523,10 @@ async fn restores_branch_history() {
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);
         let summary = &requests[2];
-        assert!(agent_support::compaction::is_summary(summary));
-        assert_eq!(summary["tools"], requests[1]["tools"]);
-        let normal = requests[1]["messages"].as_array().unwrap();
-        assert_eq!(
-            summary["messages"].as_array().unwrap()[..normal.len()],
-            normal[..]
-        );
-        assert!(messages(summary).contains("Exact tool evidence 中文 🙂"));
-        assert!(messages(summary).contains("evidence-call"));
+        let transcript = prompt(summary);
+        assert!(transcript.contains("Exact tool evidence 中文 🙂"));
+        assert!(transcript.contains(&plugin_tool("files", "read_file")));
+        assert!(!transcript.contains("evidence-call"));
         let mut stream = fixture
             .client
             .subscribe_conversation(fixture.session.id)
@@ -554,11 +559,13 @@ async fn restores_branch_history() {
                 >= measured.usage.as_ref().unwrap().output
         );
         drop(stream);
-        let (_, noop) = compact(&fixture.client, fixture.session.id, 1).await;
-        let unchanged = finished(&fixture.client, fixture.session.id, noop.id).await;
+        assert_eq!(
+            fixture.client.execute(request.clone()).await.unwrap(),
+            Output::QueuedTurn(turn.clone())
+        );
+        let unchanged = history(&fixture.client, fixture.session.id).await;
         assert_eq!(unchanged.entries, page.entries);
         assert_eq!(server.requests.lock().unwrap().len(), 3);
-        // The maintenance turn contributes its own timing before completion.
         let estimated = super::budget::statistics(&fixture).await;
         let mut branches = Vec::new();
         for through in [first, turn.id] {
@@ -609,14 +616,14 @@ async fn restores_branch_history() {
         assert_eq!(history(&client, fixture.session.id).await, unchanged);
         let (_, inherited) = compact(&client, branches[1].id, 1).await;
         let inherited_page = finished(&client, branches[1].id, inherited.id).await;
-        assert_eq!(summaries(&inherited_page), 1);
-        assert_eq!(server.requests.lock().unwrap().len(), 4);
+        assert_eq!(summaries(&inherited_page), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 5);
         submit(&client, fixture.session.id, "Continue from summary".into()).await;
         let current = server.requests.lock().unwrap().last().unwrap().clone();
         assert!(messages(&current).contains("Context summary fixture"));
-        assert!(messages(&current).contains("Original manual constraint"));
+        assert!(!messages(&current).contains("Original manual constraint"));
         assert!(!messages(&current).contains("evidence-call"));
-        assert_eq!(server.requests.lock().unwrap().len(), 5);
+        assert_eq!(server.requests.lock().unwrap().len(), 6);
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
@@ -641,29 +648,8 @@ async fn preserves_failed_context() {
                 .unwrap()
                 .contains(agent_support::compaction::PRIVATE_SENTINEL)
         );
-        assert_eq!(&page.entries[..before.entries.len()], before.entries);
-        let failure = page.entries.last().unwrap();
-        assert_eq!(failure.turn, turn.id);
-        let Part::Resource(value) = &failure.parts[0] else {
-            panic!("failure expected")
-        };
-        assert_eq!(value["type"], "compaction_failure");
-        assert_eq!(value["failure"]["source"], "manual");
-        assert_eq!(value["failure"]["stage"], "request");
-        assert_eq!(value["failure"]["reason"], "service_rejected");
-        assert!(
-            value["failure"]["cause"]
-                .as_str()
-                .unwrap()
-                .contains("Summary service unavailable")
-        );
-        assert!(
-            !value["failure"]["cause"]
-                .as_str()
-                .unwrap()
-                .contains(agent_support::compaction::PRIVATE_SENTINEL)
-        );
-        assert_eq!(value["failure"]["continued"], false);
+        assert_eq!(page.entries, before.entries);
+        assert_eq!(summaries(&page), 0);
         let snapshot = super::super::configuration::snapshot(&fixture.client).await;
         assert!(
             !serde_json::to_string(&snapshot.notifications)
@@ -671,18 +657,15 @@ async fn preserves_failed_context() {
                 .contains(agent_support::compaction::PRIVATE_SENTINEL)
         );
         let notices: Vec<_> = snapshot.notifications.iter().filter(|notice| {
-            matches!(&notice.content.details, Some(sailry_protocol::notification::Details::Diagnostic(details)) if details.turn == turn.id)
+            matches!(&notice.content.details, Some(sailry_protocol::notification::Details::Task(task)) if task.turn == turn.id)
         }).collect();
         assert_eq!(notices.len(), 1);
-        let Some(sailry_protocol::notification::Details::Diagnostic(details)) =
-            &notices[0].content.details
+        let Some(sailry_protocol::notification::Details::Task(task)) = &notices[0].content.details
         else {
             unreachable!()
         };
-        assert_eq!(details.event, failure.id);
-        assert_eq!(details.sequence, failure.sequence);
+        assert_eq!(task.status, Status::Failed);
         assert_eq!(notices[0].content.session, Some(fixture.session.id));
-        assert!(!snapshot.notifications.iter().any(|notice| matches!(&notice.content.details, Some(sailry_protocol::notification::Details::Task(task)) if task.turn == turn.id)));
         let mut stream = fixture
             .client
             .subscribe_conversation(fixture.session.id)
@@ -695,7 +678,13 @@ async fn preserves_failed_context() {
         drop(stream);
         let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
         assert_eq!(run.status, Status::Failed);
-        assert!(run.error.is_some());
+        assert!(
+            run.error
+                .as_ref()
+                .unwrap()
+                .message
+                .contains("Summary service unavailable")
+        );
         client_retry(&fixture.client, request, turn).await;
         assert_eq!(server.requests.lock().unwrap().len(), 3);
         submit(&fixture.client, fixture.session.id, "Continue".into()).await;
@@ -920,60 +909,7 @@ async fn preserves_cancelled_configuration() {
 }
 
 #[tokio::test]
-async fn retains_covered_input_in_smaller_handoffs() {
-    for remote in [false, true] {
-        let server = Server::summary(100).await;
-        let fixture = fixture(remote, &server).await;
-        super::budget::model(&fixture, 128_000, 2_048, false).await;
-        let original = "x".repeat(31 * 1024);
-        let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
-        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
-        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
-        assert_eq!(run.status, Status::Completed, "{run:?}");
-        assert_eq!(&after.entries[..before.entries.len()], before.entries);
-        assert_eq!(summaries(&after), 1);
-        let summary = after
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .find_map(|part| match part {
-                Part::Compaction(text) => Some(text),
-                _ => None,
-            })
-            .unwrap();
-        let source = before
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.parts)
-            .filter_map(|part| match part {
-                Part::Text(text) => Some(text.len()),
-                _ => None,
-            })
-            .sum::<usize>();
-        assert!(summary.len() < source);
-        assert!(summary.len() * 2 >= source);
-        assert!(summary.contains(&original));
-        assert!(
-            after
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| matches!(part, Part::Text(text) if text == &original))
-        );
-        {
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
-            assert!(agent_support::compaction::is_summary(&requests[1]));
-            assert!(messages(&requests[1]).contains(&original));
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn rejects_larger_complete_handoffs() {
+async fn accepts_larger_raw_handoffs() {
     for remote in [false, true] {
         let handoff = "Verified complete handoff. ".repeat(2_000);
         let server = Server::compaction_text(false, handoff.clone()).await;
@@ -991,31 +927,24 @@ async fn rejects_larger_complete_handoffs() {
         .await;
         let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let after = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(after.runs.last().unwrap().status, Status::Failed);
+        assert_eq!(after.runs.last().unwrap().status, Status::Completed);
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
-        assert_eq!(summaries(&after), 0);
+        assert_eq!(summaries(&after), 1);
+        let summary = after
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .find_map(|part| match part {
+                Part::Compaction(text) => Some(text),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(summary, &handoff);
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 3);
-            assert!(agent_support::compaction::is_summary(&requests[2]));
-            let transcript = requests[2]["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|message| message["role"] == "user")
-                .unwrap()["content"]
-                .as_str()
-                .unwrap();
+            let transcript = prompt(&requests[2]);
             assert!(handoff.len() > transcript.len());
-            assert!(
-            after
-                .entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| {
-                    matches!(part, Part::Resource(value) if value["type"] == "compaction_failure" && value["failure"]["reason"]=="no_reduction")
-                })
-        );
         }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
