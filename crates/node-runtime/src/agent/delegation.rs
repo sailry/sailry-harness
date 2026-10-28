@@ -219,25 +219,41 @@ impl Delegate {
             .flatten();
         let request = context.request_with(original);
         if let Some(children) = children {
-            let invocation = self
-                .ingress
-                .delegate(
-                    self.turn,
-                    request.into(),
-                    arguments,
-                    message,
-                    parent_stop.child_token(),
-                )
-                .await?;
-            let session = invocation.turn.session;
-            let turn = invocation.turn.id;
-            children.register(invocation).map_err(|_| {
+            let ingress = self.ingress.clone();
+            let turn = self.turn;
+            // Admission can commit after the calling tool future is cancelled.
+            // Keep its handoff and parent lease owned by the Node task supervisor.
+            let admitted = self
+                .tasks
+                .spawn_child(&self.ingress.agents.stopped, async move {
+                    let _active = active;
+                    let invocation = ingress
+                        .delegate(
+                            turn,
+                            request.into(),
+                            arguments,
+                            message,
+                            parent_stop.child_token(),
+                        )
+                        .await?;
+                    let session = invocation.turn.session;
+                    let turn = invocation.turn.id;
+                    children.register(invocation).map_err(|_| {
+                        Fault::new(
+                            ErrorCode::OutcomeUnknown,
+                            "child was admitted but handoff failed; execution was not replayed",
+                        )
+                    })?;
+                    Ok::<_, Fault>((session, turn))
+                })
+                .await
+                .map_err(|_| Fault::invalid("child supervisor is unavailable"))?;
+            let (session, turn) = admitted.await.map_err(|_| {
                 Fault::new(
                     ErrorCode::OutcomeUnknown,
-                    "child was admitted but handoff failed; execution was not replayed",
+                    "child admission outcome is unknown",
                 )
-            })?;
-            drop(active);
+            })??;
             let mut result = crate::agent::catalog::json(
                 json!({"admitted":true,"pending":true,"session":session,"turn":turn,"status":"queued"}),
             )?;
