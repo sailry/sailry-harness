@@ -24,7 +24,6 @@ jni.workspace = true
 rustls-platform-verifier.workspace = true
 
 [dev-dependencies]
-adk-model.workspace = true
 futures.workspace = true
 rustls.workspace = true
 jsonwebtoken.workspace = true
