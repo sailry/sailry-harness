@@ -10,12 +10,10 @@ async fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         .await
         .unwrap()
         .unwrap();
-    let request = adk_core::ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: crate::plugins::tools::alias("delegation", "spawn_agent"),
-        function_call_id: Some("same-call".into()),
-        args: serde_json::json!({"task":"Independent task"}),
+    let request = crate::agent::canonical::ToolIdentity {
+        name: crate::plugins::tools::alias("delegation", "spawn_agent"),
+        id: Some("same-call".into()),
+        arguments: serde_json::json!({"task":"Independent task"}),
     };
     let mut event = AdkEvent::new("parent-invocation");
     event.id = "same-event".into();
@@ -23,9 +21,9 @@ async fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: request.function_call_id.clone(),
-            name: request.tool_name.clone(),
-            args: request.args.clone(),
+            id: request.id.clone(),
+            name: request.name.clone(),
+            args: request.arguments.clone(),
             thought_signature: None,
         }],
     });
@@ -42,7 +40,7 @@ async fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         &mut fixture.database,
         parent,
         &request,
-        request.args.clone(),
+        request.arguments.clone(),
         None,
         &fixture.events,
     )

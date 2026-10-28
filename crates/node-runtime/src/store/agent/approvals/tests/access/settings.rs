@@ -15,7 +15,7 @@ async fn captures_current_policy_without_changing_arguments() {
     for permission in [Permission::Ask, Permission::Project, Permission::Full] {
         let mut fixture = Fixture::with_permission(permission).await;
         let binding = request_with_access(&mut fixture, None).await;
-        let original = fixture.request.args.clone();
+        let original = fixture.request.arguments.clone();
         toggle(&fixture, false).await;
         let approval = begin(
             &mut fixture.database,
@@ -27,7 +27,7 @@ async fn captures_current_policy_without_changing_arguments() {
         .await
         .unwrap();
         assert_eq!(approval.access, Some(Access::Unrestricted));
-        assert_eq!(fixture.request.args, original);
+        assert_eq!(fixture.request.arguments, original);
         if permission == Permission::Full {
             assert_eq!(approval.source, ApprovalSource::Full);
             assert_eq!(approval.state, ApprovalState::Approved);

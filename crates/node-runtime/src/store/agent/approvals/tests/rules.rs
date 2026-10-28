@@ -14,7 +14,7 @@ async fn binding(fixture: &Fixture) -> Binding {
         .unwrap();
     Binding {
         owner,
-        tool: fixture.request.tool_name.clone(),
+        tool: fixture.request.name.clone(),
         operation: Some(sailry_protocol::tool::Operation::WriteFile),
     }
 }
@@ -425,15 +425,15 @@ async fn reports_failed_expiry_without_approval() {
 }
 
 async fn append_call(fixture: &mut Fixture, id: &str) {
-    fixture.request.function_call_id = Some(id.into());
+    fixture.request.id = Some(id.into());
     let mut event = AdkEvent::new("fixture");
     event.author = "assistant".into();
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: fixture.request.function_call_id.clone(),
-            name: fixture.request.tool_name.clone(),
-            args: fixture.request.args.clone(),
+            id: fixture.request.id.clone(),
+            name: fixture.request.name.clone(),
+            args: fixture.request.arguments.clone(),
             thought_signature: None,
         }],
     });
@@ -570,16 +570,16 @@ async fn releases_matching_waiters_and_updates() {
     let second = begin_owned(&mut fixture, &binding).await;
     append_call(&mut fixture, "third-write").await;
     let third = begin_owned(&mut fixture, &binding).await;
-    fixture.request.tool_name = crate::plugins::tools::alias("files", "create_directory");
-    fixture.request.args = json!({"path":"unrelated"});
+    fixture.request.name = crate::plugins::tools::alias("files", "create_directory");
+    fixture.request.arguments = json!({"path":"unrelated"});
     append_call(&mut fixture, "other-tool").await;
     let other_binding = Binding {
         owner: binding.owner.clone(),
-        tool: fixture.request.tool_name.clone(),
+        tool: fixture.request.name.clone(),
         operation: Some(sailry_protocol::tool::Operation::CreateDirectory),
     };
     let unrelated = begin_owned(&mut fixture, &other_binding).await;
-    fixture.request.tool_name = "install_skill".into();
+    fixture.request.name = "install_skill".into();
     append_call(&mut fixture, "unowned-tool").await;
     let unowned = fixture.begin().await;
     let mut matching = Vec::new();
@@ -780,7 +780,7 @@ async fn rejects_foreign_owner_and_tool() {
 #[tokio::test]
 async fn keeps_unowned_tools_once_only() {
     let mut fixture = Fixture::new().await;
-    fixture.request.tool_name = "install_skill".into();
+    fixture.request.name = "install_skill".into();
     append_call(&mut fixture, "core-call").await;
     let approval = fixture.begin().await;
     assert!(!approval.can_remember);

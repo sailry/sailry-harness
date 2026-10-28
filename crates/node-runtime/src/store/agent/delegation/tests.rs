@@ -19,19 +19,17 @@ async fn canonical_admission_and_recovery() {
         .await
         .unwrap()
         .unwrap();
-    let request = ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: crate::plugins::tools::alias("delegation", "spawn_agent"),
-        function_call_id: Some("child-call".into()),
-        args: json!({"role": null, "title": "Inspect files", "task": "Independent task"}),
+    let request = ToolIdentity {
+        name: crate::plugins::tools::alias("delegation", "spawn_agent"),
+        id: Some("child-call".into()),
+        arguments: json!({"role": null, "title": "Inspect files", "task": "Independent task"}),
     };
     assert!(
         admit(
             &mut fixture.database,
             parent,
             &request,
-            request.args.clone(),
+            request.arguments.clone(),
             None,
             &fixture.events
         )
@@ -43,9 +41,9 @@ async fn canonical_admission_and_recovery() {
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: request.function_call_id.clone(),
-            name: request.tool_name.clone(),
-            args: request.args.clone(),
+            id: request.id.clone(),
+            name: request.name.clone(),
+            args: request.arguments.clone(),
             thought_signature: None,
         }],
     });
@@ -59,13 +57,13 @@ async fn canonical_admission_and_recovery() {
     .await
     .unwrap();
     let mut forged = request.clone();
-    forged.args["task"] = json!("Changed task");
+    forged.arguments["task"] = json!("Changed task");
     assert!(
         admit(
             &mut fixture.database,
             parent,
             &forged,
-            forged.args.clone(),
+            forged.arguments.clone(),
             None,
             &fixture.events
         )
@@ -86,7 +84,7 @@ async fn canonical_admission_and_recovery() {
         &mut fixture.database,
         parent,
         &request,
-        request.args.clone(),
+        request.arguments.clone(),
         None,
         &fixture.events,
     )
@@ -117,7 +115,7 @@ async fn canonical_admission_and_recovery() {
             &mut fixture.database,
             parent,
             &request,
-            request.args.clone(),
+            request.arguments.clone(),
             None,
             &fixture.events
         )
@@ -175,7 +173,7 @@ async fn canonical_admission_and_recovery() {
             &mut fixture.database,
             parent,
             &request,
-            request.args.clone(),
+            request.arguments.clone(),
             None,
             &fixture.events
         )

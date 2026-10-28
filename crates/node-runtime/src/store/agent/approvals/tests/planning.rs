@@ -12,7 +12,7 @@ async fn rejects_mutating_approvals() {
             "unknown_tool",
         ] {
             let mut request = fixture.request.clone();
-            request.tool_name = tool.into();
+            request.name = tool.into();
             assert_eq!(
                 crate::store::agent::permissions::source(
                     &fixture.database.connection,

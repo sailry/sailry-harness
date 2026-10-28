@@ -58,20 +58,18 @@ pub(super) fn queued<'a>(
 ) -> sailry_link::Pending<'a, Result<Invocation, Fault>> {
     Box::pin(async move {
         let mut event = AdkEvent::new("delegation-fixture");
-        let request = ToolConfirmationRequest {
-            acting: None,
-            origin: None,
-            tool_name: crate::plugins::tools::alias("delegation", "spawn_agent"),
-            function_call_id: Some(format!("call-{}", event.id)),
-            args,
+        let request = ToolIdentity {
+            name: crate::plugins::tools::alias("delegation", "spawn_agent"),
+            id: Some(format!("call-{}", event.id)),
+            arguments: args,
         };
         event.author = "assistant".into();
         event.set_content(adk_core::Content {
             role: "model".into(),
             parts: vec![adk_core::Part::FunctionCall {
-                id: request.function_call_id.clone(),
-                name: request.tool_name.clone(),
-                args: request.args.clone(),
+                id: request.id.clone(),
+                name: request.name.clone(),
+                args: request.arguments.clone(),
                 thought_signature: None,
             }],
         });
@@ -88,7 +86,7 @@ pub(super) fn queued<'a>(
             &mut fixture.database,
             parent,
             &request,
-            request.args.clone(),
+            request.arguments.clone(),
             None,
             &fixture.events,
         )

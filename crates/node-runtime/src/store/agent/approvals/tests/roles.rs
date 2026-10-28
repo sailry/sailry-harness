@@ -38,21 +38,19 @@ async fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Com
         ),
         _ => unreachable!(),
     };
-    fixture.request = ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: crate::plugins::tools::alias("delegation", name),
-        function_call_id: Some("role-call".into()),
-        args: json!({"fixture":"exact canonical arguments"}),
+    fixture.request = ToolIdentity {
+        name: crate::plugins::tools::alias("delegation", name),
+        id: Some("role-call".into()),
+        arguments: json!({"fixture":"exact canonical arguments"}),
     };
     let mut event = AdkEvent::new("role-fixture");
     event.author = "assistant".into();
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: fixture.request.function_call_id.clone(),
-            name: fixture.request.tool_name.clone(),
-            args: fixture.request.args.clone(),
+            id: fixture.request.id.clone(),
+            name: fixture.request.name.clone(),
+            args: fixture.request.arguments.clone(),
             thought_signature: None,
         }],
     });
@@ -67,7 +65,7 @@ async fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Com
     .unwrap();
     let binding = Binding {
         owner,
-        tool: fixture.request.tool_name.clone(),
+        tool: fixture.request.name.clone(),
         operation: Some(operation),
     };
     (fixture, binding, command)

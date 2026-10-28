@@ -33,21 +33,19 @@ async fn fixture() -> (Fixture, Binding, database::Profile) {
         .into_iter()
         .find(|package| package.name == "databases")
         .unwrap();
-    fixture.request = ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: crate::plugins::tools::alias("databases", "database_execute"),
-        function_call_id: Some("execute-approved-target".into()),
-        args: json!({"connection":profile.id,"sql":"DELETE FROM items","row_limit":2,"timeout_ms":1000}),
+    fixture.request = ToolIdentity {
+        name: crate::plugins::tools::alias("databases", "database_execute"),
+        id: Some("execute-approved-target".into()),
+        arguments: json!({"connection":profile.id,"sql":"DELETE FROM items","row_limit":2,"timeout_ms":1000}),
     };
     let mut event = AdkEvent::new("target");
     event.author = "assistant".into();
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: fixture.request.function_call_id.clone(),
-            name: fixture.request.tool_name.clone(),
-            args: fixture.request.args.clone(),
+            id: fixture.request.id.clone(),
+            name: fixture.request.name.clone(),
+            args: fixture.request.arguments.clone(),
             thought_signature: None,
         }],
     });
@@ -62,7 +60,7 @@ async fn fixture() -> (Fixture, Binding, database::Profile) {
     .unwrap();
     let binding = Binding {
         owner,
-        tool: fixture.request.tool_name.clone(),
+        tool: fixture.request.name.clone(),
         operation: Some(Operation::ExecuteDatabase),
     };
     (fixture, binding, profile)
@@ -264,7 +262,7 @@ async fn retains_revision_fence_across_workflow_steps() {
         ErrorCode::Conflict
     );
     let mut changed = fixture.request.clone();
-    changed.args["sql"] = json!("DROP TABLE items");
+    changed.arguments["sql"] = json!("DROP TABLE items");
     assert!(
         connection_access(
             &fixture.database.connection,

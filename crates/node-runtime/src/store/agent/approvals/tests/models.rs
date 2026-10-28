@@ -9,21 +9,19 @@ async fn fixture(mode: WorkMode) -> (Fixture, Binding, Command) {
         .into_iter()
         .find(|package| package.name == "files")
         .unwrap();
-    fixture.request = ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: crate::plugins::tools::alias("files", "uninstall_ocr_model"),
-        function_call_id: Some("ocr-call".into()),
-        args: json!({"id":"a".repeat(64)}),
+    fixture.request = ToolIdentity {
+        name: crate::plugins::tools::alias("files", "uninstall_ocr_model"),
+        id: Some("ocr-call".into()),
+        arguments: json!({"id":"a".repeat(64)}),
     };
     let mut event = AdkEvent::new("ocr-fixture");
     event.author = "assistant".into();
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: fixture.request.function_call_id.clone(),
-            name: fixture.request.tool_name.clone(),
-            args: fixture.request.args.clone(),
+            id: fixture.request.id.clone(),
+            name: fixture.request.name.clone(),
+            args: fixture.request.arguments.clone(),
             thought_signature: None,
         }],
     });
@@ -38,7 +36,7 @@ async fn fixture(mode: WorkMode) -> (Fixture, Binding, Command) {
     .unwrap();
     let binding = Binding {
         owner,
-        tool: fixture.request.tool_name.clone(),
+        tool: fixture.request.name.clone(),
         operation: Some(Operation::RemoveModel),
     };
     (

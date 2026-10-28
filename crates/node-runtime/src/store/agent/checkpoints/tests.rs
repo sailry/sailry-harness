@@ -76,21 +76,19 @@ async fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Requ
         ),
         _ => panic!("file mutation expected"),
     };
-    let authorization = adk_core::ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: crate::plugins::tools::alias("files", name),
-        function_call_id: Some(RequestId::new().to_string()),
-        args: arguments,
+    let authorization = crate::agent::canonical::ToolIdentity {
+        name: crate::plugins::tools::alias("files", name),
+        id: Some(RequestId::new().to_string()),
+        arguments: arguments,
     };
     let mut event = AdkEvent::new("checkpoint-fixture");
     event.author = "assistant".into();
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: authorization.function_call_id.clone(),
-            name: authorization.tool_name.clone(),
-            args: authorization.args.clone(),
+            id: authorization.id.clone(),
+            name: authorization.name.clone(),
+            args: authorization.arguments.clone(),
             thought_signature: None,
         }],
     });

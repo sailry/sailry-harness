@@ -1,4 +1,4 @@
-use super::{Binding, ToolConfirmationRequest};
+use super::{Binding, ToolIdentity};
 use sailry_protocol::{
     Command, ErrorCode, Fault,
     conversation::{Approval, ApprovalChoice, ApprovalSource},
@@ -9,23 +9,21 @@ use sailry_protocol::{
 pub(super) async fn requested(
     db: &turso::Connection,
     turn: sailry_protocol::TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
     binding: Option<&Binding>,
 ) -> Result<Option<Access>, Fault> {
     let command = binding.is_some_and(|binding| binding.operation == Some(Operation::RunCommand));
     if command {
-        return super::super::super::sandbox::effective(db, &request.args)
+        return super::super::super::sandbox::effective(db, &request.arguments)
             .await
             .map(Some);
     }
-    if binding.is_some()
-        && super::super::plugins::command_flow(db, turn, &request.tool_name).await?
-    {
+    if binding.is_some() && super::super::plugins::command_flow(db, turn, &request.name).await? {
         return super::super::super::sandbox::effective(db, &serde_json::json!({}))
             .await
             .map(Some);
     }
-    match request.args.get("access") {
+    match request.arguments.get("access") {
         Some(value) if value == "unrestricted" => serde_json::from_value(value.clone())
             .map(Some)
             .map_err(|error| Fault::invalid(format!("invalid command access: {error}"))),

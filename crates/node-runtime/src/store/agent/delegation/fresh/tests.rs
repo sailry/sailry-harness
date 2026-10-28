@@ -94,12 +94,10 @@ async fn freezes_read_only_execution() {
         super::super::super::permissions::source(
             &fixture.database.connection,
             child.turn.id,
-            &ToolConfirmationRequest {
-                acting: None,
-                origin: None,
-                tool_name: crate::plugins::tools::alias("files", "write_file"),
-                function_call_id: Some("write-attempt".into()),
-                args: json!({"path":"changed.txt","text":"Changed","expected_revision":null}),
+            &ToolIdentity {
+                name: crate::plugins::tools::alias("files", "write_file"),
+                id: Some("write-attempt".into()),
+                arguments: json!({"path":"changed.txt","text":"Changed","expected_revision":null}),
             },
         )
         .await
@@ -174,12 +172,10 @@ async fn inherits_captured_mode_after_removal() {
         super::super::super::permissions::source(
             &fixture.database.connection,
             child.turn.id,
-            &ToolConfirmationRequest {
-                acting: None,
-                origin: None,
-                tool_name: crate::plugins::tools::alias("files", "write_file"),
-                function_call_id: Some("write-attempt".into()),
-                args: json!({"path":"changed.txt","text":"Changed","expected_revision":null}),
+            &ToolIdentity {
+                name: crate::plugins::tools::alias("files", "write_file"),
+                id: Some("write-attempt".into()),
+                arguments: json!({"path":"changed.txt","text":"Changed","expected_revision":null}),
             }
         )
         .await

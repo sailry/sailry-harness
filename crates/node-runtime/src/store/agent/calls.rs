@@ -1,6 +1,6 @@
 //! Exact call association for authorization and user input.
 use super::*;
-use adk_core::ToolConfirmationRequest;
+use crate::agent::canonical::ToolIdentity;
 
 pub(super) async fn active(db: &Connection, turn: TurnId) -> Result<Run, Fault> {
     let run = runs::get(db, turn).await?;
@@ -18,26 +18,23 @@ pub(super) async fn active(db: &Connection, turn: TurnId) -> Result<Run, Fault> 
     Ok(run)
 }
 
-pub(super) fn id(request: &ToolConfirmationRequest) -> Result<&str, Fault> {
+pub(super) fn id(request: &ToolIdentity) -> Result<&str, Fault> {
     request
-        .function_call_id
+        .id
         .as_deref()
         .filter(|id| !id.is_empty())
         .ok_or_else(|| sailry_protocol::Fault::invalid("tool call identifier is required"))
 }
 
-pub(super) fn matches(
-    part: &crate::agent::canonical::BlockKind,
-    request: &ToolConfirmationRequest,
-) -> bool {
+pub(super) fn matches(part: &crate::agent::canonical::BlockKind, request: &ToolIdentity) -> bool {
     matches!(part, crate::agent::canonical::BlockKind::ToolRequest(call)
-        if call.id == request.function_call_id && call.name == request.tool_name && call.arguments == request.args)
+        if call.id == request.id && call.name == request.name && call.arguments == request.arguments)
 }
 
 pub(super) async fn locate(
     db: &Connection,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
 ) -> Result<(String, usize), Fault> {
     id(request)?;
     let mut query = db
@@ -66,7 +63,7 @@ pub(super) async fn locate(
             .flat_map(|message| &message.content)
         {
             if let crate::agent::canonical::BlockKind::ToolRequest(call) = &block.kind
-                && call.id == request.function_call_id
+                && call.id == request.id
             {
                 if !matches(&block.kind, request) || found.is_some() {
                     return Err(sailry_protocol::Fault::invalid(

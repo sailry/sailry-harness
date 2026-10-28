@@ -1,6 +1,6 @@
 //! Input metadata and accepted answers reference the single ADK history.
 use super::*;
-use adk_core::ToolConfirmationRequest;
+use crate::agent::canonical::ToolIdentity;
 use question::{Question, Response, Spec, State};
 use std::collections::BTreeMap;
 
@@ -13,11 +13,7 @@ pub(in crate::store) type Waiting =
     BTreeMap<QuestionId, (TurnId, oneshot::Sender<Result<Response, Fault>>)>;
 
 impl Ingress {
-    pub(crate) async fn ask(
-        &self,
-        turn: TurnId,
-        request: ToolConfirmationRequest,
-    ) -> Result<Response, Fault> {
+    pub(crate) async fn ask(&self, turn: TurnId, request: ToolIdentity) -> Result<Response, Fault> {
         let (reply, response) = oneshot::channel();
         let _waiting = self
             .agents
@@ -37,21 +33,21 @@ impl Ingress {
 pub(super) async fn begin(
     database: &mut Database,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Question, Fault> {
     if !matches!(
-        request.tool_name.as_str(),
+        request.name.as_str(),
         "ask_user" | elicitation::TOOL | review::TOOL
     ) {
         return Err(sailry_protocol::Fault::invalid(
             "tool does not accept user input",
         ));
     }
-    let spec: Spec = serde_json::from_value(request.args.clone())
+    let spec: Spec = serde_json::from_value(request.arguments.clone())
         .map_err(|_| sailry_protocol::Fault::invalid("invalid question arguments"))?;
     spec.validate()?;
-    if request.tool_name == "ask_user" && spec.prompt.is_empty() {
+    if request.name == "ask_user" && spec.prompt.is_empty() {
         return Err(sailry_protocol::Fault::invalid("question prompt is empty"));
     }
     let publication = database.publication.clone();
@@ -67,9 +63,9 @@ pub(super) async fn begin(
         if matches!(spec.input, question::Input::Plan) {
             planning::validate(&transaction, turn, run.session).await?;
         }
-        let (entry, index) = if request.tool_name == review::TOOL {
+        let (entry, index) = if request.name == review::TOOL {
             review::locate(&transaction, turn, request).await?
-        } else if request.tool_name == elicitation::TOOL {
+        } else if request.name == elicitation::TOOL {
             elicitation::locate(&transaction, turn, request).await?
         } else {
             if matches!(

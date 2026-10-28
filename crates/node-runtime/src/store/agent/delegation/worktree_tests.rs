@@ -2,10 +2,7 @@ use super::*;
 use crate::store::agent::tests::fixture::Fixture;
 use serde_json::json;
 
-async fn request(
-    fixture: &mut Fixture,
-    worktree: Option<WorktreeId>,
-) -> (TurnId, ToolConfirmationRequest) {
+async fn request(fixture: &mut Fixture, worktree: Option<WorktreeId>) -> (TurnId, ToolIdentity) {
     let turn = fixture.queued().await;
     runs::start(&fixture.database.connection, turn)
         .await
@@ -14,21 +11,19 @@ async fn request(
         .await
         .unwrap()
         .unwrap();
-    let request = ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: crate::plugins::tools::alias("delegation", "spawn_agent"),
-        function_call_id: Some("child".into()),
-        args: json!({"role":null,"task":"Inspect", "worktree":worktree}),
+    let request = ToolIdentity {
+        name: crate::plugins::tools::alias("delegation", "spawn_agent"),
+        id: Some("child".into()),
+        arguments: json!({"role":null,"task":"Inspect", "worktree":worktree}),
     };
     let mut event = AdkEvent::new("delegation");
     event.author = "assistant".into();
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: request.function_call_id.clone(),
-            name: request.tool_name.clone(),
-            args: request.args.clone(),
+            id: request.id.clone(),
+            name: request.name.clone(),
+            args: request.arguments.clone(),
             thought_signature: None,
         }],
     });
@@ -82,7 +77,7 @@ async fn rejects_foreign_or_missing_targets() {
                 &mut fixture.database,
                 turn,
                 &request,
-                request.args.clone(),
+                request.arguments.clone(),
                 None,
                 &fixture.events
             )
@@ -130,7 +125,7 @@ async fn inherits_frozen_location() {
         &mut fixture.database,
         turn,
         &request,
-        request.args.clone(),
+        request.arguments.clone(),
         None,
         &fixture.events,
     )
@@ -159,7 +154,7 @@ async fn rejects_rebased_input_and_removal() {
             &mut fixture.database,
             turn,
             &request,
-            request.args.clone(),
+            request.arguments.clone(),
             Some("Selected input".into()),
             &fixture.events
         )
@@ -187,7 +182,7 @@ async fn rejects_rebased_input_and_removal() {
             &mut fixture.database,
             turn,
             &request,
-            request.args.clone(),
+            request.arguments.clone(),
             None,
             &fixture.events
         )

@@ -27,7 +27,7 @@ pub(crate) async fn read(db: &Connection, turn: TurnId) -> Result<Vec<Denial>, F
         let request = super::request(db, &approval).await?;
         selected.push(Denial {
             call,
-            tool: request.tool_name,
+            tool: request.name,
             reason: approval
                 .reason
                 .ok_or_else(|| Fault::invalid("denied approval has no explanation"))?,

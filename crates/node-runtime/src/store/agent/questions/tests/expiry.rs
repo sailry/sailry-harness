@@ -23,7 +23,7 @@ async fn closes_without_answer() {
     let expired = expire(
         &mut fixture.database,
         fixture.turn,
-        fixture.request.function_call_id.as_deref().unwrap(),
+        fixture.request.id.as_deref().unwrap(),
         &CancellationToken::new(),
         &fixture.events,
     )
@@ -82,7 +82,7 @@ async fn keeps_explicit_responses() {
             expire(
                 &mut fixture.database,
                 fixture.turn,
-                fixture.request.function_call_id.as_deref().unwrap(),
+                fixture.request.id.as_deref().unwrap(),
                 &CancellationToken::new(),
                 &fixture.events,
             )
@@ -103,7 +103,7 @@ async fn preserves_stopped_waits() {
         expire(
             &mut fixture.database,
             fixture.turn,
-            fixture.request.function_call_id.as_deref().unwrap(),
+            fixture.request.id.as_deref().unwrap(),
             &stop,
             &fixture.events,
         )

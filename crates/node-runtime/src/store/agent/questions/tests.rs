@@ -12,7 +12,7 @@ struct Fixture {
     events: broadcast::Sender<EventEnvelope>,
     turn: TurnId,
     session: SessionId,
-    request: ToolConfirmationRequest,
+    request: ToolIdentity,
     _directory: tempfile::TempDir,
 }
 
@@ -97,12 +97,10 @@ impl Fixture {
         history::append(&mut database, session.id, turn.id, event, &events)
             .await
             .unwrap();
-        let request = ToolConfirmationRequest {
-            acting: None,
-            origin: None,
-            tool_name: "ask_user".into(),
-            function_call_id: Some("question-fixture".into()),
-            args: serde_json::to_value(Spec {
+        let request = ToolIdentity {
+            name: "ask_user".into(),
+            id: Some("question-fixture".into()),
+            arguments: serde_json::to_value(Spec {
                 prompt: "Describe the task".into(),
                 input,
             })
@@ -126,9 +124,9 @@ impl Fixture {
         event.set_content(adk_core::Content {
             role: "model".into(),
             parts: vec![adk_core::Part::FunctionCall {
-                id: self.request.function_call_id.clone(),
-                name: self.request.tool_name.clone(),
-                args: self.request.args.clone(),
+                id: self.request.id.clone(),
+                name: self.request.name.clone(),
+                args: self.request.arguments.clone(),
                 thought_signature: None,
             }],
         });
@@ -166,7 +164,7 @@ async fn associates_canonical_calls() {
     .await
     .unwrap();
     let mut wrong = fixture.request.clone();
-    wrong.args["prompt"] = serde_json::json!("another question");
+    wrong.arguments["prompt"] = serde_json::json!("another question");
     assert!(
         begin(&mut fixture.database, fixture.turn, &wrong, &fixture.events)
             .await

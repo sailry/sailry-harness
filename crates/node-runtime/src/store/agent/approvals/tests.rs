@@ -17,7 +17,7 @@ struct Fixture {
     events: broadcast::Sender<EventEnvelope>,
     turn: TurnId,
     session: SessionId,
-    request: ToolConfirmationRequest,
+    request: ToolIdentity,
     _directory: tempfile::TempDir,
 }
 
@@ -109,21 +109,19 @@ impl Fixture {
                     .id,
                 turn.id
             );
-            let request = ToolConfirmationRequest {
-                acting: None,
-                origin: None,
-                tool_name: crate::plugins::tools::alias("files", "write_file"),
-                function_call_id: Some("call-fixture".into()),
-                args: json!({"path": "资料.txt", "text": "中文 🙂", "expected_revision": null}),
+            let request = ToolIdentity {
+                name: crate::plugins::tools::alias("files", "write_file"),
+                id: Some("call-fixture".into()),
+                arguments: json!({"path": "资料.txt", "text": "中文 🙂", "expected_revision": null}),
             };
             let mut event = AdkEvent::new("fixture");
             event.author = "assistant".into();
             event.set_content(adk_core::Content {
                 role: "model".into(),
                 parts: vec![adk_core::Part::FunctionCall {
-                    id: request.function_call_id.clone(),
-                    name: request.tool_name.clone(),
-                    args: request.args.clone(),
+                    id: request.id.clone(),
+                    name: request.name.clone(),
+                    args: request.arguments.clone(),
                     thought_signature: None,
                 }],
             });
@@ -192,7 +190,7 @@ async fn consumes_exact_arguments_once() {
     );
     fixture.approve(approval.id).await;
     let mut changed = fixture.request.clone();
-    changed.args["text"] = json!("different content");
+    changed.arguments["text"] = json!("different content");
     assert_eq!(
         authorize(&mut fixture.database, fixture.turn, &changed, None)
             .await
@@ -201,7 +199,7 @@ async fn consumes_exact_arguments_once() {
         ErrorCode::PermissionDenied
     );
     let mut changed = fixture.request.clone();
-    changed.tool_name = "another_tool".into();
+    changed.name = "another_tool".into();
     assert_eq!(
         authorize(&mut fixture.database, fixture.turn, &changed, None)
             .await
@@ -237,7 +235,7 @@ async fn consumes_exact_arguments_once() {
 async fn rejects_invalid_decisions() {
     let mut fixture = Fixture::new().await;
     let mut changed = fixture.request.clone();
-    changed.args["path"] = json!("another.txt");
+    changed.arguments["path"] = json!("another.txt");
     assert!(
         begin(
             &mut fixture.database,

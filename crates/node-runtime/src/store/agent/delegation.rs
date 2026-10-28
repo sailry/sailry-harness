@@ -1,6 +1,6 @@
 //! Child admission references a parent call and reuses the sole session history path.
 use super::*;
-use adk_core::ToolConfirmationRequest;
+use crate::agent::canonical::ToolIdentity;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -73,7 +73,7 @@ impl Ingress {
     pub(crate) async fn delegate(
         &self,
         turn: TurnId,
-        request: ToolConfirmationRequest,
+        request: ToolIdentity,
         arguments: Value,
         message: Option<Input>,
         token: sailry_link::CancellationToken,
@@ -213,7 +213,7 @@ pub(in crate::store) async fn follow(
 pub(super) async fn admit(
     database: &mut Database,
     parent: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
     arguments: Value,
     selected: Option<Input>,
     events: &broadcast::Sender<EventEnvelope>,
@@ -234,8 +234,7 @@ pub(super) async fn admit(
     let inherits_input = selected.is_some();
     let message = selected.unwrap_or_else(|| args.task.clone().into());
     queue::validate(&message)?;
-    let operation =
-        super::plugins::operation(&database.connection, parent, &request.tool_name).await?;
+    let operation = super::plugins::operation(&database.connection, parent, &request.name).await?;
     if operation != Some(sailry_protocol::tool::Operation::DelegateAgent)
         && !(operation == Some(sailry_protocol::tool::Operation::GuideAgent)
             && args.session.is_some())

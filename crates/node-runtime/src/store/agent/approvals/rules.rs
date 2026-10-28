@@ -11,10 +11,10 @@ pub(crate) struct Binding {
 pub(super) async fn validate(
     db: &Connection,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
     binding: &Binding,
 ) -> Result<(), Fault> {
-    if binding.tool != request.tool_name
+    if binding.tool != request.name
         || !super::super::plugins::read(db, turn)
             .await?
             .contains(&binding.owner)
@@ -29,10 +29,10 @@ pub(super) async fn validate(
 
 pub(super) fn command<'request>(
     binding: &Binding,
-    request: &'request ToolConfirmationRequest,
+    request: &'request ToolIdentity,
 ) -> Option<&'request str> {
     (binding.operation == Some(sailry_protocol::tool::Operation::RunCommand))
-        .then(|| request.args.get("command")?.as_str())
+        .then(|| request.arguments.get("command")?.as_str())
         .flatten()
 }
 
@@ -56,7 +56,7 @@ pub(super) async fn matching(
     db: &Connection,
     run: &Run,
     binding: &Binding,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
 ) -> Result<Option<(ApprovalSource, ApprovalChoice)>, Fault> {
     let mut query = db.prepare("SELECT choice FROM agent_approval_rules WHERE session=?1 AND worktree=?2 AND binding=?3 ORDER BY rowid").await.map_err(storage_error)?;
     let choices = {

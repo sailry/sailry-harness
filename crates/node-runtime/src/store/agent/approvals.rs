@@ -1,7 +1,7 @@
 //! Durable authorization metadata, alongside the single canonical history.
 use super::calls::{active, id as call_id, matches as matches_call};
 use super::*;
-use adk_core::ToolConfirmationRequest;
+use crate::agent::canonical::ToolIdentity;
 
 mod access;
 mod prefix;
@@ -28,7 +28,7 @@ impl Ingress {
     pub(crate) async fn approved_command_access(
         &self,
         turn: TurnId,
-        request: ToolConfirmationRequest,
+        request: ToolIdentity,
     ) -> Result<sailry_protocol::process::Access, Fault> {
         let (reply, response) = oneshot::channel();
         self.submit(Job::Agent(Box::new(Operation::CommandAccess {
@@ -44,7 +44,7 @@ impl Ingress {
     pub(crate) async fn confirm(
         &self,
         turn: TurnId,
-        request: ToolConfirmationRequest,
+        request: ToolIdentity,
         binding: Option<Binding>,
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
@@ -71,7 +71,7 @@ impl Ingress {
     pub(crate) async fn confirm_connection(
         &self,
         turn: TurnId,
-        request: ToolConfirmationRequest,
+        request: ToolIdentity,
         binding: Binding,
         prepared: Command,
         ssh: Option<sailry_protocol::ssh::Trust>,
@@ -100,7 +100,7 @@ impl Ingress {
     pub(crate) async fn authorize(
         &self,
         turn: TurnId,
-        request: ToolConfirmationRequest,
+        request: ToolIdentity,
         prepared: Option<Command>,
     ) -> Result<RequestId, Fault> {
         let (reply, response) = oneshot::channel();
@@ -118,7 +118,7 @@ impl Ingress {
     pub(crate) async fn approved_connection(
         &self,
         turn: TurnId,
-        request: ToolConfirmationRequest,
+        request: ToolIdentity,
         prepared: Command,
     ) -> Result<(), Fault> {
         let (reply, response) = oneshot::channel();
@@ -145,7 +145,7 @@ impl Ingress {
 pub(super) async fn command_access(
     db: &Connection,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
 ) -> Result<sailry_protocol::process::Access, Fault> {
     active(db, turn).await?;
     super::calls::locate(db, turn, request).await?;
@@ -188,7 +188,7 @@ pub(super) async fn command_access(
 pub(super) async fn begin(
     database: &mut Database,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
     binding: Option<&Binding>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
@@ -198,7 +198,7 @@ pub(super) async fn begin(
 pub(super) async fn begin_for(
     database: &mut Database,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
     binding: Option<&Binding>,
     capture: Capture<'_>,
     events: &broadcast::Sender<EventEnvelope>,
@@ -433,7 +433,7 @@ fn matches_decision(approval: &Approval, decision: &Decision) -> bool {
 pub(super) async fn connection_access(
     db: &Connection,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
     prepared: &Command,
 ) -> Result<(), Fault> {
     active(db, turn).await?;
@@ -474,7 +474,7 @@ pub(super) async fn connection_access(
 pub(super) async fn authorize(
     database: &mut Database,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
     prepared: Option<&Command>,
 ) -> Result<RequestId, Fault> {
     let mut write = Some(database.write().await?);
@@ -681,7 +681,7 @@ async fn put(db: &Connection, approval: &Approval) -> Result<(), Fault> {
 pub(in crate::store) async fn request(
     db: &Connection,
     approval: &Approval,
-) -> Result<ToolConfirmationRequest, Fault> {
+) -> Result<ToolIdentity, Fault> {
     let body: Vec<u8> = {
         let mut statement = db
             .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
@@ -708,11 +708,9 @@ pub(in crate::store) async fn request(
     else {
         return Err(Fault::invalid("approval has no canonical tool call"));
     };
-    Ok(ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: call.name.clone(),
-        function_call_id: call.id.clone(),
-        args: call.arguments.clone(),
+    Ok(ToolIdentity {
+        name: call.name.clone(),
+        id: call.id.clone(),
+        arguments: call.arguments.clone(),
     })
 }

@@ -32,15 +32,13 @@ async fn preserves_canonical_identity() {
     assert_eq!(event.author, review::TOOL);
     let call = event.id.clone();
     append(&mut fixture, event).await.unwrap();
-    fixture.request = ToolConfirmationRequest {
-        acting: None,
-        origin: None,
-        tool_name: review::TOOL.into(),
-        function_call_id: Some(call.clone()),
-        args: serde_json::json!({"prompt":"","input":{"kind":"plan"}}),
+    fixture.request = ToolIdentity {
+        name: review::TOOL.into(),
+        id: Some(call.clone()),
+        arguments: serde_json::json!({"prompt":"","input":{"kind":"plan"}}),
     };
     let mut wrong = fixture.request.clone();
-    wrong.args["prompt"] = serde_json::json!("not the admitted review");
+    wrong.arguments["prompt"] = serde_json::json!("not the admitted review");
     assert!(
         begin(&mut fixture.database, fixture.turn, &wrong, &fixture.events)
             .await
@@ -173,7 +171,7 @@ async fn requires_completed_planning_source() {
 #[tokio::test]
 async fn retains_nonempty_model_prompts() {
     let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan).await;
-    fixture.request.args["prompt"] = serde_json::json!("");
+    fixture.request.arguments["prompt"] = serde_json::json!("");
     let fault = begin(
         &mut fixture.database,
         fixture.turn,

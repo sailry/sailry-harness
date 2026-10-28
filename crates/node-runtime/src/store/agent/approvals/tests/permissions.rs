@@ -61,7 +61,7 @@ mod storage {
             for mode in [WorkMode::Code, WorkMode::Plan] {
                 let fixture = fixture(operation, mode).await;
                 let mut request = fixture.request.clone();
-                request.tool_name = crate::plugins::tools::alias("private-state", "save");
+                request.name = crate::plugins::tools::alias("private-state", "save");
                 let result = crate::store::agent::permissions::source(
                     &fixture.database.connection,
                     fixture.turn,
@@ -72,7 +72,7 @@ mod storage {
                     assert_eq!(result.unwrap_err().code, ErrorCode::PermissionDenied);
                 } else {
                     assert_eq!(result.unwrap(), ApprovalSource::Storage);
-                    request.tool_name = crate::plugins::tools::alias("other-state", "save");
+                    request.name = crate::plugins::tools::alias("other-state", "save");
                     assert_eq!(
                         crate::store::agent::permissions::source(
                             &fixture.database.connection,
@@ -137,7 +137,7 @@ mod storage {
                 .await
                 .unwrap();
                 let mut request = fixture.request.clone();
-                request.tool_name = crate::plugins::tools::alias("private-state", "save");
+                request.name = crate::plugins::tools::alias("private-state", "save");
                 let result =
                     crate::store::agent::permissions::source(db, fixture.turn, &request).await;
                 if mode == WorkMode::Plan {
@@ -151,7 +151,7 @@ mod storage {
                             ApprovalSource::User
                         }
                     );
-                    request.tool_name = crate::plugins::tools::alias("other-state", "save");
+                    request.name = crate::plugins::tools::alias("other-state", "save");
                     assert_eq!(
                         crate::store::agent::permissions::source(db, fixture.turn, &request)
                             .await
@@ -302,7 +302,7 @@ async fn consumes_automatic_authority_once() {
         assert_eq!(approval.state, ApprovalState::Approved);
         assert_eq!(approval.source, source);
         let mut changed = fixture.request.clone();
-        changed.args["text"] = json!("unapproved content");
+        changed.arguments["text"] = json!("unapproved content");
         assert!(
             authorize(&mut fixture.database, fixture.turn, &changed, None)
                 .await
@@ -371,12 +371,10 @@ async fn requires_command_authority() {
             "manage_plugins",
             "unknown_tool",
         ] {
-            let request = ToolConfirmationRequest {
-                acting: None,
-                origin: None,
-                tool_name: tool_name.into(),
-                function_call_id: Some("command".into()),
-                args: json!({"command": "printf content"}),
+            let request = ToolIdentity {
+                name: tool_name.into(),
+                id: Some("command".into()),
+                arguments: json!({"command": "printf content"}),
             };
             let source = crate::store::agent::permissions::source(
                 &fixture.database.connection,
@@ -407,7 +405,7 @@ async fn rejects_planned_management_changes() {
             "manage_plugins",
         ] {
             let mut request = fixture.request.clone();
-            request.tool_name = tool.into();
+            request.name = tool.into();
             assert_eq!(
                 crate::store::agent::permissions::source(
                     &fixture.database.connection,
@@ -431,7 +429,7 @@ async fn scopes_file_writes_to_project_authority() {
             {
                 let tool = crate::plugins::tools::alias("files", "write_file");
                 let mut request = fixture.request.clone();
-                request.tool_name = tool;
+                request.name = tool;
                 let source = crate::store::agent::permissions::source(
                     &fixture.database.connection,
                     fixture.turn,

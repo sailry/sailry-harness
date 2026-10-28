@@ -1,6 +1,6 @@
 //! Session authority uses the admitted revision; command access captures the Node's current policy.
 use super::*;
-use adk_core::ToolConfirmationRequest;
+use crate::agent::canonical::ToolIdentity;
 
 pub(super) async fn config(db: &Connection, turn: TurnId) -> Result<SessionConfig, Fault> {
     let body: Vec<u8> = {
@@ -18,10 +18,10 @@ pub(super) async fn config(db: &Connection, turn: TurnId) -> Result<SessionConfi
 pub(super) async fn source(
     db: &Connection,
     turn: TurnId,
-    request: &ToolConfirmationRequest,
+    request: &ToolIdentity,
 ) -> Result<ApprovalSource, Fault> {
     let config = config(db, turn).await?;
-    let operation = super::plugins::operation(db, turn, &request.tool_name).await?;
+    let operation = super::plugins::operation(db, turn, &request.name).await?;
     if operation == Some(sailry_protocol::tool::Operation::WriteArtifact) {
         let run = super::calls::active(db, turn).await?;
         if super::super::commands::session(db, run.session)
@@ -43,7 +43,7 @@ pub(super) async fn source(
         ));
     }
     if operation == Some(sailry_protocol::tool::Operation::RunCommand) {
-        let access = super::super::sandbox::effective(db, &request.args).await?;
+        let access = super::super::sandbox::effective(db, &request.arguments).await?;
         return Ok(
             if access == sailry_protocol::process::Access::Workspace
                 && crate::process::sandbox::SUPPORTED
@@ -57,7 +57,7 @@ pub(super) async fn source(
         );
     }
     let command_flow =
-        operation.is_none() && super::plugins::command_flow(db, turn, &request.tool_name).await?;
+        operation.is_none() && super::plugins::command_flow(db, turn, &request.name).await?;
     if command_flow && !super::super::sandbox::read(db).await?.enabled {
         return Ok(if config.permission == Permission::Full {
             ApprovalSource::Full
@@ -68,7 +68,7 @@ pub(super) async fn source(
     if !command_flow
         && crate::process::sandbox::SUPPORTED
         && request
-            .args
+            .arguments
             .get("access")
             .is_some_and(|value| value == "unrestricted")
     {
@@ -81,14 +81,13 @@ pub(super) async fn source(
                 | sailry_protocol::tool::Operation::DeleteValue
                 | sailry_protocol::tool::Operation::StorageTransaction
         )
-    ) || operation.is_none()
-        && super::plugins::storage_flow(db, turn, &request.tool_name).await?
+    ) || operation.is_none() && super::plugins::storage_flow(db, turn, &request.name).await?
     {
         // The operation and grant belong to the admitted package. Admission still
         // checks its live availability, scope and exact private KV mutations.
         return Ok(ApprovalSource::Storage);
     }
-    Ok(match (config.permission, request.tool_name.as_str()) {
+    Ok(match (config.permission, request.name.as_str()) {
         (
             Permission::Full,
             "create_worktree" | "register_worktree" | "remove_worktree" | "manage_skills"

@@ -27,7 +27,7 @@ impl Pending {
     pub(super) fn new(
         ingress: &Ingress,
         turn: TurnId,
-        request: &ToolConfirmationRequest,
+        request: &ToolIdentity,
     ) -> Result<Self, Fault> {
         let timeout = adk_core::DEFAULT_TOOL_CONFIRMATION_TIMEOUT;
         #[cfg(any(test, feature = "test-support"))]

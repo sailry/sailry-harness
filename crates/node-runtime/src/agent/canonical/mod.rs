@@ -205,6 +205,16 @@ pub(crate) struct ToolIdentity {
     pub arguments: Value,
 }
 
+impl ToolIdentity {
+    pub(crate) fn new(name: impl Into<String>, arguments: Value) -> Self {
+        Self {
+            id: None,
+            name: name.into(),
+            arguments,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub(crate) enum Operation {

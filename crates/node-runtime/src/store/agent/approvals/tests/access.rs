@@ -31,20 +31,20 @@ async fn request_with_access(fixture: &mut Fixture, access: Option<Access>) -> B
         )
         .await
         .unwrap();
-    fixture.request.tool_name = crate::plugins::tools::alias("commands", "run_command");
-    fixture.request.args = json!({"command":"true"});
+    fixture.request.name = crate::plugins::tools::alias("commands", "run_command");
+    fixture.request.arguments = json!({"command":"true"});
     if let Some(access) = access {
-        fixture.request.args["access"] = json!(access);
+        fixture.request.arguments["access"] = json!(access);
     }
-    fixture.request.function_call_id = Some("command-access".into());
+    fixture.request.id = Some("command-access".into());
     let mut event = AdkEvent::new("command-access");
     event.author = "assistant".into();
     event.set_content(adk_core::Content {
         role: "model".into(),
         parts: vec![adk_core::Part::FunctionCall {
-            id: fixture.request.function_call_id.clone(),
-            name: fixture.request.tool_name.clone(),
-            args: fixture.request.args.clone(),
+            id: fixture.request.id.clone(),
+            name: fixture.request.name.clone(),
+            args: fixture.request.arguments.clone(),
             thought_signature: None,
         }],
     });
@@ -59,7 +59,7 @@ async fn request_with_access(fixture: &mut Fixture, access: Option<Access>) -> B
     .unwrap();
     Binding {
         owner: package.summary.reference(),
-        tool: fixture.request.tool_name.clone(),
+        tool: fixture.request.name.clone(),
         operation: Some(sailry_protocol::tool::Operation::RunCommand),
     }
 }
