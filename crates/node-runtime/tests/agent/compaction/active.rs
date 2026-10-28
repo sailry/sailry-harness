@@ -173,7 +173,7 @@ async fn preserves_context_on_failure() {
                 .status,
             Status::Failed
         );
-        assert!(page.queue.paused);
+        assert!(!page.queue.paused);
         assert!(
             !page
                 .entries
