@@ -1,6 +1,8 @@
 //! Companion outputs use the same confined, non-overwriting save target as uploads.
 use super::*;
 
+pub(crate) const INPUT_BYTES: usize = 10 * 1024 * 1024;
+
 pub(crate) struct Generated {
     target: save::Target,
     path: String,
@@ -21,7 +23,7 @@ impl Files {
             let parts = path::components(&relative, false)?;
             let dir = path::descend(path::root(&root)?, &parts[..parts.len() - 1])?;
             let mut file = open_regular(&dir, parts[parts.len() - 1])?;
-            let limit = adk_core::MAX_INLINE_DATA_SIZE;
+            let limit = INPUT_BYTES;
             let bytes = read_bytes(&mut file, limit + 1, &control)?;
             if bytes.len() > limit {
                 return Err(Fault::invalid("media input exceeds the model inline limit"));

@@ -34,20 +34,12 @@ impl Failure {
         .into()
     }
 
-    pub(super) fn model(error: adk_core::AdkError, initial: bool) -> Self {
-        if initial && error.category == adk_core::ErrorCategory::Unsupported {
-            return Self::unsupported();
-        }
-        let code = error
-            .details
-            .metadata
-            .get("provider_error_code")
-            .and_then(Value::as_str);
+    pub(super) fn model(error: goose_provider_types::errors::ProviderError, initial: bool) -> Self {
         if initial
-            && error
-                .details
-                .upstream_status_code
-                .is_some_and(|status| rejects_capability(status, code))
+            && matches!(
+                error,
+                goose_provider_types::errors::ProviderError::NotImplemented(_)
+            )
         {
             return Self::unsupported();
         }
@@ -89,7 +81,7 @@ fn rejects_capability(status: u16, code: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adk_core::{AdkError, ErrorCategory, ErrorComponent};
+    use goose_provider_types::errors::ProviderError;
 
     #[test]
     fn requires_a_definite_initial_rejection() {
@@ -122,50 +114,23 @@ mod tests {
     #[test]
     fn does_not_guess_from_model_messages() {
         for initial in [true, false] {
-            let failure = AdkError::new(
-                ErrorComponent::Model,
-                ErrorCategory::InvalidInput,
-                "model.gemini.bad_request",
-                "unsupported_capability private credential",
-            )
-            .with_upstream_status(400);
             assert!(matches!(
-                Failure::model(failure, initial),
+                Failure::model(
+                    ProviderError::RequestFailed(
+                        "unsupported_capability private credential".into()
+                    ),
+                    initial
+                ),
                 Failure::Failed(_)
             ));
         }
-        let mut failure = AdkError::new(
-            ErrorComponent::Model,
-            ErrorCategory::InvalidInput,
-            "model.gemini.bad_request",
-            "private credential",
-        )
-        .with_upstream_status(400);
-        failure.details.metadata.insert(
-            "provider_error_code".into(),
-            json!("unsupported_capability"),
-        );
         assert!(matches!(
-            Failure::model(failure, true),
+            Failure::model(ProviderError::NotImplemented("image output".into()), true),
             Failure::Unsupported(_)
         ));
-    }
-
-    #[test]
-    fn never_replays_accepted_model_responses() {
-        for status in [400, 422, 405, 501, 401, 403, 408, 429, 500, 503, 504] {
-            let mut error = AdkError::new(
-                ErrorComponent::Model,
-                ErrorCategory::InvalidInput,
-                "model.fixture.invalid_request",
-                "private credential",
-            )
-            .with_upstream_status(status);
-            error.details.metadata.insert(
-                "provider_error_code".into(),
-                json!("unsupported_capability"),
-            );
-            assert!(matches!(Failure::model(error, false), Failure::Failed(_)));
-        }
+        assert!(matches!(
+            Failure::model(ProviderError::NotImplemented("image output".into()), false),
+            Failure::Failed(_)
+        ));
     }
 }

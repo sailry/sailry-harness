@@ -127,11 +127,6 @@ impl Skills {
         };
         let output = match self.resources.read(&key, &path).await {
             Ok(text) => {
-                self.ingress.agents.context_source(
-                    self.turn,
-                    sailry_protocol::conversation::observation::CategoryKind::Skills,
-                    &text.content,
-                );
                 if self.resource {
                     json!({"skill": key, "path": path, "content": text.content, "directory": text.directory})
                 } else {

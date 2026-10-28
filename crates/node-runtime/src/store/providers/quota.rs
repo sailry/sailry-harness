@@ -1,11 +1,6 @@
-//! Passive observations from this Node's own SIWC model responses.
+//! Stored account snapshots retain their original credential and revision owner.
 use super::{Stored, authentication, configuration};
-use crate::store::{
-    Ingress, Job,
-    database::{Database, record, storage_error},
-};
-use adk_model::openai::ResponseObserver;
-use reqwest::header::HeaderMap;
+use crate::store::database::{Database, record, storage_error};
 use sailry_protocol::{
     Authentication, Command, CredentialRef, Event, EventEnvelope, Fault, NodeId, ProviderId,
     conversation::{
@@ -13,11 +8,7 @@ use sailry_protocol::{
         quota::{Snapshot, Window},
     },
 };
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 use turso::{Connection, transaction::TransactionBehavior};
 
 pub(in crate::store) struct Observation {
@@ -27,90 +18,6 @@ pub(in crate::store) struct Observation {
     observed_ms: u64,
     five_hour: Option<Window>,
     seven_day: Option<Window>,
-}
-
-impl Ingress {
-    pub(crate) fn quota_observer(
-        &self,
-        provider: ProviderId,
-        credential: CredentialRef,
-        revision: u64,
-    ) -> ResponseObserver {
-        observer(self.sender.clone(), provider, credential, revision)
-    }
-}
-
-fn observer(
-    sender: mpsc::Sender<Job>,
-    provider: ProviderId,
-    credential: CredentialRef,
-    revision: u64,
-) -> ResponseObserver {
-    Arc::new(move |headers| {
-        let Some(observed_ms) = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .and_then(|duration| duration.as_millis().try_into().ok())
-        else {
-            return;
-        };
-        let (five_hour, seven_day) = parse(headers);
-        let _ = sender.try_send(Job::ProviderQuota(Observation {
-            provider,
-            credential: credential.clone(),
-            revision,
-            observed_ms,
-            five_hour,
-            seven_day,
-        }));
-    })
-}
-
-fn parse(headers: &HeaderMap) -> (Option<Window>, Option<Window>) {
-    let mut five_hour = None;
-    let mut seven_day = None;
-    let mut five_seen = false;
-    let mut seven_seen = false;
-    for family in ["primary", "secondary"] {
-        let duration = header(headers, &format!("x-codex-{family}-window-minutes"))
-            .and_then(|value| value.parse::<u64>().ok());
-        let (slot, seen) = match duration {
-            Some(300) => (&mut five_hour, &mut five_seen),
-            Some(10080) => (&mut seven_day, &mut seven_seen),
-            _ => continue,
-        };
-        // Two fields claiming the same window are ambiguous, not additive.
-        if *seen {
-            *slot = None;
-            continue;
-        }
-        *seen = true;
-        let Some(used_basis_points) = header(headers, &format!("x-codex-{family}-used-percent"))
-            .and_then(|value| value.parse::<f64>().ok())
-            .filter(|value| value.is_finite() && *value >= 0.0)
-            .map(|value| (value * 100.0).round())
-            .filter(|value| value.is_finite() && *value <= u32::MAX as f64)
-        else {
-            continue;
-        };
-        let reset_at_ms = header(headers, &format!("x-codex-{family}-reset-at"))
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|value| *value > 0)
-            .and_then(|value| value.checked_mul(1000))
-            .filter(|value| *value <= i64::MAX as u64);
-        *slot = Some(Window {
-            used_basis_points: used_basis_points as u32,
-            reset_at_ms,
-        });
-    }
-    (five_hour, seven_day)
-}
-
-fn header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    let values = headers.get_all(name);
-    let mut values = values.iter();
-    let value = values.next()?.to_str().ok()?;
-    values.next().is_none().then_some(value)
 }
 
 pub(in crate::store) fn validate(provider: ProviderId, quota: &Snapshot) -> Result<(), Fault> {

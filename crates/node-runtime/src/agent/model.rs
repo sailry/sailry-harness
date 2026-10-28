@@ -1,18 +1,11 @@
 use super::*;
 mod authorization;
-mod call;
-pub(in crate::agent) use call::{is_summary, summary_retry, summary_scope};
-mod diagnostics;
 mod errors;
 mod factory;
-pub(super) mod history;
-mod legacy;
-pub(super) mod observation;
 pub(super) mod plugin;
 pub(crate) mod registry;
-pub(super) mod timing;
-use adk_core::Llm;
-pub(super) use diagnostics::cause;
+mod request;
+pub(in crate::agent) use errors::fault as error;
 use goose_provider_types::{base::Provider as GdkProvider, model::ModelConfig};
 use sailry_protocol::{
     Authentication, Effort, SessionConfig,
@@ -35,7 +28,7 @@ pub(super) async fn provider(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
     stop: &CancellationToken,
-    _purpose: Purpose,
+    purpose: Purpose,
 ) -> Result<Binding, Fault> {
     let provider = invocation.provider.as_ref().ok_or_else(|| {
         Fault::new(
@@ -43,7 +36,7 @@ pub(super) async fn provider(
             "provider was not configured when this turn was queued",
         )
     })?;
-    binding(
+    let mut binding = binding(
         ingress,
         provider,
         &invocation.turn.config,
@@ -51,7 +44,9 @@ pub(super) async fn provider(
         invocation.child.is_some(),
         stop,
     )
-    .await
+    .await?;
+    binding.provider = request::Model::wrap(binding.provider, ingress, invocation, purpose, stop);
+    Ok(binding)
 }
 
 pub(super) async fn binding(
@@ -119,238 +114,4 @@ pub(super) async fn binding(
         provider: inner,
         config: model_config,
     })
-}
-
-// Only this boundary remains ADK-shaped until the Stage 4 state-machine switch.
-pub(super) async fn build(
-    ingress: &Arc<Ingress>,
-    invocation: &Invocation,
-    stop: &CancellationToken,
-    purpose: Purpose,
-) -> Result<Arc<dyn Llm>, Fault> {
-    let binding = provider(ingress, invocation, stop, purpose).await?;
-    let captured = invocation.provider.as_ref().unwrap();
-    let metadata = captured
-        .models
-        .iter()
-        .find(|model| model.id == invocation.turn.config.model);
-    Ok(Arc::new(attachments::Model {
-        inner: Arc::new(legacy::Model {
-            binding,
-            stop: stop.clone(),
-        }),
-        ingress: ingress.clone(),
-        turn: invocation.turn.id,
-        vision: metadata.is_none_or(|model| model.vision)
-            && captured
-                .binding
-                .as_ref()
-                .and_then(|binding| binding.adapter.as_ref())
-                .is_none_or(|adapter| adapter.capabilities.vision),
-        api: attachments::api(captured, captured.api),
-        window: history::Window::new(captured, &invocation.turn.config.model),
-        tools: metadata.is_none_or(|model| model.tools)
-            && captured
-                .binding
-                .as_ref()
-                .and_then(|binding| binding.adapter.as_ref())
-                .is_none_or(|adapter| adapter.capabilities.tools),
-        stop: stop.clone(),
-        identity: crate::logging::Context {
-            node: Some(ingress.node),
-            session: Some(invocation.turn.session),
-            turn: Some(invocation.turn.id),
-            provider: Some(captured.id),
-            provider_name: Some(captured.name.clone()),
-            model: Some(invocation.turn.config.model.clone()),
-            ..Default::default()
-        },
-    }))
-}
-
-pub(super) async fn configured(
-    ingress: &Arc<Ingress>,
-    provider: &Provider,
-    config: &SessionConfig,
-    session: sailry_protocol::SessionId,
-    delegated: bool,
-    stop: &CancellationToken,
-) -> Result<Arc<dyn Llm>, Fault> {
-    Ok(Arc::new(legacy::Model {
-        binding: binding(ingress, provider, config, session, delegated, stop).await?,
-        stop: stop.clone(),
-    }))
-}
-
-pub(in crate::agent) fn context_overflow(error: &adk_core::AdkError) -> bool {
-    error.code == "model.sailry.context_overflow"
-}
-
-pub(super) fn error(error: impl std::borrow::Borrow<adk_core::AdkError>) -> Fault {
-    use adk_core::{ErrorCategory, ErrorComponent};
-    use sailry_protocol::{FaultDetails, ModelFailure};
-    let error = error.borrow();
-    if let Some(fault) =
-        std::error::Error::source(error).and_then(|source| source.downcast_ref::<Fault>())
-    {
-        return fault.clone();
-    }
-    let mut fault = Fault::new(ErrorCode::Unavailable, error.message.clone());
-    if error.component == ErrorComponent::Model {
-        let provider_code = error
-            .details
-            .metadata
-            .get("provider_error_code")
-            .and_then(serde_json::Value::as_str);
-        let reason = match provider_code {
-            Some("subscription_sharing_usage_limit_exceeded") => ModelFailure::SharedUsageLimit,
-            Some("subscription_sharing_usage_unavailable") => ModelFailure::SharedUsageUnavailable,
-            _ if matches!(
-                error.code,
-                "model.openai_responses.parse"
-                    | "model.openai_compat.parse"
-                    | "model.azure_openai.parse"
-                    | "model.http.decode"
-                    | "model.plugin.invalid_translation"
-            ) =>
-            {
-                ModelFailure::InvalidResponse
-            }
-            _ => match error.category {
-                ErrorCategory::Unauthorized | ErrorCategory::Forbidden => {
-                    ModelFailure::Unauthorized
-                }
-                ErrorCategory::RateLimited => ModelFailure::RateLimited,
-                ErrorCategory::Timeout => ModelFailure::Timeout,
-                _ => ModelFailure::Request,
-            },
-        };
-        fault.details = Some(FaultDetails::ModelRequest { reason });
-    }
-    fault
-}
-
-#[cfg(test)]
-mod error_tests {
-    use super::*;
-    use adk_core::{AdkError, ErrorCategory, ErrorComponent};
-
-    #[test]
-    fn retains_status_and_native_message() {
-        use sailry_protocol::{FaultDetails, ModelFailure};
-        for (status, category, reason) in [
-            (400, ErrorCategory::InvalidInput, ModelFailure::Request),
-            (401, ErrorCategory::Unauthorized, ModelFailure::Unauthorized),
-            (429, ErrorCategory::RateLimited, ModelFailure::RateLimited),
-            (408, ErrorCategory::Timeout, ModelFailure::Timeout),
-            (503, ErrorCategory::Unavailable, ModelFailure::Request),
-        ] {
-            let mut failure = AdkError::new(
-                ErrorComponent::Model,
-                category,
-                "model.openai_compat.api_error",
-                "Provider rejected the current input",
-            )
-            .with_upstream_status(status)
-            .with_provider("private provider");
-            failure.details.request_id = Some("private request".into());
-            failure
-                .details
-                .metadata
-                .insert("body".into(), serde_json::json!("private metadata"));
-            let fault = error(&failure);
-            assert_eq!(fault.details, Some(FaultDetails::ModelRequest { reason }));
-            assert_eq!(fault.message, "Provider rejected the current input");
-            assert!(!fault.message.contains("private"));
-            let mut entry = crate::logging::Entry::new(
-                crate::logging::Area::Model,
-                crate::logging::Phase::Failed,
-            );
-            diagnostics::cause(&mut entry, &failure);
-            assert_eq!(entry.upstream_status, Some(u64::from(status)));
-            assert_eq!(entry.cause_code, Some("model.openai_compat.api_error"));
-        }
-    }
-
-    #[test]
-    fn preserves_shared_usage_codes() {
-        use sailry_protocol::{FaultDetails, ModelFailure};
-        for (code, reason) in [
-            (
-                "subscription_sharing_usage_limit_exceeded",
-                ModelFailure::SharedUsageLimit,
-            ),
-            (
-                "subscription_sharing_usage_unavailable",
-                ModelFailure::SharedUsageUnavailable,
-            ),
-        ] {
-            let mut failure = AdkError::new(
-                ErrorComponent::Model,
-                ErrorCategory::Forbidden,
-                "model.openai_responses.ws_error",
-                "Provider rejected the current input",
-            );
-            failure
-                .details
-                .metadata
-                .insert("provider_error_code".into(), code.into());
-            let fault = error(failure);
-            assert_eq!(fault.details, Some(FaultDetails::ModelRequest { reason }));
-            assert_eq!(fault.message, "Provider rejected the current input");
-        }
-    }
-
-    #[test]
-    fn preserves_execution_and_source_faults() {
-        use sailry_protocol::FaultDetails;
-        let failure = AdkError::agent("Max iterations (100) exceeded");
-        let fault = error(failure);
-        assert_eq!(fault.message, "Max iterations (100) exceeded");
-        assert!(fault.details.is_none());
-        for details in [
-            FaultDetails::ModelRecovery {
-                reason: sailry_protocol::conversation::recovery::Stop::RateLimited,
-            },
-            FaultDetails::StorageConflict,
-        ] {
-            let mut fault = Fault::new(ErrorCode::Busy, "Original failure");
-            fault.details = Some(details);
-            let failure = AdkError::model("Wrapper message").with_source(fault.clone());
-            assert_eq!(error(failure), fault);
-        }
-    }
-
-    #[test]
-    fn identifies_parse_failures_by_code() {
-        let failure = AdkError::new(
-            ErrorComponent::Model,
-            ErrorCategory::Internal,
-            "model.openai_responses.parse",
-            "Malformed upstream event",
-        );
-        assert_eq!(
-            error(failure).details,
-            Some(sailry_protocol::FaultDetails::ModelRequest {
-                reason: sailry_protocol::ModelFailure::InvalidResponse,
-            })
-        );
-    }
-
-    #[test]
-    fn preserves_native_text() {
-        for message in [
-            "",
-            "  upstream failure\nsecond line  ",
-            "{\"error\":\"rejected\"}",
-        ] {
-            let failure = AdkError::new(
-                ErrorComponent::Model,
-                ErrorCategory::Unavailable,
-                "model.fixture.failed",
-                message,
-            );
-            assert_eq!(error(failure).message, message);
-        }
-    }
 }

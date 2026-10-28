@@ -78,7 +78,7 @@ pub(super) fn safe(value: &str, secrets: &[Secret]) -> String {
     value
 }
 
-pub(super) fn fault(error: ProviderError) -> Fault {
+pub(in crate::agent) fn fault(error: ProviderError) -> Fault {
     use sailry_protocol::{ErrorCode, FaultDetails, ModelFailure};
     let code = if matches!(error, ProviderError::NotConfigured) {
         ErrorCode::NotConfigured

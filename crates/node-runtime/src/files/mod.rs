@@ -10,7 +10,7 @@ mod directory;
 pub(crate) mod edit;
 mod lines;
 pub(crate) use lines::bounded as index_text;
-mod media;
+pub(crate) mod media;
 pub(crate) mod mutations;
 pub(crate) mod notebook;
 pub(crate) mod path;

@@ -3,7 +3,6 @@ use super::*;
 use crate::providers::media::{ImageRoute, image_api, image_route, supports_api};
 use reqwest::{Client, Response};
 mod image;
-mod native;
 
 const IMAGE_BYTES: usize = 64 * 1024 * 1024;
 const VIDEO_BYTES: usize = 512 * 1024 * 1024;
@@ -42,6 +41,10 @@ impl Media {
             }
             None
         };
+        // GDK does not expose native generated image blocks on these routes.
+        if matches!(route, Some(ImageRoute::Native | ImageRoute::Authorized)) {
+            return Err(Failure::unsupported());
+        }
         let root = self.ingress.worktree_root(self.worktree).await?;
         let limit = if self.kind == Kind::Image {
             IMAGE_BYTES
@@ -53,16 +56,7 @@ impl Media {
             .files
             .prepare_media(root, path, limit as u64)
             .await?;
-        let generated = if matches!(route, Some(ImageRoute::Native | ImageRoute::Authorized)) {
-            let (bytes, usage) = native::generate(self, prompt).await?;
-            Generated::File {
-                bytes,
-                job: None,
-                usage,
-            }
-        } else {
-            self.http(prompt, route).await?
-        };
+        let generated = self.http(prompt, route).await?;
         let (bytes, job, reported_usage) = match generated {
             Generated::File { bytes, job, usage } => (bytes, job, usage),
             Generated::Failed { job } => {

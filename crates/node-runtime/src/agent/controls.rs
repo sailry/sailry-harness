@@ -17,8 +17,6 @@ struct Active {
     python: Vec<crate::python::Access>,
     finishing: bool,
     timeline: Arc<super::observation::Timeline>,
-    sources: Arc<Mutex<Vec<super::model::observation::Source>>>,
-    observations: Vec<Arc<Mutex<super::model::observation::Capture>>>,
     halted: Option<Fault>,
 }
 
@@ -61,46 +59,10 @@ impl Controls {
                 scratch: None,
                 python: Vec::new(),
                 finishing: false,
-                observations: Vec::new(),
                 timeline: super::observation::Timeline::new(),
-                sources: Default::default(),
                 halted: None,
             },
         );
-    }
-
-    pub(super) fn sources(
-        &self,
-        turn: TurnId,
-    ) -> Arc<Mutex<Vec<super::model::observation::Source>>> {
-        self.active
-            .lock()
-            .unwrap()
-            .get(&turn)
-            .map(|active| active.sources.clone())
-            .unwrap_or_default()
-    }
-
-    pub(super) fn context_source(
-        &self,
-        turn: TurnId,
-        kind: sailry_protocol::conversation::observation::CategoryKind,
-        text: &str,
-    ) {
-        if text.is_empty() {
-            return;
-        }
-        let sources = self.sources(turn);
-        let mut sources = sources.lock().unwrap();
-        if !sources
-            .iter()
-            .any(|source| source.kind == kind && source.text == text)
-        {
-            sources.push(super::model::observation::Source {
-                kind,
-                text: text.into(),
-            });
-        }
     }
 
     pub(super) fn start_timing(&self, turn: TurnId) {
@@ -115,28 +77,6 @@ impl Controls {
             .unwrap()
             .get(&turn)
             .map(|active| active.timeline.clone())
-    }
-
-    pub(super) fn observe_model(
-        &self,
-        turn: TurnId,
-        capture: Arc<Mutex<super::model::observation::Capture>>,
-    ) {
-        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
-            active.observations.push(capture);
-        }
-    }
-
-    pub(super) fn take_observations(
-        &self,
-        turn: TurnId,
-    ) -> Vec<Arc<Mutex<super::model::observation::Capture>>> {
-        self.active
-            .lock()
-            .unwrap()
-            .get_mut(&turn)
-            .map(|active| std::mem::take(&mut active.observations))
-            .unwrap_or_default()
     }
 
     pub fn bind_media(&self, turn: TurnId, binding: super::media::Binding) {

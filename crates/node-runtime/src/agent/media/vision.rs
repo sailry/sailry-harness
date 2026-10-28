@@ -1,5 +1,9 @@
 use super::*;
-use adk_core::{Content, GenerateContentConfig, LlmRequest, LlmResponse, Part};
+use base64::Engine as _;
+use goose_provider_types::{
+    base::collect_stream,
+    conversation::message::{Message, MessageContentBlock},
+};
 use sailry_protocol::SessionConfig;
 
 impl Media {
@@ -19,11 +23,8 @@ impl Media {
         let bytes = match source {
             Source::Attachment(id) => {
                 let attachment = self.ingress.attachment(self.turn, id).await?;
-                if attachment.spec.size > adk_core::MAX_INLINE_DATA_SIZE as u64 {
-                    return Err(sailry_protocol::Fault::invalid(
-                        "image exceeds the model inline limit",
-                    )
-                    .into());
+                if attachment.spec.size > crate::files::media::INPUT_BYTES as u64 {
+                    return Err(Fault::invalid("image exceeds the model inline limit").into());
                 }
                 self.ingress
                     .attachment_bytes(attachment, self.stop.clone())
@@ -48,74 +49,71 @@ impl Media {
                 | file_format::FileFormat::Webp
                 | file_format::FileFormat::GraphicsInterchangeFormat
         ) {
-            return Err(sailry_protocol::Fault::invalid("unsupported image input format").into());
+            return Err(Fault::invalid("unsupported image input format").into());
         }
         let config = configuration(&self.config, &self.model);
-        let model = model::configured(
+        let mut binding = model::binding(
             &self.ingress,
             provider,
             &config,
             self.session
                 .parse()
-                .map_err(|_| sailry_protocol::Fault::invalid("invalid media session"))?,
+                .map_err(|_| Fault::invalid("invalid media session"))?,
             true,
             &self.stop,
         )
         .await?;
-        let mut content = Content::new("user").with_text(prompt);
-        content.parts.push(Part::InlineData {
-            mime_type: format.media_type().into(),
-            data: bytes,
-            annotations: None,
-            uri: None,
-        });
-        let request = LlmRequest {
-            model: config.model.clone(),
-            contents: vec![content],
-            config: Some(GenerateContentConfig {
-                max_output_tokens: Some(
-                    metadata.map_or(8192, |model| model.output.min(8192)) as i32
-                ),
-                ..Default::default()
-            }),
-            tools: Default::default(),
-            previous_response_id: None,
+        binding.config.max_tokens =
+            Some(metadata.map_or(8192, |model| model.output.min(8192)) as i32);
+        let messages = [Message::user().with_text(prompt).with_image(
+            base64::engine::general_purpose::STANDARD.encode(bytes),
+            format.media_type(),
+        )];
+        let started = Instant::now();
+        let responses = tokio::select! { biased;
+            _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "vision request was cancelled").into()),
+            result = binding.provider.stream(&binding.config, "", &messages, &[]) => result.map_err(|error| Failure::model(error, true))?,
         };
-        let mut responses = model::timing::generate(
-            &model,
-            request,
-            false,
-            "vision",
-            &self.identity,
-            self.stop.clone(),
+        let (response, mut usage) = tokio::select! { biased;
+            _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "vision request was cancelled").into()),
+            result = collect_stream(responses) => result.map_err(|error| Failure::model(error, false))?,
+        };
+        usage
+            .stats
+            .get_or_insert_with(Default::default)
+            .elapsed_ms
+            .get_or_insert_with(|| {
+                u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+            });
+        let native = serde_json::to_value(&usage).ok();
+        self.record_usage(
+            Some(crate::agent::engine::history::provider_usage(&usage)?),
+            usage
+                .stats
+                .as_ref()
+                .map(|stats| crate::agent::canonical::Timing {
+                    elapsed_us: stats.elapsed_ms.map(|value| value.saturating_mul(1000)),
+                    first_token_us: stats
+                        .time_to_first_token_ms
+                        .map(|value| value.saturating_mul(1000)),
+                }),
         )
-        .await
-        .map_err(|error| Failure::model(error, true))?;
-        let mut text = String::new();
-        let mut usage = None;
-        let mut timing = None;
-        let mut completed = false;
-        let mut received = false;
-        while let Some(response) = responses.next().await {
-            let response = response.map_err(|error| Failure::model(error, !received))?;
-            received = true;
-            append(&mut text, &response)?;
-            completed |= !response.partial && response.turn_complete;
-            if response.usage_metadata.is_some() {
-                usage = response.usage_metadata;
-                timing = response.provider_metadata;
-            }
+        .await?;
+        if response
+            .content
+            .iter()
+            .any(|part| matches!(part, MessageContentBlock::Error(_)))
+        {
+            return Err(Fault::new(ErrorCode::Unavailable, "vision request failed").into());
         }
-        self.record_usage(usage.clone(), timing).await?;
-        if !completed {
-            return Err(
-                Fault::new(ErrorCode::Unavailable, "vision response was not completed").into(),
-            );
+        let text = response.as_concat_text();
+        if text.len() > 64 * 1024 {
+            return Err(Fault::invalid("vision response exceeds the size limit").into());
         }
         if text.is_empty() {
             return Err(Fault::new(ErrorCode::Unavailable, "vision model returned no text").into());
         }
-        Ok(json!({"text":text,"usage":usage}))
+        Ok(json!({"text":text,"usage":native}))
     }
 }
 
@@ -143,27 +141,6 @@ pub(super) fn configuration(
         .effort
         .unwrap_or_else(|| metadata.map_or(Default::default(), |model| model.default_effort));
     config
-}
-
-fn append(text: &mut String, response: &LlmResponse) -> Result<(), Fault> {
-    if response.error_code.is_some()
-        || response.error_message.is_some()
-        || response.interrupted
-        || response.provider_metadata.as_ref().is_some_and(|metadata| {
-            matches!(
-                metadata["openai"]["status"].as_str(),
-                Some("incomplete" | "failed" | "cancelled")
-            )
-        })
-    {
-        return Err(Fault::new(ErrorCode::Unavailable, "vision request failed"));
-    }
-    if !super::super::text::append(text, response, 64 * 1024) {
-        return Err(sailry_protocol::Fault::invalid(
-            "vision response exceeds the size limit",
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -277,24 +254,5 @@ mod tests {
         assert_eq!(config.model, selected.model);
         assert_eq!(config.effort, Effort::Default);
         assert_eq!(config.credential, selected.provider.credential);
-    }
-
-    #[test]
-    fn replaces_authoritative_stream_content() {
-        let mut text = String::new();
-        let mut response = LlmResponse {
-            content: Some(Content::new("model").with_text("A")),
-            partial: true,
-            ..Default::default()
-        };
-        append(&mut text, &response).unwrap();
-        response.partial = false;
-        response.content = Some(Content::new("model").with_text("Answer"));
-        response.provider_metadata = Some(json!({"content_complete":true}));
-        append(&mut text, &response).unwrap();
-        assert_eq!(text, "Answer");
-        response.provider_metadata = Some(json!({"openai":{"status":"failed"}}));
-        assert!(append(&mut text, &response).is_err());
-        assert_eq!(text, "Answer");
     }
 }

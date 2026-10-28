@@ -1,6 +1,9 @@
-//! Tool-free plugin requests reuse ADK model adapters, credentials and account auth.
+//! Tool-free plugin requests use GDK and the Node's frozen authorization.
 use super::*;
-use adk_core::{Content, FinishReason, LlmRequest, Part};
+use goose_provider_types::{
+    base::collect_stream,
+    conversation::message::{Message, MessageContentBlock},
+};
 use sailry_protocol::{SessionConfig, conversation::Provider, plugin::Text};
 
 async fn responsive<T>(future: impl std::future::Future<Output = T>) -> Result<T, Fault> {
@@ -16,7 +19,7 @@ pub(crate) async fn generate(
     prompt: String,
     stop: &CancellationToken,
 ) -> Result<Text, Fault> {
-    let model = model::configured(
+    let binding = model::binding(
         ingress,
         provider,
         config,
@@ -25,63 +28,49 @@ pub(crate) async fn generate(
         stop,
     )
     .await?;
-    let request = LlmRequest {
-        model: config.model.clone(),
-        contents: vec![Content::new("user").with_text(prompt)],
-        ..LlmRequest::new(config.model.clone(), vec![])
+    let messages = [Message::user().with_text(prompt)];
+    let stream = tokio::select! { biased;
+        _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin model request was cancelled")),
+        stream = responsive(binding.provider.stream(&binding.config, "", &messages, &[])) => stream?.map_err(model::error)?,
     };
-    let mut stream = responsive(model.generate_content(request, true))
-        .await?
-        .map_err(model::error)?;
-    let mut text = String::new();
-    let mut tokens = 0;
-    let mut complete = false;
-    // Active reasoning is progress, not a timeout. Only a stalled stream expires.
-    while let Some(response) = responsive(stream.next()).await? {
-        let response = response.map_err(model::error)?;
-        if response.interrupted || response.error_code.is_some() || response.error_message.is_some()
-        {
-            return Err(Fault::new(
-                ErrorCode::Unavailable,
-                "plugin model response failed",
-            ));
+    // GDK owns delta assembly. Only a stalled stream expires; reasoning remains progress.
+    let responses = futures::stream::unfold(stream, |mut stream| async move {
+        match responsive(stream.next()).await {
+            Ok(Some(response)) => Some((response, stream)),
+            Ok(None) => None,
+            Err(error) => Some((
+                Err(goose_provider_types::errors::ProviderError::NetworkError(
+                    error.message,
+                )),
+                stream,
+            )),
         }
-        if let Some(content) = &response.content {
-            for part in &content.parts {
-                match part {
-                    Part::Text { .. } | Part::Thinking { .. } => {}
-                    _ => {
-                        return Err(Fault::new(
-                            ErrorCode::Unavailable,
-                            "plugin model returned non-text output",
-                        ));
-                    }
-                }
-            }
-        }
-        if !super::text::append(&mut text, &response, 64 * 1024) {
-            return Err(Fault::new(
-                ErrorCode::Unavailable,
-                "plugin model response exceeds the size limit",
-            ));
-        }
-        if let Some(usage) = response.usage_metadata {
-            tokens = usage.total_token_count.max(0) as u64;
-        }
-        if response.turn_complete {
-            if response.finish_reason != Some(FinishReason::Stop) {
-                return Err(Fault::new(
-                    ErrorCode::Unavailable,
-                    "plugin model response was not completed",
-                ));
-            }
-            complete = true;
-            // The terminal event already carries usage. A provider may keep its SSE
-            // connection open after completion; socket EOF is not a turn boundary.
-            break;
-        }
+    });
+    let (message, usage) = tokio::select! { biased;
+        _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin model request was cancelled")),
+        response = collect_stream(Box::pin(responses)) => response.map_err(model::error)?,
+    };
+    if message.content.iter().any(|part| {
+        !matches!(
+            part,
+            MessageContentBlock::Text(_)
+                | MessageContentBlock::Thinking(_)
+                | MessageContentBlock::RedactedThinking(_)
+        )
+    }) {
+        return Err(Fault::new(
+            ErrorCode::Unavailable,
+            "plugin model returned non-text output",
+        ));
     }
-    if !complete || text.trim().is_empty() {
+    let text = message.as_concat_text();
+    if text.len() > 64 * 1024 {
+        return Err(Fault::new(
+            ErrorCode::Unavailable,
+            "plugin model response exceeds the size limit",
+        ));
+    }
+    if text.trim().is_empty() {
         return Err(Fault::new(
             ErrorCode::Unavailable,
             "plugin model returned no text",
@@ -90,7 +79,11 @@ pub(crate) async fn generate(
     Ok(Text {
         text,
         model: config.model.clone(),
-        tokens,
+        tokens: usage
+            .usage
+            .total_tokens
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or(0),
     })
 }
 

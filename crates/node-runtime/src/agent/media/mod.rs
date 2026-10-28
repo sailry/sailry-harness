@@ -1,4 +1,4 @@
-//! Provider execution and artifacts retain Code Pi d9b56405 behavior and ADK history.
+//! Provider execution and artifacts retain Code Pi d9b56405 behavior and Node history.
 use super::*;
 use sailry_protocol::{
     Command, NodeId, Output, Request, SessionId, WorktreeId,
