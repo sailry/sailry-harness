@@ -8,7 +8,7 @@ use goose_provider_types::{
     errors::ProviderError,
     model::ModelConfig,
 };
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::HeaderValue;
 use sailry_protocol::SessionId;
 use serde_json::json;
 

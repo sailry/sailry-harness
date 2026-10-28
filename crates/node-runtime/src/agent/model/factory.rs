@@ -195,7 +195,7 @@ pub(super) fn native(
     let path = endpoint.path().trim_matches('/');
     let inner: Arc<dyn GdkProvider> = match provider.api {
         ModelApi::Responses => {
-            let path = if path.ends_with("responses") {
+            let path: String = if path.ends_with("responses") {
                 path.into()
             } else {
                 format!("{}/responses", path.trim_end_matches('/'))

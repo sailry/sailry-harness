@@ -1,7 +1,9 @@
 use super::*;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use goose_provider_types::{model::ModelConfig, thinking::GEMINI_THOUGHT_SIGNATURE_KEY};
-use rmcp::model::{CallToolRequestParams, CallToolResult, Content as ToolContent, ErrorData, Tool};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, ContentBlock as ToolContent, ErrorData, Tool,
+};
 use serde_json::Value;
 
 pub(super) fn convert(
@@ -178,7 +180,7 @@ fn append(blocks: &mut Vec<MessageContentBlock>, part: Part) -> adk_core::Result
             if mime_type.starts_with("image/") {
                 blocks.push(MessageContentBlock::image(data, mime_type));
             } else {
-                blocks.push(MessageContentBlock::document(data, mime_type));
+                blocks.push(MessageContentBlock::document(data, mime_type, None));
             }
         }
         Part::FileData {
@@ -201,6 +203,7 @@ fn append(blocks: &mut Vec<MessageContentBlock>, part: Part) -> adk_core::Result
             resource
                 .mime_type
                 .unwrap_or_else(|| "application/octet-stream".into()),
+            None,
         )),
         Part::ServerToolCall { .. } | Part::ServerToolResponse { .. } => {}
         _ => {}
@@ -219,8 +222,11 @@ fn call(
         .cloned()
         .map(|arguments| CallToolRequestParams::new(name).with_arguments(arguments))
         .ok_or_else(|| ErrorData::invalid_params("tool arguments must be an object", Some(args)));
-    let metadata =
-        signature.map(|signature| [(GEMINI_THOUGHT_SIGNATURE_KEY.into(), json!(signature))].into());
+    let metadata = signature.map(|signature| {
+        [(GEMINI_THOUGHT_SIGNATURE_KEY.into(), json!(signature))]
+            .into_iter()
+            .collect()
+    });
     MessageContentBlock::tool_request_with_metadata(
         id.unwrap_or_default(),
         tool_call,

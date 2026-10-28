@@ -130,5 +130,5 @@ pub(super) fn fingerprint(
 ) -> Result<String, Fault> {
     let bytes = serde_json::to_vec(&(provider, config, revision))
         .map_err(|_| Fault::invalid("captured model configuration is invalid"))?;
-    Ok(blake3::hash(&bytes).to_hex().into())
+    Ok(blake3::hash(&bytes).to_hex().to_string())
 }
