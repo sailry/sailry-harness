@@ -187,6 +187,7 @@ pub(in crate::store) async fn terminal(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::canonical::{self, Record};
     use sailry_protocol::{
         TurnId,
         conversation::compaction::{Reason, Source, Stage},
@@ -223,14 +224,19 @@ mod tests {
             ),
             ("system", serde_json::to_string(&failure).unwrap(), true),
         ] {
-            let mut event = adk_core::Event::new(turn.to_string());
-            event.author = author.into();
-            event
-                .provider_metadata
-                .insert("sailry_compaction_failure".into(), value);
+            let mut record = Record::new(
+                turn,
+                canonical::Kind::Message(canonical::Message::default()),
+            );
+            record.provenance.author = author.into();
+            let mut body = serde_json::to_value(record).unwrap();
+            body["metadata"]["compaction"] = serde_json::json!({
+                "failure": serde_json::from_str::<serde_json::Value>(&value)
+                    .unwrap_or_else(|_| serde_json::Value::String(value)),
+            });
             db.execute(
                 "INSERT INTO agent_events(turn,body) VALUES(?1,?2)",
-                params![turn.to_string(), encode(&event).unwrap()],
+                params![turn.to_string(), encode(&body).unwrap()],
             )
             .await
             .unwrap();

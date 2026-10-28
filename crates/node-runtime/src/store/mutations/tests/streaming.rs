@@ -1,16 +1,34 @@
 use super::*;
-use crate::store::{Job, agent::Operation};
-use adk_core::{Content, Event};
+use crate::{
+    agent::canonical::{Block, BlockKind, Kind, Message, Record, Role},
+    store::{Job, agent::Operation},
+};
+use goose_provider_types::conversation::message::Message as GdkMessage;
 use sailry_protocol::conversation::{Change, Part, Status};
 use tokio::sync::oneshot;
 
-fn event(id: &str, text: &str, partial: bool) -> Event {
-    let mut event = Event::new("stream-fixture");
-    event.id = id.into();
-    event.author = "assistant".into();
-    event.set_content(Content::new("model").with_text(text));
-    event.llm_response.partial = partial;
-    event
+fn record(turn: TurnId, id: &str, text: &str) -> Record {
+    let mut record = Record::new(
+        turn,
+        Kind::Message(Message {
+            role: Role::Assistant,
+            part_count: 1,
+            content: vec![Block {
+                index: 0,
+                kind: BlockKind::Text { text: text.into() },
+            }],
+            ..Default::default()
+        }),
+    );
+    record.id = id.into();
+    record.provenance.author = "assistant".into();
+    record
+}
+
+fn draft(id: &str, text: &str) -> GdkMessage {
+    let mut message = GdkMessage::assistant().with_text(text);
+    message.id = Some(id.into());
+    message
 }
 
 async fn session(client: &Client) -> Session {
@@ -50,8 +68,8 @@ async fn append(
     fixture: &Fixture,
     session: SessionId,
     turn: TurnId,
-    event: Event,
-) -> oneshot::Receiver<adk_core::Result<()>> {
+    event: Record,
+) -> oneshot::Receiver<Result<(), Fault>> {
     let (reply, response) = oneshot::channel();
     fixture
         .store
@@ -166,7 +184,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
             &fixture,
             session.id,
             turn.id,
-            event("prefix", "Persisted prefix", false),
+            record(turn.id, "prefix", "Persisted prefix"),
         )
         .await;
         assert!(
@@ -181,7 +199,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
                 fixture
                     .store
                     .ingress
-                    .partial(session.id, turn.id, event("answer", text, true)),
+                    .partial(session.id, turn.id, draft("answer", text)),
             )
             .await
             .expect("partial publication must bypass the blocked storage worker")
@@ -205,11 +223,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
             fixture
                 .store
                 .ingress
-                .partial(
-                    foreign.id,
-                    turn.id,
-                    event("private", "private answer", true),
-                )
+                .partial(foreign.id, turn.id, draft("private", "private answer"))
                 .await
                 .unwrap_err()
                 .code,
@@ -226,7 +240,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
             &fixture,
             session.id,
             turn.id,
-            event("answer", "first second", false),
+            record(turn.id, "answer", "first second"),
         )
         .await
         .await
@@ -236,7 +250,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
         fixture
             .store
             .ingress
-            .partial(session.id, turn.id, event("answer", "late", true))
+            .partial(session.id, turn.id, draft("answer", "late"))
             .await
             .unwrap();
         let mut committed = client.subscribe_conversation(session.id).await.unwrap();
@@ -253,7 +267,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
         fixture
             .store
             .ingress
-            .partial(session.id, turn.id, event("after", "late terminal", true))
+            .partial(session.id, turn.id, draft("after", "late terminal"))
             .await
             .unwrap();
         fixture.store.ingress.agents.finish(turn.id);
@@ -283,7 +297,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
             ]
         );
         let turn_id = turn.id;
-        let persisted: Vec<Event> = fixture
+        let persisted: Vec<Record> = fixture
             .store
             .ingress
             .with_storage(move |database| {
@@ -320,12 +334,10 @@ async fn bypasses_blocked_storage_and_file_workers() {
                 .collect::<Vec<_>>(),
             vec!["prefix", "answer"]
         );
-        assert!(persisted.iter().all(|event| !event.llm_response.partial));
+        assert!(persisted.iter().all(|record| record.turn == turn.id));
         assert_eq!(
-            persisted[1].content().unwrap().parts,
-            vec![adk_core::Part::Text {
-                text: "first second".into()
-            }]
+            serde_json::to_value(&persisted[1].message().unwrap().content).unwrap(),
+            serde_json::json!([{"index":0,"type":"text","text":"first second"}])
         );
         let Output::QueuedTurn(cancelled) = client
             .execute(client.prepare(Command::QueueTurn {
@@ -352,11 +364,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
         fixture
             .store
             .ingress
-            .partial(
-                session.id,
-                cancelled.id,
-                event("cancelled", "before stop", true),
-            )
+            .partial(session.id, cancelled.id, draft("cancelled", "before stop"))
             .await
             .unwrap();
         client
@@ -366,11 +374,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
         fixture
             .store
             .ingress
-            .partial(
-                session.id,
-                cancelled.id,
-                event("late-stop", "after stop", true),
-            )
+            .partial(session.id, cancelled.id, draft("late-stop", "after stop"))
             .await
             .unwrap();
         let mut stopping = client.subscribe_conversation(session.id).await.unwrap();
@@ -404,7 +408,7 @@ async fn bypasses_blocked_storage_and_file_workers() {
         fixture
             .store
             .ingress
-            .partial(session.id, turn.id, event("removed", "hidden", true))
+            .partial(session.id, turn.id, draft("removed", "hidden"))
             .await
             .unwrap();
         let rejection = match client.subscribe_conversation(session.id).await {

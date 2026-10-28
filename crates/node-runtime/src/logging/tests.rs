@@ -93,19 +93,6 @@ fn records_safe_model_causes_without_empty_fields() {
     .unwrap();
     let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
     tracing::dispatcher::with_default(&dispatch, || {
-        let mut error = adk_core::AdkError::new(
-            adk_core::ErrorComponent::Model,
-            adk_core::ErrorCategory::RateLimited,
-            "model.fixture.rate_limited",
-            "PRIVATE_MESSAGE",
-        )
-        .with_upstream_status(429)
-        .with_request_id("PRIVATE_REQUEST")
-        .with_provider("PRIVATE_PROVIDER");
-        error
-            .details
-            .metadata
-            .insert("body".into(), json!("PRIVATE_BODY"));
         let mut entry = Entry::new(Area::Model, Phase::Failed);
         entry.operation = Some("conversation");
         entry.stage = Some("request");
@@ -125,10 +112,10 @@ fn records_safe_model_causes_without_empty_fields() {
         entry.parse_event = Some("response.output_text.delta".into());
         entry.parse_line = Some(7);
         entry.parse_column = Some(11);
-        entry.cause_code = Some(error.code);
+        entry.cause_code = Some("model.fixture.rate_limited");
         entry.cause_component = Some("model");
         entry.cause_category = Some("rate_limited");
-        entry.upstream_status = error.details.upstream_status_code.map(u64::from);
+        entry.upstream_status = Some(429);
         entry.emit();
     });
     drop(worker);
