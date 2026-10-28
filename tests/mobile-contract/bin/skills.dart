@@ -5,7 +5,7 @@ import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' as approvals;
 import 'questions.dart' as questions;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, detail, execute, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -77,7 +77,7 @@ Future<void> main() async {
     calls.length == 3,
     'skill loads and references precede the user question',
   );
-  final loaded = approvals.part(waiting, calls[0]['response'])['result'];
+  final loaded = (await detail(updates, calls[0]))['result'];
   final body =
       '---\nname: analysis\ndescription: Analyze project data\nallowed-tools: run_command\n---\nLiteral {missing_state}\n${List.filled(1500, '完整内容🙂').join()}\nComplete end\n';
   check(
@@ -90,7 +90,7 @@ Future<void> main() async {
     'skill resource path belongs to the execution Node',
   );
   check(
-    approvals.part(waiting, calls[1]['response'])['result']['content'] ==
+    (await detail(updates, calls[1]))['result']['content'] ==
         'Guide 1.0.0 中文 🙂',
     'resource reads use installed bytes, not modified source',
   );
@@ -129,10 +129,7 @@ Future<void> main() async {
         Platform.environment['SAILRY_RUN_TOOL'],
     'scripts use the existing command tool',
   );
-  final command = approvals.part(
-    pendingScript,
-    scriptCall['source'],
-  )['arguments']['command'];
+  final command = (await detail(updates, scriptCall))['arguments']['command'];
   check(
     command.contains(loaded['directory']),
     'approved command targets the installed skill directory',
@@ -187,17 +184,12 @@ Future<void> main() async {
     'all skill interactions use shared canonical calls',
   );
   check(
-    approvals.part(
-          finished,
-          completed[3]['response'],
-        )['result']['data']['stdout']['text'] ==
+    (await detail(updates, completed[3]))['result']['data']['stdout']['text'] ==
         'script output 中文 🙂',
     'approved script returns real execution output',
   );
   check(
-    approvals.denied(
-      approvals.part(finished, completed[4]['response'])['result'],
-    ),
+    approvals.denied((await detail(updates, completed[4]))['result']),
     'denial does not claim execution',
   );
   final written = await execute(connection, 'read_file', {

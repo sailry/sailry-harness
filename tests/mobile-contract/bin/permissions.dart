@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' show hasPending, pending, part;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, detailAt, execute, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -136,21 +136,22 @@ Future<void> main() async {
               : hasPending(snapshot)),
     );
     final workspace = waiting['snapshot']['page']['approvals'][1];
+    final workspaceDetail = await detailAt(updates, waiting, workspace);
     check(
       workspace['source'] == 'sandbox' &&
           workspace['state'] == 'approved' &&
           workspace['access'] == 'workspace' &&
           workspace['can_remember'] == false &&
-          part(waiting, workspace)['arguments']['command'] ==
-              'printf x >> count.txt',
+          workspaceDetail['arguments']['command'] == 'printf x >> count.txt',
       'workspace commands run inside the sandbox in every frozen mode',
     );
     final command = mode == 'full'
         ? waiting['snapshot']['page']['approvals'][2]
         : pending(waiting);
+    final commandDetail = await detailAt(updates, waiting, command);
     check(
       part(waiting, command)['name'] == env['SAILRY_RUN_TOOL'] &&
-          part(waiting, command)['arguments']['access'] == 'unrestricted' &&
+          commandDetail['arguments']['access'] == 'unrestricted' &&
           command['source'] == (mode == 'full' ? 'full' : 'user') &&
           command['state'] == (mode == 'full' ? 'approved' : 'pending') &&
           command['access'] == 'unrestricted' &&

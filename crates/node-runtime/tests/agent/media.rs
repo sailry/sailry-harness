@@ -143,19 +143,30 @@ async fn restores_frozen_execution() {
         let (base, mut provider) = configured_session(&client, &server.endpoint, &root).await;
         provider.models = vec![model("fixture-a")];
         provider.models[0].vision = false;
+        provider.models[0].capabilities =
+            Some(sailry_protocol::conversation::discovery::Capabilities {
+                vision: Some(false),
+                ..Default::default()
+            });
         provider.default_model = "fixture-a".into();
-        client
+        let Output::Provider(saved) = client
             .execute(client.prepare(Command::PutProvider {
                 provider: provider.clone(),
                 expected_revision: provider.revision,
             }))
             .await
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        assert!(!saved.models[0].vision);
+        provider = saved;
         let media = server::Server::start().await;
         provider.id = ProviderId::new();
         provider.revision = 0;
         provider.endpoint = media.endpoint.clone();
         provider.models[0].vision = true;
+        provider.models[0].capabilities.as_mut().unwrap().vision = Some(true);
         let catalog = serde_json::to_vec(&json!({"version":1,"partners":[{
             "id":"media-fixture","name":"Media fixture",
             "routes":[{"protocol":"openai-chat-completions","endpoint":media.endpoint}],
@@ -182,6 +193,7 @@ async fn restores_frozen_execution() {
         else {
             panic!("provider expected")
         };
+        assert!(provider.models[0].vision);
         let settings = Settings {
             revision: 0,
             bindings: [Kind::Vision, Kind::Image, Kind::Video]
@@ -357,8 +369,15 @@ async fn restores_frozen_execution() {
                 .filter(|(_, body)| !body.is_null())
                 .all(|(_, body)| body["model"] == "fixture-a")
         );
+        let users = records[0].1["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .collect::<Vec<_>>();
+        assert_eq!(users.len(), 1);
         assert!(
-            records[0].1["messages"][0]["content"]
+            users[0]["content"]
                 .as_array()
                 .unwrap()
                 .iter()

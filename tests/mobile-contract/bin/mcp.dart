@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
 import 'approvals.dart' as approvals;
-import 'conversation.dart' show canonicalJson, check, execute, until;
+import 'conversation.dart' show canonicalJson, check, detail, execute, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -66,14 +66,10 @@ Future<void> main() async {
   final pending = approvals.pending(waiting);
   final calls = waiting['calls'] as List;
   check(calls.length == 2, 'read completes before the write approval');
-  final output = approvals.part(
-    waiting,
-    calls[0]['response'],
-  )['result']['structuredContent'];
+  final read = await detail(updates, calls[0]);
+  final output = read['result']['structuredContent'];
   check(
-    jsonEncode(
-          approvals.part(waiting, calls[0]['response'])['result']['content'],
-        ) ==
+    jsonEncode(read['result']['content']) ==
         jsonEncode([
           {'type': 'text', 'text': 'Complete MCP result 中文 🙂'},
         ]),
@@ -92,9 +88,9 @@ Future<void> main() async {
     'server receives declared data paths without model credentials',
   );
   final fullText = List.filled(1500, '完整 MCP 内容🙂').join();
+  final proposal = await detail(updates, calls[1]);
   check(
-    approvals.part(waiting, calls[1]['source'])['arguments']['value'] ==
-        fullText,
+    proposal['arguments']['value'] == fullText,
     'full proposed MCP arguments cross FFI',
   );
   check(
@@ -164,18 +160,16 @@ Future<void> main() async {
         completed.every((call) => call['state'] == 'returned'),
     'MCP results use ordinary shared tool calls',
   );
+  final results = <dynamic>[];
+  for (final call in completed) {
+    results.add((await detail(updates, call))['result']);
+  }
   check(
-    approvals.part(
-          finished,
-          completed[1]['response'],
-        )['result']['structuredContent']['value'] ==
-        fullText,
+    results[1]['structuredContent']['value'] == fullText,
     'complete structured MCP result survives the host and FFI paths',
   );
   check(
-    approvals.denied(
-      approvals.part(finished, completed[2]['response'])['result'],
-    ),
+    approvals.denied(results[2]),
     'denied MCP call does not claim execution',
   );
   final restored = await reopen();
@@ -187,14 +181,9 @@ Future<void> main() async {
   for (var index = 0; index < completed.length; index++) {
     check(
       canonicalJson(
-            approvals.part(
-              restored,
-              restored['calls'][index]['response'],
-            )['result'],
+            (await detail(updates, restored['calls'][index]))['result'],
           ) ==
-          canonicalJson(
-            approvals.part(finished, completed[index]['response'])['result'],
-          ),
+          canonicalJson(results[index]),
       'reopen preserves complete MCP raw content and error envelopes',
     );
   }
@@ -237,15 +226,18 @@ Future<void> main() async {
     (snapshot) =>
         (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
   );
-  final interrupted = approvals.part(
-    cancelled,
-    cancelled['calls'][1]['response'],
-  )['result'];
+  final interrupted = (await detail(updates, cancelled['calls'][1]))['result'];
   check(
     cancelled['calls'][1]['state'] == 'returned' &&
         cancelled['calls'][1]['approval']['state'] == 'cancelled' &&
-        interrupted['status'] == 'outcome_unknown' &&
-        (interrupted['detail'] as String).isNotEmpty,
+        interrupted['isError'] == true &&
+        jsonEncode(interrupted['content']) ==
+            jsonEncode([
+              {
+                'type': 'text',
+                'text': 'Tool call was interrupted before completing',
+              },
+            ]),
     'stop retains the interrupted outcome and closes the pending approval',
   );
   final late = await connection.prepare(

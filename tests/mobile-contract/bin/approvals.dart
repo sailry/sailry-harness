@@ -30,6 +30,13 @@ bool denied(Map<String, dynamic> result) =>
           content['text'] == 'Tool execution was denied.',
     );
 
+bool interrupted(Map<String, dynamic> result) =>
+    result['isError'] == true &&
+    (result['content'] as List).length == 1 &&
+    result['content'][0]['type'] == 'text' &&
+    result['content'][0]['text'] ==
+        'Tool call was interrupted before completing';
+
 Future<void> main() async {
   final env = Platform.environment;
   await RustLib.init(
@@ -202,19 +209,40 @@ Future<void> main() async {
     'expected_revision': 1,
     'message': {'text': 'Cancel before writing', 'attachments': []},
   });
-  final stopped = pending(await until(updates, hasPending));
+  final proposed = await until(updates, hasPending);
+  final stopped = pending(proposed);
+  final source = part(proposed, stopped);
   await execute(connection, 'stop_turn', {'turn': stopped['turn']});
   final cancelled = await until(
     updates,
     (snapshot) =>
-        (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
+        (snapshot['page']['runs'] as List).single['status'] == 'cancelled' &&
+        (snapshot['page']['approvals'] as List).any(
+          (approval) =>
+              approval['id'] == stopped['id'] &&
+              approval['state'] == 'cancelled',
+        ) &&
+        (snapshot['page']['entries'] as List)
+            .expand((entry) => entry['parts'] as List)
+            .any(
+              (part) =>
+                  part['kind'] == 'tool_result' &&
+                  part['data']['id'] == source['id'] &&
+                  part['data']['name'] == source['name'],
+            ),
   );
-  final interrupted = (await detail(updates, cancelled['calls'][0]))['result'];
+  final stoppedCall = (cancelled['calls'] as List).singleWhere(
+    (call) =>
+        call['source']['entry'] == stopped['entry'] &&
+        call['source']['index'] == stopped['index'],
+  );
+  final result = (await detail(updates, stoppedCall))['result'];
   check(
-    cancelled['calls'][0]['state'] == 'returned' &&
-        cancelled['calls'][0]['approval']['state'] == 'cancelled' &&
-        interrupted['status'] == 'outcome_unknown' &&
-        (interrupted['detail'] as String).isNotEmpty,
+    stoppedCall['state'] == 'returned' &&
+        stoppedCall['approval']['id'] == stopped['id'] &&
+        stoppedCall['approval']['state'] == 'cancelled' &&
+        !hasPending(cancelled['snapshot']) &&
+        interrupted(result),
     'stop retains the interrupted outcome and closes its pending approval',
   );
   final late = await connection.prepare(

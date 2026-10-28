@@ -3,8 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'approvals.dart' show part;
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, detail, execute, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -66,7 +65,7 @@ Future<void> main() async {
       call['grouping'] == 'standalone',
       'Node grouping reaches the mobile Client',
     );
-    final expected = part(finished, call['response'])['result']['progress'];
+    final expected = (await detail(updates, call))['result']['progress'];
     final actual = call['progress'];
     check(
       actual['title'] == expected['title'] &&

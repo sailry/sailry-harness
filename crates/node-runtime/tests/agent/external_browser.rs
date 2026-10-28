@@ -591,6 +591,10 @@ fn discovery() -> Vec<(String, serde_json::Value)> {
         "hover",
         "handle",
         "get",
+        // Core management tools share the limit for broad capability searches.
+        "delete_cookie",
+        "evaluate",
+        "focus",
     ]
     .into_iter()
     .map(|query| ("tool_search".into(), json!({"query":query,"limit":8})))
