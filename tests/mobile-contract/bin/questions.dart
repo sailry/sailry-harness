@@ -273,7 +273,7 @@ Future<void> main() async {
         closed['question']['id'] == stopped['id'] &&
         !hasPending(cancelled['snapshot']) &&
         interrupted(result),
-    'stop retains the interrupted outcome and closes the question',
+    'stop retains the interrupted outcome and closes the question: ${jsonEncode(result)}',
   );
   await reject(stopped['id'], text('too late'), 'conflict');
   await close();
