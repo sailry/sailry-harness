@@ -66,6 +66,13 @@ async fn preserves_video_and_audio_references() {
                     .any(|part| *part == Part::Attachment(attachment.clone()))
             );
         }
+        for (attachment, (_, _, bytes)) in attachments.iter().zip(native::media()) {
+            assert_eq!(download(&client, attachment).await, bytes);
+            assert_eq!(
+                attachment.spec.revision,
+                blake3::hash(bytes).to_hex().to_string()
+            );
+        }
         let next = queue(&client, &branch, "Inspect again".into()).await;
         assert_eq!(
             run(&client, &next).await.runs.last().unwrap().status,
@@ -74,97 +81,36 @@ async fn preserves_video_and_audio_references() {
     }
     let requests = server.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 4);
-    for pair in requests.as_chunks::<2>().0 {
-        for (index, request) in pair.iter().enumerate() {
-            let body = &request.body;
-            let parts: Vec<_> = body["contents"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .flat_map(|message| message["parts"].as_array().unwrap())
-                .collect();
-            for (_, mime, bytes) in native::media() {
-                let inline = parts
-                    .iter()
-                    .find(|part| part["inlineData"]["mimeType"] == mime);
-                if index == 0 || mime.starts_with("audio/") {
-                    assert_eq!(
-                        inline.unwrap()["inlineData"]["data"],
-                        base64::engine::general_purpose::STANDARD.encode(bytes)
-                    );
-                } else {
-                    assert!(inline.is_none());
-                    assert!(
-                        body.to_string()
-                            .contains("Contents not included; use read_office")
-                    );
-                    assert!(
-                        body.to_string()
-                            .contains("use an attachment-capable tool for other files")
-                    );
-                }
-            }
-        }
-    }
-    fixture.close().await;
-}
-
-#[tokio::test]
-async fn preserves_unsupported_media_history() {
-    let fixture = Fixture::empty().await;
-    let server = provider::Server::start(ModelApi::Anthropic, provider::Reply::Text).await;
-    for client in fixture.clients() {
-        let (session, mut provider) = session(
-            &client,
-            fixture.worktree,
-            &server.endpoint,
-            ModelApi::Anthropic,
-        )
-        .await;
-        let mut attachments = Vec::new();
-        for (name, _, bytes) in native::media() {
-            attachments.push(upload(&client, fixture.worktree, name, "text/plain", bytes).await);
-        }
-        let turn = queue(
-            &client,
-            &session,
-            input("Inspect", &attachments.iter().collect::<Vec<_>>()),
-        )
-        .await;
-        let failed = run(&client, &turn).await;
-        assert_eq!(failed.runs.last().unwrap().status, Status::Failed);
-        for attachment in &attachments {
+    for request in requests {
+        let body = &request.body;
+        let parts: Vec<_> = body["contents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|message| message["parts"].as_array().unwrap())
+            .collect();
+        for (name, mime, bytes) in native::media() {
             assert!(
-                failed
-                    .entries
+                parts
                     .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| *part == Part::Attachment(attachment.clone()))
+                    .all(|part| part["inline_data"]["mime_type"] != mime)
+            );
+            assert!(body.to_string().contains(name));
+            assert!(
+                !body
+                    .to_string()
+                    .contains(&base64::engine::general_purpose::STANDARD.encode(bytes))
+            );
+            assert!(
+                body.to_string()
+                    .contains("Contents not included; use read_office")
+            );
+            assert!(
+                body.to_string()
+                    .contains("use an attachment-capable tool for other files")
             );
         }
-        provider.models[0].capabilities.as_mut().unwrap().tools = Some(true);
-        client
-            .execute(client.prepare(Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
-            }))
-            .await
-            .unwrap();
-        let next = queue(&client, &session, "Use the files".into()).await;
-        assert_eq!(
-            run(&client, &next).await.runs.last().unwrap().status,
-            Status::Completed
-        );
-    }
-    let requests = server.requests.lock().unwrap().clone();
-    assert_eq!(requests.len(), 2);
-    for request in requests.iter() {
-        let body = request.body.to_string();
-        assert!(body.contains("Contents not included; use read_office"));
-        assert!(body.contains("use an attachment-capable tool for other files"));
-        for (_, _, bytes) in native::media() {
-            assert!(!body.contains(&base64::engine::general_purpose::STANDARD.encode(bytes)));
-        }
+        assert!(!body.to_string().contains("sailry-attachment://"));
     }
     fixture.close().await;
 }

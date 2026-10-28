@@ -50,6 +50,8 @@ async fn verifies_after_approval() {
         let turn = queue(&client, &session, input("Inspect", &[&file])).await;
         start(&client, &turn).await;
         let history = wait(&client, session.id, |page| !page.approvals.is_empty()).await;
+        assert_eq!(history.approvals.len(), 1);
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
         assert!(!fixture.root.join("unexpected.txt").exists());
         use std::io::Write;
         std::fs::OpenOptions::new()
@@ -73,9 +75,14 @@ async fn verifies_after_approval() {
             .await
             .unwrap();
         let history = wait(&client, session.id, |page| {
-            page.runs[0].status == Status::Completed
+            !matches!(page.runs[0].status, Status::Running | Status::Stopping)
         })
         .await;
+        assert_eq!(history.runs[0].status, Status::Failed, "{:?}", history.runs);
+        assert_eq!(
+            history.runs[0].error.as_ref().unwrap().code,
+            ErrorCode::RevisionConflict
+        );
         assert!(
             results(&client, &history, None)
                 .await
@@ -83,7 +90,7 @@ async fn verifies_after_approval() {
                 .any(|result| result["error"]["code"] == "revision_conflict")
         );
         assert!(!fixture.root.join("unexpected.txt").exists());
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
     }
     fixture.close().await;
 }

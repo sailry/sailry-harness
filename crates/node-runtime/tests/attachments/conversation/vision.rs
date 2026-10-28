@@ -192,7 +192,7 @@ async fn preserves_images_across_model_changes() {
             assert_eq!(request["model"], "text-tools");
             let serialized = request.to_string();
             assert!(serialized.contains(&first.id.to_string()));
-            assert!(serialized.contains("This model does not support images"));
+            assert!(serialized.contains("Contents not included; use read_office"));
             assert!(!serialized.contains(&first_url));
         }
         server.replace_tools(vec![]);
@@ -220,7 +220,7 @@ async fn preserves_images_across_model_changes() {
             let request = requests.last().unwrap().to_string();
             assert!(request.contains("Inspect a new image"));
             assert!(request.contains(&second.id.to_string()));
-            assert!(request.contains("This model does not support images"));
+            assert!(request.contains("Contents not included; use read_office"));
             assert!(!request.contains(&first_url));
             assert!(!request.contains(&second_url));
         }
@@ -242,7 +242,7 @@ async fn preserves_images_across_model_changes() {
         assert!(!request.contains(&first_url));
         assert!(!request.contains(&second_url));
         assert!(request.contains("One bright pixel"));
-        assert!(request.contains("This model does not support images"));
+        assert!(request.contains("Contents not included; use read_office"));
 
         let current = select(&client, &current, "fixture").await;
         let restored = queue(&client, &current, "Inspect both original images".into()).await;
