@@ -94,7 +94,7 @@ fn initial_gpt5(id: &str) -> bool {
         })
 }
 
-fn generation(id: &str) -> Option<(u16, u16)> {
+pub(super) fn generation(id: &str) -> Option<(u16, u16)> {
     let version = id.split('-').next()?;
     let (major, minor) = version.split_once('.').unwrap_or((version, "0"));
     Some((major.parse().ok()?, minor.parse().ok()?))

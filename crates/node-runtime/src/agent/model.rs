@@ -1,9 +1,10 @@
 use super::*;
 mod authorization;
 mod call;
-pub(in crate::agent) use call::{summary_retry, summary_scope};
+pub(in crate::agent) use call::{is_summary, summary_retry, summary_scope};
 mod cloud;
 mod diagnostics;
+pub(super) mod effort;
 mod errors;
 mod features;
 pub(super) mod history;
@@ -50,7 +51,7 @@ pub(super) async fn build(
     invocation: &Invocation,
     stop: &CancellationToken,
     purpose: Purpose,
-) -> Result<Arc<dyn Llm>, Fault> {
+) -> Result<Built, Fault> {
     let provider = invocation.provider.as_ref().ok_or_else(|| {
         Fault::new(
             ErrorCode::NotConfigured,
@@ -58,11 +59,15 @@ pub(super) async fn build(
         )
     })?;
     let config = &invocation.turn.config;
-    let inner = configure(
+    let Built {
+        model: inner,
+        configuration,
+    } = configure(
         ingress,
         provider,
         config,
         invocation.turn.session,
+        Some(invocation.turn.id),
         invocation.child.is_some(),
         stop,
         purpose,
@@ -72,42 +77,51 @@ pub(super) async fn build(
         .models
         .iter()
         .find(|model| model.id == config.model);
-    Ok(Arc::new(attachments::Model {
-        inner: Arc::new(retry::Model {
-            inner,
+    Ok(Built {
+        model: Arc::new(attachments::Model {
+            inner: Arc::new(retry::Model {
+                inner,
+                ingress: ingress.clone(),
+                turn: Some(invocation.turn.id),
+                session: invocation.turn.session,
+                stop: stop.clone(),
+                limit: provider.retry_limit(),
+                compaction: matches!(purpose, Purpose::Compaction),
+            }),
             ingress: ingress.clone(),
-            turn: Some(invocation.turn.id),
-            session: invocation.turn.session,
+            turn: invocation.turn.id,
+            vision: metadata.is_none_or(|model| model.vision)
+                && provider
+                    .binding
+                    .as_ref()
+                    .and_then(|binding| binding.adapter.as_ref())
+                    .is_none_or(|adapter| adapter.capabilities.vision),
+            api: attachments::api(provider, opencode::api(provider.api, &config.model)?),
+            window: history::Window::new(provider, &config.model),
+            tools: metadata.is_none_or(|model| model.tools)
+                && provider
+                    .binding
+                    .as_ref()
+                    .and_then(|binding| binding.adapter.as_ref())
+                    .is_none_or(|adapter| adapter.capabilities.tools),
             stop: stop.clone(),
-            limit: provider.retry_limit(),
-            compaction: matches!(purpose, Purpose::Compaction),
+            identity: crate::logging::Context {
+                node: Some(ingress.node),
+                session: Some(invocation.turn.session),
+                turn: Some(invocation.turn.id),
+                provider: Some(provider.id),
+                provider_name: Some(provider.name.clone()),
+                model: Some(config.model.clone()),
+                ..Default::default()
+            },
         }),
-        ingress: ingress.clone(),
-        turn: invocation.turn.id,
-        vision: metadata.is_none_or(|model| model.vision)
-            && provider
-                .binding
-                .as_ref()
-                .and_then(|binding| binding.adapter.as_ref())
-                .is_none_or(|adapter| adapter.capabilities.vision),
-        api: attachments::api(provider, opencode::api(provider.api, &config.model)?),
-        tools: metadata.is_none_or(|model| model.tools)
-            && provider
-                .binding
-                .as_ref()
-                .and_then(|binding| binding.adapter.as_ref())
-                .is_none_or(|adapter| adapter.capabilities.tools),
-        stop: stop.clone(),
-        identity: crate::logging::Context {
-            node: Some(ingress.node),
-            session: Some(invocation.turn.session),
-            turn: Some(invocation.turn.id),
-            provider: Some(provider.id),
-            provider_name: Some(provider.name.clone()),
-            model: Some(config.model.clone()),
-            ..Default::default()
-        },
-    }))
+        configuration,
+    })
+}
+
+pub(super) struct Built {
+    pub model: Arc<dyn Llm>,
+    pub configuration: Option<effort::Capture>,
 }
 
 pub(super) async fn configured(
@@ -123,13 +137,14 @@ pub(super) async fn configured(
         provider,
         config,
         session,
+        None,
         delegated,
         stop,
         Purpose::Helper,
     )
     .await?;
     Ok(Arc::new(retry::Model {
-        inner,
+        inner: inner.model,
         ingress: ingress.clone(),
         turn: None,
         session,
@@ -151,10 +166,11 @@ async fn configure(
     provider: &Provider,
     config: &SessionConfig,
     session: sailry_protocol::SessionId,
+    turn: Option<TurnId>,
     delegated: bool,
     stop: &CancellationToken,
     purpose: Purpose,
-) -> Result<Arc<dyn Llm>, Fault> {
+) -> Result<Built, Fault> {
     if !provider.enabled
         || (!provider.models.is_empty()
             && !provider.models.iter().any(|model| model.id == config.model))
@@ -179,6 +195,7 @@ async fn configure(
     }
     let resolved = reasoning::resolve(metadata, api, config.effort)?;
     let effort = resolved.effort;
+    let mut configuration = None;
     let inner = if provider.api == ModelApi::Plugin {
         let mut config = config.clone();
         config.effort = effort;
@@ -197,6 +214,26 @@ async fn configure(
         let key = credential
             .as_ref()
             .map_or("", |(_, secret)| secret.expose());
+        let origin = history::origin(
+            provider,
+            &config.model,
+            credential.as_ref().map(|(credential, _)| credential),
+            None,
+        );
+        configuration = effort::Capture::load(
+            ingress,
+            turn,
+            session,
+            origin.clone(),
+            effort,
+            effort::supported(provider, metadata),
+        )
+        .await?;
+        let resolved = match &configuration {
+            Some(capture) => reasoning::resolve(metadata, api, capture.base())?,
+            None => resolved,
+        };
+        let effort = resolved.effort;
         let websocket = matches!(purpose, Purpose::Main)
             .then(|| {
                 ingress
@@ -234,12 +271,6 @@ async fn configure(
                 let _ = client.preconnect().await;
             });
         }
-        let origin = history::origin(
-            provider,
-            &config.model,
-            credential.as_ref().map(|(credential, _)| credential),
-            None,
-        );
         history::wrap(
             errors::wrap(
                 entry.clone(),
@@ -250,30 +281,37 @@ async fn configure(
         )
     } else {
         crate::providers::login::validate(provider)?;
-        let model = Arc::new(
-            authorization::Model::new(
-                ingress,
-                provider,
-                config,
-                authorization::Context {
-                    session,
-                    delegated,
-                    reasoning: resolved,
-                    purpose,
-                    stop: stop.clone(),
-                },
-            )
-            .await?,
-        );
+        let (model, captured) = authorization::Model::new(
+            ingress,
+            provider,
+            config,
+            authorization::Context {
+                session,
+                turn,
+                delegated,
+                reasoning: resolved,
+                purpose,
+                stop: stop.clone(),
+            },
+        )
+        .await?;
+        configuration = captured;
+        let model = Arc::new(model);
         if matches!(purpose, Purpose::Main) {
             let _ = model.preconnect().await;
         }
         model as Arc<dyn Llm>
     };
-    Ok(if api == ModelApi::Responses {
-        features::wrap(inner, config.features.clone())
-    } else {
-        inner
+    Ok(Built {
+        model: if api == ModelApi::Responses {
+            features::wrap(
+                effort::wrap(inner, configuration.clone()),
+                config.features.clone(),
+            )
+        } else {
+            inner
+        },
+        configuration,
     })
 }
 
@@ -344,10 +382,10 @@ fn native(
             return Err(Fault::invalid("OpenCode requires a conversation identity"));
         }
         ModelApi::AzureOpenAi | ModelApi::AzureAi => {
-            cloud::keyed(provider, &config.model, key, effort)?
+            cloud::keyed(provider, &config.model, key, effort, adapter)?
         }
-        ModelApi::DeepSeek => Arc::new(
-            DeepSeekClient::new(reasoning::deepseek(
+        ModelApi::DeepSeek => {
+            let mut client = DeepSeekClient::new(reasoning::deepseek(
                 DeepSeekConfig::new(key, &config.model).with_base_url(&provider.endpoint),
                 effort,
             )?)
@@ -355,8 +393,12 @@ fn native(
             .with_retry_config(RetryConfig::disabled())
             .with_request_retry(request_retry())
             .with_timeouts(timeouts())
-            .map_err(error)?,
-        ),
+            .map_err(error)?;
+            if let Some(adapter) = adapter {
+                client = client.with_request_adapter(adapter);
+            }
+            Arc::new(client)
+        }
         ModelApi::ChatCompletions => {
             let mut client = OpenAICompatible::new_with_reasoning_effort(
                 OpenAICompatibleConfig::new(key, &config.model).with_base_url(&provider.endpoint),

@@ -490,7 +490,7 @@ fn verifies_prepared_request_boundaries() {
 }
 
 #[test]
-fn resolves_anonymous_parallel_results() {
+fn preserves_generated_parallel_identity() {
     let originals = ["first", "second"].map(|label| {
         let output = json!({"label":label,"text":"Canonical evidence 中文 🙂 ".repeat(4000)});
         json!({"output":output,"text":[output.to_string()]})
@@ -525,15 +525,14 @@ fn resolves_anonymous_parallel_results() {
     let stored = serde_json::to_vec(&events).unwrap();
     let revisions = revisions(&events);
     let mut request = LlmRequest::new("fixture", vec![call, first, second]);
-    request
-        .contents
-        .iter_mut()
-        .for_each(Content::strip_generated_call_ids);
     let live = request.clone();
     let mut outputs = prepare(&mut request, Some(&revisions));
     assert_eq!(outputs.slots.len(), 2);
     for (index, label) in ["first", "second"].into_iter().enumerate() {
-        assert_eq!(outputs.slots[index].arguments, Some(json!({"path":label})));
+        assert_eq!(outputs.slots[index].arguments, Some((0, index)));
+        assert!(
+            matches!(request.contents[0].parts[index].provider_part(), Part::FunctionCall { args, .. } if args == &json!({"path":label}))
+        );
         assert!(value(&request, index + 1).get("text").is_none());
         assert_eq!(
             value(&request, index + 1)["sailry_output"]["revision"],
@@ -575,7 +574,7 @@ fn resolves_anonymous_parallel_results() {
             .iter()
             .flat_map(|content| &content.parts)
             .all(|part| match part.provider_part() {
-                Part::FunctionCall { id, .. } | Part::FunctionResponse { id, .. } => id.is_none(),
+                Part::FunctionCall { id, .. } | Part::FunctionResponse { id, .. } => id.is_some(),
                 _ => true,
             })
     );
@@ -583,7 +582,7 @@ fn resolves_anonymous_parallel_results() {
 }
 
 #[test]
-fn omits_ambiguous_search_arguments() {
+fn preserves_search_prefix_with_equal_outputs() {
     let original = json!({"kind":"search_results","data":sailry_protocol::SearchResults {
         matches: vec![sailry_protocol::SearchMatch {
             path:"fixture.rs".into(), line_number:1,
@@ -591,23 +590,23 @@ fn omits_ambiguous_search_arguments() {
             matched:true, truncated:false,
         }], ..Default::default()
     }});
-    let calls = Content {
-        role: "model".into(),
-        parts: ["first", "second"]
-            .into_iter()
-            .map(|label| Part::FunctionCall {
-                id: Some(format!("adk-call-{label}")),
-                name: "search".into(),
-                args: json!({"query":format!("{label} needle")}),
-                thought_signature: None,
-            })
-            .collect(),
-    };
-    let contents = vec![
-        calls,
-        result("adk-call-first", "search", original.clone()),
-        result("adk-call-second", "search", original.clone()),
-    ];
+    let contents = ["first", "second"]
+        .into_iter()
+        .flat_map(|label| {
+            [
+                Content {
+                    role: "model".into(),
+                    parts: vec![Part::FunctionCall {
+                        id: Some(format!("adk-call-{label}")),
+                        name: "search".into(),
+                        args: json!({"query":format!("{label} needle")}),
+                        thought_signature: None,
+                    }],
+                },
+                result(&format!("adk-call-{label}"), "search", original.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
     let events = contents
         .iter()
         .cloned()
@@ -617,21 +616,30 @@ fn omits_ambiguous_search_arguments() {
             event
         })
         .collect::<Vec<_>>();
-    let revisions = revisions(&events);
+    let initial = revisions(&events[..2]);
+    let mut first = LlmRequest::new("fixture", contents[..2].to_vec());
+    prepare(&mut first, Some(&initial))
+        .limit(&mut first, None)
+        .unwrap();
+    let current = revisions(&events);
     let mut request = LlmRequest::new("fixture", contents);
-    request
-        .contents
-        .iter_mut()
-        .for_each(Content::strip_generated_call_ids);
-    let mut outputs = prepare(&mut request, Some(&revisions));
+    let mut outputs = prepare(&mut request, Some(&current));
     assert_eq!(outputs.slots.len(), 2);
-    assert!(outputs.slots.iter().all(|slot| slot.arguments.is_none()));
     outputs.limit(&mut request, None).unwrap();
-    for index in 1..=2 {
+    assert_eq!(
+        serde_json::to_vec(&first.contents).unwrap(),
+        serde_json::to_vec(&request.contents[..2]).unwrap()
+    );
+    for (index, label) in [(1, "first"), (3, "second")] {
         let projected = value(&request, index);
+        assert_eq!(projected["output"]["call"], format!("adk-call-{label}"));
         assert_eq!(projected["output"]["revision"], hash(&original));
-        assert!(projected["text"].as_str().unwrap().contains("before"));
-        assert!(!projected["text"].as_str().unwrap().contains("needle"));
+        assert!(
+            projected["text"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("{label} needle"))
+        );
     }
 }
 
@@ -666,10 +674,6 @@ fn preserves_equal_result_mask_ownership() {
         .collect::<Vec<_>>();
     let initial = revisions(&events[..4]);
     let mut request = LlmRequest::new("fixture", canonical[..4].to_vec());
-    request
-        .contents
-        .iter_mut()
-        .for_each(Content::strip_generated_call_ids);
     let mut outputs = prepare(&mut request, Some(&initial));
     assert!(outputs.mask(&mut request, 1, 1).unwrap() > 0);
     let masks = masked(&request);
@@ -683,9 +687,6 @@ fn preserves_equal_result_mask_ownership() {
     let current = revisions(&events);
     for retained in [false, true] {
         let mut next = LlmRequest::new("fixture", canonical.clone());
-        next.contents
-            .iter_mut()
-            .for_each(Content::strip_generated_call_ids);
         if retained {
             next.contents[1] = request.contents[1].clone();
         }
@@ -695,9 +696,8 @@ fn preserves_equal_result_mask_ownership() {
         for (index, label) in [(3, "recent"), (5, "latest")] {
             assert!(value(&next, index).get("masked").is_none());
             assert_eq!(value(&next, index)["text"], original["text"]);
-            assert_eq!(
-                value(&next, index)["sailry_output"]["call"],
-                format!("adk-call-{label}")
+            assert!(
+                matches!(&next.contents[index].parts[0], Part::FunctionResponse { id: Some(id), .. } if id == &format!("adk-call-{label}"))
             );
         }
         let encoded = serde_json::to_vec(&next.contents).unwrap();

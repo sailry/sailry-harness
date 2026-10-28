@@ -16,6 +16,7 @@ mod mcp;
 pub(crate) use mcp::check::run as check_mcp;
 pub(crate) mod media;
 pub(crate) mod model;
+pub(crate) use model::effort::Capture as ModelConfiguration;
 pub(crate) mod observation;
 pub(crate) use model::plugin::{
     discover as discover_plugin_models, discover_authorized as discover_authorized_models,
@@ -383,12 +384,14 @@ async fn execute_with(
     } else {
         model::Purpose::Main
     };
-    let model = model::build(ingress, &invocation, &stop, purpose).await?;
+    let built = model::build(ingress, &invocation, &stop, purpose).await?;
+    let model = built.model;
     if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
-        compaction::manual(ingress, &invocation, model, stop).await?;
+        compaction::manual(ingress, &invocation, model, built.configuration, stop).await?;
         return Ok(Outcome::default());
     }
     let mut inputs = inputs::Batch::capture(ingress, &invocation).await?;
+    inputs.configure(built.configuration.clone());
     let mut prompt_session = prompt::Session::load(ingress, &invocation).await?;
     let resources = Arc::new(crate::plugins::resources::Resources::new(
         ingress.plugins.clone(),
@@ -517,12 +520,15 @@ async fn execute_with(
         policy.push_str(&title);
     }
     let instruction = prompt_session.instruction(instruction);
+    let summary = model::build(ingress, &invocation, &stop, model::Purpose::Compaction).await?;
     let (compact, compact_tool, context) = compaction::bind(
         ingress,
-        model::build(ingress, &invocation, &stop, model::Purpose::Compaction).await?,
+        summary.model,
+        summary.configuration,
         &invocation,
         stop.clone(),
         instruction.clone(),
+        prompt_session.tools(),
     );
     if tool_capable {
         extensions
@@ -568,6 +574,8 @@ async fn execute_with(
         limit,
     );
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
+        // The shared model boundary removes internal IDs after compaction.
+        .preserve_generated_call_ids(true)
         // ADK requires a numeric ceiling; only explicit role budgets constrain tasks.
         .max_iterations(limit.unwrap_or(u32::MAX))
         .model(context.model(model.clone()))
@@ -587,6 +595,8 @@ async fn execute_with(
             .after_tool_callback_full(hooks.after());
     }
     extensions.callbacks.push((0, compact));
+    // Compaction finalizes the budget. Later callbacks may only shrink the
+    // request; additions must run before it or clear the prepared marker.
     extensions.callbacks.sort_by_key(|(order, _)| *order);
     for (_, callback) in extensions.callbacks {
         agent = agent.before_model_callback(callback);
@@ -610,6 +620,7 @@ async fn execute_with(
     let agent = agent.build().map_err(model::error)?;
     let sessions = Arc::new(
         crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
+            .with_configuration(built.configuration.clone())
             .with_input_turn(input_turn)
             .with_input_source(if invocation.child.is_some() {
                 "parent"

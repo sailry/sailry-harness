@@ -896,3 +896,284 @@ async fn ignores_contentless_attempts_for_recency() {
     assert_eq!(history.completed, [1]);
     assert_eq!(history.recent, None);
 }
+
+#[tokio::test]
+async fn preserves_owned_reasoning_before_summary() {
+    use adk_core::{ConfigurationUpdate, Part, ProviderData, ProviderOrigin, ReasoningEffort};
+    let mut fixture = Fixture::new().await;
+    let anchor = event("Completed evidence");
+    fixture.append([anchor.clone()]).await;
+    let mut compacted = summary(&anchor);
+    let update = Part::ProviderData {
+        provider_data: ProviderData {
+            origin: Some(ProviderOrigin {
+                provider: "responses".into(),
+                model: "gpt-6-luna".into(),
+                scope: "account".into(),
+            }),
+            parts: Box::new([Part::ConfigurationUpdate {
+                configuration_update: ConfigurationUpdate {
+                    effort: ReasoningEffort::High,
+                },
+            }]),
+        },
+    };
+    compacted
+        .actions
+        .compaction
+        .as_mut()
+        .unwrap()
+        .compacted_content
+        .parts
+        .insert(0, update.clone());
+    let turn = fixture.append([compacted.clone()]).await;
+    let loaded = load(&fixture, turn).await;
+    assert_eq!(loaded[0].content().unwrap().parts[0], update);
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(
+        load(&fixture, turn).await[0].content().unwrap().parts[0],
+        update
+    );
+    for parts in [
+        vec![update.clone()],
+        vec![
+            Part::Text {
+                text: "Summary".into(),
+            },
+            update.clone(),
+        ],
+        vec![
+            Part::ConfigurationUpdate {
+                configuration_update: ConfigurationUpdate {
+                    effort: ReasoningEffort::High,
+                },
+            },
+            Part::Text {
+                text: "Summary".into(),
+            },
+        ],
+    ] {
+        compacted
+            .actions
+            .compaction
+            .as_mut()
+            .unwrap()
+            .compacted_content
+            .parts = parts;
+        assert!(
+            context::validate(
+                &fixture.database.connection,
+                fixture.session,
+                turn,
+                &compacted
+            )
+            .await
+            .is_err()
+        );
+    }
+}
+
+#[tokio::test]
+async fn resets_foreign_settings_in_canonical_summary() {
+    let mut fixture = Fixture::new().await;
+    let key = format!("{}fixture", crate::agent::ModelConfiguration::PREFIX);
+    let mut anchor = event("Completed owner evidence");
+    anchor.actions.state_delta.insert(
+        key.clone(),
+        serde_json::json!({"base":"max","current":"high"}),
+    );
+    fixture.append([anchor.clone()]).await;
+    let compacted = summary(&anchor);
+    let turn = fixture.append([compacted.clone()]).await;
+    let loaded = load(&fixture, turn).await;
+    assert_eq!(
+        loaded[0].actions.state_delta[&key],
+        serde_json::json!({"base":"max","current":"max"})
+    );
+    history::rebuild(&mut fixture.database.connection)
+        .await
+        .unwrap();
+    assert_eq!(
+        history::state(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap()[&key],
+        serde_json::json!({"base":"max","current":"max"})
+    );
+    let saved: Vec<u8> = fixture
+        .database
+        .connection
+        .prepare("SELECT body FROM agent_events WHERE id=?1 AND turn=?2")
+        .await
+        .unwrap()
+        .query_row(params![compacted.id.as_str(), turn.to_string()])
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE agent_state SET body=?1 WHERE owner=?2 AND key=?3",
+            params![
+                encode(&serde_json::json!({"base":"max","current":"high"})).unwrap(),
+                fixture.session.to_string(),
+                key.as_str()
+            ],
+        )
+        .await
+        .unwrap();
+    let mut repeated = compacted.clone();
+    context::capture(
+        &fixture.database.connection,
+        fixture.session,
+        &mut repeated,
+        Some(&saved),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        repeated.actions.state_delta[&key],
+        serde_json::json!({"base":"max","current":"max"})
+    );
+    let mut explicit = compacted;
+    explicit.actions.state_delta.insert(
+        key.clone(),
+        serde_json::json!({"base":"max","current":"low"}),
+    );
+    context::capture(
+        &fixture.database.connection,
+        fixture.session,
+        &mut explicit,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        explicit.actions.state_delta[&key],
+        serde_json::json!({"base":"max","current":"low"})
+    );
+}
+
+#[tokio::test]
+async fn captures_settings_from_retained_suffix() {
+    use crate::agent::ModelConfiguration;
+    use adk_core::{ConfigurationUpdate, Part, ProviderData, ProviderOrigin, ReasoningEffort};
+    use serde_json::json;
+
+    let origin = ProviderOrigin {
+        provider: "responses".into(),
+        model: "gpt-6-luna".into(),
+        scope: "retained-account".into(),
+    };
+    let mut other = origin.clone();
+    other.model = "gpt-6-sol".into();
+    let part = |origin: &ProviderOrigin, effort| Part::ProviderData {
+        provider_data: ProviderData {
+            origin: Some(origin.clone()),
+            parts: Box::new([Part::ConfigurationUpdate {
+                configuration_update: ConfigurationUpdate { effort },
+            }]),
+        },
+    };
+    let update = |origin: &ProviderOrigin, effort: ReasoningEffort| {
+        let mut input = AdkEvent::new("retained-configuration");
+        input.author = "user".into();
+        input.set_content(adk_core::Content {
+            role: "user".into(),
+            parts: vec![
+                part(origin, effort),
+                Part::Text {
+                    text: "Retained input".into(),
+                },
+            ],
+        });
+        input.actions.state_delta.insert(
+            ModelConfiguration::key(origin),
+            json!({"base":"max","current":effort}),
+        );
+        input
+    };
+    for fork in [false, true] {
+        let mut fixture = Fixture::new().await;
+        let mut anchor = event("Completed owner evidence");
+        for owner in [&origin, &other] {
+            anchor.actions.state_delta.insert(
+                ModelConfiguration::key(owner),
+                json!({"base":"max","current":"high"}),
+            );
+        }
+        fixture.append([anchor.clone()]).await;
+        fixture
+            .append([update(&origin, ReasoningEffort::Low)])
+            .await;
+        let recent = update(&origin, ReasoningEffort::High);
+        fixture.append([recent.clone()]).await;
+        let head = fixture.append([update(&other, ReasoningEffort::Low)]).await;
+        if fork {
+            let source = fixture.session;
+            let branch = fixture.fork(source, head).await;
+            fixture
+                .append([update(&origin, ReasoningEffort::Medium)])
+                .await;
+            fixture.session = branch.id;
+        }
+        let mut compacted = summary(&anchor);
+        compacted.actions.state_delta.insert(
+            ModelConfiguration::key(&other),
+            json!({"base":"max","current":"high"}),
+        );
+        compacted
+            .actions
+            .compaction
+            .as_mut()
+            .unwrap()
+            .compacted_content
+            .parts
+            .insert(0, part(&other, ReasoningEffort::High));
+        let turn = fixture.append([compacted.clone()]).await;
+        let state = history::state(&fixture.database.connection, fixture.session)
+            .await
+            .unwrap();
+        assert_eq!(state[&ModelConfiguration::key(&origin)]["current"], "high");
+        assert_eq!(state[&ModelConfiguration::key(&other)]["current"], "low");
+        let loaded = load(&fixture, turn).await;
+        assert_eq!(loaded[0].id, compacted.id);
+        assert_eq!(
+            loaded.iter().filter(|event| event.id == recent.id).count(),
+            1
+        );
+        assert_eq!(
+            serde_json::to_vec(
+                &loaded
+                    .iter()
+                    .find(|event| event.id == recent.id)
+                    .unwrap()
+                    .content(),
+            )
+            .unwrap(),
+            serde_json::to_vec(&recent.content()).unwrap(),
+        );
+        // Reappending the original summary reproduces its derived suffix state.
+        history::append(
+            &mut fixture.database,
+            fixture.session,
+            turn,
+            compacted,
+            &fixture.events,
+        )
+        .await
+        .unwrap();
+        history::rebuild(&mut fixture.database.connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            history::state(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap(),
+            state
+        );
+    }
+}

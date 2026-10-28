@@ -1,4 +1,5 @@
 use super::*;
+use base64::Engine;
 use serde_json::json;
 
 async fn compact(client: &Client, session: SessionId, revision: u64) -> (Request, QueuedTurn) {
@@ -20,6 +21,171 @@ fn summaries(page: &Page) -> usize {
         .flat_map(|entry| &entry.parts)
         .filter(|part| matches!(part, Part::Compaction(_)))
         .count()
+}
+
+#[tokio::test]
+async fn bounds_materialized_attachments() {
+    let text = format!(
+        "Inline payload start\n{}\nInline payload end",
+        "Materialized attachment evidence. ".repeat(12_000)
+    );
+    let mut document = b"%PDF-1.7\n".to_vec();
+    document.resize(504 * 1024, b' ');
+    for remote in [false, true] {
+        for (name, media_type, context, summary_context, output, payload) in [
+            (
+                "evidence.txt",
+                "text/plain",
+                512_000,
+                32_000,
+                2_048,
+                text.as_bytes(),
+            ),
+            (
+                "evidence.pdf",
+                "application/pdf",
+                200_000,
+                64_000,
+                32_000,
+                document.as_slice(),
+            ),
+        ] {
+            let server = Server::summary(100).await;
+            let mut fixture = fixture(remote, &server).await;
+            if media_type == "application/pdf" {
+                // Azure shares this Chat Completions fixture and explicitly
+                // supports native PDFs, unlike arbitrary compatible endpoints.
+                let mut provider =
+                    configuration::snapshot(&fixture.client).await.providers[0].clone();
+                provider.api = sailry_protocol::conversation::ModelApi::AzureOpenAi;
+                provider.options = Some(
+                    sailry_protocol::conversation::connection::Options::AzureOpenAi {
+                        api_version: "2024-12-01-preview".into(),
+                    },
+                );
+                let Output::Provider(provider) = fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::SaveProvider {
+                        expected_revision: provider.revision,
+                        provider,
+                        secret: Some(sailry_protocol::Secret::new("fixture-cloud-key".into())),
+                    }))
+                    .await
+                    .unwrap()
+                else {
+                    panic!("provider expected")
+                };
+                let mut config = fixture.session.config.clone();
+                config.credential = provider.credential;
+                let Output::Session(session) = fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::SetSessionConfig {
+                        session: fixture.session.id,
+                        expected_revision: fixture.session.revision,
+                        config,
+                    }))
+                    .await
+                    .unwrap()
+                else {
+                    panic!("session expected")
+                };
+                fixture.session = session;
+            }
+            super::budget::model(&fixture, context, output, true).await;
+            std::fs::write(
+                fixture.root.join("source.txt"),
+                "Historical file evidence\n".repeat(200),
+            )
+            .unwrap();
+            let attachment = super::budget::upload(&fixture, name, media_type, payload).await;
+            let Output::QueuedTurn(original) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SubmitTurn {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    message: Input {
+                        text: "Keep this attachment and the file evidence".into(),
+                        attachments: vec![attachment],
+                        ..Default::default()
+                    },
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("turn expected")
+            };
+            let before = finished(&fixture.client, fixture.session.id, original.id).await;
+            assert_eq!(
+                before.runs.last().unwrap().status,
+                Status::Completed,
+                "{:?}",
+                before.runs
+            );
+            let expected = if media_type == "application/pdf" {
+                format!(
+                    "data:application/pdf;base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode(payload)
+                )
+            } else {
+                "Inline payload start".into()
+            };
+            assert!(
+                server
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|request| messages(request).contains(&expected))
+            );
+            super::budget::model(&fixture, summary_context, output, true).await;
+            let (_, turn) = compact(
+                &fixture.client,
+                fixture.session.id,
+                fixture.session.revision,
+            )
+            .await;
+            let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(
+                after.runs.last().unwrap().status,
+                Status::Completed,
+                "{:?}",
+                after.runs
+            );
+            assert_eq!(&after.entries[..before.entries.len()], before.entries);
+            assert_eq!(summaries(&after), 1);
+            {
+                let requests = server.requests.lock().unwrap();
+                let summary = requests.last().unwrap();
+                assert!(agent_support::compaction::is_summary(summary));
+                assert_eq!(summary["tools"], requests[requests.len() - 2]["tools"]);
+                assert_eq!(summary["tool_choice"], "none");
+                let text = messages(summary);
+                assert!(text.contains("Contents not included because they exceed"));
+                assert!(text.contains(&attachment.to_string()));
+                assert!(!text.contains("Inline payload start"));
+                assert!(!text.contains("Inline payload end"));
+                assert!(!text.contains("data:application/pdf;base64,"));
+                assert!(!text.contains("sailry-attachment://"));
+            }
+            let Output::QueuedTurn(turn) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SubmitTurn {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    message: "Continue after the attachment handoff".into(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("turn expected")
+            };
+            let continued = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(continued.runs.last().unwrap().status, Status::Completed);
+            assert_eq!(summaries(&continued), 1);
+            fixture.node.shutdown().await.unwrap();
+            fixture.controller.close().await.unwrap();
+        }
+    }
 }
 
 #[tokio::test]

@@ -604,24 +604,10 @@ impl Context {
         };
         self.restore_masks().await?;
         let masks = self.state.masked()?;
-        // ADK removes the IDs it generated for providers without call IDs.
-        // Only those requests need canonical results before ordinary sizing.
-        let anonymous_history = if forced_history.is_none()
-            && request
-                .contents
-                .iter()
-                .flat_map(|content| &content.parts)
-                .any(|part| matches!(part, Part::FunctionResponse { id: None, .. }))
-        {
-            Some(self.history().await?)
-        } else {
-            None
-        };
         let revisions = forced_history
             .as_ref()
-            .or(anonymous_history.as_ref())
             .map(|history| model::history::revisions(&history.events));
-        let mut projected = request.clone();
+        let mut projected = request;
         let mut outputs = model::history::prepare(&mut projected, revisions.as_ref());
         // Raw ADK results identify their canonical revision by their own hash.
         // Saved masks alone do not require reading the full canonical history.
@@ -635,25 +621,19 @@ impl Context {
         {
             // Ordinary requests already have ADK's history. Canonical boundaries
             // and result revisions are needed only for a changed projection.
-            match outputs.limit(&mut projected, self.window()) {
-                Ok(projection) => {
-                    if self.state.project(projection)? {
-                        self.invalidate(&projected, pending, &outputs).await?;
-                    }
-                    return Ok(projected);
-                }
-                Err(error) if model::context_overflow(&error) => {}
-                Err(error) => return Err(error),
+            let projection = outputs.limit(&mut projected, self.window())?;
+            if self.state.project(projection)? {
+                self.invalidate(&projected, pending, &outputs).await?;
             }
+            return Ok(projected);
         }
-        let near_history = if forced_history.is_none() && anonymous_history.is_none() {
+        let near_history = if forced_history.is_none() {
             Some(self.history().await?)
         } else {
             None
         };
         let history = forced_history
             .as_ref()
-            .or(anonymous_history.as_ref())
             .or(near_history.as_ref())
             .expect("context history was loaded");
         let above = |tokens| self.summarizer.needs_compaction(Some(tokens));
@@ -663,7 +643,7 @@ impl Context {
                 .budget()
                 .is_some_and(|budget| tokens >= budget * PREPARE_PERCENT / 100)
             {
-                self.prepare_background(&history, tokens, &request.tools)?;
+                self.prepare_background(&history, tokens, &projected.tools)?;
             }
             let projection = outputs.limit(&mut projected, self.window())?;
             if self.state.project(projection)? {
@@ -671,10 +651,6 @@ impl Context {
             }
             return Ok(projected);
         }
-        // Only a failed summary needs the ordinary-formatting baseline. Keep
-        // the prepared slots instead of serializing and indexing them again.
-        let mut baseline = projected.clone();
-        let mut baseline_outputs = outputs.clone();
         let mut saved = 0;
         if !forced {
             // Masking older results usually suffices; a prepared summary stays
@@ -692,6 +668,11 @@ impl Context {
                 return Ok(projected);
             }
         }
+        // Ordinary requests are projected in place. A summary alone needs the
+        // canonical prefix, before MCP deduplication and saved output masks.
+        let mut request = projected.clone();
+        matching::rebuild(&mut request, &history.events, self.preamble(), invocation)?;
+        request.contents.extend_from_slice(pending);
         let prepared = match self.prepared(&history).await {
             Ok(Some(prepared)) => Ok(Some(prepared)),
             Ok(None) => match self.cut(&history, &request, invocation, !pending.is_empty())? {
@@ -772,6 +753,13 @@ impl Context {
             .as_ref()
             .is_some_and(|error| !failure::transient(error))
         {
+            let mut baseline = projected.clone();
+            matching::rebuild(&mut baseline, &history.events, self.preamble(), invocation)?;
+            baseline.contents.extend_from_slice(pending);
+            let baseline_revisions = model::history::revisions(&history.events);
+            let mut baseline_outputs =
+                model::history::prepare(&mut baseline, Some(&baseline_revisions));
+            baseline_outputs.remask(&mut baseline, &masks);
             if let Err(error) = baseline_outputs.limit(&mut baseline, self.window())
                 && !model::context_overflow(&error)
             {

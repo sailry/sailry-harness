@@ -13,18 +13,24 @@ use tokio::{
 
 #[tokio::test]
 async fn disables_tools_in_actual_requests() {
-    for api in [
-        ModelApi::Responses,
-        ModelApi::ChatCompletions,
-        ModelApi::Anthropic,
-        ModelApi::Gemini,
-        ModelApi::OpenCodeZen,
+    for (api, model_name) in [
+        (ModelApi::Responses, "fixture"),
+        (ModelApi::ChatCompletions, "fixture"),
+        (ModelApi::Anthropic, "fixture"),
+        (ModelApi::Gemini, "fixture"),
+        (ModelApi::DeepSeek, "fixture"),
+        (ModelApi::AzureAi, "fixture"),
+        (ModelApi::AzureOpenAi, "fixture"),
+        (ModelApi::OpenCodeGo, "deepseek-v4.1-flash"),
+        (ModelApi::OpenCodeGo, "minimax-m3"),
+        (ModelApi::OpenCodeGo, "gpt-6-luna"),
+        (ModelApi::OpenCodeZen, "gemini-3.8-flash"),
     ] {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!(
             "http://{}{}",
             listener.local_addr().unwrap(),
-            if api == ModelApi::OpenCodeZen {
+            if matches!(api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
                 "/v1"
             } else {
                 ""
@@ -79,7 +85,11 @@ async fn disables_tools_in_actual_requests() {
             api,
             authentication: Authentication::ApiKey,
             endpoint,
-            options: None,
+            options: (api == ModelApi::AzureOpenAi).then(|| {
+                sailry_protocol::conversation::connection::Options::AzureOpenAi {
+                    api_version: "2024-12-01-preview".into(),
+                }
+            }),
             oauth: None,
             enabled: true,
             models: vec![],
@@ -87,11 +97,6 @@ async fn disables_tools_in_actual_requests() {
             request_max_retries: None,
             stream_max_retries: None,
             credential: None,
-        };
-        let model_name = if api == ModelApi::OpenCodeZen {
-            "gemini-3.8-flash"
-        } else {
-            "fixture"
         };
         let wire = model::opencode::api(api, model_name).unwrap();
         let config = SessionConfig {
@@ -106,7 +111,7 @@ async fn disables_tools_in_actual_requests() {
             mode: WorkMode::Code,
             permission: Permission::Ask,
         };
-        let native = if api == ModelApi::OpenCodeZen {
+        let native = if matches!(api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
             model::opencode::build(
                 &provider,
                 &config,
@@ -203,7 +208,7 @@ async fn disables_tools_in_actual_requests() {
             } else {
                 assert_eq!(
                     requests[1]["tool_choice"],
-                    if api == ModelApi::Anthropic {
+                    if wire == ModelApi::Anthropic {
                         json!({"type":"none"})
                     } else {
                         json!("none")

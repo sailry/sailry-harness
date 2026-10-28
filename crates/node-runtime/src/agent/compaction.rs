@@ -40,15 +40,17 @@ impl Instruction {
 pub(super) fn bind(
     ingress: &Arc<Ingress>,
     model: Arc<dyn Llm>,
+    configuration: Option<model::effort::Capture>,
     invocation: &Invocation,
     stop: CancellationToken,
     instruction: String,
+    tools: std::collections::HashMap<String, serde_json::Value>,
 ) -> (
     adk_core::BeforeModelCallback,
     Arc<dyn adk_core::Tool>,
     Arc<active::Context>,
 ) {
-    let mut summarizer = Summarizer::new(ingress, model, invocation, stop);
+    let mut summarizer = Summarizer::new(ingress, model, configuration, invocation, stop, tools);
     summarizer.preamble = Some(Content::new("system").with_text(instruction));
     let context = Arc::new(active::Context::new(
         ingress.clone(),
@@ -68,11 +70,12 @@ pub(super) async fn manual(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
     model: Arc<dyn Llm>,
+    configuration: Option<model::effort::Capture>,
     stop: CancellationToken,
 ) -> Result<(), Fault> {
     let service = ingress.sessions(invocation.turn.id);
     let session = invocation.turn.session.to_string();
-    let result = manual_inner(ingress, invocation, model, stop).await;
+    let result = manual_inner(ingress, invocation, model, configuration, stop).await;
     if let Err(error) = &result {
         failure::record(
             service.as_ref(),
@@ -92,6 +95,7 @@ async fn manual_inner(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
     model: Arc<dyn Llm>,
+    configuration: Option<model::effort::Capture>,
     stop: CancellationToken,
 ) -> adk_core::Result<()> {
     let service = ingress.sessions(invocation.turn.id);
@@ -110,17 +114,23 @@ async fn manual_inner(
     {
         return Ok(());
     }
-    let mut summarizer = Summarizer::new(ingress, model, invocation, stop.clone());
     let mut prompt_session = prompt::Session::load(ingress, invocation)
         .await
         .map_err(|error| {
             adk_core::AdkError::session("captured summary instruction could not be read")
                 .with_source(error)
         })?;
+    let mut summarizer = Summarizer::new(
+        ingress,
+        model,
+        configuration,
+        invocation,
+        stop.clone(),
+        prompt_session.tools(),
+    );
     summarizer.masks = Some(prompt_session.output_masks().map_err(|error| {
         adk_core::AdkError::session("saved output masks are invalid").with_source(error)
     })?);
-    summarizer.tools = prompt_session.tools();
     summarizer.preamble = Some(
         Content::new("system").with_text(prompt_session.instruction(prompt::baseline().to_owned())),
     );
@@ -147,6 +157,7 @@ async fn manual_inner(
 #[derive(Clone)]
 struct Summarizer {
     model: Arc<dyn Llm>,
+    configuration: Option<model::effort::Capture>,
     identity: crate::logging::Context,
     turn: TurnId,
     context: Option<u64>,
@@ -179,8 +190,10 @@ impl Summarizer {
     fn new(
         ingress: &Arc<Ingress>,
         model: Arc<dyn Llm>,
+        configuration: Option<model::effort::Capture>,
         invocation: &Invocation,
         stop: CancellationToken,
+        tools: std::collections::HashMap<String, serde_json::Value>,
     ) -> Self {
         let metadata = invocation.provider.as_ref().and_then(|provider| {
             provider
@@ -190,6 +203,7 @@ impl Summarizer {
         });
         Self {
             model,
+            configuration,
             identity: crate::logging::Context {
                 node: Some(ingress.node),
                 session: Some(invocation.turn.session),
@@ -224,7 +238,7 @@ impl Summarizer {
                 text: invocation.message.text.clone(),
             }),
             preamble: None,
-            tools: Default::default(),
+            tools,
             masks: None,
             focus: (invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction
                 && !invocation.message.text.trim().is_empty())
@@ -573,6 +587,9 @@ impl Summarizer {
                 end_timestamp: last.timestamp,
                 compacted_content: content,
             });
+            if let Some(configuration) = &self.configuration {
+                configuration.compact(&mut event);
+            }
             event.provider_metadata.insert(
                 crate::store::agent::compaction::END_EVENT.into(),
                 last.id.clone(),

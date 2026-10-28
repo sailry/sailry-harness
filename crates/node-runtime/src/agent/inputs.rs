@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct Batch {
     entries: Vec<Entry>,
+    configuration: Option<ModelConfiguration>,
 }
 
 #[derive(Clone)]
@@ -18,6 +19,16 @@ struct Entry {
 }
 
 impl Batch {
+    pub fn configure(&mut self, configuration: Option<ModelConfiguration>) {
+        if let Some(part) = configuration.as_ref().and_then(ModelConfiguration::input)
+            && let Some(entry) = self.entries.first_mut()
+        {
+            entry.content.parts.insert(0, part);
+            entry.capability = entry.capability.map(|index| index + 1);
+        }
+        self.configuration = configuration;
+    }
+
     pub async fn select(
         &mut self,
         invocation: &Invocation,
@@ -56,7 +67,10 @@ impl Batch {
                 capability: None,
             });
         }
-        Ok(Self { entries })
+        Ok(Self {
+            entries,
+            configuration: None,
+        })
     }
 
     pub async fn guidance(
@@ -73,7 +87,10 @@ impl Batch {
                 capability: None,
             });
         }
-        Ok(Self { entries })
+        Ok(Self {
+            entries,
+            configuration: None,
+        })
     }
 
     pub fn current(&self) -> (TurnId, Vec<Reference>, Content, Option<usize>) {
@@ -150,6 +167,7 @@ impl Batch {
             event.author = "user".into();
             event.set_content(entry.content.clone());
             crate::store::agent::Sessions::new(ingress.clone(), owner)
+                .with_configuration(self.configuration.clone())
                 .with_input_turn(entry.turn)
                 .with_input_source(source)
                 .with_references(entry.references.clone())

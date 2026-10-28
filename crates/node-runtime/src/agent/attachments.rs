@@ -17,6 +17,7 @@ const READ_NOTE: &str = "Contents not included; use read_office with source {\"k
 const UNAVAILABLE_NOTE: &str =
     "Contents not included; the current model cannot read this attachment";
 const IMAGE_NOTE: &str = "This model does not support images. The original attachment is retained.";
+const BUDGET_NOTE: &str = "Contents not included because they exceed this handoff request's input budget. Preserve the attachment reference without claiming its contents were inspected.";
 
 pub(super) fn api(provider: &Provider, effective: ModelApi) -> Option<ModelApi> {
     if effective == ModelApi::Plugin {
@@ -110,6 +111,7 @@ pub(super) struct Model {
     pub(super) turn: TurnId,
     pub(super) vision: bool,
     pub(super) api: Option<ModelApi>,
+    pub(super) window: Option<model::history::Window>,
     pub(super) tools: bool,
     pub(super) stop: CancellationToken,
     pub(super) identity: crate::logging::Context,
@@ -121,9 +123,12 @@ impl Model {
             filter_images(&mut request.contents);
         }
         let mut remaining = REQUEST_BYTES;
-        for content in &mut request.contents {
+        let summary = model::is_summary();
+        let mut fallbacks = Vec::new();
+        let mut changed = false;
+        for (content_index, content) in request.contents.iter_mut().enumerate() {
             let mut references = Vec::new();
-            for part in &mut content.parts {
+            for (part_index, part) in content.parts.iter_mut().enumerate() {
                 let Part::FileData {
                     file_uri,
                     mime_type,
@@ -135,6 +140,7 @@ impl Model {
                 if !is_reference(file_uri) {
                     continue;
                 }
+                changed = true;
                 let reference = id(file_uri)?;
                 let (attachment, current) =
                     self.ingress.attachment_source(self.turn, reference).await?;
@@ -165,6 +171,22 @@ impl Model {
                 *part = match native {
                     Some(native) => {
                         remaining -= attachment.spec.size;
+                        if summary {
+                            let allowance = match &native {
+                                Part::InlineData {
+                                    mime_type, data, ..
+                                } if !mime_type.starts_with("image/") => {
+                                    (data.len() as u64).div_ceil(3)
+                                }
+                                _ => 0,
+                            };
+                            fallbacks.push((
+                                content_index,
+                                part_index,
+                                file(&attachment, Some(BUDGET_NOTE)),
+                                allowance,
+                            ));
+                        }
                         if self.tools {
                             references.push(file(&attachment, None));
                         }
@@ -183,6 +205,30 @@ impl Model {
                 };
             }
             content.parts.extend(references);
+        }
+        if changed {
+            // Hydration can expand a small reference into real text or media.
+            // The shared model boundary must size that changed request again.
+            model::history::clear_prepared(request);
+        }
+        if let Some(window) = self.window.filter(|_| summary && !fallbacks.is_empty()) {
+            let capacity = window.capacity(request);
+            // Native document/media tokenization is provider-specific. Apply
+            // this conservative byte allowance only to summary replacement.
+            let mut tokens = compaction::estimate::request(request)
+                .map_err(model::error)?
+                .saturating_add(fallbacks.iter().map(|(_, _, _, allowance)| allowance).sum());
+            for (content, part, fallback, allowance) in fallbacks {
+                if tokens <= capacity {
+                    break;
+                }
+                let value = &mut request.contents[content].parts[part];
+                tokens = tokens
+                    .saturating_sub(compaction::estimate::part(value))
+                    .saturating_sub(allowance)
+                    .saturating_add(compaction::estimate::part(&fallback));
+                *value = fallback;
+            }
         }
         Ok(())
     }

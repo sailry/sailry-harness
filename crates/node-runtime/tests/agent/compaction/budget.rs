@@ -130,10 +130,19 @@ pub(super) async fn image(fixture: &Fixture) -> AttachmentId {
     image::codecs::png::PngEncoder::new(&mut bytes)
         .write_image(&[128, 64, 32, 255], 1, 1, image::ExtendedColorType::Rgba8)
         .unwrap();
+    upload(fixture, "context.png", "image/png", &bytes).await
+}
+
+pub(super) async fn upload(
+    fixture: &Fixture,
+    name: &str,
+    media_type: &str,
+    bytes: &[u8],
+) -> AttachmentId {
     let spec = sailry_protocol::attachment::Spec {
         worktree: fixture.session.worktree,
-        name: "context.png".into(),
-        media_type: "image/png".into(),
+        name: name.into(),
+        media_type: media_type.into(),
         size: bytes.len() as u64,
         revision: blake3::hash(&bytes).to_hex().to_string(),
     };

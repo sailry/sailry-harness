@@ -4,6 +4,7 @@ mod endpoint;
 pub(crate) use endpoint::{anthropic as anthropic_base_url, parse as endpoint_url};
 pub(crate) mod catalog;
 pub(crate) mod cloud;
+pub(crate) mod configuration;
 pub(crate) mod login;
 pub(crate) mod media;
 mod metadata;

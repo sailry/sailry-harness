@@ -157,6 +157,8 @@ impl Llm for Model {
                 }
                 let error = match result {
                     Ok(terminal) => {
+                        recovery.entry.recovery_decision = Some("succeeded");
+                        recovery.finish(crate::logging::Phase::Completed, None);
                         if let Some(response) = terminal {
                             let _ = output.send(Ok(response)).await;
                         }
@@ -261,10 +263,7 @@ impl Llm for Model {
                 }
             };
             match result {
-                Ok(()) => {
-                    recovery.entry.recovery_decision = Some("succeeded");
-                    recovery.finish(crate::logging::Phase::Completed, None);
-                }
+                Ok(()) => {}
                 Err(error) => {
                     classify(&mut recovery.entry, &error);
                     recovery

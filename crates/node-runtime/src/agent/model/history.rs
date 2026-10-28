@@ -14,7 +14,7 @@ pub(in crate::agent) mod output;
 
 #[cfg(test)]
 thread_local! {
-    static PREPARATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(in crate::agent) static PREPARATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 struct Model {
@@ -36,6 +36,16 @@ impl Window {
             context: u64::from(model.context),
             output: u64::from(model.output),
         })
+    }
+
+    pub(in crate::agent) fn capacity(self, request: &LlmRequest) -> u64 {
+        let output = request
+            .config
+            .as_ref()
+            .and_then(|config| config.max_output_tokens)
+            .map_or(self.output, |output| output.max(0) as u64)
+            .min(self.output);
+        self.context.saturating_sub(output)
     }
 }
 
@@ -117,8 +127,7 @@ where
     let prepared = output::take_prepared(&mut request, window);
     project(&mut request, &origin);
     if !prepared {
-        output::prepare(&mut request, None).limit(&mut request, window)?;
-        output::take_prepared(&mut request, window);
+        output::prepare(&mut request, None).limit_unmarked(&mut request, window)?;
     }
     for content in &mut request.contents {
         content.strip_generated_call_ids();
@@ -528,7 +537,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn preserves_anonymous_revision_on_fallback() {
+    async fn preserves_generated_revision_on_fallback() {
         let text = "Canonical evidence 中文 🙂 ".repeat(200);
         for original in [
             serde_json::json!({"text":text}),
@@ -566,7 +575,6 @@ mod tests {
                     event.content().unwrap().clone(),
                 ],
             );
-            request.contents[1].strip_generated_call_ids();
             prepare(&mut request, Some(&revisions))
                 .limit(
                     &mut request,
@@ -584,18 +592,8 @@ mod tests {
             else {
                 unreachable!()
             };
-            let mut visible = function_response.response.clone();
-            if let Some(fields) = visible.as_object_mut() {
-                fields.remove("sailry_output");
-                assert!(id.is_none());
-                assert_eq!(
-                    function_response.response["sailry_output"]["revision"],
-                    expected
-                );
-            } else {
-                assert_eq!(id.as_deref(), Some("adk-call-fixture"));
-            }
-            assert_eq!(visible, original);
+            assert_eq!(id.as_deref(), Some("adk-call-fixture"));
+            assert_eq!(function_response.response, original);
             let stream = generate(
                 request,
                 origin(&provider(), "fixture", None, None),
@@ -686,6 +684,10 @@ mod tests {
             context: 10_000,
             output: 100,
         });
+        request.config = Some(adk_core::GenerateContentConfig {
+            max_output_tokens: Some(100),
+            ..Default::default()
+        });
         prepare(&mut request, None)
             .limit(&mut request, window)
             .unwrap();
@@ -704,17 +706,25 @@ mod tests {
             .unwrap()
             .remove("sailry_output");
         let expected = serde_json::to_vec(&expected.contents).unwrap();
-        let stream = generate(request, origin, window, |request| async move {
-            assert_eq!(PREPARATIONS.get(), preparations);
-            assert_eq!(serde_json::to_vec(&request.contents).unwrap(), expected);
-            assert!(
-                !serde_json::to_string(&request)
-                    .unwrap()
-                    .contains("sailry_output")
-            );
-            assert!(!request.config.unwrap().extensions.contains_key(PREPARED));
-            Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
-        })
+        let stream = crate::agent::model::summary_scope(generate(
+            request,
+            origin,
+            Some(Window {
+                context: 10_000,
+                output: 1_000,
+            }),
+            |request| async move {
+                assert_eq!(PREPARATIONS.get(), preparations);
+                assert_eq!(serde_json::to_vec(&request.contents).unwrap(), expected);
+                assert!(
+                    !serde_json::to_string(&request)
+                        .unwrap()
+                        .contains("sailry_output")
+                );
+                assert!(!request.config.unwrap().extensions.contains_key(PREPARED));
+                Ok(Box::pin(futures::stream::empty()) as LlmResponseStream)
+            },
+        ))
         .await
         .unwrap();
         drop(stream);

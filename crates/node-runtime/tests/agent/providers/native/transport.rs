@@ -123,7 +123,13 @@ async fn switches_after_pre_event_protocol_errors() {
 #[tokio::test]
 async fn keeps_compaction_on_http() {
     for remote in [false, true] {
-        let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::Accept).await;
+        let mut event = server::response_events(false, false).pop().unwrap();
+        event["response"]["output"][0]["content"][0]["text"] =
+            serde_json::json!(crate::agent_support::compaction::handoff(server::ANSWER));
+        let reply = Reply::Raw(Arc::new(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {event}\n\ndata: [DONE]\n\n"
+        ).into_bytes()));
+        let server = Server::transport(ModelApi::Responses, reply, Mode::Accept).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let mut provider = fixture.provider.clone();
         provider.models[0].context = 32_000;
@@ -191,11 +197,12 @@ async fn keeps_compaction_on_http() {
         );
         let summary = &requests[3];
         assert!(summary.body.get("type").is_none());
+        let handoff = summary.body["input"].as_array().unwrap().last().unwrap();
+        assert_eq!(handoff["role"], "user");
         assert!(
-            summary
-                .body
-                .to_string()
-                .contains("Summarize this conversation")
+            handoff["content"].as_str().unwrap().starts_with(
+                "Update the existing handoff, if any (the earlier user message containing the line `--- End of context handoff ---`), using the canonical conversation prefix above."
+            )
         );
         assert_eq!(summary.body["store"], false);
         assert_eq!(

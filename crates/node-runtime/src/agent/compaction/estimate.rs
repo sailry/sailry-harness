@@ -48,6 +48,9 @@ pub(in crate::agent) fn part(part: &Part) -> u64 {
             thinking: value, ..
         } => text(value),
         Part::FunctionCall { name, args, .. } => text(name) + json(args),
+        Part::ConfigurationUpdate {
+            configuration_update,
+        } => text(&serde_json::to_string(configuration_update).unwrap()),
         Part::FunctionResponse {
             function_response, ..
         } => response(function_response, json(&function_response.response)),
@@ -113,6 +116,8 @@ pub(in crate::agent) fn text(value: &str) -> u64 {
 
 fn media(mime: &str, data: &[u8]) -> u64 {
     if !mime.starts_with("image/") {
+        // Native document, audio and video usage depends on the provider's
+        // processing, rather than their transport encoding or byte size.
         return 0;
     }
     let dimensions = image::ImageReader::new(std::io::Cursor::new(data))
@@ -225,6 +230,20 @@ mod tests {
         let small = tokens(&[content(16)]);
         assert!(small >= 3 * 1024);
         assert_eq!(tokens(&[content(2 * 1024 * 1024)]), small);
+    }
+
+    #[test]
+    fn leaves_document_usage_to_provider() {
+        let file = |bytes: Vec<u8>| {
+            event(vec![Part::InlineData {
+                mime_type: "application/pdf".into(),
+                data: bytes,
+                uri: None,
+                annotations: None,
+            }])
+        };
+        assert_eq!(tokens(&[file(vec![0; 3_000])]), 4);
+        assert_eq!(tokens(&[file(vec![0; 30_000])]), 4);
     }
 
     #[test]

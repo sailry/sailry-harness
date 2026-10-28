@@ -29,6 +29,17 @@ impl Fixture {
         let identity = node.id();
         node.shutdown().await.unwrap();
         let provider = provider_fixture::seed(&model, provider, &profile, identity).await;
+        if let Ok(authentication) = std::env::var("SAILRY_ACCEPTANCE_AUTHENTICATION") {
+            let expected = serde_json::from_value::<sailry_protocol::Authentication>(
+                serde_json::Value::String(authentication),
+            )
+            .expect("valid expected authentication required");
+            assert_eq!(provider.authentication, expected);
+        }
+        println!(
+            "live provider: model={model} authentication={:?} remote={remote}",
+            provider.authentication
+        );
         let node = Node::start(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -120,6 +131,54 @@ impl Fixture {
                 panic!("live compaction deadline: {error}")
             }
         }
+    }
+
+    async fn updates(&self) -> Vec<(bool, adk_core::ReasoningEffort)> {
+        let events: Vec<adk_core::Event> = self
+            .node
+            .with_storage(|db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .query("SELECT body FROM agent_events", ())
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut events = Vec::new();
+                    while let Some(row) =
+                        rows.next().await.map_err(crate::database_fixture::fault)?
+                    {
+                        let body: Vec<u8> = row.get(0).map_err(crate::database_fixture::fault)?;
+                        events.push(serde_json::from_slice(&body).unwrap());
+                    }
+                    Ok(events)
+                })
+            })
+            .await
+            .unwrap();
+        let mut updates = Vec::new();
+        for event in &events {
+            for (summary, content) in [
+                (false, event.content()),
+                (
+                    true,
+                    event
+                        .actions
+                        .compaction
+                        .as_ref()
+                        .map(|value| &value.compacted_content),
+                ),
+            ] {
+                for part in content.into_iter().flat_map(|content| &content.parts) {
+                    if let adk_core::Part::ConfigurationUpdate {
+                        configuration_update,
+                    } = part.provider_part()
+                    {
+                        updates.push((summary, configuration_update.effort));
+                    }
+                }
+            }
+        }
+        updates.sort_by_key(|(summary, _)| *summary);
+        updates
     }
 
     async fn image(&self) -> sailry_protocol::AttachmentId {
@@ -237,12 +296,56 @@ fn verify(page: &Page, fixture: &Fixture, checkpoint: &str, expected: &str) {
 #[ignore = "requires an explicit inactive provider profile and incurs real model usage"]
 async fn retains_attachments_and_resumes() {
     for remote in [false, true] {
-        let fixture = Fixture::new(remote).await;
+        let mut fixture = Fixture::new(remote).await;
         let checkpoint = format!("checkpoint-{}", uuid::Uuid::new_v4());
         let expected = format!("file-{}", uuid::Uuid::new_v4());
         std::fs::write(fixture.root().join("input.txt"), &expected).unwrap();
         let started = std::time::Instant::now();
-        fixture.submit(archive(&checkpoint, 240).into()).await;
+        let initial = fixture.submit(archive(&checkpoint, 240).into()).await;
+        let effort_update = std::env::var_os("SAILRY_ACCEPTANCE_EFFORT_UPDATE").is_some();
+        if effort_update {
+            let mut config = fixture.session.config.clone();
+            config.effort = Effort::Medium;
+            let Output::Session(session) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("session expected")
+            };
+            fixture.session = session;
+            let updated = fixture
+                .submit("Retain the earlier checkpoint. Reply only ACK.".into())
+                .await;
+            assert_eq!(
+                fixture.updates().await,
+                vec![(false, adk_core::ReasoningEffort::Medium)]
+            );
+            let previous = initial
+                .entries
+                .iter()
+                .rev()
+                .find_map(|entry| entry.usage.as_ref())
+                .unwrap();
+            let current = updated
+                .entries
+                .iter()
+                .rev()
+                .find_map(|entry| entry.usage.as_ref())
+                .unwrap();
+            println!(
+                "live reasoning update: authentication={:?} remote={remote} base=Low current=Medium previous_input={} input={} cached_input={}",
+                fixture.provider.authentication,
+                previous.input,
+                current.input,
+                current.cached_input
+            );
+        }
         let attachment = fixture.image().await;
         fixture.submit(Input {
             text: "Use read_file to inspect input.txt. Preserve its exact contents and the earlier checkpoint for follow-up. The attached image is part of the project evidence. Reply only ACK.".into(),
@@ -265,9 +368,19 @@ async fn retains_attachments_and_resumes() {
         assert_eq!(summaries(&compacted), 1);
         let page = fixture.submit("Use read_file on input.txt and write_file to create output.txt with exactly the same bytes. The source has no trailing newline; preserve that. Reply with only the checkpoint token from the archived context. Do not alter other files.".into()).await;
         verify(&page, &fixture, &checkpoint, &expected);
+        if effort_update {
+            assert_eq!(
+                fixture.updates().await,
+                vec![
+                    (false, adk_core::ReasoningEffort::Medium),
+                    (true, adk_core::ReasoningEffort::Medium)
+                ]
+            );
+        }
         println!(
-            "live manual compaction: model={} remote={remote} summaries={} elapsed_ms={}",
+            "live manual compaction: model={} authentication={:?} remote={remote} summaries={} elapsed_ms={}",
             fixture.model,
+            fixture.provider.authentication,
             summaries(&page),
             started.elapsed().as_millis()
         );
@@ -324,8 +437,9 @@ async fn automatically_compacts_and_resumes() {
         );
         verify(&page, &fixture, &checkpoint, &expected);
         println!(
-            "live automatic compaction: model={} remote={remote} summaries={} elapsed_ms={}",
+            "live automatic compaction: model={} authentication={:?} remote={remote} summaries={} elapsed_ms={}",
             fixture.model,
+            fixture.provider.authentication,
             summaries(&page),
             started.elapsed().as_millis()
         );

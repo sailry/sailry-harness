@@ -43,6 +43,7 @@ pub(super) fn build(
     session: SessionId,
 ) -> Result<Arc<dyn Llm>, Fault> {
     let service = service(provider.api).expect("OpenCode protocol selected");
+    let wire = api(provider.api, &config.model)?;
     let mut adapter = OpenCodeConfig::new(service, key, &config.model)
         .with_base_url(&provider.endpoint)
         .with_user_agent(concat!("Sailry/", env!("CARGO_PKG_VERSION")))
@@ -51,7 +52,10 @@ pub(super) fn build(
         .with_request_retry(request_retry())
         .with_response_recovery(true)
         .with_timeouts(timeouts());
-    if api(provider.api, &config.model)? == ModelApi::Anthropic {
+    if let Some(request) = tool_choice::adapter(wire, None) {
+        adapter = adapter.with_request_adapter(request);
+    }
+    if wire == ModelApi::Anthropic {
         let native = reasoning::anthropic(AnthropicConfig::new(key, &config.model), effort)?;
         if let Some(thinking) = native.thinking {
             adapter = adapter.with_anthropic_thinking(thinking);
@@ -59,7 +63,7 @@ pub(super) fn build(
         if let Some(effort) = native.effort {
             adapter = adapter.with_anthropic_effort(effort);
         }
-    } else if api(provider.api, &config.model)? == ModelApi::Gemini {
+    } else if wire == ModelApi::Gemini {
         if let Some(thinking) = reasoning::gemini(effort)? {
             adapter = adapter.with_gemini_thinking(thinking);
         }

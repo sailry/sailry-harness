@@ -1,6 +1,8 @@
 use super::*;
 use sailry_protocol::RequestId;
 
+mod completion;
+
 #[test]
 fn retains_only_last_cause_and_typed_stop() {
     let error = AdkError::new(

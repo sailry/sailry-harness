@@ -10,6 +10,7 @@ pub(super) fn keyed(
     model: &str,
     key: &str,
     effort: Effort,
+    adapter: Option<RequestAdapter>,
 ) -> Result<Arc<dyn Llm>, Fault> {
     crate::providers::cloud::validate(provider)?;
     if key.is_empty() {
@@ -26,29 +27,35 @@ pub(super) fn keyed(
                     "Azure API version is required",
                 ));
             };
-            Arc::new(
-                AzureOpenAIClient::new(AzureConfig::new(
-                    key,
-                    &provider.endpoint,
-                    api_version,
-                    model,
-                ))
-                .map_err(error)?
-                .with_reasoning_effort(reasoning::openai(effort)?)
-                .with_retry_config(RetryConfig::disabled())
-                .with_request_retry(request_retry())
-                .with_timeouts(timeouts())
-                .map_err(error)?,
-            )
+            let mut client = AzureOpenAIClient::new(AzureConfig::new(
+                key,
+                &provider.endpoint,
+                api_version,
+                model,
+            ))
+            .map_err(error)?
+            .with_reasoning_effort(reasoning::openai(effort)?)
+            .with_retry_config(RetryConfig::disabled())
+            .with_request_retry(request_retry())
+            .with_timeouts(timeouts())
+            .map_err(error)?;
+            if let Some(adapter) = adapter {
+                client = client.with_request_adapter(adapter);
+            }
+            Arc::new(client)
         }
-        ModelApi::AzureAi => Arc::new(
-            AzureAIClient::new(AzureAIConfig::new(&provider.endpoint, key, model))
+        ModelApi::AzureAi => {
+            let mut client = AzureAIClient::new(AzureAIConfig::new(&provider.endpoint, key, model))
                 .map_err(error)?
                 .with_retry_config(RetryConfig::disabled())
                 .with_request_retry(request_retry())
                 .with_timeouts(timeouts())
-                .map_err(error)?,
-        ),
+                .map_err(error)?;
+            if let Some(adapter) = adapter {
+                client = client.with_request_adapter(adapter);
+            }
+            Arc::new(client)
+        }
         _ => {
             return Err(Fault::invalid("cloud API is required"));
         }

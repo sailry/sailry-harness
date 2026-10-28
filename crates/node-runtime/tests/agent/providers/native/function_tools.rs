@@ -53,12 +53,10 @@ async fn capture(declaration: Value, streaming: bool) -> Value {
     .await
     .expect("request capture should not wait for HTTP");
     let error = result.expect_err("the adapter must stop before HTTP");
-    assert!(
-        error
-            .message
-            .contains("Responses request customization failed"),
-        "{error:?}"
-    );
+    assert_eq!(error.component, ErrorComponent::Model);
+    assert_eq!(error.category, ErrorCategory::InvalidInput);
+    assert_eq!(error.code, "fixture.request_captured");
+    assert_eq!(error.message, "Request captured before HTTP");
     assert_eq!(request.tools["search"], declaration);
     assert!(server.requests.lock().unwrap().is_empty());
     let mut captured = captured.lock().unwrap();

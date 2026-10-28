@@ -9,13 +9,6 @@ use std::sync::OnceLock;
 #[derive(Default)]
 pub(in crate::agent) struct Revisions<'a> {
     values: BTreeMap<&'a str, Vec<(&'a Value, OnceLock<String>)>>,
-    anonymous: BTreeMap<&'a str, Vec<Canonical<'a>>>,
-}
-
-struct Canonical<'a> {
-    id: &'a str,
-    value: &'a Value,
-    arguments: Option<&'a Value>,
 }
 
 impl Revisions<'_> {
@@ -28,25 +21,6 @@ impl Revisions<'_> {
             .skip(1)
             .all(|(value, cached)| cached.get_or_init(|| hash(value)) == first)
             .then_some(first.as_str())
-    }
-
-    fn anonymous(
-        &self,
-        name: &str,
-        value: &Value,
-        consumed: &BTreeSet<String>,
-    ) -> Option<(&str, Option<&Value>)> {
-        let candidates = self.anonymous.get(name)?;
-        let result = candidates
-            .iter()
-            .find(|result| !consumed.contains(result.id) && result.value == value)?;
-        let arguments = candidates
-            .iter()
-            .filter(|candidate| candidate.value == value)
-            .all(|candidate| candidate.arguments == result.arguments)
-            .then_some(result.arguments)
-            .flatten();
-        Some((result.id, arguments))
     }
 }
 pub(in crate::agent) type Masks = BTreeSet<(String, String)>;
@@ -63,7 +37,6 @@ pub(in crate::agent) fn protected(name: &str, value: &Value) -> bool {
 
 pub(in crate::agent) fn revisions(events: &[adk_core::Event]) -> Revisions<'_> {
     let mut revisions = Revisions::default();
-    let mut calls = BTreeMap::new();
     for part in events
         .iter()
         .filter_map(adk_core::Event::content)
@@ -71,14 +44,6 @@ pub(in crate::agent) fn revisions(events: &[adk_core::Event]) -> Revisions<'_> {
         .map(Part::provider_part)
     {
         match part {
-            Part::FunctionCall {
-                id: Some(id),
-                name,
-                args,
-                ..
-            } if id.starts_with(adk_core::GENERATED_CALL_ID_PREFIX) => {
-                calls.insert(id.as_str(), (name.as_str(), args));
-            }
             Part::FunctionResponse {
                 id: Some(id),
                 function_response,
@@ -89,20 +54,6 @@ pub(in crate::agent) fn revisions(events: &[adk_core::Event]) -> Revisions<'_> {
                     .entry(id)
                     .or_default()
                     .push((&function_response.response, OnceLock::new()));
-                if id.starts_with(adk_core::GENERATED_CALL_ID_PREFIX) {
-                    revisions
-                        .anonymous
-                        .entry(&function_response.name)
-                        .or_default()
-                        .push(Canonical {
-                            id,
-                            value: &function_response.response,
-                            arguments: calls
-                                .get(id.as_str())
-                                .filter(|(name, _)| *name == function_response.name)
-                                .map(|(_, arguments)| *arguments),
-                        });
-                }
             }
             _ => {}
         }
@@ -158,13 +109,12 @@ fn encoded_source(
 
 pub(in crate::agent) const PREPARED: &str = "sailry.output.prepared";
 
-#[derive(Clone)]
 struct Slot {
     content: usize,
     part: usize,
     id: String,
     name: String,
-    arguments: Option<Value>,
+    arguments: Option<(usize, usize)>,
     source: Option<Value>,
     encoded: String,
     tokens: u64,
@@ -172,7 +122,6 @@ struct Slot {
     projected: bool,
 }
 
-#[derive(Clone)]
 pub(in crate::agent) struct Prepared<'a> {
     slots: Vec<Slot>,
     revisions: Option<&'a Revisions<'a>>,
@@ -193,18 +142,14 @@ pub(in crate::agent) fn prepare<'a>(
 impl<'a> Prepared<'a> {
     fn new(contents: &mut [Content], revisions: Option<&'a Revisions<'a>>) -> Self {
         let mut calls = BTreeMap::new();
-        let mut consumed = BTreeSet::new();
         let mut slots = Vec::new();
         for (content, message) in contents.iter_mut().enumerate() {
             for (part, value) in message.parts.iter_mut().enumerate() {
                 if let Part::FunctionCall {
-                    id: Some(id),
-                    name,
-                    args,
-                    ..
+                    id: Some(id), name, ..
                 } = value.provider_part()
                 {
-                    calls.insert(id.clone(), (name.clone(), args.clone()));
+                    calls.insert(id.clone(), (name.clone(), (content, part)));
                     continue;
                 }
                 let Part::FunctionResponse {
@@ -220,49 +165,25 @@ impl<'a> Prepared<'a> {
                         .as_deref()
                         .is_none_or(|id| source["call"].as_str() == Some(id))
                 });
-                let anonymous = (part_id.is_none() && known.is_none())
-                    .then(|| {
-                        revisions.and_then(|revisions| {
-                            revisions.anonymous(
-                                &function_response.name,
-                                &function_response.response,
-                                &consumed,
-                            )
-                        })
-                    })
-                    .flatten();
                 let Some(id) = part_id
                     .as_deref()
                     .filter(|id| !id.is_empty())
                     .or_else(|| known.and_then(|source| source["call"].as_str()))
-                    .or_else(|| anonymous.map(|(id, _)| id))
                     .map(str::to_owned)
                 else {
                     continue;
                 };
-                consumed.insert(id.clone());
-                if part_id.is_none() && !function_response.response.is_object() {
-                    // Scalars and arrays cannot hold the private reference.
-                    // The model boundary strips this internal identity again.
-                    *part_id = Some(id.clone());
-                }
                 let overhead = estimate::response(function_response, 0);
                 let mut encoded = if known.is_some() {
                     encode(&function_response.response)
                 } else {
                     function_response.response.to_string()
                 };
-                let identified = known.is_some();
-                let mut canonical = known.cloned().or_else(|| {
-                    anonymous.map(|_| {
-                        json!({"call":id,"revision":blake3::hash(encoded.as_bytes()).to_hex().to_string()})
-                    })
-                });
+                let mut canonical = known.cloned();
                 let arguments = calls
                     .get(&id)
                     .filter(|(name, _)| name == &function_response.name)
-                    .map(|(_, arguments)| arguments.clone())
-                    .or_else(|| anonymous.and_then(|(_, arguments)| arguments.cloned()));
+                    .map(|(_, location)| *location);
                 if function_response.name.starts_with("mcp_")
                     && let Some(deduplicated) =
                         super::super::mcp::deduplicate(&function_response.response)
@@ -273,13 +194,6 @@ impl<'a> Prepared<'a> {
                     encoded = encode(&deduplicated);
                     function_response.response = deduplicated;
                     function_response.response["sailry_output"] = source.clone();
-                } else if !identified
-                    && let Some(source) = &canonical
-                    && let Some(fields) = function_response.response.as_object_mut()
-                {
-                    // Keep the canonical identity for a later window fallback;
-                    // the provider boundary removes this request-only field.
-                    fields.insert("sailry_output".into(), source.clone());
                 }
                 slots.push(Slot {
                     content,
@@ -424,13 +338,15 @@ impl<'a> Prepared<'a> {
                 continue;
             }
             let source = Self::reference(slot, original, self.revisions);
-            if let Some(mut candidate) = super::candidate(
-                original,
-                &slot.name,
-                slot.arguments.as_ref(),
-                &source,
-                &slot.encoded,
-            ) {
+            let arguments = slot.arguments.and_then(|(content, part)| {
+                match contents[content].parts[part].provider_part() {
+                    Part::FunctionCall { args, .. } => Some(args),
+                    _ => None,
+                }
+            });
+            if let Some(mut candidate) =
+                super::candidate(original, &slot.name, arguments, &source, &slot.encoded)
+            {
                 if let Some(context) = original.get("sailry_context") {
                     candidate["sailry_context"] = context.clone();
                 }
@@ -519,18 +435,28 @@ impl<'a> Prepared<'a> {
         request: &mut LlmRequest,
         window: Option<Window>,
     ) -> adk_core::Result<Option<String>> {
+        let fingerprint = self.limit_unmarked(request, window)?;
+        let stamp = boundary(request, window);
+        request
+            .config
+            .get_or_insert_with(Default::default)
+            .extensions
+            .insert(PREPARED.into(), stamp);
+        Ok(fingerprint)
+    }
+
+    pub(in crate::agent) fn limit_unmarked(
+        &mut self,
+        request: &mut LlmRequest,
+        window: Option<Window>,
+    ) -> adk_core::Result<Option<String>> {
         let empty_config = request.config.is_none();
+        clear_prepared(request);
         request.config.get_or_insert_with(Default::default);
         self.project(&mut request.contents);
         let mut fingerprint = None;
         if let Some(window) = window {
-            let output = request
-                .config
-                .as_ref()
-                .and_then(|config| config.max_output_tokens)
-                .map_or(window.output, |output| output.max(0) as u64)
-                .min(window.output);
-            let capacity = window.context.saturating_sub(output);
+            let capacity = window.capacity(request);
             let total = self.tokens(request)?;
             if total > capacity {
                 let mut sizes = self
@@ -583,31 +509,12 @@ impl<'a> Prepared<'a> {
                 ));
             }
         }
-        request
-            .config
-            .get_or_insert_with(Default::default)
-            .extensions
-            .remove(PREPARED);
-        let stamp = boundary(request, window);
-        request
-            .config
-            .as_mut()
-            .unwrap()
-            .extensions
-            .insert(PREPARED.into(), stamp);
         Ok(fingerprint)
     }
 }
 
 fn boundary(request: &LlmRequest, window: Option<Window>) -> Value {
-    json!([
-        request.model,
-        window.map(|window| (window.context, window.output)),
-        request
-            .config
-            .as_ref()
-            .and_then(|config| config.max_output_tokens),
-    ])
+    json!([request.model, window.map(|window| window.capacity(request))])
 }
 
 /// Only controlled request builders issue this marker, and rebuilding clears it.

@@ -319,6 +319,13 @@ pub(super) async fn insert(
             serde_json::to_string(&request).map_err(storage_error)?,
         );
     }
+    super::compaction::capture(
+        db,
+        session,
+        &mut event,
+        previous.as_ref().map(|(_, body)| body.as_slice()),
+    )
+    .await?;
     let body = encode(&event)?;
     if body.len() > MAX_FRAME_BYTES {
         return Err(Fault::invalid("event exceeds the history frame limit"));

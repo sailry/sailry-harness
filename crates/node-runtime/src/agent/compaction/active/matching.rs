@@ -91,17 +91,14 @@ pub(super) fn rebuild(
             "model preamble does not match its captured instructions",
         ));
     }
+    let mut contents = events
+        .iter()
+        .filter_map(|event| project(event, invocation))
+        .collect::<Vec<_>>();
+    restore_order(&mut contents, &request.contents[1..]);
     request.contents.truncate(1);
     model::history::clear_prepared(request);
-    request.contents.extend(
-        events
-            .iter()
-            .filter_map(|event| project(event, invocation))
-            .map(|mut content| {
-                content.strip_generated_call_ids();
-                content
-            }),
-    );
+    request.contents.extend(contents);
     request.previous_response_id = None;
     Ok(())
 }
@@ -117,26 +114,65 @@ fn response(content: &Content) -> Option<(&str, &str)> {
     }
 }
 
+fn restore_order(contents: &mut [Content], live: &[Content]) {
+    let batches = live
+        .chunk_by(|left, right| response(left).is_some() && response(right).is_some())
+        .filter(|batch| response(&batch[0]).is_some())
+        .collect::<Vec<_>>();
+    let mut available = batches.len();
+    // A rebuilt summary can remove an old prefix. Pair its retained batches
+    // from the end, consuming each live batch at most once.
+    for batch in contents
+        .chunk_by_mut(|left, right| response(left).is_some() && response(right).is_some())
+        .rev()
+    {
+        if response(&batch[0]).is_none() {
+            continue;
+        }
+        let paired = (0..available).rev().find_map(|index| {
+            let candidate = batches[index];
+            if candidate.len() != batch.len() {
+                return None;
+            }
+            let positions = candidate
+                .iter()
+                .enumerate()
+                .map(|(index, content)| (response(content).unwrap(), index))
+                .collect::<std::collections::HashMap<_, _>>();
+            if positions.len() != candidate.len() {
+                return None;
+            }
+            let mut indices = batch
+                .iter()
+                .map(|content| positions.get(&response(content)?).copied())
+                .collect::<Option<Vec<_>>>()?;
+            indices.sort_unstable();
+            indices
+                .iter()
+                .copied()
+                .eq(0..batch.len())
+                .then_some((index, positions))
+        });
+        let Some((index, positions)) = paired else {
+            continue;
+        };
+        available = index;
+        batch.sort_by_key(|content| positions[&response(content).unwrap()]);
+    }
+}
+
 fn same(actual: &Content, stored: &Content) -> bool {
-    let mut actual = actual.clone();
-    let mut stored = stored.clone();
-    actual.strip_generated_call_ids();
-    stored.strip_generated_call_ids();
     actual.role == stored.role && actual.parts == stored.parts
 }
 
 fn matches(actual: &[Content], stored: &[Content]) -> bool {
-    matches_refs(actual, &stored.iter().collect::<Vec<_>>())
-}
-
-fn matches_refs(actual: &[Content], stored: &[&Content]) -> bool {
     if actual.len() < stored.len() {
         return false;
     }
     let mut index = 0;
     while index < stored.len() {
-        if response(stored[index]).is_none() {
-            if !same(&actual[index], stored[index]) {
+        if response(&stored[index]).is_none() {
+            if !same(&actual[index], &stored[index]) {
                 return false;
             }
             index += 1;
@@ -149,16 +185,6 @@ fn matches_refs(actual: &[Content], stored: &[&Content]) -> bool {
                 .iter()
                 .take_while(|content| response(content).is_some())
                 .count();
-        if stored[index..end]
-            .iter()
-            .any(|content| response(content).is_some_and(|(id, _)| id.starts_with("adk-call-")))
-        {
-            if !generated(&actual[index..end], &stored[index..end], &stored[..index]) {
-                return false;
-            }
-            index = end;
-            continue;
-        }
         let mut available = std::collections::HashMap::new();
         for content in &actual[index..end] {
             let Some(key) = response(content) else {
@@ -180,44 +206,6 @@ fn matches_refs(actual: &[Content], stored: &[&Content]) -> bool {
         index = end;
     }
     true
-}
-
-// ADK strips its synthetic IDs before this callback. Persisted results retain
-// completion order, while the live loop assembles them in call order. Accept
-// those two projections only, comparing complete parts and preserving provider IDs.
-fn generated(actual: &[Content], stored: &[&Content], prefix: &[&Content]) -> bool {
-    let mut identities = std::collections::HashSet::new();
-    if stored
-        .iter()
-        .any(|content| !identities.insert(response(content).unwrap()))
-    {
-        return false;
-    }
-    let ordered = |expected: &[&Content]| actual.iter().zip(expected).all(|(a, b)| same(a, b));
-    if ordered(stored) {
-        return true;
-    }
-    let calls = prefix
-        .iter()
-        .flat_map(|content| &content.parts)
-        .filter_map(|part| match part.provider_part() {
-            Part::FunctionCall {
-                id: Some(id), name, ..
-            } => Some((id.as_str(), name.as_str())),
-            _ => None,
-        })
-        .enumerate()
-        .map(|(index, key)| (key, index))
-        .collect::<std::collections::HashMap<_, _>>();
-    let mut sorted = stored.to_vec();
-    if sorted
-        .iter()
-        .any(|content| !calls.contains_key(&response(content).unwrap()))
-    {
-        return false;
-    }
-    sorted.sort_by_key(|content| calls[&response(content).unwrap()]);
-    ordered(&sorted)
 }
 
 #[cfg(test)]
@@ -274,6 +262,129 @@ mod tests {
                 annotations: None,
             }],
         }
+    }
+
+    #[test]
+    fn rebuilds_raw_results_in_live_order() {
+        let preamble = Content::new("system").with_text("Captured instructions");
+        let calls = |ids: &[&str]| Content {
+            role: "model".into(),
+            parts: ids
+                .iter()
+                .map(|id| Part::FunctionCall {
+                    id: Some((*id).into()),
+                    name: "read_file".into(),
+                    args: json!({"path":id}),
+                    thought_signature: None,
+                })
+                .collect(),
+        };
+        let output = |id: &str| {
+            let mut content = result(id, &format!("Canonical {id}"));
+            content.role = "function".into();
+            content
+        };
+        let mut request = LlmRequest::new(
+            "fixture",
+            vec![
+                preamble.clone(),
+                Content::new("user").with_text("Read the independent files"),
+                calls(&["first", "second"]),
+                output("first"),
+                output("second"),
+                calls(&["third"]),
+                output("third"),
+            ],
+        );
+        let expected = serde_json::to_vec(&request.contents).unwrap();
+        let mut events = request.contents[1..]
+            .iter()
+            .map(|content| {
+                let mut event = Event::new("current");
+                event.author = if content.role == "user" {
+                    "user"
+                } else {
+                    "assistant"
+                }
+                .into();
+                event.set_content(content.clone());
+                event
+            })
+            .collect::<Vec<_>>();
+        events.swap(2, 3);
+        let canonical = serde_json::to_vec(&events).unwrap();
+        if let Part::FunctionResponse {
+            function_response, ..
+        } = &mut request.contents[3].parts[0]
+        {
+            function_response.response = json!({"truncated":true});
+        }
+        rebuild(&mut request, &events, &preamble, "current").unwrap();
+        assert_eq!(serde_json::to_vec(&request.contents).unwrap(), expected);
+        assert_eq!(serde_json::to_vec(&events).unwrap(), canonical);
+
+        // Equal identities across a model boundary are not one response batch.
+        request.contents.swap(4, 6);
+        rebuild(&mut request, &events, &preamble, "current").unwrap();
+        assert_eq!(response(&request.contents[3]).unwrap().0, "second");
+        assert_eq!(response(&request.contents[4]).unwrap().0, "first");
+        assert_eq!(response(&request.contents[6]).unwrap().0, "third");
+    }
+
+    #[test]
+    fn rebuilds_reused_ids_in_separate_batches() {
+        let preamble = Content::new("system").with_text("Captured instructions");
+        let calls = |round, ids: &[&str]| Content {
+            role: "model".into(),
+            parts: ids
+                .iter()
+                .map(|id| Part::FunctionCall {
+                    id: Some((*id).into()),
+                    name: "read_file".into(),
+                    args: json!({"path":format!("{round}-{id}")}),
+                    thought_signature: None,
+                })
+                .collect(),
+        };
+        let output = |round, id: &str| {
+            let mut content = result(id, &format!("Canonical {round}-{id}"));
+            content.role = "function".into();
+            content
+        };
+        let mut request = LlmRequest::new(
+            "fixture",
+            vec![
+                preamble.clone(),
+                Content::new("user").with_text("Read both rounds"),
+                calls(0, &["first", "second"]),
+                output(0, "first"),
+                output(0, "second"),
+                calls(1, &["second", "first"]),
+                output(1, "second"),
+                output(1, "first"),
+            ],
+        );
+        let expected = serde_json::to_vec(&request.contents).unwrap();
+        let mut events = request.contents[1..]
+            .iter()
+            .map(|content| {
+                let mut event = Event::new("current");
+                event.author = if content.role == "user" {
+                    "user"
+                } else {
+                    "assistant"
+                }
+                .into();
+                event.set_content(content.clone());
+                event
+            })
+            .collect::<Vec<_>>();
+        events.swap(2, 3);
+        events.swap(5, 6);
+        let canonical = serde_json::to_vec(&events).unwrap();
+        rebuild(&mut request, &events, &preamble, "current").unwrap();
+        assert_eq!(serde_json::to_vec(&request.contents).unwrap(), expected);
+        assert_eq!(serde_json::to_vec(&events).unwrap(), canonical);
     }
 
     #[tokio::test]
@@ -471,7 +582,6 @@ mod tests {
             if content.role == "assistant" {
                 content.role = "model".into();
             }
-            content.strip_generated_call_ids();
             content
         }));
         let mut request = LlmRequest::new("fixture", contents);
@@ -512,16 +622,10 @@ mod tests {
             results[1].clone(),
             results[2].clone(),
         ];
-        actual
-            .iter_mut()
-            .for_each(Content::strip_generated_call_ids);
         assert!(matches(&actual, &stored));
         actual.swap(1, 2);
-        assert!(!matches(&actual, &stored));
+        assert!(matches(&actual, &stored));
         let mut replay = stored.clone();
-        replay
-            .iter_mut()
-            .for_each(Content::strip_generated_call_ids);
         assert!(matches(&replay, &stored));
         replay[1].parts[0] = result("provider-id", "evidence-3").parts.remove(0);
         assert!(!matches(&replay, &stored));

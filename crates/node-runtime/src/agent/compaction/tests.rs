@@ -90,6 +90,7 @@ pub(super) fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarize
     (
         Summarizer {
             model: model.clone(),
+            configuration: None,
             identity: crate::logging::Context::default(),
             turn: TurnId::new(),
             context: Some(16_000),
@@ -532,6 +533,7 @@ async fn discards_cancelled_summary() {
     let stop = CancellationToken::new();
     let summarizer = Summarizer {
         model: model.clone(),
+        configuration: None,
         identity: crate::logging::Context::default(),
         turn: TurnId::new(),
         context: None,

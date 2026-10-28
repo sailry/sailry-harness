@@ -10,6 +10,8 @@ mod assistants;
 mod cloud;
 #[path = "native/completion.rs"]
 mod completion;
+#[path = "native/configuration.rs"]
+mod configuration;
 #[path = "native/errors.rs"]
 mod errors;
 #[path = "native/function_tools.rs"]

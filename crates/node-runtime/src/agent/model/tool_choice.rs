@@ -8,7 +8,12 @@ use std::sync::Arc;
 pub(super) fn adapter(api: ModelApi, inner: Option<RequestAdapter>) -> Option<RequestAdapter> {
     if !matches!(
         api,
-        ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::Anthropic
+        ModelApi::Responses
+            | ModelApi::ChatCompletions
+            | ModelApi::Anthropic
+            | ModelApi::DeepSeek
+            | ModelApi::AzureOpenAi
+            | ModelApi::AzureAi
     ) {
         return inner;
     }

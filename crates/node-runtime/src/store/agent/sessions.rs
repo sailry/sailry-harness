@@ -30,6 +30,7 @@ pub(crate) struct Sessions {
     displays: std::collections::BTreeMap<String, sailry_protocol::tool::Display>,
     bindings: std::collections::BTreeMap<String, ApprovalBinding>,
     connections: Vec<sailry_protocol::connection::Resource>,
+    configuration: Option<crate::agent::ModelConfiguration>,
 }
 
 impl Sessions {
@@ -48,7 +49,16 @@ impl Sessions {
             displays: Default::default(),
             bindings: Default::default(),
             connections: Default::default(),
+            configuration: None,
         }
+    }
+
+    pub(crate) fn with_configuration(
+        mut self,
+        configuration: Option<crate::agent::ModelConfiguration>,
+    ) -> Self {
+        self.configuration = configuration;
+        self
     }
 
     pub(crate) fn with_notices(
@@ -477,13 +487,24 @@ impl Sessions {
             &aliases,
         )?;
         if event.author == "user" {
+            if let Some(configuration) = &self.configuration {
+                configuration.record(&mut event);
+            }
             event
                 .provider_metadata
                 .insert(INPUT_TURN.into(), self.input_turn.to_string());
             event
                 .provider_metadata
                 .insert(INPUT_SOURCE.into(), self.input_source.into());
-            let notice = self.notice_input.as_ref().is_some_and(|expected| matches!(event.content().and_then(|content| content.parts.first()), Some(adk_core::Part::Text {text}) if text == expected));
+            let configured = event.content().is_some_and(|content| {
+                content.parts.first().is_some_and(|part| {
+                    matches!(
+                        part.provider_part(),
+                        adk_core::Part::ConfigurationUpdate { .. }
+                    )
+                })
+            });
+            let notice = self.notice_input.as_ref().is_some_and(|expected| matches!(event.content().and_then(|content| content.parts.get(usize::from(configured))), Some(adk_core::Part::Text {text}) if text == expected));
             if notice {
                 event.provider_metadata.insert(
                     super::background::INPUT_IDS.into(),
@@ -497,7 +518,9 @@ impl Sessions {
                     .map_err(|error| AdkError::session(error.to_string()))?,
                 );
             }
-            let index = usize::from(!self.references.is_empty()) + usize::from(notice);
+            let index = usize::from(!self.references.is_empty())
+                + usize::from(notice)
+                + usize::from(configured);
             let capability = self.capability_part;
             if capability.is_some_and(|part| {
                 !matches!(

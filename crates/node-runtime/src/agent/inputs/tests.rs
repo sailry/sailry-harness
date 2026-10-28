@@ -69,6 +69,7 @@ async fn writes_context_before_new_input() {
         .unwrap();
     let (session, owner) = running(&node).await;
     let batch = Batch {
+        configuration: None,
         entries: vec![Entry {
             turn: owner,
             references: vec![],
@@ -137,6 +138,7 @@ async fn appends_changed_context_after_existing_input() {
         .unwrap();
     let (session, owner) = running(&node).await;
     let batch = Batch {
+        configuration: None,
         entries: vec![Entry {
             turn: owner,
             references: vec![Reference {
@@ -242,6 +244,7 @@ async fn resumes_partially_saved_inputs() {
         .unwrap();
     let (session, owner) = running(&node).await;
     let mut batch = Batch {
+        configuration: None,
         entries: vec![Entry {
             turn: owner,
             references: vec![],
@@ -342,6 +345,7 @@ async fn stamps_exact_capability_position() {
         .unwrap();
     let (session, owner) = running(&node).await;
     let batch = Batch {
+        configuration: None,
         entries: vec![Entry {
             turn: owner,
             references: vec![],
@@ -395,5 +399,76 @@ async fn stamps_exact_capability_position() {
     assert!(parts.iter().any(|part| matches!(part, sailry_protocol::conversation::Part::Text(text) if text == "Following user data")));
     assert!(!parts.iter().any(|part| matches!(part, sailry_protocol::conversation::Part::Text(text) if text == "Selected capability")));
     node.ingress.agents.finish(owner);
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn restores_reasoning_base_after_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("node");
+    let node = crate::Node::start_empty(&profile).await.unwrap();
+    let (session, owner) = running(&node).await;
+    let origin = adk_core::ProviderOrigin {
+        provider: "responses".into(),
+        model: "gpt-6-luna".into(),
+        scope: "captured-account".into(),
+    };
+    let configuration = ModelConfiguration::load(
+        &node.ingress,
+        Some(owner),
+        session,
+        origin.clone(),
+        sailry_protocol::Effort::Max,
+        true,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut batch = Batch {
+        configuration: None,
+        entries: vec![Entry {
+            turn: owner,
+            references: vec![],
+            content: Content::new("user").with_text("Original user text"),
+            capability: None,
+        }],
+    };
+    batch.configure(Some(configuration));
+    batch
+        .append(&node.ingress, session, owner, "fixture", "user", None, None)
+        .await
+        .unwrap();
+    node.ingress.agents.finish(owner);
+    node.shutdown().await.unwrap();
+    let node = crate::Node::start_empty(&profile).await.unwrap();
+    let changed = ModelConfiguration::load(
+        &node.ingress,
+        Some(owner),
+        session,
+        origin.clone(),
+        sailry_protocol::Effort::High,
+        true,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(changed.base(), sailry_protocol::Effort::Max);
+    assert!(matches!(
+        changed.input().unwrap().provider_part(),
+        adk_core::Part::ConfigurationUpdate { .. }
+    ));
+    assert!(
+        ModelConfiguration::load(
+            &node.ingress,
+            Some(owner),
+            session,
+            origin,
+            sailry_protocol::Effort::High,
+            false
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
     node.shutdown().await.unwrap();
 }

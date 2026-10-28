@@ -25,7 +25,7 @@ pub(in crate::agent) fn summary_retry() -> bool {
         .unwrap_or(true)
 }
 
-pub(super) fn is_summary() -> bool {
+pub(in crate::agent) fn is_summary() -> bool {
     SUMMARY_RECOVERY.try_with(|_| ()).is_ok()
 }
 

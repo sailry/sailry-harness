@@ -8,6 +8,7 @@ use turso::Connection;
 
 pub(in crate::store) async fn fill(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
     crate::providers::search::enable(provider);
+    crate::providers::configuration::enable(provider);
     let cached = super::catalog::status(db).await?.revision != 0;
     for models in provider.models.chunks_mut(100) {
         let ids = models
