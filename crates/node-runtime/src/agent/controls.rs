@@ -17,7 +17,6 @@ struct Active {
     python: Vec<crate::python::Access>,
     finishing: bool,
     timeline: Arc<super::observation::Timeline>,
-    halted: Option<Fault>,
 }
 
 struct Child {
@@ -60,7 +59,6 @@ impl Controls {
                 python: Vec::new(),
                 finishing: false,
                 timeline: super::observation::Timeline::new(),
-                halted: None,
             },
         );
     }
@@ -202,21 +200,6 @@ impl Controls {
             .unwrap()
             .get(&turn)
             .map(|active| active.runner.clone())
-    }
-
-    pub(crate) fn halt(&self, turn: TurnId, error: Fault) {
-        if let Some(active) = self.active.lock().unwrap().get_mut(&turn) {
-            active.halted.get_or_insert(error);
-            active.runner.cancel();
-        }
-    }
-
-    pub(super) fn failure(&self, turn: TurnId) -> Option<Fault> {
-        self.active
-            .lock()
-            .unwrap()
-            .get(&turn)
-            .and_then(|active| active.halted.clone())
     }
 
     pub(crate) fn running(&self, turn: TurnId) -> bool {

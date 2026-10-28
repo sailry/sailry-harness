@@ -95,14 +95,11 @@ pub(super) async fn context_usage(
     let Some(observation) = observation(db, session).await? else {
         return Ok(None);
     };
-    let (sequence, tokens, observed, summary) = match observation.tokens {
-        Some(tokens) => (observation.sequence, tokens, true, None),
-        None if observation.estimate.is_some() => (
-            observation.sequence,
-            observation.estimate.unwrap(),
-            false,
-            None,
-        ),
+    let (sequence, tokens, summary) = match observation.tokens {
+        Some(tokens) => (observation.sequence, tokens, None),
+        None if observation.estimate.is_some() => {
+            (observation.sequence, observation.estimate.unwrap(), None)
+        }
         None if observation.summary => {
             let Some((boundary, summary)) =
                 super::compaction::read(db, session).await.map_err(|_| {
@@ -111,7 +108,7 @@ pub(super) async fn context_usage(
             else {
                 return Ok(None);
             };
-            (boundary, 0, false, Some(summary))
+            (boundary, 0, Some(summary))
         }
         None => return Ok(None),
     };
@@ -144,7 +141,8 @@ pub(super) async fn context_usage(
         pending.insert(0, summary);
     }
     Ok(Some(ContextUsage {
-        observed,
+        #[cfg(test)]
+        observed: observation.tokens.is_some(),
         tokens,
         pending,
     }))

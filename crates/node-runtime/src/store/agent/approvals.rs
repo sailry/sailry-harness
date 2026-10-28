@@ -134,14 +134,6 @@ impl Ingress {
         .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
-
-    pub(crate) async fn denials(&self, turn: TurnId) -> Result<Vec<results::Denial>, Fault> {
-        let (reply, response) = oneshot::channel();
-        self.submit(Job::Agent(Box::new(Operation::Denials { turn, reply })))
-            .await
-            .map_err(|_| super::super::unavailable())?;
-        response.await.map_err(|_| super::super::unavailable())?
-    }
 }
 
 pub(super) async fn command_access(

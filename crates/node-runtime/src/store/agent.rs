@@ -42,7 +42,6 @@ use tokio::sync::{broadcast, oneshot};
 use turso::{Connection, params};
 
 pub(crate) use approvals::Binding as ApprovalBinding;
-pub(crate) use approvals::results::Denial;
 pub(super) use delegation::read as delegation;
 pub(in crate::store) use feed::run as publish_run;
 pub(super) use feed::{Feeds, command as publish_command, package as invalidate_package};
@@ -212,10 +211,6 @@ pub(super) enum Operation {
         prepared: Option<Command>,
         reply: oneshot::Sender<Result<RequestId, Fault>>,
     },
-    Denials {
-        turn: TurnId,
-        reply: oneshot::Sender<Result<Vec<Denial>, Fault>>,
-    },
     ConnectionAccess {
         turn: TurnId,
         request: crate::agent::canonical::ToolIdentity,
@@ -231,10 +226,6 @@ pub(super) enum Operation {
         session: SessionId,
         closed: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Box<dyn sailry_link::Subscription>, Fault>>,
-    },
-    ContextUsage {
-        session: SessionId,
-        reply: oneshot::Sender<Result<Option<ContextUsage>, Fault>>,
     },
     Get {
         turn: TurnId,
@@ -311,6 +302,7 @@ pub(crate) struct Child {
 }
 
 pub(crate) struct ContextUsage {
+    #[cfg(test)]
     pub observed: bool,
     pub tokens: u64,
     pub pending: Vec<crate::agent::canonical::Record>,
@@ -326,20 +318,6 @@ impl Ingress {
         self.submit(Job::Agent(Box::new(Operation::Image {
             session,
             image,
-            reply,
-        })))
-        .await
-        .map_err(|_| super::unavailable())?;
-        response.await.map_err(|_| super::unavailable())?
-    }
-
-    pub(crate) async fn context_usage(
-        &self,
-        session: SessionId,
-    ) -> Result<Option<ContextUsage>, Fault> {
-        let (reply, response) = oneshot::channel();
-        self.submit(Job::Agent(Box::new(Operation::ContextUsage {
-            session,
             reply,
         })))
         .await
@@ -541,11 +519,9 @@ pub(super) fn readonly(operation: &Operation) -> bool {
             | Operation::Image { .. }
             | Operation::ChildState { .. }
             | Operation::PendingGuidance { .. }
-            | Operation::Denials { .. }
             | Operation::ConnectionAccess { .. }
             | Operation::CommandAccess { .. }
             | Operation::Subscribe { .. }
-            | Operation::ContextUsage { .. }
             | Operation::Get { .. }
     )
 }
@@ -919,9 +895,6 @@ pub(super) fn execute<'a>(
             let _ =
                 reply.send(approvals::authorize(database, turn, &request, prepared.as_ref()).await);
         }),
-        Operation::Denials { turn, reply } => Box::pin(async move {
-            let _ = reply.send(approvals::results::read(&database.connection, turn).await);
-        }),
         Operation::ConnectionAccess {
             turn,
             request,
@@ -989,13 +962,6 @@ pub(super) fn execute<'a>(
                 }
             }
             .await;
-            let _ = reply.send(result);
-        }),
-        Operation::ContextUsage { session, reply } => Box::pin(async move {
-            let result = match check_session(&database.connection, session).await {
-                Ok(()) => statistics::context_usage(&database.connection, session).await,
-                Err(error) => Err(error),
-            };
             let _ = reply.send(result);
         }),
         Operation::Get {

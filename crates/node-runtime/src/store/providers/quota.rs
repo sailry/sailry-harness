@@ -1,17 +1,23 @@
 //! Stored account snapshots retain their original credential and revision owner.
 use super::{Stored, authentication, configuration};
-use crate::store::database::{Database, record, storage_error};
+use crate::store::database::storage_error;
+#[cfg(test)]
+use crate::store::database::{Database, record};
 use sailry_protocol::{
-    Authentication, Command, CredentialRef, Event, EventEnvelope, Fault, NodeId, ProviderId,
-    conversation::{
-        ModelApi,
-        quota::{Snapshot, Window},
-    },
+    Authentication, Command, Event, Fault, NodeId, ProviderId,
+    conversation::{ModelApi, quota::Snapshot},
 };
+#[cfg(test)]
 use tokio::sync::broadcast;
-use turso::{Connection, transaction::TransactionBehavior};
+use turso::Connection;
+#[cfg(test)]
+use turso::transaction::TransactionBehavior;
 
-pub(in crate::store) struct Observation {
+#[cfg(test)]
+use sailry_protocol::{CredentialRef, EventEnvelope, conversation::quota::Window};
+
+#[cfg(test)]
+struct Observation {
     provider: ProviderId,
     credential: CredentialRef,
     revision: u64,
@@ -68,7 +74,8 @@ async fn matches(
         }))
 }
 
-pub(in crate::store) async fn observe(
+#[cfg(test)]
+async fn observe(
     database: &mut Database,
     observation: Observation,
     events: &broadcast::Sender<EventEnvelope>,
@@ -87,6 +94,7 @@ pub(in crate::store) async fn observe(
     unreachable!("the final attempt returns its result")
 }
 
+#[cfg(test)]
 async fn observe_once(
     database: &mut Database,
     observation: &Observation,

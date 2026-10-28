@@ -196,7 +196,6 @@ enum Job {
         unavailable: bool,
         reply: oneshot::Sender<Result<sailry_protocol::conversation::presets::Listing, Fault>>,
     },
-    ProviderQuota(providers::quota::Observation),
     Login(Box<login::Progress>),
     SubscribeLogin {
         caller: NodeId,
@@ -1013,13 +1012,6 @@ impl Store {
                         }),
                         Job::Login(progress) => Box::pin(async move {
                             logins.progress(database, *progress, events).await;
-                        }),
-                        Job::ProviderQuota(observation) => Box::pin(async move {
-                            if let Err(error) =
-                                providers::quota::observe(database, observation, events).await
-                            {
-                                eprintln!("provider quota persistence failed: {error}");
-                            }
                         }),
                         Job::TerminalInfo(info) => Box::pin(async move {
                             if let Err(error) = database.terminal_changed(info, events).await {

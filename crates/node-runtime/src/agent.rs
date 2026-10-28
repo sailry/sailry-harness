@@ -122,13 +122,6 @@ async fn run(
         &children,
     )
     .await;
-    if let Some(error) = controls.failure(turn)
-        && !result
-            .as_ref()
-            .is_err_and(|error| error.code == ErrorCode::OutcomeUnknown)
-    {
-        result = Err(error);
-    }
     if owner.as_ref().is_some_and(CancellationToken::is_cancelled) {
         // Owner Stop retains pending input before publishing the terminal child run.
         if let Err(error) = ingress.retain_guidance(turn).await {
@@ -326,9 +319,6 @@ async fn execute(
     };
     if let Err(error) = cleanup {
         merge_failure(&mut result, error);
-    }
-    if result.is_err() || stop.is_cancelled() {
-        ingress.model_clients.abandon(session);
     }
     if stop.is_cancelled() {
         let _cleanup = diagnostics.span(Phase::BrowserCleanup, None);

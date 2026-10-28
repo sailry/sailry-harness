@@ -19,7 +19,7 @@ use goose_provider_types::{
     thinking::ThinkingEffort,
 };
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 mod presentation;
 
 #[derive(Clone)]
@@ -62,27 +62,6 @@ impl Sessions {
             bindings: BTreeMap::new(),
             connections: Vec::new(),
         }
-    }
-    pub(crate) fn with_notices(
-        mut self,
-        notices: Vec<sailry_protocol::conversation::background::Notice>,
-        input: Option<String>,
-    ) -> Self {
-        self.notices = notices;
-        self.notice_input = input;
-        self
-    }
-    pub(crate) fn with_references(mut self, references: Vec<reference::Reference>) -> Self {
-        self.references = references;
-        self
-    }
-    pub(crate) fn with_capability_part(mut self, part: Option<usize>) -> Self {
-        self.capability_part = part;
-        self
-    }
-    pub(crate) fn with_input_source(mut self, source: &'static str) -> Self {
-        self.input_source = source;
-        self
     }
     pub(crate) fn with_input_turn(mut self, turn: TurnId) -> Self {
         self.input_turn = turn;
@@ -236,7 +215,8 @@ pub(crate) struct Session {
     pub context: Context,
     pub capability: Option<String>,
     pub reviewed: bool,
-    pub state: HashMap<String, Value>,
+    #[cfg(test)]
+    pub state: std::collections::HashMap<String, Value>,
     pub thinking: Option<ThinkingEffort>,
     pub invocation: Option<Arc<Invocation>>,
 }
@@ -416,6 +396,7 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
         context: Context::from_state(&state),
         capability: capability(db, query.session).await?,
         reviewed: super::questions::reviewed(db, turn).await?,
+        #[cfg(test)]
         state,
         thinking: None,
         invocation: None,

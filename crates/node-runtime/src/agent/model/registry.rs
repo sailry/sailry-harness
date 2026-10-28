@@ -101,10 +101,6 @@ impl Registry {
         self.entries.lock().unwrap().clear();
     }
 
-    // The old runner still calls this on stop until Stage 4. Dropping its GDK
-    // stream cancels HTTP; the registry has no independent generation task.
-    pub(crate) fn abandon(&self, _session: SessionId) {}
-
     pub(crate) async fn maintain(registry: std::sync::Weak<Self>, stop: CancellationToken) {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
