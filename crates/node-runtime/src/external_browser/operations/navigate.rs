@@ -1,18 +1,17 @@
 //! Primitive adapters adapted from adk-browser b3e360bbf49ca39d49cccba182c0f7cb4d251970.
 //! Copyright 2026 Zavora Technologies Ltd.; Apache-2.0, see third_party_licenses/adk-LICENSE.
-use adk_browser::BrowserSession;
-use adk_core::Result;
+use super::{Session, unavailable};
+use sailry_protocol::Fault;
 use serde_json::{Value, json};
 
-pub(super) async fn navigate(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn navigate(browser: &Session, args: Value) -> Result<Value, Fault> {
     let url = args
         .get("url")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'url' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'url' parameter"))?;
 
     // Validate URL
-    url::Url::parse(url)
-        .map_err(|e| adk_core::AdkError::tool(format!("Invalid URL '{}': {}", url, e)))?;
+    url::Url::parse(url).map_err(|e| unavailable(format!("Invalid URL '{}': {}", url, e)))?;
 
     // Navigate
     browser.navigate(url).await?;
@@ -20,25 +19,25 @@ pub(super) async fn navigate(browser: &BrowserSession, args: Value) -> Result<Va
     context(browser).await
 }
 
-pub(super) async fn back(browser: &BrowserSession, _args: Value) -> Result<Value> {
+pub(super) async fn back(browser: &Session, _args: Value) -> Result<Value, Fault> {
     browser.back().await?;
 
     context(browser).await
 }
 
-pub(super) async fn forward(browser: &BrowserSession, _args: Value) -> Result<Value> {
+pub(super) async fn forward(browser: &Session, _args: Value) -> Result<Value, Fault> {
     browser.forward().await?;
 
     context(browser).await
 }
 
-pub(super) async fn refresh(browser: &BrowserSession, _args: Value) -> Result<Value> {
+pub(super) async fn refresh(browser: &Session, _args: Value) -> Result<Value, Fault> {
     browser.refresh().await?;
 
     context(browser).await
 }
 
-async fn context(browser: &BrowserSession) -> Result<Value> {
+async fn context(browser: &Session) -> Result<Value, Fault> {
     let url = browser.current_url().await.unwrap_or_default();
     let title = browser.title().await.unwrap_or_default();
     match browser.page_context().await {

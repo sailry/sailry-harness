@@ -1,5 +1,5 @@
 //! A native PTY grants access to its own device without broadening process policies.
-use adk_sandbox::sandbox::WrappedCommand;
+use super::enforcement::WrappedCommand;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{
     fmt::Write as _,
@@ -19,7 +19,7 @@ pub(super) fn protect(command: &mut WrappedCommand, paths: &[PathBuf]) -> Result
         .to_str()
         .ok_or_else(|| unavailable("sandbox profile is not valid UTF-8"))?
         .to_owned();
-    // ReadOnly grants do not subtract ADK's parent ReadWrite grant. These
+    // ReadOnly grants do not subtract the parent ReadWrite grant. These
     // denials also cover metadata created after command admission.
     writeln!(
         policy,
@@ -68,7 +68,7 @@ pub(super) fn terminal(command: &mut WrappedCommand, device: Option<&Path>) -> R
     let path = device
         .to_str()
         .ok_or_else(|| unavailable("native terminal device path is not valid UTF-8"))?;
-    // The pinned MacOsEnforcer produces -p, the generated profile, then the program.
+    // The pinned Seatbelt produces -p, the generated profile, then the program.
     let [flag, profile, _, ..] = command.args.as_mut_slice() else {
         return Err(unavailable(
             "terminal sandbox wrapper arguments are invalid",
@@ -133,16 +133,12 @@ fn unavailable(message: &str) -> Fault {
 
 #[cfg(test)]
 mod tests {
+    use super::enforcement::{Builder, Enforcer, macos::Seatbelt};
     use super::*;
-    use adk_sandbox::sandbox::{SandboxEnforcer, SandboxPolicyBuilder, macos::MacOsEnforcer};
 
     fn command() -> WrappedCommand {
-        MacOsEnforcer::new()
-            .wrap_command(
-                "/bin/zsh".as_ref(),
-                &["-l".into()],
-                &SandboxPolicyBuilder::new().build(),
-            )
+        Seatbelt::new()
+            .wrap_command("/bin/zsh".as_ref(), &["-l".into()], &Builder::new().build())
             .unwrap()
     }
 

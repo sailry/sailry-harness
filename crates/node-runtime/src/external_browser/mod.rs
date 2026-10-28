@@ -1,4 +1,4 @@
-//! Execution-Node ownership of ADK browser sessions and their isolated profiles.
+//! Execution-Node ownership of managed browser sessions and their isolated profiles.
 mod bundle;
 mod driver;
 mod execute;
@@ -6,9 +6,9 @@ mod files;
 mod operations;
 #[cfg(test)]
 mod tests;
+mod webdriver;
 pub(crate) use execute::{Call, validate};
 
-use adk_browser::{BrowserConfig, BrowserSession};
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, SessionId};
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
@@ -22,7 +22,7 @@ pub(crate) struct Browsers {
 }
 
 pub(crate) struct Session {
-    pub browser: Arc<BrowserSession>,
+    pub browser: Arc<webdriver::Session>,
     pub temporary: tempfile::TempDir,
     driver: driver::Driver,
 }
@@ -85,19 +85,20 @@ impl Browsers {
                     .await
                     .map_err(io_error)?;
                 let (driver, url) = driver::Driver::start(&bundle, stop).await?;
-                let mut config = BrowserConfig::default()
-                    .webdriver_url(url)
-                    .viewport(1280, 900)
-                    .page_load_timeout(25)
-                    .add_arg(format!(
-                        "--user-data-dir={}",
-                        path_text(&directory.join("profile"))?
-                    ))
-                    .add_arg("--no-first-run")
-                    .add_arg("--no-default-browser-check");
-                config.require_explicit_start = true;
-                config.implicit_wait_secs = 0;
-                config.script_timeout_secs = 15;
+                let mut config = webdriver::Config {
+                    webdriver_url: url,
+                    viewport_width: 1280,
+                    viewport_height: 900,
+                    page_load_timeout_secs: 25,
+                    script_timeout_secs: 15,
+                    implicit_wait_secs: 0,
+                    browser_args: vec![
+                        format!("--user-data-dir={}", path_text(&directory.join("profile"))?),
+                        "--no-first-run".into(),
+                        "--no-default-browser-check".into(),
+                    ],
+                    chrome_options: Default::default(),
+                };
                 config
                     .chrome_options
                     .insert("binary".into(), path_text(&bundle.browser)?.into());
@@ -109,9 +110,9 @@ impl Browsers {
                         "download.directory_upgrade": true,
                     }),
                 );
-                let browser = Arc::new(BrowserSession::new(config));
+                let browser = Arc::new(webdriver::Session::new(config));
                 browser.start().await.map_err(|error| {
-                    unavailable(&format!("managed browser startup failed: {error}"))
+                    unavailable(format!("managed browser startup failed: {}", error.message))
                 })?;
                 *slot = Some(Session {
                     browser,
@@ -167,7 +168,7 @@ impl Session {
     }
 }
 
-fn unavailable(message: &str) -> Fault {
+fn unavailable(message: impl Into<String>) -> Fault {
     Fault::new(ErrorCode::Unavailable, message)
 }
 fn io_error(error: std::io::Error) -> Fault {

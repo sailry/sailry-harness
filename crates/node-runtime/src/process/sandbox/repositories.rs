@@ -1,5 +1,5 @@
+use super::enforcement::Policy;
 use super::{policy, runtime};
-use adk_sandbox::sandbox::SandboxPolicy;
 use cap_fs_ext::{DirExt, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 use ignore::gitignore::Gitignore;
@@ -16,7 +16,7 @@ use cache::{Snapshot, Witness};
 
 pub(super) fn capture(
     root: &Path,
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     home: Option<&Path>,
     profile: Option<&Path>,
 ) -> Result<Vec<PathBuf>, Fault> {

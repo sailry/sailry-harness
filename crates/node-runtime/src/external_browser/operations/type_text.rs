@@ -1,19 +1,19 @@
 //! Primitive adapters adapted from adk-browser b3e360bbf49ca39d49cccba182c0f7cb4d251970.
 //! Copyright 2026 Zavora Technologies Ltd.; Apache-2.0, see third_party_licenses/adk-LICENSE.
-use adk_browser::BrowserSession;
-use adk_core::Result;
+use super::{Session, unavailable};
+use sailry_protocol::Fault;
 use serde_json::{Value, json};
 
-pub(super) async fn r#type(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn r#type(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     let text = args
         .get("text")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'text' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'text' parameter"))?;
 
     let clear_first = args
         .get("clear_first")
@@ -33,21 +33,21 @@ pub(super) async fn r#type(browser: &BrowserSession, args: Value) -> Result<Valu
         element
             .clear()
             .await
-            .map_err(|e| adk_core::AdkError::tool(format!("Clear failed: {}", e)))?;
+            .map_err(|e| unavailable(format!("Clear failed: {}", e)))?;
     }
 
     // Type the text
     element
         .send_keys(text)
         .await
-        .map_err(|e| adk_core::AdkError::tool(format!("Type failed: {}", e)))?;
+        .map_err(|e| unavailable(format!("Type failed: {}", e)))?;
 
     // Press Enter if requested
     if press_enter {
         element
             .send_keys("\n")
             .await
-            .map_err(|e| adk_core::AdkError::tool(format!("Enter key failed: {}", e)))?;
+            .map_err(|e| unavailable(format!("Enter key failed: {}", e)))?;
     }
 
     // Get the current value
@@ -69,11 +69,11 @@ pub(super) async fn r#type(browser: &BrowserSession, args: Value) -> Result<Valu
     }))
 }
 
-pub(super) async fn clear(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn clear(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     browser.clear(selector).await?;
 
@@ -86,24 +86,24 @@ pub(super) async fn clear(browser: &BrowserSession, args: Value) -> Result<Value
     }))
 }
 
-pub(super) async fn select(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn select(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     let value = args.get("value").and_then(|v| v.as_str());
     let text = args.get("text").and_then(|v| v.as_str());
     let index = args.get("index").and_then(|v| v.as_u64());
 
-    let escaped_selector = adk_browser::escape_js_string(selector);
+    let escaped_selector = super::super::webdriver::escape_js_string(selector);
 
     // Build the appropriate selector for the option
     let option_selector = if let Some(val) = value {
-        let escaped_val = adk_browser::escape_js_string(val);
+        let escaped_val = super::super::webdriver::escape_js_string(val);
         format!("{selector} option[value='{escaped_val}']")
     } else if let Some(txt) = text {
-        let escaped_txt = adk_browser::escape_js_string(txt);
+        let escaped_txt = super::super::webdriver::escape_js_string(txt);
         // Use XPath for text matching isn't available, use JS instead
         let script = format!(
             r#"
@@ -128,10 +128,7 @@ pub(super) async fn select(browser: &BrowserSession, args: Value) -> Result<Valu
                 "page": context
             }));
         } else {
-            return Err(adk_core::AdkError::tool(format!(
-                "Option with text '{}' not found",
-                txt
-            )));
+            return Err(unavailable(format!("Option with text '{}' not found", txt)));
         }
     } else if let Some(idx) = index {
         let script = format!(
@@ -156,15 +153,10 @@ pub(super) async fn select(browser: &BrowserSession, args: Value) -> Result<Valu
                 "page": context
             }));
         } else {
-            return Err(adk_core::AdkError::tool(format!(
-                "Option at index {} not found",
-                idx
-            )));
+            return Err(unavailable(format!("Option at index {} not found", idx)));
         }
     } else {
-        return Err(adk_core::AdkError::tool(
-            "Must specify 'value', 'text', or 'index'",
-        ));
+        return Err(unavailable("Must specify 'value', 'text', or 'index'"));
     };
 
     // Click the option

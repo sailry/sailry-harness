@@ -81,6 +81,11 @@ Responses transport policy, explicit OpenCode timeouts and handler-owned confirm
 deadlines. Retained notices,
 licenses and source provenance are in third_party_licenses/adk-model.md.
 
+Retained ADK-Rust browser, native sandbox and test support code at commit
+675c02b6c0df6d632b953a06a5a12d1f814b7780 is documented in
+third_party_licenses/adk-support.md, with its Apache-2.0 notice retained in
+third_party_licenses/adk-LICENSE.
+
 MCP Rust SDK
 Sailry uses rmcp 3.5.1 from https://github.com/sailry/rust-sdk at
 5e8fb5a9502d0fd153c29369b11e93bee88e63ac, based on the official Rust SDK

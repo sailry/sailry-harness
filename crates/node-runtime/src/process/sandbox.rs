@@ -1,3 +1,5 @@
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod enforcement;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -21,7 +23,7 @@ pub(crate) const SUPPORTED: bool = cfg!(any(target_os = "macos", target_os = "li
 
 pub(crate) struct Sandbox {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    policy: adk_sandbox::sandbox::SandboxPolicy,
+    policy: enforcement::Policy,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     wrapper: std::path::PathBuf,
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -75,7 +77,7 @@ impl Sandbox {
             )?;
             let mut variables = variables;
             if let Some(python) = &launch.python {
-                use adk_sandbox::sandbox::{AccessMode, AllowedPath};
+                use enforcement::{AccessMode, AllowedPath};
                 for path in std::iter::once(&python.base.runtime).chain(
                     python
                         .skills
@@ -182,9 +184,7 @@ impl Sandbox {
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped());
-            runtime::enforcer()
-                .configure_command(&mut command, &policy)
-                .map_err(runtime::failure)?;
+            runtime::enforcer().configure_command(&mut command, &policy)?;
             Ok(command)
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -247,12 +247,10 @@ impl Sandbox {
         &self,
         program: &std::ffi::OsStr,
         args: &[std::ffi::OsString],
-        policy: &adk_sandbox::sandbox::SandboxPolicy,
+        policy: &enforcement::Policy,
         links: &toolchains::Links,
-    ) -> Result<adk_sandbox::sandbox::WrappedCommand, Fault> {
-        let mut wrapped = runtime::enforcer()
-            .wrap_command(program, args, policy)
-            .map_err(runtime::failure)?;
+    ) -> Result<enforcement::WrappedCommand, Fault> {
+        let mut wrapped = runtime::enforcer().wrap_command(program, args, policy)?;
         wrapped.program = self.wrapper.clone().into_os_string();
         #[cfg(target_os = "linux")]
         linux::complete(&mut wrapped.args, program, links, &self.protected)?;

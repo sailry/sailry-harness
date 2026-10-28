@@ -1,12 +1,10 @@
-//! Score canonical Node history; existing workflow assertions establish the actual outcome.
-//! Fixture and opt-in live cases report their model and resource coverage separately.
-use adk_eval::{
-    ToolTrajectoryConfig,
-    schema::ToolUse,
-    scoring::{ResponseScorer, ToolTrajectoryScorer},
-};
+//! Assert Node history independently of workflow resource and outcome assertions.
+//! Argument and word matching retain the former evaluation criteria, adapted from
+//! ADK-Rust 675c02b6c0df6d632b953a06a5a12d1f814b7780, adk-eval/src/{schema,scoring}.rs.
+//! Copyright 2026 Zavora Technologies Ltd.; Apache-2.0, see third_party_licenses/adk-LICENSE.
 use sailry_protocol::conversation::{Page, Part};
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 pub(super) async fn trajectory(
     client: &sailry_client::Client,
@@ -21,31 +19,27 @@ pub(super) async fn trajectory(
     {
         for (index, part) in entry.parts.iter().enumerate() {
             if let Part::ToolCall { name, .. } = part {
-                actual.push(
-                    ToolUse::new(name).with_args(
-                        super::tool_detail(client, page, entry, index)
-                            .await
-                            .arguments,
-                    ),
-                );
+                actual.push((
+                    name.clone(),
+                    super::tool_detail(client, page, entry, index)
+                        .await
+                        .arguments,
+                ));
             }
         }
     }
-    let expected: Vec<_> = expected
-        .iter()
-        .map(|(name, args)| ToolUse::new(name).with_args(args.clone()))
-        .collect();
-    let score = ToolTrajectoryScorer::with_config(ToolTrajectoryConfig {
-        strict_order: true,
-        strict_args: true,
-    })
-    .score(&expected, &actual);
     assert_eq!(
-        score, 1.,
+        expected.len(),
+        actual.len(),
         "tool trajectory mismatch: expected={expected:?}, actual={actual:?}"
     );
-    // A perfect trajectory can contain denied or failed calls. Resource and
-    // outcome assertions in each case remain independent of this score.
+    for ((name, args), (actual_name, actual_args)) in expected.iter().zip(&actual) {
+        assert_eq!(name, actual_name, "tool order differs");
+        assert!(
+            args.is_null() || arguments(args, actual_args),
+            "tool arguments differ for {name}: expected={args}, actual={actual_args}"
+        );
+    }
 }
 
 pub(super) fn response(page: &Page, expected: &str) {
@@ -66,8 +60,85 @@ pub(super) fn response(page: &Page, expected: &str) {
         .filter(|text| !text.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    let score = ResponseScorer::new().score(expected, &actual);
-    assert_eq!(score, 1., "response mismatch: {actual}");
+    assert_eq!(
+        words(expected),
+        words(&actual),
+        "response mismatch: {actual}"
+    );
+}
+
+fn arguments(expected: &Value, actual: &Value) -> bool {
+    match (expected, actual) {
+        (Value::Number(expected), Value::Number(actual)) => {
+            if let (Some(expected), Some(actual)) = (expected.as_i64(), actual.as_i64()) {
+                expected == actual
+            } else if let (Some(expected), Some(actual)) = (expected.as_u64(), actual.as_u64()) {
+                expected == actual
+            } else {
+                expected.as_f64() == actual.as_f64()
+            }
+        }
+        (Value::Object(expected), Value::Object(actual)) => {
+            expected.len() == actual.len()
+                && expected.iter().all(|(key, value)| {
+                    actual
+                        .get(key)
+                        .is_some_and(|actual| arguments(value, actual))
+                })
+        }
+        (Value::Array(expected), Value::Array(actual)) => {
+            expected.len() == actual.len()
+                && expected
+                    .iter()
+                    .zip(actual)
+                    .all(|(expected, actual)| arguments(expected, actual))
+        }
+        _ => expected == actual,
+    }
+}
+
+fn words(text: &str) -> BTreeSet<String> {
+    let mut words = BTreeSet::new();
+    let mut word = String::new();
+    for character in text.to_lowercase().chars() {
+        let cjk = matches!(character,
+            '\u{4e00}'..='\u{9fff}' | '\u{3400}'..='\u{4dbf}' | '\u{f900}'..='\u{faff}'
+            | '\u{3040}'..='\u{309f}' | '\u{30a0}'..='\u{30ff}' | '\u{ac00}'..='\u{d7af}'
+        );
+        if (character.is_whitespace() || cjk) && !word.is_empty() {
+            words.insert(std::mem::take(&mut word));
+        }
+        if cjk {
+            words.insert(character.to_string());
+        } else if !character.is_whitespace() {
+            word.push(character);
+        }
+    }
+    if !word.is_empty() {
+        words.insert(word);
+    }
+    words
+}
+
+#[test]
+fn matches_numeric_arguments() {
+    use serde_json::json;
+    assert!(arguments(
+        &json!({"items":[1,2]}),
+        &json!({"items":[1.0,2.0]})
+    ));
+    assert!(!arguments(
+        &json!({"items":[1]}),
+        &json!({"items":[1],"extra":true})
+    ));
+    assert!(!arguments(&json!({"item":null}), &json!({"item":1})));
+}
+
+#[test]
+fn matches_word_sets() {
+    assert_eq!(words("Complete answer"), words("ANSWER complete complete"));
+    assert_eq!(words("完成 answer"), words("answer 成完"));
+    assert_ne!(words("Complete answer"), words("Complete answer!"));
 }
 
 #[test]

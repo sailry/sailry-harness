@@ -1,14 +1,14 @@
 //! Primitive adapters adapted from adk-browser b3e360bbf49ca39d49cccba182c0f7cb4d251970.
 //! Copyright 2026 Zavora Technologies Ltd.; Apache-2.0, see third_party_licenses/adk-LICENSE.
-use adk_browser::BrowserSession;
-use adk_core::Result;
+use super::{Session, unavailable};
+use sailry_protocol::Fault;
 use serde_json::{Value, json};
 
-pub(super) async fn script(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn script(browser: &Session, args: Value) -> Result<Value, Fault> {
     let script = args
         .get("script")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'script' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'script' parameter"))?;
 
     let is_async = args.get("async").and_then(|v| v.as_bool()).unwrap_or(false);
 
@@ -24,14 +24,14 @@ pub(super) async fn script(browser: &BrowserSession, args: Value) -> Result<Valu
     }))
 }
 
-pub(super) async fn scroll(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn scroll(browser: &Session, args: Value) -> Result<Value, Fault> {
     let direction = args.get("direction").and_then(|v| v.as_str());
     let selector = args.get("selector").and_then(|v| v.as_str());
     let amount = args.get("amount").and_then(|v| v.as_i64()).unwrap_or(500);
 
     if let Some(sel) = selector {
         // Scroll element into view
-        let escaped = adk_browser::escape_js_string(sel);
+        let escaped = super::super::webdriver::escape_js_string(sel);
         let script = format!(
             "document.querySelector('{escaped}').scrollIntoView({{ behavior: 'smooth', block: 'center' }})"
         );
@@ -50,9 +50,7 @@ pub(super) async fn scroll(browser: &BrowserSession, args: Value) -> Result<Valu
             "top" => "window.scrollTo(0, 0)".to_string(),
             "bottom" => "window.scrollTo(0, document.body.scrollHeight)".to_string(),
             _ => {
-                return Err(adk_core::AdkError::tool(format!(
-                    "Invalid direction: {dir}"
-                )));
+                return Err(unavailable(format!("Invalid direction: {dir}")));
             }
         };
 
@@ -64,18 +62,16 @@ pub(super) async fn scroll(browser: &BrowserSession, args: Value) -> Result<Valu
         }));
     }
 
-    Err(adk_core::AdkError::tool(
-        "Must specify either 'direction' or 'selector'",
-    ))
+    Err(unavailable("Must specify either 'direction' or 'selector'"))
 }
 
-pub(super) async fn hover(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn hover(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
-    let escaped = adk_browser::escape_js_string(selector);
+    let escaped = super::super::webdriver::escape_js_string(selector);
 
     // Dispatch both mouseenter and mouseover for proper hover behavior
     let script = format!(
@@ -102,17 +98,15 @@ pub(super) async fn hover(browser: &BrowserSession, args: Value) -> Result<Value
             "hovered": selector
         }))
     } else {
-        Err(adk_core::AdkError::tool(format!(
-            "Element not found: {selector}"
-        )))
+        Err(unavailable(format!("Element not found: {selector}")))
     }
 }
 
-pub(super) async fn handle_alert(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn handle_alert(browser: &Session, args: Value) -> Result<Value, Fault> {
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'action' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'action' parameter"))?;
 
     let prompt_text = args.get("text").and_then(|v| v.as_str());
 
@@ -133,7 +127,7 @@ pub(super) async fn handle_alert(browser: &BrowserSession, args: Value) -> Resul
         let handle_script = match action {
             "accept" => {
                 if let Some(txt) = prompt_text {
-                    let escaped = adk_browser::escape_js_string(txt);
+                    let escaped = super::super::webdriver::escape_js_string(txt);
                     format!(
                         "window.__adk_prompt_response = '{escaped}'; \
                              window.prompt = function() {{ return window.__adk_prompt_response; }}; \
@@ -152,9 +146,7 @@ pub(super) async fn handle_alert(browser: &BrowserSession, args: Value) -> Resul
                      window.prompt = function() { return null; };"
                 .to_string(),
             _ => {
-                return Err(adk_core::AdkError::tool(format!(
-                    "Invalid action: {action}"
-                )));
+                return Err(unavailable(format!("Invalid action: {action}")));
             }
         };
 
@@ -171,7 +163,7 @@ pub(super) async fn handle_alert(browser: &BrowserSession, args: Value) -> Resul
         let script = match action {
             "accept" => {
                 if let Some(txt) = prompt_text {
-                    let escaped = adk_browser::escape_js_string(txt);
+                    let escaped = super::super::webdriver::escape_js_string(txt);
                     format!(
                         "window.__adk_prompt_response = '{escaped}'; \
                              window.prompt = function() {{ return window.__adk_prompt_response; }}; \
@@ -193,9 +185,7 @@ pub(super) async fn handle_alert(browser: &BrowserSession, args: Value) -> Resul
                      return 'ok';"
                 .to_string(),
             _ => {
-                return Err(adk_core::AdkError::tool(format!(
-                    "Invalid action: {action}"
-                )));
+                return Err(unavailable(format!("Invalid action: {action}")));
             }
         };
 

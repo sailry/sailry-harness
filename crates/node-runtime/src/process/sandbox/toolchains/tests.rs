@@ -1,9 +1,9 @@
+use super::super::enforcement::AccessMode;
 use super::super::{Access, Environment, Launch, Sandbox};
 use crate::process::{
     environment::{EnvironmentFixture, Source},
     execute,
 };
-use adk_sandbox::sandbox::AccessMode;
 use sailry_link::CancellationToken;
 use sailry_protocol::process::Outcome;
 use std::{

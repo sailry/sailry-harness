@@ -1,5 +1,6 @@
 //! Managed browser primitives; tool declarations and transformations belong to packages.
-use adk_browser::BrowserSession;
+use super::{unavailable, webdriver::Session};
+use sailry_protocol::Fault;
 use sailry_protocol::external_browser::Action;
 use serde_json::Value;
 
@@ -16,10 +17,10 @@ mod wait;
 mod windows;
 
 pub(super) async fn execute(
-    browser: &BrowserSession,
+    browser: &Session,
     action: Action,
     arguments: Value,
-) -> adk_core::Result<Value> {
+) -> Result<Value, Fault> {
     match action {
         Action::DragAndDrop => actions::drag_and_drop(browser, arguments).await,
         Action::RightClick => actions::right_click(browser, arguments).await,

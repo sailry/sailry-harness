@@ -1,5 +1,5 @@
+use super::enforcement::Policy;
 use super::{Environment, policy, runtime};
-use adk_sandbox::sandbox::SandboxPolicy;
 use sailry_protocol::Fault;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -12,7 +12,7 @@ use std::{
 pub(super) type Links = BTreeMap<PathBuf, PathBuf>;
 
 pub(super) fn configure(
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     variables: &mut policy::Variables,
     environment: &Environment,
     home: Option<&Path>,
@@ -47,7 +47,7 @@ pub(super) fn configure(
 }
 
 pub(super) fn paths(
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     variables: &mut policy::Variables,
     path: Option<&OsStr>,
     home: Option<&Path>,
@@ -102,7 +102,7 @@ fn system(path: &Path) -> bool {
 }
 
 fn executable(
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     path: &Path,
     search: Option<&OsStr>,
     home: Option<&Path>,
@@ -177,7 +177,7 @@ fn executable(
 }
 
 fn libraries(
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     directory: &Path,
     home: Option<&Path>,
     profile: Option<&Path>,
@@ -230,7 +230,7 @@ fn libraries(
 }
 
 fn managers(
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     variables: &mut policy::Variables,
     anchor: &cap_std::fs::Dir,
     home: &Path,
@@ -286,7 +286,7 @@ fn managers(
 }
 
 fn read(
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     path: &Path,
     home: Option<&Path>,
     profile: Option<&Path>,

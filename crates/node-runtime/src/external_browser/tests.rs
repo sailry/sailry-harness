@@ -26,20 +26,17 @@ fn package_preserves_actions_and_schemas() {
             })
         );
     }
-    let uploads = tempfile::tempdir().unwrap();
-    let native =
-        adk_browser::BrowserToolset::new(Arc::new(BrowserSession::new(BrowserConfig::default())))
-            .with_evaluate_js(true)
-            .with_file_upload([uploads.path()])
-            .all_tools();
+    // Frozen from the reviewed upstream parameter declarations; no Agent toolset is needed.
+    let native: std::collections::BTreeMap<String, Value> =
+        serde_json::from_str(include_str!("tests/schemas.json")).unwrap();
     let local = [
         "browser_close_session",
         "browser_downloads",
         "browser_save_download",
     ];
     let expected = native
-        .iter()
-        .map(|tool| tool.name())
+        .keys()
+        .map(String::as_str)
         .chain(local)
         .collect::<std::collections::BTreeSet<_>>();
     let declared = extension
@@ -48,18 +45,18 @@ fn package_preserves_actions_and_schemas() {
         .map(|tool| tool.name.as_str())
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(declared, expected);
-    for tool in native {
+    for (name, schema) in native {
         let declaration = extension
             .tools
             .iter()
-            .find(|declaration| declaration.name == tool.name())
+            .find(|declaration| declaration.name == name)
             .unwrap();
         let mut declared = declaration.handler.as_ref().unwrap().parameters.clone();
-        let mut native = tool.parameters_schema().unwrap();
+        let mut native = schema;
         // Descriptions can document the local adapter; validation constraints stay identical.
         strip_descriptions(&mut declared);
         strip_descriptions(&mut native);
-        assert_eq!(declared, native, "{}", tool.name());
+        assert_eq!(declared, native, "{name}");
     }
     for name in local {
         let declaration = extension

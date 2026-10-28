@@ -120,9 +120,7 @@ impl Call {
             } else {
                 None
             };
-            let mut result = operations::execute(&session.browser, self.action, arguments)
-                .await
-                .map_err(|error| Fault::new(ErrorCode::Unavailable, error.to_string()))?;
+            let mut result = operations::execute(&session.browser, self.action, arguments).await?;
             drop(upload);
             if let Some(path) = original_upload {
                 result["uploaded_file"] = path;

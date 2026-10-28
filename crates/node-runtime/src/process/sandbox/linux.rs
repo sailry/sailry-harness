@@ -33,7 +33,7 @@ pub(super) fn complete(
             path.into_os_string(),
         ]);
     }
-    // These mounts must follow every writable workspace mount from ADK.
+    // These mounts must follow every writable workspace policy mount.
     // Missing future .git entries cannot be mounted without changing the host.
     let paths: BTreeSet<_> = protected
         .iter()

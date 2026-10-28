@@ -1,14 +1,14 @@
 //! Primitive adapters adapted from adk-browser b3e360bbf49ca39d49cccba182c0f7cb4d251970.
 //! Copyright 2026 Zavora Technologies Ltd.; Apache-2.0, see third_party_licenses/adk-LICENSE.
-use adk_browser::BrowserSession;
-use adk_core::Result;
+use super::{Session, unavailable};
+use sailry_protocol::Fault;
 use serde_json::{Value, json};
 
-pub(super) async fn text(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn text(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     let all = args.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
 
@@ -37,16 +37,16 @@ pub(super) async fn text(browser: &BrowserSession, args: Value) -> Result<Value>
     }
 }
 
-pub(super) async fn attribute(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn attribute(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     let attribute = args
         .get("attribute")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| adk_core::AdkError::tool("Missing 'attribute' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'attribute' parameter"))?;
 
     let value = browser.get_attribute(selector, attribute).await?;
 
@@ -57,7 +57,7 @@ pub(super) async fn attribute(browser: &BrowserSession, args: Value) -> Result<V
     }))
 }
 
-pub(super) async fn links(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn links(browser: &Session, args: Value) -> Result<Value, Fault> {
     let container = args.get("selector").and_then(|v| v.as_str());
     let include_text = args
         .get("include_text")
@@ -96,7 +96,7 @@ pub(super) async fn links(browser: &BrowserSession, args: Value) -> Result<Value
     }))
 }
 
-pub(super) async fn page_info(browser: &BrowserSession, _args: Value) -> Result<Value> {
+pub(super) async fn page_info(browser: &Session, _args: Value) -> Result<Value, Fault> {
     let url = browser.current_url().await?;
     let title = browser.title().await?;
 
@@ -107,7 +107,7 @@ pub(super) async fn page_info(browser: &BrowserSession, _args: Value) -> Result<
     }))
 }
 
-pub(super) async fn page_source(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn page_source(browser: &Session, args: Value) -> Result<Value, Fault> {
     let max_length = args
         .get("max_length")
         .and_then(|v| v.as_u64())

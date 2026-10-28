@@ -1,11 +1,10 @@
 //! Primitive adapters adapted from adk-browser b3e360bbf49ca39d49cccba182c0f7cb4d251970.
 //! Copyright 2026 Zavora Technologies Ltd.; Apache-2.0, see third_party_licenses/adk-LICENSE.
-use adk_browser::BrowserSession;
-use adk_core::AdkError;
-use adk_core::Result;
+use super::{Session, unavailable};
+use sailry_protocol::Fault;
 use serde_json::{Value, json};
 
-pub(super) async fn list_windows(browser: &BrowserSession, _args: Value) -> Result<Value> {
+pub(super) async fn list_windows(browser: &Session, _args: Value) -> Result<Value, Fault> {
     let (windows, current) = browser.list_windows().await?;
 
     Ok(json!({
@@ -16,7 +15,7 @@ pub(super) async fn list_windows(browser: &BrowserSession, _args: Value) -> Resu
     }))
 }
 
-pub(super) async fn new_tab(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn new_tab(browser: &Session, args: Value) -> Result<Value, Fault> {
     let url = args.get("url").and_then(|v| v.as_str());
 
     let handle = browser.new_tab().await?;
@@ -34,7 +33,7 @@ pub(super) async fn new_tab(browser: &BrowserSession, args: Value) -> Result<Val
     }))
 }
 
-pub(super) async fn new_window(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn new_window(browser: &Session, args: Value) -> Result<Value, Fault> {
     let url = args.get("url").and_then(|v| v.as_str());
 
     let handle = browser.new_window().await?;
@@ -52,11 +51,11 @@ pub(super) async fn new_window(browser: &BrowserSession, args: Value) -> Result<
     }))
 }
 
-pub(super) async fn switch_window(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn switch_window(browser: &Session, args: Value) -> Result<Value, Fault> {
     let handle = args
         .get("handle")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'handle' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'handle' parameter"))?;
 
     browser.switch_to_window(handle).await?;
 
@@ -71,7 +70,7 @@ pub(super) async fn switch_window(browser: &BrowserSession, args: Value) -> Resu
     }))
 }
 
-pub(super) async fn close_window(browser: &BrowserSession, _args: Value) -> Result<Value> {
+pub(super) async fn close_window(browser: &Session, _args: Value) -> Result<Value, Fault> {
     browser.close_window().await?;
 
     Ok(json!({
@@ -80,7 +79,7 @@ pub(super) async fn close_window(browser: &BrowserSession, _args: Value) -> Resu
     }))
 }
 
-pub(super) async fn maximize_window(browser: &BrowserSession, _args: Value) -> Result<Value> {
+pub(super) async fn maximize_window(browser: &Session, _args: Value) -> Result<Value, Fault> {
     browser.maximize_window().await?;
 
     Ok(json!({
@@ -89,7 +88,7 @@ pub(super) async fn maximize_window(browser: &BrowserSession, _args: Value) -> R
     }))
 }
 
-pub(super) async fn minimize_window(browser: &BrowserSession, _args: Value) -> Result<Value> {
+pub(super) async fn minimize_window(browser: &Session, _args: Value) -> Result<Value, Fault> {
     browser.minimize_window().await?;
 
     Ok(json!({
@@ -98,16 +97,16 @@ pub(super) async fn minimize_window(browser: &BrowserSession, _args: Value) -> R
     }))
 }
 
-pub(super) async fn set_window_size(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn set_window_size(browser: &Session, args: Value) -> Result<Value, Fault> {
     let width = args
         .get("width")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| AdkError::tool("Missing 'width' parameter"))? as u32;
+        .ok_or_else(|| unavailable("Missing 'width' parameter"))? as u32;
 
     let height = args
         .get("height")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| AdkError::tool("Missing 'height' parameter"))? as u32;
+        .ok_or_else(|| unavailable("Missing 'height' parameter"))? as u32;
 
     let x = args.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
     let y = args.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;

@@ -1,15 +1,15 @@
-use adk_sandbox::sandbox::SandboxEnforcer;
+use super::enforcement::Enforcer;
 use sailry_protocol::{ErrorCode, Fault};
 use std::path::PathBuf;
 
-pub(super) fn enforcer() -> Box<dyn SandboxEnforcer> {
+pub(super) fn enforcer() -> Box<dyn Enforcer> {
     #[cfg(target_os = "macos")]
     {
-        Box::new(adk_sandbox::sandbox::macos::MacOsEnforcer::new())
+        Box::new(super::enforcement::macos::Seatbelt::new())
     }
     #[cfg(target_os = "linux")]
     {
-        Box::new(adk_sandbox::sandbox::linux::LinuxEnforcer::new())
+        Box::new(super::enforcement::linux::Bubblewrap::new())
     }
 }
 

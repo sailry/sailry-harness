@@ -1,6 +1,6 @@
 #![cfg(any(target_os = "macos", target_os = "linux"))]
+use super::enforcement::AccessMode;
 use super::*;
-use adk_sandbox::sandbox::AccessMode;
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 const INJECTIONS: [&str; 7] = [

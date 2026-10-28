@@ -1,5 +1,5 @@
+use super::enforcement::{AccessMode, AllowedPath, Builder, Policy};
 use super::{Environment, runtime};
-use adk_sandbox::sandbox::{AccessMode, AllowedPath, SandboxPolicy, SandboxPolicyBuilder};
 use cap_fs_ext::DirExt;
 use sailry_protocol::{ErrorCode, Fault};
 use std::{
@@ -17,7 +17,7 @@ pub(super) fn create(
     state: &Path,
     environment: &Environment,
     inputs: Option<&Path>,
-) -> Result<(SandboxPolicy, Variables, super::toolchains::Links), Fault> {
+) -> Result<(Policy, Variables, super::toolchains::Links), Fault> {
     let root = root.canonicalize().map_err(runtime::failure)?;
     let scratch = scratch.path().canonicalize().map_err(runtime::failure)?;
     let home = environment.home().and_then(|path| path.canonicalize().ok());
@@ -28,7 +28,7 @@ pub(super) fn create(
     validate(&root, home.as_deref(), profile.as_deref())?;
     let state = state.canonicalize().map_err(runtime::failure)?;
     let anchor = crate::files::path::root(&state)?;
-    let mut policy = SandboxPolicyBuilder::new()
+    let mut policy = Builder::new()
         .allow_process_spawn()
         .allow_read_write(&root)
         .allow_read_write(&scratch)
@@ -226,7 +226,7 @@ pub(super) fn readable(
 }
 
 pub(super) fn read(
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     path: &Path,
     home: Option<&Path>,
     profile: Option<&Path>,
@@ -246,7 +246,7 @@ pub(super) fn read(
 }
 
 fn cache(
-    policy: &mut SandboxPolicy,
+    policy: &mut Policy,
     source: &Path,
     anchor: &cap_std::fs::Dir,
     target: &Path,

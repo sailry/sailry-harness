@@ -1,20 +1,19 @@
 //! Primitive adapters adapted from adk-browser b3e360bbf49ca39d49cccba182c0f7cb4d251970.
 //! Copyright 2026 Zavora Technologies Ltd.; Apache-2.0, see third_party_licenses/adk-LICENSE.
-use adk_browser::BrowserSession;
-use adk_core::AdkError;
-use adk_core::Result;
+use super::{Session, unavailable};
+use sailry_protocol::Fault;
 use serde_json::{Value, json};
 
-pub(super) async fn drag_and_drop(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn drag_and_drop(browser: &Session, args: Value) -> Result<Value, Fault> {
     let source = args
         .get("source_selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'source_selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'source_selector' parameter"))?;
 
     let target = args
         .get("target_selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'target_selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'target_selector' parameter"))?;
 
     browser.drag_and_drop(source, target).await?;
 
@@ -25,11 +24,11 @@ pub(super) async fn drag_and_drop(browser: &BrowserSession, args: Value) -> Resu
     }))
 }
 
-pub(super) async fn right_click(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn right_click(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     browser.right_click(selector).await?;
 
@@ -39,11 +38,11 @@ pub(super) async fn right_click(browser: &BrowserSession, args: Value) -> Result
     }))
 }
 
-pub(super) async fn focus(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn focus(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     browser.focus_element(selector).await?;
 
@@ -53,11 +52,11 @@ pub(super) async fn focus(browser: &BrowserSession, args: Value) -> Result<Value
     }))
 }
 
-pub(super) async fn element_state(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn element_state(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     let state = browser.get_element_state(selector).await?;
 
@@ -71,11 +70,11 @@ pub(super) async fn element_state(browser: &BrowserSession, args: Value) -> Resu
     }))
 }
 
-pub(super) async fn press_key(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn press_key(browser: &Session, args: Value) -> Result<Value, Fault> {
     let key = args
         .get("key")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'key' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'key' parameter"))?;
 
     let selector = args.get("selector").and_then(|v| v.as_str());
     let modifiers: Vec<&str> = args
@@ -94,16 +93,16 @@ pub(super) async fn press_key(browser: &BrowserSession, args: Value) -> Result<V
     }))
 }
 
-pub(super) async fn file_upload(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn file_upload(browser: &Session, args: Value) -> Result<Value, Fault> {
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'selector' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'selector' parameter"))?;
 
     let file_path = args
         .get("file_path")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AdkError::tool("Missing 'file_path' parameter"))?;
+        .ok_or_else(|| unavailable("Missing 'file_path' parameter"))?;
 
     browser.upload_file(selector, file_path).await?;
 
@@ -114,7 +113,7 @@ pub(super) async fn file_upload(browser: &BrowserSession, args: Value) -> Result
     }))
 }
 
-pub(super) async fn print_to_pdf(browser: &BrowserSession, args: Value) -> Result<Value> {
+pub(super) async fn print_to_pdf(browser: &Session, args: Value) -> Result<Value, Fault> {
     let landscape = args
         .get("landscape")
         .and_then(|v| v.as_bool())
