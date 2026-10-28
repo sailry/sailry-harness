@@ -65,7 +65,7 @@ pub(super) async fn binding(
             "provider or model was unavailable when this turn was sent",
         ));
     }
-    let model_config = factory::config(provider, config);
+    let model_config = factory::config(provider, config, session);
     let inner: Arc<dyn GdkProvider> = if provider.api == ModelApi::Plugin {
         Arc::new(plugin::Model::new(ingress, provider, config, session, stop).await?)
     } else if provider.authentication == Authentication::ChatGpt {

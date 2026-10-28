@@ -16,7 +16,11 @@ use sailry_protocol::{SessionId, conversation::connection::Options};
 use serde_json::json;
 use std::collections::HashMap;
 
-pub(super) fn config(provider: &Provider, session: &SessionConfig) -> ModelConfig {
+pub(super) fn config(
+    provider: &Provider,
+    session: &SessionConfig,
+    owner: SessionId,
+) -> ModelConfig {
     let metadata = provider
         .models
         .iter()
@@ -58,7 +62,15 @@ pub(super) fn config(provider: &Provider, session: &SessionConfig) -> ModelConfi
             json!(tokens),
         )])),
     };
-    // Captured package policies are provider request parameters, never controller defaults.
+    if matches!(
+        provider.api,
+        ModelApi::Responses | ModelApi::ChatCompletions
+    ) {
+        config = config.with_merged_request_params(
+            [("prompt_cache_key".into(), json!(owner.to_string()))].into(),
+        );
+    }
+    // Captured package policies take precedence over these request defaults.
     for policy in crate::providers::policy::body(provider, &session.model) {
         config = config.with_merged_request_params(policy.into_iter().collect());
     }
@@ -84,11 +96,11 @@ pub(super) fn native(
     let endpoint = crate::providers::endpoint_url(&provider.endpoint)?;
     let shared = registry.http(Some(endpoint.origin()))?;
     let mut definition = match provider.api {
-        ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
-            let name = if provider.api == ModelApi::OpenCodeGo {
-                "opencode_go"
-            } else {
-                "opencode_zen"
+        ModelApi::DeepSeek | ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
+            let name = match provider.api {
+                ModelApi::DeepSeek => "custom_deepseek",
+                ModelApi::OpenCodeGo => "opencode_go",
+                _ => "opencode_zen",
             };
             Some(
                 goose_providers::declarative::fixed_provider_configs()
@@ -206,26 +218,14 @@ pub(super) fn native(
                     .build(),
             )
         }
-        ModelApi::ChatCompletions | ModelApi::DeepSeek => {
-            let prefix = path
-                .strip_suffix("chat/completions")
-                .unwrap_or(path)
-                .trim_end_matches('/');
-            let prefix = if prefix.is_empty() {
-                String::new()
-            } else {
-                format!("{prefix}/")
-            };
-            Arc::new(OpenAiCompatibleProvider::new(
-                if provider.api == ModelApi::DeepSeek {
-                    "deepseek"
-                } else {
-                    "openai_compatible"
-                }
-                .into(),
-                client(authority, query)?,
-                prefix,
-            ))
+        ModelApi::ChatCompletions => {
+            Arc::new(
+                OpenAiProviderBuilder::new(client(authority, query)?)
+                    // A leading slash makes the configured Chat route explicit in GDK.
+                    .base_path(completions(path))
+                    .preserve_thinking_context(true)
+                    .build(),
+            )
         }
         ModelApi::Anthropic => {
             let path = match path {
@@ -340,16 +340,19 @@ pub(super) fn native(
                 .map_err(unavailable)?,
             )
         }
-        ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
+        ModelApi::DeepSeek | ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
             let mut definition = definition.take().unwrap();
             definition.base_url = provider.endpoint.clone();
             let captured_key = key.to_owned();
-            let builder = goose_providers::openai::from_declarative_config(
+            let mut builder = goose_providers::openai::from_declarative_config(
                 definition,
                 None,
                 CapturedKey(captured_key),
             )
             .map_err(unavailable)?;
+            if provider.api == ModelApi::DeepSeek {
+                builder = builder.base_path(completions(path));
+            }
             Arc::new(
                 builder
                     .try_map_api_client(|client| {
@@ -367,6 +370,16 @@ pub(super) fn native(
         }
     };
     Ok(inner)
+}
+
+fn completions(path: &str) -> String {
+    if path.ends_with("chat/completions") {
+        format!("/{path}")
+    } else if path.is_empty() {
+        "/chat/completions".into()
+    } else {
+        format!("/{path}/chat/completions")
+    }
 }
 
 struct CapturedKey(String);

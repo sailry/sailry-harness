@@ -445,6 +445,7 @@ async fn uses_gdk_rate_limit_retry() {
 
 #[test]
 fn maps_captured_effort_and_output() {
+    let owner = SessionId::new();
     let mut provider = provider(ModelApi::Responses, "https://example.test/v1".into());
     provider.models = serde_json::from_value(json!([{
         "id":"captured","context":100_000,"output":4096,"vision":true,"reasoning":true,"default_effort":"low"
@@ -452,18 +453,81 @@ fn maps_captured_effort_and_output() {
     let mut session: SessionConfig = serde_json::from_value(json!({
         "provider":provider.id,"model":"captured","effort":"max","mode":"code","permission":"ask","credential":null
     })).unwrap();
-    let frozen = config(&provider, &session);
+    let frozen = config(&provider, &session, owner);
     assert_eq!(frozen.model_name, "captured");
     assert_eq!(frozen.max_tokens, Some(4096));
     assert_eq!(frozen.context_limit, Some(100_000));
     assert_eq!(frozen.thinking_effort(), Some(ThinkingEffort::Max));
     session.effort = Effort::Low;
-    let next = config(&provider, &session);
+    let next = config(&provider, &session, owner);
     assert_eq!(next.thinking_effort(), Some(ThinkingEffort::Low));
     assert_eq!(frozen.thinking_effort(), Some(ThinkingEffort::Max));
     session.effort = Effort::Disabled;
     assert_eq!(
-        config(&provider, &session).thinking_effort(),
+        config(&provider, &session, owner).thinking_effort(),
         Some(ThinkingEffort::Off)
     );
+    assert_eq!(
+        frozen.request_param::<String>("prompt_cache_key"),
+        Some(owner.to_string())
+    );
+    provider.binding = Some(sailry_protocol::conversation::presets::Binding {
+        policies: vec![sailry_protocol::conversation::presets::RequestPolicy {
+            models: vec![session.model.clone()],
+            reasoning_replay: None,
+            body: json!({"prompt_cache_key":"captured-policy"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        }],
+        ..Default::default()
+    });
+    assert_eq!(
+        config(&provider, &session, owner).request_param::<String>("prompt_cache_key"),
+        Some("captured-policy".into())
+    );
+}
+
+#[tokio::test]
+async fn keeps_explicit_chat_routes() {
+    for api in [ModelApi::ChatCompletions, ModelApi::DeepSeek] {
+        let event = json!({"id":"chat","object":"chat.completion.chunk","created":1,"model":"gpt-6.1-sol","choices":[{"index":0,"delta":{"content":"Done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}});
+        let server = Server::start(vec![format!("data: {event}\n\ndata: [DONE]\n\n")]).await;
+        let registry = registry::Registry::default();
+        let provider = provider(api, format!("{}/v1", server.endpoint));
+        let native = native(
+            &registry,
+            &provider,
+            "gpt-6.1-sol",
+            SessionId::new(),
+            "captured-key",
+            HeaderMap::new(),
+        )
+        .unwrap();
+        let mut config = ModelConfig::new("gpt-6.1-sol")
+            .with_max_tokens(Some(8192))
+            .with_thinking_effort(ThinkingEffort::High);
+        config.reasoning = Some(true);
+        let _ = collect_stream(
+            native
+                .stream(&config, "", &[Message::user().with_text("Hello")], &[])
+                .await
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        let requests = server.finish().await;
+        let request = &requests[0];
+        assert_eq!(request.path, "/v1/chat/completions");
+        assert_eq!(request.body["model"], "gpt-6.1-sol");
+        assert_eq!(request.headers["authorization"], "Bearer captured-key");
+        assert_eq!(
+            request.body[if api == ModelApi::DeepSeek {
+                "max_tokens"
+            } else {
+                "max_completion_tokens"
+            }],
+            8192
+        );
+    }
 }
