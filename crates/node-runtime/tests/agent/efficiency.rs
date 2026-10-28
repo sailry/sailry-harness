@@ -96,15 +96,7 @@ async fn reports_token_usage() {
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
         if let Err(error) = &outcome {
-            let observations: Vec<_> = records
-                .iter()
-                .filter_map(|event| {
-                    let event = serde_json::to_value(event).unwrap();
-                    event["event_metadata"]["sailry_model_observation"]
-                        .as_str()
-                        .map(|value| serde_json::from_str::<serde_json::Value>(value).unwrap())
-                })
-                .collect();
+            let observations = observations(&records);
             println!(
                 "{}",
                 json!({"suite":"token-acceptance","stage":"failed",
@@ -114,14 +106,11 @@ async fn reports_token_usage() {
         }
         let requests = observations(&records);
         let trace = trace(&records);
-        let response_shapes: Vec<_> = records.iter().filter_map(|event|event.content())
-            .flat_map(|content|&content.parts).filter_map(|part|match part {
-                adk_core::Part::FunctionResponse {function_response,..} => Some(json!({
-                    "name":function_response.name,
-                    "kind":function_response.response.get("kind"),
-                    "keys":function_response.response.as_object().map(|value|value.keys().collect::<Vec<_>>())
-                })), _=>None,
-            }).collect();
+        let response_shapes: Vec<_> = blocks(&records).filter(|block|block["type"]=="tool_response").map(|block|json!({
+            "name":block["name"],
+            "kind":block["result"]["value"].get("kind"),
+            "keys":block["result"]["value"].as_object().map(|value|value.keys().collect::<Vec<_>>())
+        })).collect();
         println!(
             "{}",
             json!({"suite":"token-acceptance","stage":"observed","variant":variant,
@@ -148,28 +137,22 @@ async fn reports_token_usage() {
             "model must report the actual marker"
         );
         let mut raw_bytes = 0;
-        for part in records
-            .iter()
-            .filter_map(|event| event.content())
-            .flat_map(|content| &content.parts)
-        {
-            match part {
-                adk_core::Part::FunctionResponse {
-                    function_response, ..
-                } => {
-                    let original = &function_response.response;
-                    raw_bytes += original.to_string().len();
-                    if function_response.name != plugin_tool("files", "read_file") {
-                        continue;
-                    }
-                    let restored = file_text(original);
-                    assert_eq!(
-                        restored, source,
-                        "canonical result must retain the complete read"
-                    );
-                }
-                _ => {}
+        for block in blocks(&records).filter(|block| block["type"] == "tool_response") {
+            assert!(
+                block["result"]["assets"]
+                    .as_array()
+                    .is_none_or(Vec::is_empty)
+            );
+            let original = &block["result"]["value"];
+            raw_bytes += original.to_string().len();
+            if block["name"] != plugin_tool("files", "read_file") {
+                continue;
             }
+            assert_eq!(
+                file_text(original),
+                source,
+                "canonical result must retain the complete read"
+            );
         }
         assert_eq!(
             trace,
@@ -206,13 +189,13 @@ async fn reports_token_usage() {
 }
 
 fn observations(
-    records: &[adk_core::Event],
+    records: &[serde_json::Value],
 ) -> Vec<sailry_protocol::conversation::observation::Request> {
     let mut observations = std::collections::BTreeMap::new();
     for event in records {
-        if let Some(value) = event.provider_metadata.get("sailry_model_observation") {
+        if let Some(value) = event.pointer("/metadata/execution/observation") {
             let request: sailry_protocol::conversation::observation::Request =
-                serde_json::from_str(value).expect("canonical request observation");
+                serde_json::from_value(value.clone()).expect("canonical request observation");
             if !request.attempts.is_empty() {
                 observations.insert(request.id.clone(), request);
             }
@@ -223,17 +206,17 @@ fn observations(
     requests
 }
 
-fn trace(records: &[adk_core::Event]) -> Vec<serde_json::Value> {
+fn blocks(records: &[serde_json::Value]) -> impl Iterator<Item = &serde_json::Value> {
     records
         .iter()
-        .filter_map(|event| event.content())
-        .flat_map(|content| &content.parts)
-        .filter_map(|part| match part {
-            adk_core::Part::FunctionCall { name, args, .. } => {
-                Some(json!({"name":name,"arguments":args}))
-            }
-            _ => None,
-        })
+        .filter_map(|record| record["content"].as_array())
+        .flatten()
+}
+
+fn trace(records: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    blocks(records)
+        .filter(|block| block["type"] == "tool_request")
+        .map(|block| json!({"name":block["name"],"arguments":block["arguments"]}))
         .collect()
 }
 
@@ -285,18 +268,12 @@ async fn extracts_file_and_usage() {
             assert_eq!(usage.output, 10);
         }
         assert_eq!(trace(&records).len(), 1);
-        let read = records
-            .iter()
-            .filter_map(|event| event.content())
-            .flat_map(|content| &content.parts)
-            .find_map(|part| match part {
-                adk_core::Part::FunctionResponse {
-                    function_response, ..
-                } if function_response.name == plugin_tool("files", "read_file") => {
-                    Some(&function_response.response)
-                }
-                _ => None,
+        let read = blocks(&records)
+            .find(|block| {
+                block["type"] == "tool_response"
+                    && block["name"] == plugin_tool("files", "read_file")
             })
+            .map(|block| &block["result"]["value"])
             .expect("actual canonical file result");
         assert_eq!(file_text(read), source);
         fixture.node.shutdown().await.unwrap();
@@ -304,7 +281,7 @@ async fn extracts_file_and_usage() {
     }
 }
 
-async fn events(node: &Node, turn: TurnId) -> Vec<adk_core::Event> {
+async fn events(node: &Node, turn: TurnId) -> Vec<serde_json::Value> {
     node.with_storage(move |connection| {
         Box::pin(async move {
             let mut rows = connection

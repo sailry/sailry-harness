@@ -70,6 +70,9 @@ async fn restores(direct: bool) {
         let (handle, mut db) =
             crate::database_fixture::open(&profile.join("storage/node.turso"), false).await;
         let transaction = db.transaction().await.unwrap();
+        let digest = blake3::hash(&bytes).to_hex().to_string();
+        transaction.execute("INSERT INTO agent_blobs(digest,bytes) VALUES(?1,?2) ON CONFLICT(digest) DO NOTHING", turso::params![digest.clone(), bytes.clone()]).await.unwrap();
+        let asset = json!({"digest":digest,"mime":"image/png","size":bytes.len()});
         for (_, turn) in &records {
             let rows = {
                 let mut rows = transaction
@@ -87,44 +90,39 @@ async fn restores(direct: bool) {
             };
             let mut inserted = false;
             for (sequence, body) in rows {
-                let mut event: adk_core::Event = serde_json::from_slice(&body).unwrap();
-                let Some(content) = event.llm_response.content.as_mut() else {
+                let mut event: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                if event["kind"] != "message" {
                     continue;
-                };
+                }
                 if direct {
-                    if content.role != "model"
-                        || !content.parts.iter().any(|part| part.text().is_some())
+                    if event["role"] != "assistant"
+                        || !event["content"].as_array().is_some_and(|content| {
+                            content.iter().any(|block| block["type"] == "text")
+                        })
                     {
                         continue;
                     }
-                    content.parts.push(adk_core::Part::InlineData {
-                        mime_type: "image/png".into(),
-                        data: bytes.clone(),
-                        uri: None,
-                        annotations: None,
-                    });
-                    content.parts.push(adk_core::Part::Text {
-                        text: "After the image".into(),
-                    });
+                    let index = event["part_count"].as_u64().unwrap();
+                    let content = event["content"].as_array_mut().unwrap();
+                    content.push(json!({"type":"image","index":index,"asset":asset}));
+                    content.push(json!({"type":"text","index":index+1,"text":"After the image"}));
+                    event["part_count"] = json!(index + 2);
                 } else {
-                    let Some(response) = content.parts.iter_mut().find_map(|part| {
-                        if let adk_core::Part::FunctionResponse {
-                            function_response, ..
-                        } = part
-                        {
-                            Some(function_response)
-                        } else {
-                            None
-                        }
+                    let Some(response) = event["content"].as_array_mut().and_then(|content| {
+                        content
+                            .iter_mut()
+                            .find(|block| block["type"] == "tool_response")
                     }) else {
                         continue;
                     };
-                    response.inline_data.push(adk_core::InlineDataPart {
-                        mime_type: "image/png".into(),
-                        data: bytes.clone(),
-                        uri: None,
-                        annotations: None,
-                    });
+                    response
+                        .as_object_mut()
+                        .unwrap()
+                        .entry("attachments")
+                        .or_insert_with(|| json!([]))
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!({"type":"inline","asset":asset}));
                 }
                 transaction
                     .execute(

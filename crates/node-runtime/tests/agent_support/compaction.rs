@@ -5,21 +5,15 @@ pub const PRIVATE_SENTINEL: &str = "PRIVATE_SUMMARY_PROVIDER_BODY_SENTINEL";
 pub fn is_summary(body: &Value) -> bool {
     body["messages"].as_array().is_some_and(|messages| {
         messages.iter().any(|message| {
-            message["role"] == "user"
-                && message["content"]
-                    .as_str()
-                    .is_some_and(|text| text.starts_with("Update the existing handoff"))
+            message["role"] == "user" && message["content"].as_str().is_some_and(|text| {
+                text == "Please summarize the conversation history provided in the system prompt."
+            })
         })
     })
 }
 
 pub fn handoff(text: &str) -> String {
-    if text.trim().is_empty() || text.starts_with("## Goals\n") {
-        return text.into();
-    }
-    format!(
-        "## Goals\n{text}\n## User constraints\nRetained\n## Key facts\nVerified\n## Changed files and reasons\nNone\n## Errors and fixes\nNone\n## Todo\nContinue\n## Current progress\nKnown\n## Next steps\nResume"
-    )
+    text.into()
 }
 
 pub async fn respond(
