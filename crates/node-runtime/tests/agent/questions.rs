@@ -255,15 +255,17 @@ async fn answers_and_cancels() {
             });
             let response = other.execute(request.clone()).await.unwrap();
             let (page, second) = pending(&other, session.id).await;
+            let retained = page
+                .questions
+                .iter()
+                .find(|question| question.id == first.id)
+                .unwrap();
             assert_eq!(
-                page.entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .filter(|part| matches!(part, Part::ToolResult { .. }))
-                    .count(),
-                1,
-                "the first answer is returned before the next question"
+                retained.state,
+                State::Answered(Answer::Text(" 中文 🙂\nnext ".into()))
             );
+            assert_ne!(second.id, first.id);
+            assert_eq!(second.state, State::Pending);
             assert_eq!(other.execute(request.clone()).await.unwrap(), response);
             assert_eq!(
                 other

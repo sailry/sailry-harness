@@ -46,7 +46,7 @@ impl Remote {
         for _ in 0..10 {
             match self.send(params.clone()).await? {
                 CallToolResponse::Complete(result) => return Ok(result),
-                CallToolResponse::Task(created) => return self.task(created.task).await,
+                CallToolResponse::Task(created) => return Box::pin(self.task(created.task)).await,
                 CallToolResponse::InputRequired(input) => {
                     let requests = input.input_requests.filter(|requests| !requests.is_empty());
                     if requests.is_none() && input.request_state.is_none() {
@@ -54,7 +54,7 @@ impl Remote {
                     }
                     let responses = if let Some(requests) = requests {
                         state_rounds = 0;
-                        self.fulfill(requests).await?
+                        Box::pin(self.fulfill(requests)).await?
                     } else {
                         tokio::time::sleep(Duration::from_millis(
                             (50 << state_rounds.min(3)).min(250),
@@ -84,7 +84,7 @@ impl Remote {
             .map_err(failed)?;
         let cancel = Cancel {
             peer: Some(handle.peer.clone()),
-            target: Target::Request(handle.id.clone()),
+            id: handle.id.clone(),
         };
         let result = handle.await_response().await;
         cancel.disarm();
@@ -103,10 +103,6 @@ impl Remote {
         if id.is_empty() || id.len() > 16 * 1024 {
             return Err(invalid("MCP task identity is invalid"));
         }
-        let cancel = Cancel {
-            peer: Some(self.service.peer().clone()),
-            target: Target::Task(id.clone()),
-        };
         self.tasks.lock().await.insert(id.clone());
         if !self
             .service
@@ -133,7 +129,6 @@ impl Remote {
             interval = detailed.task.poll_interval_ms.unwrap_or(interval).max(1);
             if detailed.task.status.is_terminal() {
                 self.tasks.lock().await.remove(&id);
-                cancel.disarm();
                 return match detailed.payload {
                     TaskPayload::Completed { result } => {
                         serde_json::from_value(Value::Object(result)).map_err(failed)
@@ -174,7 +169,7 @@ impl Remote {
                         if rounds > 10 {
                             return Err(invalid("MCP task exceeded the SDK input round limit"));
                         }
-                        for (key, response) in self.fulfill(pending).await? {
+                        for (key, response) in Box::pin(self.fulfill(pending)).await? {
                             answered.insert(
                                 key.clone(),
                                 (input_requests[&key].clone(), response.clone()),
@@ -225,10 +220,7 @@ impl Remote {
             );
             std::mem::swap(&mut context.meta, request.get_meta_mut());
             std::mem::swap(&mut context.extensions, request.extensions_mut());
-            let result = self
-                .service
-                .service()
-                .handle_request(request, context)
+            let result = Box::pin(self.service.service().handle_request(request, context))
                 .await
                 .map_err(failed)?;
             let value = match (input, result) {
@@ -305,13 +297,9 @@ fn finished(error: &rmcp::ServiceError) -> bool {
         if error.code == RpcCode::INVALID_PARAMS || error.code == RpcCode::RESOURCE_NOT_FOUND)
 }
 
-enum Target {
-    Request(rmcp::model::RequestId),
-    Task(String),
-}
 struct Cancel {
     peer: Option<Peer<RoleClient>>,
-    target: Target,
+    id: rmcp::model::RequestId,
 }
 impl Cancel {
     fn disarm(mut self) {
@@ -326,30 +314,16 @@ impl Drop for Cancel {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        match &self.target {
-            Target::Request(id) => {
-                let notification = CancelledNotification::new(CancelledNotificationParam::new(
-                    Some(id.clone()),
-                    Some("the client stopped waiting for this tools/call".into()),
-                ));
-                runtime.spawn(async move {
-                    let _ = tokio::time::timeout(
-                        Duration::from_secs(2),
-                        peer.send_notification(notification.into()),
-                    )
-                    .await;
-                });
-            }
-            Target::Task(id) => {
-                let id = id.clone();
-                runtime.spawn(async move {
-                    let _ = tokio::time::timeout(
-                        Duration::from_secs(2),
-                        peer.cancel_task(CancelTaskParams::new(id)),
-                    )
-                    .await;
-                });
-            }
-        }
+        let notification = CancelledNotification::new(CancelledNotificationParam::new(
+            Some(self.id.clone()),
+            Some("the client stopped waiting for this tools/call".into()),
+        ));
+        runtime.spawn(async move {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(2),
+                peer.send_notification(notification.into()),
+            )
+            .await;
+        });
     }
 }

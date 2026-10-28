@@ -129,8 +129,8 @@ pub(super) async fn handle_alert(browser: &Session, args: Value) -> Result<Value
                 if let Some(txt) = prompt_text {
                     let escaped = super::super::webdriver::escape_js_string(txt);
                     format!(
-                        "window.__adk_prompt_response = '{escaped}'; \
-                             window.prompt = function() {{ return window.__adk_prompt_response; }}; \
+                        "window.__sailry_prompt_response = '{escaped}'; \
+                             window.prompt = function() {{ return window.__sailry_prompt_response; }}; \
                              window.confirm = function() {{ return true; }}; \
                              window.alert = function() {{}};"
                     )
@@ -165,8 +165,8 @@ pub(super) async fn handle_alert(browser: &Session, args: Value) -> Result<Value
                 if let Some(txt) = prompt_text {
                     let escaped = super::super::webdriver::escape_js_string(txt);
                     format!(
-                        "window.__adk_prompt_response = '{escaped}'; \
-                             window.prompt = function() {{ return window.__adk_prompt_response; }}; \
+                        "window.__sailry_prompt_response = '{escaped}'; \
+                             window.prompt = function() {{ return window.__sailry_prompt_response; }}; \
                              window.confirm = function() {{ return true; }}; \
                              window.alert = function() {{}}; \
                              return 'ok';"

@@ -134,110 +134,115 @@ impl ClientHandler for Handler {
         info
     }
 
-    async fn create_elicitation(
+    fn create_elicitation(
         &self,
         request: ElicitRequestParams,
         context: RequestContext<RoleClient>,
-    ) -> Result<ElicitResult, rmcp::ErrorData> {
-        let call = self
-            .active
-            .lock()
-            .unwrap()
-            .clone()
-            .filter(|call| !call.stop.is_cancelled())
-            .ok_or_else(|| {
-                rmcp::ErrorData::invalid_request("MCP input requires an active tool call", None)
-            })?;
-        let (spec, schema) = match request {
-            ElicitRequestParams::FormElicitationParams {
-                message,
-                requested_schema,
-                ..
-            } => {
-                let order = requested_schema.property_order.clone();
-                let schema = serde_json::to_value(requested_schema).map_err(|_| failed())?;
-                let spec = super::schema::spec(message, &schema, order.as_deref())?;
-                (spec, schema)
-            }
-            ElicitRequestParams::UrlElicitationParams {
-                message,
-                url,
-                elicitation_id,
-                ..
-            } => {
-                let spec = sailry_protocol::conversation::question::Spec {
-                    prompt: message,
-                    input: sailry_protocol::conversation::question::Input::Url {
-                        url,
-                        elicitation_id,
-                    },
-                };
-                spec.validate().map_err(|_| {
-                    rmcp::ErrorData::invalid_params("invalid MCP URL request", None)
+    ) -> impl Future<Output = Result<ElicitResult, rmcp::ErrorData>> + Send + '_ {
+        Box::pin(async move {
+            let call = self
+                .active
+                .lock()
+                .unwrap()
+                .clone()
+                .filter(|call| !call.stop.is_cancelled())
+                .ok_or_else(|| {
+                    rmcp::ErrorData::invalid_request("MCP input requires an active tool call", None)
                 })?;
-                (spec, Value::Null)
-            }
-            _ => {
-                return Err(rmcp::ErrorData::invalid_params(
-                    "unsupported MCP input mode",
-                    None,
-                ));
-            }
-        };
-        let input = elicitation::Input {
-            parent: call.parent.clone(),
-            request: serde_json::to_value(&context.id).map_err(|_| failed())?,
-            spec: spec.clone(),
-            schema,
-        };
-        let event = elicitation::event(call.turn, &input);
-        let id = event.id.clone();
-        // Pause only the in-flight tool deadline while actual user input is pending.
-        call.waiting.send_modify(|waiting| *waiting += 1);
-        let _pending = Pending {
-            call: call.clone(),
-            ingress: call.ingress.clone(),
-            turn: call.turn,
-            id: id.clone(),
-        };
-        let sessions = call.ingress.sessions(call.turn);
-        let work = async {
-            sessions
-                .append_event(&call.session, event)
-                .await
-                .map_err(|_| failed())?;
-            let response = call
-                .ingress
-                .ask(
-                    call.turn,
-                    ToolIdentity {
-                        id: Some(id.clone()),
-                        name: elicitation::TOOL.into(),
-                        arguments: serde_json::to_value(spec).map_err(|_| failed())?,
-                    },
-                )
-                .await
-                .map_err(|_| failed())?;
-            sessions
-                .append_event(&call.session, elicitation::result(call.turn, id, &response))
-                .await
-                .map_err(|_| failed())?;
-            Ok(match response {
-                Response::Answer(Answer::Opened) => ElicitResult::new(ElicitationAction::Accept),
-                Response::Answer(Answer::Form(values)) => {
-                    ElicitResult::new(ElicitationAction::Accept).with_content(Value::Object(values))
+            let (spec, schema) = match request {
+                ElicitRequestParams::FormElicitationParams {
+                    message,
+                    requested_schema,
+                    ..
+                } => {
+                    let order = requested_schema.property_order.clone();
+                    let schema = serde_json::to_value(requested_schema).map_err(|_| failed())?;
+                    let spec = super::schema::spec(message, &schema, order.as_deref())?;
+                    (spec, schema)
                 }
-                Response::Cancel => ElicitResult::new(ElicitationAction::Cancel),
-                Response::Decline => ElicitResult::new(ElicitationAction::Decline),
-                _ => return Err(failed()),
-            })
-        };
-        tokio::select! {
-            biased;
-            _ = call.stop.cancelled() => Ok(ElicitResult::new(ElicitationAction::Cancel)),
-            _ = context.ct.cancelled() => Ok(ElicitResult::new(ElicitationAction::Cancel)),
-            result = crate::agent::observation::owned(call.timing_owner, work) => result,
-        }
+                ElicitRequestParams::UrlElicitationParams {
+                    message,
+                    url,
+                    elicitation_id,
+                    ..
+                } => {
+                    let spec = sailry_protocol::conversation::question::Spec {
+                        prompt: message,
+                        input: sailry_protocol::conversation::question::Input::Url {
+                            url,
+                            elicitation_id,
+                        },
+                    };
+                    spec.validate().map_err(|_| {
+                        rmcp::ErrorData::invalid_params("invalid MCP URL request", None)
+                    })?;
+                    (spec, Value::Null)
+                }
+                _ => {
+                    return Err(rmcp::ErrorData::invalid_params(
+                        "unsupported MCP input mode",
+                        None,
+                    ));
+                }
+            };
+            let input = elicitation::Input {
+                parent: call.parent.clone(),
+                request: serde_json::to_value(&context.id).map_err(|_| failed())?,
+                spec: spec.clone(),
+                schema,
+            };
+            let event = elicitation::event(call.turn, &input);
+            let id = event.id.clone();
+            // Pause only the in-flight tool deadline while actual user input is pending.
+            call.waiting.send_modify(|waiting| *waiting += 1);
+            let _pending = Pending {
+                call: call.clone(),
+                ingress: call.ingress.clone(),
+                turn: call.turn,
+                id: id.clone(),
+            };
+            let sessions = call.ingress.sessions(call.turn);
+            let work = async {
+                sessions
+                    .append_event(&call.session, event)
+                    .await
+                    .map_err(|_| failed())?;
+                let response = call
+                    .ingress
+                    .ask(
+                        call.turn,
+                        ToolIdentity {
+                            id: Some(id.clone()),
+                            name: elicitation::TOOL.into(),
+                            arguments: serde_json::to_value(spec).map_err(|_| failed())?,
+                        },
+                    )
+                    .await
+                    .map_err(|_| failed())?;
+                sessions
+                    .append_event(&call.session, elicitation::result(call.turn, id, &response))
+                    .await
+                    .map_err(|_| failed())?;
+                Ok(match response {
+                    Response::Answer(Answer::Opened) => {
+                        ElicitResult::new(ElicitationAction::Accept)
+                    }
+                    Response::Answer(Answer::Form(values)) => {
+                        ElicitResult::new(ElicitationAction::Accept)
+                            .with_content(Value::Object(values))
+                    }
+                    Response::Cancel => ElicitResult::new(ElicitationAction::Cancel),
+                    Response::Decline => ElicitResult::new(ElicitationAction::Decline),
+                    _ => return Err(failed()),
+                })
+            };
+            tokio::select! {
+                biased;
+                _ = call.stop.cancelled() => Ok(ElicitResult::new(ElicitationAction::Cancel)),
+                _ = context.ct.cancelled() => Ok(ElicitResult::new(ElicitationAction::Cancel)),
+                result = crate::agent::observation::owned(call.timing_owner, work) => result,
+            }
+        })
     }
 }
 

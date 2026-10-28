@@ -37,6 +37,7 @@ async fn preserves_call_metadata() {
         .await
         .unwrap();
     let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+    assert_eq!(stored.provenance.author, "assistant");
     let projected = project(&db, &stored).await.unwrap().unwrap();
     assert_eq!(projected, message);
     let BlockKind::ToolRequest(call) = &stored.message().unwrap().content[0].kind else {
@@ -65,6 +66,8 @@ async fn preserves_structured_output() {
     )
     .await
     .unwrap();
+    assert_eq!(record.provenance.author, "assistant");
+    assert_eq!(record.message().unwrap().role, Role::User);
     let BlockKind::ToolResponse(response) = &record.message().unwrap().content[0].kind else {
         unreachable!()
     };

@@ -131,6 +131,7 @@ pub(super) async fn run(
         return Ok(None);
     }
     let mut steps: Vec<Step<'_, Session, Effect>> = vec![
+        Step::Operation(Arc::new(operations::PlanReview)),
         Step::Operation(Arc::new(operations::Approval { required, bindings })),
         Step::Operation(Arc::new(prompt::Prompt { instruction })),
         Step::Operation(Arc::new(

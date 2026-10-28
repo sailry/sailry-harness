@@ -128,7 +128,7 @@ use std::{sync::Arc, time::Duration};
 const COMPLETION_BUDGET: Duration = Duration::from_secs(30);
 
 fn is_context(entry: &Entry) -> bool {
-    entry.author == "system" && entry.id.starts_with("context:")
+    entry.author == "system" && entry.parts.is_empty()
 }
 
 fn message_text(value: &serde_json::Value) -> String {
@@ -400,6 +400,39 @@ async fn shares_frozen_runs_after_restart() {
         let first = Server::start(false).await;
         let second = Server::start(false).await;
         let (session, mut provider) = configured_session(&client, &first.endpoint, &root).await;
+        provider.models = ["fixture-a", "fixture-b"]
+            .into_iter()
+            .map(|id| Model {
+                id: id.into(),
+                display_name: None,
+                context: 128_000,
+                output: 2048,
+                vision: false,
+                tools: true,
+                reasoning: true,
+                web_search: false,
+                generates: Vec::new(),
+                efforts: vec![Effort::Low, Effort::High],
+                capabilities: Some(discovery::Capabilities {
+                    reasoning: Some(true),
+                    tools: Some(true),
+                    ..Default::default()
+                }),
+                custom_efforts: false,
+                compaction_tokens: None,
+                default_effort: Effort::High,
+            })
+            .collect();
+        let Output::Provider(mut provider) = client
+            .execute(client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
         let queued = client.prepare(Command::QueueTurn {
             session: session.id,
             expected_revision: 1,
@@ -416,8 +449,8 @@ async fn shares_frozen_runs_after_restart() {
         provider.endpoint = second.endpoint.clone();
         client
             .execute(client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
                 provider,
-                expected_revision: 1,
             }))
             .await
             .unwrap();

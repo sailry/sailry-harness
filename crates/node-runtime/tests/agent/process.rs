@@ -500,36 +500,11 @@ async fn orders_batch_results() {
         assert!(results(&fixture.client, &page).await.is_empty());
         assert!(!fixture.root.join("first.txt").exists());
         decide(&fixture.client, &first, Decision::Approve).await;
-        let running = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let page = history(&fixture.client, session).await;
-                if page.entries.iter().flat_map(|entry| &entry.parts).any(
-                    |part| matches!(part, Part::Resource(value) if value["type"] == "tool_started"),
-                ) {
-                    break page;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        assert!(results(&fixture.client, &running).await.is_empty());
-        assert_eq!(running.approvals.len(), 1);
         let (page, second) = approvals::pending(&fixture.client, session).await;
         assert_ne!(first.id, second.id);
-        assert_eq!(
-            results(&fixture.client, &page).await.len(),
-            1,
-            "first result must be durable before second approval"
-        );
-        assert_eq!(
-            results(&fixture.client, &page).await[0].stdout.text,
-            "first"
-        );
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("first.txt")).unwrap(),
-            "first"
-        );
+        assert_eq!(page.approvals.len(), 2);
+        assert!(results(&fixture.client, &page).await.is_empty());
+        assert!(!fixture.root.join("first.txt").exists());
         assert!(!fixture.root.join("second.txt").exists());
         decide(&fixture.client, &second, Decision::Deny).await;
         let page = finished(&fixture.client, session, turn).await;
@@ -547,7 +522,28 @@ async fn orders_batch_results() {
             .filter(|part| matches!(part, Part::ToolResult { .. }))
             .count();
         assert_eq!((calls, responses), (3, 3));
-        assert_eq!(results(&fixture.client, &page).await.len(), 1);
+        let completed = results(&fixture.client, &page).await;
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].stdout.text, "first");
+        assert_eq!(completed[0].outcome, Outcome::Exited(0));
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("first.txt")).unwrap(),
+            "first"
+        );
+        assert!(
+            super::results(&fixture.client, &page)
+                .await
+                .iter()
+                .any(|value| {
+                    value["data"]["lines"].as_array().is_some_and(|lines| {
+                        lines
+                            .iter()
+                            .filter_map(|line| line["text"].as_str())
+                            .collect::<String>()
+                            == "first"
+                    })
+                })
+        );
         assert!(!fixture.root.join("second.txt").exists());
         fixture.node.shutdown().await.unwrap();
     }

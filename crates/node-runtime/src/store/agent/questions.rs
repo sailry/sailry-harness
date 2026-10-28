@@ -252,6 +252,34 @@ async fn spec(db: &Connection, question: &Question) -> Result<Spec, Fault> {
     serde_json::from_value(call.arguments.clone()).map_err(storage_error)
 }
 
+pub(super) async fn reviewed(db: &Connection, turn: TurnId) -> Result<bool, Fault> {
+    let mut rows = db
+        .query(
+            "SELECT body FROM agent_questions WHERE turn=?1",
+            [turn.to_string()],
+        )
+        .await
+        .map_err(storage_error)?;
+    let mut answered = Vec::new();
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let body: Vec<u8> = row.get(0).map_err(storage_error)?;
+        let question: Question = serde_json::from_slice(&body).map_err(storage_error)?;
+        if matches!(
+            question.state,
+            State::Answered(question::Answer::Text(_) | question::Answer::Plan { .. })
+        ) {
+            answered.push(question);
+        }
+    }
+    drop(rows);
+    for question in answered {
+        if matches!(spec(db, &question).await?.input, question::Input::Plan) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub(super) async fn close(
     db: &Connection,
     turn: TurnId,

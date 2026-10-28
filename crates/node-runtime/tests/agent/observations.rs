@@ -1,4 +1,4 @@
-//! Real ADK consumers drop their model stream at the terminal chunk.
+//! Request observations survive terminal delivery and cancellation.
 use super::*;
 use sailry_protocol::conversation::observation::Outcome;
 
@@ -97,12 +97,13 @@ async fn finalizes_terminal_and_cancelled_streams() {
             );
             assert!(attempt.elapsed_us.is_some());
             if !cancel {
-                assert_eq!(attempt.status, Some(200));
-                assert_eq!(attempt.response_us, attempt.headers_us);
-                assert!(attempt.response_us.is_some());
+                assert_eq!(attempt.transport, "gdk");
+                assert_eq!(attempt.status, None);
+                assert_eq!(attempt.response_us, None);
+                assert_eq!(attempt.headers_us, None);
                 assert!(attempt.first_text_us.is_some());
             }
-            assert!(call.boundary.is_some());
+            assert_eq!(call.boundary, None);
             assert!(
                 !serde_json::to_string(observations)
                     .unwrap()

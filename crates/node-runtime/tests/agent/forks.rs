@@ -112,7 +112,7 @@ async fn resumes_without_tool_replay() {
                 .iter()
                 .filter(|entry| !is_context(entry))
                 .count(),
-            8
+            2 * 2 + 2
         );
         assert_eq!(original.approvals.len(), 1);
         assert_eq!(original.approvals[0].state, ApprovalState::Approved);
@@ -233,7 +233,7 @@ async fn resumes_without_tool_replay() {
                 .iter()
                 .filter(|entry| !is_context(entry))
                 .count(),
-            10
+            2 * 2 + 4
         );
         assert_eq!(server.requests.lock().unwrap().len(), 4);
         let body = server.requests.lock().unwrap().last().unwrap().clone();

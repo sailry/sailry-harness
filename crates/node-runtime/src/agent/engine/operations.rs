@@ -81,6 +81,26 @@ impl Operation<Session, Effect> for Approval {
     }
 }
 
+pub(super) struct PlanReview;
+#[async_trait]
+impl Operation<Session, Effect> for PlanReview {
+    fn name(&self) -> &'static str {
+        "plan_review"
+    }
+    async fn run(
+        &self,
+        session: &Session,
+        _: &Conversation,
+        _: &Emitter,
+    ) -> anyhow::Result<OperationResult<Effect>> {
+        if session.reviewed {
+            yielded()
+        } else {
+            not_applicable()
+        }
+    }
+}
+
 pub(super) struct Remaining;
 #[async_trait]
 impl Operation<Session, Effect> for Remaining {

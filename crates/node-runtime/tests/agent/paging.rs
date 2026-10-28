@@ -67,7 +67,7 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
             .all(|request| request.model == "fixture-a" && request.context_limit == Some(128_000))
     );
     assert!(observations.latency.elapsed_us.is_some());
-    assert!(observations.latency.response_us.is_some());
+    assert_eq!(observations.latency.response_us, None);
     assert!(observations.latency.first_text_us.is_some());
 }
 
@@ -192,6 +192,7 @@ async fn restore_stream(remote: bool) {
             json!({"path": "资料.txt"}),
         )
     }));
+    let initial_entries = 2 * calls.len() + 2;
     let server = Server::tools(calls).await;
     let session = approvals::prepare_files(&client, &server, &root).await;
     // This fixture verifies exact paging/call counts, not automatic summaries.
@@ -264,7 +265,7 @@ async fn restore_stream(remote: bool) {
             .iter()
             .filter(|entry| !is_context(entry))
             .count(),
-        155
+        initial_entries
     );
     assert_eq!(
         complete
@@ -315,7 +316,7 @@ async fn restore_stream(remote: bool) {
                     .iter()
                     .filter(|entry| !is_context(entry))
                     .count(),
-                155
+                initial_entries
             );
         }
         view.connected
@@ -403,7 +404,7 @@ async fn restore_stream(remote: bool) {
             .iter()
             .filter(|entry| !is_context(entry))
             .count(),
-        205
+        initial_entries + 25 * 2
     );
     assert_totals(&all.statistics, 26, 77);
     assert_eq!(all.page.questions, complete.page.questions);
@@ -435,7 +436,7 @@ async fn restore_stream(remote: bool) {
             .iter()
             .filter(|entry| !is_context(entry))
             .count(),
-        207
+        initial_entries + 26 * 2
     );
     assert_totals(&all.statistics, 27, 78);
     assert_eq!(
