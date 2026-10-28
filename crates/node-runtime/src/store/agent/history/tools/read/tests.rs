@@ -1,6 +1,8 @@
 use super::*;
 use crate::store::agent::tests::fixture::Fixture;
+use sailry_protocol::tool::detail::DETAIL_PAGE_BYTES;
 use serde_json::json;
+use std::sync::Arc;
 
 fn event(branch: &str, name: &str, path: Option<&str>) -> AdkEvent {
     let mut event = AdkEvent::new("source-fixture");
@@ -24,6 +26,82 @@ fn event(branch: &str, name: &str, path: Option<&str>) -> AdkEvent {
         parts: vec![part],
     });
     event
+}
+
+#[tokio::test]
+async fn single_page_reads_skip_full_leases() {
+    let mut fixture = Fixture::new().await;
+    let mut result = event("main", "read", None);
+    result.set_content(adk_core::Content {
+        role: "function".into(),
+        parts: vec![adk_core::Part::FunctionResponse {
+            id: Some("reused".into()),
+            function_response: adk_core::FunctionResponseData::new(
+                "read",
+                json!({"text":"s".repeat(1024)}),
+            ),
+            annotations: None,
+        }],
+    });
+    let entry = result.id.clone();
+    let turn = fixture
+        .append([event("main", "read", Some("source.rs")), result])
+        .await;
+    let db = &fixture.database.connection;
+    let source = super::super::super::canonical::event(db, fixture.session, turn, &entry)
+        .await
+        .unwrap();
+    let raw = raw(db, turn, source.sequence, &source.event, 0)
+        .await
+        .unwrap()
+        .unwrap();
+    let reference = Reference {
+        session: fixture.session,
+        turn,
+        entry,
+        index: 0,
+        call: raw.id.clone(),
+        revision: raw.revision(),
+    };
+    let expected = serde_json::to_string(&raw.detail()).unwrap();
+    assert!(expected.len() > 1024 && expected.len() < 2048);
+    let cache = &fixture.database.tool_details;
+    let large: Arc<str> = Arc::from("x".repeat(64 * 1024 * 1024 - 256));
+    let leased: Vec<_> = (0..2)
+        .map(|index| Reference {
+            entry: format!("leased-{index}"),
+            ..reference.clone()
+        })
+        .collect();
+    for reference in &leased {
+        cache
+            .insert_with(reference.clone(), 1, None, Some(DETAIL_PAGE_BYTES), || {
+                Ok(large.clone())
+            })
+            .unwrap();
+    }
+    for cursor in [None, Some(0)] {
+        let page = page(db, cache, reference.clone(), cursor, expected.len())
+            .await
+            .unwrap();
+        assert_eq!(page.text, expected);
+        assert_eq!(page.total_bytes, expected.len());
+        assert_eq!(page.offset, 0);
+        assert_eq!(page.next_offset, None);
+        assert!(cache.get(&reference, source.sequence).is_none());
+    }
+    for (cursor, limit) in [(None, expected.len() - 1), (Some(1), expected.len())] {
+        assert_eq!(
+            page(db, cache, reference.clone(), cursor, limit)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::Busy
+        );
+    }
+    for reference in &leased {
+        assert!(Arc::ptr_eq(&cache.get(reference, 1).unwrap().0, &large));
+    }
 }
 
 #[tokio::test]

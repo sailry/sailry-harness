@@ -66,7 +66,8 @@ pub(super) fn project(
             } else {
                 format!("{omitted} of {total} raw bytes omitted")
             };
-            let tail_location = if tail_offset < retained_end {
+            let readable_tail = tail_offset < retained_end;
+            let tail_location = if readable_tail {
                 format!("; preview tail starts at offset={tail_offset}")
             } else {
                 String::new()
@@ -80,7 +81,7 @@ pub(super) fn project(
                 "text":format!("{}\n[... {omission}; {hint}{tail_location}{retained_location}; retained output ends at offset={retained_end} ...]\n{}", normalize(head), normalize(tail)),
                 "truncated":true,"invalid_utf8":invalid_head || preview["invalid_utf8"] == true,
                 "total_bytes":total,
-                "tail_offset":tail_offset,"retained_bytes":retained,"retained_tail_offset":retained_tail,"retained_end":retained_end,
+                "tail_offset":readable_tail.then_some(tail_offset),"retained_bytes":retained,"retained_tail_offset":retained_tail,"retained_end":retained_end,
             });
             if !invalid_head {
                 data[stream]["omitted_bytes"] = json!(omitted);

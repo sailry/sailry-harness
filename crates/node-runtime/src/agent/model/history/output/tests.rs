@@ -555,7 +555,7 @@ fn avoids_read_hints_outside_retained_capacity() {
 
 #[test]
 fn omits_unreadable_tail_hints() {
-    for (retained, end) in [(4096, 4096), (14, 14)] {
+    for (retained, end, offset) in [(4096, 4096, 0), (14, 14, 0), (200_000, 200_000, 8192)] {
         let original = json!({"kind":"command_result","data":{
             "stdout":{"text":"prefix ".repeat(2000),"truncated":true,"invalid_utf8":false},
             "stderr":{"text":"","truncated":false,"invalid_utf8":false}},
@@ -568,10 +568,13 @@ fn omits_unreadable_tail_hints() {
             .unwrap();
         let output = &value(&request.contents[0])["data"]["stdout"];
         let text = output["text"].as_str().unwrap();
-        assert!(text.contains("read_command id=retained stream=stdout offset=0"));
+        assert!(text.contains(&format!(
+            "read_command id=retained stream=stdout offset={offset}"
+        )));
         assert!(!text.contains("preview tail starts"));
-        assert!(!text.contains("offset=200000"));
-        assert_eq!(output["tail_offset"], 200_000);
+        assert!(!text.contains("read_command id=retained stream=stdout offset=200000"));
+        assert!(text.contains(&format!("retained output ends at offset={end}")));
+        assert!(output["tail_offset"].is_null());
         assert_eq!(output["retained_end"], end);
     }
 }

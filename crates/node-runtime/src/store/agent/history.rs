@@ -452,30 +452,45 @@ pub(in crate::store) async fn remember(
 pub(in crate::store) async fn missing_tools(
     db: &Connection,
 ) -> Result<BTreeMap<SessionId, BTreeSet<String>>, Fault> {
+    let mut loaded = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut query = db
+        .prepare("SELECT owner,body FROM agent_state WHERE key=?1")
+        .await
+        .map_err(storage_error)?;
+    let mut rows = query.query([LOADED_TOOLS]).await.map_err(storage_error)?;
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        loaded.insert(
+            row.get(0).map_err(storage_error)?,
+            serde_json::from_slice(&row.get::<Vec<u8>>(1).map_err(storage_error)?)
+                .map_err(storage_error)?,
+        );
+    }
+    drop(rows);
+    drop(query);
     let mut query = db
         .prepare(
             "SELECT DISTINCT h.session,json_extract(part.value,'$.name')
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN json_each(e.body,'$.content.parts') part
-         WHERE json_type(part.value,'$.name')='text' AND json_type(part.value,'$.args') IS NOT NULL
-           AND NOT EXISTS(SELECT 1 FROM agent_state state JOIN json_each(state.body) loaded
-             WHERE state.owner=h.session AND state.key=?1
-               AND loaded.value=json_extract(part.value,'$.name'))",
+         WHERE json_type(part.value,'$.name')='text' AND json_type(part.value,'$.args') IS NOT NULL",
         )
         .await
         .map_err(storage_error)?;
-    let mut rows = query.query([LOADED_TOOLS]).await.map_err(storage_error)?;
+    let mut rows = query.query(()).await.map_err(storage_error)?;
     let mut missing = BTreeMap::<SessionId, BTreeSet<String>>::new();
     while let Some(row) = rows.next().await.map_err(storage_error)? {
-        let session = row
-            .get::<String>(0)
-            .map_err(storage_error)?
-            .parse()
-            .map_err(storage_error)?;
+        let session = row.get::<String>(0).map_err(storage_error)?;
+        let name = row.get::<String>(1).map_err(storage_error)?;
+        if loaded
+            .get(&session)
+            .is_some_and(|names| names.contains(&name))
+        {
+            continue;
+        }
         missing
-            .entry(session)
+            .entry(session.parse().map_err(storage_error)?)
             .or_default()
-            .insert(row.get(1).map_err(storage_error)?);
+            .insert(name);
     }
     Ok(missing)
 }

@@ -287,10 +287,12 @@ fn pages_rolling_tail_at_original_offsets() {
         .page(info(), OutputStream::Stdout, PREFIX_LIMIT - 100, 100)
         .unwrap();
     assert_eq!(page.next_offset, Some(tail));
-    assert!(
+    assert_eq!(
         retained
             .page(info(), OutputStream::Stdout, PREFIX_LIMIT + 1, 100)
-            .is_err()
+            .unwrap()
+            .offset,
+        tail
     );
     assert_eq!(retained.stdout.lock().unwrap().retained, STREAM_LIMIT);
 }
@@ -357,7 +359,7 @@ fn late_bytes_preserve_finished_pages() {
 }
 
 #[test]
-fn resumes_stale_cursors_while_running() {
+fn resumes_stale_cursors_across_finish() {
     let profile = tempfile::tempdir().unwrap();
     let retained = Retained::new(profile.path(), Arc::default());
     retained.append(OutputStream::Stdout, &vec![b'x'; STREAM_LIMIT + 70 * 1024]);
@@ -378,13 +380,12 @@ fn resumes_stale_cursors_while_running() {
     assert_eq!(resumed.text, "x".repeat(PAGE));
     assert_eq!(resumed.next_offset, Some(current + PAGE));
     retained.finish();
-    assert_eq!(
-        retained
-            .page(info(), OutputStream::Stdout, stale, PAGE)
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest
-    );
+    let finished = retained
+        .page(info(), OutputStream::Stdout, stale, PAGE)
+        .unwrap();
+    assert_eq!(finished.offset, resumed.offset);
+    assert_eq!(finished.text, resumed.text);
+    assert_eq!(finished.next_offset, resumed.next_offset);
 }
 
 #[test]

@@ -59,6 +59,49 @@ async fn older(partial: bool) -> Fixture {
     fixture
 }
 
+#[tokio::test]
+async fn missing_tools_deduplicate_per_session() {
+    let mut fixture = older(true).await;
+    let mut event = AdkEvent::new("repeated-called-tools");
+    event.author = "assistant".into();
+    event.set_content(adk_core::Content {
+        role: "model".into(),
+        parts: ["called_tool", "called_tool", "second_tool"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| adk_core::Part::FunctionCall {
+                name: name.into(),
+                id: Some(format!("called-{index}")),
+                args: serde_json::json!({}),
+                thought_signature: None,
+            })
+            .collect(),
+    });
+    let turn = fixture.append([event]).await;
+    let fork = fixture.fork(fixture.session, turn).await;
+    assert_eq!(
+        state(&fixture.database.connection, fork.id).await.unwrap()[LOADED_TOOLS],
+        serde_json::json!(["called_tool", "discovered_tool", "second_tool"])
+    );
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE agent_state SET body=?1 WHERE owner=?2 AND key=?3",
+            params![
+                encode(&serde_json::json!(["discovered_tool", "second_tool"])).unwrap(),
+                fixture.session.to_string(),
+                LOADED_TOOLS
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        missing_tools(&fixture.database.connection).await.unwrap(),
+        BTreeMap::from([(fixture.session, BTreeSet::from(["called_tool".into()]))])
+    );
+}
+
 fn backups(path: &Path) -> Vec<PathBuf> {
     let directory = path.parent().unwrap().join("backups");
     if !directory.exists() {

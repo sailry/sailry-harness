@@ -43,6 +43,7 @@ impl Cache {
         reference: Reference,
         source: u64,
         dependency: Option<u64>,
+        complete_page: Option<usize>,
         serialize: impl FnOnce() -> Result<Arc<str>, Fault>,
     ) -> Result<Arc<str>, Fault> {
         {
@@ -55,8 +56,8 @@ impl Cache {
 
         // The request owns this value until admission; other readers keep paging.
         let text = serialize()?;
-        if text.len() > BYTES {
-            // Preserve total_bytes so controllers can use their summary-only path.
+        if complete_page.is_some_and(|limit| text.len() <= limit) || text.len() > BYTES {
+            // Complete pages and transfer-limit failures need no retained paging entry.
             return Ok(text);
         }
 
@@ -160,11 +161,11 @@ mod tests {
         let source = 1;
         let text: Arc<str> = Arc::from("serialized detail");
         cache
-            .insert_with(reference.clone(), source, None, || Ok(text.clone()))
+            .insert_with(reference.clone(), source, None, None, || Ok(text.clone()))
             .unwrap();
         assert!(Arc::ptr_eq(
             &cache
-                .insert_with(reference.clone(), source, None, || {
+                .insert_with(reference.clone(), source, None, None, || {
                     panic!("a concurrent insertion reuses the serialized detail")
                 })
                 .unwrap(),
@@ -183,12 +184,14 @@ mod tests {
         let first = reference(0);
         let source = 1;
         cache
-            .insert_with(first.clone(), source, None, || Ok(Arc::from("first")))
+            .insert_with(first.clone(), source, None, None, || Ok(Arc::from("first")))
             .unwrap();
         for index in 1..=ENTRIES * 4 {
             let reference = reference(index);
             cache
-                .insert_with(reference.clone(), source, None, || Ok(Arc::from("detail")))
+                .insert_with(reference.clone(), source, None, None, || {
+                    Ok(Arc::from("detail"))
+                })
                 .unwrap();
             assert!(cache.get(&reference, source).is_some());
             let entries = cache.entries.lock().unwrap();
@@ -207,10 +210,10 @@ mod tests {
         let left: Arc<str> = Arc::from("a".repeat(40 * 1024 * 1024));
         let right: Arc<str> = Arc::from("b".repeat(40 * 1024 * 1024));
         cache
-            .insert_with(first.clone(), 1, None, || Ok(left.clone()))
+            .insert_with(first.clone(), 1, None, None, || Ok(left.clone()))
             .unwrap();
         cache
-            .insert_with(second.clone(), 1, None, || Ok(right.clone()))
+            .insert_with(second.clone(), 1, None, None, || Ok(right.clone()))
             .unwrap();
         for _ in 0..640 {
             assert!(Arc::ptr_eq(&cache.get(&first, 1).unwrap().0, &left));
@@ -226,11 +229,11 @@ mod tests {
         assert_eq!(last.next_offset, None);
         // One reader reaching EOF cannot end another reader's shared lease.
         cache
-            .insert_with(reference(2), 1, None, || Ok(left.clone()))
+            .insert_with(reference(2), 1, None, None, || Ok(left.clone()))
             .unwrap();
         assert_eq!(
             cache
-                .insert_with(reference(3), 1, None, || Ok(left.clone()))
+                .insert_with(reference(3), 1, None, None, || Ok(left.clone()))
                 .unwrap_err()
                 .code,
             ErrorCode::Busy
@@ -266,13 +269,13 @@ mod tests {
         let text: Arc<str> = Arc::from("x".repeat(40 * 1024 * 1024));
         for index in 0..3 {
             cache
-                .insert_with(reference(index), 1, None, || Ok(text.clone()))
+                .insert_with(reference(index), 1, None, None, || Ok(text.clone()))
                 .unwrap();
         }
         let serialized = std::cell::Cell::new(false);
         assert_eq!(
             cache
-                .insert_with(reference(3), 1, None, || {
+                .insert_with(reference(3), 1, None, None, || {
                     serialized.set(true);
                     Ok(text.clone())
                 })
@@ -285,7 +288,7 @@ mod tests {
         expire(&cache);
         serialized.set(false);
         cache
-            .insert_with(reference(3), 1, None, || {
+            .insert_with(reference(3), 1, None, None, || {
                 serialized.set(true);
                 Ok(text)
             })
@@ -310,12 +313,14 @@ mod tests {
         let large = [reference(0), reference(1)];
         for reference in &large {
             cache
-                .insert_with(reference.clone(), 1, None, || Ok(text.clone()))
+                .insert_with(reference.clone(), 1, None, None, || Ok(text.clone()))
                 .unwrap();
         }
         let small = reference(2);
         cache
-            .insert_with(small.clone(), 1, None, || Ok(Arc::from("s".repeat(1024))))
+            .insert_with(small.clone(), 1, None, None, || {
+                Ok(Arc::from("s".repeat(1024)))
+            })
             .unwrap();
         assert_eq!(cache.get(&small, 1).unwrap().0.len(), 1024);
         for reference in &large {
@@ -328,15 +333,17 @@ mod tests {
         let cache = Cache::default();
         let first = reference(0);
         cache
-            .insert_with(first.clone(), 1, None, || Ok(Arc::from("first")))
+            .insert_with(first.clone(), 1, None, None, || Ok(Arc::from("first")))
             .unwrap();
         let second = reference(1);
         cache
-            .insert_with(second.clone(), 1, None, || {
+            .insert_with(second.clone(), 1, None, None, || {
                 assert!(cache.entries.try_lock().is_ok());
                 assert_eq!(&*cache.get(&first, 1).unwrap().0, "first");
                 // Another reader can finish the same insertion while serialization runs.
-                cache.insert_with(second.clone(), 1, None, || Ok(Arc::from("concurrent")))?;
+                cache.insert_with(second.clone(), 1, None, None, || {
+                    Ok(Arc::from("concurrent"))
+                })?;
                 Ok(Arc::from("unused"))
             })
             .unwrap();
@@ -350,13 +357,13 @@ mod tests {
         let retained: Arc<str> = Arc::from("x".repeat(40 * 1024 * 1024));
         for index in 0..3 {
             cache
-                .insert_with(reference(index), 1, None, || Ok(retained.clone()))
+                .insert_with(reference(index), 1, None, None, || Ok(retained.clone()))
                 .unwrap();
         }
         let reference = reference(3);
         let oversized: Arc<str> = Arc::from("y".repeat(BYTES + 1));
         let text = cache
-            .insert_with(reference.clone(), 1, None, || Ok(oversized.clone()))
+            .insert_with(reference.clone(), 1, None, None, || Ok(oversized.clone()))
             .unwrap();
         assert!(Arc::ptr_eq(&text, &oversized));
         let page =

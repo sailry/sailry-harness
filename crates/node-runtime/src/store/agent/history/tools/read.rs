@@ -203,11 +203,17 @@ pub(in crate::store) async fn page(
             "tool detail changed",
         ));
     }
-    let text = cache.insert_with(reference.clone(), stamp, raw.source, || {
-        serde_json::to_string(&raw.detail())
-            .map(Into::into)
-            .map_err(storage_error)
-    })?;
+    let text = cache.insert_with(
+        reference.clone(),
+        stamp,
+        raw.source,
+        (cursor.unwrap_or(0) == 0).then_some(limit),
+        || {
+            serde_json::to_string(&raw.detail())
+                .map(Into::into)
+                .map_err(storage_error)
+        },
+    )?;
     slice(reference, &text, cursor.unwrap_or(0), limit)
 }
 

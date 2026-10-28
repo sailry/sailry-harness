@@ -281,10 +281,7 @@ impl Stream {
         let mut file = File::open(path).map_err(failure)?;
         let (head_end, tail_start, written) = self.ranges(&mut file).map_err(failure)?;
         let gap = tail_start > head_end && written > head_end;
-        let offset = if gap
-            && (offset == head_end
-                || self.writer.is_some() && (head_end..tail_start).contains(&offset))
-        {
+        let offset = if gap && (head_end..tail_start).contains(&offset) {
             tail_start
         } else {
             offset
