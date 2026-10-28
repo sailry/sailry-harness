@@ -125,6 +125,37 @@ async fn starts_one_coding_turn() {
         assert_eq!(page.approvals.len(), 1);
         assert_eq!(page.approvals[0].source, ApprovalSource::Full);
         assert_eq!(page.approvals[0].turn, accepted.turn.id);
+        let writes: Vec<_> = page
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.parts.iter().any(|part| {
+                    matches!(part, Part::ToolCall {name,..}
+                if name == &plugin_tool("files", "write_file"))
+                })
+            })
+            .collect();
+        assert_eq!(writes.len(), 1, "the Code turn owns the sole write call");
+        assert_eq!(writes[0].turn, accepted.turn.id);
+        let details = tool_details(&other, &page).await;
+        let reviewed: Vec<_> = details
+            .iter()
+            .filter(|(name, _)| name == "ask_user")
+            .collect();
+        assert_eq!(reviewed.len(), 1);
+        assert_eq!(
+            reviewed[0].1.result.as_ref().unwrap(),
+            &json!({"status":"accepted","coding_turn":accepted.turn.id})
+        );
+        let written: Vec<_> = details
+            .iter()
+            .filter(|(name, _)| name == &plugin_tool("files", "write_file"))
+            .collect();
+        assert_eq!(written.len(), 1);
+        assert_eq!(
+            written[0].1.result.as_ref().unwrap()["kind"],
+            "file_written"
+        );
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("planned.txt")).unwrap(),
             "Reviewed content 中文 🙂"
