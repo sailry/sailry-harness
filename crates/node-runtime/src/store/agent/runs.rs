@@ -593,11 +593,21 @@ pub(super) async fn finish_with(
     turn: TurnId,
     status: Status,
     error: Option<Fault>,
-    review: Option<AdkEvent>,
+    review: Option<crate::agent::canonical::Record>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Status, Fault> {
     let publication = database.publication.clone();
     let mut run = get(&database.connection, turn).await?;
+    // Settlement can be repeated after the durable commit acknowledgement was lost.
+    if run.finished_ms.is_some()
+        && !matches!(
+            run.status,
+            Status::Queued | Status::Running | Status::Stopping
+        )
+    {
+        return Ok(run.status);
+    }
+
     let queued_child = run.started_ms.is_none()
         && run.finished_ms.is_none()
         && matches!(run.status, Status::Queued | Status::Cancelled)

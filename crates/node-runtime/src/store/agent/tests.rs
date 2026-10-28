@@ -12,6 +12,7 @@ mod inputs;
 mod location;
 mod preview;
 mod records;
+mod settlement;
 mod removal;
 mod retry;
 mod rewind;
