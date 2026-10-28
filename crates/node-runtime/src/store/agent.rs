@@ -54,10 +54,7 @@ pub(super) use providers::{list as providers, put as put_provider, remove as rem
 pub(super) use runs::visible as visible_run;
 pub(super) use runs::{admit, recover, start, stop, stopping};
 pub(super) use search::search;
-pub(crate) use sessions::{
-    CAPABILITY_PART, INPUT_PART, INPUT_SOURCE, INPUT_TURN, Query as SessionQuery,
-    Session as RuntimeSession, Sessions,
-};
+pub(crate) use sessions::{Query as SessionQuery, Session as RuntimeSession, Sessions};
 
 pub(crate) const SESSION_TITLE: &str = "sailry.session_title";
 pub(crate) const LOADED_TOOLS: &str = "sailry.context.loaded_tools";

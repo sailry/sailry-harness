@@ -12,7 +12,6 @@ use sailry_protocol::{Fault, conversation::reference::Target};
 use std::{collections::BTreeSet, sync::Arc};
 
 pub(in crate::agent) const POLICY: &str = "sailry.context.policy";
-pub(crate) const METADATA: &str = "sailry.context";
 pub(in crate::agent) use crate::store::agent::LOADED_TOOLS;
 
 pub(in crate::agent) struct Session {

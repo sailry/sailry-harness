@@ -1,5 +1,6 @@
+use super::fixture::record;
 use super::{fixture::Fixture, *};
-use serde_json::json;
+use crate::agent::canonical::{Configuration, Context, Kind};
 
 #[tokio::test]
 async fn captures_assigned_title_at_execution() {
@@ -68,12 +69,15 @@ async fn captures_assigned_title_at_execution() {
 #[tokio::test]
 async fn shares_title_and_preserves_it_when_rebuilding() {
     let mut fixture = Fixture::new().await;
-    let mut event = AdkEvent::new("named-turn");
-    event.author = "assistant".into();
-    event
-        .actions
-        .state_delta
-        .insert(SESSION_TITLE.into(), json!("Agent title"));
+    let event = record(
+        "assistant",
+        Kind::Configuration(Configuration {
+            context: Context {
+                title: Some("Agent title".into()),
+                ..Default::default()
+            },
+        }),
+    );
     fixture.append([event]).await;
     assert_eq!(
         activity::read(&fixture.database.connection, fixture.session)
@@ -109,12 +113,15 @@ async fn shares_title_and_preserves_it_when_rebuilding() {
         "User title"
     );
     // A subsequent explicit agent rename updates that same field, with no manual override.
-    let mut event = AdkEvent::new("renamed-turn");
-    event.author = "assistant".into();
-    event
-        .actions
-        .state_delta
-        .insert(SESSION_TITLE.into(), json!("Updated title"));
+    let event = record(
+        "assistant",
+        Kind::Configuration(Configuration {
+            context: Context {
+                title: Some("Updated title".into()),
+                ..Default::default()
+            },
+        }),
+    );
     fixture.append([event]).await;
     assert_eq!(
         activity::read(&fixture.database.connection, fixture.session)
@@ -139,12 +146,15 @@ async fn shares_title_and_preserves_it_when_rebuilding() {
 async fn truncates_title_projection_without_changing_source() {
     let mut fixture = Fixture::new().await;
     let original = "A long conversation title ".repeat(10);
-    let mut event = AdkEvent::new("named-turn");
-    event.author = "assistant".into();
-    event
-        .actions
-        .state_delta
-        .insert(SESSION_TITLE.into(), json!(original));
+    let event = record(
+        "assistant",
+        Kind::Configuration(Configuration {
+            context: Context {
+                title: Some(original.clone()),
+                ..Default::default()
+            },
+        }),
+    );
     fixture.append([event]).await;
     let projected = activity::read(&fixture.database.connection, fixture.session)
         .await

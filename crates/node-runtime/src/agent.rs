@@ -21,14 +21,12 @@ pub(crate) use model::plugin::{
 };
 mod plugins;
 mod prompt;
-pub(crate) use prompt::session::METADATA as CONTEXT_METADATA;
 
 mod question;
 mod references;
 mod review;
 mod settlement;
 mod skills;
-mod text;
 mod title;
 mod tools;
 

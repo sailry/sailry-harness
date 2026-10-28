@@ -22,11 +22,6 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 mod presentation;
 
-pub(crate) const INPUT_TURN: &str = "sailry.context.input_turn";
-pub(crate) const INPUT_SOURCE: &str = "sailry.context.input_source";
-pub(crate) const INPUT_PART: &str = "sailry.context.input_part";
-pub(crate) const CAPABILITY_PART: &str = "sailry.context.capability_part";
-
 #[derive(Clone)]
 pub(crate) struct Query {
     pub session: SessionId,

@@ -3,8 +3,6 @@ use sailry_protocol::conversation::reference::Target;
 
 pub(crate) mod history;
 
-pub(crate) const METADATA: &str = "sailry_references";
-
 pub(super) async fn validate(
     db: &Connection,
     session: &sailry_protocol::Session,
@@ -148,19 +146,6 @@ pub(super) fn project(
         .as_ref()
         .map(|input| input.references.clone())
         .unwrap_or_default())
-}
-
-/// Streaming drafts still arrive from the execution engine before a durable record exists.
-pub(super) fn partial(event: &AdkEvent) -> Result<Vec<reference::Reference>, Fault> {
-    if event.author != "user" {
-        return Ok(Vec::new());
-    }
-    event
-        .provider_metadata
-        .get(METADATA)
-        .map(|value| serde_json::from_str(value).map_err(storage_error))
-        .transpose()
-        .map(Option::unwrap_or_default)
 }
 
 async fn capability(
