@@ -19,10 +19,8 @@ pub const ANSWER: &str = "原生响应 🙂";
 #[derive(Clone)]
 pub enum Reply {
     Text,
-    Compaction(String),
     Tool,
     Usage,
-    Grounding,
     Failure,
     Raw(Arc<Vec<u8>>),
     Scripted(Arc<Vec<Script>>),
@@ -155,34 +153,7 @@ async fn respond(
     }
     let body: serde_json::Value = serde_json::from_slice(&bytes[end..end + length]).unwrap();
     let tool = matches!(reply, Reply::Tool) && !body.to_string().contains("工具内容 🙂");
-    let search = body["tools"]
-        .as_array()
-        .is_some_and(|tools| tools.iter().any(|tool| tool["google_search"].is_object()));
-    let summary = body["contents"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .chain(body["messages"].as_array().into_iter().flatten())
-        .any(|message| {
-            let content = message.get("parts").or_else(|| message.get("content"));
-            content.is_some_and(|content| {
-                content
-                    .as_str()
-                    .is_some_and(|text| text.starts_with("Update the existing handoff"))
-                    || content.as_array().is_some_and(|parts| {
-                        parts.iter().any(|part| {
-                            part["text"]
-                                .as_str()
-                                .is_some_and(|text| text.starts_with("Update the existing handoff"))
-                        })
-                    })
-            })
-        });
-    let answer = match &reply {
-        Reply::Compaction(evidence) if !summary => evidence.clone(),
-        Reply::Compaction(_) => crate::agent_support::compaction::handoff(ANSWER),
-        _ => ANSWER.into(),
-    };
+    let answer = ANSWER;
     let index = {
         let mut records = records.lock().unwrap();
         let index = records.len();
@@ -322,10 +293,7 @@ async fn respond(
             } else {
                 json!({"text":answer})
             };
-            let mut event = json!({"candidates":[{"content":{"role":"model", "parts":[part]}, "finishReason":"STOP", "index":0}], "usageMetadata":usage, "modelVersion":"fixture-a"});
-            if matches!(reply, Reply::Grounding) && search {
-                event["candidates"][0]["groundingMetadata"] = grounding_metadata();
-            }
+            let event = json!({"candidates":[{"content":{"role":"model", "parts":[part]}, "finishReason":"STOP", "index":0}], "usageMetadata":usage, "modelVersion":"fixture-a"});
             event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
         }
         _ => unreachable!(),
@@ -382,19 +350,4 @@ async fn event_bytes(stream: &mut TcpStream, event: String) -> std::io::Result<(
     } else {
         stream.write_all(event.as_bytes()).await
     }
-}
-
-pub fn grounding_metadata() -> serde_json::Value {
-    serde_json::json!({
-        "webSearchQueries": ["fixture source"],
-        "searchEntryPoint": {
-            "renderedContent": "<style>.chip { color: #1a73e8; }</style><a class=\"chip\" href=\"https://www.google.com/search?q=fixture\">Search fixture</a>",
-            "sdkBlob": "W1siZml4dHVyZSIsImh0dHBzOi8vd3d3Lmdvb2dsZS5jb20vc2VhcmNoP3E9Zml4dHVyZSJdXQ=="
-        },
-        "groundingChunks": [{"web": {"uri":"https://example.com/source", "title":"Fixture source"}}],
-        "groundingSupports": [{
-            "segment": {"partIndex":0, "startIndex":0, "endIndex":ANSWER.len(), "text":ANSWER},
-            "groundingChunkIndices":[0]
-        }]
-    })
 }

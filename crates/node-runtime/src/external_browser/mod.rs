@@ -22,7 +22,7 @@ pub(crate) struct Browsers {
 }
 
 pub(crate) struct Session {
-    pub browser: Arc<webdriver::Session>,
+    browser: Arc<webdriver::Session>,
     pub temporary: tempfile::TempDir,
     driver: driver::Driver,
 }

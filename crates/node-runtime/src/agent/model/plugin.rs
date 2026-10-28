@@ -183,7 +183,7 @@ async fn classify(
     let mut body = Vec::new();
     while let Some(chunk) = tokio::select! { _ = stop.cancelled() => return Err(response::fault(transport::cancelled())), chunk = bytes.next() => chunk }
     {
-        let chunk = chunk.map_err(|error| transport::Failure::Network(error).model())?;
+        let chunk = chunk.map_err(|_| transport::Failure::Network.model())?;
         if body.len().saturating_add(chunk.len()) > RESPONSE_BYTES {
             return Err(response::resource());
         }
@@ -249,7 +249,7 @@ async fn produce(
         let done = next.is_none();
         let chunk = next
             .transpose()
-            .map_err(|error| transport::Failure::Network(error).model())?;
+            .map_err(|_| transport::Failure::Network.model())?;
         let events = decoder
             .push(chunk.as_deref().unwrap_or_default(), done)
             .map_err(response::fault)?;

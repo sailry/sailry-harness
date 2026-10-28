@@ -1,7 +1,7 @@
 //! Opt-in turn timing with an explicit, content-free field allowlist.
 
 use sailry_protocol::TurnId;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub(super) struct Diagnostics {
     turn: TurnId,
@@ -12,7 +12,6 @@ pub(super) struct Diagnostics {
 pub(super) enum Phase {
     Turn,
     Runner,
-    PlanReview,
     BrowserCleanup,
     McpSettle,
     McpCache,
@@ -28,7 +27,6 @@ impl Phase {
         match self {
             Self::Turn => "turn",
             Self::Runner => "runner",
-            Self::PlanReview => "plan_review",
             Self::BrowserCleanup => "browser_cleanup",
             Self::McpSettle => "mcp_settle",
             Self::McpCache => "mcp_cache",
@@ -47,7 +45,6 @@ pub(super) struct Span {
     origin: Option<Instant>,
     started: Option<Instant>,
     operations: Option<usize>,
-    last_content: Option<Duration>,
 }
 
 #[derive(Clone, Copy)]
@@ -86,7 +83,6 @@ impl Diagnostics {
             origin: self.started,
             started: self.started.map(|_| Instant::now()),
             operations,
-            last_content: None,
         };
         if let Some(started) = span.started {
             span.record(State::Begin, started);
@@ -96,12 +92,6 @@ impl Diagnostics {
 }
 
 impl Span {
-    pub fn content(&mut self) {
-        if let Some(origin) = self.origin {
-            self.last_content = Some(origin.elapsed());
-        }
-    }
-
     fn record(&self, state: State, now: Instant) {
         let mut entry = crate::logging::Entry::new(
             crate::logging::Area::Turn,
@@ -119,11 +109,6 @@ impl Span {
             .started
             .map(|started| now.duration_since(started).as_micros() as u64);
         entry.count = self.operations.map(|operations| operations as u64);
-        if matches!(state, State::End) {
-            entry.last_content_us = self
-                .last_content
-                .map(|duration| duration.as_micros() as u64);
-        }
         entry.emit();
     }
 
@@ -147,11 +132,6 @@ impl Span {
         if let Some(operations) = self.operations {
             line.push_str(&format!(" operations={operations}"));
         }
-        if matches!(state, State::End)
-            && let Some(last_content) = self.last_content
-        {
-            line.push_str(&format!(" last_content_ms={}", last_content.as_millis()));
-        }
         line
     }
 }
@@ -167,6 +147,7 @@ impl Drop for Span {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn requires_explicit_opt_in() {
@@ -176,11 +157,9 @@ mod tests {
         assert!(enabled(Some("1")));
         let diagnostics = Diagnostics::configured(TurnId::new(), false);
         assert!(!diagnostics.enabled());
-        let mut span = diagnostics.span(Phase::Runner, None);
-        span.content();
+        let span = diagnostics.span(Phase::Runner, None);
         assert!(span.started.is_none());
         assert!(span.origin.is_none());
-        assert!(span.last_content.is_none());
     }
 
     #[test]
@@ -193,7 +172,6 @@ mod tests {
             origin: Some(origin),
             started: Some(origin + Duration::from_millis(10)),
             operations: None,
-            last_content: Some(Duration::from_millis(25)),
         };
         let now = origin + Duration::from_millis(40);
         assert_eq!(
@@ -204,9 +182,7 @@ mod tests {
         );
         assert_eq!(
             span.line(State::End, now),
-            format!(
-                "sailry_turn turn={turn} phase=runner state=end elapsed_ms=40 duration_ms=30 last_content_ms=25"
-            ),
+            format!("sailry_turn turn={turn} phase=runner state=end elapsed_ms=40 duration_ms=30"),
         );
     }
 
@@ -218,7 +194,6 @@ mod tests {
             origin: None,
             started: None,
             operations: Some(3),
-            last_content: None,
         };
         assert!(
             span.line(State::Begin, Instant::now())

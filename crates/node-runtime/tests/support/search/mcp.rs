@@ -51,26 +51,6 @@ impl Server {
         });
         server
     }
-
-    pub fn count(&self, path: &str) -> usize {
-        self.requests
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(header, _)| {
-                header
-                    .lines()
-                    .next()
-                    .unwrap()
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap()
-                    .split('?')
-                    .next()
-                    == Some(path)
-            })
-            .count()
-    }
 }
 
 impl Drop for Server {

@@ -11,8 +11,6 @@ use sailry_link::CancellationToken;
 use sailry_protocol::{Fault, conversation::reference::Target};
 use std::{collections::BTreeSet, sync::Arc};
 
-pub(in crate::agent) const POLICY: &str = "sailry.context.policy";
-
 pub(in crate::agent) struct Session {
     context: Context,
     sessions: Sessions,

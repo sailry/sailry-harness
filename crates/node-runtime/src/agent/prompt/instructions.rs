@@ -21,10 +21,6 @@ impl Guide {
         key(&self.path)
     }
 
-    pub fn identity(&self) -> serde_json::Value {
-        serde_json::json!({"path": self.path, "revision": self.revision, "content": self.render()})
-    }
-
     pub fn render(&self) -> String {
         let scope = self.path.rsplit_once('/').map_or(".", |(parent, _)| parent);
         format!(

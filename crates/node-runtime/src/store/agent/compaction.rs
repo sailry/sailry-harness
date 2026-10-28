@@ -2,8 +2,6 @@
 use super::*;
 use crate::agent::canonical::{Kind, Record};
 
-pub(crate) const END_EVENT: &str = "sailry.context.end_event";
-
 pub(super) async fn validate(
     db: &Connection,
     session: SessionId,

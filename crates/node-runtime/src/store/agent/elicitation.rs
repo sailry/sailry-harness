@@ -5,8 +5,6 @@ use crate::agent::canonical::{Kind, Notice, Record};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const KEY: &str = "sailry.mcp.elicitation";
-const RESULT: &str = "sailry.mcp.elicitation_result";
 pub(crate) const TOOL: &str = "mcp_elicitation";
 
 #[derive(Clone, Serialize, Deserialize)]

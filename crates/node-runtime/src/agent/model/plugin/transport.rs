@@ -16,7 +16,7 @@ pub(super) const REQUEST_BYTES: usize = 32 * 1024 * 1024;
 #[derive(Debug)]
 pub(super) enum Failure {
     Request(Fault),
-    Network(reqwest::Error),
+    Network,
 }
 
 impl From<Fault> for Failure {
@@ -29,14 +29,14 @@ impl Failure {
     pub(super) fn fault(self) -> Fault {
         match self {
             Self::Request(fault) => fault,
-            Self::Network(_) => network(),
+            Self::Network => network(),
         }
     }
 
     pub(super) fn model(self) -> goose_provider_types::errors::ProviderError {
         match self {
             Self::Request(fault) => super::response::fault(fault),
-            Self::Network(_) => goose_provider_types::errors::ProviderError::NetworkError(
+            Self::Network => goose_provider_types::errors::ProviderError::NetworkError(
                 "model connection failed".into(),
             ),
         }
@@ -186,11 +186,11 @@ pub(super) async fn send(
     if let Some(body) = prepared.body {
         request = request.body(body);
     }
-    let request = request.build().map_err(Failure::Network)?;
+    let request = request.build().map_err(|_| Failure::Network)?;
     tokio::select! {
         biased;
         _ = stop.cancelled() => Err(cancelled().into()),
-        response = client.execute(request) => response.map_err(Failure::Network),
+        response = client.execute(request) => response.map_err(|_| Failure::Network),
     }
 }
 

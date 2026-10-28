@@ -1,7 +1,6 @@
+use super::search_http as http;
 use super::*;
 use crate::agent_support::Server as SearchServer;
-#[path = "../../../support/search/mcp.rs"]
-mod http;
 
 async fn prepare(remote: bool, server: &SearchServer) -> (Fixture, http::Server) {
     let mut fixture = Fixture::packages(

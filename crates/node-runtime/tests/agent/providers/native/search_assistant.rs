@@ -1,9 +1,8 @@
+use super::search_http as http;
 use super::*;
 use crate::agent_support::Server as SearchServer;
 use sailry_protocol::plugin::conversation::Binding;
 use serde_json::json;
-#[path = "../../../support/search/mcp.rs"]
-mod http;
 
 const OWNER: &str = "search-assistant";
 const TOOL: &str = "lookup";

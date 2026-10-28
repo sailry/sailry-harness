@@ -3,22 +3,13 @@ use super::*;
 use crate::agent::canonical::ToolIdentity;
 use crate::agent::canonical::{BlockKind, Finish, Kind, Notice, Record, Role};
 use question::{Answer, Response, Spec};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod deferred;
 pub(in crate::store) use deferred::{Changes, command};
 pub(super) use deferred::{completed, publish, supersede};
 
-const SOURCE: &str = "sailry.plan.review";
-const RESULT: &str = "sailry.plan.review_result";
 pub(crate) const TOOL: &str = "plan_review";
-
-#[derive(Serialize, Deserialize)]
-struct Recorded {
-    call: String,
-    response: Response,
-}
 
 pub(crate) fn event(turn: TurnId, source: String) -> Record {
     let mut event = Record::new(turn, Kind::Notice(Notice::PlanReview { source }));

@@ -22,6 +22,8 @@ mod prompt;
 mod reasoning;
 #[path = "native/search_assistant.rs"]
 mod search_assistant;
+#[path = "../../support/search/mcp.rs"]
+mod search_http;
 #[path = "native/search_packages.rs"]
 mod search_packages;
 #[path = "native/search_selection.rs"]
