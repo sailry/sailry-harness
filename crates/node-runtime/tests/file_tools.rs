@@ -184,6 +184,68 @@ async fn pages_and_edits_large_files() {
 }
 
 #[tokio::test]
+async fn pages_files_beyond_the_edit_budget() {
+    use std::io::Write;
+
+    let fixture = Fixture::empty().await;
+    let header = (1..=40)
+        .map(|number| format!("Header {number:02}\r\n"))
+        .collect::<String>();
+    let mut file = std::fs::File::create(fixture.root.join("generated.txt")).unwrap();
+    let mut hash = blake3::Hasher::new();
+    file.write_all(header.as_bytes()).unwrap();
+    hash.update(header.as_bytes());
+    let body = [b'x'; 8192];
+    for _ in 0..=MAX_EDIT_BYTES / body.len() {
+        file.write_all(&body).unwrap();
+        hash.update(&body);
+    }
+    file.write_all(b"\nlast\n").unwrap();
+    hash.update(b"\nlast\n");
+    let size = file.metadata().unwrap().len();
+    assert!(size > MAX_EDIT_BYTES as u64);
+    drop(file);
+    let revision = hash.finalize().to_hex().to_string();
+    for client in fixture.clients() {
+        for offset in [0, 20] {
+            let Output::FileLines(page) = client
+                .execute(client.prepare(Command::ReadFileLines {
+                    worktree: fixture.worktree,
+                    path: "generated.txt".into(),
+                    offset,
+                    limit: 20,
+                    expected_revision: Some(revision.clone()),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("file lines expected")
+            };
+            assert_eq!(page.size, size);
+            assert_eq!(page.revision, revision);
+            assert_eq!(page.lines.len(), 20);
+            assert_eq!(page.next_offset, Some(offset + 20));
+            for (index, line) in page.lines.iter().enumerate() {
+                let number = offset + index + 1;
+                assert_eq!(line.number, number);
+                assert_eq!(line.text, format!("Header {number:02}\r\n"));
+            }
+        }
+        let page = page(&client, fixture.worktree, "generated.txt", 41).await;
+        assert_eq!(page.revision, revision);
+        assert_eq!(
+            page.lines,
+            [FileLine {
+                number: 42,
+                text: "last\n".into()
+            }]
+        );
+        assert_eq!(page.next_offset, None);
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
 async fn batches_edits_with_durable_replay() {
     let fixture = Fixture::empty().await;
     for (index, client) in fixture.clients().iter().enumerate() {

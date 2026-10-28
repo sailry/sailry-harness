@@ -104,6 +104,67 @@ fn bounds_pages_without_partial_lines() {
 }
 
 #[test]
+fn preserves_split_utf8_and_validates_unreturned_text() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().canonicalize().unwrap();
+    let first = format!("{}🙂\r\n", "x".repeat(8191));
+    let text = format!("{first}second\nlast");
+    std::fs::write(path.join("file"), &text).unwrap();
+    let page = read(&path, "file".into(), 0, 1, &control()).unwrap();
+    assert_eq!(page.lines[0].text, first);
+    assert_eq!(page.next_offset, Some(1));
+    assert_eq!(
+        page.revision,
+        blake3::hash(text.as_bytes()).to_hex().to_string()
+    );
+    for tail in [b"\xf0\x9f".as_slice(), &[0xff], b"\0"] {
+        let mut bytes = text.as_bytes().to_vec();
+        bytes.extend_from_slice(tail);
+        std::fs::write(path.join("file"), bytes).unwrap();
+        assert_eq!(
+            read(&path, "file".into(), 0, 1, &control())
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+    }
+}
+
+#[test]
+fn skips_unselected_oversized_lines() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().canonicalize().unwrap();
+    let text = format!("first\n{}\nlast", "x".repeat(MAX_FILE_BYTES + 1));
+    std::fs::write(path.join("file"), &text).unwrap();
+    let first = read(&path, "file".into(), 0, 2, &control()).unwrap();
+    assert_eq!(first.lines.len(), 1);
+    assert_eq!(first.next_offset, Some(1));
+    assert_eq!(
+        read(&path, "file".into(), 1, 1, &control())
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let last = read_version(
+        &path,
+        "file".into(),
+        2,
+        1,
+        Some(&first.revision),
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(
+        last.lines,
+        [FileLine {
+            number: 3,
+            text: "last".into()
+        }]
+    );
+    assert_eq!(last.next_offset, None);
+}
+
+#[test]
 fn rejects_invalid_text_and_limits() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().canonicalize().unwrap();
@@ -125,18 +186,6 @@ fn rejects_invalid_text_and_limits() {
     );
     assert_eq!(
         read(&path, "file".into(), 0, 0, &control())
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest
-    );
-    std::fs::OpenOptions::new()
-        .write(true)
-        .open(root.path().join("file"))
-        .unwrap()
-        .set_len(MAX_EDIT_BYTES as u64 + 1)
-        .unwrap();
-    assert_eq!(
-        read(&path, "file".into(), 0, 200, &control())
             .unwrap_err()
             .code,
         ErrorCode::InvalidRequest
