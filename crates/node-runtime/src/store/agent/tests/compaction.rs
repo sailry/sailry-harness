@@ -515,7 +515,7 @@ async fn retains_capability_across_guidance_and_notices() {
             .iter()
             .flat_map(|message| &message.content)
             .filter_map(|content| content.as_text())
-            .any(|text| text.text.contains("Exact capability survives guidance"))
+            .any(|text| text.contains("Exact capability survives guidance"))
     );
     fixture.database.connection.execute(
         "UPDATE agent_runs SET body=CAST(json_remove(body,'$.notice') AS BLOB) WHERE turn IN (?1,?2)",
