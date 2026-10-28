@@ -369,8 +369,15 @@ async fn restores_frozen_execution() {
                 .filter(|(_, body)| !body.is_null())
                 .all(|(_, body)| body["model"] == "fixture-a")
         );
+        let users = records[0].1["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .collect::<Vec<_>>();
+        assert_eq!(users.len(), 1);
         assert!(
-            records[0].1["messages"][0]["content"]
+            users[0]["content"]
                 .as_array()
                 .unwrap()
                 .iter()
