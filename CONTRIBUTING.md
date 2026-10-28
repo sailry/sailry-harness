@@ -46,7 +46,8 @@ keeps the development app's OS permission identity stable; otherwise signing is 
 For local Rust iteration, `dev` and `test` leave workspace code unoptimized,
 optimize stable dependencies at level 2, and retain level 3 for GPUI layout hot
 paths. OCR preprocessing uses level 1. Release builds use LLVM with size
-optimization (`opt-level = "z"`).
+optimization (`opt-level = "z"`) and retain level 3 for those rendering and
+layout dependencies.
 
 ```sh
 just desktop /absolute/private/desktop-profile

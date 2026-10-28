@@ -199,6 +199,12 @@ portable-pty = { git = "https://github.com/sailry/wezterm.git", rev = "e814e06b5
 opt-level = "z"
 strip = "symbols"
 
+# Optimize rendering and layout hot paths independently of the workspace size target.
+[profile.release.package]
+gpui-base = { opt-level = 3 }
+gpui-fast = { opt-level = 3 }
+taffy = { opt-level = 3 }
+
 # Keep frequently rebuilt application code unoptimized during development.
 [profile.dev]
 opt-level = 0
