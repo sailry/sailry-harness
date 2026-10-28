@@ -35,6 +35,7 @@ async fn preserves_images_after_guidance() {
             }))
             .await
             .unwrap();
+        release.cancel();
         server.wait_count(2).await;
         let handoff = page(&client, session.id).await;
         assert_eq!(
@@ -46,7 +47,6 @@ async fn preserves_images_after_guidance() {
                 .status,
             Status::Continued
         );
-        release.cancel();
         let history = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let history = page(&client, session.id).await;
@@ -170,11 +170,15 @@ async fn freezes_native_input_support() {
         assert!(!pair[0].to_string().contains("Contents not included"));
         assert!(!pair[1].to_string().contains("data:image/png;base64,"));
         assert!(
-            pair[1].to_string().contains(
-                "This model does not support images. The original attachment is retained."
-            )
+            pair[1]
+                .to_string()
+                .contains("Contents not included; use read_office")
         );
-        assert!(!pair[1].to_string().contains("use read_office"));
+        assert!(
+            pair[1]
+                .to_string()
+                .contains("use an attachment-capable tool")
+        );
     }
     fixture.close().await;
 }

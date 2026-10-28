@@ -1,4 +1,5 @@
 use super::*;
+use base64::Engine as _;
 use serde_json::json;
 
 #[tokio::test]
@@ -112,19 +113,34 @@ async fn keeps_compatible_pdf_turns_usable() {
                 } else {
                     "messages"
                 }];
-                let has_file = messages
+                let parts: Vec<_> = messages
                     .as_array()
                     .unwrap()
                     .iter()
                     .filter_map(|message| message["content"].as_array())
                     .flatten()
-                    .any(|part| part["type"] == "input_file" || part["type"] == "file");
-                assert!(!has_file);
+                    .collect();
+                let file = parts
+                    .iter()
+                    .find(|part| part["type"] == "input_file" || part["type"] == "file")
+                    .expect("PDF content expected");
+                let file = if api == ModelApi::Responses {
+                    *file
+                } else {
+                    &file["file"]
+                };
+                assert_eq!(file["filename"], name);
+                assert_eq!(
+                    file["file_data"],
+                    format!(
+                        "data:application/pdf;base64,{}",
+                        base64::engine::general_purpose::STANDARD.encode(bytes)
+                    )
+                );
                 let serialized = request.to_string();
                 assert!(serialized.contains(name));
                 assert!(serialized.contains(&pdf.id.to_string()));
-                assert!(serialized.contains("Contents not included; use read_office"));
-                assert!(!serialized.contains("data:application/pdf;base64,"));
+                assert!(!serialized.contains("Contents not included"));
                 assert!(!serialized.contains("sailry-attachment://"));
             }
             assert!(requests[2].to_string().contains("PDF acceptance"));

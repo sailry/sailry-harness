@@ -117,13 +117,27 @@ async fn restores_native_inputs() {
                     .flat_map(|entry| &entry.parts)
                     .any(|part| *part == Part::Attachment(pdf.clone()))
             );
-            records.push((session, history));
+            for attachment in &attachments {
+                assert_eq!(
+                    download(&client, attachment).await.len() as u64,
+                    attachment.spec.size
+                );
+            }
+            records.push((session, history, attachments));
         }
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
         fixture.node = Node::start_empty(profile).await.unwrap();
-        for (client, (session, history)) in fixture.clients().into_iter().zip(records) {
+        for (client, (session, history, attachments)) in fixture.clients().into_iter().zip(records)
+        {
             assert_eq!(page(&client, session.id).await, history);
+            for attachment in attachments {
+                let bytes = download(&client, &attachment).await;
+                assert_eq!(
+                    blake3::hash(&bytes).to_hex().to_string(),
+                    attachment.spec.revision
+                );
+            }
             let turn = queue(&client, &session, "Continue".into()).await;
             assert_eq!(
                 run(&client, &turn).await.runs.last().unwrap().status,
@@ -158,7 +172,7 @@ async fn restores_native_inputs() {
             };
             let image = parts
                 .iter()
-                .find(|part| part["type"] == "image" || !part["inlineData"].is_null())
+                .find(|part| part["type"] == "image" || !part["inline_data"].is_null())
                 .unwrap();
             match api {
                 ModelApi::Anthropic => {
@@ -175,21 +189,25 @@ async fn restores_native_inputs() {
                     assert!(body["tools"].as_array().is_none_or(Vec::is_empty));
                 }
                 ModelApi::Gemini => {
-                    assert_eq!(image["inlineData"]["mimeType"], "image/png");
-                    assert_eq!(image["inlineData"]["data"], encoded);
+                    assert_eq!(image["inline_data"]["mime_type"], "image/png");
+                    assert_eq!(image["inline_data"]["data"], encoded);
                     let pdf = parts
                         .iter()
-                        .find(|part| part["inlineData"]["mimeType"] == "application/pdf")
+                        .find(|part| part["inline_data"]["mime_type"] == "application/pdf")
                         .unwrap();
-                    assert_eq!(pdf["inlineData"]["data"], pdf_encoded);
-                    for (_, mime, bytes) in media() {
-                        let part = parts
-                            .iter()
-                            .find(|part| part["inlineData"]["mimeType"] == mime)
-                            .unwrap();
-                        assert_eq!(
-                            part["inlineData"]["data"],
-                            base64::engine::general_purpose::STANDARD.encode(bytes)
+                    assert_eq!(pdf["inline_data"]["data"], pdf_encoded);
+                    for (name, mime, bytes) in media() {
+                        assert!(
+                            parts
+                                .iter()
+                                .all(|part| part["inline_data"]["mime_type"] != mime)
+                        );
+                        let serialized = body.to_string();
+                        assert!(serialized.contains(name));
+                        assert!(serialized.contains("Contents not included; use read_office"));
+                        assert!(
+                            !serialized
+                                .contains(&base64::engine::general_purpose::STANDARD.encode(bytes))
                         );
                     }
                     assert!(body["generationConfig"]["thinkingConfig"].is_null());
