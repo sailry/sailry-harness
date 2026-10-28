@@ -24,6 +24,82 @@ fn manifest(package: &str, name: &str) -> Value {
 }
 
 #[test]
+fn preserves_declared_locales_in_summaries() {
+    for name in ["list_directory", "read_file", "search_files"] {
+        let display = manifest("files", name);
+        let raw = source(
+            json!({"path":"source.rs", "query":"fixture"}),
+            json!({"text":"Captured content"}),
+            display.clone(),
+        );
+        assert!(raw.display.as_ref().unwrap().valid());
+        let summary: Summary =
+            serde_json::from_value(serde_json::to_value(raw.summary()).unwrap()).unwrap();
+        let label = summary.resolved.unwrap().label.unwrap();
+        let locales = display["locales"].as_object().unwrap();
+        assert!(locales.len() >= 10);
+        assert_eq!(
+            serde_json::to_value(&label.locales).unwrap(),
+            display["locales"]
+        );
+        for (locale, text) in locales {
+            assert_eq!(
+                label.label(locale),
+                text.as_str().unwrap(),
+                "{name}: {locale}"
+            );
+        }
+        assert_eq!(
+            label.label("zh-CN"),
+            display["locales"]["zh-CN"].as_str().unwrap()
+        );
+        assert_eq!(
+            label.label("zh-TW"),
+            display["locales"]["zh-TW"].as_str().unwrap()
+        );
+    }
+}
+
+#[test]
+fn preserves_all_valid_message_locales() {
+    let mut locales = manifest("files", "read_file")["locales"]
+        .as_object()
+        .unwrap()
+        .clone();
+    for index in locales.len()..32 {
+        locales.insert(format!("fixture-{index}"), json!(format!("Locale {index}")));
+    }
+    let message = json!({"label":"Read file", "locales":locales});
+    let raw = source(
+        Value::Null,
+        json!({"sailry_result":{"version":1,"diagnostics":[],"status":message}}),
+        json!({
+            "label":"Read file", "locales":locales,
+            "approval":[{"message":message}],
+            "output":{"notices":[{"message":message}]}
+        }),
+    );
+    assert!(raw.display.as_ref().unwrap().valid());
+    let summary: Summary =
+        serde_json::from_value(serde_json::to_value(raw.summary()).unwrap()).unwrap();
+    let resolved = summary.resolved.unwrap();
+    for field in [
+        resolved.label.as_ref().unwrap(),
+        &resolved.approval[0],
+        resolved.status.as_ref().unwrap(),
+        &resolved.output.as_ref().unwrap().notices[0],
+    ] {
+        assert_eq!(field.locales.len(), 32);
+        assert_eq!(
+            serde_json::to_value(&field.locales).unwrap(),
+            json!(locales)
+        );
+        assert_eq!(field.label("zh-CN"), locales["zh-CN"].as_str().unwrap());
+        assert_eq!(field.label("zh-TW"), locales["zh-TW"].as_str().unwrap());
+    }
+}
+
+#[test]
 fn matches_shared_rendering_fixtures() {
     let fixtures: Vec<Value> = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

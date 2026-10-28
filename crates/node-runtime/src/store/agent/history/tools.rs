@@ -340,7 +340,6 @@ fn local(value: &mut sailry_protocol::tool::LocalText, limit: usize) {
     value.label = clip(&value.label, limit, true);
     value.locales = std::mem::take(&mut value.locales)
         .into_iter()
-        .take(8)
         .map(|(locale, text)| (clip(&locale, 32, true), clip(&text, limit, true)))
         .collect();
 }
