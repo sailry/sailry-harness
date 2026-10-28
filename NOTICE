@@ -24,7 +24,8 @@ required to adopt the AGPL. The official plugins and themes repositories
 
 Third-party materials retain their own licenses and attribution. See
 third_party_licenses/ and the notices alongside bundled assets.
-These include GPUI Kit/GPUI, ADK, Ghostty, fonts, icons and other dependencies.
+These include GPUI Kit/GPUI, Goose GDK, retained ADK source, Ghostty, fonts,
+icons and other dependencies.
 Imported Ghostty shell integration contains GPL-3.0-or-later material; the root
 AGPL license does not relicense those scripts. Relevant notices and GPL text
 remain in third_party_licenses/.
@@ -73,13 +74,13 @@ GPUI WebView owns native composition on macOS with GPUI Fast. Upstream packages 
 Sailry's current dependency notices and license copies remain in
 third_party_licenses/.
 
-ADK-Rust agent engine and model clients
-The ADK crates use https://github.com/dux-web/adk-rust at
-commit 5322153a79a80fbd77934f5d9313ab4da8f3fc73. The upstream source is
-https://github.com/zavora-ai/adk-rust. The fork includes source-bound provider history replay,
-Responses transport policy, explicit OpenCode timeouts and handler-owned confirmation
-deadlines. Retained notices,
-licenses and source provenance are in third_party_licenses/adk-model.md.
+Goose GDK agent and provider libraries
+Sailry uses goose-agent, goose-provider-types, goose-providers and
+goose-context-management from https://github.com/aaif-goose/goose at
+commit ee8500d5e060eea6f2bcee92e8a5e351f12c3a70 (Apache-2.0).
+The retained token-counter adaptation uses the same source revision.
+Provenance and the original Copyright 2024 Block, Inc. license notice are in
+third_party_licenses/goose.md and third_party_licenses/goose-Apache-2.0.txt.
 
 Retained ADK-Rust browser, native sandbox and test support code at commit
 675c02b6c0df6d632b953a06a5a12d1f814b7780 is documented in
