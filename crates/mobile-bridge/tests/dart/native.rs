@@ -116,35 +116,35 @@ fn resumes_without_source() {
         let encoded = base64::engine::general_purpose::STANDARD
             .encode(include_bytes!("../../../../tests/fixtures/document.pdf"));
         for request in requests.iter() {
-            for (mime, bytes) in [
+            for (name, mime, bytes) in [
                 (
+                    "audio.wav.bin",
                     "audio/wav",
                     include_bytes!("../../../../tests/fixtures/audio.wav").as_slice(),
                 ),
                 (
+                    "video.mp4.bin",
                     "video/mp4",
                     include_bytes!("../../../../tests/fixtures/video.mp4").as_slice(),
                 ),
             ] {
                 let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
                 if api == ModelApi::Gemini {
-                    let part = request.body["contents"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .flat_map(|message| message["parts"].as_array().unwrap())
-                        .find(|part| part["inline_data"]["mime_type"] == mime)
-                        .expect("native media expected");
-                    assert_eq!(part["inline_data"]["data"], encoded);
-                } else {
-                    assert!(!request.body.to_string().contains(&encoded));
                     assert!(
-                        request
-                            .body
-                            .to_string()
-                            .contains(r#"Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"#)
+                        request.body["contents"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .flat_map(|message| message["parts"].as_array().unwrap())
+                            .all(|part| part["inline_data"]["mime_type"] != mime)
                     );
                 }
+                let serialized = request.body.to_string();
+                assert!(!serialized.contains(&encoded));
+                assert!(serialized.contains(name));
+                assert!(
+                    serialized.contains(r#"Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"#)
+                );
             }
             let messages = if api == ModelApi::Anthropic {
                 "messages"
