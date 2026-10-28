@@ -323,7 +323,7 @@ pub(crate) async fn project(
                 if let Some(signature) = &request.signature {
                     provider
                         .get_or_insert_with(Default::default)
-                        .entry("thoughtSignature".into())
+                        .entry("thoughtSignature")
                         .or_insert_with(|| json!(signature));
                 }
                 MessageContent::ToolRequest(gdk::ToolRequest {

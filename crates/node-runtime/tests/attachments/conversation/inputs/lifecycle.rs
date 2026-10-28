@@ -24,7 +24,7 @@ async fn start(client: &Client, turn: &QueuedTurn) {
 #[tokio::test]
 async fn verifies_after_approval() {
     let fixture = Fixture::packages(&["commands"]).await;
-    let bytes = vec![0; adk_core::MAX_INLINE_DATA_SIZE + 1];
+    let bytes = vec![0; 10 * 1024 * 1024 + 1];
     for client in fixture.clients() {
         let file = upload(
             &client,

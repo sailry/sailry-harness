@@ -230,7 +230,10 @@ async fn defers_unused_archive_validation() {
             let corrupt = match owner {
                 "receipt" => serde_json::from_str::<Result<Output, Fault>>(invalid).is_err(),
                 "capture" => serde_json::from_str::<SessionConfig>(invalid).is_err(),
-                "history" => serde_json::from_str::<adk_core::Event>(invalid).is_err(),
+                "history" => serde_json::from_str::<serde_json::Value>(invalid)
+                    .unwrap()
+                    .get("kind")
+                    .is_none(),
                 _ => unreachable!(),
             };
             assert!(corrupt, "{owner} fixture must be invalid (remote={remote})");

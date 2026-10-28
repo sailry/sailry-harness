@@ -146,14 +146,14 @@ async fn rejects_business_ids_as_command_streams() {
             while let Some(row) = rows.next().await.map_err(crate::database_fixture::fault)? {
                 let sequence: i64 = row.get(0).map_err(crate::database_fixture::fault)?;
                 let body: Vec<u8> = row.get(1).map_err(crate::database_fixture::fault)?;
-                let mut event: adk_core::Event = serde_json::from_slice(&body).unwrap();
+                let mut event: serde_json::Value = serde_json::from_slice(&body).unwrap();
                 let mut changed = false;
-                if let Some(content) = event.llm_response.content.as_mut() {
-                    for part in &mut content.parts {
-                        if let adk_core::Part::FunctionResponse {id:Some(id),function_response,..} = part
-                            && id == &call
+                if let Some(content) = event["content"].as_array_mut() {
+                    for block in content {
+                        if block["type"] == "tool_response" && block["id"] == call
                         {
-                            function_response.response = replacement.clone();
+                            block["result"] = json!({"value":replacement});
+                            block["revision"] = json!(blake3::hash(replacement.to_string().as_bytes()).to_hex().to_string());
                             changed = true;
                             break;
                         }

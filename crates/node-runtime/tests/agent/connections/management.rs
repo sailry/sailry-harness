@@ -322,20 +322,15 @@ async fn saves_native_credentials_without_public_secrets() {
                             let body = row
                                 .get::<Vec<u8>>(0)
                                 .map_err(crate::database_fixture::fault)?;
-                            let event: adk_core::Event = serde_json::from_slice(&body).unwrap();
-                            if let Some(arguments) = event.content().and_then(|content| {
-                                content.parts.iter().find_map(|part| {
-                                    if let adk_core::Part::FunctionCall {
-                                        name: tool, args, ..
-                                    } = part
-                                        && tool == &name
-                                    {
-                                        Some(args.clone())
-                                    } else {
-                                        None
-                                    }
+                            let event: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                            if let Some(arguments) =
+                                event["content"].as_array().and_then(|content| {
+                                    content.iter().find_map(|block| {
+                                        (block["type"] == "tool_request" && block["name"] == name)
+                                            .then(|| block["arguments"].clone())
+                                    })
                                 })
-                            }) {
+                            {
                                 return Ok(arguments);
                             }
                         }

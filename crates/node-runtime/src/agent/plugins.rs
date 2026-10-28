@@ -195,7 +195,7 @@ pub(super) async fn bind(
             .find(|entry| {
                 entry.delegation
                     && super::delegation::selected::accepts(
-                        &Value::Object((*entry.tool.input_schema).clone()),
+                        &serde_json::Value::Object((*entry.tool.input_schema).clone()),
                         &arguments,
                     )
             })
