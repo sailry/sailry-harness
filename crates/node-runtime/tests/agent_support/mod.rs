@@ -773,6 +773,13 @@ async fn respond(
                 b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
             )
             .await?;
+        let response_id = format!("response-{}", uuid::Uuid::new_v4());
+        let created = json!({"type":"response.created", "sequence_number":0,
+            "response":{"id":response_id, "object":"response", "created_at":1,
+                "status":"in_progress", "model":model, "output":[]}});
+        stream
+            .write_all(format!("data: {created}\n\n").as_bytes())
+            .await?;
         if matches!(reply, Reply::Reasoning) {
             let delta = json!({"type":"response.reasoning_summary_text.delta", "sequence_number":0,
                 "item_id":"thinking-fixture", "output_index":0,"summary_index":0,
@@ -782,7 +789,7 @@ async fn respond(
                 .await?;
         }
         let mut event = json!({"type":"response.completed", "sequence_number":0, "response":{
-            "id":"response-fixture", "object":"response", "created_at":1, "status":"completed", "model":model,
+            "id":response_id, "object":"response", "created_at":1, "status":"completed", "model":model,
             "output":[{"type":"message", "id":"message-fixture", "role":"assistant", "status":"completed",
                 "content":[{"type":"output_text", "text":format!("answer-{model}"), "annotations":[]}]}]
         }});

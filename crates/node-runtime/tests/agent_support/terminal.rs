@@ -12,11 +12,15 @@ pub(super) async fn respond(
         )
         .await?;
     let text = "{\"move\":1}";
+    let response_id = format!("terminal-{}", uuid::Uuid::new_v4());
     let mut events = if responses {
         vec![
-            json!({"type":"response.output_text.delta", "sequence_number":0, "item_id":"message", "output_index":0, "content_index":0, "delta":text, "logprobs":[]}),
-            json!({"type":"response.completed", "sequence_number":1, "response":{
-                "id":"response", "object":"response", "created_at":1, "status":"completed", "model":request["model"],
+            json!({"type":"response.created", "sequence_number":0,
+                "response":{"id":response_id, "object":"response", "created_at":1,
+                    "status":"in_progress", "model":request["model"], "output":[]}}),
+            json!({"type":"response.output_text.delta", "sequence_number":1, "item_id":"message", "output_index":0, "content_index":0, "delta":text, "logprobs":[]}),
+            json!({"type":"response.completed", "sequence_number":2, "response":{
+                "id":response_id, "object":"response", "created_at":1, "status":"completed", "model":request["model"],
                 "output":[{"type":"message", "id":"message", "role":"assistant", "status":"completed", "content":[{"type":"output_text", "text":text, "annotations":[]}]}],
                 "usage":{"input_tokens":12,"output_tokens":4,"total_tokens":16,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}
             }}),
@@ -24,9 +28,9 @@ pub(super) async fn respond(
     } else {
         // Usage arrives separately from finish_reason, as on OpenAI-compatible APIs.
         vec![
-            json!({"id":"completion","object":"chat.completion.chunk","created":1,"model":request["model"],"choices":[{"index":0,"delta":{"content":text},"finish_reason":null}]}),
-            json!({"id":"completion","object":"chat.completion.chunk","created":1,"model":request["model"],"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
-            json!({"id":"completion","object":"chat.completion.chunk","created":1,"model":request["model"],"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}}),
+            json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":request["model"],"choices":[{"index":0,"delta":{"content":text},"finish_reason":null}]}),
+            json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":request["model"],"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+            json!({"id":response_id,"object":"chat.completion.chunk","created":1,"model":request["model"],"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}}),
         ]
     };
     if request.get("thinking").is_some() {

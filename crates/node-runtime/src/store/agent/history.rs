@@ -342,8 +342,7 @@ fn capture_usage(
         return Ok(());
     };
     message.model = Some(usage.model.clone());
-    message.usage.get_or_insert_with(Default::default).provider =
-        Some(serde_json::to_value(usage).map_err(storage_error)?);
+    message.usage = Some(crate::agent::engine::history::provider_usage(usage)?);
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 //! Opt-in evidence uses a closed private snapshot, never the running source profile.
 use super::*;
 use crate::agent::canonical::{BlockKind, Record};
+use serde_json::Value;
 
 async fn preserved(db: &Connection) -> [blake3::Hash; 3] {
     let mut hashes = Vec::new();
@@ -59,15 +60,17 @@ async fn upgrades_private_snapshot() {
         while let Some(row) = rows.next().await.unwrap() {
             let sequence = row.get::<i64>(0).unwrap();
             let turn = row.get::<String>(1).unwrap();
-            let event: adk_core::Event = serde_json::from_slice(&row.get::<Vec<u8>>(2).unwrap())
+            let event: Value = serde_json::from_slice(&row.get::<Vec<u8>>(2).unwrap())
                 .unwrap_or_else(|_| {
                     panic!("private snapshot event cannot decode at sequence {sequence}")
                 });
-            nullable += event
-                .content()
+            nullable += event["content"]["parts"]
+                .as_array()
                 .into_iter()
-                .flat_map(|content| &content.parts)
-                .filter(|part| matches!(part, adk_core::Part::FunctionCall { id: None, .. }))
+                .flatten()
+                .filter(|part| {
+                    part.get("name").is_some() && part.get("args").is_some() && part["id"].is_null()
+                })
                 .count();
             originals.push((sequence, turn, event));
         }
@@ -93,68 +96,59 @@ async fn upgrades_private_snapshot() {
             panic!("private snapshot record cannot decode at sequence {sequence}")
         });
         assert!(
-            record.id == event.id
+            Some(record.id.as_str()) == event["id"].as_str()
                 && record.turn.to_string() == *turn
-                && record.created == event.timestamp
-                && record.provenance.author == event.author
-                && record.provenance.branch == event.branch,
+                && Some(record.created)
+                    == event["timestamp"]
+                        .as_str()
+                        .and_then(|value| value.parse::<chrono::DateTime<chrono::Utc>>().ok())
+                && Some(record.provenance.author.as_str()) == event["author"].as_str()
+                && Some(record.provenance.branch.as_str()) == event["branch"].as_str(),
             "record provenance changed at sequence {sequence}"
         );
-        for (index, part) in event
-            .content()
+        for (index, part) in event["content"]["parts"]
+            .as_array()
             .into_iter()
-            .flat_map(|content| &content.parts)
+            .flatten()
             .enumerate()
         {
             let block = record
                 .message()
                 .and_then(|message| message.content.iter().find(|block| block.index == index));
-            match part {
-                adk_core::Part::FunctionCall {
-                    id,
-                    name,
-                    args,
-                    thought_signature,
-                } => {
-                    assert!(
-                        matches!(block.map(|block| &block.kind), Some(BlockKind::ToolRequest(request))
-                        if request.id == *id && request.name == *name && request.arguments == *args
-                            && request.signature == *thought_signature),
-                        "tool call fields changed at sequence {sequence}"
-                    );
-                }
-                adk_core::Part::FunctionResponse {
-                    id,
-                    function_response,
-                    ..
-                } => {
-                    let Some(BlockKind::ToolResponse(response)) = block.map(|block| &block.kind)
-                    else {
-                        panic!("tool result missing at sequence {sequence}");
-                    };
-                    assert!(
-                        response.id == *id && response.name == function_response.name,
-                        "tool result identity changed at sequence {sequence}"
-                    );
-                    let value = crate::store::agent::blobs::hydrate(&connection, &response.result)
-                        .await
-                        .unwrap();
-                    assert!(
-                        value == function_response.response,
-                        "tool result changed at sequence {sequence}"
-                    );
-                    assert!(
-                        response.revision
-                            == blake3::hash(function_response.response.to_string().as_bytes())
-                                .to_hex()
-                                .as_str(),
-                        "tool result revision changed at sequence {sequence}"
-                    );
-                }
-                _ => {}
+            if part.get("name").is_some() && part.get("args").is_some() {
+                assert!(
+                    matches!(block.map(|block|&block.kind),Some(BlockKind::ToolRequest(request))
+                    if request.id.as_deref()==part["id"].as_str() && Some(request.name.as_str())==part["name"].as_str()
+                        && request.arguments==part["args"] && request.signature.as_deref()==part["thought_signature"].as_str()),
+                    "tool call fields changed at sequence {sequence}"
+                );
+            } else if let Some(raw) = part.get("functionResponse") {
+                let Some(BlockKind::ToolResponse(response)) = block.map(|block| &block.kind) else {
+                    panic!("tool result missing at sequence {sequence}")
+                };
+                assert!(
+                    response.id.as_deref() == part["id"].as_str()
+                        && Some(response.name.as_str()) == raw["name"].as_str(),
+                    "tool result identity changed at sequence {sequence}"
+                );
+                let value = crate::store::agent::blobs::hydrate(&connection, &response.result)
+                    .await
+                    .unwrap();
+                assert!(
+                    value == raw["response"],
+                    "tool result changed at sequence {sequence}"
+                );
+                assert!(
+                    response.revision
+                        == blake3::hash(raw["response"].to_string().as_bytes())
+                            .to_hex()
+                            .as_str(),
+                    "tool result revision changed at sequence {sequence}"
+                );
             }
         }
     }
+
     let blobs: i64 = connection
         .prepare("SELECT count(*) FROM agent_blobs")
         .await

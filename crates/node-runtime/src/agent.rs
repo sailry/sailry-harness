@@ -414,13 +414,6 @@ async fn execute_with(
         )
     );
     let personal = prompt::personal(ingress, invocation.worktree, &stop).await?;
-    if !personal.is_empty() {
-        ingress.agents.context_source(
-            invocation.turn.id,
-            sailry_protocol::conversation::observation::CategoryKind::Injected,
-            &personal,
-        );
-    }
     if let Some(role) = invocation
         .child
         .as_ref()
@@ -430,11 +423,6 @@ async fn execute_with(
         policy.push_str(&role.instructions);
         for skill in &role.skills {
             let text = resources.read(skill, "SKILL.md").await?;
-            ingress.agents.context_source(
-                invocation.turn.id,
-                sailry_protocol::conversation::observation::CategoryKind::Skills,
-                &text.content,
-            );
             policy.push_str(&format!(
                 "\n\nSelected skill {skill}\nDirectory: {}\n{}",
                 text.directory, text.content
@@ -461,21 +449,11 @@ async fn execute_with(
         {
             policy.push_str("\n\n");
             policy.push_str(&captured.text);
-            ingress.agents.context_source(
-                invocation.turn.id,
-                sailry_protocol::conversation::observation::CategoryKind::Injected,
-                &captured.text,
-            );
         }
     }
     if !extensions.instruction.is_empty() {
         policy.push_str("\n\n");
         policy.push_str(&extensions.instruction);
-        ingress.agents.context_source(
-            invocation.turn.id,
-            sailry_protocol::conversation::observation::CategoryKind::Injected,
-            &extensions.instruction,
-        );
     }
     instruction.push_str("\n\n");
     instruction.push_str(prompt::recipient(invocation.child.is_some()));
