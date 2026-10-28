@@ -3,8 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'approvals.dart' show part;
-import 'conversation.dart' show canonicalJson, check, execute, until;
+import 'conversation.dart' show canonicalJson, check, detail, execute, until;
 import 'questions.dart' show hasPending, pending;
 import 'mcp_oauth.dart' show authorizeMcp;
 
@@ -70,7 +69,7 @@ Future<void> main() async {
   final call = (waiting['calls'] as List).singleWhere(
     (call) => call['question']?['id'] == question['id'],
   );
-  final input = part(waiting, call['source'])['arguments']['input'];
+  final input = (await detail(updates, call))['arguments']['input'];
   check(
     url
         ? input['kind'] == 'url' &&
@@ -139,7 +138,7 @@ Future<void> main() async {
   final firstResult = (completed['calls'] as List).firstWhere(
     (call) => call['name'] != 'mcp_elicitation',
   );
-  final raw = part(completed, firstResult['response'])['result'];
+  final raw = (await detail(updates, firstResult))['result'];
   final output = raw['structuredContent'];
   check(
     jsonEncode(raw['content']) ==
@@ -159,7 +158,7 @@ Future<void> main() async {
     (call) => call['name'] != 'mcp_elicitation',
   );
   check(
-    canonicalJson(part(restored, restoredCall['response'])['result']) ==
+    canonicalJson((await detail(updates, restoredCall))['result']) ==
         canonicalJson(raw),
     'reopen preserves the original MCP content and structured result',
   );
