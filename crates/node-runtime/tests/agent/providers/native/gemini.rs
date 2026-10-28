@@ -224,7 +224,8 @@ async fn idless_mcp_results_keep_execution_facts() {
             let original: Value = serde_json::from_str(&original).unwrap();
             assert_eq!(Some(&original), call.result(&page));
             let payload = original.get("structuredContent").unwrap_or(&original);
-            let label = payload["label"].as_str().unwrap();
+            let label = &payload["label"];
+            assert!(label.is_string());
             let content = payload["text"].as_str().unwrap();
             assert!(content.starts_with(&format!("First {label}\n")));
             assert!(content.ends_with(&format!("\nFinal {label}")));
