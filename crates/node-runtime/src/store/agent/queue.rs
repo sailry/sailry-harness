@@ -207,7 +207,7 @@ pub(super) async fn read(db: &Connection, session: SessionId) -> Result<Queue, F
     .unwrap_or((0, false));
     // Bound previews, not user input. Editing fetches the complete original text separately.
     let mut query = db.prepare(
-        "SELECT a.body,p.revision,a.ready,r.body,p.recipient FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.author')='user'))) ORDER BY p.position,t.rowid"
+        "SELECT a.body,p.revision,a.ready,r.body,p.recipient FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))) ORDER BY p.position,t.rowid"
     ).await.map_err(storage_error)?;
     let mut rows = query
         .query([session.to_string()])
@@ -387,7 +387,7 @@ pub(in crate::store::agent) async fn retained(
     db: &Connection,
     turn: TurnId,
 ) -> Result<bool, Fault> {
-    let mut query = db.prepare("SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.turn=?1 AND json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.author')='user'))").await.map_err(storage_error)?;
+    let mut query = db.prepare("SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.turn=?1 AND json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))").await.map_err(storage_error)?;
     let row = query
         .query_row([turn.to_string()])
         .await

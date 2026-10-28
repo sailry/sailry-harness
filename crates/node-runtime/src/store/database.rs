@@ -1410,7 +1410,7 @@ pub(super) async fn record(
 pub(super) fn encode(value: &impl serde::Serialize) -> Result<Vec<u8>, Fault> {
     serde_json::to_vec(value).map_err(storage_error)
 }
-pub(super) fn storage_error(error: impl std::fmt::Display + 'static) -> Fault {
+pub(crate) fn storage_error(error: impl std::fmt::Display + 'static) -> Fault {
     let error = &error as &dyn std::any::Any;
     let native = error.downcast_ref::<turso::Error>().or_else(|| {
         match error.downcast_ref::<crate::Error>() {

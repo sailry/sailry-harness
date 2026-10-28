@@ -672,14 +672,22 @@ async fn explicit_input_preserves_speech_before_delivery() {
         .await
         .and_then(|row| row.get(0))
         .unwrap();
-    let canonical: AdkEvent = serde_json::from_slice(&canonical).unwrap();
-    assert_eq!(
-        canonical.provider_metadata[super::super::sessions::INPUT_SOURCE],
-        "user"
-    );
-    assert_eq!(
-        canonical.provider_metadata[super::super::sessions::INPUT_PART],
-        "1"
-    );
-    assert_eq!(canonical.content().unwrap().parts.len(), 2);
+    let canonical: crate::agent::canonical::Record = serde_json::from_slice(&canonical).unwrap();
+    let input = canonical.metadata.input.as_ref().unwrap();
+    assert!(matches!(
+        input.source,
+        Some(crate::agent::canonical::InputSource::User)
+    ));
+    assert_eq!(input.text_part, Some(1));
+    assert_eq!(input.notice_part, Some(0));
+    let message = canonical.message().unwrap();
+    assert_eq!(message.part_count, 2);
+    assert_eq!(message.content.len(), 2);
+    assert_eq!(message.content[0].index, 0);
+    assert!(matches!(
+        &message.content[0].kind,
+        crate::agent::canonical::BlockKind::Text { text }
+            if Some(text) == invocation.notice_input.as_ref()
+    ));
+    assert_eq!(message.content[1].index, 1);
 }

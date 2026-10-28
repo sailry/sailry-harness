@@ -30,7 +30,7 @@ pub(in crate::store::agent) async fn hydrate(db: &Connection, mut run: Run) -> R
             .prepare(
                 "SELECT input,EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=?1 AND p.recipient IS NOT NULL)
                 FROM agent_runs WHERE turn=?1 AND NOT EXISTS(
-                SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.author')='user')",
+                SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.provenance.author')='user')",
             )
             .await
             .map_err(storage_error)?;

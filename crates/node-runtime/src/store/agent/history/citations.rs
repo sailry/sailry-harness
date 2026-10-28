@@ -1,30 +1,27 @@
-use adk_core::{LlmResponse, Part};
+use crate::agent::canonical::{BlockKind, Message};
 use sailry_protocol::conversation::Citation;
 
-pub(super) fn project(response: &LlmResponse) -> Vec<Citation> {
+pub(super) fn project(response: &Message) -> Vec<Citation> {
     let length: usize = response
         .content
-        .as_ref()
-        .into_iter()
-        .flat_map(|content| &content.parts)
-        .map(|part| match part {
-            Part::Text { text } => text.chars().count(),
+        .iter()
+        .map(|block| match &block.kind {
+            BlockKind::Text { text } => text.chars().count(),
             _ => 0,
         })
         .sum();
     response
-        .citation_metadata
-        .as_ref()
-        .into_iter()
-        .flat_map(|metadata| &metadata.citation_sources)
+        .sources
+        .citations
+        .iter()
         .filter_map(|source| {
             let uri = reqwest::Url::parse(source.uri.as_deref()?).ok()?;
             if !matches!(uri.scheme(), "http" | "https") || !uri.has_host() {
                 return None;
             }
             let range = source
-                .start_index
-                .zip(source.end_index)
+                .start
+                .zip(source.end)
                 .filter(|(start, end)| *start >= 0 && end >= start && *end as usize <= length);
             Some(Citation {
                 uri: uri.into(),
@@ -33,69 +30,65 @@ pub(super) fn project(response: &LlmResponse) -> Vec<Citation> {
                 end: range.map(|(_, end)| end as u32),
             })
         })
-        .chain(
-            response
-                .provider_metadata
-                .as_ref()
-                .and_then(|metadata| metadata["groundingChunks"].as_array())
-                .into_iter()
-                .flatten()
-                .filter_map(|chunk| {
-                    let source = &chunk["web"];
-                    let uri = reqwest::Url::parse(source["uri"].as_str()?).ok()?;
-                    if !matches!(uri.scheme(), "http" | "https") || !uri.has_host() {
-                        return None;
-                    }
-                    Some(Citation {
-                        uri: uri.into(),
-                        title: source["title"].as_str().map(str::to_owned),
-                        // Grounded answers are displayed unchanged with the provider's HTML.
-                        start: None,
-                        end: None,
-                    })
-                }),
-        )
+        .chain(response.sources.grounding.iter().filter_map(|source| {
+            let uri = reqwest::Url::parse(&source.uri).ok()?;
+            if !matches!(uri.scheme(), "http" | "https") || !uri.has_host() {
+                return None;
+            }
+            Some(Citation {
+                uri: uri.into(),
+                title: source.title.clone(),
+                // Grounded answers are displayed unchanged with the provider's HTML.
+                start: None,
+                end: None,
+            })
+        }))
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adk_core::{CitationMetadata, CitationSource, Content};
+    use crate::agent::canonical::{Block, Citation as Source, Sources};
 
     #[test]
     fn preserves_sources_and_checks_unicode_ranges() {
-        let source = CitationSource {
+        let source = Source {
             uri: Some("https://example.com/source".into()),
             title: Some("Source".into()),
-            start_index: Some(0),
-            end_index: Some(3),
-            license: None,
-            publication_date: None,
+            start: Some(0),
+            end: Some(3),
         };
-        let response = LlmResponse {
-            content: Some(Content::new("model").with_text("结果🙂")),
-            citation_metadata: Some(CitationMetadata {
-                citation_sources: vec![
+        let response = Message {
+            part_count: 1,
+            content: vec![Block {
+                index: 0,
+                kind: BlockKind::Text {
+                    text: "结果🙂".into(),
+                },
+            }],
+            sources: Sources {
+                citations: vec![
                     source.clone(),
-                    CitationSource {
-                        end_index: Some(4),
+                    Source {
+                        end: Some(4),
                         ..source.clone()
                     },
-                    CitationSource {
-                        start_index: Some(-1),
+                    Source {
+                        start: Some(-1),
                         ..source.clone()
                     },
-                    CitationSource {
+                    Source {
                         uri: Some("file:///etc/passwd".into()),
                         ..source.clone()
                     },
-                    CitationSource {
+                    Source {
                         uri: None,
                         ..source
                     },
                 ],
-            }),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let citations = project(&response);

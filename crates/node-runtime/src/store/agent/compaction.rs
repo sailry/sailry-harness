@@ -1,5 +1,6 @@
 //! Derive model context from canonical membership, never wall-clock ordering.
 use super::*;
+use crate::agent::canonical::{BlockKind, Kind, Record, Role};
 mod owners;
 
 pub(crate) const END_EVENT: &str = "sailry.context.end_event";
@@ -8,40 +9,22 @@ pub(super) async fn validate(
     db: &Connection,
     session: SessionId,
     turn: TurnId,
-    event: &AdkEvent,
+    event: &Record,
 ) -> Result<(), Fault> {
-    let Some(summary) = &event.actions.compaction else {
+    let Kind::Compaction(summary) = &event.kind else {
         return Ok(());
     };
-    let end = event
-        .provider_metadata
-        .get(END_EVENT)
-        .ok_or_else(|| sailry_protocol::Fault::invalid("context summary has no boundary"))?;
-    if event.author != "system"
-        || event.content().is_some()
-        || summary.compacted_content.role != "user"
-        || summary.compacted_content.parts.is_empty()
-        || !summary.compacted_content.parts.iter().any(|part|
-            matches!(part, adk_core::Part::Text { text } if !text.trim().is_empty()))
+    let end = &summary.boundary;
+    if event.provenance.author != "system"
+        || summary.summary.role != Role::User
+        || summary.summary.content.is_empty()
         || summary
-            .compacted_content
-            .parts
+            .summary
+            .content
             .iter()
-            .enumerate()
-            .any(|(index, part)| {
-                if index == 0 && matches!(part, adk_core::Part::ProviderData { provider_data }
-                    if provider_data.origin.as_ref().is_some_and(|origin| !origin.provider.is_empty()
-                        && !origin.model.is_empty() && !origin.scope.is_empty())
-                    && matches!(provider_data.parts[0], adk_core::Part::ConfigurationUpdate { .. }))
-                {
-                    return false;
-                }
-                !matches!(part, adk_core::Part::Text { text } if !text.trim().is_empty())
-            })
+            .any(|block| !matches!(&block.kind,BlockKind::Text { text } if !text.trim().is_empty()))
     {
-        return Err(sailry_protocol::Fault::invalid(
-            "context summary content is invalid",
-        ));
+        return Err(Fault::invalid("context summary content is invalid"));
     }
     let visible = history::VISIBLE_EVENT;
     let later_visible = visible.replace("e.body", "next.body");
@@ -52,7 +35,7 @@ pub(super) async fn validate(
          AND {visible}
          AND NOT EXISTS(SELECT 1 FROM conversation_events later JOIN agent_events next ON next.sequence=later.sequence
            WHERE later.session=h.session AND next.turn=e.turn AND later.sequence>h.sequence
-           AND json_type(next.body,'$.actions.compaction') IS NULL AND {later_visible}))")).await.map_err(storage_error)?;
+           AND json_extract(next.body,'$.kind')!='compaction' AND {later_visible}))")).await.map_err(storage_error)?;
         let row = statement
             .query_row(params![session.to_string(), end.as_str(), turn.to_string()])
             .await
@@ -100,26 +83,26 @@ async fn current_exchange(
     let mut statement = db
         .prepare(
             "SELECT body FROM agent_events WHERE turn=?1 AND sequence<=?2
-         AND json_type(body,'$.actions.compaction') IS NULL ORDER BY sequence",
+         AND json_extract(body,'$.kind')!='compaction' ORDER BY sequence",
         )
         .await
         .map_err(storage_error)?;
-    let events = {
+    let bodies = {
         let mut rows = statement
             .query(params![owner, sequence])
             .await
             .map_err(storage_error)?;
         let mut values = Vec::new();
         while let Some(row) = rows.next().await.map_err(storage_error)? {
-            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
-            values.push(mapped);
+            values.push(row.get::<Vec<u8>>(0).map_err(storage_error)?);
         }
-        values.into_iter()
+        values
+    };
+    let mut events = Vec::with_capacity(bodies.len());
+    for body in bodies {
+        let record: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+        events.push(crate::agent::canonical_bridge::to_adk(db, &record).await?);
     }
-    .map(|body| {
-        serde_json::from_slice::<AdkEvent>(&body.map_err(storage_error)?).map_err(storage_error)
-    })
-    .collect::<Result<Vec<_>, _>>()?;
     Ok(complete_exchange(&events))
 }
 
@@ -183,19 +166,22 @@ pub(super) async fn read(
     session: SessionId,
 ) -> adk_core::Result<Option<(i64, AdkEvent)>> {
     let body: Option<Vec<u8>> = (match (async { let mut statement = db.prepare("SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
-         WHERE h.session=?1 AND json_type(e.body,'$.actions.compaction')='object'
+         WHERE h.session=?1 AND json_extract(e.body,'$.kind')='compaction'
          ORDER BY h.sequence DESC LIMIT 1").await?;
 let row = statement.query_row([session.to_string()]).await?;
 let mapped: turso::Result<_> = row.get(0);
 mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) })
         .map_err(|error| adk_error(storage_error(error)))?;
     let Some(body) = body else { return Ok(None) };
-    let mut event: AdkEvent =
+    let record: Record =
         serde_json::from_slice(&body).map_err(|error| adk_error(storage_error(error)))?;
-    let end = event
-        .provider_metadata
-        .get(END_EVENT)
-        .ok_or_else(|| AdkError::session("context summary has no boundary"))?;
+    let Kind::Compaction(saved) = &record.kind else {
+        unreachable!("selected compaction record")
+    };
+    let end = &saved.boundary;
+    let mut event = crate::agent::canonical_bridge::to_adk(db, &record)
+        .await
+        .map_err(adk_error)?;
     let sequence: i64 = (async { let mut statement = db.prepare("SELECT h.sequence FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.id=?2").await?;
 let row = statement.query_row(params![session.to_string(), end.as_str()]).await?;
 let mapped: turso::Result<_> = row.get(0);
@@ -254,8 +240,8 @@ pub(super) async fn history(
         .prepare(
             "WITH ends AS (SELECT e.turn, max(e.sequence) AS last FROM conversation_events h
            JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1
-           AND json_type(e.body,'$.actions.compaction') IS NULL
-           AND json_type(e.body,'$.content')='object' GROUP BY e.turn)
+           AND json_extract(e.body,'$.kind')!='compaction'
+           AND json_type(e.body,'$.content')='array' GROUP BY e.turn)
          SELECT e.id, e.turn, json_extract(r.body,'$.status'), e.sequence=ends.last
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN agent_runs r ON r.turn=e.turn JOIN ends ON ends.turn=e.turn WHERE h.session=?1",

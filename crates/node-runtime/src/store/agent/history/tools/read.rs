@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::canonical::{Block, BlockKind, Kind, Record};
 use sailry_protocol::tool::detail::{MAX_DETAIL_PAGE_BYTES, Page, Reference};
 
 type SourceKey = (TurnId, String, String, String);
@@ -14,30 +15,30 @@ pub(in crate::store::agent) struct Sources {
 impl Sources {
     pub(in crate::store::agent) async fn new(
         db: &Connection,
-        events: &[(u64, TurnId, AdkEvent)],
+        events: &[(u64, TurnId, Record)],
     ) -> Result<Self, Fault> {
         let mut requests = std::collections::BTreeSet::<SourceKey>::new();
         let mut bounds = std::collections::BTreeMap::<TurnId, u64>::new();
         for (sequence, turn, event) in events {
-            for part in event
-                .content()
+            for block in event
+                .message()
                 .into_iter()
-                .flat_map(|content| &content.parts)
+                .flat_map(|message| &message.content)
             {
-                let call = match part {
-                    adk_core::Part::FunctionResponse {
-                        id: Some(id),
-                        function_response,
-                        ..
-                    } => Some((id.clone(), function_response.name.clone())),
-                    adk_core::Part::ServerToolResponse {
-                        server_tool_response,
-                    } => super::super::web_search::response(server_tool_response)
-                        .and_then(|raw| raw.id.map(|id| (id, raw.name))),
+                let identity = match &block.kind {
+                    BlockKind::ToolResponse(response) => response
+                        .id
+                        .as_ref()
+                        .map(|id| (id.clone(), response.name.clone())),
+                    BlockKind::ServerResponse { value } => {
+                        let value = super::super::super::blobs::hydrate(db, value).await?;
+                        super::super::web_search::response(&value)
+                            .and_then(|raw| raw.id.map(|id| (id, raw.name)))
+                    }
                     _ => None,
                 };
-                if let Some((id, name)) = call {
-                    requests.insert((*turn, event.branch.clone(), id, name));
+                if let Some((id, name)) = identity {
+                    requests.insert((*turn, event.provenance.branch.clone(), id, name));
                     bounds
                         .entry(*turn)
                         .and_modify(|current| *current = (*current).max(*sequence))
@@ -51,17 +52,16 @@ impl Sources {
         }
         let bounds: Vec<Value> = bounds
             .into_iter()
-            .map(|(turn, sequence)| serde_json::json!({"turn":turn, "sequence":sequence}))
+            .map(|(turn, sequence)| serde_json::json!({"turn":turn,"sequence":sequence}))
             .collect();
-        // Read call events once for this page, including earlier ambiguous IDs.
+        // Read call records once for this page, including earlier ambiguous IDs.
         let mut statement = db
             .prepare(
                 "SELECT e.sequence,e.turn,e.body FROM agent_events e
              JOIN json_each(?1) bound ON e.turn=json_extract(bound.value,'$.turn')
                 AND e.sequence<=json_extract(bound.value,'$.sequence')
-             WHERE EXISTS(SELECT 1 FROM json_each(e.body,'$.content.parts') part
-                WHERE json_type(part.value,'$.args') IS NOT NULL
-                   OR json_type(part.value,'$.server_tool_call') IS NOT NULL)
+             WHERE EXISTS(SELECT 1 FROM json_each(e.body,'$.content') part
+                WHERE json_extract(part.value,'$.type') IN ('tool_request','server_call'))
              ORDER BY e.sequence",
             )
             .await
@@ -77,43 +77,40 @@ impl Sources {
                 .map_err(storage_error)?
                 .parse()
                 .map_err(storage_error)?;
-            let event: AdkEvent =
+            let event: Record =
                 serde_json::from_slice(&row.get::<Vec<u8>>(2).map_err(storage_error)?)
                     .map_err(storage_error)?;
-            for part in event
-                .content()
+            for block in event
+                .message()
                 .into_iter()
-                .flat_map(|content| &content.parts)
+                .flat_map(|message| &message.content)
             {
-                let identity = match part {
-                    adk_core::Part::FunctionCall {
-                        id: Some(id), name, ..
-                    } => Some((id.as_str(), name.as_str())),
-                    adk_core::Part::ServerToolCall { server_tool_call }
-                        if server_tool_call["type"] == "web_search_call"
-                            || server_tool_call["name"] == "web_search"
-                                && server_tool_call.get("input").is_some() =>
+                let identity = match &block.kind {
+                    BlockKind::ToolRequest(request) => request
+                        .id
+                        .as_ref()
+                        .map(|id| (id.clone(), request.name.clone())),
+                    BlockKind::ServerCall { value }
+                        if value.value["type"] == "web_search_call"
+                            || value.value["name"] == "web_search"
+                                && value.value.get("input").is_some() =>
                     {
-                        server_tool_call["id"].as_str().map(|id| (id, "web_search"))
+                        value.value["id"]
+                            .as_str()
+                            .map(|id| (id.to_owned(), "web_search".into()))
                     }
                     _ => None,
                 };
                 let Some((id, name)) = identity else {
                     continue;
                 };
-                if !requests.contains(&(turn, event.branch.clone(), id.to_owned(), name.to_owned()))
-                {
+                let key = (turn, event.provenance.branch.clone(), id, name);
+                if !requests.contains(&key) {
                     continue;
                 }
-                if let Some(mut raw) = call(db, turn, &event, part).await?
-                    && let Some(id) = raw.id.clone()
-                {
+                if let Some(mut raw) = call(db, turn, &event, block).await? {
                     raw.source = Some(sequence);
-                    sources
-                        .calls
-                        .entry((turn, event.branch.clone(), id, raw.name.clone()))
-                        .or_default()
-                        .push(raw);
+                    sources.calls.entry(key).or_default().push(raw);
                 }
             }
         }
@@ -252,7 +249,7 @@ pub(in crate::store::agent) async fn raw(
     db: &Connection,
     turn: TurnId,
     sequence: u64,
-    event: &AdkEvent,
+    event: &Record,
     index: usize,
 ) -> Result<Option<Raw>, Fault> {
     with_sources(db, turn, sequence, event, index, None).await
@@ -262,61 +259,56 @@ pub(in crate::store::agent) async fn with_sources(
     db: &Connection,
     turn: TurnId,
     sequence: u64,
-    event: &AdkEvent,
+    event: &Record,
     index: usize,
     sources: Option<&Sources>,
 ) -> Result<Option<Raw>, Fault> {
-    let parts = event
-        .content()
-        .map(|content| content.parts.as_slice())
+    let message = event.message();
+    let parts = message
+        .map(|message| message.content.as_slice())
         .unwrap_or_default();
-    let Some(part) = parts.get(index) else {
-        let web: Vec<Raw> = parts
-            .iter()
-            .filter_map(|part| match part {
-                adk_core::Part::ServerToolCall { server_tool_call } => {
-                    super::super::web_search::result(
-                        server_tool_call,
-                        super::super::super::presentation::displays(event)
-                            .ok()?
-                            .get("web_search"),
-                    )
+    let Some(block) = parts.iter().find(|block| block.index == index) else {
+        let part_count = message.map_or(0, |message| message.part_count);
+        let Some(derived_index) = index.checked_sub(part_count) else {
+            return Ok(None);
+        };
+        let displays = super::super::super::presentation::displays(event)?;
+        let mut web = Vec::new();
+        for block in parts {
+            if let BlockKind::ServerCall { value } = &block.kind {
+                let value = super::super::super::blobs::hydrate(db, value).await?;
+                if let Some(raw) =
+                    super::super::web_search::result(&value, displays.get("web_search"))
+                {
+                    web.push(raw);
                 }
-                _ => None,
-            })
-            .collect();
-        let derived_index = index.saturating_sub(parts.len());
+            }
+        }
         if derived_index < web.len() {
             return Ok(web.into_iter().nth(derived_index));
         }
-        let Some(derived_index) =
-            derived_index.checked_sub(web.len() + usize::from(event.actions.compaction.is_some()))
+        let Some(derived_index) = derived_index
+            .checked_sub(web.len() + usize::from(matches!(&event.kind, Kind::Compaction(_))))
         else {
             return Ok(None);
         };
-        let mut derived = Vec::new();
-        derived.extend(super::super::super::elicitation::project(event)?);
+        let mut derived = super::super::super::elicitation::project(event)?;
         derived.extend(super::super::super::review::project(event)?);
         return Ok(derived.into_iter().nth(derived_index));
     };
-    if let Some(raw) = call(db, turn, event, part).await? {
+    if let Some(raw) = call(db, turn, event, block).await? {
         return Ok(Some(raw));
     }
-    let (id, name, result, images) = match part {
-        adk_core::Part::FunctionResponse {
-            id,
-            function_response,
-            ..
-        } => (
-            id.clone(),
-            function_response.name.clone(),
-            function_response.response.clone(),
-            super::super::super::images::project(db, turn, event, index, function_response).await?,
+    let (id, name, result, images) = match &block.kind {
+        BlockKind::ToolResponse(response) => (
+            response.id.clone(),
+            response.name.clone(),
+            super::super::super::blobs::hydrate(db, &response.result).await?,
+            super::super::super::images::project(db, turn, event, index, response).await?,
         ),
-        adk_core::Part::ServerToolResponse {
-            server_tool_response,
-        } => {
-            let Some(raw) = super::super::web_search::response(server_tool_response) else {
+        BlockKind::ServerResponse { value } => {
+            let value = super::super::super::blobs::hydrate(db, value).await?;
+            let Some(raw) = super::super::web_search::response(&value) else {
                 return Ok(None);
             };
             (
@@ -329,8 +321,24 @@ pub(in crate::store::agent) async fn with_sources(
         _ => return Ok(None),
     };
     let mut raw = match sources {
-        Some(sources) => sources.source(turn, sequence, &event.branch, id.as_deref(), &name),
-        None => source(db, turn, sequence, &event.branch, id.as_deref(), &name).await?,
+        Some(sources) => sources.source(
+            turn,
+            sequence,
+            &event.provenance.branch,
+            id.as_deref(),
+            &name,
+        ),
+        None => {
+            source(
+                db,
+                turn,
+                sequence,
+                &event.provenance.branch,
+                id.as_deref(),
+                &name,
+            )
+            .await?
+        }
     }
     .unwrap_or_else(|| Raw::new(id.clone(), name.clone(), Value::Null));
     raw.result = Some(result);
@@ -347,23 +355,24 @@ pub(in crate::store::agent) async fn with_sources(
 async fn call(
     db: &Connection,
     turn: TurnId,
-    event: &AdkEvent,
-    part: &adk_core::Part,
+    event: &Record,
+    block: &Block,
 ) -> Result<Option<Raw>, Fault> {
     let displays = super::super::super::presentation::displays(event)?;
-    let mut raw = match part {
-        adk_core::Part::FunctionCall { id, name, args, .. } => {
+    let mut raw = match &block.kind {
+        BlockKind::ToolRequest(request) => {
             let mut raw = Raw::new(
-                id.clone(),
-                name.clone(),
-                super::super::credentials::project(db, turn, name, args).await?,
+                request.id.clone(),
+                request.name.clone(),
+                super::super::credentials::project(db, turn, &request.name, &request.arguments)
+                    .await?,
             );
-            raw.display = displays.get(name).cloned();
+            raw.display = displays.get(&request.name).cloned();
             raw
         }
-        adk_core::Part::ServerToolCall { server_tool_call } => {
-            let Some(raw) =
-                super::super::web_search::call(server_tool_call, displays.get("web_search"))
+        BlockKind::ServerCall { value } => {
+            let value = super::super::super::blobs::hydrate(db, value).await?;
+            let Some(raw) = super::super::web_search::call(&value, displays.get("web_search"))
             else {
                 return Ok(None);
             };
@@ -393,17 +402,14 @@ async fn source(
     let Some(id) = id else {
         return Ok(None);
     };
-    let mut statement = db
-        .prepare(
-            "SELECT sequence,body FROM agent_events WHERE turn=?1 AND sequence<=?2
-         AND json_extract(body,'$.branch')=?3 AND EXISTS(
-            SELECT 1 FROM json_each(body,'$.content.parts') part
-            WHERE (json_extract(part.value,'$.id')=?4 AND json_extract(part.value,'$.name')=?5)
-               OR json_extract(part.value,'$.server_tool_call.id')=?4)
-         ORDER BY sequence DESC",
-        )
-        .await
-        .map_err(storage_error)?;
+    let mut statement = db.prepare(
+        "SELECT sequence,body FROM agent_events WHERE turn=?1 AND sequence<=?2
+         AND json_extract(body,'$.provenance.branch')=?3 AND EXISTS(
+            SELECT 1 FROM json_each(body,'$.content') part
+            WHERE (json_extract(part.value,'$.type')='tool_request' AND json_extract(part.value,'$.id')=?4 AND json_extract(part.value,'$.name')=?5)
+               OR (json_extract(part.value,'$.type')='server_call' AND json_extract(part.value,'$.value.value.id')=?4))
+         ORDER BY sequence DESC"
+    ).await.map_err(storage_error)?;
     let mut rows = statement
         .query(params![turn.to_string(), sequence as i64, branch, id, name])
         .await
@@ -411,13 +417,13 @@ async fn source(
     let mut found = None;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         let body = row.get::<Vec<u8>>(1).map_err(storage_error)?;
-        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-        for part in event
-            .content()
+        let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+        for block in event
+            .message()
             .into_iter()
-            .flat_map(|content| &content.parts)
+            .flat_map(|message| &message.content)
         {
-            if let Some(mut raw) = call(db, turn, &event, part).await?
+            if let Some(mut raw) = call(db, turn, &event, block).await?
                 && raw.id.as_deref() == Some(id)
                 && raw.name == name
             {

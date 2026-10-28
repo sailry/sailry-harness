@@ -64,30 +64,37 @@ pub(in crate::store) async fn captured(
         while let Some(row) = rows.next().await.map_err(storage_error)? {
             let row: turso::Result<_> = row.get::<Vec<u8>>(0);
 
-            let event: adk_core::Event =
+            let event: crate::agent::canonical::Record =
                 serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
-            for part in event
-                .content()
+            for block in event
+                .message()
                 .into_iter()
-                .flat_map(|content| &content.parts)
+                .flat_map(|message| &message.content)
             {
-                match part {
-                    adk_core::Part::FunctionCall {
-                        id: Some(id), name, ..
-                    } => {
-                        calls.insert((event.branch.clone(), id.clone(), name.clone()));
+                match &block.kind {
+                    crate::agent::canonical::BlockKind::ToolRequest(call) if call.id.is_some() => {
+                        calls.insert((
+                            event.provenance.branch.clone(),
+                            call.id.clone().unwrap(),
+                            call.name.clone(),
+                        ));
                     }
-                    adk_core::Part::FunctionResponse {
-                        id: Some(id),
-                        function_response,
-                        ..
-                    } => {
-                        let name = &function_response.name;
-                        if !calls.contains(&(event.branch.clone(), id.clone(), name.clone())) {
+                    crate::agent::canonical::BlockKind::ToolResponse(result)
+                        if result.id.is_some() =>
+                    {
+                        let id = result.id.as_ref().unwrap();
+                        let name = &result.name;
+                        if !calls.contains(&(
+                            event.provenance.branch.clone(),
+                            id.clone(),
+                            name.clone(),
+                        )) {
                             continue;
                         }
-                        let Some(content) = sailry_protocol::tool::Presentation::Content
-                            .content(&function_response.response)
+                        let response =
+                            super::super::agent::blobs::hydrate(db, &result.result).await?;
+                        let Some(content) =
+                            sailry_protocol::tool::Presentation::Content.content(&response)
                         else {
                             continue;
                         };

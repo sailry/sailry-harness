@@ -1,6 +1,6 @@
 //! Policy and maintenance references come from Node state, never a loaded history page.
 use super::*;
-use sailry_protocol::conversation::compaction::{Budget, Failure, Outcome, Record};
+use sailry_protocol::conversation::compaction::{Budget, Outcome, Record};
 
 pub(super) async fn budget(db: &Connection, session: SessionId) -> Result<Option<Budget>, Fault> {
     let captured: Option<(Option<Vec<u8>>, Vec<u8>)> = {
@@ -55,9 +55,8 @@ pub(super) async fn latest(db: &Connection, session: SessionId) -> Result<Option
     let row: Option<(i64, String, Vec<u8>, i64)> = {
         let mut statement = db.prepare("SELECT h.sequence,e.turn,e.body,t.rowid FROM conversation_events h
          JOIN agent_events e ON e.sequence=h.sequence JOIN turns t ON t.id=e.turn WHERE h.session=?1 AND
-         (json_type(e.body,'$.actions.compaction')='object'
-          OR json_type(e.body,'$.event_metadata.sailry_compaction_failure')='text'
-          OR json_extract(e.body,'$.event_metadata.sailry_operation_warning')='context_summary_failed')
+         (json_extract(e.body,'$.kind')='compaction'
+          OR json_type(e.body,'$.metadata.compaction.failure')='object')
          ORDER BY h.sequence DESC LIMIT 1").await.map_err(storage_error)?;
         match statement.query_row([session.to_string()]).await {
             Ok(row) => Some((
@@ -75,28 +74,27 @@ pub(super) async fn latest(db: &Connection, session: SessionId) -> Result<Option
     };
     let sequence = sequence.try_into().map_err(storage_error)?;
     let turn_sequence = turn_sequence.try_into().map_err(storage_error)?;
-    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+    let event: crate::agent::canonical::Record =
+        serde_json::from_slice(&body).map_err(storage_error)?;
     let turn = turn.parse().map_err(storage_error)?;
-    let outcome = if event.actions.compaction.is_some() {
+    let outcome = if matches!(&event.kind, crate::agent::canonical::Kind::Compaction(_)) {
         Outcome::Succeeded
     } else {
-        let entry = super::super::history::project(db, sequence, turn, &event).await?;
-        let failure = entry
-            .parts
-            .iter()
-            .find_map(|part| match part {
-                Part::Resource(value) => Failure::from_resource(value),
-                _ => None,
-            })
-            .ok_or_else(|| Fault::invalid("compaction record is missing its failure"))?;
-        Outcome::Failed(failure)
+        Outcome::Failed(
+            event
+                .metadata
+                .compaction
+                .as_ref()
+                .and_then(|maintenance| maintenance.failure.clone())
+                .ok_or_else(|| Fault::invalid("compaction record is missing its failure"))?,
+        )
     };
     Ok(Some(Record {
         id: event.id,
         sequence,
         turn,
         turn_sequence,
-        timestamp_ms: event.timestamp.timestamp_millis(),
+        timestamp_ms: event.created.timestamp_millis(),
         outcome,
     }))
 }

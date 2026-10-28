@@ -2,6 +2,8 @@
 mod answer;
 mod approval;
 pub(crate) mod attachments;
+pub(crate) mod canonical;
+pub(crate) mod canonical_bridge;
 mod catalog;
 mod compaction;
 pub(crate) use compaction::estimate::tokens as estimate_context;
@@ -23,7 +25,6 @@ pub(crate) use model::plugin::{
 mod plugins;
 mod prompt;
 pub(crate) use prompt::session::METADATA as CONTEXT_METADATA;
-pub(crate) use prompt::session::called as called_tools;
 pub(crate) use prompt::session::compose as compose_context;
 mod question;
 mod references;

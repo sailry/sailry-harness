@@ -3,6 +3,17 @@ use crate::Error;
 use sailry_protocol::{artifact::Kind, hooks::Settings};
 use std::sync::LazyLock;
 use turso::Connection;
+mod canonical;
+
+/// Only the exact former usage indexes are replaced with their current expressions.
+pub(super) fn replaces_index(name: &str, stored: &str) -> bool {
+    if !matches!(name, "agent_usage" | "agent_usage_time") {
+        return false;
+    }
+    include_str!("upgrades/usage.sql")
+        .split(';')
+        .any(|sql| super::definition::normalize(sql) == super::definition::normalize(stored))
+}
 
 static HOOKS: LazyLock<Vec<u8>> = LazyLock::new(|| {
     serde_json::to_vec(&Settings::default()).expect("default hook settings encode")
@@ -33,6 +44,9 @@ const ARTIFACTS: [&str; 2] = ["artifacts", "artifact_revisions"];
 const MISSING_KIND: &str = "CASE WHEN json_valid(body) THEN json_type(body)='object' AND json_type(body,'$.kind') IS NULL ELSE 0 END";
 
 pub(super) async fn needed(connection: &Connection) -> Result<bool, Error> {
+    if canonical::needed(connection).await? {
+        return Ok(true);
+    }
     for table in ARTIFACTS {
         if connection
             .prepare(format!(
@@ -50,6 +64,9 @@ pub(super) async fn needed(connection: &Connection) -> Result<bool, Error> {
 }
 
 pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
+    if canonical::needed(connection).await? {
+        canonical::apply(connection).await?;
+    }
     let kind = serde_json::to_value(Kind::default()).expect("default artifact kind encodes");
     let kind = kind.as_str().expect("artifact kind is a string");
     for table in ARTIFACTS {

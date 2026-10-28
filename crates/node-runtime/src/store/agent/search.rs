@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::canonical::{BlockKind, Record};
 use regex::{Regex, RegexBuilder};
 use sailry_protocol::conversation::search::{self, Query};
 
@@ -97,7 +98,7 @@ pub(in crate::store) async fn search(
         bytes += body.len();
         count += 1;
         last = Some(sequence);
-        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+        let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
         if let Some((part, snippet, highlight)) = find(&event, &matcher) {
             let turn: String = row.get(1).map_err(storage_error)?;
             page.matches.push(search::Match {
@@ -106,7 +107,7 @@ pub(in crate::store) async fn search(
                 entry: event.id,
                 sequence,
                 part,
-                author: event.author,
+                author: event.provenance.author,
                 snippet,
                 highlight,
             });
@@ -115,30 +116,25 @@ pub(in crate::store) async fn search(
     Ok(page)
 }
 
-fn find(event: &AdkEvent, matcher: &Regex) -> Option<(usize, String, std::ops::Range<usize>)> {
-    event
-        .content()?
-        .parts
-        .iter()
-        .enumerate()
-        .find_map(|(index, part)| {
-            let adk_core::Part::Text { text } = part else {
-                return None;
-            };
-            let matched = matcher.find(text)?;
-            let start = text[..matched.start()]
-                .char_indices()
-                .rev()
-                .nth(CONTEXT - 1)
-                .map_or(0, |(index, _)| index);
-            let end = text[matched.end()..]
-                .char_indices()
-                .nth(CONTEXT)
-                .map_or(text.len(), |(index, _)| matched.end() + index);
-            Some((
-                index,
-                text[start..end].into(),
-                matched.start() - start..matched.end() - start,
-            ))
-        })
+fn find(event: &Record, matcher: &Regex) -> Option<(usize, String, std::ops::Range<usize>)> {
+    event.message()?.content.iter().find_map(|block| {
+        let BlockKind::Text { text } = &block.kind else {
+            return None;
+        };
+        let matched = matcher.find(text)?;
+        let start = text[..matched.start()]
+            .char_indices()
+            .rev()
+            .nth(CONTEXT - 1)
+            .map_or(0, |(index, _)| index);
+        let end = text[matched.end()..]
+            .char_indices()
+            .nth(CONTEXT)
+            .map_or(text.len(), |(index, _)| matched.end() + index);
+        Some((
+            block.index,
+            text[start..end].into(),
+            matched.start() - start..matched.end() - start,
+        ))
+    })
 }

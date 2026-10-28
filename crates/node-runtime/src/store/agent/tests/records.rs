@@ -120,77 +120,102 @@ async fn projects_only_tagged_node_context() {
     );
 }
 
-#[tokio::test]
-async fn reads_existing_event_bytes_without_rewriting() {
-    let mut fixture = fixture::Fixture::new().await;
-    fixture::files(&fixture.database, fixture._root.path()).await;
-    let mut event = AdkEvent::new("recorded-invocation");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("Recorded answer"));
-    event.llm_response.usage_metadata = Some(adk_core::UsageMetadata {
-        prompt_token_count: 11,
-        candidates_token_count: 3,
-        total_token_count: 14,
-        ..Default::default()
-    });
-    let (decoded, body) = recorded(&event);
-    let turn = fixture.append([decoded]).await;
-    fixture
-        .database
-        .connection
-        .execute(
+async fn body(db: &turso::Connection, id: &str) -> Vec<u8> {
+    db.prepare("SELECT body FROM agent_events WHERE id=?1")
+        .await
+        .unwrap()
+        .query_row([id])
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap()
+}
+
+async fn legacy(db: &turso::Connection, records: &[(TurnId, AdkEvent, Vec<u8>)]) {
+    for (turn, event, body) in records {
+        db.execute(
             "UPDATE agent_events SET body=?1 WHERE turn=?2 AND id=?3",
             params![body.as_slice(), turn.to_string(), event.id.as_str()],
         )
         .await
         .unwrap();
-    let page = fixture.read(None, 100).await.page;
-    let entry = page
-        .entries
-        .iter()
-        .find(|entry| entry.id == event.id)
-        .unwrap();
-    assert_eq!(entry.parts, [Part::Text("Recorded answer".into())]);
-    let stored: Vec<u8> = fixture
-        .database
-        .connection
-        .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
+    }
+    db.execute_batch("DROP INDEX agent_usage; DROP INDEX agent_usage_time; DROP TABLE agent_blobs")
         .await
-        .unwrap()
-        .query_row(params![turn.to_string(), event.id.as_str()])
-        .await
-        .and_then(|row| row.get(0))
         .unwrap();
-    assert_eq!(stored, body);
+    db.execute_batch(include_str!("../../database/schema/upgrades/usage.sql"))
+        .await
+        .unwrap();
+}
 
+#[tokio::test]
+async fn upgrades_history_with_private_backup() {
+    use crate::agent::canonical::{BlockKind, Record};
+    let mut fixture = fixture::Fixture::new().await;
+    fixture::files(&fixture.database, fixture._root.path()).await;
+    let mut answer = AdkEvent::new("recorded-invocation");
+    answer.author = "assistant".into();
+    answer.branch = "recorded-scope".into();
+    answer.set_content(adk_core::Content::new("model").with_text("Recorded answer"));
+    answer.llm_response.usage_metadata = Some(adk_core::UsageMetadata {
+        prompt_token_count: 11,
+        candidates_token_count: 3,
+        total_token_count: 14,
+        ..Default::default()
+    });
+    let (answer, answer_body) = recorded(&answer);
+    let first = fixture.append([answer.clone()]).await;
     let mut call = AdkEvent::new("recorded-exchange");
     call.author = "assistant".into();
+    call.branch = "recorded-scope".into();
     call.set_content(adk_core::Content {
         role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            id: Some("recorded-call".into()),
-            name: "read_file".into(),
-            args: serde_json::json!({"path":"recorded.txt"}),
-            thought_signature: None,
-        }],
+        parts: vec![
+            adk_core::Part::Text {
+                text: "Before the call".into(),
+            },
+            adk_core::Part::FunctionCall {
+                id: Some("recorded-call".into()),
+                name: "read_file".into(),
+                args: serde_json::json!({"path":"recorded.txt"}),
+                thought_signature: Some("recorded-signature".into()),
+            },
+        ],
     });
+    let original = serde_json::json!({
+        "content":"Recorded tool result",
+        "image":{"mimeType":"image/png","data":"AAEC/f7/"}
+    });
+    let bytes = vec![0, 1, 2, 253, 254, 255];
     let mut result = AdkEvent::new("recorded-exchange");
     result.author = "tool".into();
+    result.branch = call.branch.clone();
     result.set_content(adk_core::Content {
         role: "user".into(),
-        parts: vec![adk_core::Part::FunctionResponse {
-            id: Some("recorded-call".into()),
-            function_response: adk_core::FunctionResponseData::new(
-                "read_file",
-                serde_json::json!({"content":"Recorded tool result"}),
-            ),
-            annotations: None,
-        }],
+        parts: vec![
+            adk_core::Part::Text {
+                text: "Before the result".into(),
+            },
+            adk_core::Part::FunctionResponse {
+                id: Some("recorded-call".into()),
+                function_response: adk_core::FunctionResponseData::with_inline_data(
+                    "read_file",
+                    original.clone(),
+                    vec![adk_core::InlineDataPart {
+                        mime_type: "image/png".into(),
+                        data: bytes.clone(),
+                        uri: None,
+                        annotations: None,
+                    }],
+                ),
+                annotations: None,
+            },
+        ],
     });
-    result
-        .actions
-        .state_delta
-        .insert("recorded".into(), serde_json::json!(7));
+    result.actions.state_delta.insert(
+        "sailry.context.personal".into(),
+        serde_json::json!("Keep the captured policy"),
+    );
     let (call, call_body) = recorded(&call);
     let (result, result_body) = recorded(&result);
     let exchange = fixture.append([call.clone(), result.clone()]).await;
@@ -205,54 +230,102 @@ async fn reads_existing_event_bytes_without_rewriting() {
         end_timestamp: result.timestamp,
         compacted_content: adk_core::Content::new("user").with_text("Recorded summary"),
     });
-    let (summary, _) = recorded(&summary);
-    // Archived handoff metadata keeps its original role and bytes.
-    let mut archived = summary.clone();
-    archived
+    let compacted = fixture.append([summary.clone()]).await;
+    // Old handoffs could carry the model role; startup normalizes their model projection.
+    summary
         .actions
         .compaction
         .as_mut()
         .unwrap()
         .compacted_content
         .role = "model".into();
-    let (_, summary_body) = recorded(&archived);
-    let compacted = fixture.append([summary.clone()]).await;
-    let originals = [
-        (turn, &event.id, &body),
-        (exchange, &call.id, &call_body),
-        (exchange, &result.id, &result_body),
-        (compacted, &summary.id, &summary_body),
+    let (summary, summary_body) = recorded(&summary);
+    let originals = vec![
+        (first, answer.clone(), answer_body),
+        (exchange, call.clone(), call_body),
+        (exchange, result.clone(), result_body),
+        (compacted, summary.clone(), summary_body),
     ];
-    for (turn, id, body) in originals {
-        fixture
-            .database
-            .connection
-            .execute(
-                "UPDATE agent_events SET body=?1 WHERE turn=?2 AND id=?3",
-                params![body.as_slice(), turn.to_string(), id.as_str()],
-            )
-            .await
-            .unwrap();
-    }
-    let captured = captures(&fixture).await;
-    let packages: Vec<u8> = fixture
-        .database
-        .connection
-        .prepare("SELECT plugins FROM turns WHERE id=?1")
+    let queue = queue::read(&fixture.database.connection, fixture.session)
         .await
-        .unwrap()
-        .query_row([turn.to_string()])
-        .await
-        .and_then(|row| row.get(0))
         .unwrap();
-    assert!(
-        serde_json::from_slice::<serde_json::Value>(&packages)
-            .unwrap()
-            .to_string()
-            .contains("files")
+    let session = fixture.session;
+    command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetQueuePaused {
+            session,
+            expected_revision: queue.revision,
+            paused: true,
+        },
+    )
+    .await;
+    let captured = captures(&fixture).await;
+    let projected = fixture.read(None, 100).await;
+    let entry = projected
+        .page
+        .entries
+        .iter()
+        .find(|entry| entry.id == result.id)
+        .unwrap();
+    let Part::ToolResult {
+        id,
+        summary: detail,
+        images,
+        ..
+    } = &entry.parts[1]
+    else {
+        panic!("recorded tool result expected")
+    };
+    assert_eq!(images[0].part, 1);
+    let image = images[0].clone();
+    let reference = sailry_protocol::tool::OutputReference {
+        call: id.clone().unwrap(),
+        revision: blake3::hash(original.to_string().as_bytes())
+            .to_hex()
+            .to_string(),
+    };
+    let detail_revision = detail.revision.clone();
+    legacy(&fixture.database.connection, &originals).await;
+    let path = fixture.database.path.clone();
+    let fixture::Fixture {
+        database,
+        events,
+        session,
+        _root,
+    } = fixture;
+    database.close().await.unwrap();
+    let database = Database::open(&path, NodeId([33; 32]), None).await.unwrap();
+    let mut fixture = fixture::Fixture {
+        database,
+        events,
+        session,
+        _root,
+    };
+    assert_eq!(fixture.read(None, 100).await, projected);
+    assert_eq!(captures(&fixture).await, captured);
+    assert_eq!(
+        super::super::images::resolve(&fixture.database.connection, fixture.session, &image)
+            .await
+            .unwrap(),
+        bytes
     );
-    let original_page = fixture.read(None, 100).await.page;
-    let context = sessions::get(
+    let record: Record =
+        serde_json::from_slice(&body(&fixture.database.connection, &result.id).await).unwrap();
+    let BlockKind::ToolResponse(response) = &record.message().unwrap().content[1].kind else {
+        panic!("canonical result expected")
+    };
+    assert_eq!(record.provenance.author, result.author);
+    assert_eq!(record.provenance.branch, result.branch);
+    assert_eq!(response.revision, reference.revision);
+    assert!(response.result.value["image"]["data"].is_null());
+    assert_eq!(
+        super::super::blobs::hydrate(&fixture.database.connection, &response.result)
+            .await
+            .unwrap(),
+        original
+    );
+    let restored = sessions::get(
         &fixture.database.connection,
         compacted,
         GetRequest {
@@ -267,63 +340,105 @@ async fn reads_existing_event_bytes_without_rewriting() {
     .unwrap()
     .events()
     .all();
-    assert_eq!(context.len(), 1);
-    assert_eq!(context[0].id, summary.id);
-    assert_eq!(
-        serde_json::to_value(context[0].content()).unwrap(),
-        serde_json::to_value(Some(
-            &adk_core::Content::new("user").with_text("Recorded summary")
-        ))
-        .unwrap()
-    );
-    assert_eq!(
-        history::state(&fixture.database.connection, fixture.session)
-            .await
-            .unwrap()["recorded"],
-        7
-    );
+    assert_eq!(restored.len(), 1);
+    assert_eq!(restored[0].id, summary.id);
+    assert_eq!(restored[0].content().unwrap().role, "user");
     history::rebuild(&mut fixture.database.connection)
         .await
         .unwrap();
-    assert_eq!(fixture.read(None, 100).await.page, original_page);
-    let reloaded = sessions::get(
-        &fixture.database.connection,
-        compacted,
-        GetRequest {
-            app_name: APP.into(),
-            user_id: USER.into(),
-            session_id: fixture.session.to_string(),
-            num_recent_events: None,
-            after: None,
-        },
-    )
-    .await
-    .unwrap()
-    .events()
-    .all();
-    assert_eq!(
-        serde_json::to_value(&reloaded).unwrap(),
-        serde_json::to_value(&context).unwrap()
+    assert_eq!(fixture.read(None, 100).await, projected);
+    let current = fixture.read(None, 100).await;
+    let entry = current
+        .page
+        .entries
+        .iter()
+        .find(|entry| entry.id == result.id)
+        .unwrap();
+    assert!(
+        matches!(&entry.parts[1], Part::ToolResult { summary, .. } if summary.revision == detail_revision)
     );
-    assert_eq!(captures(&fixture).await, captured);
-    for (turn, id, body) in originals {
-        let stored: Vec<u8> = fixture
-            .database
-            .connection
-            .prepare("SELECT body FROM agent_events WHERE turn=?1 AND id=?2")
-            .await
-            .unwrap()
-            .query_row(params![turn.to_string(), id.as_str()])
-            .await
-            .and_then(|row| row.get(0))
-            .unwrap();
-        assert_eq!(&stored, body);
+    let backups: Vec<_> = std::fs::read_dir(fixture._root.path().join("backups"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path().join("node.turso"))
+        .collect();
+    assert_eq!(backups.len(), 1);
+    let backup = crate::store::database::engine(&backups[0]).await.unwrap();
+    let connection = crate::store::database::connect(&backup).await.unwrap();
+    for (_, event, original) in &originals {
+        assert_eq!(body(&connection, &event.id).await, *original);
     }
+    let has_assets: bool = connection
+        .prepare("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='agent_blobs')")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    assert!(!has_assets);
+    drop(connection);
+    drop(backup);
+    fixture.database.close().await.unwrap();
+    let database = Database::open(&path, NodeId([33; 32]), None).await.unwrap();
+    let fixture = fixture::Fixture {
+        database,
+        ..fixture
+    };
+    assert_eq!(fixture.read(None, 100).await, projected);
+    assert_eq!(
+        std::fs::read_dir(fixture._root.path().join("backups"))
+            .unwrap()
+            .count(),
+        1
+    );
+}
 
-    let request = serde_json::json!({"toolName":"recorded-tool", "functionCallId":"recorded-call", "args":{"path":"recorded.txt"}});
-    let decoded: adk_core::ToolConfirmationRequest =
-        serde_json::from_value(request.clone()).unwrap();
-    assert!(decoded.acting.is_none());
-    assert!(decoded.origin.is_none());
-    assert_eq!(serde_json::to_value(decoded).unwrap(), request);
+#[tokio::test]
+async fn rejects_invalid_history_without_writes() {
+    let mut fixture = fixture::Fixture::new().await;
+    let mut first = AdkEvent::new("first");
+    first.set_content(adk_core::Content {
+        role: "model".into(),
+        parts: vec![adk_core::Part::InlineData {
+            mime_type: "image/png".into(),
+            data: vec![1, 2, 3],
+            uri: None,
+            annotations: None,
+        }],
+    });
+    let mut second = AdkEvent::new("second");
+    second.set_content(adk_core::Content::new("model").with_text("Later record"));
+    let turn = fixture.append([first.clone(), second.clone()]).await;
+    let (_, first_body) = recorded(&first);
+    let invalid = br#"{"id":"second","partial":true}"#.to_vec();
+    let originals = vec![
+        (turn, first.clone(), first_body),
+        (turn, second.clone(), invalid),
+    ];
+    legacy(&fixture.database.connection, &originals).await;
+    let path = fixture.database.path.clone();
+    let root = fixture._root.path().to_owned();
+    fixture.database.close().await.unwrap();
+    let error = match Database::open(&path, NodeId([33; 32]), None).await {
+        Ok(_) => panic!("invalid history was accepted"),
+        Err(error) => error.to_string(),
+    };
+    assert!(error.contains("cannot be upgraded (decode:"), "{error}");
+    assert!(!root.join("backups").exists());
+    let handle = crate::store::database::engine(&path).await.unwrap();
+    let connection = crate::store::database::connect(&handle).await.unwrap();
+    for (_, event, original) in &originals {
+        assert_eq!(body(&connection, &event.id).await, *original);
+    }
+    let assets: bool = connection
+        .prepare("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='agent_blobs')")
+        .await
+        .unwrap()
+        .query_row(())
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    assert!(!assets);
 }

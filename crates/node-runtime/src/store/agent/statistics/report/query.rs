@@ -1,36 +1,38 @@
 use super::*;
 
 // All event fields match agent_usage_time; joins read frozen configuration, not current defaults.
-pub(super) const ROWS: &str = "WITH responses AS (SELECT e.body,e.sequence,e.session,e.turn,s.project,r.worktree,json_extract(r.config,'$.resource') AS resource,json_extract(r.config,'$.assistant') AS assistant,
-    CASE WHEN json_extract(e.body,'$.event_metadata.sailry_media') IS NULL OR m.value IS NULL
+pub(super) const ROWS: &str = "WITH responses AS (SELECT e.body,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,e.sequence,e.session,e.turn,s.project,r.worktree,json_extract(r.config,'$.resource') AS resource,json_extract(r.config,'$.assistant') AS assistant,
+    CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
         THEN json_extract(r.config,'$.provider') ELSE json_extract(m.value,'$.provider.id') END AS provider_id,
-    CASE WHEN json_extract(e.body,'$.event_metadata.sailry_media') IS NULL OR m.value IS NULL
+    CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
         THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END AS model,
-    CASE WHEN json_extract(e.body,'$.event_metadata.sailry_media') IS NULL OR m.value IS NULL
+    CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
         THEN a.provider ELSE json_extract(m.value,'$.provider') END AS provider
     FROM agent_events e JOIN turns t ON t.id=e.turn
     JOIN agent_runs a ON a.turn=t.id
     JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision
     JOIN sessions s ON s.id=t.session
     LEFT JOIN session_media media ON media.session=t.session
-    LEFT JOIN json_each(media.body) m ON m.key=json_extract(e.body,'$.event_metadata.sailry_media')
-    WHERE json_type(e.body,'$.usage_metadata')='object'
-    AND substr(json_extract(e.body,'$.timestamp'),1,19)>=?1
-    AND substr(json_extract(e.body,'$.timestamp'),1,19)<=?2
+    LEFT JOIN json_each(media.body) m ON m.key=json_extract(e.body,'$.metadata.execution.media')
+    WHERE coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
+    AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
+    AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0
+    AND substr(json_extract(e.body,'$.created'),1,19)>=?1
+    AND substr(json_extract(e.body,'$.created'),1,19)<=?2
     AND (?3='[]' OR s.project IN (SELECT value FROM json_each(?3)))
     AND (?4='[]' OR r.worktree IN (SELECT value FROM json_each(?4))))
     SELECT
-    json_extract(e.body,'$.timestamp'),
-    max(0,json_extract(e.body,'$.usage_metadata.prompt_token_count')),
-    max(0,json_extract(e.body,'$.usage_metadata.candidates_token_count')),
-    max(0,coalesce(json_extract(e.body,'$.usage_metadata.cache_read_input_token_count'),0)),
-    max(0,coalesce(json_extract(e.body,'$.usage_metadata.thinking_token_count'),0)),
+    json_extract(e.body,'$.created'),
+    max(0,json_extract(e.usage,'$.input')),
+    max(0,json_extract(e.usage,'$.output')),
+    max(0,coalesce(json_extract(e.usage,'$.cache_read'),0)),
+    max(0,coalesce(json_extract(e.usage,'$.reasoning'),0)),
     e.provider_id,e.model,e.project,e.worktree,
     json_extract(e.provider,'$.api'),json_extract(e.provider,'$.authentication'),
-    json_extract(e.provider,'$.endpoint'),json_extract(e.body,'$.usage_metadata'),
-    json_extract(e.body,'$.provider_metadata.sailry_timing.elapsed_us'),
-    json_extract(e.body,'$.event_metadata.sailry_media'),e.sequence,e.session,e.turn,
-    json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us'),
+    json_extract(e.provider,'$.endpoint'),e.usage,
+    json_extract(e.body,'$.metadata.execution.timing.elapsed_us'),
+    json_extract(e.body,'$.metadata.execution.media'),e.sequence,e.session,e.turn,
+    json_extract(e.body,'$.metadata.execution.timing.first_token_us'),
     json_extract(e.provider,'$.name'),coalesce(
         (SELECT name FROM projects WHERE id=e.project),
         CASE json_extract(e.resource,'$.kind')
@@ -41,7 +43,7 @@ pub(super) const ROWS: &str = "WITH responses AS (SELECT e.body,e.sequence,e.ses
     FROM responses e
     WHERE (?5='[]' OR e.provider_id IN (SELECT value FROM json_each(?5)))
     AND (?6='[]' OR e.model IN (SELECT value FROM json_each(?6)))
-    ORDER BY substr(json_extract(e.body,'$.timestamp'),1,19),e.sequence LIMIT ?7";
+    ORDER BY substr(json_extract(e.body,'$.created'),1,19),e.sequence LIMIT ?7";
 
 pub(super) fn validate(query: &Query) -> Result<(DateTime<Utc>, DateTime<Utc>), Fault> {
     if query.start_ms < 0

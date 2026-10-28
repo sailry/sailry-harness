@@ -149,9 +149,9 @@ async fn preview(db: &Connection, turn: TurnId) -> Result<Option<String>, Fault>
         let mut statement = db
             .prepare(
                 "SELECT substr(json_extract(part.value,'$.text'),1,512)
-         FROM agent_events e, json_each(e.body,'$.content.parts') part
-         WHERE e.turn=?1 AND json_extract(e.body,'$.author')!='user'
-           AND json_type(part.value,'$.thinking') IS NULL
+         FROM agent_events e, json_each(e.body,'$.content') part
+         WHERE e.turn=?1 AND json_extract(e.body,'$.provenance.author')!='user'
+           AND json_extract(part.value,'$.type')='text'
            AND length(trim(json_extract(part.value,'$.text')))>0
          ORDER BY e.sequence DESC,part.key ASC LIMIT 1",
             )
@@ -259,10 +259,30 @@ Err(error) => return Err(storage_error(error)),
 } }.flatten();
     match message {
         Some(message) => Ok(message),
-        None => (match (async { let mut statement = db.prepare("SELECT json_extract(e.body,'$.content.parts[0].text') FROM agent_events e WHERE turn=?1 AND json_extract(body,'$.author')='user' ORDER BY sequence LIMIT 1").await?;
-let row = statement.query_row([first.as_str()]).await?;
-let mapped: turso::Result<_> = row.get::<Option<String>>(0);
-mapped }).await { Ok(value) => Ok(Some(value)), Err(turso::Error::QueryReturnedNoRows) => Ok(None), Err(error) => Err(error) }).map_err(storage_error).map(|message| message.flatten().unwrap_or_default()),
+        None => {
+            let mut statement = db.prepare("SELECT body FROM agent_events WHERE turn=?1 AND json_extract(body,'$.provenance.author')='user' ORDER BY sequence LIMIT 1").await.map_err(storage_error)?;
+            let body: Vec<u8> = match statement.query_row([first.as_str()]).await {
+                Ok(row) => row.get(0).map_err(storage_error)?,
+                Err(turso::Error::QueryReturnedNoRows) => return Ok(String::new()),
+                Err(error) => return Err(storage_error(error)),
+            };
+            let record: crate::agent::canonical::Record =
+                serde_json::from_slice(&body).map_err(storage_error)?;
+            let index = record
+                .metadata
+                .input
+                .as_ref()
+                .and_then(|input| input.text_part)
+                .unwrap_or(0);
+            Ok(record
+                .message()
+                .and_then(|message| message.content.iter().find(|block| block.index == index))
+                .and_then(|block| match &block.kind {
+                    crate::agent::canonical::BlockKind::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default())
+        }
     }
 }
 

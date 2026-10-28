@@ -109,7 +109,7 @@ async fn counts_reported_usage_once() {
             .unwrap(),
         Statistics {
             turns: 3,
-            responses: 3,
+            responses: 2,
             observations: sailry_protocol::conversation::observation::Summary {
                 replies: 3,
                 cache_read: Some(6),
@@ -119,8 +119,8 @@ async fn counts_reported_usage_once() {
             usage: Some(Usage {
                 input: 2 * i32::MAX as u64,
                 output: 8,
-                cached_input: 6,
-                reasoning: 3
+                cached_input: 4,
+                reasoning: 2
             }),
             ..Default::default()
         }

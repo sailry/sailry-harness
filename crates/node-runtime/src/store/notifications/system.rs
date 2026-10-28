@@ -123,7 +123,7 @@ async fn reported(db: &Connection, run: &Run) -> Result<bool, Fault> {
 
 async fn stopped(db: &Connection, turn: sailry_protocol::TurnId) -> Result<bool, Fault> {
     let mut query = db.prepare(
-        "SELECT json_extract(body,'$.event_metadata.sailry_compaction_failure') FROM agent_events WHERE turn=?1 AND json_extract(body,'$.author')='system'",
+        "SELECT json_extract(body,'$.metadata.compaction.failure') FROM agent_events WHERE turn=?1 AND json_extract(body,'$.provenance.author')='system'",
     ).await.map_err(storage_error)?;
     let rows = {
         let mut rows = query

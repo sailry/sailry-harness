@@ -1,5 +1,6 @@
 //! Completed plans use canonical metadata, not fabricated provider tool calls.
 use super::*;
+use crate::agent::canonical::{BlockKind, Finish, Kind, Notice, Record, Role};
 use adk_core::ToolConfirmationRequest;
 use question::{Answer, Response, Spec};
 use serde::{Deserialize, Serialize};
@@ -36,20 +37,19 @@ pub(crate) fn result(turn: TurnId, call: String, response: Response) -> AdkEvent
     event
 }
 
-pub(super) fn spec(event: &AdkEvent) -> Option<Spec> {
-    event.provider_metadata.contains_key(SOURCE).then(|| Spec {
+pub(super) fn spec(event: &Record) -> Option<Spec> {
+    matches!(&event.kind, Kind::Notice(Notice::PlanReview { .. })).then(|| Spec {
         prompt: String::new(),
         input: question::Input::Plan,
     })
 }
 
-pub(super) async fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Result<(), Fault> {
-    let Some(source) = event.provider_metadata.get(SOURCE) else {
+pub(super) async fn validate(db: &Connection, turn: TurnId, event: &Record) -> Result<(), Fault> {
+    let Kind::Notice(Notice::PlanReview { source }) = &event.kind else {
         return Ok(());
     };
     let run = runs::get(db, turn).await?;
-    if event.content().is_some()
-        || event.author != TOOL
+    if event.provenance.author != TOOL
         || run.kind != RunKind::Task
         || !matches!(run.status, Status::Running | Status::Completed)
         || permissions::config(db, turn).await?.mode != WorkMode::Plan
@@ -77,15 +77,16 @@ pub(super) async fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) ->
         let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
-    let source: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-    if source.llm_response.partial
-        || source.llm_response.error_code.is_some()
-        || source.llm_response.error_message.is_some()
-        || !source.is_final_response()
-        || source
-            .content()
-            .is_none_or(|content| content.role != "model")
-    {
+    let source: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+    if source.message().is_none_or(|message| {
+        message.error.is_some()
+            || matches!(message.finish, Some(Finish::Interrupted | Finish::Failed))
+            || message.role != Role::Assistant
+            || message
+                .content
+                .iter()
+                .any(|block| matches!(block.kind, BlockKind::ToolRequest(_)))
+    }) {
         return Err(sailry_protocol::Fault::invalid(
             "plan review has no completed answer",
         ));
@@ -111,7 +112,7 @@ pub(super) async fn locate(
         let mapped: turso::Result<_> = row.get(0);
         mapped.map_err(storage_error)?
     };
-    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+    let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
     if request.tool_name != TOOL
         || spec(&event).is_none_or(|spec| {
             serde_json::to_value(spec).expect("plan input is serializable") != request.args
@@ -124,7 +125,7 @@ pub(super) async fn locate(
     Ok((call.into(), 0))
 }
 
-pub(super) fn project(event: &AdkEvent) -> Result<Vec<history::tools::Raw>, Fault> {
+pub(super) fn project(event: &Record) -> Result<Vec<history::tools::Raw>, Fault> {
     if let Some(spec) = spec(event) {
         return Ok(vec![history::tools::Raw::new(
             Some(event.id.clone()),
@@ -132,11 +133,10 @@ pub(super) fn project(event: &AdkEvent) -> Result<Vec<history::tools::Raw>, Faul
             serde_json::to_value(spec).map_err(storage_error)?,
         )]);
     }
-    let Some(recorded) = event.provider_metadata.get(RESULT) else {
+    let Kind::Notice(Notice::PlanResult { call, response }) = &event.kind else {
         return Ok(Vec::new());
     };
-    let Recorded { call, response } = serde_json::from_str(recorded).map_err(storage_error)?;
-    let result = match response {
+    let result = match response.clone() {
         Response::Answer(Answer::Text(text)) => {
             serde_json::json!({"status": "answered", "answer": text})
         }
@@ -150,7 +150,7 @@ pub(super) fn project(event: &AdkEvent) -> Result<Vec<history::tools::Raw>, Faul
             ));
         }
     };
-    let mut raw = history::tools::Raw::new(Some(call), TOOL.into(), Value::Null);
+    let mut raw = history::tools::Raw::new(Some(call.clone()), TOOL.into(), Value::Null);
     raw.result = Some(result);
     Ok(vec![raw])
 }

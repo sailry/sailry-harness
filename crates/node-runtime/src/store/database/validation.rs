@@ -426,8 +426,13 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         "SELECT r.body FROM agent_pending p JOIN requests r ON r.caller=p.caller AND r.id=p.request",
     ).await?;
     if archives {
-        records::<adk_core::Event>(db, "agent_events.body", "SELECT body FROM agent_events")
-            .await?;
+        records::<crate::agent::canonical::Record>(
+            db,
+            "agent_events.body",
+            "SELECT body FROM agent_events",
+        )
+        .await?;
+        history(db).await?;
     } else {
         // These completed receipts can participate in recovery, unlike unused archives.
         records::<Result<Output, Fault>>(
@@ -440,6 +445,35 @@ async fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
     }
     super::counters::validate(db).await?;
     Ok(())
+}
+
+async fn history(db: &Connection) -> Result<(), Error> {
+    let mut rows = db
+        .query(
+            "SELECT sequence,turn,id,body FROM agent_events ORDER BY sequence",
+            (),
+        )
+        .await?;
+    while let Some(row) = rows.next().await? {
+        let sequence = row.get::<i64>(0)?;
+        let record: crate::agent::canonical::Record =
+            serde_json::from_slice(&row.get::<Vec<u8>>(3)?)
+                .map_err(|_| invalid_record(sequence))?;
+        if record.turn.to_string() != row.get::<String>(1)? || record.id != row.get::<String>(2)? {
+            return Err(invalid_record(sequence));
+        }
+        crate::agent::canonical::validate(&record).map_err(|_| invalid_record(sequence))?;
+        crate::store::agent::blobs::validate(db, &record)
+            .await
+            .map_err(|_| invalid_record(sequence))?;
+    }
+    Ok(())
+}
+
+fn invalid_record(sequence: i64) -> Error {
+    Error::Worker(format!(
+        "invalid conversation record {sequence}; existing data was not changed"
+    ))
 }
 
 pub(in crate::store) async fn records<T: DeserializeOwned>(

@@ -121,10 +121,11 @@ pub(super) async fn context_usage(
         .prepare(&format!(
             "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND h.sequence>?2
-           AND json_type(e.body,'$.actions.compaction') IS NULL
-           AND json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
-           AND coalesce(json_extract(e.body,'$.event_metadata.sailry_model_purpose'),'')!='compaction'
-           AND {} ORDER BY h.sequence", super::history::VISIBLE_EVENT
+           AND json_extract(e.body,'$.kind')!='compaction'
+           AND json_extract(e.body,'$.metadata.execution.media') IS NULL
+           AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='compaction'
+           AND {} ORDER BY h.sequence",
+            super::history::VISIBLE_EVENT
         ))
         .await
         .map_err(storage_error)?;
@@ -135,7 +136,9 @@ pub(super) async fn context_usage(
     let mut pending = Vec::new();
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         let body = row.get::<Vec<u8>>(0).map_err(storage_error)?;
-        pending.push(serde_json::from_slice(&body).map_err(storage_error)?);
+        let record: crate::agent::canonical::Record =
+            serde_json::from_slice(&body).map_err(storage_error)?;
+        pending.push(crate::agent::canonical_bridge::to_adk(db, &record).await?);
     }
     if let Some(summary) = summary {
         pending.insert(0, summary);
@@ -169,38 +172,38 @@ async fn read_observation(
 ) -> Result<Option<Observation>, Fault> {
     // Read the last model observation in canonical order. A summary invalidates
     // the old window measurement; its own prompt is not the resumed context.
-    let mut statement = db.prepare("SELECT h.sequence, CASE WHEN json_type(e.body,'$.actions.compaction') IS NULL
-          AND json_extract(e.body,'$.usage_metadata.prompt_token_count') >= 0
-          AND json_extract(e.body,'$.usage_metadata.candidates_token_count') >= 0
-         THEN json_extract(e.body,'$.usage_metadata.prompt_token_count')
-            + json_extract(e.body,'$.usage_metadata.candidates_token_count') END,
-         CASE WHEN json_type(e.body,'$.actions.compaction') IS NULL
-          AND json_extract(e.body,'$.usage_metadata.prompt_token_count') >= 0
-          AND json_extract(e.body,'$.usage_metadata.candidates_token_count') >= 0
-          AND json_type(e.body,'$.provider_metadata.sailry_timing.first_token_us')='integer'
-          AND json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') >= 0
-         THEN json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') END,
+    let mut statement = db.prepare("SELECT h.sequence, CASE WHEN json_extract(e.body,'$.kind')!='compaction'
+          AND json_extract(e.body,'$.usage.input') >= 0
+          AND json_extract(e.body,'$.usage.output') >= 0
+         THEN json_extract(e.body,'$.usage.input')
+            + json_extract(e.body,'$.usage.output') END,
+         CASE WHEN json_extract(e.body,'$.kind')!='compaction'
+          AND json_extract(e.body,'$.usage.input') >= 0
+          AND json_extract(e.body,'$.usage.output') >= 0
+          AND json_type(e.body,'$.metadata.execution.timing.first_token_us')='integer'
+          AND json_extract(e.body,'$.metadata.execution.timing.first_token_us') >= 0
+         THEN json_extract(e.body,'$.metadata.execution.timing.first_token_us') END,
          (SELECT json_extract(model.value,'$.context') FROM json_each(r.provider,'$.models') model
           WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
-         coalesce(json_type(e.body,'$.actions.compaction')='object',0),
-         json_extract(revision.config,'$.model'),json_extract(e.body,'$.timestamp'),
-         CASE WHEN json_type(json_extract(e.body,'$.event_metadata.sailry_context_projection'),'$.tokens')='integer'
-           AND json_extract(json_extract(e.body,'$.event_metadata.sailry_context_projection'),'$.tokens')>=0
-         THEN json_extract(json_extract(e.body,'$.event_metadata.sailry_context_projection'),'$.tokens') END
+         coalesce(json_extract(e.body,'$.kind')='compaction',0),
+         json_extract(revision.config,'$.model'),json_extract(e.body,'$.created'),
+         CASE WHEN json_type(e.body,'$.metadata.execution.context_tokens')='integer'
+           AND json_extract(e.body,'$.metadata.execution.context_tokens')>=0
+         THEN json_extract(e.body,'$.metadata.execution.context_tokens') END
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn
          LEFT JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
-         WHERE h.session=?1 AND json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
-           AND (coalesce(json_extract(e.body,'$.event_metadata.sailry_model_purpose'),'')!='compaction'
-             OR json_type(e.body,'$.actions.compaction')='object')
-           AND (json_extract(e.body,'$.content.role')='model'
-           OR json_type(e.body,'$.usage_metadata')='object'
-           OR json_type(e.body,'$.actions.compaction')='object'
-           OR json_type(e.body,'$.event_metadata.sailry_context_projection')='text')
-           AND (?2=0 OR json_type(e.body,'$.actions.compaction')='object'
-             OR json_type(e.body,'$.event_metadata.sailry_context_projection')='text'
-             OR (json_extract(e.body,'$.usage_metadata.prompt_token_count')>=0
-                 AND json_extract(e.body,'$.usage_metadata.candidates_token_count')>=0))
+         WHERE h.session=?1 AND json_extract(e.body,'$.metadata.execution.media') IS NULL
+           AND (coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='compaction'
+             OR json_extract(e.body,'$.kind')='compaction')
+           AND ((json_extract(e.body,'$.role')='assistant' AND json_extract(e.body,'$.part_count')>0)
+           OR json_type(e.body,'$.usage')='object'
+           OR json_extract(e.body,'$.kind')='compaction'
+           OR json_type(e.body,'$.metadata.execution.context_tokens')='integer')
+           AND (?2=0 OR json_extract(e.body,'$.kind')='compaction'
+             OR json_type(e.body,'$.metadata.execution.context_tokens')='integer'
+             OR (json_extract(e.body,'$.usage.input')>=0
+                 AND json_extract(e.body,'$.usage.output')>=0))
          ORDER BY h.sequence DESC LIMIT 1").await.map_err(storage_error)?;
     let row = match statement
         .query_row(params![session.to_string(), measured])

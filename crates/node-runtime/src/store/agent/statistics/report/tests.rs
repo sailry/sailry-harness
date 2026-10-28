@@ -43,6 +43,32 @@ async fn report(fixture: &Fixture, query: &Query) -> Report {
         .unwrap()
 }
 
+#[tokio::test]
+async fn excludes_incomplete_usage_counts() {
+    let mut fixture = Fixture::new().await;
+    fixture.append([event(START, 10)]).await;
+    fixture.append([event(START + 1000, -1)]).await;
+    let report = report(&fixture, &query()).await;
+    assert_eq!(report.totals.responses, 1);
+    assert_eq!(report.totals.tokens.as_ref().unwrap().input, 10);
+    assert_eq!(report.requests.items.len(), 1);
+    let context = super::super::read(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    assert_eq!(context.context_tokens, None);
+    assert_eq!(context.responses, 1);
+    let mut query = fixture
+        .database
+        .connection
+        .prepare("SELECT body FROM agent_events ORDER BY sequence DESC LIMIT 1")
+        .await
+        .unwrap();
+    let body: Vec<u8> = query.query_row(()).await.unwrap().get(0).unwrap();
+    let record: crate::agent::canonical::Record = serde_json::from_slice(&body).unwrap();
+    assert_eq!(record.usage().unwrap().input, None);
+    assert_eq!(record.usage().unwrap().output, Some(4));
+}
+
 async fn session(fixture: &mut Fixture) -> Session {
     let Output::Snapshot(snapshot) =
         command(&mut fixture.database, &fixture.events, Command::Snapshot).await
@@ -635,7 +661,7 @@ async fn reads_indexed_metadata() {
     // Resource labels and latency are part of the report, model response bodies are not.
     assert!(encoded.len() < 20 * 1024);
     db.execute(
-        "UPDATE agent_events SET body=json_set(body,'$.content.parts[0].text','short')",
+        "UPDATE agent_events SET body=json_set(body,'$.content[0].text','short')",
         (),
     )
     .await

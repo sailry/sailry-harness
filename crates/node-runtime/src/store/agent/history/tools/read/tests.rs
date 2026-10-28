@@ -130,7 +130,7 @@ async fn preserves_order_branch_and_ambiguity() {
         events.push((
             row.get::<i64>(0).unwrap() as u64,
             turn,
-            serde_json::from_slice::<AdkEvent>(&row.get::<Vec<u8>>(1).unwrap()).unwrap(),
+            serde_json::from_slice::<Record>(&row.get::<Vec<u8>>(1).unwrap()).unwrap(),
         ));
     }
     let sources = Sources::new(db, &events).await.unwrap();
@@ -143,8 +143,8 @@ async fn preserves_order_branch_and_ambiguity() {
     .into_iter();
     for (sequence, turn, event) in &events {
         if !matches!(
-            event.content().unwrap().parts[0],
-            adk_core::Part::FunctionResponse { .. }
+            event.message().unwrap().content[0].kind,
+            BlockKind::ToolResponse(_)
         ) {
             continue;
         }
@@ -166,8 +166,8 @@ async fn preserves_order_branch_and_ambiguity() {
         .into_iter()
         .filter(|(_, _, event)| {
             matches!(
-                event.content().unwrap().parts[0],
-                adk_core::Part::FunctionResponse { .. }
+                event.message().unwrap().content[0].kind,
+                BlockKind::ToolResponse(_)
             )
         })
         .collect();
@@ -205,18 +205,39 @@ async fn skips_unrequested_call_projection() {
         )
         .await;
     let db = &fixture.database.connection;
-    // Invalid display metadata on an unrelated call must never be evaluated.
-    for mut call in unrelated {
-        call.provider_metadata
-            .insert("dev.sailry.tool_display".into(), "[]".into());
+    // Unrequested native calls must not hydrate unrelated binary assets.
+    for call in unrelated {
+        let mut record = crate::agent::canonical_bridge::from_adk(db, turn, &call)
+            .await
+            .unwrap();
+        let id = record.message().unwrap().content[0].kind.clone();
+        let BlockKind::ToolRequest(request) = id else {
+            unreachable!()
+        };
+        record.message_mut().unwrap().content[0].kind = BlockKind::ServerCall {
+            value: crate::agent::canonical::Payload {
+                value: json!({"type":"web_search_call","id":request.id,"opaque":null}),
+                assets: vec![crate::agent::canonical::BinarySlot {
+                    pointer: "/opaque".into(),
+                    asset: crate::agent::canonical::AssetRef {
+                        digest: "0".repeat(64),
+                        mime: "image/png".into(),
+                        size: 1,
+                        uri: None,
+                        annotations: None,
+                    },
+                    encoding: crate::agent::canonical::BinaryEncoding::Bytes,
+                }],
+            },
+        };
         assert_eq!(
             db.execute(
-                "UPDATE agent_events SET body=?1 WHERE turn=?2 AND json_extract(body,'$.id')=?3",
+                "UPDATE agent_events SET body=?1 WHERE turn=?2 AND id=?3",
                 params![
-                    serde_json::to_vec(&call).unwrap(),
+                    serde_json::to_vec(&record).unwrap(),
                     turn.to_string(),
-                    call.id
-                ],
+                    record.id
+                ]
             )
             .await
             .unwrap(),
@@ -232,6 +253,9 @@ async fn skips_unrequested_call_projection() {
         .unwrap()
         .get::<i64>(0)
         .unwrap() as u64;
+    let result = crate::agent::canonical_bridge::from_adk(db, turn, &result)
+        .await
+        .unwrap();
     let sources = Sources::new(db, &[(sequence, turn, result.clone())])
         .await
         .unwrap();

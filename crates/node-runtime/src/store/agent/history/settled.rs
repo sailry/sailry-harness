@@ -1,5 +1,6 @@
 //! Completion invalidation follows the canonical batch, not individual results.
 use super::*;
+use crate::agent::canonical::{BlockKind, Record};
 
 pub(super) async fn completed(db: &Connection, turn: TurnId, entry: &Entry) -> Result<bool, Fault> {
     if !entry
@@ -12,9 +13,9 @@ pub(super) async fn completed(db: &Connection, turn: TurnId, entry: &Entry) -> R
     let batch = db
         .prepare(
             "SELECT sequence,body FROM agent_events e WHERE turn=?1 AND sequence<?2
-         AND json_extract(body,'$.content.role')='model'
-         AND EXISTS(SELECT 1 FROM json_each(e.body,'$.content.parts') p
-             WHERE json_type(p.value,'$.name')='text' AND json_type(p.value,'$.args') IS NOT NULL)
+         AND json_extract(body,'$.role')='assistant'
+         AND EXISTS(SELECT 1 FROM json_each(e.body,'$.content') p
+             WHERE json_extract(p.value,'$.type')='tool_request')
          ORDER BY sequence DESC LIMIT 1",
         )
         .await
@@ -29,21 +30,20 @@ pub(super) async fn completed(db: &Connection, turn: TurnId, entry: &Entry) -> R
         Err(turso::Error::QueryReturnedNoRows) => return Ok(false),
         Err(error) => return Err(storage_error(error)),
     };
-    let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
+    let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
     let mut calls: Vec<_> = event
-        .llm_response
-        .content
+        .message()
         .into_iter()
-        .flat_map(|content| content.parts)
-        .filter_map(|part| match part {
-            adk_core::Part::FunctionCall { name, id, .. } => Some((name, id)),
+        .flat_map(|message| &message.content)
+        .filter_map(|block| match &block.kind {
+            BlockKind::ToolRequest(request) => Some((request.name.clone(), request.id.clone())),
             _ => None,
         })
         .collect();
     let mut rows = db
         .query(
             "SELECT sequence,body FROM agent_events WHERE turn=?1 AND sequence>?2 AND sequence<=?3
-         AND json_extract(body,'$.content.role')='function' ORDER BY sequence",
+         AND EXISTS(SELECT 1 FROM json_each(body,'$.content') part WHERE json_extract(part.value,'$.type')='tool_response') ORDER BY sequence",
             params![turn.to_string(), sequence, entry.sequence as i64],
         )
         .await
@@ -54,21 +54,16 @@ pub(super) async fn completed(db: &Connection, turn: TurnId, entry: &Entry) -> R
         }
         let sequence: i64 = row.get(0).map_err(storage_error)?;
         let body: Vec<u8> = row.get(1).map_err(storage_error)?;
-        let event: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
-        for part in event
-            .llm_response
-            .content
+        let event: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+        for block in event
+            .message()
             .into_iter()
-            .flat_map(|content| content.parts)
+            .flat_map(|message| &message.content)
         {
-            if let adk_core::Part::FunctionResponse {
-                function_response,
-                id,
-                ..
-            } = part
+            if let BlockKind::ToolResponse(response) = &block.kind
                 && let Some(index) = calls
                     .iter()
-                    .position(|(name, call)| *name == function_response.name && *call == id)
+                    .position(|(name, call)| *name == response.name && *call == response.id)
             {
                 calls.remove(index);
             }
