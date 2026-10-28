@@ -28,6 +28,30 @@ async fn isolates_reasoning_across_apis() {
         let second = Server::start(false).await;
         let (session, mut provider) = configured_session(&client, &first.endpoint, &root).await;
         provider.api = ModelApi::Responses;
+        provider.default_model = "fixture-a".into();
+        provider.models = ["fixture-a", "fixture-b"]
+            .into_iter()
+            .map(|id| Model {
+                id: id.into(),
+                display_name: None,
+                context: 128_000,
+                output: 2048,
+                vision: false,
+                tools: true,
+                reasoning: true,
+                web_search: false,
+                generates: Vec::new(),
+                efforts: vec![Effort::Low, Effort::High],
+                capabilities: Some(sailry_protocol::conversation::discovery::Capabilities {
+                    reasoning: Some(true),
+                    tools: Some(true),
+                    ..Default::default()
+                }),
+                custom_efforts: false,
+                compaction_tokens: None,
+                default_effort: Effort::High,
+            })
+            .collect();
         client
             .execute(client.prepare(Command::PutProvider {
                 provider: provider.clone(),
@@ -105,7 +129,12 @@ async fn isolates_reasoning_across_apis() {
         );
         assert_eq!(requests[0]["reasoning_effort"], "high");
         assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part, Part::Thinking(value) if value == "Retained reasoning without a final answer")));
-        let first_requests = first.requests.lock().unwrap().len();
+        let first_requests = {
+            let requests = first.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0]["reasoning"]["effort"], "high");
+            requests.len()
+        };
         drop(client);
         node.shutdown().await.unwrap();
         let node = Node::start_empty(directory.path().join("node"))

@@ -53,7 +53,16 @@ async fn reads_bound_worktree() {
                 json!({"path": "资料.txt", "worktree": WorktreeId::new()}),
             ),
         ];
-        let server = Server::tools(calls.clone()).await;
+        let deferred: Vec<_> = ["create_worktree", "register_worktree", "remove_worktree"]
+            .into_iter()
+            .map(|name| plugin_tool("worktrees", name))
+            .collect();
+        let mut script = vec![(
+            "tool_search".into(),
+            json!({"query":deferred.join(" "),"limit":3}),
+        )];
+        script.extend(calls.clone());
+        let server = Server::tools(script).await;
         let (session, mut provider) = configured(&client, &server.endpoint, &root).await;
         client
             .execute(client.prepare(Command::ReadPlugin {
@@ -127,8 +136,28 @@ async fn reads_bound_worktree() {
             "{:?}",
             page.runs[0].error
         );
-        let results: Vec<_> = results(&client, &page).await;
+        let details = tool_details(&client, &page).await;
+        let results: Vec<_> = details
+            .iter()
+            .filter(|(name, _)| name != "tool_search")
+            .map(|(_, detail)| detail.result.as_ref().unwrap())
+            .collect();
         assert_eq!(results.len(), calls.len());
+        let discovery: Vec<_> = details
+            .iter()
+            .filter(|(name, _)| name == "tool_search")
+            .collect();
+        assert_eq!(discovery.len(), 1);
+        let mut loaded: Vec<_> = discovery[0].1.result.as_ref().unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap().to_owned())
+            .collect();
+        let mut expected = deferred.clone();
+        loaded.sort();
+        expected.sort();
+        assert_eq!(loaded, expected);
         assert_eq!(results[0]["data"]["entries"][0]["name"], "资料.txt");
         assert_eq!(
             results[1]["data"]["lines"]
@@ -146,7 +175,7 @@ async fn reads_bound_worktree() {
         assert!(results[6].get("error").is_some());
         assert!(results[7].get("error").is_some());
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), calls.len() + 1);
+        assert_eq!(requests.len(), calls.len() + 2);
         let catalog = requests[0]["tools"].as_array().unwrap();
         let history_tool = catalog
             .iter()
@@ -154,157 +183,51 @@ async fn reads_bound_worktree() {
             .unwrap();
         assert_eq!(
             history_tool["function"]["parameters"]["properties"]["cursor"]["type"],
-            json!(["object", "null"])
+            "object"
         );
-        let mut expected: Vec<String> = [
-            "manage_skills",
-            "manage_mcp",
-            "manage_plugins",
+        for name in [
+            "tool_search",
             "load_skill",
             "read_skill_resource",
             "list_sessions",
             "read_session",
             "search_session",
             "read_tool_output",
-            "compact_context",
             "set_session_title",
             "ask_user",
-        ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-        let packages: &[(&str, &[&str])] = &[
-            ("reminders", &["reminders"]),
-            ("scheduled-tasks", &["scheduled_tasks"]),
-            ("progress", &["update_plan"]),
-            (
-                "goals",
-                &[
-                    "create_goal",
-                    "get_goal",
-                    "update_goal",
-                    "resume_goal",
-                    "pause_goal",
-                    "clear_goal",
-                ],
-            ),
-            (
-                "commands",
-                &[
-                    "run_command",
-                    "read_command",
-                    "stop_command",
-                    "write_command",
-                ],
-            ),
-            ("web-search", &["web_search", "web_fetch"]),
-            (
-                "memory",
-                &[
-                    "search_memory",
-                    "review_memories",
-                    "save_memory",
-                    "forget_memory",
-                    "consolidate_memories",
-                ],
-            ),
-            (
-                "files",
-                &[
-                    "list_directory",
-                    "read_file",
-                    "write_file",
-                    "create_directory",
-                    "delete_file",
-                    "move_file",
-                    "edit_file",
-                    "find_files",
-                    "search_files",
-                    "read_office",
-                    "read_notebook",
-                    "edit_notebook",
-                    "list_ocr_models",
-                    "install_ocr_model",
-                    "uninstall_ocr_model",
-                ],
-            ),
-            ("brief", &["read_brief", "list_briefs", "write_brief"]),
-            (
-                "delegation",
-                &[
-                    "spawn_agent",
-                    "guide_agent",
-                    "wait_agent",
-                    "list_agents",
-                    "add_agent",
-                    "edit_agent",
-                    "delete_agent",
-                    "apply_agents",
-                ],
-            ),
-            (
-                "databases",
-                &[
-                    "database_catalog",
-                    "database_query",
-                    "database_execute",
-                    "database_connections",
-                    "database_save_connection",
-                ],
-            ),
-            (
-                "ssh",
-                &[
-                    "ssh_run",
-                    "ssh_transfer",
-                    "ssh_connections",
-                    "ssh_save_connection",
-                ],
-            ),
-            (
-                "media",
-                &["inspect_image", "generate_image", "generate_video"],
-            ),
-            (
-                "worktrees",
-                &[
-                    "list_worktrees",
-                    "create_worktree",
-                    "register_worktree",
-                    "remove_worktree",
-                ],
-            ),
-            (
-                "git",
-                &[
-                    "git_status",
-                    "git_diff",
-                    "git_log",
-                    "git_show",
-                    "git_blame",
-                    "list_git_changes",
-                    "read_git_change",
-                ],
-            ),
-            ("code", &["code_search", "code_outline", "code_context"]),
-        ];
-        for (package, tools) in packages {
-            expected.extend(tools.iter().map(|tool| plugin_tool(package, tool)));
+        ] {
+            assert!(catalog.iter().any(|tool| tool["function"]["name"] == name));
         }
-        let mut names: Vec<String> = catalog
-            .iter()
-            .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
-            .collect();
-        expected.sort();
-        names.sort();
-        assert_eq!(names, expected);
+        for name in [
+            "manage_skills",
+            "manage_mcp",
+            "manage_plugins",
+            "compact_context",
+        ] {
+            assert!(!catalog.iter().any(|tool| tool["function"]["name"] == name));
+        }
         for name in ["get_goal", "create_goal", "update_goal"] {
             assert!(
-                catalog
+                !catalog
                     .iter()
                     .any(|tool| tool["function"]["name"] == plugin_tool("goals", name))
             );
         }
+        for name in &deferred {
+            assert!(!catalog.iter().any(|tool| tool["function"]["name"] == *name));
+        }
+        let discovered = requests[1]["tools"].as_array().unwrap();
+        let mut added: Vec<_> = discovered
+            .iter()
+            .filter(|tool| !catalog.contains(tool))
+            .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
+            .collect();
+        added.sort();
+        assert_eq!(
+            added, expected,
+            "discovery extends the immediately following request"
+        );
+        assert!(catalog.iter().all(|tool| discovered.contains(tool)));
         for name in ["run_command", "read_command", "stop_command"] {
             let tool = catalog
                 .iter()
@@ -328,7 +251,7 @@ async fn reads_bound_worktree() {
             .unwrap();
         assert_eq!(
             directory_tool["function"]["parameters"]["properties"]["cursor"]["type"],
-            json!(["object", "null"])
+            "object"
         );
         let search = catalog
             .iter()
@@ -342,14 +265,17 @@ async fn reads_bound_worktree() {
             plugin_tool("files", "read_office").as_str(),
             "load_skill",
             "read_skill_resource",
-            "compact_context",
             "set_session_title",
             plugin_tool("worktrees", "list_worktrees").as_str(),
             plugin_tool("worktrees", "create_worktree").as_str(),
             plugin_tool("worktrees", "register_worktree").as_str(),
             plugin_tool("worktrees", "remove_worktree").as_str(),
         ] {
-            assert!(catalog.iter().any(|tool| tool["function"]["name"] == name));
+            assert!(
+                discovered
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == name)
+            );
         }
         assert!(
             catalog
@@ -382,7 +308,7 @@ async fn reads_bound_worktree() {
             .filter(|message| message["role"] == "tool")
             .cloned()
             .collect();
-        assert_eq!(tool_messages.len(), calls.len());
+        assert_eq!(tool_messages.len(), calls.len() + 1);
         assert!(
             tool_messages
                 .iter()
@@ -458,7 +384,7 @@ async fn reads_bound_worktree() {
             client.execute(request.clone()).await.unwrap(),
             Output::QueuedTurn(turn.clone())
         );
-        assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 1);
+        assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 2);
         assert_eq!(
             node.with_storage(move |database| {
                 Box::pin(async move {
@@ -498,7 +424,7 @@ async fn reads_bound_worktree() {
             panic!("turn expected")
         };
         let page = finished(&client, session.id, next.id).await;
-        assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 2);
+        assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 3);
         assert!(
             server
                 .requests
@@ -514,7 +440,7 @@ async fn reads_bound_worktree() {
         let node = Node::start(directory.path().join("node")).await.unwrap();
         let client = Client::new(node.local());
         assert_eq!(history(&client, session.id).await, page);
-        assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 2);
+        assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 3);
         node.shutdown().await.unwrap();
     }
 }
