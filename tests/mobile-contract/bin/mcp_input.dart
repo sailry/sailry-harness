@@ -10,6 +10,7 @@ import 'mcp_oauth.dart' show authorizeMcp;
 Future<void> main() async {
   final env = Platform.environment;
   final url = env['SAILRY_MCP_URL'] == '1';
+  final task = env['SAILRY_MCP_TASK'] == '1';
   await RustLib.init(
     externalLibrary: ExternalLibrary.open(env['SAILRY_BRIDGE_LIBRARY']!),
   );
@@ -143,7 +144,7 @@ Future<void> main() async {
   check(
     canonicalJson(raw['content']) ==
         canonicalJson([
-          {'type': 'text', 'text': 'Input received'},
+          {'type': 'text', 'text': task ? 'Task finished' : 'Input received'},
         ]),
     'original MCP content remains beside the complete input result',
   );
