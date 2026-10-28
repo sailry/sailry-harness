@@ -196,7 +196,7 @@ impl Controls {
         }
     }
 
-    pub(super) fn runner(&self, turn: TurnId) -> Option<CancellationToken> {
+    pub(crate) fn runner(&self, turn: TurnId) -> Option<CancellationToken> {
         self.active
             .lock()
             .unwrap()

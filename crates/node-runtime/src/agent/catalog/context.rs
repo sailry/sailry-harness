@@ -4,7 +4,7 @@ use crate::agent::canonical::{Context, ToolIdentity};
 use goose_agent::machine::MachineSession;
 use rmcp::model::CallToolRequestParams;
 
-pub(in crate::agent) trait CatalogSession: MachineSession {
+pub(crate) trait CatalogSession: MachineSession {
     fn context(&self) -> &Context;
 }
 

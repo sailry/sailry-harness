@@ -267,10 +267,10 @@ impl Record {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn message_mut(&mut self) -> Option<&mut Message> {
         match &mut self.kind {
             Kind::Message(message) => Some(message),
+            Kind::Compaction(compaction) => Some(&mut compaction.summary),
             _ => None,
         }
     }

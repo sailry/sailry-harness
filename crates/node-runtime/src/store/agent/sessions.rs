@@ -263,7 +263,7 @@ impl SessionLoader<Session> for Sessions {
     async fn load(&self, session: &str) -> anyhow::Result<Session> {
         let mut session = self
             .get(Query {
-                session: session.parse()?,
+                session: session.parse().map_err(anyhow::Error::msg)?,
                 recent: None,
                 after: None,
             })
@@ -343,7 +343,7 @@ impl EffectHandler<Session, Effect> for Sessions {
         let (reply, response) = oneshot::channel();
         self.ingress
             .submit(Job::Agent(Box::new(super::Operation::Effects {
-                session: session.id.parse()?,
+                session: session.id.parse().map_err(anyhow::Error::msg)?,
                 turn: self.turn,
                 effects: pending,
                 presentation,
@@ -387,7 +387,7 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
         records = records.into_iter().rev().take(recent).collect();
         records.reverse();
     }
-    let mut messages = Vec::new();
+    let mut messages: Vec<GdkMessage> = Vec::new();
     for record in &records {
         if matches!(&record.kind, Kind::Compaction(_)) {
             for message in &mut messages {

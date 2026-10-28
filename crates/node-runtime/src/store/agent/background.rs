@@ -8,7 +8,6 @@ mod records;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use delivery::INPUT_IDS;
 pub(in crate::store) use delivery::schedule;
 pub(super) use delivery::{bind, check, confirm, render};
 pub(super) use records::{child_finished, child_started, consume_child, recover, release};

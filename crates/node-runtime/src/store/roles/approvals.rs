@@ -60,7 +60,7 @@ pub(in crate::store) async fn check(db: &Connection, request: &Request) -> Resul
         || !binding.is_some_and(|binding| {
             binding.owner == context.package
                 && binding.operation == Some(operation)
-                && binding.tool == canonical.tool_name
+                && binding.tool == canonical.name
         })
         || !prepared
             .map(|prepared| prepared.matches(&request.command))

@@ -21,7 +21,7 @@ pub(in crate::store::agent) async fn retain(
                                 "id": draft.commentary[&index], "phase": "commentary",
                                 "status": "incomplete",
                                 "content": [{"type": "output_text", "text": text, "annotations": []}],
-                            }),
+                            }).into(),
                         }
                     }
                     Part::Text(text) => BlockKind::Text { text },

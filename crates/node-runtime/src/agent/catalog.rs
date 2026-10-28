@@ -7,7 +7,8 @@ use sailry_protocol::{Fault, tool::Presentation};
 use serde_json::Value;
 use std::{collections::BTreeMap, sync::Arc};
 mod context;
-pub(in crate::agent) use context::{CallContext, CatalogSession};
+pub(in crate::agent) use context::CallContext;
+pub(crate) use context::CatalogSession;
 pub(super) mod display;
 
 pub(super) struct Registration {

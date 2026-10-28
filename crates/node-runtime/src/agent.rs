@@ -2,7 +2,7 @@
 mod approval;
 pub(crate) mod attachments;
 pub(crate) mod canonical;
-mod catalog;
+pub(crate) mod catalog;
 pub(crate) mod engine;
 pub(crate) use engine::budget as compaction_budget;
 pub(crate) use engine::tokens::records as estimate_context;
@@ -40,10 +40,7 @@ use crate::{
 use diagnostics::{Diagnostics, Phase};
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, SessionId, TurnId, conversation::Status};
-use std::{
-    sync::{Arc, atomic::Ordering},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 pub(crate) fn start(ingress: Arc<Ingress>, tasks: &Tasks) -> Result<(), Error> {
     let registry = Arc::downgrade(&ingress.model_clients);
@@ -515,7 +512,8 @@ async fn execute_with(
         stop.clone(),
         ingress.agents.timeline(invocation.turn.id),
     )
-    .with_children(children.clone());
+    .with_children(children.clone())
+    .with_hooks(hooks);
     let bindings = approval::bindings(invocation, &extensions.tools)?;
     let required = extensions
         .tools

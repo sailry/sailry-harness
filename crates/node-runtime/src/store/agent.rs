@@ -42,7 +42,7 @@ use tokio::sync::{broadcast, oneshot};
 use turso::{Connection, params};
 
 pub(crate) use approvals::Binding as ApprovalBinding;
-pub(crate) use approvals::results::{Denial, enrich as enrich_denials};
+pub(crate) use approvals::results::Denial;
 pub(super) use delegation::read as delegation;
 pub(in crate::store) use feed::run as publish_run;
 pub(super) use feed::{Feeds, command as publish_command, package as invalidate_package};

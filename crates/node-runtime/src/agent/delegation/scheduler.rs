@@ -2,7 +2,7 @@ use super::*;
 use futures::FutureExt;
 use std::panic::AssertUnwindSafe;
 
-pub(super) async fn run(
+pub(in crate::agent) async fn run(
     ingress: &Arc<Ingress>,
     tasks: &Tasks,
     invocation: Invocation,

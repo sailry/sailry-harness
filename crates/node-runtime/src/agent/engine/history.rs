@@ -126,7 +126,12 @@ pub(crate) async fn capture(
                             && result.result_type
                                 == CallToolResult::structured(value.clone()).result_type
                         {
-                            (value.clone(), ToolFormat::Json, status, result.meta)
+                            (
+                                value.clone(),
+                                ToolFormat::Json,
+                                status,
+                                result.meta.map(|meta| meta.0),
+                            )
                         } else {
                             (
                                 serde_json::to_value(result).map_err(storage_error)?,
@@ -340,7 +345,7 @@ pub(crate) async fn project(
                     ToolFormat::Mcp => Ok(serde_json::from_value(value).map_err(storage_error)?),
                     ToolFormat::Json => {
                         let mut result = media::project(db, value, &response.attachments).await?;
-                        result.meta = response.meta.clone();
+                        result.meta = response.meta.clone().map(rmcp::model::MetaObject);
                         if response.status != ToolStatus::Success {
                             result.is_error = Some(true);
                         }
