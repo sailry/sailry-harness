@@ -37,7 +37,6 @@ use super::{
     database::{encode, storage_error},
 };
 use adk_core::{AdkError, Event as AdkEvent};
-use adk_session::{GetRequest, Session as AdkSession};
 use sailry_protocol::{conversation::*, *};
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
@@ -56,7 +55,9 @@ pub(super) use providers::{list as providers, put as put_provider, remove as rem
 pub(super) use runs::visible as visible_run;
 pub(super) use runs::{admit, recover, start, stop, stopping};
 pub(super) use search::search;
-pub(crate) use sessions::{CAPABILITY_PART, INPUT_PART, INPUT_SOURCE, INPUT_TURN, Sessions};
+pub(crate) use sessions::{
+    CAPABILITY_PART, INPUT_PART, INPUT_SOURCE, INPUT_TURN, Query, Session, Sessions,
+};
 
 pub(crate) const SESSION_TITLE: &str = "sailry.session_title";
 pub(crate) const LOADED_TOOLS: &str = "sailry.context.loaded_tools";
@@ -240,7 +241,7 @@ pub(super) enum Operation {
     ContextHistory {
         session: SessionId,
         turn: TurnId,
-        reply: oneshot::Sender<adk_core::Result<compaction::History>>,
+        reply: oneshot::Sender<Result<compaction::History, Fault>>,
     },
     ContextUsage {
         session: SessionId,
@@ -248,8 +249,15 @@ pub(super) enum Operation {
     },
     Get {
         turn: TurnId,
-        request: GetRequest,
-        reply: oneshot::Sender<adk_core::Result<sessions::Session>>,
+        request: sessions::Query,
+        reply: oneshot::Sender<Result<sessions::Session, Fault>>,
+    },
+    Effects {
+        session: SessionId,
+        turn: TurnId,
+        effects: Vec<crate::agent::engine::Effect>,
+        presentation: crate::agent::canonical::Presentation,
+        reply: oneshot::Sender<Result<(), Fault>>,
     },
     Append {
         session: SessionId,
@@ -1050,6 +1058,17 @@ pub(super) fn execute<'a>(
             reply,
         } => Box::pin(async move {
             let _ = reply.send(sessions::get(&database.connection, turn, request).await);
+        }),
+        Operation::Effects {
+            session,
+            turn,
+            effects,
+            presentation,
+            reply,
+        } => Box::pin(async move {
+            let _ = reply.send(
+                sessions::effects(database, session, turn, effects, presentation, events).await,
+            );
         }),
         Operation::Append {
             session,

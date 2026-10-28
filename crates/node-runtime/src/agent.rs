@@ -3,6 +3,7 @@ mod answer;
 mod approval;
 pub(crate) mod attachments;
 pub(crate) mod canonical;
+pub(crate) mod engine;
 pub(crate) mod canonical_bridge;
 mod catalog;
 mod compaction;

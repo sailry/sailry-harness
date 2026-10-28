@@ -1,20 +1,37 @@
+//! Goose reloads and effects use the existing Node storage worker.
 use super::*;
-use adk_session::{
-    AppendEventRequest, CreateRequest, DeleteRequest, Events, ListRequest, SessionService, State,
+use crate::agent::{
+    canonical::*,
+    engine::{Effect, history as conversion},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use serde_json::Value;
-use std::collections::HashMap;
+use goose_agent::{
+    machine::{EffectHandler, MachineSession, SessionLoader},
+    operation::{ConversationEffect, Emitter},
+};
+use goose_provider_types::{
+    conversation::{
+        Conversation,
+        message::{Message as GdkMessage, MessageContent, MessageUsage},
+        token_usage::ProviderUsage,
+    },
+    thinking::ThinkingEffort,
+};
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, HashMap};
 
-pub(super) fn history_query() -> String {
-    format!("SELECT e.body FROM conversation_events h
-    JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND {} ORDER BY h.sequence DESC LIMIT ?2", history::VISIBLE_EVENT)
-}
 pub(crate) const INPUT_TURN: &str = "sailry.context.input_turn";
 pub(crate) const INPUT_SOURCE: &str = "sailry.context.input_source";
 pub(crate) const INPUT_PART: &str = "sailry.context.input_part";
 pub(crate) const CAPABILITY_PART: &str = "sailry.context.capability_part";
+
+#[derive(Clone)]
+pub(crate) struct Query {
+    pub session: SessionId,
+    pub recent: Option<usize>,
+    pub after: Option<DateTime<Utc>>,
+}
 
 pub(crate) struct Sessions {
     ingress: Arc<Ingress>,
@@ -25,11 +42,8 @@ pub(crate) struct Sessions {
     capability_part: Option<usize>,
     notices: Vec<sailry_protocol::conversation::background::Notice>,
     notice_input: Option<String>,
-    groupings: std::collections::BTreeMap<String, sailry_protocol::tool::Grouping>,
-    presentations: std::collections::BTreeMap<String, sailry_protocol::tool::Presentation>,
-    displays: std::collections::BTreeMap<String, sailry_protocol::tool::Display>,
-    bindings: std::collections::BTreeMap<String, ApprovalBinding>,
-    connections: Vec<sailry_protocol::connection::Resource>,
+    presentation: Presentation,
+    thinking: Option<ThinkingEffort>,
 }
 
 impl Sessions {
@@ -43,14 +57,10 @@ impl Sessions {
             capability_part: None,
             notices: Vec::new(),
             notice_input: None,
-            presentations: Default::default(),
-            groupings: Default::default(),
-            displays: Default::default(),
-            bindings: Default::default(),
-            connections: Default::default(),
+            presentation: Presentation::default(),
+            thinking: None,
         }
     }
-
     pub(crate) fn with_notices(
         mut self,
         notices: Vec<sailry_protocol::conversation::background::Notice>,
@@ -60,519 +70,527 @@ impl Sessions {
         self.notice_input = input;
         self
     }
-
     pub(crate) fn with_references(mut self, references: Vec<reference::Reference>) -> Self {
         self.references = references;
         self
     }
-
     pub(crate) fn with_capability_part(mut self, part: Option<usize>) -> Self {
         self.capability_part = part;
         self
     }
-
     pub(crate) fn with_input_source(mut self, source: &'static str) -> Self {
         self.input_source = source;
         self
     }
-
     pub(crate) fn with_input_turn(mut self, turn: TurnId) -> Self {
         self.input_turn = turn;
         self
     }
-
     pub(crate) fn with_groupings(
         mut self,
-        groupings: std::collections::BTreeMap<String, sailry_protocol::tool::Grouping>,
+        groupings: BTreeMap<String, sailry_protocol::tool::Grouping>,
     ) -> Self {
-        self.groupings = groupings;
+        self.presentation.groupings = groupings;
         self
     }
-
     pub(crate) fn with_presentations(
         mut self,
-        presentations: std::collections::BTreeMap<String, sailry_protocol::tool::Presentation>,
+        tools: BTreeMap<String, sailry_protocol::tool::Presentation>,
     ) -> Self {
-        self.presentations = presentations;
+        self.presentation.tools = tools;
         self
     }
-
     pub(crate) fn with_displays(
         mut self,
-        displays: std::collections::BTreeMap<String, sailry_protocol::tool::Display>,
+        displays: BTreeMap<String, sailry_protocol::tool::Display>,
     ) -> Self {
-        self.displays = displays;
+        self.presentation.displays = displays;
         self
     }
-
+    pub(crate) fn with_thinking(mut self, thinking: Option<ThinkingEffort>) -> Self {
+        self.thinking = thinking;
+        self
+    }
     pub(crate) fn with_connection_context(
-        mut self,
-        bindings: std::collections::BTreeMap<String, ApprovalBinding>,
-        connections: Vec<sailry_protocol::connection::Resource>,
+        self,
+        _: BTreeMap<String, ApprovalBinding>,
+        _: Vec<sailry_protocol::connection::Resource>,
     ) -> Self {
-        self.bindings = bindings;
-        self.connections = connections;
         self
     }
 
-    async fn current_displays(
-        &self,
-        event: &AdkEvent,
-    ) -> adk_core::Result<std::collections::BTreeMap<String, sailry_protocol::tool::Display>> {
-        use sailry_protocol::{connection::Resource, tool::Operation};
-
-        let mut displays = self.displays.clone();
-        let mut pending = Vec::new();
-        for part in event
-            .content()
-            .into_iter()
-            .flat_map(|content| &content.parts)
-        {
-            let adk_core::Part::FunctionCall { name, args, .. } = part else {
-                continue;
-            };
-            let Some(field) = displays
-                .get(name)
-                .and_then(|display| display.input.as_ref())
-                .and_then(|input| input.summary.as_ref())
-                .filter(|field| {
-                    field.format == Some(sailry_protocol::tool::InputFormat::Connection)
-                })
-            else {
-                continue;
-            };
-            let Some(id) = field.read(args) else {
-                continue;
-            };
-            if field.names.contains_key(id) {
-                continue;
-            }
-            let Some(binding) = self.bindings.get(name) else {
-                continue;
-            };
-            let target = match binding.operation {
-                Some(Operation::RunSsh | Operation::TransferSsh) => {
-                    id.parse().ok().map(Resource::Ssh)
-                }
-                Some(
-                    Operation::BrowseDatabase
-                    | Operation::QueryDatabase
-                    | Operation::ExecuteDatabase,
-                ) => id.parse().ok().map(Resource::Database),
-                _ => None,
-            };
-            if let Some(target) = target {
-                pending.push((name.clone(), id.to_owned(), binding.owner.clone(), target));
-            }
-        }
-        if pending.is_empty() {
-            return Ok(displays);
-        }
-        let names = self
-            .ingress
-            .connection_names(
-                self.turn,
-                pending
-                    .iter()
-                    .map(|(_, _, package, target)| (package.clone(), *target))
-                    .collect(),
-                self.connections.clone(),
-            )
+    pub(crate) async fn get(&self, query: Query) -> Result<Session, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.ingress
+            .submit(Job::Agent(Box::new(super::Operation::Get {
+                turn: self.turn,
+                request: query,
+                reply,
+            })))
             .await
-            .map_err(adk_error)?;
-        for ((tool, id, _, _), name) in pending.into_iter().zip(names) {
-            let Some(name) = name else {
-                continue;
+            .map_err(|_| Fault::new(ErrorCode::Unavailable, "Node storage is closed"))?;
+        response
+            .await
+            .map_err(|_| Fault::new(ErrorCode::Unavailable, "Node storage is closed"))?
+    }
+
+    pub(crate) async fn append_event(&self, session: &str, event: Record) -> Result<(), Fault> {
+        self.append_with_context(session, event, None).await
+    }
+
+    pub(crate) async fn append_with_context(
+        &self,
+        session: &str,
+        mut event: Record,
+        context: Option<Record>,
+    ) -> Result<(), Fault> {
+        let session = session
+            .parse()
+            .map_err(|_| Fault::invalid("session identifier is invalid"))?;
+        if event.provenance.author == "user" {
+            event.turn = self.input_turn;
+            let notice = self.notice_input.as_ref().is_some_and(|text| event.message().and_then(|message| message.content.first()).is_some_and(|block| matches!(&block.kind, BlockKind::Text { text: value } if value == text)));
+            let source = match self.input_source {
+                "parent" => InputSource::Parent,
+                "plugin" => InputSource::Plugin,
+                "notice" => InputSource::Notice,
+                _ => InputSource::User,
             };
-            if let Some(field) = displays
-                .get_mut(&tool)
-                .and_then(|display| display.input.as_mut())
-                .and_then(|input| input.summary.as_mut())
-            {
-                field.names.insert(id, name);
-            }
+            let index = usize::from(!self.references.is_empty()) + usize::from(notice);
+            event.metadata.input = Some(crate::agent::canonical::Input {
+                turn: Some(self.input_turn),
+                source: Some(source),
+                text_part: event
+                    .message()
+                    .and_then(|message| message.content.iter().find(|block| block.index == index))
+                    .filter(|block| matches!(block.kind, BlockKind::Text { .. }))
+                    .map(|_| index),
+                capability_part: self.capability_part,
+                notice_part: notice.then_some(0),
+                notice_ids: if notice {
+                    self.notices
+                        .iter()
+                        .map(|notice| notice.id.clone())
+                        .collect()
+                } else {
+                    Vec::new()
+                },
+                references: self.references.clone(),
+            });
         }
-        Ok(displays)
+        event
+            .metadata
+            .presentation
+            .get_or_insert_with(|| self.presentation.clone());
+        let turn = event.turn;
+        let (reply, response) = oneshot::channel();
+        self.ingress
+            .submit(Job::Agent(Box::new(super::Operation::Append {
+                session,
+                turn,
+                event,
+                context: context.map(|event| (event.turn, event)),
+                reply,
+            })))
+            .await
+            .map_err(|_| Fault::new(ErrorCode::Unavailable, "Node storage is closed"))?;
+        response
+            .await
+            .map_err(|_| Fault::new(ErrorCode::Unavailable, "Node storage is closed"))?
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct Session {
+    pub id: String,
+    pub records: Vec<Record>,
+    pub conversation: Conversation,
+    pub context: Context,
+    pub state: HashMap<String, Value>,
+    pub thinking: Option<ThinkingEffort>,
+}
+
+impl MachineSession for Session {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn conversation(&self) -> Option<&Conversation> {
+        Some(&self.conversation)
+    }
+    fn thinking_effort(&self) -> Option<ThinkingEffort> {
+        self.thinking
+    }
+}
+
+impl crate::agent::catalog::CatalogSession for Session {
+    fn context(&self) -> &Context {
+        &self.context
     }
 }
 
 #[async_trait]
-impl SessionService for Sessions {
-    async fn create(&self, _: CreateRequest) -> adk_core::Result<Box<dyn AdkSession>> {
-        Err(AdkError::session(
-            "create product sessions through Node commands",
-        ))
+impl SessionLoader<Session> for Sessions {
+    async fn load(&self, session: &str) -> anyhow::Result<Session> {
+        let mut session = self
+            .get(Query {
+                session: session.parse()?,
+                recent: None,
+                after: None,
+            })
+            .await?;
+        session.thinking = self.thinking;
+        Ok(session)
     }
-    async fn delete(&self, _: DeleteRequest) -> adk_core::Result<()> {
-        Err(AdkError::session(
-            "delete product sessions through Node commands",
-        ))
-    }
-    async fn list(&self, _: ListRequest) -> adk_core::Result<Vec<Box<dyn AdkSession>>> {
-        Err(AdkError::session(
-            "list product sessions through Node commands",
-        ))
-    }
-    async fn get(&self, request: GetRequest) -> adk_core::Result<Box<dyn AdkSession>> {
+}
+
+#[async_trait]
+impl EffectHandler<Session, Effect> for Sessions {
+    async fn apply_effects(
+        &self,
+        session: &Session,
+        effects: &mut [Effect],
+        _: &Emitter,
+    ) -> anyhow::Result<()> {
         let (reply, response) = oneshot::channel();
         self.ingress
-            .submit(Job::Agent(Box::new(Operation::Get {
+            .submit(Job::Agent(Box::new(super::Operation::Effects {
+                session: session.id.parse()?,
                 turn: self.turn,
-                request,
+                effects: effects
+                    .iter()
+                    .map(|effect| match effect {
+                        Effect::Conversation(ConversationEffect::AppendMessage(message)) => {
+                            Effect::from(message.clone())
+                        }
+                        Effect::Conversation(ConversationEffect::ReplaceConversation(
+                            conversation,
+                        )) => Effect::from(ConversationEffect::ReplaceConversation(
+                            conversation.clone(),
+                        )),
+                        Effect::Conversation(ConversationEffect::SetMessageVisibility {
+                            message_id,
+                            user_visible,
+                            agent_visible,
+                        }) => Effect::from(ConversationEffect::SetMessageVisibility {
+                            message_id: message_id.clone(),
+                            user_visible: *user_visible,
+                            agent_visible: *agent_visible,
+                        }),
+                        Effect::Conversation(ConversationEffect::PatchToolRequestMeta {
+                            tool_call_id,
+                            patch,
+                        }) => Effect::from(ConversationEffect::PatchToolRequestMeta {
+                            tool_call_id: tool_call_id.clone(),
+                            patch: patch.clone(),
+                        }),
+                        Effect::Conversation(ConversationEffect::SetMessageOperationNote {
+                            message_id,
+                            operation,
+                            key,
+                            value,
+                        }) => Effect::from(ConversationEffect::SetMessageOperationNote {
+                            message_id: message_id.clone(),
+                            operation: operation.clone(),
+                            key: key.clone(),
+                            value: value.clone(),
+                        }),
+                        Effect::Usage(usage) => Effect::Usage(usage.clone()),
+                        Effect::Compaction { summary, usage } => Effect::Compaction {
+                            summary: summary.clone(),
+                            usage: usage.clone(),
+                        },
+                    })
+                    .collect(),
+                presentation: self.presentation.clone(),
                 reply,
             })))
             .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?;
-        let session = response
+            .map_err(|_| Fault::new(ErrorCode::Unavailable, "Node storage is closed"))?;
+        response
             .await
-            .map_err(|_| AdkError::session("Node storage is closed"))??;
-        Ok(Box::new(session.for_model()))
-    }
-    async fn append_event(&self, session_id: &str, event: AdkEvent) -> adk_core::Result<()> {
-        self.append_with_context(session_id, event, None).await
-    }
-    async fn append_event_for_identity(&self, request: AppendEventRequest) -> adk_core::Result<()> {
-        identity(
-            request.identity.app_name.as_ref(),
-            request.identity.user_id.as_ref(),
-        )?;
-        self.append_event(request.identity.session_id.as_ref(), request.event)
-            .await
-    }
-}
-
-fn identity(app: &str, user: &str) -> adk_core::Result<()> {
-    if app == APP && user == USER {
+            .map_err(|_| Fault::new(ErrorCode::Unavailable, "Node storage is closed"))??;
         Ok(())
-    } else {
-        Err(AdkError::session(
-            "session identity does not belong to this Node",
-        ))
     }
 }
 
-pub(super) async fn get(
-    db: &Connection,
-    turn: TurnId,
-    request: GetRequest,
-) -> adk_core::Result<Session> {
-    identity(&request.app_name, &request.user_id)?;
-    let session: SessionId = request.session_id.parse().map_err(AdkError::session)?;
-    check_session(db, session).await.map_err(adk_error)?;
-    let owns: bool = (async {
-        let mut statement = db
-            .prepare("SELECT EXISTS(SELECT 1 FROM turns WHERE id=?1 AND session=?2)")
-            .await?;
-        let row = statement
-            .query_row(params![turn.to_string(), session.to_string()])
-            .await?;
-        let mapped: turso::Result<_> = row.get(0);
-        mapped
-    })
-    .await
-    .map_err(|error| adk_error(storage_error(error)))?;
+pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<Session, Fault> {
+    check_session(db, query.session).await?;
+    let owns: bool = db
+        .query(
+            "SELECT 1 FROM turns WHERE id=?1 AND session=?2",
+            params![turn.to_string(), query.session.to_string()],
+        )
+        .await
+        .map_err(storage_error)?
+        .next()
+        .await
+        .map_err(storage_error)?
+        .is_some();
     if !owns {
-        return Err(AdkError::session(
-            "session does not belong to this invocation",
-        ));
+        return Err(Fault::invalid("session does not belong to this invocation"));
     }
-    // Bound the database read before decoding; requesting recent history must
-    // not load a long conversation only to discard most of it afterwards.
-    let limit = request
-        .num_recent_events
-        .map(|limit| {
-            i64::try_from(limit.max(1)).map_err(|_| AdkError::session("history limit is invalid"))
-        })
-        .transpose()?
-        .unwrap_or(-1);
-    let summary = if request.num_recent_events.is_none() && request.after.is_none() {
-        super::compaction::read(db, session).await?
+    let summary = if query.recent.is_none() && query.after.is_none() {
+        super::compaction::read(db, query.session).await?
     } else {
         None
     };
-    let sql = if summary.is_some() {
-        format!(
-            "SELECT e.body FROM conversation_events h
-        JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence>?3
-        AND json_extract(e.body,'$.kind')!='compaction' AND {} ORDER BY h.sequence DESC LIMIT ?2",
-            history::VISIBLE_EVENT
-        )
-    } else {
-        history_query()
-    };
-    let mut query = db
-        .prepare(&sql)
-        .await
-        .map_err(|error| adk_error(storage_error(error)))?;
-    let session_key = session.to_string();
     let boundary = summary.as_ref().map_or(0, |(sequence, _)| *sequence);
-    let mut parameters = vec![
-        turso::Value::Text(session_key),
-        turso::Value::Integer(limit),
-    ];
-    if summary.is_some() {
-        parameters.push(turso::Value::Integer(boundary));
+    let mut rows = db.query("SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence>?2 AND json_extract(e.body,'$.kind')!='compaction' ORDER BY h.sequence",params![query.session.to_string(),boundary]).await.map_err(storage_error)?;
+    let mut records = Vec::new();
+    if let Some((_, record)) = summary {
+        records.push(record);
     }
-    let bodies = {
-        let mut rows = query
-            .query(parameters)
-            .await
-            .map_err(|error| adk_error(storage_error(error)))?;
-        let mut values = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|error| adk_error(storage_error(error)))?
-        {
-            let mapped: turso::Result<_> = row.get::<Vec<u8>>(0);
-            values.push(mapped);
+    while let Some(row) = rows.next().await.map_err(storage_error)? {
+        let body: Vec<u8> = row.get(0).map_err(storage_error)?;
+        let record: Record = serde_json::from_slice(&body).map_err(storage_error)?;
+        if query.after.is_none_or(|after| record.created >= after) {
+            records.push(record);
         }
-        values
-    };
-    let mut events = Vec::with_capacity(bodies.len());
-    for body in bodies {
-        let record: crate::agent::canonical::Record =
-            serde_json::from_slice(&body.map_err(|error| adk_error(storage_error(error)))?)
-                .map_err(|error| adk_error(storage_error(error)))?;
-        events.push(
-            crate::agent::canonical_bridge::to_adk(db, &record)
-                .await
-                .map_err(adk_error)?,
-        );
     }
-    events.reverse();
-    if let Some((_, summary)) = summary {
-        events.insert(0, summary);
+    if let Some(recent) = query.recent {
+        records = records.into_iter().rev().take(recent).collect();
+        records.reverse();
     }
-    let updated = events
-        .last()
-        .map_or(DateTime::<Utc>::UNIX_EPOCH, |event| event.timestamp);
-    let state = history::state(db, session).await.map_err(adk_error)?;
-    if request.num_recent_events == Some(0) {
-        events.clear();
+    let mut messages = Vec::new();
+    for record in &records {
+        if let Some(message) = conversion::project(db, record).await? {
+            messages.push(message);
+        }
+        if let Kind::Operation(operation) = &record.kind {
+            apply_operation(&mut messages, operation);
+        }
     }
-    if let Some(after) = request.after {
-        events.retain(|event| event.timestamp >= after);
-    }
+    let state = history::state(db, query.session).await?;
     Ok(Session {
-        id: session.to_string(),
+        id: query.session.to_string(),
+        records,
+        conversation: Conversation::new_unvalidated(messages),
+        context: Context::from_state(&state),
         state,
-        events,
-        updated,
+        thinking: None,
     })
 }
 
-pub(in crate::store) struct Session {
-    id: String,
-    state: HashMap<String, Value>,
-    events: Vec<AdkEvent>,
-    updated: DateTime<Utc>,
-}
-
-impl Session {
-    pub(super) fn for_model(mut self) -> Self {
-        // ADK quotes other authors as untrusted agent transcripts. Only the
-        // Node's tagged policy appendices enter its user-context category;
-        // canonical events and compaction keep their original system author.
-        for event in &mut self.events {
-            if event.author == "system"
-                && event
-                    .provider_metadata
-                    .get(crate::agent::CONTEXT_METADATA)
-                    .is_some_and(|kind| kind == "context")
+fn apply_operation(messages: &mut [GdkMessage], operation: &crate::agent::canonical::Operation) {
+    use crate::agent::canonical::Operation as Change;
+    match operation {
+        Change::Visibility {
+            message,
+            user_visible,
+            agent_visible,
+        } => {
+            if let Some(found) = messages
+                .iter_mut()
+                .find(|value| value.id.as_ref() == Some(message))
             {
-                event.author = "user".into();
+                found.metadata.user_visible = *user_visible;
+                found.metadata.agent_visible = *agent_visible;
             }
         }
-        self
-    }
-}
-
-impl AdkSession for Session {
-    fn id(&self) -> &str {
-        &self.id
-    }
-    fn app_name(&self) -> &str {
-        APP
-    }
-    fn user_id(&self) -> &str {
-        USER
-    }
-    fn state(&self) -> &dyn State {
-        self
-    }
-    fn events(&self) -> &dyn Events {
-        self
-    }
-    fn last_update_time(&self) -> DateTime<Utc> {
-        self.updated
-    }
-}
-impl State for Session {
-    fn get(&self, key: &str) -> Option<Value> {
-        self.state.get(key).cloned()
-    }
-    fn set(&mut self, key: String, value: Value) {
-        self.state.insert(key, value);
-    }
-    fn all(&self) -> HashMap<String, Value> {
-        self.state.clone()
-    }
-}
-impl Events for Session {
-    fn all(&self) -> Vec<AdkEvent> {
-        self.events.clone()
-    }
-    fn len(&self) -> usize {
-        self.events.len()
-    }
-    fn at(&self, index: usize) -> Option<&AdkEvent> {
-        self.events.get(index)
-    }
-}
-
-impl Sessions {
-    pub(crate) async fn append_with_context(
-        &self,
-        session_id: &str,
-        mut event: AdkEvent,
-        context: Option<AdkEvent>,
-    ) -> adk_core::Result<()> {
-        let timeline = self.ingress.agents.timeline(self.turn);
-        let failures = super::presentation::capture_failures(&mut event, timeline.as_deref())?;
-        let branch = event.branch.clone();
-        let displays = self.current_displays(&event).await?;
-        let mut aliases = Vec::new();
-        if let Some(home) = self.ingress.environment.home() {
-            aliases.push(sailry_protocol::tool::Alias {
-                path: home.to_string_lossy().into_owned(),
-                kind: sailry_protocol::tool::AliasKind::Home,
-            });
-        }
-        let commands: Vec<_> = event
-            .content()
-            .into_iter()
-            .flat_map(|content| &content.parts)
-            .filter_map(|part| {
-                let adk_core::Part::FunctionCall { name, args, .. } = part else {
-                    return None;
-                };
-                let field = displays.get(name)?.input.as_ref()?.summary.as_ref()?;
-                (field.format == Some(sailry_protocol::tool::InputFormat::Command))
-                    .then(|| field.read(args))
-                    .flatten()
-            })
-            .collect();
-        if let Some(python) = self.ingress.plugins.display_python(&commands).await {
-            aliases.push(sailry_protocol::tool::Alias {
-                path: python.to_string_lossy().into_owned(),
-                kind: sailry_protocol::tool::AliasKind::Python,
-            });
-        }
-        for access in self.ingress.agents.python(self.turn) {
-            let alias = sailry_protocol::tool::Alias {
-                path: access.ready.python.to_string_lossy().into_owned(),
-                kind: sailry_protocol::tool::AliasKind::Python,
-            };
-            if !aliases.contains(&alias) && aliases.len() < 32 {
-                aliases.push(alias);
+        Change::ToolMeta { call, patch } => {
+            for content in messages.iter_mut().flat_map(|message| &mut message.content) {
+                if let MessageContent::ToolRequest(request) = content
+                    && request.id == *call
+                {
+                    let meta = request.tool_meta.get_or_insert_with(|| json!({}));
+                    if let (Some(meta), Some(patch)) = (meta.as_object_mut(), patch.as_object()) {
+                        meta.extend(patch.clone());
+                    }
+                }
             }
         }
-        super::presentation::stamp(
-            &mut event,
-            &self.presentations,
-            &self.groupings,
-            &displays,
-            &aliases,
-        )?;
-        if event.author == "user" {
-            event
-                .provider_metadata
-                .insert(INPUT_TURN.into(), self.input_turn.to_string());
-            event
-                .provider_metadata
-                .insert(INPUT_SOURCE.into(), self.input_source.into());
-            let configured = event.content().is_some_and(|content| {
-                content.parts.first().is_some_and(|part| {
-                    matches!(
-                        part.provider_part(),
-                        adk_core::Part::ConfigurationUpdate { .. }
-                    )
-                })
-            });
-            let notice = self.notice_input.as_ref().is_some_and(|expected| matches!(event.content().and_then(|content| content.parts.get(usize::from(configured))), Some(adk_core::Part::Text {text}) if text == expected));
-            if notice {
-                event.provider_metadata.insert(
-                    super::background::INPUT_IDS.into(),
-                    serde_json::to_string(
-                        &self
-                            .notices
-                            .iter()
-                            .map(|notice| &notice.id)
-                            .collect::<Vec<_>>(),
-                    )
-                    .map_err(|error| AdkError::session(error.to_string()))?,
-                );
-            }
-            let index = usize::from(!self.references.is_empty())
-                + usize::from(notice)
-                + usize::from(configured);
-            let capability = self.capability_part;
-            if capability.is_some_and(|part| {
-                !matches!(
-                    event.content().and_then(|content| content.parts.get(part)),
-                    Some(adk_core::Part::Text { .. })
-                )
-            }) {
-                return Err(AdkError::session("capability content is missing"));
-            }
-            if event.content().is_some_and(|content| {
-                matches!(content.parts.get(index), Some(adk_core::Part::Text { .. }))
-            }) && capability != Some(index)
+        Change::Note { message, note } => {
+            if let Some(found) = messages
+                .iter_mut()
+                .find(|value| value.id.as_ref() == Some(message))
             {
-                event
-                    .provider_metadata
-                    .insert(INPUT_PART.into(), index.to_string());
-            }
-            if let Some(part) = capability {
-                event
-                    .provider_metadata
-                    .insert(CAPABILITY_PART.into(), part.to_string());
+                match note {
+                    OperationNote::EmptyResponse => found.metadata.set_operation_note(
+                        "inference",
+                        "empty_response",
+                        json!(true),
+                    ),
+                    OperationNote::SubagentDelivered { session } => found
+                        .metadata
+                        .set_operation_note("foreground_subagent", "delivered", json!(session)),
+                    OperationNote::SubagentsCancelled { sessions } => found
+                        .metadata
+                        .set_operation_note("foreground_subagent", "cancelled", json!(sessions)),
+                }
             }
         }
-        if event.author == "user" && !self.references.is_empty() {
-            event.provider_metadata.insert(
-                super::references::METADATA.into(),
-                serde_json::to_string(&self.references)
-                    .map_err(|error| AdkError::session(error.to_string()))?,
-            );
-        }
-        let session = session_id.parse().map_err(AdkError::session)?;
-        let (reply, response) = oneshot::channel();
-        self.ingress
-            .submit(Job::Agent(Box::new(Operation::Append {
-                session,
-                turn: if event.author == "user" {
-                    self.input_turn
-                } else {
-                    self.turn
-                },
-                event,
-                context: context.map(|event| (self.turn, event)),
-                reply,
-            })))
-            .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?;
-        let result = response
-            .await
-            .map_err(|_| AdkError::session("Node storage is closed"))?;
-        if result.is_ok()
-            && let Some(timeline) = timeline
+    }
+}
+
+pub(super) async fn effects(
+    database: &mut Database,
+    session: SessionId,
+    turn: TurnId,
+    effects: Vec<Effect>,
+    presentation: Presentation,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<(), Fault> {
+    let current = get(
+        &database.connection,
+        turn,
+        Query {
+            session,
+            recent: None,
+            after: None,
+        },
+    )
+    .await?;
+    let mut calls = BTreeMap::new();
+    for content in current
+        .conversation
+        .messages()
+        .iter()
+        .flat_map(|message| &message.content)
+    {
+        if let MessageContent::ToolRequest(request) = content
+            && let Ok(call) = &request.tool_call
         {
-            for failure in failures {
-                timeline.forget_failure(&branch, &failure.id, &failure.name);
+            calls.insert(request.id.clone(), call.name.to_string());
+        }
+    }
+    let mut usage = None;
+    for effect in effects {
+        match effect {
+            Effect::Usage(value) => usage = Some(value),
+            Effect::Conversation(ConversationEffect::AppendMessage(mut message)) => {
+                if let Some(value) = usage.take() {
+                    message.metadata.usage =
+                        Some(Box::new(MessageUsage::from_provider_usage(&value, false)));
+                }
+                for content in &message.content {
+                    if let MessageContent::ToolRequest(request) = content
+                        && let Ok(call) = &request.tool_call
+                    {
+                        calls.insert(request.id.clone(), call.name.to_string());
+                    }
+                }
+                history::append_message(
+                    database,
+                    session,
+                    turn,
+                    message,
+                    calls.clone(),
+                    presentation.clone(),
+                    events,
+                )
+                .await?;
+            }
+            Effect::Compaction { summary, usage } => {
+                save_summary(database, session, turn, summary, usage, events).await?
+            }
+            Effect::Conversation(ConversationEffect::ReplaceConversation(_)) => {
+                return Err(Fault::invalid(
+                    "conversation replacement requires a compaction checkpoint",
+                ));
+            }
+            Effect::Conversation(effect) => {
+                let operation = match effect {
+                    ConversationEffect::SetMessageVisibility {
+                        message_id,
+                        user_visible,
+                        agent_visible,
+                    } => crate::agent::canonical::Operation::Visibility {
+                        message: message_id,
+                        user_visible,
+                        agent_visible,
+                    },
+                    ConversationEffect::PatchToolRequestMeta {
+                        tool_call_id,
+                        patch,
+                    } => crate::agent::canonical::Operation::ToolMeta {
+                        call: tool_call_id,
+                        patch,
+                    },
+                    ConversationEffect::SetMessageOperationNote {
+                        message_id,
+                        operation,
+                        key,
+                        value,
+                    } => {
+                        let note = match (operation.as_str(), key.as_str()) {
+                            ("inference", "empty_response") => OperationNote::EmptyResponse,
+                            ("foreground_subagent", "delivered") => {
+                                OperationNote::SubagentDelivered {
+                                    session: serde_json::from_value(value)
+                                        .map_err(storage_error)?,
+                                }
+                            }
+                            ("foreground_subagent", "cancelled") => {
+                                OperationNote::SubagentsCancelled {
+                                    sessions: serde_json::from_value(value)
+                                        .map_err(storage_error)?,
+                                }
+                            }
+                            _ => return Err(Fault::invalid("operation note is unsupported")),
+                        };
+                        crate::agent::canonical::Operation::Note {
+                            message: message_id,
+                            note,
+                        }
+                    }
+                    _ => unreachable!("append and replace handled above"),
+                };
+                let mut record = Record::new(turn, Kind::Operation(operation));
+                record.provenance.author = "system".into();
+                record.metadata.runtime = Some(Runtime {
+                    user_visible: false,
+                    agent_visible: false,
+                    ..Runtime::default()
+                });
+                history::append(database, session, turn, record, events).await?;
             }
         }
-        result
     }
+    Ok(())
+}
+
+async fn save_summary(
+    database: &mut Database,
+    session: SessionId,
+    turn: TurnId,
+    mut summary: GdkMessage,
+    usage: ProviderUsage,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<(), Fault> {
+    let current = get(
+        &database.connection,
+        turn,
+        Query {
+            session,
+            recent: None,
+            after: None,
+        },
+    )
+    .await?;
+    let Some(boundary) = current
+        .records
+        .iter()
+        .rev()
+        .find(|record| matches!(record.kind, Kind::Message(_)))
+    else {
+        return Err(Fault::invalid("compaction history is empty"));
+    };
+    summary.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(&usage, true)));
+    let mut record =
+        conversion::capture(&database.connection, turn, &summary, &BTreeMap::new()).await?;
+    let Kind::Message(message) = record.kind else {
+        unreachable!()
+    };
+    record.provenance.author = "system".into();
+    record.kind = Kind::Compaction(Compaction {
+        boundary: boundary.id.clone(),
+        summary: message,
+        start: current
+            .records
+            .first()
+            .map_or(boundary.created, |record| record.created),
+        end: boundary.created,
+        files: Vec::new(),
+    });
+    history::append(database, session, turn, record, events).await
 }

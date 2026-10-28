@@ -147,6 +147,66 @@ pub(crate) struct Context {
     pub masked_outputs: Option<BTreeSet<(String, String)>>,
 }
 
+impl Context {
+    pub(crate) fn state(&self) -> std::collections::HashMap<String, Value> {
+        let mut state = std::collections::HashMap::new();
+        for (key, value) in [
+            ("sailry.session_title", &self.title),
+            ("sailry.context.policy", &self.policy),
+            ("sailry.context.environment", &self.environment),
+            ("sailry.context.personal", &self.personal),
+        ] {
+            if let Some(value) = value {
+                state.insert(key.into(), serde_json::json!(value));
+            }
+        }
+        state.extend(
+            self.guides
+                .iter()
+                .map(|(key, value)| (key.clone(), serde_json::json!(value))),
+        );
+        if let Some(value) = &self.loaded_tools {
+            state.insert(
+                "sailry.context.loaded_tools".into(),
+                serde_json::json!(value),
+            );
+        }
+        if let Some(value) = &self.masked_outputs {
+            state.insert(
+                "sailry.context.masked_outputs".into(),
+                serde_json::json!(value),
+            );
+        }
+        state
+    }
+
+    pub(crate) fn from_state(state: &std::collections::HashMap<String, Value>) -> Self {
+        let string = |key: &str| state.get(key).and_then(Value::as_str).map(str::to_owned);
+        Self {
+            title: string("sailry.session_title"),
+            policy: string("sailry.context.policy"),
+            environment: string("sailry.context.environment"),
+            personal: string("sailry.context.personal"),
+            loaded_tools: state
+                .get("sailry.context.loaded_tools")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok()),
+            masked_outputs: state
+                .get("sailry.context.masked_outputs")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok()),
+            guides: state
+                .iter()
+                .filter(|(key, _)| key.starts_with("sailry.context.guide:"))
+                .filter_map(|(key, value)| {
+                    Some((key.clone(), serde_json::from_value(value.clone()).ok()?))
+                })
+                .collect(),
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Guide {
     pub path: String,

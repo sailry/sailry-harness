@@ -213,6 +213,22 @@ pub(crate) enum Operation {
         user_visible: bool,
         agent_visible: bool,
     },
+    ToolMeta {
+        call: String,
+        patch: Value,
+    },
+    Note {
+        message: String,
+        note: OperationNote,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "note", rename_all = "snake_case")]
+pub(crate) enum OperationNote {
+    EmptyResponse,
+    SubagentDelivered { session: String },
+    SubagentsCancelled { sessions: Vec<String> },
 }
 
 impl Record {

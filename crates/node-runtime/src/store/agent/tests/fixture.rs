@@ -116,7 +116,10 @@ impl Fixture {
         session
     }
 
-    pub async fn append(&mut self, events: impl IntoIterator<Item = crate::agent::canonical::Record>) -> TurnId {
+    pub async fn append(
+        &mut self,
+        events: impl IntoIterator<Item = crate::agent::canonical::Record>,
+    ) -> TurnId {
         let turn = self.queued().await;
         runs::start(&self.database.connection, turn).await.unwrap();
         assert_eq!(

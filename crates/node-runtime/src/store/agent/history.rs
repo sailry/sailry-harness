@@ -52,6 +52,55 @@ pub(super) async fn append_with_context(
     context: Option<(TurnId, Record)>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
+    write(
+        database,
+        session,
+        turn,
+        Input::Record(event),
+        context,
+        events,
+    )
+    .await
+}
+
+#[derive(Clone)]
+enum Input {
+    Record(Record),
+    Message(
+        goose_provider_types::conversation::message::Message,
+        BTreeMap<String, String>,
+        records::Presentation,
+    ),
+}
+
+pub(super) async fn append_message(
+    database: &mut Database,
+    session: SessionId,
+    turn: TurnId,
+    message: goose_provider_types::conversation::message::Message,
+    calls: BTreeMap<String, String>,
+    presentation: records::Presentation,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<(), Fault> {
+    write(
+        database,
+        session,
+        turn,
+        Input::Message(message, calls, presentation),
+        None,
+        events,
+    )
+    .await
+}
+
+async fn write(
+    database: &mut Database,
+    session: SessionId,
+    turn: TurnId,
+    event: Input,
+    context: Option<(TurnId, Record)>,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<(), Fault> {
     let permit = database.write().await?;
     for attempt in 0..=crate::store::database::conflict::RETRIES {
         let event = event.clone();
@@ -60,7 +109,7 @@ pub(super) async fn append_with_context(
             let publication = database.publication.clone();
             let transaction = crate::store::database::conflict::begin(&database.connection).await?;
             let prepared: Result<_, Fault> = async {
-                if event.context().is_some_and(|context| context.captured)
+                if matches!(&event, Input::Record(record) if record.context().is_some_and(|context| context.captured))
                     && runs::get(&transaction, turn).await?.status != Status::Running
                 {
                     return Err(Fault::new(
@@ -78,6 +127,14 @@ pub(super) async fn append_with_context(
                     insert(&transaction, session, owner, event).await?
                 } else {
                     None
+                };
+                let event = match event {
+                    Input::Record(record) => record,
+                    Input::Message(message, calls, presentation) => {
+                        let mut record = crate::agent::engine::history::capture(&transaction, turn, &message, &calls).await?;
+                        record.metadata.presentation = Some(presentation);
+                        record
+                    }
                 };
                 let Some(entry) = insert(&transaction, session, turn, event).await? else {
                     return Ok(None);
@@ -189,7 +246,9 @@ pub(super) async fn insert(
     if event.id.is_empty() || event.id.len() > 256 {
         return Err(Fault::invalid("event identifier is invalid"));
     }
-    if event.turn != turn { return Err(Fault::invalid("event belongs to another turn")); }
+    if event.turn != turn {
+        return Err(Fault::invalid("event belongs to another turn"));
+    }
     super::approvals::results::append(db, turn, &mut event).await?;
     let previous: Option<(String, Vec<u8>)> = {
         let mut statement = db.prepare("SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2").await.map_err(storage_error)?;
@@ -346,7 +405,7 @@ pub(super) async fn insert(
 fn changes(event: &Record) -> HashMap<String, Value> {
     let mut delta = event
         .context()
-        .map(crate::agent::canonical_bridge::state)
+        .map(records::Context::state)
         .unwrap_or_default();
     if let Some(state) = &event.metadata.state {
         delta.extend(
