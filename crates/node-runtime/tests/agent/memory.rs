@@ -49,7 +49,10 @@ async fn preserves_reads_in_plan() {
     for remote in [false, true] {
         let id = MemoryId::new();
         let calls = vec![
-            ("tool_search".into(), json!({"query":"memory","limit":8})),
+            (
+                "tool_search".into(),
+                json!({"query":"memory memories","limit":8}),
+            ),
             (
                 plugin_tool("memory", "search_memory"),
                 json!({"query":id.to_string()}),
@@ -348,7 +351,10 @@ async fn curates_scoped_memory() {
 async fn applies_tool_settings() {
     for remote in [false, true] {
         for enabled in [false, true] {
-            let mut calls = vec![("tool_search".into(), json!({"query":"memory","limit":8}))];
+            let mut calls = vec![(
+                "tool_search".into(),
+                json!({"query":"memory memories","limit":8}),
+            )];
             if enabled {
                 calls.extend([
                     (

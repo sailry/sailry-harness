@@ -293,7 +293,12 @@ fn model(request: &Value) {
         node_context(request, "Work mode").matches(CONTEXT).count(),
         1
     );
-    assert!(!messages[0]["content"].to_string().contains(CONTEXT));
+    assert_eq!(
+        message_text(&messages[0]["content"])
+            .matches(CONTEXT)
+            .count(),
+        1
+    );
     let user: Vec<_> = messages
         .iter()
         .filter(|message| message["role"] == "user")

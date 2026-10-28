@@ -124,7 +124,12 @@ impl Server {
                     _ => panic!("unexpected media path: {path}"),
                 };
                 let body = if path == "/v1/chat/completions" {
-                    format!("data: {value}\n\ndata: [DONE]\n\n").into_bytes()
+                    let mut delta = value.clone();
+                    delta["choices"][0]["finish_reason"] = Value::Null;
+                    delta.as_object_mut().unwrap().remove("usage");
+                    let mut terminal = value;
+                    terminal["choices"][0]["delta"] = json!({});
+                    format!("data: {delta}\n\ndata: {terminal}\n\ndata: [DONE]\n\n").into_bytes()
                 } else if path.ends_with("generated.png") {
                     image()
                 } else if path.ends_with("/content") {

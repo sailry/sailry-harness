@@ -174,7 +174,7 @@ async fn resumes_input_once() {
             let output = results(&fixture.client, &page).await;
             let native: Vec<_> = output
                 .iter()
-                .filter_map(|value| value.get("output"))
+                .filter_map(|value| value.get("structuredContent"))
                 .collect();
             assert_eq!(
                 native,

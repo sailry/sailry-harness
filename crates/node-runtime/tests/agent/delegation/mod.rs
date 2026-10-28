@@ -7,6 +7,8 @@ mod explore;
 mod research;
 mod unassigned;
 
+const TURN_LIMIT_MESSAGE: &str = "I've reached the maximum number of actions I can do without user input. Would you like me to continue?";
+
 pub(super) fn model(id: &str) -> Model {
     Model {
         id: id.into(),

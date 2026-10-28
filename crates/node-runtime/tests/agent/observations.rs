@@ -103,7 +103,13 @@ async fn finalizes_terminal_and_cancelled_streams() {
                 assert_eq!(attempt.headers_us, None);
                 assert!(attempt.first_text_us.is_some());
             }
-            assert_eq!(call.boundary, None);
+            assert_eq!(
+                call.boundary,
+                page.entries
+                    .iter()
+                    .find(|entry| entry.turn == turn.id && entry.author == "user")
+                    .map(|entry| entry.sequence)
+            );
             assert!(
                 !serde_json::to_string(observations)
                     .unwrap()

@@ -246,10 +246,7 @@ impl Renewals {
             return None;
         }
         if grant.renewal_pending() {
-            let _ = reply.send(Err(Fault::new(
-                ErrorCode::OutcomeUnknown,
-                "authorization refresh did not complete; sign in again",
-            )));
+            let _ = reply.send(Err(incomplete()));
             return None;
         }
         if grant.expires_at_ms() > now.saturating_add(60_000) {
@@ -386,6 +383,26 @@ impl Renewals {
 }
 
 impl Ingress {
+    pub(crate) async fn authorization_failure(
+        &self,
+        provider: &Provider,
+        config: &SessionConfig,
+    ) -> Result<Option<Fault>, Fault> {
+        if provider.authentication == Authentication::ApiKey {
+            return Ok(None);
+        }
+        let Some(reference) = &config.credential else {
+            return Ok(None);
+        };
+        let storage = self.storage.get().ok_or_else(super::super::unavailable)?;
+        let database = storage.context(true).await.map_err(storage_error)?;
+        let (_, secret) = database
+            .credential(reference, provider.id, provider.authentication)
+            .await?;
+        let grant = Grant::decode(provider.authentication, &secret)?;
+        Ok(grant.renewal_pending().then(incomplete))
+    }
+
     pub(crate) async fn authorization(
         &self,
         reference: CredentialRef,
@@ -411,6 +428,13 @@ impl Ingress {
             result = response => result.map_err(|_| super::super::unavailable())?,
         }
     }
+}
+
+fn incomplete() -> Fault {
+    Fault::new(
+        ErrorCode::OutcomeUnknown,
+        "authorization refresh did not complete; sign in again",
+    )
 }
 
 async fn save(

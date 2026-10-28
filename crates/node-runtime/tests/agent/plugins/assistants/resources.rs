@@ -145,7 +145,6 @@ async fn tools() {
                     mcp,
                     "ask_user".into(),
                     "set_session_title".into(),
-                    "compact_context".into(),
                     "read_tool_output".into(),
                 ])
             );

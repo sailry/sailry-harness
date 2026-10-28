@@ -250,14 +250,7 @@ async fn reads_native_metadata() {
                 panic!("validation expected")
             };
             assert!(validation.missing.is_empty());
-            assert_eq!(
-                validation.exceeded,
-                if authentication == Authentication::ChatGpt {
-                    vec!["fixture"]
-                } else {
-                    vec![]
-                }
-            );
+            assert_eq!(validation.exceeded, vec!["fixture"]);
             assert_eq!(
                 fixture
                     .client

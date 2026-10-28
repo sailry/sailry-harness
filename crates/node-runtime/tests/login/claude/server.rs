@@ -118,25 +118,22 @@ pub(super) fn generation(request: &discovery_support::Request, access: &str, too
     for tool in body["tools"].as_array().into_iter().flatten() {
         if tool["name"] == "manage_mcp" {
             let schema = &tool["input_schema"];
-            for keyword in ["oneOf", "allOf", "anyOf"] {
-                assert!(
-                    schema.get(keyword).is_none(),
-                    "OAuth must use the native schema adapter"
-                );
-            }
-            assert!(schema["not"]["not"]["oneOf"].is_array());
+            assert_eq!(schema["type"], "object");
+            assert!(schema["oneOf"].is_array());
         }
     }
     let system = body["system"].as_array().unwrap();
+    assert!(system[0]["text"].as_str().unwrap().starts_with(
+        "You are Claude Code, Anthropic's official CLI for Claude.\n\nYou are Sailry,"
+    ));
     assert_eq!(
-        system[0]["text"],
-        "You are Claude Code, Anthropic's official CLI for Claude."
+        system
+            .iter()
+            .filter_map(|block| block["text"].as_str())
+            .map(|text| text.matches(INSTRUCTION).count())
+            .sum::<usize>(),
+        1
     );
-    assert!(!system.iter().any(|block| {
-        block["text"]
-            .as_str()
-            .is_some_and(|text| text.contains(INSTRUCTION))
-    }));
     assert_eq!(
         body["messages"]
             .as_array()
@@ -145,10 +142,9 @@ pub(super) fn generation(request: &discovery_support::Request, access: &str, too
             .filter(|message| message["role"] == "user")
             .flat_map(|message| message["content"].as_array().unwrap())
             .filter_map(|block| block["text"].as_str())
-            .filter(|text| text.starts_with("Node context\n"))
             .map(|text| text.matches(INSTRUCTION).count())
             .sum::<usize>(),
-        1
+        0
     );
     let continuation = body["messages"]
         .as_array()
@@ -185,7 +181,7 @@ pub(super) fn generation(request: &discovery_support::Request, access: &str, too
     };
     let events = [
         json!({"type":"message_start", "message":{
-            "id":"msg_claude", "type":"message", "role":"assistant", "model":"fixture",
+            "id":format!("msg_claude_{}",RequestId::new()), "type":"message", "role":"assistant", "model":"fixture",
             "content":[], "stop_reason":null, "stop_sequence":null,
             "usage":{"input_tokens":16, "output_tokens":0, "cache_read_input_tokens":4, "cache_creation_input_tokens":3}
         }}),

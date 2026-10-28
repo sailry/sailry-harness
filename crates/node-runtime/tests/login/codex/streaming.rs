@@ -16,14 +16,22 @@ async fn exposes_unlabelled_sse_before_completion() {
                 &Options::defaults(Authentication::ChatGptOAuth).unwrap(),
                 ACCESS,
             );
+            let response = RequestId::new().to_string();
+            let created = json!({"type":"response.created","sequence_number":0,
+                "response":{"id":response,"object":"response","created_at":1,
+                    "status":"in_progress","model":"fixture","output":[]}});
             let first = server::delta("First Codex fragment");
-            let last = server::completed(json!([server::message(
+            let mut remaining = server::delta(" and completion");
+            remaining["sequence_number"] = json!(2);
+            let mut last = server::completed(json!([server::message(
                 "First Codex fragment and completion"
             )]));
+            last["sequence_number"] = json!(3);
+            last["response"]["id"] = json!(response);
             Reply::Staged {
-                initial: format!("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\ndata: {first}\n\n"),
+                initial: format!("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\ndata: {created}\n\ndata: {first}\n\n"),
                 release: gate.clone(),
-                remaining: format!("data: {last}\n\ndata: [DONE]\n\n"),
+                remaining: format!("data: {remaining}\n\ndata: {last}\n\ndata: [DONE]\n\n"),
             }
         })
         .await;

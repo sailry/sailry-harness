@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 
 #[tokio::test]
-async fn validates_before_scripts_and_flows() {
+async fn retains_declared_schemas_and_handler_failures() {
     const PRIVATE: &str = "private-argument-fixture";
     for remote in [false, true] {
         let valid = json!({"query":"x".repeat(4097),"context":8});
@@ -26,8 +26,8 @@ async fn validates_before_scripts_and_flows() {
         let root = fixture.root.join("package");
         std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
         std::fs::write(root.join("dev.sailry.platform/host/main.js"), r#"
-export function plain(args) { if (args.context === 'wrong') throw new Error('unexpected handler execution'); return args; }
-export function flow() { throw new Error('unexpected flow execution'); }
+export function plain(args) { if (args.context === 'wrong') throw new Error('Rejected private handler arguments'); return args; }
+export function flow() { throw new Error('Rejected private flow arguments'); }
 "#).unwrap();
         let schema = json!({"type":"object","required":["query"],"additionalProperties":false,"properties":{"query":{"type":"string"},"context":{"type":"integer","minimum":0,"default":0}}});
         let flow = json!({"name":"flow","parameters":schema,"flow":{"operations":["storage.get"]}});
@@ -66,13 +66,24 @@ export function flow() { throw new Error('unexpected flow execution'); }
             let error: rmcp::ErrorData = serde_json::from_value(output.clone()).unwrap();
             let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
             assert_eq!(fault.code, ErrorCode::InvalidRequest);
-            assert!(fault.message.contains("/context"), "{output}");
+            assert_eq!(fault.message, "plugin callback failed", "{output}");
             assert!(!output.to_string().contains(PRIVATE));
-            assert!(!output.to_string().contains("unexpected"));
+            assert!(!output.to_string().contains("Rejected private"));
         }
         assert_eq!(outputs[2], valid);
         assert_eq!(outputs[3], json!({"query":"default"}));
         assert!(page.approvals.is_empty());
+        let request = server.requests.lock().unwrap().last().unwrap().clone();
+        for name in ["plain", "flow"] {
+            let alias = plugin_tool("schema-probe", name);
+            let declaration = request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| tool["function"]["name"] == alias)
+                .unwrap();
+            assert_eq!(declaration["function"]["parameters"], schema);
+        }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

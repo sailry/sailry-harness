@@ -1,8 +1,7 @@
 //! Stored account snapshots retain their original credential and revision owner.
 use super::{Stored, authentication, configuration};
-use crate::store::database::storage_error;
 #[cfg(test)]
-use crate::store::database::{Database, record};
+use crate::store::database::{Database, record, storage_error};
 use sailry_protocol::{
     Authentication, Command, Event, Fault, NodeId, ProviderId,
     conversation::{ModelApi, quota::Snapshot},

@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 #[tokio::test]
 async fn drains_with_full_root_pool() {
@@ -102,6 +103,7 @@ async fn drains_with_full_root_pool() {
                 child.requests.lock().unwrap().len(),
             );
         }
+        let mut child_ids = BTreeSet::new();
         for turn in parents.iter().take(4) {
             client
                 .execute(client.prepare(Command::StopTurn { turn: turn.id }))
@@ -110,7 +112,9 @@ async fn drains_with_full_root_pool() {
             let page = finished(&client, turn.session, turn.id).await;
             assert_eq!(page.runs[0].status, Status::Cancelled);
             for child in children(&client, turn.session, 2).await {
+                assert!(child_ids.insert(child.id));
                 let page = history(&client, child.id).await;
+                assert_eq!(page.runs.len(), 1);
                 assert_eq!(page.runs[0].status, Status::Cancelled);
                 assert!(page.approvals.is_empty());
             }
@@ -133,14 +137,65 @@ async fn drains_with_full_root_pool() {
                 Status::Interrupted
             );
             for child in children(&client, turn.session, 2).await {
-                assert_eq!(
-                    history(&client, child.id).await.runs[0].status,
-                    Status::Interrupted
-                );
+                assert!(child_ids.insert(child.id));
+                let page = history(&client, child.id).await;
+                assert_eq!(page.runs.len(), 1);
+                assert_eq!(page.runs[0].status, Status::Interrupted);
             }
         }
-        assert_eq!(child.requests.lock().unwrap().len(), 16);
-        assert_eq!(parent.requests.lock().unwrap().len(), 8);
+        assert_eq!(child_ids.len(), 16);
+        let requests = child.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 16);
+        for child in child_ids {
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| request["prompt_cache_key"] == json!(child))
+                    .count(),
+                1,
+                "each child reaches the model once"
+            );
+        }
+        let requests = parent.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 16);
+        let spawn = plugin_tool("delegation", "spawn_agent");
+        for turn in &parents {
+            let requests: Vec<_> = requests
+                .iter()
+                .filter(|request| request["prompt_cache_key"] == json!(turn.session))
+                .collect();
+            assert_eq!(requests.len(), 2);
+            assert!(
+                requests[0]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == "tool_search")
+            );
+            assert!(
+                requests[0]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|tool| tool["function"]["name"] != spawn)
+            );
+            assert!(
+                requests[1]["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == spawn)
+            );
+            assert!(
+                requests[1]["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|message| {
+                        message["role"] == "tool" && message["tool_call_id"] == "discovery-fixture"
+                    })
+            );
+        }
         node.shutdown().await.unwrap();
     }
 }

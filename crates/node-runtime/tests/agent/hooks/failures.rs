@@ -175,7 +175,10 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
             results(&fixture.client, &page)
                 .await
                 .iter()
-                .any(|result| result["error"]["code"] == "outcome_unknown")
+                .any(
+                    |result| result["code"] == rmcp::model::ErrorCode::INTERNAL_ERROR.0
+                        && result["data"]["code"] == "outcome_unknown"
+                )
         );
         assert_eq!(
             fixture.client.execute(request).await.unwrap(),

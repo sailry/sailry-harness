@@ -226,8 +226,8 @@ async fn idless_mcp_results_keep_execution_facts() {
             let payload = original.get("structuredContent").unwrap_or(&original);
             let label = payload["label"].as_str().unwrap();
             let content = payload["text"].as_str().unwrap();
-            assert!(content.starts_with(&format!("First {label}\n")));
-            assert!(content.ends_with(&format!("\nFinal {label}")));
+            assert!(content.starts_with(&format!("First {label}\\n")));
+            assert!(content.ends_with(&format!("\\nFinal {label}")));
             assert!(content.contains("Evidence 中文 🙂 "));
         }
         execute(&fixture.client, Command::StopTurn { turn: active }).await;

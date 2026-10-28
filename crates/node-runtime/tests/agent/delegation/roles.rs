@@ -212,7 +212,7 @@ async fn inherits_parent_model() {
                 .unwrap();
             assert_eq!(child["reasoning_effort"], "high");
             assert_eq!(child["model"], requests[0]["model"]);
-            assert_eq!(child["messages"][0]["role"], "system");
+            assert_eq!(child["messages"][0]["role"], "developer");
             let identity = child["messages"][0].to_string();
             assert!(identity.contains("You are a delegated child"));
             assert!(
@@ -336,6 +336,7 @@ async fn validates_role_requirements() {
                 panic!("turn expected")
             };
             let page = finished(&client, session.id, turn.id).await;
+            assert_eq!(turn.roles.profiles, vec![role.clone()]);
             assert_eq!(page.runs[0].status, Status::Completed);
             let output = results(&client, &page).await;
             assert_eq!(output.len(), 2, "{output:?}");
@@ -367,21 +368,22 @@ async fn validates_role_requirements() {
                 assert_eq!(child.requests.lock().unwrap().len(), 1);
                 let children = children(&client, session.id, 1).await;
                 let page = history(&client, children[0].id).await;
-                assert_eq!(page.runs[0].status, Status::Failed);
+                assert_eq!(page.runs[0].status, Status::Completed);
+                assert!(page.runs[0].error.is_none());
                 assert_eq!(results(&client, &page).await.len(), 1);
+                assert_eq!(
+                    page.entries
+                        .iter()
+                        .rfind(|entry| entry.author == "assistant")
+                        .unwrap()
+                        .parts,
+                    vec![Part::Text(TURN_LIMIT_MESSAGE.into())]
+                );
                 received(
                     &parent,
                     children[0].id,
-                    "failed: child ended with Failed",
+                    &format!("completed: {TURN_LIMIT_MESSAGE}"),
                     1,
-                );
-                assert!(
-                    !page.runs[0]
-                        .error
-                        .as_ref()
-                        .unwrap()
-                        .message
-                        .contains("http")
                 );
             }
             node.shutdown().await.unwrap();

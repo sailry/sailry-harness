@@ -263,14 +263,13 @@ async fn filters_without_provisioning() {
         for enabled in [false, true] {
             for mode in [WorkMode::Code, WorkMode::Plan] {
                 let denied = enabled && mode == WorkMode::Plan;
-                let calls = if denied {
-                    vec![(
+                let mut calls = if enabled { discovery() } else { vec![] };
+                if denied {
+                    calls.push((
                         "external_browser_click".into(),
                         json!({"selector":"#submit"}),
-                    )]
-                } else {
-                    vec![]
-                };
+                    ));
+                }
                 let fixture =
                     Fixture::configured(remote, calls, mode, Permission::Full, enabled, true).await;
                 let page = if mode == WorkMode::Plan {
@@ -286,8 +285,13 @@ async fn filters_without_provisioning() {
                 assert!(page.approvals.is_empty());
                 {
                     let requests = fixture._server.requests.lock().unwrap();
-                    let tools = requests[0]["tools"].as_array().unwrap();
                     let prefix = plugin_tool("external-browser", "browser_");
+                    assert!(requests[0]["tools"].as_array().unwrap().iter().all(|tool| {
+                        !tool["function"]["name"]
+                            .as_str()
+                            .is_some_and(|name| name.starts_with(&prefix))
+                    }));
+                    let tools = requests.last().unwrap()["tools"].as_array().unwrap();
                     let count = tools
                         .iter()
                         .filter(|tool| {
@@ -319,10 +323,16 @@ async fn requires_provisioning_authority() {
         for disable in [false, true] {
             let fixture = Fixture::configured(
                 remote,
-                vec![(
-                    "external_browser_click".into(),
-                    json!({"selector":"#submit"}),
-                )],
+                vec![
+                    (
+                        "tool_search".into(),
+                        json!({"query":"browser click","limit":8}),
+                    ),
+                    (
+                        "external_browser_click".into(),
+                        json!({"selector":"#submit"}),
+                    ),
+                ],
                 WorkMode::Code,
                 Permission::Ask,
                 true,
@@ -357,15 +367,29 @@ async fn requires_provisioning_authority() {
                 .unwrap();
             let page = finished(&fixture.client, fixture.session, fixture.turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            assert!(
-                tool_details(&fixture.client, &page)
-                    .await
-                    .iter()
-                    .any(|(_, detail)| {
-                        let result = detail.result.as_ref().unwrap();
-                        result.get("error").is_some()
-                    })
-            );
+            let details = tool_details(&fixture.client, &page).await;
+            let result = details
+                .iter()
+                .find(|(name, _)| *name == tool("external_browser_click"))
+                .unwrap()
+                .1
+                .result
+                .as_ref()
+                .unwrap();
+            if disable {
+                let error: rmcp::ErrorData = serde_json::from_value(result.clone()).unwrap();
+                let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
+                assert_eq!(fault.code, ErrorCode::NotConfigured);
+                assert_eq!(fault.message, "plugin is disabled");
+            } else {
+                assert_eq!(
+                    result,
+                    &serde_json::to_value(rmcp::model::CallToolResult::error(vec![
+                        rmcp::model::ContentBlock::text("Tool execution was denied."),
+                    ]))
+                    .unwrap()
+                );
+            }
             assert!(!fixture.profile().join("tools/chromium").exists());
             fixture.shutdown().await;
         }
@@ -459,7 +483,14 @@ impl Fixture {
         let server = Server::tools(
             calls
                 .into_iter()
-                .map(|(name, arguments)| (tool(&name), arguments))
+                .map(|(name, arguments)| {
+                    let name = if name == "tool_search" {
+                        name
+                    } else {
+                        tool(&name)
+                    };
+                    (name, arguments)
+                })
                 .collect(),
         )
         .await;
@@ -536,6 +567,34 @@ impl Fixture {
         }
         stopped(&profile).await;
     }
+}
+
+fn discovery() -> Vec<(String, serde_json::Value)> {
+    // Each search admits at most eight schemas; together these capabilities
+    // exercise all 49 declarations without executing or provisioning a browser.
+    [
+        "upload",
+        "for",
+        "window",
+        "element",
+        "to",
+        "text",
+        "page",
+        "tab",
+        "load",
+        "wait",
+        "scroll",
+        "screenshot",
+        "refresh",
+        "navigate",
+        "links",
+        "hover",
+        "handle",
+        "get",
+    ]
+    .into_iter()
+    .map(|query| ("tool_search".into(), json!({"query":query,"limit":8})))
+    .collect()
 }
 
 fn tool(name: &str) -> String {

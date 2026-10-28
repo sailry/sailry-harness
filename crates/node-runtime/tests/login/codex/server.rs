@@ -185,7 +185,19 @@ pub(super) fn delta(text: &str) -> Value {
         "output_index":0,"content_index":0,"delta":text,"logprobs":[]})
 }
 
-pub(super) fn stream(events: Vec<Value>, done: bool) -> Reply {
+pub(super) fn stream(mut events: Vec<Value>, done: bool) -> Reply {
+    let response = RequestId::new().to_string();
+    for event in &mut events {
+        if event["response"].is_object() {
+            event["response"]["id"] = json!(response);
+        }
+    }
+    events.insert(
+        0,
+        json!({"type":"response.created","sequence_number":0,
+        "response":{"id":response,"object":"response","created_at":1,
+            "status":"in_progress","model":"fixture","output":[]}}),
+    );
     let mut body =
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"
             .to_string();

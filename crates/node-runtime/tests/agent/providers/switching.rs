@@ -74,6 +74,9 @@ async fn isolates_reasoning_across_apis() {
         provider.id = ProviderId::new();
         provider.revision = 0;
         provider.api = ModelApi::DeepSeek;
+        for model in &mut provider.models {
+            model.efforts = vec![Effort::High];
+        }
         provider.endpoint = second.endpoint.clone();
         client
             .execute(client.prepare(Command::PutProvider {
