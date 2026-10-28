@@ -345,26 +345,42 @@ async fn validates_role_requirements() {
             assert_eq!(view.calls.len(), 2);
             assert_eq!(view.calls[0].name, "tool_search");
             assert_eq!(view.calls[1].name, spawn);
+            let call = view
+                .calls
+                .iter()
+                .find(|call| call.name == spawn && call.id.as_deref() == Some("call-fixture-1"))
+                .expect("role call expected");
+            let response = call.response.as_ref().expect("role result expected");
+            let entry = page
+                .entries
+                .iter()
+                .find(|entry| entry.id == response.entry)
+                .unwrap();
+            assert!(
+                matches!(&entry.parts[response.index], Part::ToolResult { id, name, .. }
+                if id.as_deref() == Some("call-fixture-1") && name == &spawn)
+            );
+            let output =
+                crate::agent_support::details::tool_detail(&client, &page, entry, response.index)
+                    .await
+                    .result
+                    .unwrap();
             if skills {
-                assert!(output[1].get("error").is_some(), "{output:?}");
+                let error: rmcp::ErrorData = serde_json::from_value(output).unwrap();
+                let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
                 assert_eq!(
-                    view.calls[1]
-                        .failure
-                        .as_ref()
-                        .and_then(|failure| failure.code),
+                    call.failure.as_ref().and_then(|failure| failure.code),
                     Some(ErrorCode::InvalidRequest)
                 );
-                assert_eq!(output[1]["error"]["code"], "invalid_request");
-                assert_eq!(
-                    output[1]["error"]["message"],
-                    "skill is not listed in this turn's catalog"
-                );
+                assert_eq!(fault.code, ErrorCode::InvalidRequest);
+                assert_eq!(fault.message, "skill is not listed in this turn's catalog");
+                assert_eq!(error.message, fault.message);
                 assert_eq!(child.requests.lock().unwrap().len(), 0);
                 assert!(children(&client, session.id, 0).await.is_empty());
             } else {
-                assert!(view.calls[1].failure.is_none());
-                assert_eq!(output[1]["admitted"], true);
-                assert_eq!(output[1]["status"], "queued");
+                assert!(call.failure.is_none());
+                assert_eq!(output["admitted"], true);
+                assert_eq!(output["status"], "queued");
                 assert_eq!(child.requests.lock().unwrap().len(), 1);
                 let children = children(&client, session.id, 1).await;
                 let page = history(&client, children[0].id).await;

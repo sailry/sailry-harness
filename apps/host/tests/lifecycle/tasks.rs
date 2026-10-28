@@ -100,7 +100,7 @@ async fn submits_and_retries_through_the_existing_owner() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retries_implicit_revision_after_configuration_changes() {
-    let mut fixture = Fixture::new(models::Server::markdown("Original task".into()).await).await;
+    let mut fixture = Fixture::new(models::Server::scripted_tools(Vec::new()).await).await;
     let request = RequestId::new();
     let prompt = "Complete this task once";
     let completed = result(
@@ -141,6 +141,14 @@ async fn retries_implicit_revision_after_configuration_changes() {
         1,
     );
     assert_eq!(changed["error"]["code"], "conflict");
+    let proposal = conversation::question::Spec {
+        prompt: "Review the requested plan".into(),
+        input: conversation::question::Input::Plan,
+    };
+    fixture.model.replace_tools(vec![(
+        "ask_user".into(),
+        serde_json::to_value(&proposal).unwrap(),
+    )]);
     let next_request = RequestId::new();
     let next = result(
         fixture
@@ -165,14 +173,18 @@ async fn retries_implicit_revision_after_configuration_changes() {
     );
     let page = fixture.page().await;
     assert_eq!(page.questions, questions);
-    assert_eq!(
-        page.entries
-            .iter()
-            .find(|entry| entry.id == questions[0].entry)
-            .unwrap()
-            .author,
-        "plan_review"
-    );
+    let entry = page
+        .entries
+        .iter()
+        .find(|entry| entry.id == questions[0].entry)
+        .unwrap();
+    assert_eq!(entry.author, "assistant");
+    let conversation::Part::ToolCall { name, summary, .. } = &entry.parts[questions[0].index]
+    else {
+        panic!("question tool call expected")
+    };
+    assert_eq!(name, "ask_user");
+    assert_eq!(summary.question.as_deref(), Some(&proposal));
     let stale = result(
         fixture
             .invoke(fixture.submit(RequestId::new(), prompt))

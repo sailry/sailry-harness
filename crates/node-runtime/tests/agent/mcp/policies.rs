@@ -543,13 +543,19 @@ async fn projects_only_selected_images() {
             assert_eq!(images(&requests[7]), 7);
             assert_eq!(images(&requests[8]), 8);
             assert_eq!(images(&requests[9]), 4);
-            let snapshots = requests[9]["messages"]
+            let image_note =
+                " This tool result included an image that is uploaded in the next message.";
+            let snapshots: Vec<_> = requests[9]["messages"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .filter(|message| message["role"] == "tool" && message["content"] == "Snapshot")
-                .count();
-            assert_eq!(snapshots, 9);
+                .filter(|message| message["role"] == "tool")
+                .map(|message| {
+                    let text = message["content"].as_str().expect("tool text expected");
+                    text.strip_suffix(image_note).unwrap_or(text)
+                })
+                .collect();
+            assert_eq!(snapshots, vec!["Snapshot"; 9]);
             assert!(output.iter().all(|result| {
                 result["structuredContent"]
                     .get("omitted_screenshots")

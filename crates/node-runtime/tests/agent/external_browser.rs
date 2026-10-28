@@ -377,8 +377,8 @@ async fn requires_provisioning_authority() {
                 .as_ref()
                 .unwrap();
             if disable {
-                let error: rmcp::ErrorData = serde_json::from_value(result.clone()).unwrap();
-                let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
+                assert_eq!(result["isError"], true, "{result}");
+                let fault: Fault = serde_json::from_value(result["error"].clone()).unwrap();
                 assert_eq!(fault.code, ErrorCode::NotConfigured);
                 assert_eq!(fault.message, "plugin is disabled");
             } else {

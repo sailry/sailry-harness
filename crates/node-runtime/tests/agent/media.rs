@@ -142,6 +142,7 @@ async fn restores_frozen_execution() {
         .await;
         let (base, mut provider) = configured_session(&client, &server.endpoint, &root).await;
         provider.models = vec![model("fixture-a")];
+        provider.models[0].vision = false;
         provider.default_model = "fixture-a".into();
         client
             .execute(client.prepare(Command::PutProvider {
@@ -154,6 +155,7 @@ async fn restores_frozen_execution() {
         provider.id = ProviderId::new();
         provider.revision = 0;
         provider.endpoint = media.endpoint.clone();
+        provider.models[0].vision = true;
         let catalog = serde_json::to_vec(&json!({"version":1,"partners":[{
             "id":"media-fixture","name":"Media fixture",
             "routes":[{"protocol":"openai-chat-completions","endpoint":media.endpoint}],

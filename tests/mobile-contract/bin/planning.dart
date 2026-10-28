@@ -103,14 +103,14 @@ Future<void> main() async {
     var updates = await connection.watchConversation(session: session);
     await until(updates, (_) => true);
     await execute(connection, 'start_queued_turn', {'turn': turn['id']});
+    Map<String, dynamic>? coding;
     if (mode == 'plan') {
       final waiting = await until(
         updates,
         (snapshot) =>
             hasPending(snapshot) &&
             (snapshot['page']['runs'] as List).any(
-              (run) =>
-                  run['turn'] == turn['id'] && run['status'] == 'completed',
+              (run) => run['turn'] == turn['id'] && run['status'] == 'running',
             ),
       );
       final question = pending(waiting);
@@ -118,17 +118,27 @@ Future<void> main() async {
       check(
         question['session'] == session &&
             question['turn'] == turn['id'] &&
-            call['name'] == 'plan_review' &&
+            call['name'] == 'ask_user' &&
             (call['arguments'] as Map).length == 2 &&
-            call['arguments']['prompt'] == '' &&
+            call['arguments']['prompt'] == 'Review the frozen plan 中文 🙂' &&
             (call['arguments']['input'] as Map).length == 1 &&
             call['arguments']['input']['kind'] == 'plan' &&
             waiting['snapshot']['page']['runs'].single['revision'] ==
                 revision &&
-            waiting['snapshot']['page']['runs'].single['status'] ==
-                'completed' &&
+            waiting['snapshot']['page']['runs'].single['status'] == 'running' &&
             (waiting['snapshot']['page']['approvals'] as List).isEmpty,
-        'the frozen planning completion waits for canonical review',
+        'the frozen planning turn waits for its actual plan question',
+      );
+      final read = await connection.prepare(
+        command: jsonEncode({
+          'kind': 'read_file',
+          'data': {'worktree': original['worktree'], 'path': 'mode.txt'},
+        }),
+      );
+      check(
+        jsonDecode(await connection.execute(request: read))['Err']['code'] ==
+            'not_found',
+        'planning does not write before review',
       );
       await updates.close();
       updates.dispose();
@@ -147,48 +157,65 @@ Future<void> main() async {
             'session': session,
             'question': question['id'],
             'response': {
-              'kind': 'answer',
-              'data': {'kind': 'text', 'data': ''},
+              'kind': 'start_coding',
+              'data': {
+                'expected_revision': revised['revision'],
+                'message': {
+                  'text': 'Implement the reviewed plan 中文 🙂',
+                  'attachments': [],
+                },
+              },
             },
           },
         }),
       );
       final receipt = await connection.execute(request: answer);
+      final accepted = jsonDecode(receipt)['Ok'];
+      check(accepted['kind'] == 'plan_accepted', 'plan acceptance is durable');
+      final result = accepted['data'];
+      final admitted = result['turn'] as Map<String, dynamic>;
+      coding = admitted;
       check(
-        jsonDecode(receipt)['Ok']['data']['state']['kind'] == 'answered' &&
-            jsonDecode(receipt)['Ok']['data']['state']['data']['kind'] ==
-                'text' &&
-            jsonDecode(receipt)['Ok']['data']['state']['data']['data'] == '' &&
+        result['question']['state']['kind'] == 'answered' &&
+            result['question']['state']['data']['kind'] == 'plan' &&
+            result['question']['state']['data']['data']['turn'] ==
+                admitted['id'] &&
+            admitted['id'] != turn['id'] &&
+            admitted['config']['mode'] == 'code' &&
+            result['session']['config']['mode'] == 'code' &&
+            result['session']['revision'] == revised['revision'] &&
             await connection.execute(request: answer) == receipt,
-        'review ends planning without admitting coding and retains its receipt',
+        'review admits one fresh coding turn using the current revision',
       );
     }
-    final completed = await until(
-      updates,
-      (snapshot) => (snapshot['page']['runs'] as List).any(
-        (run) => run['turn'] == turn['id'] && run['status'] == 'completed',
-      ),
-    );
+    final completed = await until(updates, (snapshot) {
+      final runs = snapshot['page']['runs'] as List;
+      return runs.length == (mode == 'plan' ? 2 : 1) &&
+          runs.every((run) => run['status'] == 'completed');
+    });
     final page = completed['snapshot']['page'];
     check(
-      page['runs'].single['revision'] == revision,
+      (page['runs'] as List).singleWhere(
+            (run) => run['turn'] == turn['id'],
+          )['revision'] ==
+          revision,
       'execution keeps the admitted work mode',
     );
     if (mode == 'plan') {
       check(
-        (page['approvals'] as List).isEmpty,
+        (page['approvals'] as List).every(
+              (approval) => approval['turn'] == coding!['id'],
+            ) &&
+            page['approvals'].length == 1,
         'planning cannot authorize a mutation',
       );
-      final read = await connection.prepare(
-        command: jsonEncode({
-          'kind': 'read_file',
-          'data': {'worktree': original['worktree'], 'path': 'mode.txt'},
-        }),
+      final review = (completed['calls'] as List).singleWhere(
+        (call) => part(completed, call['source'])['name'] == 'ask_user',
       );
       check(
-        jsonDecode(await connection.execute(request: read))['Err']['code'] ==
-            'not_found',
-        'planning did not create the file',
+        part(completed, review['response'])['result']['coding_turn'] ==
+            coding!['id'],
+        'the plan result retains its exact coding turn',
       );
     } else {
       check(
@@ -199,15 +226,18 @@ Future<void> main() async {
         page['approvals'].single['source'] == 'full',
         'coding keeps its permission',
       );
-      final read = (await execute(connection, 'read_file', {
-        'worktree': original['worktree'],
-        'path': 'mode.txt',
-      }))['data'];
-      check(
-        read['text'] == 'Coding after planning 中文 🙂',
-        'coding writes the exact requested content',
-      );
     }
+    final read = (await execute(connection, 'read_file', {
+      'worktree': original['worktree'],
+      'path': mode == 'plan' ? 'mode.txt' : 'frozen-code.txt',
+    }))['data'];
+    check(
+      read['text'] ==
+          (mode == 'plan'
+              ? 'Coding after planning 中文 🙂'
+              : 'Frozen coding 中文 🙂'),
+      'coding writes the exact requested content',
+    );
     check(
       await connection.execute(request: queue) == queued,
       'queue retry does not replay work',

@@ -43,6 +43,27 @@ pub(crate) fn standard(request: &discovery_support::Request, expires: u64) -> Re
             &Options::defaults(Authentication::ChatGptOAuth).unwrap(),
             ACCESS,
         ),
+        path if path.split('?').next() == Some("/v1/models") => {
+            let options = Options::defaults(Authentication::ChatGptOAuth).unwrap();
+            assert_eq!(request.method, "GET");
+            assert!(request.body.is_empty());
+            assert_eq!(
+                request.path,
+                format!(
+                    "/v1/models?client_version={}",
+                    options.catalog_version().unwrap()
+                )
+            );
+            let access = if request.headers["authorization"] == format!("Bearer {ACCESS}") {
+                ACCESS
+            } else {
+                REFRESHED
+            };
+            headers(request, &options, access);
+            Reply::Raw(
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),
+            )
+        }
         _ => panic!("unexpected Codex fixture request: {}", request.path),
     }
 }

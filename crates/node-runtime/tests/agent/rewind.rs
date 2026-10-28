@@ -301,8 +301,49 @@ async fn recovers_subscribers_after_rewind() {
                 .iter()
                 .filter(|entry| !is_context(entry))
                 .count(),
-            7
+            6
         );
+        assert_eq!(
+            resumed
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == first)
+                .collect::<Vec<_>>(),
+            retained.entries.iter().collect::<Vec<_>>()
+        );
+        let continuation: Vec<_> = resumed
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == next && !is_context(entry))
+            .collect();
+        assert_eq!(continuation.len(), 2);
+        assert_eq!(continuation[0].author, "user");
+        assert_eq!(
+            continuation[0].parts,
+            vec![Part::Text("Independent continuation".into())]
+        );
+        assert_eq!(continuation[1].author, "assistant");
+        assert_eq!(
+            continuation[1].parts,
+            vec![Part::Text(format!("answer-{}", session.config.model))]
+        );
+        for result in [false, true] {
+            assert_eq!(
+                resumed
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .filter(|part| match part {
+                        Part::ToolCall { name, .. } if !result =>
+                            name == &plugin_tool("files", "write_file"),
+                        Part::ToolResult { name, .. } if result =>
+                            name == &plugin_tool("files", "write_file"),
+                        _ => false,
+                    })
+                    .count(),
+                1
+            );
+        }
         assert_eq!(*view.borrow().snapshot.as_ref().unwrap().page, resumed);
         let body = server.requests.lock().unwrap().last().unwrap().clone();
         let contents: Vec<_> = body["messages"]

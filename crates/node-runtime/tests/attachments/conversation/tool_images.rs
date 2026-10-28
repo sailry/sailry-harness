@@ -121,6 +121,7 @@ async fn restores(direct: bool) {
                             .as_array()
                             .is_none_or(Vec::is_empty)
                     );
+                    response["format"] = json!("json");
                     let mut value = response["result"]["value"].clone();
                     value["inline_data"] = json!([{"mime_type":"image/png","data":bytes}]);
                     response["revision"] = json!(

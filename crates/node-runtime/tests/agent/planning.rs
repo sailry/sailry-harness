@@ -483,13 +483,13 @@ async fn rejects_mutations_before_approval() {
                 assert_ne!(system(&requests[0]), system(&requests[initial_requests]));
                 assert!(initial_revision < fixture.session.revision);
                 assert!(
-                    !system(&requests[0])
-                        .to_string()
+                    !serde_json::to_string(&system(&requests[0]))
+                        .unwrap()
                         .contains("This is a planning turn")
                 );
                 assert!(
-                    system(&requests[initial_requests])
-                        .to_string()
+                    serde_json::to_string(&system(&requests[initial_requests]))
+                        .unwrap()
                         .contains("This is a planning turn")
                 );
                 assert_eq!(

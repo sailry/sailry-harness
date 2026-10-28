@@ -279,7 +279,6 @@ async fn scopes_tool_switches_to_the_execution_node() {
             for name in [
                 "ask_user",
                 "set_session_title",
-                "compact_context",
                 "list_sessions",
                 "read_session",
                 "search_session",
