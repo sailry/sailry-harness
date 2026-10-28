@@ -308,11 +308,33 @@ fn error(raw: &Raw, metadata: Option<&ResultDisplay>) -> Option<String> {
     }
     raw.failure.as_ref()?;
     let result = raw.value()?;
-    result
+    if let Some(message) = result
         .pointer("/error/message")
         .or_else(|| result.get("error"))
         .and_then(Value::as_str)
-        .map(str::to_owned)
+    {
+        return Some(message.to_owned());
+    }
+    match raw.format {
+        ToolFormat::McpError => result
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        ToolFormat::Mcp => {
+            let message = raw
+                .result
+                .as_ref()?
+                .get("content")?
+                .as_array()?
+                .iter()
+                .filter(|content| content.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|content| content.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n");
+            (!message.is_empty()).then_some(message)
+        }
+        ToolFormat::Json => None,
+    }
 }
 
 fn text(value: &Value, field: &str, limit: usize) -> Option<String> {

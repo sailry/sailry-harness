@@ -231,17 +231,57 @@ fn selects_mcp_progress_by_format() {
 }
 
 #[test]
+fn retains_bounded_mcp_failure_messages() {
+    let message = "Original failure 中文 🙂\n".repeat(100);
+    for (format, original) in [
+        (
+            ToolFormat::McpError,
+            json!({"code":-32603,"message":message,"data":{"code":"outcome_unknown"}}),
+        ),
+        (
+            ToolFormat::Mcp,
+            json!({"isError":true,"content":[{"type":"text","text":message}]}),
+        ),
+    ] {
+        let mut raw = source(original.clone());
+        raw.format = format;
+        raw.presentation = Presentation::Summary;
+        assert!(raw.summary().error.is_none());
+        raw.failure = Some(Failure { code: None });
+        let summary = raw.summary();
+        assert!(summary.diagnostics && summary.has_details);
+        assert_eq!(
+            summary.error.unwrap(),
+            message.chars().take(1024).collect::<String>()
+        );
+        assert_eq!(raw.detail().result, Some(original));
+    }
+}
+
+#[test]
 fn business_errors_do_not_become_failures() {
-    for result in [
-        json!({"error":"business value"}),
-        json!({"isError":true,"error":"business value"}),
-        json!({"output":{"isError":true,"error":"domain row"}}),
+    for (format, result) in [
+        (ToolFormat::Json, json!({"error":"business value"})),
+        (
+            ToolFormat::Json,
+            json!({"isError":true,"error":"business value"}),
+        ),
+        (
+            ToolFormat::Json,
+            json!({"output":{"isError":true,"error":"domain row"}}),
+        ),
+        (
+            ToolFormat::Mcp,
+            json!({"isError":false,"content":[],"structuredContent":{"isError":true,"error":"domain row"}}),
+        ),
     ] {
         let mut raw = source(result.clone());
+        raw.format = format;
         raw.presentation = Presentation::Hidden;
         let summary = raw.summary();
         assert!(!summary.diagnostics && !summary.has_details);
         assert!(summary.failure.is_none());
+        assert!(summary.error.is_none());
         raw.failure = Some(Failure { code: None });
         let summary = raw.summary();
         assert!(summary.diagnostics && summary.has_details);
