@@ -135,12 +135,13 @@ Future<void> main() async {
               2,
         ),
   );
-  final admissions = [
+  final spawns = [
     for (final call in (parentView['calls'] as List).where(
       (call) => call['name'] == env['SAILRY_SPAWN_TOOL'],
     ))
-      (await detail(parentUpdates, call))['result'],
+      (call: call, detail: await detail(parentUpdates, call)),
   ];
+  final admissions = [for (final spawn in spawns) spawn.detail['result']];
   check(
     admissions.length == 2 &&
         admissions.every(
@@ -189,7 +190,13 @@ Future<void> main() async {
       'Client call includes its selected child reference',
     );
     final call = part(parentView, origin);
-    final arguments = (await detail(parentUpdates, associated))['arguments'];
+    final arguments = spawns
+        .singleWhere(
+          (spawn) =>
+              spawn.call['source']['entry'] == origin['entry'] &&
+              spawn.call['source']['index'] == origin['index'],
+        )
+        .detail['arguments'];
     check(
       call['name'] == env['SAILRY_SPAWN_TOOL'] && arguments['role'] == 'review',
       'ancestry references a canonical parent call',
