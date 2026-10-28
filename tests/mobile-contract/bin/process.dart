@@ -3,16 +3,19 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'approvals.dart' show denied, hasPending, pending, part;
-import 'conversation.dart' show check, execute, until;
+import 'approvals.dart' show denied, hasPending, interrupted, pending;
+import 'conversation.dart' show check, detail, execute, until;
 import 'attachments/support.dart'
     show uploadAttachment, prepareDownload, downloadAttachment;
 
-Map<String, dynamic> result(Map<String, dynamic> view, int index) =>
-    part(view, view['calls'][index]['response'])['result']['data'];
-
 Future<void> main() async {
   final env = Platform.environment;
+  Map<String, dynamic> call(Map<String, dynamic> view, int index) =>
+      (view['calls'] as List).singleWhere(
+        (call) =>
+            call['name'] == env['SAILRY_RUN_TOOL'] &&
+            call['id'] == 'call-fixture-$index',
+      );
   await RustLib.init(
     externalLibrary: ExternalLibrary.open(env['SAILRY_BRIDGE_LIBRARY']!),
   );
@@ -74,13 +77,14 @@ Future<void> main() async {
         first['prefix'] == null,
     'unrestricted execution requires a fresh decision',
   );
-  final source = part(waiting, waiting['calls'][0]['source']);
+  final proposed = call(waiting, 0);
+  final source = await detail(updates, proposed);
   final text = List.filled(
     100,
     '完整输出 中文 🙂\n```rust\nlet value = 1;\n```\n',
   ).join();
   check(
-    source['name'] == env['SAILRY_RUN_TOOL'] &&
+    proposed['name'] == env['SAILRY_RUN_TOOL'] &&
         source['arguments']['command'].contains(text),
     'full literal command crosses FFI',
   );
@@ -169,7 +173,7 @@ Future<void> main() async {
     downloaded.join(',') == '0,255,1,2',
     'command input does not change the original attachment',
   );
-  final completed = result(next, 0);
+  final completed = (await detail(updates, call(next, 0)))['result']['data'];
   check(
     completed['outcome']['kind'] == 'exited' &&
         completed['outcome']['data'] == 7,
@@ -202,9 +206,10 @@ Future<void> main() async {
         pending(third)['access'] == 'unrestricted',
     'unrestricted denial targets a fresh pending call',
   );
+  final timedOut = (await detail(updates, call(third, 1)))['result']['data'];
   check(
-    result(third, 1)['outcome']['kind'] == 'timed_out' &&
-        result(third, 1)['stdout']['text'] == 'before timeout\n',
+    timedOut['outcome']['kind'] == 'timed_out' &&
+        timedOut['stdout']['text'] == 'before timeout\n',
     'timeout retains partial output',
   );
   await execute(connection, 'resolve_approval', {
@@ -216,9 +221,10 @@ Future<void> main() async {
     updates,
     (snapshot) => snapshot['page']['runs'].single['status'] == 'completed',
   );
+  final rejected = call(finished, 2);
+  final rejection = (await detail(updates, rejected))['result'];
   check(
-    finished['calls'][2]['approval']['state'] == 'denied' &&
-        denied(part(finished, finished['calls'][2]['response'])['result']),
+    rejected['approval']['state'] == 'denied' && denied(rejection),
     'denied command is not reported as an executed command',
   );
   final restored = await reopen();
@@ -282,7 +288,7 @@ Future<void> main() async {
   final running = await reopen();
   check(
     running['snapshot']['page']['runs'].single['status'] == 'running' &&
-        running['calls'][0]['approval']['state'] == 'approved',
+        call(running, 0)['approval']['state'] == 'approved',
     'closing the controller does not stop approved execution',
   );
   await execute(connection, 'stop_turn', {'turn': stopping['turn']});
@@ -290,15 +296,14 @@ Future<void> main() async {
     updates,
     (snapshot) => snapshot['page']['runs'].single['status'] == 'cancelled',
   );
-  final interrupted = part(stopped, stopped['calls'][0]['response'])['result'];
+  final interruptedCall = call(stopped, 0);
+  final interruption = (await detail(updates, interruptedCall))['result'];
   check(
-    stopped['calls'][0]['state'] == 'returned' &&
-        interrupted['status'] == 'outcome_unknown' &&
-        (interrupted['detail'] as String).isNotEmpty,
+    interruptedCall['state'] == 'returned' && interrupted(interruption),
     'stop retains the interrupted outcome without claiming success',
   );
   check(
-    stopped['calls'][0]['approval']['state'] == 'approved',
+    interruptedCall['approval']['state'] == 'approved',
     'stopping does not undo the prior authorization',
   );
   check(

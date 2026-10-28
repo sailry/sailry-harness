@@ -5,8 +5,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/commands.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
-import 'approvals.dart' show hasPending, pending, part;
+import 'conversation.dart' show check, detail, execute, until;
+import 'approvals.dart' show hasPending, pending;
 import 'ports.dart' show released;
 
 Future<Map<String, dynamic>> serviceView(
@@ -54,12 +54,18 @@ Future<void> main() async {
   });
   final waiting = await until(history, hasPending);
   final approval = pending(waiting);
+  final call = (waiting['calls'] as List).singleWhere(
+    (call) =>
+        call['source']['entry'] == approval['entry'] &&
+        call['source']['index'] == approval['index'],
+  );
+  final arguments = (await detail(history, call))['arguments'];
   check(
     approval['source'] == 'user' &&
         approval['access'] == 'unrestricted' &&
         approval['can_remember'] == false &&
         approval['prefix'] == null &&
-        part(waiting, approval)['arguments']['access'] == 'unrestricted',
+        arguments['access'] == 'unrestricted',
     'network services require fresh unrestricted consent in project mode',
   );
   final before = await serviceView(commands, (_) => true);
