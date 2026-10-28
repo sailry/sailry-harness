@@ -12,12 +12,6 @@ const FAILURE: &str = "Upstream temporarily unavailable";
 mod observations;
 
 pub(super) fn http(fixture: &Fixture) {
-    fixture
-        .node
-        .set_model_transport_fixture(adk_model::openai::WsOptions {
-            enabled: Arc::new(|| false),
-            ..Default::default()
-        });
 }
 
 async fn session_policy(fixture: &mut Fixture) {
@@ -210,9 +204,6 @@ async fn cancels_a_hinted_wait_without_replay() {
         )
         .await;
         let fixture = fixture(remote, ModelApi::Responses, &server.endpoint).await;
-        fixture
-            .node
-            .set_model_retry_fixture(Duration::from_secs(60));
         let turn = fixture.submit("Cancel the server retry wait").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -984,9 +975,6 @@ async fn cancels_a_connection_wait() {
         let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
         drop(listener);
         let fixture = fixture(remote, ModelApi::Responses, &endpoint).await;
-        fixture
-            .node
-            .set_model_retry_fixture(Duration::from_secs(60));
         let turn = fixture.submit("Wait for the unavailable network").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {

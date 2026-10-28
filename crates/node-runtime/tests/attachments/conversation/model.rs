@@ -6,12 +6,6 @@ use base64::Engine;
 async fn preserves_unsupported_pdf_history() {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
         let fixture = Fixture::empty().await;
-        fixture
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                enabled: std::sync::Arc::new(|| false),
-                ..Default::default()
-            });
         let server = server::Server::start(false).await;
         for client in fixture.clients() {
             let (session, _) = session(&client, fixture.worktree, &server.endpoint, api).await;
@@ -74,12 +68,6 @@ async fn materializes_inputs() {
     );
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
         let mut fixture = Fixture::empty().await;
-        fixture
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                enabled: std::sync::Arc::new(|| false),
-                ..Default::default()
-            });
         let server = server::Server::start(false).await;
         let mut records = Vec::new();
         let text = "完整内容 🙂\n".repeat(400);
@@ -206,12 +194,6 @@ async fn materializes_inputs() {
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
         fixture.node = Node::start_empty(&profile).await.unwrap();
-        fixture
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                enabled: std::sync::Arc::new(|| false),
-                ..Default::default()
-            });
         for (client, (session, turn, history, pdf)) in fixture.clients().into_iter().zip(records) {
             assert_eq!(page(&client, session.id).await, history);
             let Output::Session(branch) = client

@@ -88,7 +88,6 @@ impl Fixture {
             Node::start_empty_with_authorization(path, &server.endpoint).await
         }
         .unwrap();
-        node.set_model_retry_fixture(Duration::ZERO);
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

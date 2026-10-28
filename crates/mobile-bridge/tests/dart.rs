@@ -90,8 +90,6 @@ mod terminal_tools;
 mod tools;
 #[path = "dart/unassigned.rs"]
 mod unassigned;
-#[path = "dart/web_search.rs"]
-mod web_search;
 
 #[test]
 #[ignore = "requires built bridge and dart pub get in tests/mobile-contract"]

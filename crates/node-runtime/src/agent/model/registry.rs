@@ -1,9 +1,10 @@
-//! Node-owned native clients; turn wrappers and request credentials stay outside this cache.
+//! Session-owned GDK providers and shared HTTP clients for captured configurations.
 use super::*;
-use crate::store::login::Authorization;
-use adk_core::{LlmRequest, LlmResponseStream, SchemaAdapter};
-use async_trait::async_trait;
-use sailry_protocol::{Secret, SessionId};
+use goose_provider_types::base::Provider as GdkProvider;
+use goose_providers::api_client::{
+    ApiClient, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_PROVIDER_TIMEOUT_SECS,
+};
+use sailry_protocol::SessionId;
 use std::{collections::BTreeMap, sync::Mutex, time::Duration};
 use tokio::time::Instant;
 
@@ -12,120 +13,97 @@ const CAPACITY: usize = 128;
 
 #[derive(Default)]
 pub(crate) struct Registry {
-    entries: Mutex<BTreeMap<(SessionId, String), Arc<Entry>>>,
-    pub(super) capabilities: Arc<transport::Capabilities>,
-    #[cfg(any(test, feature = "test-support"))]
-    pub(super) retry_wait: Mutex<Option<Duration>>,
+    entries: Mutex<BTreeMap<(SessionId, String), Entry>>,
+    http: Mutex<BTreeMap<String, reqwest::Client>>,
 }
 
-pub(super) struct Built {
-    pub inner: Arc<dyn Llm>,
-    pub responses: Option<Arc<OpenAIResponsesClient>>,
-}
-
-impl Built {
-    pub(super) fn new(inner: Arc<dyn Llm>) -> Self {
-        Self {
-            inner,
-            responses: None,
-        }
-    }
-}
-
-pub(super) struct Entry {
-    pub inner: Arc<dyn Llm>,
-    pub responses: Option<Arc<OpenAIResponsesClient>>,
-    authorization: Mutex<Option<Authorization>>,
-    secrets: Mutex<Vec<Secret>>,
-    pending: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    used: Mutex<Instant>,
+struct Entry {
+    provider: Arc<dyn GdkProvider>,
+    used: Instant,
 }
 
 impl Registry {
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn set_retry_fixture(&self, delay: Duration) {
-        *self.retry_wait.lock().unwrap() = Some(delay);
-    }
-
     pub(super) fn get(
         &self,
         session: SessionId,
         fingerprint: String,
-        create: impl FnOnce() -> Result<Built, Fault>,
-    ) -> Result<Arc<Entry>, Fault> {
+        create: impl FnOnce() -> Result<Arc<dyn GdkProvider>, Fault>,
+    ) -> Result<Arc<dyn GdkProvider>, Fault> {
         let now = Instant::now();
         let mut entries = self.entries.lock().unwrap();
         Self::prune(&mut entries, now);
         let key = (session, fingerprint);
-        if let Some(entry) = entries.get(&key) {
-            entry.touch();
-            return Ok(entry.clone());
+        if let Some(entry) = entries.get_mut(&key) {
+            entry.used = now;
+            return Ok(entry.provider.clone());
         }
-        let built = create()?;
-        let entry = Arc::new(Entry {
-            inner: built.inner,
-            responses: built.responses,
-            authorization: Mutex::default(),
-            secrets: Mutex::default(),
-            pending: Mutex::default(),
-            used: Mutex::new(now),
-        });
+        let provider = create()?;
         if entries.len() >= CAPACITY
             && let Some(oldest) = entries
                 .iter()
-                .min_by_key(|(_, value)| *value.used.lock().unwrap())
+                .min_by_key(|(_, entry)| entry.used)
                 .map(|(key, _)| key.clone())
-            && let Some(evicted) = entries.remove(&oldest)
         {
-            evicted.close();
+            entries.remove(&oldest);
         }
-        entries.insert(key, entry.clone());
-        Ok(entry)
+        entries.insert(
+            key,
+            Entry {
+                provider: provider.clone(),
+                used: now,
+            },
+        );
+        Ok(provider)
+    }
+
+    pub(super) fn http(&self, origin: Option<url::Origin>) -> Result<reqwest::Client, Fault> {
+        let key = origin
+            .as_ref()
+            .map_or_else(String::new, url::Origin::ascii_serialization);
+        let mut clients = self.http.lock().unwrap();
+        if let Some(client) = clients.get(&key) {
+            return Ok(client.clone());
+        }
+        let client = if let Some(origin) = origin {
+            // Adapted from Goose ee8500d5 api_client.rs (Apache-2.0; see
+            // third_party_licenses/goose-Apache-2.0.txt). ApiClient's
+            // decorator must not replace its authenticated transport with a looser one.
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
+                .read_timeout(Duration::from_secs(DEFAULT_PROVIDER_TIMEOUT_SECS))
+                .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                    if attempt.previous().len() >= 10 {
+                        return attempt.error("too many redirects");
+                    }
+                    if attempt.url().origin() == origin {
+                        attempt.follow()
+                    } else {
+                        attempt.error("redirect crosses the authenticated request origin")
+                    }
+                }))
+                .build()
+                .map_err(factory::unavailable)?
+        } else {
+            ApiClient::http_client(None).map_err(factory::unavailable)?
+        };
+        clients.insert(key, client.clone());
+        Ok(client)
     }
 
     pub(crate) fn evict(&self, session: SessionId) {
-        self.entries.lock().unwrap().retain(|(owner, _), entry| {
-            if *owner == session {
-                entry.close();
-                false
-            } else {
-                true
-            }
-        });
+        self.entries
+            .lock()
+            .unwrap()
+            .retain(|(owner, _), _| *owner != session);
     }
 
     pub(crate) fn clear(&self) {
-        let mut entries = self.entries.lock().unwrap();
-        for entry in entries.values() {
-            entry.close();
-        }
-        entries.clear();
+        self.entries.lock().unwrap().clear();
     }
 
-    pub(crate) fn fallback(&self, session: SessionId) -> bool {
-        let entries = self.entries.lock().unwrap();
-        if !entries
-            .iter()
-            .any(|((owner, _), entry)| *owner == session && entry.responses.is_some())
-            || !self.capabilities.fallback(session)
-        {
-            return false;
-        }
-        for ((owner, _), entry) in entries.iter() {
-            if *owner == session {
-                entry.close();
-            }
-        }
-        true
-    }
-
-    pub(crate) fn abandon(&self, session: SessionId) {
-        for ((owner, _), entry) in self.entries.lock().unwrap().iter() {
-            if *owner == session {
-                entry.abandon();
-            }
-        }
-    }
+    // The old runner still calls this on stop until Stage 4. Dropping its GDK
+    // stream cancels HTTP; the registry has no independent generation task.
+    pub(crate) fn abandon(&self, _session: SessionId) {}
 
     pub(crate) async fn maintain(registry: std::sync::Weak<Self>, stop: CancellationToken) {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
@@ -140,153 +118,17 @@ impl Registry {
         }
     }
 
-    fn prune(entries: &mut BTreeMap<(SessionId, String), Arc<Entry>>, now: Instant) {
-        entries.retain(|_, entry| {
-            if now.duration_since(*entry.used.lock().unwrap()) >= IDLE {
-                entry.close();
-                false
-            } else {
-                if let Some(socket) = entry
-                    .responses
-                    .as_ref()
-                    .and_then(|client| client.websocket())
-                {
-                    socket.expire();
-                }
-                true
-            }
-        });
-    }
-}
-
-impl Entry {
-    fn touch(&self) {
-        *self.used.lock().unwrap() = Instant::now();
-    }
-
-    pub(super) fn preconnect(
-        &self,
-        stop: &CancellationToken,
-        connect: impl std::future::Future<Output = ()> + Send + 'static,
-    ) {
-        let Some(socket) = self
-            .responses
-            .as_ref()
-            .and_then(|client| client.websocket())
-        else {
-            return;
-        };
-        if socket.is_connected() || stop.is_cancelled() {
-            return;
-        }
-        let mut pending = self.pending.lock().unwrap();
-        if pending.as_ref().is_some_and(|task| !task.is_finished()) {
-            return;
-        }
-        // The task ends with the handshake, so a later turn can preconnect again.
-        // ADK closes a socket that no request uses within its preconnect lifetime.
-        let stop = stop.clone();
-        *pending = Some(tokio::spawn(async move {
-            tokio::select! {
-                biased;
-                _ = stop.cancelled() => {},
-                _ = connect => {},
-            }
-        }));
-    }
-
-    fn abandon(&self) {
-        if let Some(pending) = self.pending.lock().unwrap().take() {
-            pending.abort();
-        }
-    }
-
-    fn close(&self) {
-        self.abandon();
-        if let Some(socket) = self
-            .responses
-            .as_ref()
-            .and_then(|client| client.websocket())
-        {
-            socket.close_idle();
-        }
-    }
-
-    pub(super) fn authorize(&self, authorization: Authorization) -> Authorization {
-        let mut current = self.authorization.lock().unwrap();
-        if current
-            .as_ref()
-            .is_none_or(|value| value.credential.revision <= authorization.credential.revision)
-        {
-            *current = Some(authorization);
-        }
-        current.as_ref().expect("authorization initialized").clone()
-    }
-
-    pub(super) fn protect(&self, current: Vec<Secret>) -> Vec<Secret> {
-        let mut previous = self.secrets.lock().unwrap();
-        let mut secrets = current.clone();
-        for secret in previous.iter() {
-            if !secrets
-                .iter()
-                .any(|value| value.expose() == secret.expose())
-            {
-                secrets.push(secret.clone());
-            }
-        }
-        *previous = current;
-        secrets
-    }
-}
-
-#[async_trait]
-impl Llm for Entry {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-    fn schema_adapter(&self) -> &dyn SchemaAdapter {
-        self.inner.schema_adapter()
-    }
-    fn uses_interactions_api(&self) -> bool {
-        self.inner.uses_interactions_api()
-    }
-    fn max_cost_micro_usd(&self, request: &LlmRequest) -> Option<u64> {
-        self.inner.max_cost_micro_usd(request)
-    }
-    async fn generate_content(
-        &self,
-        request: LlmRequest,
-        stream: bool,
-    ) -> adk_core::Result<LlmResponseStream> {
-        self.touch();
-        self.inner.generate_content(request, stream).await
-    }
-}
-
-impl Drop for Entry {
-    fn drop(&mut self) {
-        self.close();
+    fn prune(entries: &mut BTreeMap<(SessionId, String), Entry>, now: Instant) {
+        entries.retain(|_, entry| now.duration_since(entry.used) < IDLE);
     }
 }
 
 pub(super) fn fingerprint(
     provider: &Provider,
     config: &SessionConfig,
-    effort: Effort,
     revision: Option<u64>,
-    websocket: bool,
 ) -> Result<String, Fault> {
-    let value = serde_json::to_vec(&(
-        provider,
-        &config.model,
-        effort,
-        &config.credential,
-        revision,
-        websocket,
-    ))
-    .map_err(|_| Fault::invalid("model client identity is invalid"))?;
-    Ok(blake3::hash(&value).to_hex().to_string())
+    let bytes = serde_json::to_vec(&(provider, config, revision))
+        .map_err(|_| Fault::invalid("captured model configuration is invalid"))?;
+    Ok(blake3::hash(&bytes).to_hex().into())
 }
-
-#[cfg(test)]
-mod tests;

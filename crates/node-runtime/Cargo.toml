@@ -68,6 +68,7 @@ required-features = ["test-support"]
 
 [dependencies]
 anyhow.workspace = true
+httpdate.workspace = true
 goose-agent.workspace = true
 goose-provider-types.workspace = true
 goose-providers.workspace = true

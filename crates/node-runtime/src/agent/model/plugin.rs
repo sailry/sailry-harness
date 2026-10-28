@@ -1,9 +1,15 @@
-//! Pure package translations implement ADK's Llm contract; Node retains transport.
+//! Captured package translations implement GDK's Provider contract; Node owns HTTP and credentials.
 use super::*;
-use adk_core::{AdkError, LlmRequest, LlmResponse, LlmResponseStream, SchemaAdapter};
 use async_trait::async_trait;
 use futures::StreamExt;
-use sailry_protocol::plugin::model_adapter::{self, Declaration, Dialect, wire};
+use goose_provider_types::{
+    base::{MessageStream, Provider as GdkProvider},
+    conversation::message::Message,
+    errors::ProviderError,
+    model::ModelConfig,
+    retry::ProviderRetry,
+};
+use sailry_protocol::plugin::model_adapter::{self, Declaration, wire};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -19,8 +25,6 @@ mod transport;
 mod worker;
 use transport::Credentials;
 
-// A streamed response is retained for its final ADK result. Bound that native
-// buffer independently of raw attachments and the VM's separate heap budget.
 const RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) struct Model {
@@ -54,31 +58,52 @@ impl Model {
             client: transport::client()?,
         })
     }
+
+    async fn ready(
+        &self,
+        input: &wire::Request,
+        credentials: &Credentials,
+        stop: &CancellationToken,
+    ) -> Result<(reqwest::Response, worker::Worker, model_adapter::Framing), ProviderError> {
+        let worker = worker::Worker::new(clone_bundle(&self.bundle), stop, usize::MAX)
+            .await
+            .map_err(response::translation)?;
+        let prepared: wire::Prepared = worker
+            .call("prepare", input)
+            .await
+            .map_err(response::translation)?;
+        let framing = prepared.framing.unwrap_or(self.declaration.framing);
+        let received = transport::send(
+            &self.client,
+            prepared,
+            &self.provider.endpoint,
+            &self.declaration,
+            credentials,
+            stop,
+            usize::MAX,
+        )
+        .await
+        .map_err(transport::Failure::model)?;
+        if !received.status().is_success() {
+            return Err(classify(received, &worker, credentials, stop).await?);
+        }
+        Ok((received, worker, framing))
+    }
 }
 
 #[async_trait]
-impl Llm for Model {
-    fn name(&self) -> &str {
-        &self.config.model
-    }
-    fn schema_adapter(&self) -> &dyn SchemaAdapter {
-        static GENERIC: adk_core::GenericSchemaAdapter = adk_core::GenericSchemaAdapter;
-        static OPENAI: adk_model::openai::OpenAiSchemaAdapter =
-            adk_model::openai::OpenAiSchemaAdapter;
-        static GEMINI: std::sync::LazyLock<adk_gemini::schema_adapter::GeminiSchemaAdapter> =
-            std::sync::LazyLock::new(adk_gemini::schema_adapter::GeminiSchemaAdapter::new);
-        match self.declaration.schema_dialect {
-            Dialect::Generic => &GENERIC,
-            Dialect::OpenAi => &OPENAI,
-            Dialect::Gemini => &*GEMINI,
-        }
+impl GdkProvider for Model {
+    fn get_name(&self) -> &str {
+        "sailry_plugin"
     }
 
-    async fn generate_content(
+    async fn stream(
         &self,
-        request: LlmRequest,
-        streaming: bool,
-    ) -> Result<LlmResponseStream, AdkError> {
+        config: &ModelConfig,
+        system: &str,
+        messages: &[Message],
+        tools: &[rmcp::model::Tool],
+    ) -> Result<MessageStream, ProviderError> {
         let credentials = credentials(
             &self.ingress,
             &self.provider,
@@ -88,126 +113,120 @@ impl Llm for Model {
         )
         .await
         .map_err(response::fault)?;
-        let mut origin = credentials.origin.clone().unwrap_or_else(|| {
-            super::history::origin(&self.provider, &self.config.model, None, None)
-        });
-        origin.model = self.config.model.clone();
-        super::history::generate(
-            request,
-            origin,
-            super::history::Window::new(&self.provider, &self.config.model),
-            |request| async move {
-                let input = request::convert(
-                    request,
-                    &self.provider.endpoint,
-                    &self.session.to_string(),
-                    self.config.effort,
-                    self.config.features.clone(),
-                    &self.declaration.capabilities,
-                    streaming,
-                )
-                .map_err(response::fault)?;
-                let names = input.tools.iter().map(|tool| tool.name.clone()).collect();
-                let stop = self.stop.child_token();
-                // Serialized base64 input is not raw attachment size or VM heap use.
-                // The existing VM heap/CPU owner enforces actual execution resources.
-                let worker = worker::Worker::new(clone_bundle(&self.bundle), &stop, usize::MAX)
-                    .await
-                    .map_err(response::translation)?;
-                let mut prepared: wire::Prepared = worker
-                    .call("prepare", &input)
-                    .await
-                    .map_err(response::translation)?;
-                let policies = crate::providers::policy::body(&self.provider, &self.config.model);
-                if !policies.is_empty() {
-                    let mut body: serde_json::Value =
-                        serde_json::from_str(prepared.body.as_deref().ok_or_else(|| {
-                            response::invalid("model request policy requires a JSON body")
-                        })?)
-                        .map_err(|_| {
-                            response::invalid("model request policy requires a JSON body")
-                        })?;
-                    let fields = body.as_object_mut().ok_or_else(|| {
-                        response::invalid("model request policy requires a JSON object")
-                    })?;
-                    for policy in policies {
-                        crate::providers::policy::merge(fields, &policy)?;
-                    }
-                    prepared.body = Some(
-                        serde_json::to_string(&body)
-                            .map_err(|_| response::invalid("model request body is invalid"))?,
-                    );
-                }
-                let framing = prepared.framing.unwrap_or(self.declaration.framing);
-                let (received, observation) = transport::send(
-                    &self.client,
-                    prepared,
-                    &self.provider.endpoint,
-                    &self.declaration,
-                    &credentials,
-                    &stop,
-                    usize::MAX,
-                )
-                .await
-                .map_err(transport::Failure::model)?;
-                let retry_at = transport::deadline(received.headers());
-                let status = received.status().as_u16();
-                let headers =
-                    transport::headers(received.headers(), &credentials).map_err(|error| {
-                        let error = response::fault(error);
-                        observation.fail(&error);
-                        error
-                    })?;
-                let (sender, receiver) = mpsc::channel(1);
-                let cancelled = stop.clone();
-                tokio::spawn(async move {
-                    let mut accumulator = response::Accumulator::default();
-                    let result = produce(
-                        received,
-                        worker,
-                        framing,
-                        status,
-                        headers,
-                        StreamContext {
-                            credentials: &credentials,
-                            stop: &cancelled,
-                            streaming,
-                            sender: &sender,
-                        },
-                        &mut accumulator,
-                    )
-                    .await;
-                    let result =
-                        result
-                            .and_then(|()| accumulator.finish(&names))
-                            .map_err(|mut error| {
-                                if let Some(at) = retry_at {
-                                    error = error.with_retry_deadline(at.into_std());
-                                }
-                                error
-                            });
-                    if cancelled.is_cancelled() {
-                        observation.finish(adk_core::model_observation::Outcome::Cancelled);
-                    } else if let Err(error) = &result {
-                        observation.fail(error);
-                    } else {
-                        observation.finish(adk_core::model_observation::Outcome::Succeeded);
-                    }
-                    let _ = sender.send(result).await;
-                });
-                let stream: LlmResponseStream = Box::pin(Output { receiver, stop });
-                Ok(stream)
-            },
+        let input = request::convert(
+            config,
+            system,
+            messages,
+            tools,
+            &self.provider.endpoint,
+            &self.session.to_string(),
+            self.config.effort,
+            self.config.features.clone(),
+            &self.declaration.capabilities,
+            self.declaration.schema_dialect,
         )
-        .await
+        .map_err(response::fault)?;
+        let stop = self.stop.child_token();
+        let (received, worker, framing) = self
+            .with_retry(|| self.ready(&input, &credentials, &stop))
+            .await?;
+        let status = received.status().as_u16();
+        let headers =
+            transport::headers(received.headers(), &credentials).map_err(response::fault)?;
+        let (sender, receiver) = mpsc::channel(1);
+        let cancelled = stop.clone();
+        let model = config.model_name.clone();
+        tokio::spawn(async move {
+            let mut accumulator = response::Accumulator::default();
+            let result = produce(
+                received,
+                worker,
+                framing,
+                status,
+                headers,
+                StreamContext {
+                    credentials: &credentials,
+                    stop: &cancelled,
+                    sender: &sender,
+                },
+                &mut accumulator,
+            )
+            .await;
+            match result.and_then(|()| accumulator.finish(&model)) {
+                Ok(chunks) => {
+                    for chunk in chunks {
+                        if sender.send(Ok(chunk)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(error) => {
+                    let _ = sender.send(Err(error)).await;
+                }
+            }
+        });
+        Ok(Box::pin(Output { receiver, stop }))
     }
+}
+
+async fn classify(
+    received: reqwest::Response,
+    worker: &worker::Worker,
+    credentials: &Credentials,
+    stop: &CancellationToken,
+) -> Result<ProviderError, ProviderError> {
+    let status = received.status().as_u16();
+    let retry = transport::retry_after(received.headers())
+        .and_then(|delay| u64::try_from(delay.as_millis()).ok());
+    let headers = transport::headers(received.headers(), credentials).map_err(response::fault)?;
+    let mut bytes = received.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = tokio::select! { _ = stop.cancelled() => return Err(response::fault(transport::cancelled())), chunk = bytes.next() => chunk }
+    {
+        let chunk = chunk.map_err(|error| transport::Failure::Network(error).model())?;
+        if body.len().saturating_add(chunk.len()) > RESPONSE_BYTES {
+            return Err(response::resource());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let body = String::from_utf8(body)
+        .map_err(|_| response::invalid("model error response is not UTF-8"))?;
+    transport::public(&body, credentials).map_err(response::fault)?;
+    #[derive(serde::Deserialize)]
+    struct Classified {
+        class: wire::Class,
+        message: String,
+        #[serde(default)]
+        retry_after_ms: Option<u64>,
+    }
+    let classified = if worker.classifies {
+        worker
+            .call::<Classified>(
+                "classify",
+                &serde_json::json!({"status":status,"headers":headers,"body":body}),
+            )
+            .await
+            .map_err(response::translation)?
+    } else {
+        Classified {
+            class: response::http_class(status),
+            message: format!("model endpoint returned HTTP {status}"),
+            retry_after_ms: retry,
+        }
+    };
+    Ok(response::classified(
+        classified.class,
+        &classified.message,
+        classified.retry_after_ms.or(retry),
+        Some(status),
+        &credentials.secrets,
+    ))
 }
 
 struct StreamContext<'a> {
     credentials: &'a Credentials,
     stop: &'a CancellationToken,
-    streaming: bool,
-    sender: &'a mpsc::Sender<Result<LlmResponse, AdkError>>,
+    sender: &'a mpsc::Sender<Result<response::Chunk, ProviderError>>,
 }
 
 async fn produce(
@@ -218,91 +237,24 @@ async fn produce(
     headers: std::collections::BTreeMap<String, Vec<String>>,
     context: StreamContext<'_>,
     accumulator: &mut response::Accumulator,
-) -> Result<(), AdkError> {
-    let StreamContext {
-        credentials,
-        stop,
-        streaming,
-        sender,
-    } = context;
+) -> Result<(), ProviderError> {
     let mut bytes = received.bytes_stream();
     let mut decoder = framing::Decoder::new(framing, RESPONSE_BYTES);
     let mut state = serde_json::Value::Null;
-    let mut error_body = Vec::new();
     loop {
         let next = tokio::select! {
-            _ = stop.cancelled()=>return Err(response::fault(transport::cancelled())),
-            next = bytes.next()=>next,
+            _ = context.stop.cancelled() => return Err(response::fault(transport::cancelled())),
+            next = bytes.next() => next,
         };
         let done = next.is_none();
         let chunk = next
             .transpose()
             .map_err(|error| transport::Failure::Network(error).model())?;
-        if !(200..300).contains(&status) {
-            if let Some(chunk) = chunk {
-                if error_body
-                    .len()
-                    .checked_add(chunk.len())
-                    .is_none_or(|size| size > RESPONSE_BYTES)
-                {
-                    return Err(response::resource());
-                }
-                error_body.extend_from_slice(&chunk);
-            }
-            if done {
-                let body = String::from_utf8(error_body)
-                    .map_err(|_| response::invalid("model error response is not UTF-8"))?;
-                transport::public(&body, credentials).map_err(response::fault)?;
-                #[derive(serde::Deserialize)]
-                struct Classified {
-                    class: wire::Class,
-                    message: String,
-                    #[serde(default)]
-                    retry_after_ms: Option<u64>,
-                    #[serde(default, flatten)]
-                    diagnostics: wire::Diagnostics,
-                }
-                let classified: Classified = if worker.classifies {
-                    worker
-                        .call(
-                            "classify",
-                            &serde_json::json!({"status":status,"headers":headers,"body":body}),
-                        )
-                        .await
-                        .map_err(response::translation)?
-                } else {
-                    Classified {
-                        class: response::http_class(status),
-                        message: format!("model endpoint returned HTTP {status}"),
-                        retry_after_ms: None,
-                        diagnostics: Default::default(),
-                    }
-                };
-                return Err(response::diagnostic(
-                    response::classified(
-                        classified.class,
-                        &classified.message,
-                        classified.retry_after_ms,
-                        Some(status),
-                        &credentials.secrets,
-                    ),
-                    &classified.diagnostics,
-                    &credentials.secrets,
-                ));
-            }
-            continue;
-        }
         let events = decoder
             .push(chunk.as_deref().unwrap_or_default(), done)
-            .map_err(|error| {
-                if error.code == ErrorCode::Internal {
-                    response::resource()
-                } else {
-                    response::fault(error)
-                }
-            })?;
+            .map_err(response::fault)?;
         for event in &events {
-            transport::public(&event.data, credentials).map_err(response::fault)?;
+            transport::public(&event.data, context.credentials).map_err(response::fault)?;
         }
         if events.is_empty() && !done {
             continue;
@@ -321,8 +273,8 @@ async fn produce(
             .await
             .map_err(response::translation)?;
         state = decoded.state;
-        for output in accumulator.push(decoded.deltas, streaming, &credentials.secrets)? {
-            if sender.send(Ok(output)).await.is_err() {
+        for output in accumulator.push(decoded.deltas, &context.credentials.secrets)? {
+            if context.sender.send(Ok(output)).await.is_err() {
                 return Err(response::fault(transport::cancelled()));
             }
         }
@@ -333,11 +285,11 @@ async fn produce(
 }
 
 struct Output {
-    receiver: mpsc::Receiver<Result<LlmResponse, AdkError>>,
+    receiver: mpsc::Receiver<Result<response::Chunk, ProviderError>>,
     stop: CancellationToken,
 }
 impl futures::Stream for Output {
-    type Item = Result<LlmResponse, AdkError>;
+    type Item = Result<response::Chunk, ProviderError>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.receiver.poll_recv(cx)
     }
@@ -403,7 +355,7 @@ async fn credentials(
     stop: &CancellationToken,
 ) -> Result<Credentials, Fault> {
     if provider.authentication == Authentication::ApiKey {
-        let (key, credential) = if key.is_some() {
+        let (key, _credential) = if key.is_some() {
             (key, None)
         } else {
             match reference {
@@ -436,12 +388,6 @@ async fn credentials(
                 .map_err(|_| Fault::invalid("model credential header is invalid"))?;
         }
         Ok(Credentials {
-            origin: Some(super::history::origin(
-                provider,
-                "",
-                credential.as_ref(),
-                None,
-            )),
             headers,
             access: None,
             secrets: key.clone().into_iter().collect(),
@@ -461,17 +407,10 @@ async fn credentials(
                 stop,
             )
             .await?;
-        let origin = super::history::origin(
-            provider,
-            "",
-            Some(&authorized.credential),
-            Some(&authorized.grant),
-        );
         let grant = authorized.grant;
         let headers = grant.headers(&options)?;
         let secrets = grant.secrets(&headers);
         Ok(Credentials {
-            origin: Some(origin),
             headers,
             access: Some(grant.access().clone()),
             key: None,
@@ -547,7 +486,6 @@ pub(crate) async fn discover_authorized(
         let headers = grant.headers(options)?;
         let secrets = grant.secrets(&headers);
         let credentials = Credentials {
-            origin: None,
             headers,
             access: Some(grant.access().clone()),
             key: None,
@@ -570,7 +508,6 @@ async fn read_catalog(
 ) -> Result<sailry_protocol::conversation::discovery::Catalog, Fault> {
     let mut stage = "prepare";
     let mut upstream_status = None;
-    let mut observation = None;
     let result = async {
         const DISCOVERY_BYTES: usize = 8 * 1024 * 1024;
         let worker = worker::Worker::new(bundle, stop, DISCOVERY_BYTES).await?;
@@ -581,7 +518,7 @@ async fn read_catalog(
             )
             .await?;
         stage = "request";
-        let (received, guard) = transport::send(
+        let received = transport::send(
             &transport::client()?,
             prepared,
             &provider.endpoint,
@@ -591,7 +528,6 @@ async fn read_catalog(
             DISCOVERY_BYTES,
         )
         .await.map_err(transport::Failure::fault)?;
-        observation = Some(guard);
         let status = received.status().as_u16();
         upstream_status = Some(u64::from(status));
         stage = "headers";
@@ -665,15 +601,7 @@ async fn read_catalog(
         }
         Ok(catalog)
     }.await;
-    if let Some(observation) = observation {
-        if stop.is_cancelled() {
-            observation.finish(adk_core::model_observation::Outcome::Cancelled);
-        } else if let Err(error) = &result {
-            observation.fail(&response::fault(error.clone()));
-        } else {
-            observation.finish(adk_core::model_observation::Outcome::Succeeded);
-        }
-    }
+
     if let Err(error) = &result {
         // Only typed failure metadata is logged, never bodies, headers or grant fields.
         let code = serde_json::to_value(error.code)

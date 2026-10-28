@@ -314,7 +314,6 @@ async fn observes_shared_lifecycles_without_payloads() {
     let retry_node = Node::start_empty(retry_profile.path().join("node"))
         .await
         .unwrap();
-    retry_node.set_model_retry_fixture(Duration::ZERO);
     let retry_controller = Link::controller(
         retry_profile.path().join("controller"),
         NetworkScope::default(),
@@ -387,10 +386,6 @@ async fn observes_shared_lifecycles_without_payloads() {
     let parse_node = Node::start_empty(parse_profile.path().join("node"))
         .await
         .unwrap();
-    parse_node.set_model_transport_fixture(adk_model::openai::WsOptions {
-        enabled: std::sync::Arc::new(|| false),
-        ..Default::default()
-    });
     let parse_controller = Link::controller(
         parse_profile.path().join("controller"),
         NetworkScope::default(),
