@@ -159,15 +159,8 @@ async fn survives_without_projects() {
                 Resource::Database(_) => ("databases", "You are the database workspace assistant"),
                 Resource::Ssh(_) => ("ssh", "You are the SSH workspace assistant"),
             };
-            let policy = node_context(request, "Work mode");
-            assert!(policy.contains(guidance), "{policy}");
-            assert_eq!(
-                node_context(request, "Personal instructions")
-                    .matches(personal)
-                    .count(),
-                1
-            );
-            assert!(!instructions.contains(personal));
+            assert!(instructions.contains(guidance), "{instructions}");
+            assert_eq!(instructions.matches(personal).count(), 1);
             assert!(!instructions.contains(unrelated));
             assert!(
                 messages
@@ -175,9 +168,7 @@ async fn survives_without_projects() {
                     .filter(|message| message["role"] == "user")
                     .all(|message| {
                         let content = message_text(&message["content"]);
-                        !content.contains(unrelated)
-                            && (content.starts_with("Node context\n")
-                                || !content.contains(personal))
+                        !content.contains(unrelated) && !content.contains(personal)
                     })
             );
             assert!(!instructions.contains("Write the requested file"));

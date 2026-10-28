@@ -634,12 +634,10 @@ async fn bundled_writes_initialize_only_after_approval() {
             } else {
                 assert!(!path.exists());
                 assert!(!path.parent().unwrap().exists());
+                assert_eq!(output[1]["isError"], true, "{output:?}");
                 assert_eq!(
-                    output[1]["error"],
-                    format!(
-                        "Tool '{}' execution denied by confirmation policy",
-                        agent_support::plugin_tool("databases", "database_execute")
-                    ),
+                    output[1]["content"],
+                    json!([{"type":"text","text":"Tool execution was denied."}]),
                     "{output:?}"
                 );
                 assert_eq!(output[2]["error"]["code"], "not_found", "{output:?}");
