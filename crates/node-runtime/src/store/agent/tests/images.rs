@@ -75,6 +75,139 @@ async fn preserves_large_images() {
 }
 
 #[tokio::test]
+async fn projects_json_media() {
+    use crate::agent::{canonical::ToolFormat, engine::history as conversion};
+    use goose_provider_types::conversation::message::{Message, MessageContent};
+    use rmcp::model::{CallToolResult, ContentBlock};
+    use std::collections::BTreeMap;
+
+    for computer in [false, true] {
+        let mut fixture = fixture::Fixture::new().await;
+        let mut value = serde_json::json!({
+            "response":{"text":"Exact capture metadata"},
+            "inline_data":[
+                {"mime_type":"audio/wav","data":[4,5,6]},
+                {"mime_type":"image/png","data":[1,2,3]}
+            ],
+            "business":{"mime_type":"image/jpeg","data":[7,8,9]}
+        });
+        if computer {
+            value = serde_json::json!({"kind":"computer","data":value});
+        }
+        let source = Message::user()
+            .with_generated_id()
+            .with_tool_response("capture", Ok(CallToolResult::structured(value.clone())));
+        let record = conversion::capture(
+            &fixture.database.connection,
+            TurnId::new(),
+            &source,
+            &BTreeMap::from([("capture".into(), "capture".into())]),
+        )
+        .await
+        .unwrap();
+        let id = record.id.clone();
+        fixture.append([record]).await;
+        let body: Vec<u8> = fixture
+            .database
+            .connection
+            .prepare("SELECT body FROM agent_events WHERE id=?1")
+            .await
+            .unwrap()
+            .query_row([id])
+            .await
+            .unwrap()
+            .get(0)
+            .unwrap();
+        let record: Record = serde_json::from_slice(&body).unwrap();
+        let BlockKind::ToolResponse(response) = &record.message().unwrap().content[0].kind else {
+            panic!("captured tool result expected")
+        };
+        assert_eq!(response.format, ToolFormat::Json);
+        assert!(response.attachments.is_empty());
+        assert_eq!(response.result.assets.len(), 3);
+        assert!(response.result.assets.iter().all(|slot| {
+            response.result.value.pointer(&slot.pointer) == Some(&serde_json::Value::Null)
+        }));
+        assert_eq!(
+            response.revision,
+            blake3::hash(value.to_string().as_bytes())
+                .to_hex()
+                .to_string()
+        );
+        assert_eq!(
+            blobs::hydrate(&fixture.database.connection, &response.result)
+                .await
+                .unwrap(),
+            value
+        );
+        let entries = fixture.read(None, 100).await.page.entries;
+        let Part::ToolResult { images, .. } = &entries[0].parts[0] else {
+            panic!("public tool result expected")
+        };
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].index, 1);
+        assert_eq!(images[0].attachment.spec.media_type, "image/png");
+        assert_eq!(
+            super::super::images::resolve(
+                &fixture.database.connection,
+                fixture.session,
+                &images[0]
+            )
+            .await
+            .unwrap(),
+            [1, 2, 3]
+        );
+        let mut audio = images[0].clone();
+        audio.index = 0;
+        assert_eq!(
+            super::super::images::resolve(&fixture.database.connection, fixture.session, &audio)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+        let projected = conversion::project(&fixture.database.connection, &record)
+            .await
+            .unwrap()
+            .unwrap();
+        let MessageContent::ToolResponse(response) = &projected.content[0] else {
+            panic!("outgoing tool result expected")
+        };
+        let result = response.tool_result.as_ref().unwrap();
+        assert_eq!(
+            result
+                .content
+                .iter()
+                .filter(|part| matches!(part, ContentBlock::Image(_)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            result
+                .content
+                .iter()
+                .filter(|part| matches!(part, ContentBlock::Audio(_)))
+                .count(),
+            1
+        );
+        history::rebuild(&mut fixture.database.connection)
+            .await
+            .unwrap();
+        assert_eq!(fixture.read(None, 100).await.page.entries, entries);
+        assert_eq!(
+            super::super::images::resolve(
+                &fixture.database.connection,
+                fixture.session,
+                &images[0]
+            )
+            .await
+            .unwrap(),
+            [1, 2, 3]
+        );
+    }
+}
+
+#[tokio::test]
 async fn validates_source_metadata() {
     let mut fixture = fixture::Fixture::new().await;
     let transaction = fixture

@@ -63,7 +63,7 @@ async fn restores(direct: bool) {
     let profile = fixture.node.profile().to_owned();
     fixture.node.shutdown().await.unwrap();
     let bytes = png();
-    // Add synthetic media to an already persisted fixture response while
+    // Add the captured JSON media shape to an already persisted response while
     // its Node is stopped. This exercises canonical history without
     // depending on capture permissions or a second media database.
     {
@@ -115,14 +115,24 @@ async fn restores(direct: bool) {
                     }) else {
                         continue;
                     };
-                    response
-                        .as_object_mut()
-                        .unwrap()
-                        .entry("attachments")
-                        .or_insert_with(|| json!([]))
-                        .as_array_mut()
-                        .unwrap()
-                        .push(json!({"type":"inline","asset":asset}));
+                    assert!(response["attachments"].as_array().is_none_or(Vec::is_empty));
+                    assert!(
+                        response["result"]["assets"]
+                            .as_array()
+                            .is_none_or(Vec::is_empty)
+                    );
+                    let mut value = response["result"]["value"].clone();
+                    value["inline_data"] = json!([{"mime_type":"image/png","data":bytes}]);
+                    response["revision"] = json!(
+                        blake3::hash(value.to_string().as_bytes())
+                            .to_hex()
+                            .to_string()
+                    );
+                    value["inline_data"][0]["data"] = serde_json::Value::Null;
+                    response["result"] = json!({
+                        "value":value,
+                        "assets":[{"pointer":"/inline_data/0/data","asset":asset,"encoding":"bytes"}]
+                    });
                 }
                 transaction
                     .execute(

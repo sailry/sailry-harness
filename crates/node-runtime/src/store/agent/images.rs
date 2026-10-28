@@ -1,6 +1,6 @@
 //! Images are derived from canonical history, never another attachment store.
 use super::*;
-use crate::agent::canonical::{AssetRef, Attachment, BlockKind, Record, ToolResponse};
+use crate::agent::canonical::{AssetRef, Attachment, BlockKind, Record, ToolFormat, ToolResponse};
 
 pub(super) async fn project(
     db: &Connection,
@@ -10,15 +10,7 @@ pub(super) async fn project(
     response: &ToolResponse,
 ) -> Result<Vec<Image>, Fault> {
     let mut images = Vec::new();
-    for (index, asset) in response
-        .attachments
-        .iter()
-        .filter_map(|attachment| match attachment {
-            Attachment::Inline { asset } => Some(asset),
-            Attachment::File { .. } => None,
-        })
-        .enumerate()
-    {
+    for (index, asset) in assets(response).enumerate() {
         if supported(&asset.mime, asset.size) {
             let worktree = runs::get(db, turn).await?.worktree;
             images.push(describe(turn, worktree, &event.id, part, index, asset)?);
@@ -84,15 +76,9 @@ pub(super) async fn resolve(
         })
         .map(|block| &block.kind)
     {
-        Some(BlockKind::ToolResponse(response)) => response
-            .attachments
-            .iter()
-            .filter_map(|attachment| match attachment {
-                Attachment::Inline { asset } => Some(asset),
-                Attachment::File { .. } => None,
-            })
-            .nth(image.index)
-            .ok_or_else(missing)?,
+        Some(BlockKind::ToolResponse(response)) => {
+            assets(response).nth(image.index).ok_or_else(missing)?
+        }
         Some(BlockKind::Image { asset }) if image.index == 0 => asset,
         _ => return Err(missing()),
     };
@@ -115,6 +101,40 @@ pub(super) async fn resolve(
         ));
     }
     Ok(data)
+}
+
+fn assets(response: &ToolResponse) -> impl Iterator<Item = &AssetRef> {
+    let attachments = response
+        .attachments
+        .iter()
+        .filter_map(|attachment| match attachment {
+            Attachment::Inline { asset } => Some(asset),
+            Attachment::File { .. } => None,
+        });
+    let (envelope, prefix) = if response.result.value["kind"] == "computer" {
+        (&response.result.value["data"], "/data/inline_data")
+    } else {
+        (&response.result.value, "/inline_data")
+    };
+    let declared = (response.format == ToolFormat::Json)
+        .then(|| {
+            envelope
+                .get("inline_data")
+                .and_then(serde_json::Value::as_array)
+        })
+        .flatten()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(move |(index, _)| {
+            let pointer = format!("{prefix}/{index}/data");
+            response
+                .result
+                .assets
+                .iter()
+                .find_map(|slot| (slot.pointer == pointer).then_some(&slot.asset))
+        });
+    attachments.chain(declared)
 }
 
 fn supported(mime_type: &str, size: u64) -> bool {
