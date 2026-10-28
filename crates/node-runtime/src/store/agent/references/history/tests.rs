@@ -1,5 +1,9 @@
 use super::*;
-use crate::store::agent::tests::{command, fixture::Fixture};
+use crate::agent::canonical::{self, BlockKind};
+use crate::store::agent::tests::{
+    command,
+    fixture::{self, Fixture},
+};
 use serde_json::json;
 
 async fn copy_session(
@@ -384,9 +388,14 @@ async fn bounds_directory_pages_and_preserves_unknown_time() {
         page["sessions"][0]["session"],
         following["sessions"][0]["session"]
     );
-    let mut event = AdkEvent::new("directory-result");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("Observed directory results"));
+    let mut event = fixture::message(
+        "assistant",
+        canonical::Role::Assistant,
+        vec![BlockKind::Text {
+            text: "Observed directory results".into(),
+        }],
+    );
+    event.turn = source.turn;
     crate::store::agent::history::append(
         &mut fixture.database,
         source.session,
@@ -510,13 +519,17 @@ async fn bounds_public_content_without_claiming_completeness() {
 #[tokio::test]
 async fn omits_private_event_state() {
     let mut fixture = Fixture::new().await;
-    let mut event = AdkEvent::new("history-state");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("A public decision"));
-    event
-        .actions
-        .state_delta
-        .insert("private".into(), json!("private-state-marker"));
+    let mut event = fixture::message(
+        "assistant",
+        canonical::Role::Assistant,
+        vec![BlockKind::Text {
+            text: "A public decision".into(),
+        }],
+    );
+    event.metadata.state = Some(canonical::StateChanges {
+        session: [("private".into(), json!("private-state-marker"))].into(),
+        ..Default::default()
+    });
     fixture.append([event]).await;
     let source = start(&mut fixture).await;
     let read = execute(&fixture.database, source, read_query(source.session))

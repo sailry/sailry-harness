@@ -1,4 +1,5 @@
 use super::{fixture::Fixture, *};
+use crate::agent::canonical::{self, BlockKind};
 
 async fn claim(fixture: &mut Fixture, message: Input) -> Invocation {
     let turn = fixture.queued().await;
@@ -111,9 +112,14 @@ async fn canonical_user_replaces_capture() {
     let mut fixture = Fixture::new().await;
     let invocation = claim(&mut fixture, "Captured input".into()).await;
     assert!(fixture.read(None, 100).await.page.runs[0].input.is_some());
-    let mut event = AdkEvent::new("canonical-user");
-    event.author = "user".into();
-    event.set_content(adk_core::Content::new("user").with_text("Canonical input"));
+    let mut event = fixture::message(
+        "user",
+        canonical::Role::User,
+        vec![BlockKind::Text {
+            text: "Canonical input".into(),
+        }],
+    );
+    event.turn = invocation.turn.id;
     history::append(
         &mut fixture.database,
         fixture.session,

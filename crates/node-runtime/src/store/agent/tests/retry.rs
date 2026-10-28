@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::canonical::{self, BlockKind};
 
 #[tokio::test]
 async fn preserves_optional_error_text() {
@@ -9,15 +10,20 @@ async fn preserves_optional_error_text() {
         Some("Current upstream error"),
     ];
     let events = errors.into_iter().enumerate().map(|(index, error)| {
-        let mut event = AdkEvent::new("retry-fixture");
-        event.author = "system".into();
-        let mut value = serde_json::json!({"attempt":index + 1,"limit":5});
-        if let Some(error) = error {
-            value["error"] = error.into();
-        }
-        event
-            .provider_metadata
-            .insert("sailry_retry".into(), value.to_string());
+        let mut event = fixture::message("system", canonical::Role::Assistant, Vec::new());
+        event.metadata.execution = Some(canonical::Execution {
+            retry: Some(sailry_protocol::conversation::recovery::Retry {
+                attempt: index as u64 + 1,
+                fallback: false,
+                limit: Some(5),
+                delay_ms: None,
+                transport: None,
+                status: None,
+                code: None,
+                error: error.map(str::to_owned),
+            }),
+            ..Default::default()
+        });
         event
     });
     fixture.append(events).await;
@@ -72,12 +78,11 @@ async fn retains_persistent_and_fallback_records() {
     ];
     fixture
         .append(notices.iter().map(|notice| {
-            let mut event = AdkEvent::new("retry-fixture");
-            event.author = "system".into();
-            event.provider_metadata.insert(
-                "sailry_retry".into(),
-                serde_json::to_string(notice).unwrap(),
-            );
+            let mut event = fixture::message("system", canonical::Role::Assistant, Vec::new());
+            event.metadata.execution = Some(canonical::Execution {
+                retry: Some(notice.clone()),
+                ..Default::default()
+            });
             event
         }))
         .await;
@@ -98,26 +103,25 @@ async fn retains_persistent_and_fallback_records() {
 #[tokio::test]
 async fn telemetry_preserves_visible_events() {
     let fixture = fixture::Fixture::new().await;
-    let mut event = AdkEvent::new("telemetry-fixture");
-    event.author = "system".into();
-    event.provider_metadata.insert(
-        "sailry_model_observation".into(),
-        serde_json::json!({
-            "id":"visibility", "turn":TurnId::new(), "model":"fixture",
-            "context_limit":null, "timestamp_ms":0, "boundary":null, "attempts":[]
-        })
-        .to_string(),
-    );
-    let pure = serde_json::to_value(event).unwrap();
-    let visible = async |body: &serde_json::Value| -> bool {
-        let event = serde_json::from_value(body.clone()).unwrap();
-        let record = crate::agent::canonical_bridge::from_adk(
-            &fixture.database.connection,
-            TurnId::new(),
-            &event,
-        )
-        .await
-        .unwrap();
+    let mut telemetry = fixture::message("system", canonical::Role::Assistant, Vec::new());
+    telemetry.metadata.execution = Some(canonical::Execution {
+        observation: Some(sailry_protocol::conversation::observation::Request {
+            id: "visibility".into(),
+            turn: TurnId::new(),
+            turn_index: None,
+            model: "fixture".into(),
+            context_limit: None,
+            timestamp_ms: 0,
+            boundary: None,
+            attempts: Vec::new(),
+        }),
+        ..Default::default()
+    });
+    telemetry.metadata.runtime = Some(canonical::Runtime {
+        user_visible: false,
+        ..Default::default()
+    });
+    let visible = async |record: &canonical::Record| -> bool {
         fixture
             .database
             .connection
@@ -127,61 +131,54 @@ async fn telemetry_preserves_visible_events() {
             ))
             .await
             .unwrap()
-            .query_row([serde_json::to_string(&record).unwrap()])
+            .query_row([serde_json::to_string(record).unwrap()])
             .await
             .and_then(|row| row.get(0))
             .unwrap()
     };
-    assert!(!visible(&pure).await);
-    for (field, value) in [
-        ("state_delta", serde_json::json!({"state":true})),
-        ("artifact_delta", serde_json::json!({"file":1})),
-        (
-            "tool_confirmation",
-            serde_json::to_value(crate::agent::canonical::ToolIdentity::new(
-                "read_file",
-                serde_json::json!({}),
-            ))
-            .unwrap(),
-        ),
-        (
-            "tool_confirmation_decision",
-            serde_json::to_value(adk_core::ToolConfirmationDecision::Approve).unwrap(),
-        ),
-        ("transfer_to_agent", serde_json::json!("child")),
-        ("escalate", serde_json::json!(true)),
-        ("route", serde_json::json!(["child"])),
-        (
-            "workflow_positions",
-            serde_json::json!({"step":{"iteration":1,"sub_agent":"child"}}),
-        ),
-    ] {
-        let mut mixed = pure.clone();
-        mixed["actions"][field] = value;
-        assert!(visible(&mixed).await, "action {field} remains visible");
-    }
-    for (field, value) in [
-        (
-            "usage_metadata",
-            serde_json::json!({"prompt_token_count":1,"candidates_token_count":0,"total_token_count":1}),
-        ),
-        ("error_message", serde_json::json!("failure")),
-        ("content", serde_json::json!({"role":"model","parts":[]})),
-    ] {
-        let mut mixed = pure.clone();
-        mixed[field] = value;
-        assert!(visible(&mixed).await, "response {field} remains visible");
-    }
-    let mut retry = pure.clone();
-    retry["event_metadata"]["sailry_retry"] = r#"{"attempt":1,"limit":5}"#.into();
-    assert!(visible(&retry).await);
-    let mut extension = pure.clone();
-    extension["event_metadata"]["extension"] = "unknown metadata".into();
-    assert!(visible(&extension).await);
-    let mut missing = pure;
-    missing["actions"]
-        .as_object_mut()
+    assert!(!visible(&telemetry).await);
+    let mut message = telemetry.clone();
+    message.metadata.runtime = None;
+    message
+        .message_mut()
         .unwrap()
-        .remove("state_delta");
-    assert!(serde_json::from_value::<AdkEvent>(missing).is_err());
+        .content
+        .push(canonical::Block {
+            index: 0,
+            kind: BlockKind::Text {
+                text: "Visible response".into(),
+            },
+        });
+    message.message_mut().unwrap().part_count = 1;
+    assert!(visible(&message).await);
+    let mut usage = telemetry.clone();
+    usage.metadata.runtime = None;
+    usage.message_mut().unwrap().usage = Some(canonical::Usage {
+        input: Some(1),
+        output: Some(0),
+        total: Some(1),
+        ..Default::default()
+    });
+    assert!(visible(&usage).await);
+    let mut failure = telemetry.clone();
+    failure.metadata.runtime = None;
+    failure.message_mut().unwrap().error = Some(canonical::ResponseError {
+        code: None,
+        message: "failure".into(),
+    });
+    assert!(visible(&failure).await);
+    let mut retry = telemetry.clone();
+    retry.metadata.runtime = None;
+    retry.metadata.execution.as_mut().unwrap().retry =
+        Some(sailry_protocol::conversation::recovery::Retry {
+            attempt: 1,
+            fallback: false,
+            limit: Some(5),
+            delay_ms: None,
+            transport: None,
+            status: None,
+            code: None,
+            error: None,
+        });
+    assert!(visible(&retry).await);
 }

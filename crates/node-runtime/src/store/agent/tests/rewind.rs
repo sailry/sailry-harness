@@ -1,4 +1,5 @@
 use super::{fixture::Fixture, *};
+use crate::agent::canonical::{self, BlockKind};
 use serde_json::json;
 
 async fn rewind(
@@ -92,16 +93,18 @@ async fn preserves_shared_history() {
     let source = fixture.session;
     let mut turns = Vec::new();
     for index in 1..=3 {
-        let mut event = AdkEvent::new(format!("rewind-{index}"));
-        event.author = "assistant".into();
-        event.set_content(
-            adk_core::Content::new("model").with_text(format!("Message {index} 中文 🙂")),
+        let mut event = fixture::message(
+            "assistant",
+            canonical::Role::Assistant,
+            vec![BlockKind::Text {
+                text: format!("Message {index} 中文 🙂"),
+            }],
         );
-        event.actions.state_delta.extend([
-            ("value".into(), json!(index)),
-            ("app:shared".into(), json!(index)),
-            ("user:shared".into(), json!(index)),
-        ]);
+        event.metadata.state = Some(canonical::StateChanges {
+            session: [("value".into(), json!(index))].into(),
+            application: [("shared".into(), json!(index))].into(),
+            user: [("shared".into(), json!(index))].into(),
+        });
         turns.push(fixture.append([event]).await);
     }
     let before = fixture.read(None, 100).await.page;

@@ -1,5 +1,9 @@
 use super::*;
-use crate::store::agent::tests::{command, fixture::Fixture};
+use crate::agent::canonical::{self, BlockKind};
+use crate::store::agent::tests::{
+    command,
+    fixture::{self, Fixture},
+};
 
 #[tokio::test]
 async fn pauses_unclaimed_input_after_restart() {
@@ -169,9 +173,14 @@ async fn fresh_input_precedes_stopped_queue() {
             .turn,
         active
     );
-    let mut event = AdkEvent::new(active.id.to_string());
-    event.author = "user".into();
-    event.set_content(adk_core::Content::new("user").with_text("Active input"));
+    let mut event = fixture::message(
+        "user",
+        canonical::Role::User,
+        vec![BlockKind::Text {
+            text: "Active input".into(),
+        }],
+    );
+    event.turn = active.id;
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -349,9 +358,12 @@ async fn fresh_input_precedes_stopped_queue() {
             .unwrap();
         assert_eq!(invocation.turn, turn);
         assert_eq!(invocation.message.text, input);
-        let mut event = AdkEvent::new(turn.id.to_string());
-        event.author = "user".into();
-        event.set_content(adk_core::Content::new("user").with_text(input));
+        let mut event = fixture::message(
+            "user",
+            canonical::Role::User,
+            vec![BlockKind::Text { text: input.into() }],
+        );
+        event.turn = turn.id;
         history::append(
             &mut fixture.database,
             fixture.session,

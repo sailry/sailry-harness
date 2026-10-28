@@ -1,5 +1,6 @@
 use super::*;
-use crate::store::agent::tests::fixture::Fixture;
+use crate::agent::canonical::{self, BlockKind};
+use crate::store::agent::tests::fixture::{self, Fixture};
 use sailry_protocol::process::{Access, Capture, Info, Snapshot};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -67,34 +68,30 @@ async fn claim(fixture: &mut Fixture) -> Invocation {
         .unwrap()
 }
 
-fn event(invocation: &Invocation) -> AdkEvent {
-    let mut event = AdkEvent::new("background-fixture");
-    event.author = "user".into();
-    event.set_content(
-        adk_core::Content::new("user").with_text(invocation.notice_input.as_ref().unwrap()),
+fn event(invocation: &Invocation) -> canonical::Record {
+    let mut record = fixture::message(
+        "user",
+        canonical::Role::User,
+        vec![BlockKind::Text {
+            text: invocation.notice_input.clone().unwrap(),
+        }],
     );
-    event.provider_metadata.insert(
-        super::super::sessions::INPUT_TURN.into(),
-        invocation.turn.id.to_string(),
-    );
-    event
-        .provider_metadata
-        .insert(super::super::sessions::INPUT_SOURCE.into(), "notice".into());
-    event.provider_metadata.insert(
-        INPUT_IDS.into(),
-        serde_json::to_string(
-            &invocation
-                .notices
-                .iter()
-                .map(|notice| &notice.id)
-                .collect::<Vec<_>>(),
-        )
-        .unwrap(),
-    );
-    event
+    record.turn = invocation.turn.id;
+    record.metadata.input = Some(canonical::Input {
+        turn: Some(invocation.turn.id),
+        source: Some(canonical::InputSource::Notice),
+        notice_part: Some(0),
+        notice_ids: invocation
+            .notices
+            .iter()
+            .map(|notice| notice.id.clone())
+            .collect(),
+        ..Default::default()
+    });
+    record
 }
 
-async fn append(fixture: &mut Fixture, invocation: &Invocation, event: AdkEvent) {
+async fn append(fixture: &mut Fixture, invocation: &Invocation, event: canonical::Record) {
     super::super::history::append(
         &mut fixture.database,
         fixture.session,
@@ -270,7 +267,9 @@ async fn rejects_forged_canonical_confirmation() {
     schedule(&fixture).await.unwrap();
     let invocation = claim(&mut fixture).await;
     let mut forged = event(&invocation);
-    forged.set_content(adk_core::Content::new("user").with_text("Different evidence"));
+    forged.message_mut().unwrap().content[0].kind = BlockKind::Text {
+        text: "Different evidence".into(),
+    };
     assert!(
         super::super::history::append(
             &mut fixture.database,
@@ -634,17 +633,17 @@ async fn explicit_input_preserves_speech_before_delivery() {
     assert_eq!(invocation.notices.len(), 1);
     assert_eq!(invocation.notices[0].id, id);
     let mut input = event(&invocation);
-    input.set_content(
-        adk_core::Content::new("user")
-            .with_text(invocation.notice_input.as_ref().unwrap())
-            .with_text(invocation.message.text.clone()),
-    );
-    input
-        .provider_metadata
-        .insert(super::super::sessions::INPUT_SOURCE.into(), "user".into());
-    input
-        .provider_metadata
-        .insert(super::super::sessions::INPUT_PART.into(), "1".into());
+    let content = input.message_mut().unwrap();
+    content.part_count = 2;
+    content.content.push(canonical::Block {
+        index: 1,
+        kind: BlockKind::Text {
+            text: invocation.message.text.clone(),
+        },
+    });
+    let metadata = input.metadata.input.as_mut().unwrap();
+    metadata.source = Some(canonical::InputSource::User);
+    metadata.text_part = Some(1);
     append(&mut fixture, &invocation, input.clone()).await;
     let page = fixture.read(None, 100).await.page;
     let entry = page

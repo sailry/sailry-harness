@@ -1,4 +1,5 @@
 use super::{fixture::Fixture, *};
+use crate::agent::canonical::{self, BlockKind};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -109,17 +110,18 @@ async fn rebuilds_shared_history() {
     let original = fixture.session;
     let mut turns = Vec::new();
     for index in 1..=3 {
-        let mut event = AdkEvent::new(format!("original-{index}"));
-        event.author = "assistant".into();
-        event.set_content(
-            adk_core::Content::new("model").with_text(format!("Message {index} 中文 🙂")),
+        let mut event = fixture::message(
+            "assistant",
+            canonical::Role::Assistant,
+            vec![BlockKind::Text {
+                text: format!("Message {index} 中文 🙂"),
+            }],
         );
-        event.actions.state_delta.extend([
-            ("value".into(), json!(index)),
-            ("app:shared".into(), json!(index)),
-            ("user:shared".into(), json!(index)),
-            ("temp:ignored".into(), json!(index)),
-        ]);
+        event.metadata.state = Some(canonical::StateChanges {
+            session: [("value".into(), json!(index))].into(),
+            application: [("shared".into(), json!(index))].into(),
+            user: [("shared".into(), json!(index))].into(),
+        });
         turns.push(fixture.append([event]).await);
     }
     let before = fixture.read(None, 100).await.page;
@@ -207,18 +209,16 @@ async fn rebuilds_shared_history() {
     assert_eq!(inherited.entries, before.entries[..1]);
     assert_eq!(inherited.runs[0].origin, Some(original));
     let invocation = fixture.queued().await;
-    let request = GetRequest {
-        app_name: APP.into(),
-        user_id: USER.into(),
-        session_id: branched.id.to_string(),
-        num_recent_events: None,
+    let request = sessions::Query {
+        session: branched.id,
+        recent: None,
         after: None,
     };
     let native = sessions::get(&fixture.database.connection, invocation, request)
         .await
         .unwrap();
-    assert_eq!(native.events().len(), 2);
-    assert_eq!(native.state().all(), expected);
+    assert_eq!(native.records.len(), 2);
+    assert_eq!(native.state, expected);
     let other = fixture.completed(&["Independent branch content"]).await;
     assert!(
         history::pages::read(&fixture.database.connection, branched.id, None, 100)
@@ -339,23 +339,14 @@ async fn paginates_inherited_turns() {
             .unwrap(),
         210
     );
-    for (sql, values) in [
-        (
-            history::EVENTS_QUERY.to_owned(),
-            vec![
-                turso::Value::Text(branch.id.to_string()),
-                turso::Value::Integer(i64::MAX),
-                turso::Value::Integer(20),
-            ],
-        ),
-        (
-            sessions::history_query(),
-            vec![
-                turso::Value::Text(branch.id.to_string()),
-                turso::Value::Integer(20),
-            ],
-        ),
-    ] {
+    for (sql, values) in [(
+        history::EVENTS_QUERY.to_owned(),
+        vec![
+            turso::Value::Text(branch.id.to_string()),
+            turso::Value::Integer(i64::MAX),
+            turso::Value::Integer(20),
+        ],
+    )] {
         let mut query = fixture.database.connection.prepare(&sql).await.unwrap();
         let mut rows = query.query(values.clone()).await.unwrap();
         let mut count = 0;
@@ -425,11 +416,15 @@ async fn paginates_inherited_turns() {
     assert_eq!(page.matches.len(), 5);
     fixture.session = branch.id;
     let current = fixture.queued().await;
-    let mut event = AdkEvent::new("duplicate-fixture");
-    event.id = remainder.entries[0].id.clone();
-    event.set_content(
-        adk_core::Content::new("model").with_text("Must not replace inherited content"),
+    let mut event = fixture::message(
+        "assistant",
+        canonical::Role::Assistant,
+        vec![BlockKind::Text {
+            text: "Must not replace inherited content".into(),
+        }],
     );
+    event.id = remainder.entries[0].id.clone();
+    event.turn = current;
     assert!(
         history::append(
             &mut fixture.database,

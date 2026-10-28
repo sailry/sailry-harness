@@ -1,4 +1,5 @@
 use super::{fixture::Fixture, *};
+use crate::agent::canonical::{self, BlockKind};
 
 #[tokio::test]
 async fn snapshot_does_not_read_preview_bodies() {
@@ -99,19 +100,21 @@ async fn preview(fixture: &Fixture) -> Option<String> {
         .text
 }
 
-fn message(author: &str, text: &str, thought: bool) -> AdkEvent {
-    let mut event = AdkEvent::new("preview-fixture");
-    event.author = author.into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![if thought {
-            adk_core::Part::Thinking {
-                thinking: text.into(),
+fn message(author: &str, text: &str, thought: bool) -> canonical::Record {
+    fixture::message(
+        author,
+        if author == "user" {
+            canonical::Role::User
+        } else {
+            canonical::Role::Assistant
+        },
+        vec![if thought {
+            BlockKind::Thinking {
+                text: text.into(),
                 signature: None,
             }
         } else {
-            adk_core::Part::Text { text: text.into() }
+            BlockKind::Text { text: text.into() }
         }],
-    });
-    event
+    )
 }

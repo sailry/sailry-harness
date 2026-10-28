@@ -1,5 +1,9 @@
 use super::*;
-use crate::store::agent::tests::{command, fixture::Fixture};
+use crate::agent::canonical::{self, BlockKind};
+use crate::store::agent::tests::{
+    command,
+    fixture::{self, Fixture},
+};
 use serde_json::json;
 
 fn options(text: &str) -> Query {
@@ -73,26 +77,27 @@ async fn matches_literal_unicode() {
     assert_eq!(read(&fixture, &options("中文 🙂")).await.matches.len(), 1);
     assert!(read(&fixture, &options("missing")).await.matches.is_empty());
 
-    let mut event = AdkEvent::new("search-fixture");
-    event.author = "assistant".into();
-    let mut content = adk_core::Content::new("model");
-    content.parts.push(adk_core::Part::FunctionCall {
-        id: Some("search-call".into()),
-        name: "hidden-marker".into(),
-        args: json!({"text": "hidden-marker"}),
-        thought_signature: None,
+    let mut event = fixture::message(
+        "assistant",
+        canonical::Role::Assistant,
+        vec![
+            BlockKind::ToolRequest(fixture::request(
+                Some("search-call"),
+                "hidden-marker",
+                json!({"text":"hidden-marker"}),
+            )),
+            BlockKind::Text {
+                text: "first visible marker".into(),
+            },
+            BlockKind::Text {
+                text: "second visible marker".into(),
+            },
+        ],
+    );
+    event.metadata.state = Some(canonical::StateChanges {
+        session: [("value".into(), json!("hidden-marker"))].into(),
+        ..Default::default()
     });
-    content.parts.push(adk_core::Part::Text {
-        text: "first visible marker".into(),
-    });
-    content.parts.push(adk_core::Part::Text {
-        text: "second visible marker".into(),
-    });
-    event.set_content(content);
-    event
-        .actions
-        .state_delta
-        .insert("value".into(), json!("hidden-marker"));
     fixture.append([event]).await;
     assert!(
         read(&fixture, &options("hidden-marker"))

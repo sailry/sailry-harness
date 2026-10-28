@@ -1,6 +1,7 @@
 use super::*;
 use crate::agent::Controls;
-use crate::store::agent::tests::fixture::Fixture;
+use crate::agent::canonical::{self, BlockKind};
+use crate::store::agent::tests::fixture::{self, Fixture};
 use sailry_link::CancellationToken;
 
 async fn admitted(fixture: &mut Fixture) -> (TurnId, TurnId) {
@@ -13,9 +14,14 @@ async fn admitted(fixture: &mut Fixture) -> (TurnId, TurnId) {
         .unwrap()
         .unwrap();
     assert_eq!(invocation.turn.id, active);
-    let mut event = AdkEvent::new(active.to_string());
-    event.author = "user".into();
-    event.set_content(adk_core::Content::new("user").with_text(&invocation.message.text));
+    let mut event = fixture::message(
+        "user",
+        canonical::Role::User,
+        vec![BlockKind::Text {
+            text: invocation.message.text.clone(),
+        }],
+    );
+    event.turn = active;
     super::super::super::history::append(
         &mut fixture.database,
         fixture.session,
@@ -194,9 +200,14 @@ async fn restores_only_unconsumed_inputs() {
         .await;
         response.try_recv().unwrap().unwrap().unwrap();
         if consumed {
-            let mut event = AdkEvent::new(active.to_string());
-            event.author = "user".into();
-            event.set_content(adk_core::Content::new("user").with_text(&message.message.text));
+            let mut event = fixture::message(
+                "user",
+                canonical::Role::User,
+                vec![BlockKind::Text {
+                    text: message.message.text.clone(),
+                }],
+            );
+            event.turn = source;
             super::super::super::history::append(
                 &mut fixture.database,
                 fixture.session,
@@ -260,9 +271,14 @@ async fn stop_prevents_claimed_input_from_being_consumed() {
         .await
         .unwrap();
     controls.cancel(active);
-    let mut event = AdkEvent::new(active.to_string());
-    event.author = "user".into();
-    event.set_content(adk_core::Content::new("user").with_text(&inputs[0].message.text));
+    let mut event = fixture::message(
+        "user",
+        canonical::Role::User,
+        vec![BlockKind::Text {
+            text: inputs[0].message.text.clone(),
+        }],
+    );
+    event.turn = source;
     let error = super::super::super::history::append(
         &mut fixture.database,
         fixture.session,
@@ -372,9 +388,14 @@ async fn retains_preparation_failure_for_explicit_retry() {
         .unwrap();
     assert_eq!(retried.turn, invocation.turn);
     assert_eq!(retried.message, invocation.message);
-    let mut event = AdkEvent::new(turn.to_string());
-    event.author = "user".into();
-    event.set_content(adk_core::Content::new("user").with_text(&retried.message.text));
+    let mut event = fixture::message(
+        "user",
+        canonical::Role::User,
+        vec![BlockKind::Text {
+            text: retried.message.text.clone(),
+        }],
+    );
+    event.turn = turn;
     super::super::super::history::append(
         &mut fixture.database,
         fixture.session,
