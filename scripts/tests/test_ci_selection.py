@@ -251,20 +251,13 @@ class Commands(unittest.TestCase):
                     flag = "--build-jobs" if arguments[1] == "nextest" else "--jobs"
                     self.assertEqual(arguments[arguments.index(flag) + 1], "14")
 
-    def test_limits_ci_only(self):
-        for environment, expected in (({}, None), ({"CI": "false"}, None),
-                                      ({"CI": "true"}, "2")):
-            with self.subTest(environment=environment), patch.dict(ci.os.environ, environment, clear=True):
-                self.assertEqual(ci.job_limit(), expected)
-
     def test_leaves_environment_limits_to_cargo(self):
-        for value in ("4", "-1", "default"):
+        for value in ("2", "4", "-1", "default"):
             for is_ci in ("true", "false"):
                 environment = {"CI": is_ci, "CARGO_BUILD_JOBS": value}
                 with self.subTest(environment=environment), patch.dict(ci.os.environ, environment, clear=True):
-                    self.assertIsNone(ci.job_limit())
                     for name in ("backend", "desktop", "host", "lint"):
-                        for command in ci.check_commands(name, ci.job_limit(), selection=ci.outputs(ci.LANES)):
+                        for command in ci.check_commands(name, selection=ci.outputs(ci.LANES)):
                             self.assertNotIn("--jobs", command["argv"])
                             self.assertNotIn("--build-jobs", command["argv"])
                     self.assertEqual(ci.os.environ["CARGO_BUILD_JOBS"], value)

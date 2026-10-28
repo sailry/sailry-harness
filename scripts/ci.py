@@ -171,7 +171,7 @@ def lint_command(selection, jobs):
     return command
 
 
-def lint(selection, jobs):
+def lint(selection, jobs=None):
     command = lint_command(selection, jobs)
     environment = parser_environment(ROOT, None, libraries=False)
     return subprocess.run(command, env=environment, check=False).returncode
@@ -517,19 +517,13 @@ def cache_usage():
             output.write(message + "\n\n")
 
 
-def job_limit():
-    if "CARGO_BUILD_JOBS" in os.environ:
-        return None
-    return "2" if os.getenv("CI") == "true" else None
-
-
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "local":
         raise SystemExit(local(sys.argv[2:]))
     elif len(sys.argv) == 3 and sys.argv[1] == "check":
         try:
             selection = json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES)))) if sys.argv[2] == "lint" else None
-            raise SystemExit(run_check(sys.argv[2], job_limit(), selection=selection))
+            raise SystemExit(run_check(sys.argv[2], selection=selection))
         except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
             raise SystemExit(str(error)) from error
     elif len(sys.argv) == 3 and sys.argv[1] == "source-cache" and sys.argv[2] in {"save", "restore"}:
@@ -544,7 +538,7 @@ def main():
         cache_usage()
     elif sys.argv[1:] == ["lint"]:
         try:
-            raise SystemExit(lint(json.loads(os.environ["CHECK_SCOPE"]), job_limit()))
+            raise SystemExit(lint(json.loads(os.environ["CHECK_SCOPE"])))
         except (ValueError, KeyError) as error:
             raise SystemExit(str(error)) from error
     elif sys.argv[1:] == ["select"]:
