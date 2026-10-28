@@ -442,3 +442,28 @@ async fn uses_gdk_rate_limit_retry() {
     ));
     assert_eq!(server.finish().await.len(), 2);
 }
+
+#[test]
+fn maps_captured_effort_and_output() {
+    let mut provider = provider(ModelApi::Responses, "https://example.test/v1".into());
+    provider.models = serde_json::from_value(json!([{
+        "id":"captured","context":100_000,"output":4096,"vision":true,"reasoning":true,"default_effort":"low"
+    }])).unwrap();
+    let mut session: SessionConfig = serde_json::from_value(json!({
+        "provider":provider.id,"model":"captured","effort":"max","mode":"code","permission":"ask","credential":null
+    })).unwrap();
+    let frozen = config(&provider, &session);
+    assert_eq!(frozen.model_name, "captured");
+    assert_eq!(frozen.max_tokens, Some(4096));
+    assert_eq!(frozen.context_limit, Some(100_000));
+    assert_eq!(frozen.thinking_effort(), Some(ThinkingEffort::Max));
+    session.effort = Effort::Low;
+    let next = config(&provider, &session);
+    assert_eq!(next.thinking_effort(), Some(ThinkingEffort::Low));
+    assert_eq!(frozen.thinking_effort(), Some(ThinkingEffort::Max));
+    session.effort = Effort::Disabled;
+    assert_eq!(
+        config(&provider, &session).thinking_effort(),
+        Some(ThinkingEffort::Off)
+    );
+}
