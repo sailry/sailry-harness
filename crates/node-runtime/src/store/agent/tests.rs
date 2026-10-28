@@ -1,4 +1,6 @@
 use super::*;
+use crate::agent::canonical::{BlockKind, ResponseError, Role, StateChanges};
+use fixture::{message, request};
 
 mod attention;
 mod compaction;
@@ -63,28 +65,17 @@ mod credentials {
         fixture::package(&fixture.database, fixture._root.path(), "ssh").await;
         let name = crate::plugins::tools::alias("ssh", "ssh_save_connection");
         let args = serde_json::json!({"name":"Host fixture","credential":{"kind":"password","password":"private-marker"},"key_path":"/private-key-marker"});
-        let mut event = AdkEvent::new("credential-fixture");
-        event.author = "assistant".into();
-        event.set_content(adk_core::Content {
-            role: "model".into(),
-            parts: vec![
-                adk_core::Part::FunctionCall {
-                    id: Some("trusted".into()),
-                    name: name.clone(),
-                    args: args.clone(),
-                    thought_signature: None,
-                },
-                adk_core::Part::FunctionCall {
-                    id: Some("unknown".into()),
-                    name: "user_literal".into(),
-                    args: args.clone(),
-                    thought_signature: None,
-                },
-                adk_core::Part::Text {
+        let event = message(
+            "assistant",
+            Role::Assistant,
+            vec![
+                BlockKind::ToolRequest(request(Some("trusted"), &name, args.clone())),
+                BlockKind::ToolRequest(request(Some("unknown"), "user_literal", args.clone())),
+                BlockKind::Text {
                     text: "User literal private-marker".into(),
                 },
             ],
-        });
+        );
         let turn = fixture.append([event.clone()]).await;
         let history = fixture.read(None, 100).await;
         let entry = history
@@ -242,24 +233,23 @@ async fn rebuilds_from_durable_events() {
         turn.id
     );
     let mut updates = events.subscribe();
-    let mut event = AdkEvent::new("fixture-invocation");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("persisted answer"));
-    event.llm_request = Some("request copy".into());
-    event.llm_response.error_message = Some("sensitive upstream diagnostic fixture".into());
-    event.provider_metadata.insert(
-        "gcp.vertex.agent.llm_response".into(),
-        "response copy".into(),
+    let mut event = message(
+        "assistant",
+        Role::Assistant,
+        vec![BlockKind::Text {
+            text: "persisted answer".into(),
+        }],
     );
-    event
-        .provider_metadata
-        .insert("gcp.vertex.agent.llm_request".into(), "request copy".into());
-    event.actions.state_delta.extend([
-        ("value".into(), serde_json::json!(1)),
-        ("app:shared".into(), serde_json::json!(2)),
-        ("user:shared".into(), serde_json::json!(3)),
-        ("temp:ephemeral".into(), serde_json::json!(4)),
-    ]);
+    event.turn = turn.id;
+    event.message_mut().unwrap().error = Some(ResponseError {
+        code: None,
+        message: "model response reported an error".into(),
+    });
+    event.metadata.state = Some(StateChanges {
+        session: [("value".into(), serde_json::json!(1))].into(),
+        application: [("shared".into(), serde_json::json!(2))].into(),
+        user: [("shared".into(), serde_json::json!(3))].into(),
+    });
     history::append(&mut database, session.id, turn.id, event.clone(), &events)
         .await
         .unwrap();
@@ -292,20 +282,14 @@ async fn rebuilds_from_durable_events() {
         .await
         .unwrap();
     assert_eq!(original.page.entries.len(), 1);
-    event.set_content(adk_core::Content::new("model").with_text("different answer"));
+    event.message_mut().unwrap().content[0].kind = BlockKind::Text {
+        text: "different answer".into(),
+    };
     assert!(
         history::append(&mut database, session.id, turn.id, event.clone(), &events)
             .await
             .is_err()
     );
-    event.id = "partial-fixture".into();
-    event.llm_response.partial = true;
-    assert!(
-        history::append(&mut database, session.id, turn.id, event.clone(), &events)
-            .await
-            .is_err()
-    );
-    event.llm_response.partial = false;
     assert!(
         history::append(&mut database, SessionId::new(), turn.id, event, &events)
             .await
@@ -317,57 +301,37 @@ async fn rebuilds_from_durable_events() {
             .unwrap(),
         original
     );
-    let request = GetRequest {
-        app_name: APP.into(),
-        user_id: USER.into(),
-        session_id: session.id.to_string(),
-        num_recent_events: Some(1),
+    let request = sessions::Query {
+        session: session.id,
+        recent: Some(1),
         after: None,
     };
     let recent = sessions::get(&database.connection, turn.id, request.clone())
         .await
         .unwrap();
-    assert_eq!(recent.events().len(), 1);
-    assert!(recent.events().at(0).unwrap().llm_request.is_none());
+    assert_eq!(recent.records.len(), 1);
     assert_eq!(
-        recent
-            .events()
-            .at(0)
+        recent.records[0]
+            .message()
             .unwrap()
-            .llm_response
-            .error_message
-            .as_deref(),
-        Some("model response reported an error")
-    );
-    assert!(
-        !recent
-            .events()
-            .at(0)
+            .error
+            .as_ref()
             .unwrap()
-            .provider_metadata
-            .contains_key("gcp.vertex.agent.llm_response")
+            .message,
+        "model response reported an error"
     );
-    assert!(
-        !recent
-            .events()
-            .at(0)
-            .unwrap()
-            .provider_metadata
-            .contains_key("gcp.vertex.agent.llm_request")
-    );
-    assert_eq!(recent.state().all(), state);
+    assert_eq!(recent.state, state);
     let empty = sessions::get(
         &database.connection,
         turn.id,
-        GetRequest {
-            num_recent_events: Some(0),
+        sessions::Query {
+            recent: Some(0),
             ..request.clone()
         },
     )
     .await
     .unwrap();
-    assert_eq!(empty.events().len(), 0);
-    assert_eq!(empty.last_update_time(), recent.last_update_time());
+    assert!(empty.records.is_empty());
     assert!(
         sessions::get(&database.connection, TurnId::new(), request.clone())
             .await
@@ -377,8 +341,8 @@ async fn rebuilds_from_durable_events() {
         sessions::get(
             &database.connection,
             turn.id,
-            GetRequest {
-                user_id: "another-owner".into(),
+            sessions::Query {
+                session: SessionId::new(),
                 ..request
             }
         )

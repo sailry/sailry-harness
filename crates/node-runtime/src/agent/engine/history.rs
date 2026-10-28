@@ -1,4 +1,5 @@
 //! Conversion at the GDK execution boundary. Durable history remains Sailry-owned.
+mod media;
 mod metadata;
 #[cfg(test)]
 mod tests;
@@ -338,7 +339,7 @@ pub(crate) async fn project(
                     }
                     ToolFormat::Mcp => Ok(serde_json::from_value(value).map_err(storage_error)?),
                     ToolFormat::Json => {
-                        let mut result = CallToolResult::structured(value);
+                        let mut result = media::project(db, value, &response.attachments).await?;
                         result.meta = response.meta.clone();
                         if response.status != ToolStatus::Success {
                             result.is_error = Some(true);

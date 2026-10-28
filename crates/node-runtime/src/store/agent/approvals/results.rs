@@ -81,20 +81,26 @@ mod tests {
 
     #[test]
     fn requires_exact_call_and_tool() {
-        let response = |id: &str, tool: &str| adk_core::Part::FunctionResponse {
-            id: Some(id.into()),
-            function_response: adk_core::FunctionResponseData::new(
-                tool,
-                serde_json::json!({"error":"denied"}),
-            ),
-            annotations: None,
+        use crate::{
+            agent::canonical::{Block, BlockKind, Message},
+            store::agent::tests::fixture::response,
         };
-        let mut content = adk_core::Content::new("function");
-        content.parts = vec![
-            response("call", "tool"),
-            response("other", "tool"),
-            response("call", "other"),
-        ];
+        let mut content = Message {
+            part_count: 3,
+            content: [("call", "tool"), ("other", "tool"), ("call", "other")]
+                .into_iter()
+                .enumerate()
+                .map(|(index, (id, tool))| Block {
+                    index,
+                    kind: BlockKind::ToolResponse(response(
+                        Some(id),
+                        tool,
+                        serde_json::json!({"error":"denied"}),
+                    )),
+                })
+                .collect(),
+            ..Message::default()
+        };
         let original = content.clone();
         enrich(
             &mut content,
@@ -104,7 +110,13 @@ mod tests {
                 reason: "Read the file first".into(),
             }],
         );
-        assert_ne!(content.parts[0], original.parts[0]);
-        assert_eq!(content.parts[1..], original.parts[1..]);
+        assert_ne!(
+            serde_json::to_value(&content.content[0]).unwrap(),
+            serde_json::to_value(&original.content[0]).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&content.content[1..]).unwrap(),
+            serde_json::to_value(&original.content[1..]).unwrap()
+        );
     }
 }

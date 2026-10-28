@@ -128,3 +128,54 @@ async fn rejects_missing_call_identity() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn projects_declared_tool_media() {
+    let (_database, db) = database().await;
+    let value = json!({"response":{"text":"Exact metadata"},"inline_data":[{"mime_type":"image/png","data":[1,2,3]}]});
+    let message = gdk::Message::user()
+        .with_generated_id()
+        .with_tool_response("capture", Ok(CallToolResult::structured(value.clone())));
+    let record = capture(
+        &db,
+        TurnId::new(),
+        &message,
+        &BTreeMap::from([("capture".into(), "computer".into())]),
+    )
+    .await
+    .unwrap();
+    let BlockKind::ToolResponse(response) = &record.message().unwrap().content[0].kind else {
+        unreachable!()
+    };
+    assert_eq!(blobs::hydrate(&db, &response.result).await.unwrap(), value);
+    assert_eq!(
+        response.revision,
+        blake3::hash(value.to_string().as_bytes())
+            .to_hex()
+            .to_string()
+    );
+    let projected = project(&db, &record).await.unwrap().unwrap();
+    let MessageContent::ToolResponse(response) = &projected.content[0] else {
+        unreachable!()
+    };
+    let result = response.tool_result.as_ref().unwrap();
+    assert!(
+        result.content[0]
+            .as_text()
+            .unwrap()
+            .text
+            .contains("Exact metadata")
+    );
+    assert!(
+        !result.content[0]
+            .as_text()
+            .unwrap()
+            .text
+            .contains("inline_data")
+    );
+    let rmcp::model::ContentBlock::Image(image) = &result.content[1] else {
+        panic!("image expected")
+    };
+    assert_eq!(image.data, "AQID");
+    assert_eq!(image.mime_type, "image/png");
+}

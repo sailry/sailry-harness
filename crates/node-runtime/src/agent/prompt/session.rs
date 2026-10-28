@@ -119,3 +119,6 @@ impl Session {
             .await
     }
 }
+
+#[cfg(test)]
+mod tests;

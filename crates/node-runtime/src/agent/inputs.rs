@@ -158,3 +158,6 @@ impl Batch {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

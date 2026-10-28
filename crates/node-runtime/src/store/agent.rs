@@ -1,4 +1,4 @@
-//! ADK uses the existing Node storage worker, never a second conversation store.
+//! GDK uses the existing Node storage worker and canonical conversation owner.
 pub(super) mod activity;
 pub(super) mod approvals;
 pub(super) mod assets;
@@ -36,7 +36,6 @@ use super::{
     Database, Ingress, Job,
     database::{encode, storage_error},
 };
-use adk_core::{AdkError, Event as AdkEvent};
 use sailry_protocol::{conversation::*, *};
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
@@ -62,9 +61,6 @@ pub(crate) use sessions::{
 
 pub(crate) const SESSION_TITLE: &str = "sailry.session_title";
 pub(crate) const LOADED_TOOLS: &str = "sailry.context.loaded_tools";
-
-pub(crate) const APP: &str = "sailry";
-pub(crate) const USER: &str = "node";
 
 // Job boxes the entire operation; boxing its event again adds no queue saving.
 #[allow(clippy::large_enum_variant)]
@@ -1128,10 +1124,6 @@ async fn changed(
         .await?
         .pop()
         .ok_or_else(|| storage_error("event was not recorded"))
-}
-
-fn adk_error(error: Fault) -> AdkError {
-    AdkError::session(error.to_string())
 }
 
 async fn check_session(db: &Connection, session: SessionId) -> Result<(), Fault> {

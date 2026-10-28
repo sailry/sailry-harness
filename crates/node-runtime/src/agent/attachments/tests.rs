@@ -1,4 +1,6 @@
 use super::*;
+use goose_provider_types::conversation::message::Message as GdkMessage;
+use rmcp::model::{CallToolResult, ContentBlock};
 use sailry_protocol::{WorktreeId, attachment::Spec};
 
 fn attachment(media: &str) -> Attachment {
@@ -18,170 +20,105 @@ fn attachment(media: &str) -> Attachment {
 fn detects_image_content() {
     let metadata = attachment("text/plain");
     let bytes = b"\x89PNG\r\n\x1a\n".to_vec();
-    assert!(
-        matches!(inline(&metadata, bytes.clone(), true, None), Some(Part::InlineData { mime_type, data, .. }) if mime_type == "image/png" && data == bytes)
+    let Some(MessageContent::Image(image)) =
+        inline(&metadata, bytes.clone(), true, ModelApi::Responses)
+    else {
+        panic!("image expected")
+    };
+    assert_eq!(image.mime_type, "image/png");
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(&image.data)
+            .unwrap(),
+        bytes
     );
-    assert!(inline(&metadata, bytes, false, None).is_none());
-    assert!(
+    assert!(inline(&metadata, bytes, false, ModelApi::Responses).is_none());
+    assert!(!matches!(
         inline(
             &attachment("image/png"),
             b"not an image".to_vec(),
             true,
-            Some(ModelApi::Gemini)
-        )
-        .is_none()
-    );
+            ModelApi::Gemini
+        ),
+        Some(MessageContent::Image(_))
+    ));
 }
 
 #[test]
-fn detects_pdf_content() {
+fn separates_documents_from_vision() {
     let metadata = attachment("text/plain");
     let bytes = b"%PDF-1.7".to_vec();
-    assert!(
-        matches!(inline(&metadata, bytes.clone(), true, Some(ModelApi::Responses)), Some(Part::InlineData { mime_type, data, .. }) if mime_type == "application/pdf" && data == bytes)
-    );
-    assert!(inline(&metadata, bytes.clone(), true, None).is_none());
-    assert!(inline(&metadata, bytes, false, Some(ModelApi::Responses)).is_none());
-    assert!(
+    for api in [
+        ModelApi::Responses,
+        ModelApi::ChatCompletions,
+        ModelApi::Anthropic,
+        ModelApi::Gemini,
+        ModelApi::AzureOpenAi,
+    ] {
+        for vision in [false, true] {
+            let Some(MessageContent::Document(document)) =
+                inline(&metadata, bytes.clone(), vision, api)
+            else {
+                panic!("document expected")
+            };
+            assert_eq!(document.mime_type, "application/pdf");
+            assert_eq!(document.name.as_deref(), Some("input"));
+            assert_eq!(
+                base64::engine::general_purpose::STANDARD
+                    .decode(document.data)
+                    .unwrap(),
+                bytes
+            );
+        }
+    }
+    assert!(!matches!(
         inline(
             &attachment("application/pdf"),
             b"not a PDF".to_vec(),
             true,
-            Some(ModelApi::Responses)
-        )
-        .is_none()
-    );
+            ModelApi::Responses
+        ),
+        Some(MessageContent::Document(_))
+    ));
 }
 
 #[test]
-fn separates_inline_documents_from_vision() {
-    let mut provider: Provider = serde_json::from_value(serde_json::json!({
-        "id": sailry_protocol::ProviderId::new(),
-        "revision": 1,
-        "name": "Document fixture",
-        "api": "responses",
-        "authentication": "api_key",
-        "endpoint": "https://api.openai.com/v1/",
-        "enabled": true,
-        "default_model": "fixture",
-        "credential": null
-    }))
-    .unwrap();
-    let metadata = attachment("application/pdf");
-    let bytes = b"%PDF-1.7".to_vec();
-    for effective in [ModelApi::Responses, ModelApi::ChatCompletions] {
-        assert_eq!(api(&provider, effective), Some(effective));
-        assert!(matches!(
-            inline(&metadata, bytes.clone(), true, api(&provider, effective)),
-            Some(Part::InlineData { .. })
-        ));
-        for endpoint in [
-            "https://compatible.example/v1",
-            "https://api.x.ai/v1",
-            "https://api.openai.com/v1/compatible",
-        ] {
-            provider.endpoint = endpoint.into();
-            assert_eq!(api(&provider, effective), None);
-            assert!(inline(&metadata, bytes.clone(), true, api(&provider, effective)).is_none());
-            assert!(matches!(
-                inline(
-                    &metadata,
-                    b"\x89PNG\r\n\x1a\n".to_vec(),
-                    true,
-                    api(&provider, effective)
-                ),
-                Some(Part::InlineData { .. })
-            ));
-        }
-        provider.endpoint = "https://api.openai.com/v1/".into();
-    }
-    for effective in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::AzureOpenAi] {
-        assert_eq!(api(&provider, effective), Some(effective));
-        assert!(matches!(
-            inline(&metadata, bytes.clone(), true, api(&provider, effective)),
-            Some(Part::InlineData { .. })
-        ));
-    }
-    provider.authentication = Authentication::ChatGpt;
-    assert_eq!(api(&provider, ModelApi::Responses), None);
-}
-
-#[test]
-fn detects_audio_and_video_content() {
-    let metadata = attachment("text/plain");
-    let fixtures: &[(&[u8], &str, bool)] = &[
-        (
-            include_bytes!("../../../../../tests/fixtures/audio.wav"),
-            "audio/wav",
-            false,
-        ),
-        (
-            include_bytes!("../../../../../tests/fixtures/audio.mp4"),
-            "audio/m4a",
-            false,
-        ),
-        (
-            include_bytes!("../../../../../tests/fixtures/audio.mp3"),
-            "audio/mpeg",
-            false,
-        ),
-        (
-            include_bytes!("../../../../../tests/fixtures/video.mp4"),
-            "video/mp4",
-            true,
-        ),
-        (
-            include_bytes!("../../../../../tests/fixtures/video.webm"),
-            "video/webm",
-            true,
-        ),
-    ];
-    for &(bytes, expected, visual) in fixtures {
-        let native = inline(&metadata, bytes.to_vec(), visual, Some(ModelApi::Gemini));
-        assert!(
-            matches!(native, Some(Part::InlineData { mime_type, data, .. }) if mime_type == expected && data == bytes),
-            "{expected}"
-        );
-        for api in [
-            None,
-            Some(ModelApi::ChatCompletions),
-            Some(ModelApi::Responses),
-            Some(ModelApi::Anthropic),
-        ] {
-            assert!(
-                inline(&metadata, bytes.to_vec(), true, api).is_none(),
-                "{expected}: {api:?}"
-            );
-        }
-        if visual {
-            assert!(inline(&metadata, bytes.to_vec(), false, Some(ModelApi::Gemini)).is_none());
-        }
-    }
-    for media in ["audio/wav", "video/mp4"] {
+fn retains_unsupported_media_references() {
+    for bytes in [
+        include_bytes!("../../../../../tests/fixtures/audio.wav").as_slice(),
+        include_bytes!("../../../../../tests/fixtures/audio.mp4").as_slice(),
+        include_bytes!("../../../../../tests/fixtures/audio.mp3").as_slice(),
+        include_bytes!("../../../../../tests/fixtures/video.mp4").as_slice(),
+        include_bytes!("../../../../../tests/fixtures/video.webm").as_slice(),
+    ] {
         assert!(
             inline(
-                &attachment(media),
-                b"not media".to_vec(),
+                &attachment("text/plain"),
+                bytes.to_vec(),
                 true,
-                Some(ModelApi::Gemini)
+                ModelApi::Gemini
             )
             .is_none()
         );
     }
+    let metadata = attachment("audio/wav");
+    let text = file(&metadata, Some(READ_NOTE));
+    assert!(text.contains(&metadata.id.to_string()));
+    assert!(text.contains("Contents not included"));
 }
 
 #[test]
 fn preserves_text_and_defers_attachments() {
-    let attachment = attachment("application/octet-stream");
+    let metadata = attachment("application/octet-stream");
     assert!(
-        matches!(inline(&attachment, "输入 🙂".as_bytes().to_vec(), false, None), Some(Part::Text { text }) if text.ends_with("输入 🙂"))
+        matches!(inline(&metadata, "输入 🙂".as_bytes().to_vec(), false, ModelApi::Responses), Some(MessageContent::Text(text)) if text.text.ends_with("输入 🙂"))
     );
     assert!(
         inline(
-            &attachment,
+            &metadata,
             vec![b'x'; 1024 * 1024 + 1],
             true,
-            Some(ModelApi::Gemini)
+            ModelApi::Gemini
         )
         .is_none()
     );
@@ -190,22 +127,13 @@ fn preserves_text_and_defers_attachments() {
         vec![255, 0, 1],
         b"Rar!\x1a\x07\0".to_vec(),
     ] {
-        assert!(inline(&attachment, bytes, true, Some(ModelApi::Gemini)).is_none());
+        assert!(inline(&metadata, bytes, true, ModelApi::Gemini).is_none());
     }
-    let Part::Text { text } = file(&attachment, Some(READ_NOTE)) else {
-        panic!("file metadata expected")
-    };
-    assert!(text.contains(&attachment.id.to_string()));
-    assert!(text.contains("not included"));
+    let text = file(&metadata, Some(READ_NOTE));
+    assert!(text.contains(&metadata.id.to_string()));
     assert!(text.contains("read_office"));
     assert!(text.contains("\"kind\":\"attachment\""));
     assert!(!text.contains(PREFIX));
-    let Part::Text { text } = file(&attachment, Some(UNAVAILABLE_NOTE)) else {
-        panic!("file metadata expected")
-    };
-    assert!(text.contains(&attachment.id.to_string()));
-    assert!(text.contains("Contents not included"));
-    assert!(!text.contains("read_office"));
 }
 
 #[test]
@@ -223,95 +151,49 @@ fn accepts_only_owned_references() {
 }
 
 #[test]
-fn preserves_local_errors() {
-    let fault = sailry_protocol::Fault::invalid("attachment is not UTF-8 text");
-    assert_eq!(
-        model::error(
-            adk_core::AdkError::model("attachment input failed").with_source(fault.clone())
-        ),
-        fault
-    );
-    let unsafe_body = "untrusted upstream response body";
-    let diagnostic = "OpenAI Responses API error: 400 Bad Request invalid_request_error: Attachment input is invalid";
-    let mut native = adk_core::AdkError::new(
-        adk_core::ErrorComponent::Model,
-        adk_core::ErrorCategory::InvalidInput,
-        "model.openai_responses.invalid_request",
-        diagnostic,
-    )
-    .with_upstream_status(400);
-    native
-        .details
-        .metadata
-        .insert("body".into(), serde_json::json!(unsafe_body));
-    let fault = model::error(&native);
-    assert_eq!(fault.message, diagnostic);
-    assert!(!fault.message.contains(unsafe_body));
-    let mut entry =
-        crate::logging::Entry::new(crate::logging::Area::Model, crate::logging::Phase::Failed);
-    model::cause(&mut entry, &native);
-    assert_eq!(
-        entry.cause_code,
-        Some("model.openai_responses.invalid_request")
-    );
-    assert_eq!(entry.cause_component, Some("model"));
-    assert_eq!(entry.cause_category, Some("invalid_input"));
-    assert_eq!(entry.upstream_status, Some(400));
-}
-
-#[test]
 fn filters_images_for_text_models() {
-    let mut content = Content::new("model").with_text("Generated image");
-    content.parts.push(Part::InlineData {
-        mime_type: "image/png".into(),
-        data: vec![1, 2, 3],
-        uri: None,
-        annotations: None,
-    });
-    content.parts.push(Part::FunctionResponse {
-        id: Some("generate".into()),
-        annotations: None,
-        function_response: adk_core::FunctionResponseData::with_inline_data(
-            "generate",
-            serde_json::json!({"path":"image.png"}),
-            ["image/png", "audio/wav"]
-                .map(|mime_type| adk_core::InlineDataPart {
-                    mime_type: mime_type.into(),
-                    data: vec![1, 2, 3],
-                    uri: None,
-                    annotations: None,
-                })
-                .to_vec(),
-        ),
-    });
-    let canonical = vec![content];
+    let message = GdkMessage::assistant()
+        .with_text("Generated image")
+        .with_image("AQID", "image/png");
+    let result = CallToolResult::success(vec![
+        ContentBlock::text("original result"),
+        ContentBlock::image("AQID", "image/png"),
+        ContentBlock::audio("AQID", "audio/wav"),
+    ]);
+    let canonical = Conversation::new_unvalidated(vec![
+        message,
+        GdkMessage::user().with_tool_response("generate", Ok(result)),
+    ]);
     let mut request = canonical.clone();
     filter_images(&mut request);
-    assert!(matches!(&canonical[0].parts[1], Part::InlineData { .. }));
-    assert_eq!(request[0].parts[0].text(), Some("Generated image"));
+    assert!(matches!(
+        &canonical.messages()[0].content[1],
+        MessageContent::Image(_)
+    ));
     assert!(
-        request[0].parts[1]
-            .text()
+        matches!(&request.messages()[0].content[0],MessageContent::Text(text) if text.text=="Generated image")
+    );
+    assert!(
+        matches!(&request.messages()[0].content[1],MessageContent::Text(text) if text.text.contains("does not support images"))
+    );
+    let MessageContent::ToolResponse(response) = &request.messages()[1].content[0] else {
+        unreachable!()
+    };
+    let result = response.tool_result.as_ref().unwrap();
+    assert_eq!(result.content[0].as_text().unwrap().text, "original result");
+    assert!(
+        result.content[1]
+            .as_text()
             .unwrap()
+            .text
             .contains("does not support images")
     );
-    let Part::FunctionResponse {
-        function_response, ..
-    } = &request[0].parts[2]
-    else {
-        panic!("tool result expected")
+    assert!(matches!(&result.content[2], ContentBlock::Audio(_)));
+    let MessageContent::ToolResponse(response) = &canonical.messages()[1].content[0] else {
+        unreachable!()
     };
-    assert_eq!(
-        function_response.response,
-        serde_json::json!({"path":"image.png"})
-    );
-    assert_eq!(function_response.inline_data.len(), 1);
-    assert_eq!(function_response.inline_data[0].mime_type, "audio/wav");
-    let Part::FunctionResponse {
-        function_response, ..
-    } = &canonical[0].parts[2]
-    else {
-        panic!("canonical tool result expected")
-    };
-    assert_eq!(function_response.inline_data.len(), 2);
+    assert!(matches!(
+        &response.tool_result.as_ref().unwrap().content[1],
+        ContentBlock::Image(_)
+    ));
 }

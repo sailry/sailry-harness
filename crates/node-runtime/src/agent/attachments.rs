@@ -12,6 +12,9 @@ use sailry_protocol::{
     conversation::{Input, ModelApi},
 };
 
+#[cfg(test)]
+mod tests;
+
 const PREFIX: &str = "sailry-attachment://";
 const REQUEST_BYTES: u64 = 64 * 1024 * 1024;
 const READ_NOTE: &str = "Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files";
@@ -94,6 +97,9 @@ pub(super) async fn hydrate(
     api: ModelApi,
     stop: &CancellationToken,
 ) -> Result<(), Fault> {
+    if !vision {
+        filter_images(conversation);
+    }
     let mut remaining = REQUEST_BYTES;
     for message in conversation.messages_mut() {
         let mut contents = Vec::new();
@@ -194,5 +200,32 @@ fn file(attachment: &Attachment, note: Option<&str>) -> String {
     match note {
         Some(note) => format!("Attachment reference: {value}\n{note}"),
         None => format!("Attachment reference: {value}"),
+    }
+}
+
+fn filter_images(conversation: &mut Conversation) {
+    use rmcp::model::ContentBlock;
+    for message in conversation.messages_mut() {
+        for content in &mut message.content {
+            match content {
+                MessageContent::Image(_) => {
+                    *content = MessageContent::text(
+                        "Image output omitted because the current model does not support images",
+                    )
+                }
+                MessageContent::ToolResponse(response) => {
+                    if let Ok(result) = &mut response.tool_result {
+                        for content in &mut result.content {
+                            if matches!(content, ContentBlock::Image(_)) {
+                                *content = ContentBlock::text(
+                                    "Image output omitted because the current model does not support images",
+                                );
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
