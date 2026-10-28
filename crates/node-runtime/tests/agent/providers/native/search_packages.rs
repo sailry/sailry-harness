@@ -1,19 +1,21 @@
 use super::*;
 use crate::agent_support::Server as SearchServer;
+#[path = "../../../support/search/mcp.rs"]
+mod http;
 
-async fn prepare(remote: bool, server: &SearchServer) -> Fixture {
+async fn prepare(remote: bool, server: &SearchServer) -> (Fixture, http::Server) {
     let mut fixture = Fixture::packages(
         remote,
-        ModelApi::Responses,
+        ModelApi::ChatCompletions,
         &server.endpoint,
         &["web-search"],
     )
     .await;
-    fixture.provider.models[0].web_search = true;
+    fixture.provider.models[0].web_search = false;
     fixture.provider.models[0]
         .capabilities
         .get_or_insert_with(Default::default)
-        .tools = Some(false);
+        .tools = Some(true);
     execute(
         &fixture.client,
         Command::PutProvider {
@@ -22,7 +24,12 @@ async fn prepare(remote: bool, server: &SearchServer) -> Fixture {
         },
     )
     .await;
-    fixture
+    let http = http::Server::start().await;
+    fixture.node.set_search_fixture(
+        sailry_protocol::search::Driver::Exa,
+        &format!("{}/mcp", http.endpoint),
+    );
+    (fixture, http)
 }
 
 fn source(fixture: &Fixture, name: &str, label: &str) {
@@ -36,6 +43,13 @@ fn source(fixture: &Fixture, name: &str, label: &str) {
     manifest["version"] = serde_json::json!("0.2.0");
     manifest["extensions"]["dev.sailry.platform"]["model_tools"][0]["display"]["label"] =
         serde_json::json!(label);
+    let tool = manifest["extensions"]["dev.sailry.platform"]["tools"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|tool| tool["name"] == "web_search")
+        .unwrap();
+    tool["display"]["label"] = serde_json::json!(label);
     std::fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
 }
 
@@ -64,12 +78,16 @@ fn label(page: &Page, turn: TurnId) -> &str {
         .filter(|entry| entry.turn == turn)
         .flat_map(|entry| &entry.parts)
         .find_map(|part| match part {
-            Part::ToolCall { name, summary, .. } if name == "web_search" => summary
-                .resolved
-                .as_ref()?
-                .label
-                .as_ref()
-                .map(|label| label.label.as_str()),
+            Part::ToolCall { name, summary, .. }
+                if name == &plugin_tool("web-search", "web_search") =>
+            {
+                summary
+                    .resolved
+                    .as_ref()?
+                    .label
+                    .as_ref()
+                    .map(|label| label.label.as_str())
+            }
             _ => None,
         })
         .expect("search display expected")
@@ -78,8 +96,15 @@ fn label(page: &Page, turn: TurnId) -> &str {
 #[tokio::test]
 async fn retains_admitted_version_after_update_and_removal() {
     for remote in [false, true] {
-        let server = SearchServer::web_search().await;
-        let fixture = prepare(remote, &server).await;
+        let server = SearchServer::prompt_tools(
+            "Search".into(),
+            vec![(
+                plugin_tool("web-search", "web_search"),
+                serde_json::json!({"query":"Public source","limit":1}),
+            )],
+        )
+        .await;
+        let (fixture, _http) = prepare(remote, &server).await;
         let Output::Plugin(original) = execute(
             &fixture.client,
             Command::ReadPlugin {
@@ -97,7 +122,7 @@ async fn retains_admitted_version_after_update_and_removal() {
             Command::QueueTurn {
                 session: fixture.session.id,
                 expected_revision: fixture.session.revision,
-                message: "Find sources".into(),
+                message: "Search".into(),
             },
         )
         .await
@@ -148,7 +173,7 @@ async fn retains_admitted_version_after_update_and_removal() {
                 .filter(|entry| entry.turn == next)
                 .all(|entry| entry.citations.is_empty())
         );
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 3);
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
         let node = Node::start_empty(profile).await.unwrap();
@@ -163,11 +188,18 @@ async fn retains_admitted_version_after_update_and_removal() {
 #[tokio::test]
 async fn new_turns_follow_updates_and_enablement() {
     for remote in [false, true] {
-        let server = SearchServer::web_search().await;
-        let fixture = prepare(remote, &server).await;
+        let server = SearchServer::prompt_tools(
+            "Search".into(),
+            vec![(
+                plugin_tool("web-search", "web_search"),
+                serde_json::json!({"query":"Public source","limit":1}),
+            )],
+        )
+        .await;
+        let (fixture, _http) = prepare(remote, &server).await;
         source(&fixture, "web-search", "Changed search");
         install(&fixture, "web-search", 1).await;
-        let updated = fixture.submit("Use the updated search package").await;
+        let updated = fixture.submit("Search").await;
         let page = finished(&fixture.client, fixture.session.id, updated).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(label(&page, updated), "Changed search");
@@ -190,7 +222,7 @@ async fn new_turns_follow_updates_and_enablement() {
                 .filter(|entry| entry.turn == disabled)
                 .all(|entry| entry.citations.is_empty()
                     && entry.parts.iter().all(
-                        |part| !matches!(part, Part::ToolCall { name, .. } if name == "web_search")
+                        |part| !matches!(part, Part::ToolCall { name, .. } if name == &plugin_tool("web-search", "web_search"))
                     ))
         );
         assert_eq!(label(&page, updated), "Changed search");
@@ -204,57 +236,23 @@ async fn new_turns_follow_updates_and_enablement() {
             },
         )
         .await;
-        let enabled = fixture.submit("Search again").await;
+        let enabled = fixture.submit("Search").await;
         let page = finished(&fixture.client, fixture.session.id, enabled).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(label(&page, enabled), "Changed search");
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 3);
+        assert_eq!(requests.len(), 5);
         for (index, request) in requests.iter().enumerate() {
             assert_eq!(
                 request["tools"]
                     .as_array()
-                    .is_some_and(|tools| tools.iter().any(|tool| tool["type"] == "web_search")),
-                index != 1
+                    .is_some_and(|tools| tools
+                        .iter()
+                        .any(|tool| tool["function"]["name"]
+                            == plugin_tool("web-search", "web_search"))),
+                index != 2
             );
         }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn ordinary_packages_share_one_provider_capability() {
-    for remote in [false, true] {
-        let server = SearchServer::web_search().await;
-        let fixture = prepare(remote, &server).await;
-        execute(
-            &fixture.client,
-            Command::RemovePlugin {
-                name: "web-search".into(),
-                expected_revision: 1,
-            },
-        )
-        .await;
-        source(&fixture, "source-finder", "Find sources");
-        install(&fixture, "source-finder", 0).await;
-        source(&fixture, "source-helper", "Other sources");
-        install(&fixture, "source-helper", 0).await;
-        let turn = fixture.submit("Find a source").await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(label(&page, turn), "Find sources");
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(
-            requests[0]["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|tool| tool["type"] == "web_search")
-                .count(),
-            1
-        );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
