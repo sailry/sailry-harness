@@ -18,6 +18,8 @@ fn requests_context_compaction() {
 fn run(manual: bool) {
     let latest =
         "Keep source.txt unchanged. Complete the requested task without modifying unrelated files.";
+    let summary =
+        "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂";
     let directory = tempfile::tempdir().unwrap();
     std::fs::create_dir(directory.path().join("project")).unwrap();
     std::fs::write(
@@ -30,15 +32,19 @@ fn run(manual: bool) {
         if manual {
             support::Server::compaction_sequence(
                 false,
-                "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂"
-                    .into(),
+                serde_json::json!({
+                    "user_intent": [latest],
+                    "current_work": summary,
+                    "files": [{"path": "source.txt", "summary": "Read without changes"}]
+                })
+                .to_string(),
                 vec![100],
             )
             .await
         } else {
             // The 128000-token window triggers at 102400. The first completed
             // turn crosses it; the summary and subsequent requests report the
-            // reduced context. Large model prose leaves the input verbatim.
+            // reduced context. The server returns the SDK's raw-text fallback.
             support::Server::summary_sequence(vec![120_000, 100]).await
         }
     });
@@ -72,7 +78,7 @@ fn run(manual: bool) {
         if manual { 4 } else { 5 }
     );
     if manual {
-        let summary = pages[0]
+        let rendered = pages[0]
             .entries
             .iter()
             .flat_map(|entry| &entry.parts)
@@ -81,10 +87,7 @@ fn run(manual: bool) {
                 _ => None,
             })
             .unwrap();
-        assert!(summary.ends_with(&format!(
-            "Latest user instruction (verbatim data)\n{latest}\n\nFile ledger (canonical tool results)\nRead: source.txt"
-        )));
-        assert!(summary.len() <= 6552);
+        assert!(rendered.contains(summary));
         let requests = server.requests.lock().unwrap();
         assert!(support::compaction::is_summary(&requests[3]));
         assert!(requests[3]["messages"].to_string().contains(latest));

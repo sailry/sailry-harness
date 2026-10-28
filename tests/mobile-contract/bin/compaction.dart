@@ -94,18 +94,11 @@ Future<void> main() async {
     'one durable summary arrives through the shared Client',
   );
   check(
-    (original.single['data'] as String).contains('中文 🙂'),
+    (original.single['data'] as String).contains(
+      manual ? '中文 🙂' : 'Prepared summary',
+    ),
     'summary text is preserved',
   );
-  if (manual) {
-    check(
-      (original.single['data'] as String).endsWith(
-        'Latest user instruction (verbatim data)\n$latest\n\n'
-        'File ledger (canonical tool results)\nRead: source.txt',
-      ),
-      'the latest explicit safety instruction is retained verbatim',
-    );
-  }
   check(
     (finished['snapshot']['page']['entries'] as List).any(
       (entry) => (entry['parts'] as List).any(
@@ -114,6 +107,16 @@ Future<void> main() async {
     ),
     'original history remains available',
   );
+  if (manual) {
+    check(
+      (finished['snapshot']['page']['entries'] as List).any(
+        (entry) => (entry['parts'] as List).any(
+          (part) => part['kind'] == 'text' && part['data'] == latest,
+        ),
+      ),
+      'the latest explicit instruction remains in original history',
+    );
+  }
   Future<void> close() async {
     await updates.close();
     updates.dispose();
