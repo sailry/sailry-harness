@@ -1,30 +1,27 @@
 use super::*;
-use crate::store::agent::tests::fixture::Fixture;
+use crate::{
+    agent::canonical::Role,
+    store::agent::tests::fixture::{Fixture, message, request, response},
+};
 use sailry_protocol::tool::detail::DETAIL_PAGE_BYTES;
 use serde_json::json;
 use std::sync::Arc;
 
-fn event(branch: &str, name: &str, path: Option<&str>) -> AdkEvent {
-    let mut event = AdkEvent::new("source-fixture");
-    event.branch = branch.into();
-    event.author = if path.is_some() { "assistant" } else { "tool" }.into();
-    let part = match path {
-        Some(path) => adk_core::Part::FunctionCall {
-            id: Some("reused".into()),
-            name: name.into(),
-            args: json!({"path":path}),
-            thought_signature: None,
-        },
-        None => adk_core::Part::FunctionResponse {
-            id: Some("reused".into()),
-            function_response: adk_core::FunctionResponseData::new(name, json!({"text":"result"})),
-            annotations: None,
-        },
+fn event(branch: &str, name: &str, path: Option<&str>) -> Record {
+    let (author, role, part) = match path {
+        Some(path) => (
+            "assistant",
+            Role::Assistant,
+            BlockKind::ToolRequest(request(Some("reused"), name, json!({"path":path}))),
+        ),
+        None => (
+            "tool",
+            Role::User,
+            BlockKind::ToolResponse(response(Some("reused"), name, json!({"text":"result"}))),
+        ),
     };
-    event.set_content(adk_core::Content {
-        role: if path.is_some() { "model" } else { "function" }.into(),
-        parts: vec![part],
-    });
+    let mut event = message(author, role, vec![part]);
+    event.provenance.branch = branch.into();
     event
 }
 
@@ -32,17 +29,11 @@ fn event(branch: &str, name: &str, path: Option<&str>) -> AdkEvent {
 async fn single_page_reads_skip_full_leases() {
     let mut fixture = Fixture::new().await;
     let mut result = event("main", "read", None);
-    result.set_content(adk_core::Content {
-        role: "function".into(),
-        parts: vec![adk_core::Part::FunctionResponse {
-            id: Some("reused".into()),
-            function_response: adk_core::FunctionResponseData::new(
-                "read",
-                json!({"text":"s".repeat(1024)}),
-            ),
-            annotations: None,
-        }],
-    });
+    result.message_mut().unwrap().content[0].kind = BlockKind::ToolResponse(response(
+        Some("reused"),
+        "read",
+        json!({"text":"s".repeat(1024)}),
+    ));
     let entry = result.id.clone();
     let turn = fixture
         .append([event("main", "read", Some("source.rs")), result])
@@ -190,11 +181,11 @@ async fn skips_unrequested_call_projection() {
         event("main", "other", Some("other name")),
         event("main", "read", Some("other id")),
     ];
-    let mut content = unrelated[1].content().unwrap().clone();
-    if let adk_core::Part::FunctionCall { id, .. } = &mut content.parts[0] {
-        *id = Some("unrequested".into());
+    if let BlockKind::ToolRequest(request) =
+        &mut unrelated[1].message_mut().unwrap().content[0].kind
+    {
+        request.id = Some("unrequested".into());
     }
-    unrelated[1].set_content(content);
     let result = event("main", "read", None);
     let turn = fixture
         .append(
@@ -206,10 +197,8 @@ async fn skips_unrequested_call_projection() {
         .await;
     let db = &fixture.database.connection;
     // Unrequested native calls must not hydrate unrelated binary assets.
-    for call in unrelated {
-        let mut record = crate::agent::canonical_bridge::from_adk(db, turn, &call)
-            .await
-            .unwrap();
+    for mut record in unrelated {
+        record.turn = turn;
         let id = record.message().unwrap().content[0].kind.clone();
         let BlockKind::ToolRequest(request) = id else {
             unreachable!()
@@ -253,9 +242,7 @@ async fn skips_unrequested_call_projection() {
         .unwrap()
         .get::<i64>(0)
         .unwrap() as u64;
-    let result = crate::agent::canonical_bridge::from_adk(db, turn, &result)
-        .await
-        .unwrap();
+    let result = Record { turn, ..result };
     let sources = Sources::new(db, &[(sequence, turn, result.clone())])
         .await
         .unwrap();

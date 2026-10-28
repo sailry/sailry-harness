@@ -1,28 +1,27 @@
 use super::*;
-use crate::store::agent::tests::{command, fixture::Fixture};
-
-fn canonical(results: Vec<serde_json::Value>) -> AdkEvent {
-    let mut event = AdkEvent::new("asset-tools");
-    event.author = "assistant".into();
-    let mut content = adk_core::Content::new("model");
-    content.parts = results
-        .into_iter()
-        .map(|response| adk_core::Part::FunctionResponse {
-            id: None,
-            annotations: None,
-            function_response: adk_core::FunctionResponseData::new("document_export", response),
-        })
-        .collect();
-    event.set_content(content);
-    event
-}
+use crate::{
+    agent::canonical::{BlockKind, Record, Role},
+    store::agent::{
+        blobs,
+        tests::{
+            command,
+            fixture::{Fixture, message, response},
+        },
+    },
+};
 
 async fn publish(fixture: &Fixture, items: &mut Vec<Target>, results: Vec<serde_json::Value>) {
-    let db = &fixture.database.connection;
-    let record = crate::agent::canonical_bridge::from_adk(db, TurnId::new(), &canonical(results))
+    let record = message(
+        "assistant",
+        Role::Assistant,
+        results
+            .into_iter()
+            .map(|value| BlockKind::ToolResponse(response(None, "document_export", value)))
+            .collect(),
+    );
+    extract::publications(&fixture.database.connection, items, &record)
         .await
         .unwrap();
-    extract::publications(db, items, &record).await.unwrap();
 }
 
 fn query() -> Query {
@@ -73,26 +72,32 @@ async fn extracts_explicit_files_and_deduplicates() {
 #[tokio::test]
 async fn includes_inputs_and_inline_images() {
     let mut fixture = Fixture::new().await;
-    let mut user = AdkEvent::new("asset-input");
-    user.author = "user".into();
-    user.set_content(
-        adk_core::Content::new("user")
-            .with_text("See [Input](input.txt)\n\n> [Quoted](quoted.txt)"),
+    let user = message(
+        "user",
+        Role::User,
+        vec![BlockKind::Text {
+            text: "See [Input](input.txt)\n\n> [Quoted](quoted.txt)".into(),
+        }],
     );
-    let mut assistant = AdkEvent::new("asset-image");
-    assistant.author = "assistant".into();
     let mut image = std::io::Cursor::new(Vec::new());
     image::DynamicImage::new_rgb8(2, 2)
         .write_to(&mut image, image::ImageFormat::Png)
         .unwrap();
-    let mut content = adk_core::Content::new("model");
-    content.parts.push(adk_core::Part::InlineData {
-        mime_type: "image/png".into(),
-        data: image.into_inner(),
-        uri: None,
-        annotations: None,
-    });
-    assistant.set_content(content);
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    let asset = blobs::put(&transaction, "image/png", &image.into_inner())
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+    let assistant = message(
+        "assistant",
+        Role::Assistant,
+        vec![BlockKind::Image { asset }],
+    );
     fixture.append([user, assistant]).await;
     let result = page(&fixture, query()).await;
     assert_eq!(result.groups.len(), 2);
@@ -429,18 +434,18 @@ async fn pages_document_receipts_with_fork_scope() {
             },
         ],
     };
-    let mut event = AdkEvent::new("document-receipt");
-    event.author = "assistant".into();
-    let mut content = adk_core::Content::new("tool");
-    content.parts.push(adk_core::Part::FunctionResponse {
-        id: Some("document-write".into()),
-        annotations: None,
-        function_response: adk_core::FunctionResponseData::new(
-            "document_write",
-            serde_json::json!({"sailry_content":receipt}),
-        ),
-    });
-    event.set_content(content);
+    let event = Record {
+        turn,
+        ..message(
+            "assistant",
+            Role::User,
+            vec![BlockKind::ToolResponse(response(
+                Some("document-write"),
+                "document_write",
+                serde_json::json!({"sailry_content":receipt}),
+            ))],
+        )
+    };
     history::append(
         &mut fixture.database,
         fixture.session,

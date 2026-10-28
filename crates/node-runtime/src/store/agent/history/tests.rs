@@ -1,8 +1,9 @@
 use super::*;
 use crate::store::{
-    agent::tests::fixture::Fixture,
+    agent::tests::fixture::{Fixture, message, record, request, response},
     database::{conflict, counters},
 };
+use records::Role;
 use tokio::sync::{mpsc, oneshot};
 
 mod defaults;
@@ -43,24 +44,22 @@ async fn running(fixture: &mut Fixture) -> TurnId {
 #[tokio::test]
 async fn retains_called_and_discovered_tools() {
     let mut fixture = Fixture::new().await;
-    let call = |name: &str| adk_core::Part::FunctionCall {
-        name: name.into(),
-        id: Some(name.into()),
-        args: serde_json::json!({}),
-        thought_signature: None,
-    };
-    let mut invoked = AdkEvent::new("called-tools");
-    invoked.author = "assistant".into();
-    invoked.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![call("first"), call("second")],
-    });
-    let mut discovered = AdkEvent::new("discovered-tools");
-    discovered.author = "system".into();
-    discovered
-        .actions
-        .state_delta
-        .insert(LOADED_TOOLS.into(), serde_json::json!(["third"]));
+    let invoked = message(
+        "assistant",
+        Role::Assistant,
+        ["first", "second"]
+            .map(|name| BlockKind::ToolRequest(request(Some(name), name, serde_json::json!({}))))
+            .to_vec(),
+    );
+    let discovered = record(
+        "system",
+        Kind::Configuration(records::Configuration {
+            context: records::Context {
+                loaded_tools: Some(["third".into()].into()),
+                ..Default::default()
+            },
+        }),
+    );
     fixture.append([invoked, discovered]).await;
     let expected = serde_json::json!(["first", "second", "third"]);
     assert_eq!(
@@ -80,24 +79,21 @@ async fn retains_called_and_discovered_tools() {
     );
 }
 
-fn captured() -> AdkEvent {
-    let mut event = AdkEvent::new("captured-write");
-    event.author = "tool".into();
-    event.set_content(adk_core::Content {
-        role: "user".into(),
-        parts: vec![adk_core::Part::FunctionResponse {
-            id: Some("completed-write".into()),
-            function_response: adk_core::FunctionResponseData::new(
-                "write_file",
-                serde_json::json!({"path":"saved.txt","content":"Captured tool result"}),
-            ),
-            annotations: None,
-        }],
+fn captured(turn: TurnId) -> Record {
+    let mut event = message(
+        "tool",
+        Role::User,
+        vec![BlockKind::ToolResponse(response(
+            Some("completed-write"),
+            "write_file",
+            serde_json::json!({"path":"saved.txt","content":"Captured tool result"}),
+        ))],
+    );
+    event.turn = turn;
+    event.metadata.state = Some(records::StateChanges {
+        session: [("saved".into(), serde_json::json!(1))].into(),
+        ..Default::default()
     });
-    event
-        .actions
-        .state_delta
-        .insert("saved".into(), serde_json::json!(1));
     event
 }
 
@@ -105,16 +101,21 @@ fn captured() -> AdkEvent {
 async fn rolls_back_context_with_rejected_input() {
     let mut fixture = Fixture::new().await;
     let owner = running(&mut fixture).await;
-    let mut context = AdkEvent::new("context");
-    context.author = "system".into();
-    context
-        .actions
-        .state_delta
-        .insert("context_saved".into(), serde_json::json!(true));
-    let mut input = AdkEvent::new("input");
+    let mut context = message("system", Role::Assistant, Vec::new());
+    context.turn = owner;
+    context.metadata.state = Some(records::StateChanges {
+        session: [("context_saved".into(), serde_json::json!(true))].into(),
+        ..Default::default()
+    });
+    let mut input = message(
+        "user",
+        Role::User,
+        vec![BlockKind::Text {
+            text: "Uncommitted input".into(),
+        }],
+    );
+    input.turn = owner;
     input.id.clear();
-    input.author = "user".into();
-    input.set_content(adk_core::Content::new("user").with_text("Uncommitted input"));
     let session = fixture.session;
     assert!(
         append_with_context(
@@ -149,29 +150,26 @@ async fn rolls_back_context_with_rejected_input() {
 }
 
 #[tokio::test]
-async fn preserves_action_visibility() {
+async fn preserves_explicit_visibility() {
     let fixture = Fixture::new().await;
-    let mut telemetry = AdkEvent::new("telemetry");
-    telemetry.author = "system".into();
-    telemetry
-        .provider_metadata
-        .insert("sailry_execution_phases".into(), "{}".into());
-    let mut approved = telemetry.clone();
-    approved.actions.tool_confirmation_decision = Some(adk_core::ToolConfirmationDecision::Approve);
-    let mut denied = telemetry.clone();
-    denied.actions.tool_confirmation_decision = Some(adk_core::ToolConfirmationDecision::Deny);
-    let mut transfer = telemetry.clone();
-    transfer.actions.transfer_to_agent = Some("reviewer".into());
+    let mut telemetry = message("system", Role::Assistant, Vec::new());
+    telemetry.metadata.runtime = Some(records::Runtime {
+        user_visible: false,
+        ..Default::default()
+    });
+    let mut visible = telemetry.clone();
+    visible.metadata.runtime.as_mut().unwrap().user_visible = true;
     let mut masked = telemetry.clone();
-    masked.actions.state_delta.insert(
-        "sailry.context.masked_outputs".into(),
-        serde_json::json!([]),
-    );
-    let mut changed = masked.clone();
-    changed.actions.state_delta.insert(
-        "sailry.context.policy".into(),
-        serde_json::json!("Captured policy"),
-    );
+    masked.metadata.context = Some(records::Context {
+        masked_outputs: Some(Default::default()),
+        ..Default::default()
+    });
+    let mut changed = visible.clone();
+    changed.metadata.context = Some(records::Context {
+        policy: Some("Captured policy".into()),
+        ..Default::default()
+    });
+    let defaulted = message("assistant", Role::Assistant, Vec::new());
     let mut query = fixture
         .database
         .connection
@@ -180,21 +178,13 @@ async fn preserves_action_visibility() {
         ))
         .await
         .unwrap();
-    for (event, expected) in [
+    for (record, expected) in [
         (telemetry, false),
-        (approved, true),
-        (denied, true),
-        (transfer, true),
+        (visible, true),
+        (defaulted, true),
         (masked, false),
         (changed, true),
     ] {
-        let record = crate::agent::canonical_bridge::from_adk(
-            &fixture.database.connection,
-            TurnId::new(),
-            &event,
-        )
-        .await
-        .unwrap();
         let body = encode(&record).unwrap();
         let visible = query
             .query_row([body.as_slice()])
@@ -202,26 +192,24 @@ async fn preserves_action_visibility() {
             .unwrap()
             .get::<bool>(0)
             .unwrap();
-        assert_eq!(visible, expected, "{:?}", event.actions);
+        assert_eq!(visible, expected, "{:?}", record.metadata);
     }
 }
 
 #[tokio::test]
 async fn hides_canonical_runtime_context() {
     let fixture = Fixture::new().await;
-    let mut event = AdkEvent::new("context");
-    event.author = "system".into();
-    event
-        .provider_metadata
-        .insert(crate::agent::CONTEXT_METADATA.into(), "context".into());
-    event.set_content(adk_core::Content::new("user").with_text("Captured runtime policy"));
-    let event = crate::agent::canonical_bridge::from_adk(
-        &fixture.database.connection,
-        TurnId::new(),
-        &event,
-    )
-    .await
-    .unwrap();
+    let mut event = message(
+        "system",
+        Role::User,
+        vec![BlockKind::Text {
+            text: "Captured runtime policy".into(),
+        }],
+    );
+    event.metadata.runtime = Some(records::Runtime {
+        turn_context: true,
+        ..Default::default()
+    });
     let original = event.clone();
     let entry = project(&fixture.database.connection, 1, event.turn, &event)
         .await
@@ -236,25 +224,13 @@ async fn hides_canonical_runtime_context() {
 #[tokio::test]
 async fn preserves_commentary_part_indices() {
     let fixture = Fixture::new().await;
-    let mut event = AdkEvent::new("commentary");
-    event.set_content(adk_core::Content {
-        role:"model".into(),
-        parts:vec![
-            adk_core::Part::ServerToolCall {server_tool_call:serde_json::json!({
-                "type":"message","phase":"commentary",
-                "content":[{"type":"output_text","text":"Reading "},{"type":"output_text","text":"the source"}]
-            })},
-            adk_core::Part::FunctionCall {id:Some("call".into()),name:"read_file".into(),
-                args:serde_json::json!({"path":"source.rs"}),thought_signature:None},
-        ],
-    });
-    let event = crate::agent::canonical_bridge::from_adk(
-        &fixture.database.connection,
-        TurnId::new(),
-        &event,
-    )
-    .await
-    .unwrap();
+    let event = message("", Role::Assistant, vec![
+        BlockKind::ServerCall { value: serde_json::json!({
+            "type":"message","phase":"commentary",
+            "content":[{"type":"output_text","text":"Reading "},{"type":"output_text","text":"the source"}]
+        }).into() },
+        BlockKind::ToolRequest(request(Some("call"), "read_file", serde_json::json!({"path":"source.rs"}))),
+    ]);
     let entry = project(&fixture.database.connection, 1, event.turn, &event)
         .await
         .unwrap();
@@ -343,46 +319,46 @@ async fn publishes_only_settled_batches() {
     let turn = running(&mut fixture).await;
     let session = fixture.session;
     let mut changes = fixture.events.subscribe();
-    let call = |id: &str| adk_core::Part::FunctionCall {
-        name: "read_file".into(),
-        args: serde_json::json!({"path":"source.rs"}),
-        id: Some(id.into()),
-        thought_signature: None,
+    let call = |id: &str| {
+        BlockKind::ToolRequest(request(
+            Some(id),
+            "read_file",
+            serde_json::json!({"path":"source.rs"}),
+        ))
     };
-    let result = |id: &str| adk_core::Part::FunctionResponse {
-        function_response: adk_core::FunctionResponseData::new(
+    let result = |id: &str| {
+        BlockKind::ToolResponse(response(
+            Some(id),
             "read_file",
             serde_json::json!({"text":"source"}),
-        ),
-        id: Some(id.into()),
-        annotations: None,
+        ))
     };
-    let event = |id: &str, role: &str, parts| {
-        let mut event = AdkEvent::new("batch");
+    let event = |id: &str, role, parts| {
+        let mut event = message("assistant", role, parts);
         event.id = id.into();
-        event.author = "assistant".into();
-        event.set_content(adk_core::Content {
-            role: role.into(),
-            parts,
-        });
+        event.turn = turn;
         event
     };
     let mut published = Vec::new();
-    let second = event("second", "function", vec![result("second")]);
+    let second = event("second", Role::User, vec![result("second")]);
     for (value, expected) in [
         (
-            event("calls", "model", vec![call("first"), call("second")]),
+            event(
+                "calls",
+                Role::Assistant,
+                vec![call("first"), call("second")],
+            ),
             0,
         ),
         (second.clone(), 0),
         (second, 0),
-        (event("first", "function", vec![result("first")]), 1),
-        (event("unmatched", "function", vec![result("other")]), 1),
+        (event("first", Role::User, vec![result("first")]), 1),
+        (event("unmatched", Role::User, vec![result("other")]), 1),
         (
             event(
                 "answer",
-                "model",
-                vec![adk_core::Part::Text {
+                Role::Assistant,
+                vec![BlockKind::Text {
                     text: "Done".into(),
                 }],
             ),
@@ -415,7 +391,7 @@ async fn advance(connection: &Connection) -> u64 {
 async fn retains_captured_results_after_conflict() {
     let mut fixture = Fixture::new().await;
     let turn = running(&mut fixture).await;
-    let event = captured();
+    let event = captured(turn);
     let session = fixture.session;
     let other = fixture.database.handle.lease(false).await.unwrap();
     let mut published = fixture.events.subscribe();
@@ -452,12 +428,9 @@ async fn retains_captured_results_after_conflict() {
         .get(0)
         .unwrap();
     let stored: Record = serde_json::from_slice(&body).unwrap();
-    let restored = crate::agent::canonical_bridge::to_adk(&fixture.database.connection, &stored)
-        .await
-        .unwrap();
     assert_eq!(
-        serde_json::to_value(&restored.content().unwrap().parts).unwrap(),
-        serde_json::to_value(&event.content().unwrap().parts).unwrap()
+        serde_json::to_value(&stored.message().unwrap().content).unwrap(),
+        serde_json::to_value(&event.message().unwrap().content).unwrap()
     );
     assert!(matches!(
         stored.message().unwrap().role,
@@ -509,7 +482,7 @@ async fn retains_captured_results_after_conflict() {
 async fn bounds_conflicts_without_partial_history() {
     let mut fixture = Fixture::new().await;
     let turn = running(&mut fixture).await;
-    let event = captured();
+    let event = captured(turn);
     let session = fixture.session;
     let other = fixture.database.handle.lease(false).await.unwrap();
     let mut published = fixture.events.subscribe();
@@ -537,8 +510,7 @@ async fn bounds_conflicts_without_partial_history() {
     );
     let error = result.unwrap_err();
     assert!(
-        error.message.starts_with("Busy:")
-            && error.message.contains("storage transaction conflicted"),
+        error.code == ErrorCode::Busy && error.message.contains("storage transaction conflicted"),
         "{error:?}"
     );
     assert!(fixture.database.connection.is_autocommit().unwrap());
@@ -582,31 +554,25 @@ async fn bounds_conflicts_without_partial_history() {
 async fn retains_slots_around_native_search() {
     let fixture = Fixture::new().await;
     let turn = TurnId::new();
-    let mut event = AdkEvent::new("native-search-slots");
-    event.author = "assistant".into();
-    event.branch = "search-branch".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![
-            adk_core::Part::ServerToolCall {
-                server_tool_call: serde_json::json!({"type":"web_search_call","id":"search","status":"completed","action":{"query":"source"}}),
-            },
-            adk_core::Part::Text { text: "Engine slot".into() },
-            adk_core::Part::FunctionCall {
-                id: Some("read".into()), name: "read_file".into(),
-                args: serde_json::json!({"path":"source.rs"}), thought_signature: Some("signature".into()),
-            },
-        ],
-    });
+    let mut signed = request(
+        Some("read"),
+        "read_file",
+        serde_json::json!({"path":"source.rs"}),
+    );
+    signed.signature = Some("signature".into());
+    let mut record = message("assistant", Role::Assistant, vec![
+        BlockKind::ServerCall { value: serde_json::json!({"type":"web_search_call","id":"search","status":"completed","action":{"query":"source"}}).into() },
+        BlockKind::Text { text: "Engine slot".into() },
+        BlockKind::ToolRequest(signed),
+    ]);
+    record.turn = turn;
+    record.provenance.branch = "search-branch".into();
     let db = &fixture.database.connection;
-    let mut record = crate::agent::canonical_bridge::from_adk(db, turn, &event)
-        .await
-        .unwrap();
     record.message_mut().unwrap().content.remove(1);
     let entry = project(db, 1, turn, &record).await.unwrap();
     assert_eq!(entry.author, "assistant");
     assert_eq!(entry.branch, "search-branch");
-    assert_eq!(entry.timestamp_ms, event.timestamp.timestamp_millis());
+    assert_eq!(entry.timestamp_ms, record.created.timestamp_millis());
     assert_eq!(entry.parts.len(), 4);
     assert_eq!(
         entry.parts[1],

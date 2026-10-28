@@ -1,4 +1,11 @@
 use super::*;
+use crate::{
+    agent::canonical::{BlockKind, Role},
+    store::agent::{
+        blobs,
+        tests::fixture::{message, response},
+    },
+};
 
 #[test]
 fn pages_original_unicode_json() {
@@ -74,16 +81,15 @@ async fn checks_visible_history_and_invocation_owner() {
     let mut fixture = Fixture::new().await;
     let source = fixture.session;
     let event = |call: &str, value: Value| {
-        let mut event = AdkEvent::new("tool-output");
-        event.set_content(adk_core::Content {
-            role: "function".into(),
-            parts: vec![adk_core::Part::FunctionResponse {
-                function_response: adk_core::FunctionResponseData::new("read_file", value),
-                id: Some(call.into()),
-                annotations: None,
-            }],
-        });
-        event
+        message(
+            "",
+            Role::User,
+            vec![BlockKind::ToolResponse(response(
+                Some(call),
+                "read_file",
+                value,
+            ))],
+        )
     };
     let value = serde_json::json!({"text": "Visible result"});
     let previous = serde_json::json!({"text":"Earlier result with the same call ID"});
@@ -169,15 +175,16 @@ async fn hydrates_original_tool_json() {
         "structuredContent":{"revision":"original","nested":{"value":42}},
         "isError":false,
     });
-    let mut event = AdkEvent::new("binary-output");
-    event.set_content(adk_core::Content {
-        role: "function".into(),
-        parts: vec![adk_core::Part::FunctionResponse {
-            id: Some("binary-call".into()),
-            annotations: None,
-            function_response: adk_core::FunctionResponseData::new("capture", value.clone()),
-        }],
-    });
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    let mut result = response(Some("binary-call"), "capture", value.clone());
+    result.result = blobs::capture(&transaction, value.clone()).await.unwrap();
+    transaction.commit().await.unwrap();
+    let event = message("", Role::User, vec![BlockKind::ToolResponse(result)]);
     let turn = fixture.append([event]).await;
     let reference = OutputReference {
         call: "binary-call".into(),

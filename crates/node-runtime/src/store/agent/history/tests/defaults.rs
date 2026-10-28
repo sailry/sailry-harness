@@ -3,22 +3,20 @@ use std::path::{Path, PathBuf};
 
 async fn older(partial: bool) -> Fixture {
     let mut fixture = Fixture::new().await;
-    let mut event = AdkEvent::new("called-tool-fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            name: "called_tool".into(),
-            id: Some("called-tool".into()),
-            args: serde_json::json!({}),
-            thought_signature: None,
-        }],
-    });
+    let mut event = message(
+        "assistant",
+        Role::Assistant,
+        vec![BlockKind::ToolRequest(request(
+            Some("called-tool"),
+            "called_tool",
+            serde_json::json!({}),
+        ))],
+    );
     if partial {
-        event
-            .actions
-            .state_delta
-            .insert(LOADED_TOOLS.into(), serde_json::json!(["discovered_tool"]));
+        event.metadata.context = Some(records::Context {
+            loaded_tools: Some(["discovered_tool".into()].into()),
+            ..Default::default()
+        });
     }
     fixture
         .database
@@ -62,21 +60,21 @@ async fn older(partial: bool) -> Fixture {
 #[tokio::test]
 async fn missing_tools_deduplicate_per_session() {
     let mut fixture = older(true).await;
-    let mut event = AdkEvent::new("repeated-called-tools");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: ["called_tool", "called_tool", "second_tool"]
+    let event = message(
+        "assistant",
+        Role::Assistant,
+        ["called_tool", "called_tool", "second_tool"]
             .into_iter()
             .enumerate()
-            .map(|(index, name)| adk_core::Part::FunctionCall {
-                name: name.into(),
-                id: Some(format!("called-{index}")),
-                args: serde_json::json!({}),
-                thought_signature: None,
+            .map(|(index, name)| {
+                BlockKind::ToolRequest(request(
+                    Some(&format!("called-{index}")),
+                    name,
+                    serde_json::json!({}),
+                ))
             })
             .collect(),
-    });
+    );
     let turn = fixture.append([event]).await;
     let fork = fixture.fork(fixture.session, turn).await;
     assert_eq!(

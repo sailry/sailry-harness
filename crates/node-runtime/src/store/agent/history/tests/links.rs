@@ -1,5 +1,10 @@
-use adk_core::{Content, Event, FunctionResponseData, InlineDataPart, Part as AdkPart};
-use adk_session::SessionService;
+use crate::{
+    agent::canonical::{Attachment, BlockKind, Record, Role},
+    store::agent::{
+        blobs,
+        tests::fixture::{message, request, response},
+    },
+};
 use sailry_client::Client;
 use sailry_link::{CancellationToken, Identity, Link, Local, NetworkScope};
 use sailry_protocol::{
@@ -115,9 +120,16 @@ impl Fixture {
             .unwrap()
             .unwrap();
         assert_eq!(invocation.turn.id, queued.id);
-        let mut input = Event::new(queued.id.to_string());
-        input.author = "user".into();
-        input.set_content(Content::new("user").with_text("Read the saved result"));
+        let input = Record {
+            turn: queued.id,
+            ..message(
+                "user",
+                Role::User,
+                vec![BlockKind::Text {
+                    text: "Read the saved result".into(),
+                }],
+            )
+        };
         self.store
             .ingress
             .sessions(queued.id)
@@ -205,68 +217,100 @@ async fn preserves_upgraded_reads() {
     let fixture = Fixture::open(directory.path()).await;
     let session = fixture.session(directory.path()).await;
     let turn = fixture.start(&fixture.local, &session).await;
-    let mut call = Event::new(turn.to_string());
-    call.id = "saved-call-entry".into();
-    call.author = "assistant".into();
-    call.branch = "saved-branch".into();
-    call.set_content(Content {
-        role: "model".into(),
-        parts: vec![
-            AdkPart::Text {
+    let mut signed = request(
+        Some("saved-call"),
+        "read_file",
+        serde_json::json!({"path":"saved.txt"}),
+    );
+    signed.signature = Some("saved-signature".into());
+    let mut call = message(
+        "assistant",
+        Role::Assistant,
+        vec![
+            BlockKind::Text {
                 text: "Before the call".into(),
             },
-            AdkPart::FunctionCall {
-                id: Some("saved-call".into()),
-                name: "read_file".into(),
-                args: serde_json::json!({"path":"saved.txt"}),
-                thought_signature: Some("saved-signature".into()),
-            },
+            BlockKind::ToolRequest(signed),
         ],
-    });
+    );
+    call.turn = turn;
+    call.id = "saved-call-entry".into();
+    call.provenance.branch = "saved-branch".into();
     let original = serde_json::json!({
         "text":"Saved result",
         "image":{"mimeType":"image/png","data":"AAEC/f7/"},
         "extension":{"preserved":[true,2,"value"]}
     });
     let bytes = vec![0, 1, 2, 253, 254, 255];
-    let mut result = Event::new(turn.to_string());
-    result.id = "saved-result-entry".into();
-    result.author = "tool".into();
-    result.branch = call.branch.clone();
-    result.set_content(Content {
-        role: "user".into(),
-        parts: vec![
-            AdkPart::Text {
+    let db = fixture
+        .store
+        .ingress
+        .storage
+        .get()
+        .unwrap()
+        .handle
+        .lease(false)
+        .await
+        .unwrap();
+    let transaction = db.unchecked_transaction().await.unwrap();
+    let mut payload = response(Some("saved-call"), "read_file", original.clone());
+    payload.result = blobs::capture(&transaction, original.clone())
+        .await
+        .unwrap();
+    payload.attachments = vec![
+        Attachment::Inline {
+            asset: blobs::put(&transaction, "audio/wav", &[4, 5])
+                .await
+                .unwrap(),
+        },
+        Attachment::Inline {
+            asset: blobs::put(&transaction, "image/png", &bytes).await.unwrap(),
+        },
+    ];
+    transaction.commit().await.unwrap();
+    drop(db);
+    let mut result = message(
+        "tool",
+        Role::User,
+        vec![
+            BlockKind::Text {
                 text: "Before the result".into(),
             },
-            AdkPart::FunctionResponse {
-                id: Some("saved-call".into()),
-                function_response: FunctionResponseData::with_inline_data(
-                    "read_file",
-                    original.clone(),
-                    vec![
-                        InlineDataPart {
-                            mime_type: "audio/wav".into(),
-                            data: vec![4, 5],
-                            uri: None,
-                            annotations: None,
-                        },
-                        InlineDataPart {
-                            mime_type: "image/png".into(),
-                            data: bytes.clone(),
-                            uri: None,
-                            annotations: None,
-                        },
-                    ],
-                ),
-                annotations: None,
-            },
+            BlockKind::ToolResponse(payload),
         ],
-    });
-    let legacy: Vec<_> = [&call, &result]
-        .into_iter()
-        .map(|event| (event.id.clone(), serde_json::to_vec_pretty(event).unwrap()))
-        .collect();
+    );
+    result.turn = turn;
+    result.id = "saved-result-entry".into();
+    result.provenance.branch = call.provenance.branch.clone();
+    // Only these stopped-profile bytes use the former persisted format.
+    let legacy = [
+        serde_json::json!({
+            "id":call.id,"timestamp":call.created,"invocation_id":turn.to_string(),
+            "author":"assistant","branch":"saved-branch",
+            "content":{"role":"model","parts":[
+                {"text":"Before the call"},
+                {"name":"read_file","args":{"path":"saved.txt"},"id":"saved-call","thought_signature":"saved-signature"}
+            ]},
+            "partial":false,"turn_complete":false,"interrupted":false,
+            "actions":{"state_delta":{},"artifact_delta":{},"skip_summarization":false,"escalate":false}
+        }),
+        serde_json::json!({
+            "id":result.id,"timestamp":result.created,"invocation_id":turn.to_string(),
+            "author":"tool","branch":"saved-branch",
+            "content":{"role":"user","parts":[
+                {"text":"Before the result"},
+                {"id":"saved-call","functionResponse":{
+                    "name":"read_file","response":original,
+                    "inline_data":[
+                        {"mime_type":"audio/wav","data":[4,5]},
+                        {"mime_type":"image/png","data":bytes}
+                    ]
+                }}
+            ]},
+            "partial":false,"turn_complete":false,"interrupted":false,
+            "actions":{"state_delta":{},"artifact_delta":{},"skip_summarization":false,"escalate":false}
+        }),
+    ].map(|value| (value["id"].as_str().unwrap().to_owned(), serde_json::to_vec_pretty(&value).unwrap()));
     let sessions = fixture.store.ingress.sessions(turn);
     for event in [call, result] {
         sessions

@@ -1,29 +1,34 @@
 use super::*;
-use crate::agent::canonical::{Attachment as StoredAttachment, BlockKind, Record};
+use crate::{
+    agent::canonical::{Attachment as StoredAttachment, BlockKind, Record, Role},
+    store::agent::blobs,
+};
+use fixture::{message, response};
 
 #[tokio::test]
 async fn preserves_large_images() {
     let mut fixture = fixture::Fixture::new().await;
     let bytes = vec![255; 600 * 1024];
-    let mut event = AdkEvent::new("driver-image-fixture");
-    event.author = "assistant".into();
-    let mut content = adk_core::Content::new("tool");
-    content.parts.push(adk_core::Part::FunctionResponse {
-        id: Some("capture".into()),
-        annotations: None,
-        function_response: adk_core::FunctionResponseData::with_inline_data(
-            "capture",
-            serde_json::json!({"image_width":5120}),
-            vec![adk_core::InlineDataPart {
-                mime_type: "image/png".into(),
-                data: bytes.clone(),
-                uri: None,
-                annotations: None,
-            }],
-        ),
-    });
-    event.set_content(content);
-    assert!(encode(&event).unwrap().len() > 2 * 1024 * 1024);
+    assert!(serde_json::to_vec(&bytes).unwrap().len() > 2 * 1024 * 1024);
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    let asset = blobs::put(&transaction, "image/png", &bytes).await.unwrap();
+    transaction.commit().await.unwrap();
+    let mut result = response(
+        Some("capture"),
+        "capture",
+        serde_json::json!({"image_width":5120}),
+    );
+    result.attachments.push(StoredAttachment::Inline { asset });
+    let event = message(
+        "assistant",
+        Role::User,
+        vec![BlockKind::ToolResponse(result)],
+    );
     fixture.append([event]).await;
     let body: Vec<u8> = fixture
         .database
@@ -72,25 +77,33 @@ async fn preserves_large_images() {
 #[tokio::test]
 async fn validates_source_metadata() {
     let mut fixture = fixture::Fixture::new().await;
-    let mut event = AdkEvent::new("mixed-media");
-    let mut content = adk_core::Content::new("tool").with_text("Image results");
-    content.parts.push(adk_core::Part::FunctionResponse {
-        id: Some("image-tool".into()),
-        annotations: None,
-        function_response: adk_core::FunctionResponseData::with_inline_data(
-            "any_image_tool",
-            serde_json::json!({"ok":true}),
-            ["audio/wav", "image/png", "image/jpeg"]
-                .map(|mime_type| adk_core::InlineDataPart {
-                    mime_type: mime_type.into(),
-                    data: vec![1, 2, 3],
-                    uri: None,
-                    annotations: None,
-                })
-                .to_vec(),
-        ),
-    });
-    event.set_content(content);
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    let mut result = response(
+        Some("image-tool"),
+        "any_image_tool",
+        serde_json::json!({"ok":true}),
+    );
+    for mime in ["audio/wav", "image/png", "image/jpeg"] {
+        result.attachments.push(StoredAttachment::Inline {
+            asset: blobs::put(&transaction, mime, &[1, 2, 3]).await.unwrap(),
+        });
+    }
+    transaction.commit().await.unwrap();
+    let event = message(
+        "",
+        Role::User,
+        vec![
+            BlockKind::Text {
+                text: "Image results".into(),
+            },
+            BlockKind::ToolResponse(result),
+        ],
+    );
     fixture.append([event]).await;
     let page = fixture.read(None, 100).await.page;
     let Part::ToolResult { images, .. } = &page.entries[0].parts[1] else {
@@ -144,17 +157,27 @@ async fn validates_source_metadata() {
 async fn preserves_assistant_parts() {
     let mut fixture = fixture::Fixture::new().await;
     let bytes = vec![255; 600 * 1024];
-    let mut event = AdkEvent::new("assistant-image");
-    event.author = "assistant".into();
-    let mut content = adk_core::Content::new("model").with_text("Before the image");
-    content.parts.push(adk_core::Part::InlineData {
-        mime_type: "image/png".into(),
-        data: bytes.clone(),
-        uri: None,
-        annotations: None,
-    });
-    content = content.with_text("After the image");
-    event.set_content(content);
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    let asset = blobs::put(&transaction, "image/png", &bytes).await.unwrap();
+    transaction.commit().await.unwrap();
+    let event = message(
+        "assistant",
+        Role::Assistant,
+        vec![
+            BlockKind::Text {
+                text: "Before the image".into(),
+            },
+            BlockKind::Image { asset },
+            BlockKind::Text {
+                text: "After the image".into(),
+            },
+        ],
+    );
     fixture.append([event]).await;
     let entries = fixture.read(None, 100).await.page.entries;
     let parts = &entries[0].parts;
@@ -192,24 +215,19 @@ async fn preserves_assistant_parts() {
 async fn resolves_visible_history() {
     let mut fixture = fixture::Fixture::new().await;
     let before = fixture.completed(&["Before the image"]).await;
-    let mut event = AdkEvent::new("visible-image");
-    event.set_content(adk_core::Content {
-        role: "tool".into(),
-        parts: vec![adk_core::Part::FunctionResponse {
-            id: Some("capture".into()),
-            annotations: None,
-            function_response: adk_core::FunctionResponseData::with_inline_data(
-                "capture",
-                serde_json::json!({}),
-                vec![adk_core::InlineDataPart {
-                    mime_type: "image/png".into(),
-                    data: vec![1, 2, 3],
-                    uri: None,
-                    annotations: None,
-                }],
-            ),
-        }],
-    });
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    let asset = blobs::put(&transaction, "image/png", &[1, 2, 3])
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+    let mut result = response(Some("capture"), "capture", serde_json::json!({}));
+    result.attachments.push(StoredAttachment::Inline { asset });
+    let event = message("", Role::User, vec![BlockKind::ToolResponse(result)]);
     let head = fixture.append([event]).await;
     let page = fixture.read(None, 100).await.page;
     let image = page
@@ -297,8 +315,16 @@ async fn resolves_visible_history() {
 async fn rejects_oversized_events() {
     let mut fixture = fixture::Fixture::new().await;
     let turn = fixture.queued().await;
-    let mut event = AdkEvent::new("oversized-fixture");
-    event.set_content(adk_core::Content::new("model").with_text("x".repeat(MAX_FRAME_BYTES)));
+    let event = Record {
+        turn,
+        ..message(
+            "",
+            Role::Assistant,
+            vec![BlockKind::Text {
+                text: "x".repeat(MAX_FRAME_BYTES),
+            }],
+        )
+    };
     let error = super::super::history::append(
         &mut fixture.database,
         fixture.session,
