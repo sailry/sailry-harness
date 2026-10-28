@@ -94,6 +94,7 @@ pub(crate) async fn from_adk(
         let mut message = response::capture(&event.llm_response);
         if let Some(value) = event.content() {
             message.content = content::capture(db, value).await?;
+            content::tool_metadata(&mut message.content, event)?;
         }
         Kind::Message(message)
     };
