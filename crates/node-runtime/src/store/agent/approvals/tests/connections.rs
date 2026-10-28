@@ -38,17 +38,16 @@ async fn fixture() -> (Fixture, Binding, database::Profile) {
         id: Some("execute-approved-target".into()),
         arguments: json!({"connection":profile.id,"sql":"DELETE FROM items","row_limit":2,"timeout_ms":1000}),
     };
-    let mut event = AdkEvent::new("target");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            id: fixture.request.id.clone(),
-            name: fixture.request.name.clone(),
-            args: fixture.request.arguments.clone(),
-            thought_signature: None,
-        }],
-    });
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::ToolRequest(tool_request(
+            fixture.request.id.as_deref(),
+            &fixture.request.name,
+            fixture.request.arguments.clone(),
+        ))],
+    );
+    event.turn = fixture.turn;
     history::append(
         &mut fixture.database,
         fixture.session,

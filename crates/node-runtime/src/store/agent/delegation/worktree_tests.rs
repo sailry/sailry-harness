@@ -1,5 +1,7 @@
 use super::*;
+use crate::agent::canonical::{BlockKind, Role as MessageRole};
 use crate::store::agent::tests::fixture::Fixture;
+use crate::store::agent::tests::fixture::{message, request as tool_request};
 use serde_json::json;
 
 async fn request(fixture: &mut Fixture, worktree: Option<WorktreeId>) -> (TurnId, ToolIdentity) {
@@ -16,17 +18,16 @@ async fn request(fixture: &mut Fixture, worktree: Option<WorktreeId>) -> (TurnId
         id: Some("child".into()),
         arguments: json!({"role":null,"task":"Inspect", "worktree":worktree}),
     };
-    let mut event = AdkEvent::new("delegation");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            id: request.id.clone(),
-            name: request.name.clone(),
-            args: request.arguments.clone(),
-            thought_signature: None,
-        }],
-    });
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::ToolRequest(tool_request(
+            request.id.as_deref(),
+            &request.name,
+            request.arguments.clone(),
+        ))],
+    );
+    event.turn = turn;
     history::append(
         &mut fixture.database,
         fixture.session,

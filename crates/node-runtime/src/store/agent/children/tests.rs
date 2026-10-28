@@ -1,4 +1,6 @@
 use super::*;
+use crate::agent::canonical::{BlockKind, Role as MessageRole};
+use crate::store::agent::tests::fixture::{message, request as tool_request};
 use crate::store::agent::tests::{command, fixture::Fixture};
 
 async fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
@@ -15,18 +17,17 @@ async fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         id: Some("same-call".into()),
         arguments: serde_json::json!({"task":"Independent task"}),
     };
-    let mut event = AdkEvent::new("parent-invocation");
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::ToolRequest(tool_request(
+            request.id.as_deref(),
+            &request.name,
+            request.arguments.clone(),
+        ))],
+    );
     event.id = "same-event".into();
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            id: request.id.clone(),
-            name: request.name.clone(),
-            args: request.arguments.clone(),
-            thought_signature: None,
-        }],
-    });
+    event.turn = parent;
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -131,9 +132,14 @@ async fn bounds_summary_history() {
     .await;
     let (parent, child) = admitted(&mut fixture).await;
     for _ in 0..105 {
-        let mut event = AdkEvent::new("parent-invocation");
-        event.author = "assistant".into();
-        event.set_content(adk_core::Content::new("model").with_text("Later content"));
+        let mut event = message(
+            "assistant",
+            MessageRole::Assistant,
+            vec![BlockKind::Text {
+                text: "Later content".into(),
+            }],
+        );
+        event.turn = parent;
         history::append(
             &mut fixture.database,
             fixture.session,

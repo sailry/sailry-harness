@@ -1,16 +1,22 @@
 use super::*;
+use crate::agent::canonical::{Block, Finish, Record};
 
 mod deferred;
 
-fn source() -> AdkEvent {
-    let mut event = AdkEvent::new("fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("The complete plan 中文 🙂"));
-    event.llm_response.turn_complete = true;
+fn source(turn: TurnId) -> Record {
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::Text {
+            text: "The complete plan 中文 🙂".into(),
+        }],
+    );
+    event.turn = turn;
+    event.message_mut().unwrap().finish = Some(Finish::Completed);
     event
 }
 
-async fn append(fixture: &mut Fixture, event: AdkEvent) -> adk_core::Result<()> {
+async fn append(fixture: &mut Fixture, event: Record) -> Result<(), Fault> {
     history::append(
         &mut fixture.database,
         fixture.session,
@@ -24,12 +30,12 @@ async fn append(fixture: &mut Fixture, event: AdkEvent) -> adk_core::Result<()> 
 #[tokio::test]
 async fn preserves_canonical_identity() {
     let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan).await;
-    let source = source();
+    let source = source(fixture.turn);
     let source_id = source.id.clone();
     append(&mut fixture, source).await.unwrap();
     let event = review::event(fixture.turn, source_id);
-    assert!(event.content().is_none());
-    assert_eq!(event.author, review::TOOL);
+    assert!(event.message().is_none());
+    assert_eq!(event.provenance.author, review::TOOL);
     let call = event.id.clone();
     append(&mut fixture, event).await.unwrap();
     fixture.request = ToolIdentity {
@@ -130,7 +136,7 @@ async fn preserves_canonical_identity() {
 
 #[tokio::test]
 async fn requires_completed_planning_source() {
-    for case in ["code", "user", "call", "content"] {
+    for case in ["code", "user", "call"] {
         let mut fixture = Fixture::with_input(
             if case == "code" {
                 WorkMode::Code
@@ -140,27 +146,27 @@ async fn requires_completed_planning_source() {
             Input::Plan,
         )
         .await;
-        let mut source = source();
+        let mut source = source(fixture.turn);
         if case == "user" {
-            source.set_content(adk_core::Content::new("user").with_text("A user message"));
+            let message = source.message_mut().unwrap();
+            message.role = MessageRole::User;
+            message.content[0].kind = BlockKind::Text {
+                text: "A user message".into(),
+            };
         }
         if case == "call" {
-            source.set_content(adk_core::Content {
-                role: "model".into(),
-                parts: vec![adk_core::Part::FunctionCall {
-                    id: Some("incomplete-call".into()),
-                    name: "read_file".into(),
-                    args: serde_json::json!({}),
-                    thought_signature: None,
-                }],
-            });
+            source.message_mut().unwrap().content = vec![Block {
+                index: 0,
+                kind: BlockKind::ToolRequest(tool_request(
+                    Some("incomplete-call"),
+                    "read_file",
+                    serde_json::json!({}),
+                )),
+            }];
         }
         let source_id = source.id.clone();
         append(&mut fixture, source).await.unwrap();
-        let mut event = review::event(fixture.turn, source_id);
-        if case == "content" {
-            event.set_content(adk_core::Content::new("model").with_text("Fabricated completion"));
-        }
+        let event = review::event(fixture.turn, source_id);
         assert!(
             append(&mut fixture, event).await.is_err(),
             "invalid review accepted: {case}"

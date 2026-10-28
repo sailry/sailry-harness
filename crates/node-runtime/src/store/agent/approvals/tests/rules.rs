@@ -2,7 +2,7 @@ use super::super::rules as registry;
 use super::*;
 
 fn deadline() -> std::time::Instant {
-    std::time::Instant::now() + adk_core::DEFAULT_TOOL_CONFIRMATION_TIMEOUT
+    std::time::Instant::now() + super::super::TIMEOUT
 }
 
 async fn binding(fixture: &Fixture) -> Binding {
@@ -426,17 +426,16 @@ async fn reports_failed_expiry_without_approval() {
 
 async fn append_call(fixture: &mut Fixture, id: &str) {
     fixture.request.id = Some(id.into());
-    let mut event = AdkEvent::new("fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            id: fixture.request.id.clone(),
-            name: fixture.request.name.clone(),
-            args: fixture.request.arguments.clone(),
-            thought_signature: None,
-        }],
-    });
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::ToolRequest(tool_request(
+            fixture.request.id.as_deref(),
+            &fixture.request.name,
+            fixture.request.arguments.clone(),
+        ))],
+    );
+    event.turn = fixture.turn;
     history::append(
         &mut fixture.database,
         fixture.session,

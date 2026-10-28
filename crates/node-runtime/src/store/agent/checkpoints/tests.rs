@@ -1,4 +1,6 @@
 use super::*;
+use crate::agent::canonical::{BlockKind, Role as MessageRole};
+use crate::store::agent::tests::fixture::{message, request as tool_request};
 use crate::store::agent::tests::{command, fixture::Fixture};
 
 mod diff;
@@ -81,17 +83,16 @@ async fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Requ
         id: Some(RequestId::new().to_string()),
         arguments: arguments,
     };
-    let mut event = AdkEvent::new("checkpoint-fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            id: authorization.id.clone(),
-            name: authorization.name.clone(),
-            args: authorization.arguments.clone(),
-            thought_signature: None,
-        }],
-    });
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::ToolRequest(tool_request(
+            authorization.id.as_deref(),
+            &authorization.name,
+            authorization.arguments.clone(),
+        ))],
+    );
+    event.turn = turn;
     history::append(
         &mut fixture.database,
         fixture.session,

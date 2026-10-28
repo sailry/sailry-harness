@@ -1,5 +1,7 @@
 use super::super::tests::command;
 use super::*;
+use crate::agent::canonical::{BlockKind, Role as MessageRole};
+use crate::store::agent::tests::fixture::{message, request as tool_request};
 use question::{Answer, Input};
 
 mod completion;
@@ -82,18 +84,20 @@ impl Fixture {
             panic!("turn expected");
         };
         runs::claim(&mut database, &events).await.unwrap().unwrap();
-        let mut event = AdkEvent::new("fixture");
-        event.author = "user".into();
-        event.set_content(adk_core::Content::new("user").with_text("fixture"));
-        event
-            .provider_metadata
-            .insert(INPUT_TURN.into(), turn.id.to_string());
-        event
-            .provider_metadata
-            .insert(INPUT_SOURCE.into(), "user".into());
-        event
-            .provider_metadata
-            .insert(INPUT_PART.into(), "0".into());
+        let mut event = message(
+            "user",
+            MessageRole::User,
+            vec![BlockKind::Text {
+                text: "fixture".into(),
+            }],
+        );
+        event.turn = turn.id;
+        event.metadata.input = Some(crate::agent::canonical::Input {
+            turn: Some(turn.id),
+            source: Some(crate::agent::canonical::InputSource::User),
+            text_part: Some(0),
+            ..Default::default()
+        });
         history::append(&mut database, session.id, turn.id, event, &events)
             .await
             .unwrap();
@@ -119,17 +123,16 @@ impl Fixture {
         fixture
     }
     async fn append_call(&mut self) {
-        let mut event = AdkEvent::new("fixture");
-        event.author = "assistant".into();
-        event.set_content(adk_core::Content {
-            role: "model".into(),
-            parts: vec![adk_core::Part::FunctionCall {
-                id: self.request.id.clone(),
-                name: self.request.name.clone(),
-                args: self.request.arguments.clone(),
-                thought_signature: None,
-            }],
-        });
+        let mut event = message(
+            "assistant",
+            MessageRole::Assistant,
+            vec![BlockKind::ToolRequest(tool_request(
+                self.request.id.as_deref(),
+                &self.request.name,
+                self.request.arguments.clone(),
+            ))],
+        );
+        event.turn = self.turn;
         history::append(
             &mut self.database,
             self.session,
@@ -151,9 +154,14 @@ impl Fixture {
 async fn associates_canonical_calls() {
     let mut fixture = Fixture::new().await;
     // Other canonical output may be appended before this sequential tool starts.
-    let mut event = AdkEvent::new("fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content::new("model").with_text("another event"));
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::Text {
+            text: "another event".into(),
+        }],
+    );
+    event.turn = fixture.turn;
     history::append(
         &mut fixture.database,
         fixture.session,

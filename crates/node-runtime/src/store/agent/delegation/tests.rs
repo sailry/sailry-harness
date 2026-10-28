@@ -1,5 +1,7 @@
 use super::*;
+use crate::agent::canonical::{BlockKind, Role as MessageRole};
 use crate::store::agent::tests::fixture::Fixture;
+use crate::store::agent::tests::fixture::{message, request as tool_request};
 use serde_json::json;
 
 #[tokio::test]
@@ -36,17 +38,16 @@ async fn canonical_admission_and_recovery() {
         .await
         .is_err()
     );
-    let mut event = AdkEvent::new("parent-invocation");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            id: request.id.clone(),
-            name: request.name.clone(),
-            args: request.arguments.clone(),
-            thought_signature: None,
-        }],
-    });
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::ToolRequest(tool_request(
+            request.id.as_deref(),
+            &request.name,
+            request.arguments.clone(),
+        ))],
+    );
+    event.turn = parent;
     history::append(
         &mut fixture.database,
         fixture.session,

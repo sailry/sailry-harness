@@ -1,5 +1,7 @@
 use super::super::tests::command;
 use super::*;
+use crate::agent::canonical::{BlockKind, Role as MessageRole};
+use crate::store::agent::tests::fixture::{message, request as tool_request};
 use serde_json::json;
 
 mod access;
@@ -114,17 +116,16 @@ impl Fixture {
                 id: Some("call-fixture".into()),
                 arguments: json!({"path": "资料.txt", "text": "中文 🙂", "expected_revision": null}),
             };
-            let mut event = AdkEvent::new("fixture");
-            event.author = "assistant".into();
-            event.set_content(adk_core::Content {
-                role: "model".into(),
-                parts: vec![adk_core::Part::FunctionCall {
-                    id: request.id.clone(),
-                    name: request.name.clone(),
-                    args: request.arguments.clone(),
-                    thought_signature: None,
-                }],
-            });
+            let mut event = message(
+                "assistant",
+                MessageRole::Assistant,
+                vec![BlockKind::ToolRequest(tool_request(
+                    request.id.as_deref(),
+                    &request.name,
+                    request.arguments.clone(),
+                ))],
+            );
+            event.turn = turn.id;
             history::append(&mut database, session.id, turn.id, event, &events)
                 .await
                 .unwrap();

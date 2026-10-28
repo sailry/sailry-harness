@@ -13,7 +13,7 @@ async fn dispatch(fixture: &mut Fixture, request: Request) -> Result<Output, Fau
 }
 
 async fn complete(fixture: &mut Fixture) -> Question {
-    let source = source();
+    let source = source(fixture.turn);
     let id = source.id.clone();
     append(fixture, source).await.unwrap();
     runs::finish_with(
@@ -391,7 +391,7 @@ async fn closes_review_when_admitted_input_starts() {
 async fn excludes_unsuccessful_and_ordinary_questions() {
     for status in [Status::Cancelled, Status::Failed, Status::Interrupted] {
         let mut fixture = Fixture::with_input(WorkMode::Plan, Input::Plan).await;
-        let source = source();
+        let source = source(fixture.turn);
         let id = source.id.clone();
         append(&mut fixture, source).await.unwrap();
         runs::finish_with(

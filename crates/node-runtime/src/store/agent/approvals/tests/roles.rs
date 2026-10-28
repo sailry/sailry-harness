@@ -43,17 +43,16 @@ async fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Com
         id: Some("role-call".into()),
         arguments: json!({"fixture":"exact canonical arguments"}),
     };
-    let mut event = AdkEvent::new("role-fixture");
-    event.author = "assistant".into();
-    event.set_content(adk_core::Content {
-        role: "model".into(),
-        parts: vec![adk_core::Part::FunctionCall {
-            id: fixture.request.id.clone(),
-            name: fixture.request.name.clone(),
-            args: fixture.request.arguments.clone(),
-            thought_signature: None,
-        }],
-    });
+    let mut event = message(
+        "assistant",
+        MessageRole::Assistant,
+        vec![BlockKind::ToolRequest(tool_request(
+            fixture.request.id.as_deref(),
+            &fixture.request.name,
+            fixture.request.arguments.clone(),
+        ))],
+    );
+    event.turn = fixture.turn;
     history::append(
         &mut fixture.database,
         fixture.session,

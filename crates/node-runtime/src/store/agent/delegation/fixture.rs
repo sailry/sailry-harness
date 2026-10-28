@@ -1,6 +1,8 @@
 use super::*;
+use crate::agent::canonical::{BlockKind, Role as MessageRole};
 use crate::store::agent::tests::command;
 pub(super) use crate::store::agent::tests::fixture::Fixture;
+use crate::store::agent::tests::fixture::{message, request as tool_request};
 
 pub(super) fn setup() -> sailry_link::Pending<'static, Fixture> {
     Box::pin(async move {
@@ -57,22 +59,21 @@ pub(super) fn queued<'a>(
     args: Value,
 ) -> sailry_link::Pending<'a, Result<Invocation, Fault>> {
     Box::pin(async move {
-        let mut event = AdkEvent::new("delegation-fixture");
         let request = ToolIdentity {
             name: crate::plugins::tools::alias("delegation", "spawn_agent"),
-            id: Some(format!("call-{}", event.id)),
+            id: Some(format!("call-{}", RequestId::new())),
             arguments: args,
         };
-        event.author = "assistant".into();
-        event.set_content(adk_core::Content {
-            role: "model".into(),
-            parts: vec![adk_core::Part::FunctionCall {
-                id: request.id.clone(),
-                name: request.name.clone(),
-                args: request.arguments.clone(),
-                thought_signature: None,
-            }],
-        });
+        let mut event = message(
+            "assistant",
+            MessageRole::Assistant,
+            vec![BlockKind::ToolRequest(tool_request(
+                request.id.as_deref(),
+                &request.name,
+                request.arguments.clone(),
+            ))],
+        );
+        event.turn = parent;
         history::append(
             &mut fixture.database,
             fixture.session,
