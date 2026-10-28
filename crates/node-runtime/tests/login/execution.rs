@@ -413,7 +413,7 @@ async fn preserves_unsupported_account() {
         assert_eq!(server.requests.lock().unwrap().len(), requests);
         assert_eq!(
             fixture.client.execute(request).await.unwrap(),
-            Output::QueuedTurn(turn)
+            Output::QueuedTurn(turn.clone())
         );
         let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await
         else {
