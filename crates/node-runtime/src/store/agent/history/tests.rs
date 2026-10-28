@@ -201,8 +201,9 @@ async fn hides_canonical_runtime_context() {
             text: "Captured runtime policy".into(),
         }],
     );
-    event.metadata.runtime = Some(records::Runtime {
-        turn_context: true,
+    event.metadata.context = Some(records::Context {
+        captured: true,
+        policy: Some("Captured runtime policy".into()),
         ..Default::default()
     });
     let original = event.clone();
