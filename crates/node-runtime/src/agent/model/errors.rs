@@ -1,85 +1,66 @@
-//! Provider diagnostics become public only after captured-credential redaction.
-use super::*;
-use adk_core::{AdkError, LlmRequest, LlmResponseStream, SchemaAdapter};
+//! Captured credentials are removed from provider diagnostics before publication.
 use async_trait::async_trait;
 use futures::StreamExt;
-use sailry_protocol::Secret;
+use goose_provider_types::{
+    base::{MessageStream, Provider},
+    conversation::message::Message,
+    errors::ProviderError,
+    model::ModelConfig,
+};
+use sailry_protocol::{Fault, Secret};
+use std::sync::Arc;
 
-struct Model {
-    inner: Arc<dyn Llm>,
+struct Protected {
+    inner: Arc<dyn Provider>,
     secrets: Vec<Secret>,
 }
 
-pub(super) fn wrap(inner: Arc<dyn Llm>, secrets: Vec<Secret>) -> Arc<dyn Llm> {
-    Arc::new(Model { inner, secrets })
+pub(super) fn wrap(inner: Arc<dyn Provider>, secrets: Vec<Secret>) -> Arc<dyn Provider> {
+    Arc::new(Protected { inner, secrets })
 }
 
 #[async_trait]
-impl Llm for Model {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-    fn schema_adapter(&self) -> &dyn SchemaAdapter {
-        self.inner.schema_adapter()
-    }
-    fn uses_interactions_api(&self) -> bool {
-        self.inner.uses_interactions_api()
+impl Provider for Protected {
+    fn get_name(&self) -> &str {
+        self.inner.get_name()
     }
 
-    fn max_cost_micro_usd(&self, request: &adk_core::LlmRequest) -> Option<u64> {
-        self.inner.max_cost_micro_usd(request)
-    }
-
-    async fn generate_content(
+    async fn stream(
         &self,
-        request: LlmRequest,
-        stream: bool,
-    ) -> adk_core::Result<LlmResponseStream> {
-        let secrets = self.secrets.clone();
-        let response = self
+        config: &ModelConfig,
+        system: &str,
+        messages: &[Message],
+        tools: &[rmcp::model::Tool],
+    ) -> Result<MessageStream, ProviderError> {
+        let stream = self
             .inner
-            .generate_content(request, stream)
+            .stream(config, system, messages, tools)
             .await
-            .map_err(|error| redact(error, &secrets))?;
-        Ok(protect(response, secrets))
+            .map_err(|error| redact(error, &self.secrets))?;
+        let secrets = self.secrets.clone();
+        Ok(Box::pin(stream.map(move |item| {
+            item.map_err(|error| redact(error, &secrets))
+        })))
     }
 }
 
-fn protect(response: LlmResponseStream, secrets: Vec<Secret>) -> LlmResponseStream {
-    Box::pin(response.map(move |result| {
-        result
-            .map(|mut response| {
-                if let Some(message) = &mut response.error_message {
-                    *message = safe(message, &secrets, 8192);
-                }
-                if let Some(code) = &mut response.error_code {
-                    *code = safe(code, &secrets, 256);
-                }
-                response
-            })
-            .map_err(|error| redact(error, &secrets))
-    }))
-}
-
-fn redact(mut error: AdkError, secrets: &[Secret]) -> AdkError {
-    error.message = safe(&error.message, secrets, 8192);
-    if let Some(request_id) = &mut error.details.request_id {
-        *request_id = safe(request_id, secrets, 256);
+pub(super) fn redact(mut error: ProviderError, secrets: &[Secret]) -> ProviderError {
+    if let Some(details) = error.details_mut() {
+        *details = safe(details, secrets);
     }
-    error.details.metadata.retain(|_, value| {
-        let value = value.to_string();
-        !secrets
-            .iter()
-            .any(|secret| !secret.expose().is_empty() && value.contains(secret.expose()))
-    });
+    if let ProviderError::CreditsExhausted { top_up_url, .. } = &mut error {
+        if top_up_url.as_ref().is_some_and(|value| {
+            secrets
+                .iter()
+                .any(|secret| !secret.expose().is_empty() && value.contains(secret.expose()))
+        }) {
+            *top_up_url = None;
+        }
+    }
     error
 }
 
-fn safe(value: &str, secrets: &[Secret], limit: usize) -> String {
-    // Reject oversized fields rather than cutting through an echoed credential.
-    if value.len() > 64 * 1024 {
-        return "[upstream diagnostic exceeded the size limit]".into();
-    }
+pub(super) fn safe(value: &str, secrets: &[Secret]) -> String {
     let mut values: Vec<_> = secrets
         .iter()
         .map(Secret::expose)
@@ -90,16 +71,89 @@ fn safe(value: &str, secrets: &[Secret], limit: usize) -> String {
     for secret in values {
         value = value.replace(secret, "[redacted]");
     }
-    if value.len() > limit {
-        let mut end = limit;
-        while !value.is_char_boundary(end) {
-            end -= 1;
-        }
-        value.truncate(end);
-        value.push_str("... [truncated]");
-    }
     value
 }
 
+pub(super) fn fault(error: ProviderError) -> Fault {
+    use sailry_protocol::{ErrorCode, FaultDetails, ModelFailure};
+    let code = if matches!(error, ProviderError::NotConfigured) {
+        ErrorCode::NotConfigured
+    } else {
+        ErrorCode::Unavailable
+    };
+    let reason = match error {
+        ProviderError::Authentication(_) => ModelFailure::Unauthorized,
+        ProviderError::RateLimitExceeded { .. } | ProviderError::CreditsExhausted { .. } => {
+            ModelFailure::RateLimited
+        }
+        _ => ModelFailure::Request,
+    };
+    let mut fault = Fault::new(code, error.to_string());
+    fault.details = Some(FaultDetails::ModelRequest { reason });
+    fault
+}
+
+pub(super) fn provider(error: Fault) -> ProviderError {
+    match error.code {
+        sailry_protocol::ErrorCode::NotConfigured => ProviderError::NotConfigured,
+        sailry_protocol::ErrorCode::PermissionDenied => {
+            ProviderError::Authentication(error.message)
+        }
+        _ => ProviderError::RequestFailed(error.message),
+    }
+}
+
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redacts_overlapping_credentials() {
+        let error = redact(
+            ProviderError::Authentication("access-refresh and access".into()),
+            &[Secret::new("access"), Secret::new("access-refresh")],
+        );
+        assert_eq!(
+            error,
+            ProviderError::Authentication("[redacted] and [redacted]".into())
+        );
+    }
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+
+    struct Rejected;
+    #[async_trait]
+    impl Provider for Rejected {
+        fn get_name(&self) -> &str {
+            "fixture"
+        }
+        async fn stream(
+            &self,
+            _: &ModelConfig,
+            _: &str,
+            _: &[Message],
+            _: &[rmcp::model::Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            Ok(Box::pin(futures::stream::iter([Err(
+                ProviderError::NetworkError("stream included private-access".into()),
+            )])))
+        }
+    }
+
+    #[tokio::test]
+    async fn removes_credentials_from_deferred_errors() {
+        let provider = wrap(Arc::new(Rejected), vec![Secret::new("private-access")]);
+        let mut stream = provider
+            .stream(&ModelConfig::new("model"), "", &[], &[])
+            .await
+            .unwrap();
+        let error = stream.next().await.unwrap().unwrap_err();
+        assert_eq!(
+            error,
+            ProviderError::NetworkError("stream included [redacted]".into())
+        );
+    }
+}

@@ -2,98 +2,150 @@ use super::*;
 mod authorization;
 mod call;
 pub(in crate::agent) use call::{is_summary, summary_retry, summary_scope};
-mod cloud;
 mod diagnostics;
 mod errors;
-mod features;
+mod factory;
 pub(super) mod history;
-mod hosted;
+mod legacy;
 pub(super) mod observation;
-mod opencode;
 pub(super) mod plugin;
-mod reasoning;
 pub(crate) mod registry;
-mod retry;
-mod streaming;
 pub(super) mod timing;
-mod tool_choice;
-mod transport;
 use adk_core::Llm;
-use adk_model::{
-    anthropic::{AnthropicClient, AnthropicConfig},
-    deepseek::{DeepSeekClient, DeepSeekConfig},
-    gemini::GeminiModel,
-    openai::{
-        OpenAIResponsesClient, OpenAIResponsesConfig, ReasoningSummary, RequestAdapter,
-        ResponseObserver,
-    },
-    openai_compatible::{OpenAICompatible, OpenAICompatibleConfig, ReasoningReplayField},
-    retry::RetryConfig,
-};
 pub(super) use diagnostics::cause;
+use goose_provider_types::{base::Provider as GdkProvider, model::ModelConfig};
 use sailry_protocol::{
     Authentication, Effort, SessionConfig,
     conversation::{ModelApi, Provider},
 };
-#[cfg(any(test, feature = "test-support"))]
-pub(crate) use transport::configure_fixture;
 
-fn timeouts() -> adk_model::HttpTimeouts {
-    adk_model::HttpTimeouts::new(
-        std::time::Duration::from_secs(30),
-        std::time::Duration::from_secs(300),
-    )
+pub(super) struct Binding {
+    pub provider: Arc<dyn GdkProvider>,
+    pub config: ModelConfig,
 }
 
-pub(super) async fn build(
+#[derive(Clone, Copy)]
+pub(super) enum Purpose {
+    Main,
+    Helper,
+    Compaction,
+}
+
+pub(super) async fn provider(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
     stop: &CancellationToken,
-    purpose: Purpose,
-) -> Result<Arc<dyn Llm>, Fault> {
+    _purpose: Purpose,
+) -> Result<Binding, Fault> {
     let provider = invocation.provider.as_ref().ok_or_else(|| {
         Fault::new(
             ErrorCode::NotConfigured,
             "provider was not configured when this turn was queued",
         )
     })?;
-    let config = &invocation.turn.config;
-    let inner = configure(
+    binding(
         ingress,
         provider,
-        config,
+        &invocation.turn.config,
         invocation.turn.session,
         invocation.child.is_some(),
         stop,
-        purpose,
     )
-    .await?;
-    let metadata = provider
+    .await
+}
+
+pub(super) async fn binding(
+    ingress: &Arc<Ingress>,
+    provider: &Provider,
+    config: &SessionConfig,
+    session: sailry_protocol::SessionId,
+    delegated: bool,
+    stop: &CancellationToken,
+) -> Result<Binding, Fault> {
+    if !provider.enabled
+        || (!provider.models.is_empty()
+            && !provider.models.iter().any(|model| model.id == config.model))
+    {
+        return Err(Fault::new(
+            ErrorCode::NotConfigured,
+            "provider or model was unavailable when this turn was sent",
+        ));
+    }
+    let model_config = factory::config(provider, config);
+    let inner: Arc<dyn GdkProvider> = if provider.api == ModelApi::Plugin {
+        Arc::new(plugin::Model::new(ingress, provider, config, session, stop).await?)
+    } else if provider.authentication == Authentication::ApiKey {
+        let credential = match &config.credential {
+            Some(reference) => Some(
+                ingress
+                    .model_credential(reference.clone(), config.provider)
+                    .await?,
+            ),
+            None => None,
+        };
+        let revision = credential
+            .as_ref()
+            .map(|(credential, _)| credential.revision);
+        let fingerprint = registry::fingerprint(provider, config, revision)?;
+        let key = credential
+            .as_ref()
+            .map_or("", |(_, secret)| secret.expose());
+        let inner = ingress.model_clients.get(session, fingerprint, || {
+            factory::native(
+                &ingress.model_clients,
+                provider,
+                &config.model,
+                session,
+                key,
+                reqwest::header::HeaderMap::new(),
+            )
+        })?;
+        errors::wrap(
+            inner,
+            credential.into_iter().map(|(_, secret)| secret).collect(),
+        )
+    } else {
+        crate::providers::login::validate(provider)?;
+        Arc::new(authorization::Model::new(
+            ingress, provider, config, session, delegated, stop,
+        ))
+    };
+    Ok(Binding {
+        provider: inner,
+        config: model_config,
+    })
+}
+
+// Only this boundary remains ADK-shaped until the Stage 4 state-machine switch.
+pub(super) async fn build(
+    ingress: &Arc<Ingress>,
+    invocation: &Invocation,
+    stop: &CancellationToken,
+    purpose: Purpose,
+) -> Result<Arc<dyn Llm>, Fault> {
+    let binding = provider(ingress, invocation, stop, purpose).await?;
+    let captured = invocation.provider.as_ref().unwrap();
+    let metadata = captured
         .models
         .iter()
-        .find(|model| model.id == config.model);
+        .find(|model| model.id == invocation.turn.config.model);
     Ok(Arc::new(attachments::Model {
-        inner: Arc::new(retry::Model {
-            inner,
-            ingress: ingress.clone(),
-            turn: Some(invocation.turn.id),
-            session: invocation.turn.session,
+        inner: Arc::new(legacy::Model {
+            binding,
             stop: stop.clone(),
-            limit: provider.retry_limit(),
-            compaction: matches!(purpose, Purpose::Compaction),
         }),
         ingress: ingress.clone(),
         turn: invocation.turn.id,
         vision: metadata.is_none_or(|model| model.vision)
-            && provider
+            && captured
                 .binding
                 .as_ref()
                 .and_then(|binding| binding.adapter.as_ref())
                 .is_none_or(|adapter| adapter.capabilities.vision),
-        api: attachments::api(provider, opencode::api(provider.api, &config.model)?),
-        window: history::Window::new(provider, &config.model),
+        api: attachments::api(captured, captured.api),
+        window: history::Window::new(captured, &invocation.turn.config.model),
         tools: metadata.is_none_or(|model| model.tools)
-            && provider
+            && captured
                 .binding
                 .as_ref()
                 .and_then(|binding| binding.adapter.as_ref())
@@ -103,9 +155,9 @@ pub(super) async fn build(
             node: Some(ingress.node),
             session: Some(invocation.turn.session),
             turn: Some(invocation.turn.id),
-            provider: Some(provider.id),
-            provider_name: Some(provider.name.clone()),
-            model: Some(config.model.clone()),
+            provider: Some(captured.id),
+            provider_name: Some(captured.name.clone()),
+            model: Some(invocation.turn.config.model.clone()),
             ..Default::default()
         },
     }))
@@ -119,346 +171,14 @@ pub(super) async fn configured(
     delegated: bool,
     stop: &CancellationToken,
 ) -> Result<Arc<dyn Llm>, Fault> {
-    let inner = configure(
-        ingress,
-        provider,
-        config,
-        session,
-        delegated,
-        stop,
-        Purpose::Helper,
-    )
-    .await?;
-    Ok(Arc::new(retry::Model {
-        inner,
-        ingress: ingress.clone(),
-        turn: None,
-        session,
+    Ok(Arc::new(legacy::Model {
+        binding: binding(ingress, provider, config, session, delegated, stop).await?,
         stop: stop.clone(),
-        limit: provider.retry_limit(),
-        compaction: false,
     }))
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum Purpose {
-    Main,
-    Helper,
-    Compaction,
-}
-
-async fn configure(
-    ingress: &Arc<Ingress>,
-    provider: &Provider,
-    config: &SessionConfig,
-    session: sailry_protocol::SessionId,
-    delegated: bool,
-    stop: &CancellationToken,
-    purpose: Purpose,
-) -> Result<Arc<dyn Llm>, Fault> {
-    if !provider.enabled
-        || (!provider.models.is_empty()
-            && !provider.models.iter().any(|model| model.id == config.model))
-    {
-        return Err(Fault::new(
-            ErrorCode::NotConfigured,
-            "provider or model was unavailable when this turn was sent",
-        ));
-    }
-    let api = opencode::api(provider.api, &config.model)?;
-    let metadata = provider
-        .models
-        .iter()
-        .find(|model| model.id == config.model);
-    if let Some(model) = metadata {
-        model.validate_effort(api, config.effort)?;
-        model.validate_features(api, &config.features)?;
-    } else if !config.features.is_empty() {
-        return Err(Fault::invalid(
-            "model feature choices require an advertised model",
-        ));
-    }
-    let resolved = reasoning::resolve(metadata, api, config.effort)?;
-    let effort = resolved.effort;
-    let inner = if provider.api == ModelApi::Plugin {
-        let mut config = config.clone();
-        config.effort = effort;
-        Arc::new(plugin::Model::new(ingress, provider, &config, session, stop).await?)
-            as Arc<dyn Llm>
-    } else if provider.authentication == Authentication::ApiKey {
-        let credential = match &config.credential {
-            Some(reference) => Some(
-                ingress
-                    .model_credential(reference.clone(), config.provider)
-                    .await?,
-            ),
-            None => None,
-        };
-        // Explicit local endpoints may be credential-free; never read controller defaults.
-        let key = credential
-            .as_ref()
-            .map_or("", |(_, secret)| secret.expose());
-        let origin = history::origin(
-            provider,
-            &config.model,
-            credential.as_ref().map(|(credential, _)| credential),
-            None,
-        );
-        let websocket = matches!(purpose, Purpose::Main)
-            .then(|| {
-                ingress
-                    .model_clients
-                    .capabilities
-                    .options(provider, &config.model, session)
-            })
-            .flatten();
-        let fingerprint = registry::fingerprint(
-            provider,
-            config,
-            effort,
-            credential.as_ref().map(|(value, _)| value.revision),
-            websocket.is_some(),
-        )?;
-        let entry = ingress.model_clients.get(session, fingerprint, || {
-            if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
-                opencode::build(provider, config, key, effort, session).map(registry::Built::new)
-            } else {
-                native(
-                    provider,
-                    config,
-                    key,
-                    resolved,
-                    hosted::session_adapter(provider, &config.model, session, resolved.encrypted),
-                    None,
-                    websocket,
-                )
-            }
-        })?;
-        if matches!(purpose, Purpose::Main)
-            && let Some(client) = entry.responses.clone()
-        {
-            entry.preconnect(stop, async move {
-                let _ = client.preconnect().await;
-            });
-        }
-        history::wrap(
-            errors::wrap(
-                entry.clone(),
-                credential.into_iter().map(|(_, secret)| secret).collect(),
-            ),
-            origin,
-            history::Window::new(provider, &config.model),
-        )
-    } else {
-        crate::providers::login::validate(provider)?;
-        let model = authorization::Model::new(
-            ingress,
-            provider,
-            config,
-            authorization::Context {
-                session,
-                delegated,
-                reasoning: resolved,
-                purpose,
-                stop: stop.clone(),
-            },
-        )
-        .await?;
-        let model = Arc::new(model);
-        if matches!(purpose, Purpose::Main) {
-            let _ = model.preconnect().await;
-        }
-        model as Arc<dyn Llm>
-    };
-    Ok(if api == ModelApi::Responses {
-        features::wrap(inner, config.features.clone())
-    } else {
-        inner
-    })
-}
-
 pub(in crate::agent) fn context_overflow(error: &adk_core::AdkError) -> bool {
-    retry::context_overflow(error)
-}
-
-fn request_retry() -> adk_model::request_retry::RequestRetryConfig {
-    // The outer model owns retries across HTTP and stream failures.
-    adk_model::request_retry::RequestRetryConfig::default()
-}
-
-fn native(
-    provider: &Provider,
-    config: &SessionConfig,
-    key: &str,
-    reasoning: reasoning::Resolved,
-    adapter: Option<RequestAdapter>,
-    observer: Option<ResponseObserver>,
-    websocket: Option<adk_model::openai::WsOptions>,
-) -> Result<registry::Built, Fault> {
-    let effort = reasoning.effort;
-    let injection = provider
-        .binding
-        .as_ref()
-        .filter(|_| provider.authentication == Authentication::ApiKey)
-        .and_then(|binding| binding.key_injection.as_ref());
-    let adapter = match injection {
-        Some(injection) => {
-            use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-            if !matches!(
-                provider.api,
-                ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::Anthropic
-            ) {
-                return Err(Fault::invalid(
-                    "channel protocol does not support custom key headers",
-                ));
-            }
-            let name = HeaderName::from_bytes(injection.header.as_bytes())
-                .map_err(|_| Fault::invalid("channel key header is invalid"))?;
-            let mut value = HeaderValue::from_str(&injection.template.replace("{key}", key))
-                .map_err(|_| Fault::invalid("channel key header is invalid"))?;
-            value.set_sensitive(true);
-            Some(Arc::new(
-                move |body: &mut serde_json::Value, headers: &mut HeaderMap| {
-                    if let Some(adapter) = &adapter {
-                        adapter(body, headers)?;
-                    }
-                    headers.remove("authorization");
-                    headers.remove("x-api-key");
-                    headers.insert(name.clone(), value.clone());
-                    Ok(())
-                },
-            ) as RequestAdapter)
-        }
-        None => adapter,
-    };
-    let key = if injection.is_some() { "" } else { key };
-    let adapter = tool_choice::adapter(provider.api, adapter);
-    let inner: Arc<dyn Llm> = match provider.api {
-        ModelApi::Plugin => {
-            return Err(Fault::new(
-                ErrorCode::NotConfigured,
-                "custom model protocol requires its captured translation",
-            ));
-        }
-        ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
-            return Err(Fault::invalid("OpenCode requires a conversation identity"));
-        }
-        ModelApi::AzureOpenAi | ModelApi::AzureAi => {
-            cloud::keyed(provider, &config.model, key, effort, adapter)?
-        }
-        ModelApi::DeepSeek => {
-            let mut client = DeepSeekClient::new(reasoning::deepseek(
-                DeepSeekConfig::new(key, &config.model).with_base_url(&provider.endpoint),
-                effort,
-            )?)
-            .map_err(error)?
-            .with_retry_config(RetryConfig::disabled())
-            .with_request_retry(request_retry())
-            .with_timeouts(timeouts())
-            .map_err(error)?;
-            if let Some(adapter) = adapter {
-                client = client.with_request_adapter(adapter);
-            }
-            Arc::new(client)
-        }
-        ModelApi::ChatCompletions => {
-            let mut client = OpenAICompatible::new_with_reasoning_effort(
-                OpenAICompatibleConfig::new(key, &config.model).with_base_url(&provider.endpoint),
-                reasoning::openai(effort)?,
-            )
-            .map_err(error)?
-            .with_retry_config(RetryConfig::disabled())
-            .with_request_retry(request_retry());
-            if provider.authentication == Authentication::ApiKey {
-                client = client
-                    .with_default_headers(hosted::headers())
-                    .map_err(error)?;
-                if hosted::replay(provider, &config.model) {
-                    client =
-                        client.with_reasoning_replay_field(ReasoningReplayField::ReasoningContent);
-                }
-            }
-            if let Some(adapter) = adapter {
-                client = client.with_request_adapter(adapter);
-            }
-            Arc::new(client.with_timeouts(timeouts()).map_err(error)?)
-        }
-        ModelApi::Responses => {
-            let config = OpenAIResponsesConfig::new(key, &config.model)
-                .with_base_url(&provider.endpoint)
-                // Response dialect is determined by the endpoint, not API-key presence.
-                .with_open_responses_mode(
-                    config.credential.is_none()
-                        || provider.endpoint.trim_end_matches('/') != "https://api.openai.com/v1",
-                );
-            let config = if reasoning.summary {
-                config.with_reasoning_summary(ReasoningSummary::Auto)
-            } else {
-                config
-            };
-            let client = match reasoning::openai(effort)? {
-                Some(effort) => OpenAIResponsesClient::new_with_reasoning_effort(config, effort),
-                None => OpenAIResponsesClient::new(config),
-            };
-            let mut client = client
-                .map_err(error)?
-                .with_retry_config(RetryConfig::disabled())
-                .with_request_retry(request_retry())
-                .with_response_recovery(true);
-            if provider.authentication == Authentication::ApiKey {
-                client = client
-                    .with_default_headers(hosted::headers())
-                    .map_err(error)?;
-            }
-            client = client.with_request_adapter(streaming::adapter(adapter, websocket.as_ref()));
-            if let Some(observer) = observer {
-                client = client.with_response_observer(observer);
-            }
-            let mut client = client.with_timeouts(timeouts()).map_err(error)?;
-            if let Some(options) = websocket {
-                client = client.with_websocket(options);
-            }
-            let client = Arc::new(client);
-            return Ok(registry::Built {
-                inner: client.clone(),
-                responses: Some(client),
-            });
-        }
-        ModelApi::Anthropic => {
-            let endpoint = crate::providers::anthropic_base_url(&provider.endpoint)?;
-            let native = AnthropicConfig::new(key, &config.model).with_base_url(endpoint.as_str());
-            let native = reasoning::anthropic(native, effort)?;
-            let mut client = AnthropicClient::new(native)
-                .map_err(error)?
-                .with_retry_config(RetryConfig::disabled())
-                .with_request_retry(request_retry());
-            if provider.authentication == Authentication::ApiKey {
-                client = client.with_default_headers(hosted::headers());
-            }
-            if let Some(adapter) = adapter {
-                client = client.with_request_adapter(adapter);
-            }
-            Arc::new(client.with_timeouts(timeouts()).map_err(error)?)
-        }
-        ModelApi::Gemini => {
-            let endpoint = format!("{}/", provider.endpoint.trim_end_matches('/'));
-            let mut native = GeminiModel::new_with_base_url_and_timeouts(
-                key,
-                &config.model,
-                endpoint,
-                timeouts(),
-            )
-            .map_err(error)?
-            .with_retry_config(RetryConfig::disabled())
-            .with_request_retry(request_retry())
-            .map_err(error)?;
-            if let Some(thinking) = reasoning::gemini(effort)? {
-                native = native.with_thinking_config(thinking);
-            }
-            Arc::new(native)
-        }
-    };
-    Ok(registry::Built::new(inner))
+    error.code == "model.sailry.context_overflow"
 }
 
 pub(super) fn error(error: impl std::borrow::Borrow<adk_core::AdkError>) -> Fault {

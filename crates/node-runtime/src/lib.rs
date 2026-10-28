@@ -362,18 +362,6 @@ impl Node {
         *self.ingress.authorization_endpoint.lock().unwrap() = Some(endpoint.into());
     }
 
-    /// Shortens transport deadlines in isolated model lifecycle fixtures.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_model_transport_fixture(&self, options: adk_model::openai::WsOptions) {
-        agent::model::configure_fixture(&self.ingress.model_clients, options);
-    }
-
-    /// Shortens recovery waits only in isolated model service fixtures.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_model_retry_fixture(&self, delay: std::time::Duration) {
-        self.ingress.model_clients.set_retry_fixture(delay);
-    }
-
     /// Bounds callback waits only in isolated execution fixtures.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_plugin_deadline_fixture(&self, timeout: std::time::Duration) {

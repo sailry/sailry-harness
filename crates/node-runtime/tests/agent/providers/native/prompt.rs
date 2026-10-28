@@ -94,12 +94,6 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
     let profile = fixture.node.profile().to_owned();
     fixture.node.shutdown().await.unwrap();
     let node = Node::start_empty(profile).await.unwrap();
-    if fixture.provider.api == ModelApi::Responses {
-        node.set_model_transport_fixture(adk_model::openai::WsOptions {
-            enabled: std::sync::Arc::new(|| false),
-            ..Default::default()
-        });
-    }
     let client = Client::new(if remote {
         fixture.controller.handle().remote(node.link().address())
     } else {

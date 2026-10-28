@@ -91,7 +91,6 @@ impl Fixture {
             Node::start_empty(directory.path().join("node")).await
         }
         .unwrap();
-        node.set_model_retry_fixture(Duration::ZERO);
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

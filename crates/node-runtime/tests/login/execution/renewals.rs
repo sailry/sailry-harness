@@ -186,7 +186,6 @@ pub(in super::super) async fn restart(fixture: Fixture, server: &Server, remote:
         Node::start_empty_with_authorization(directory.path().join("node"), &server.endpoint)
             .await
             .unwrap();
-    node.set_model_retry_fixture(Duration::ZERO);
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();

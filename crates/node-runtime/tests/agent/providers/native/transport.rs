@@ -628,13 +628,6 @@ async fn classifies_acknowledged_timeouts() {
     for remote in [false, true] {
         let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::AckTimeout).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        fixture
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                first_event_timeout: Duration::from_millis(200),
-                read_timeout: Duration::from_millis(50),
-                ..Default::default()
-            });
         let turn = fixture
             .submit("Wait after the provider accepts the request")
             .await;
@@ -659,13 +652,6 @@ async fn expires_connections() {
             let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let lifetime = Duration::from_secs(1);
             let long = Duration::from_secs(60);
-            fixture
-                .node
-                .set_model_transport_fixture(adk_model::openai::WsOptions {
-                    idle_timeout: if idle { lifetime } else { long },
-                    max_age: if idle { long } else { lifetime },
-                    ..Default::default()
-                });
             let mut completed = Vec::new();
             for index in 0..2 {
                 let turn = fixture.submit("Use the session connection").await;
@@ -737,12 +723,6 @@ async fn remembers_repeated_refusals() {
         .await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let lifetime = Duration::from_secs(1);
-        fixture
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                idle_timeout: lifetime,
-                ..Default::default()
-            });
         let mut completed = Vec::new();
         for (index, expected) in [1, 2, 2, 2].into_iter().enumerate() {
             let turn = fixture.submit("Use the session capability").await;
@@ -808,13 +788,6 @@ async fn falls_back_before_provider_acceptance() {
     for remote in [false, true] {
         let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::FirstTimeout).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        fixture
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                first_event_timeout: Duration::from_millis(50),
-                read_timeout: Duration::from_secs(1),
-                ..Default::default()
-            });
         let turn = fixture
             .submit("Use the fallback before any provider event")
             .await;

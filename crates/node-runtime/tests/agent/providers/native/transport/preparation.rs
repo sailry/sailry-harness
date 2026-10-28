@@ -84,12 +84,6 @@ async fn preconnects_each_turn() {
             install(&fixture, false).await;
             // Preparation must not expire its own preconnection before generation starts.
             let lifetime = Duration::from_secs(5);
-            fixture
-                .node
-                .set_model_transport_fixture(adk_model::openai::WsOptions {
-                    idle_timeout: lifetime,
-                    ..Default::default()
-                });
             for index in 0..3 {
                 let (entered, release) = fixture.node.hold_plugin_read_fixture();
                 let turn = fixture.submit("Prepare the next generation").await;

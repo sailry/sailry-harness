@@ -40,12 +40,6 @@ async fn requires_a_completed_answer() {
     })
     .await;
     let mut fixture = Fixture::empty(false, &server).await;
-    fixture
-        .node
-        .set_model_transport_fixture(adk_model::openai::WsOptions {
-            enabled: Arc::new(|| false),
-            ..Default::default()
-        });
     let mut provider = configured(&fixture, None).await;
     provider.stream_max_retries = Some(1);
     let Output::Provider(provider) = fixture

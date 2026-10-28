@@ -5,12 +5,6 @@ use serde_json::json;
 async fn keeps_compatible_pdf_turns_usable() {
     for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
         let fixture = Fixture::packages(&["files"]).await;
-        fixture
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                enabled: std::sync::Arc::new(|| false),
-                ..Default::default()
-            });
         for (index, client) in fixture.clients().into_iter().enumerate() {
             let bytes = include_bytes!("../../../src/office/fixtures/report.pdf");
             let name = if index == 0 {

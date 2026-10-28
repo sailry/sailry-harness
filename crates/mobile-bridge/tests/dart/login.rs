@@ -8,7 +8,6 @@ use sailry_protocol::{
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -72,10 +71,6 @@ fn resumes_authorization() {
                 &server.endpoint,
             ))
             .unwrap();
-        node.set_model_transport_fixture(adk_model::openai::WsOptions {
-            enabled: Arc::new(|| false),
-            ..Default::default()
-        });
         runtime.block_on(async {
             let client = Client::new(node.local());
             for name in ["context7", "github"] {

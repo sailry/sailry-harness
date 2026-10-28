@@ -141,7 +141,6 @@ where
             }
         }
     }
-    super::tool_choice::prepare(&mut request, &origin.provider);
     Ok(responses(generate(request).await?, origin))
 }
 

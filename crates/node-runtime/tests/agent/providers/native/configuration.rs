@@ -99,12 +99,6 @@ async fn applies_effort_at_request_boundary() {
             .await;
             let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             capabilities(&mut current).await;
-            current
-                .node
-                .set_model_transport_fixture(adk_model::openai::WsOptions {
-                    enabled: Arc::new(move || websocket),
-                    ..Default::default()
-                });
             select(&mut current, Effort::Max).await;
             complete(&current, "Original request").await;
             // Only the setting selected when sending belongs to the new turn.
@@ -170,12 +164,6 @@ async fn restores_effort_after_restart_and_compaction() {
         let server = summary_server().await;
         let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         capabilities(&mut current).await;
-        current
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                enabled: Arc::new(|| false),
-                ..Default::default()
-            });
         select(&mut current, Effort::Max).await;
         complete(&current, &"Initial request evidence ".repeat(200)).await;
         select(&mut current, Effort::High).await;
@@ -183,12 +171,6 @@ async fn restores_effort_after_restart_and_compaction() {
         let profile = current.node.profile().to_owned();
         current.node.shutdown().await.unwrap();
         current.node = Node::start_empty(profile).await.unwrap();
-        current
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                enabled: Arc::new(|| false),
-                ..Default::default()
-            });
         current.client = Client::new(if remote {
             current
                 .controller
@@ -263,12 +245,6 @@ async fn uses_selected_model_during_compaction() {
             panic!("provider expected")
         };
         current.provider = provider;
-        current
-            .node
-            .set_model_transport_fixture(adk_model::openai::WsOptions {
-                enabled: Arc::new(|| false),
-                ..Default::default()
-            });
         select(&mut current, Effort::Max).await;
         complete(&current, &"Initial owner request evidence ".repeat(200)).await;
         select(&mut current, Effort::High).await;

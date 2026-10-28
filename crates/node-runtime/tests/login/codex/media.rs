@@ -73,12 +73,6 @@ async fn publishes_only_completed_image() {
                 server::stream(vec![completed], true)
             }).await;
             let fixture = Fixture::packages(remote, &server, &["media"]).await;
-            fixture
-                .node
-                .set_model_transport_fixture(adk_model::openai::WsOptions {
-                    enabled: Arc::new(|| false),
-                    ..Default::default()
-                });
             let provider = configured(&fixture, None).await;
             assert!(provider.models[0].generates.is_empty());
             let mut companion = provider.clone();

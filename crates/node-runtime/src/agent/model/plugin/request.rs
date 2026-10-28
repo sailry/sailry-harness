@@ -1,155 +1,167 @@
-//! ADK remains the history and execution owner; translations receive neutral data.
-use adk_core::{LlmRequest, Part};
-use base64::Engine;
+//! A captured package receives neutral messages from the GDK provider boundary.
+use goose_provider_types::{
+    conversation::message::{Message, MessageContentBlock},
+    model::ModelConfig,
+};
 use sailry_protocol::{
     Effort, Fault,
-    plugin::model_adapter::{Capabilities, wire},
+    plugin::model_adapter::{Capabilities, Dialect, wire},
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub(super) fn convert(
-    request: LlmRequest,
+    config: &ModelConfig,
+    system: &str,
+    messages: &[Message],
+    tools: &[rmcp::model::Tool],
     endpoint: &str,
     session: &str,
     effort: Effort,
     features: BTreeMap<String, String>,
     capabilities: &Capabilities,
-    stream: bool,
+    dialect: Dialect,
 ) -> Result<wire::Request, Fault> {
-    if !capabilities.reasoning && !matches!(effort, Effort::Default | Effort::Disabled) {
-        return Err(unsupported());
-    }
-    let config = request.config.unwrap_or_default();
-    if config.temperature.is_some_and(|value| !value.is_finite())
-        || config.top_p.is_some_and(|value| !value.is_finite())
-    {
-        return Err(invalid());
-    }
-    let mut options: BTreeMap<String, Value> = config.extensions.clone().into_iter().collect();
-    for (name, value) in [
-        ("top_k", serde_json::to_value(config.top_k)),
-        (
-            "frequency_penalty",
-            serde_json::to_value(config.frequency_penalty),
-        ),
-        (
-            "presence_penalty",
-            serde_json::to_value(config.presence_penalty),
-        ),
-        ("seed", serde_json::to_value(config.seed)),
-        ("top_logprobs", serde_json::to_value(config.top_logprobs)),
-        (
-            "response_schema",
-            serde_json::to_value(&config.response_schema),
-        ),
-        (
-            "cached_content",
-            serde_json::to_value(&config.cached_content),
-        ),
-        (
-            "previous_response_id",
-            serde_json::to_value(request.previous_response_id),
-        ),
-    ] {
-        let value = value.map_err(|_| invalid())?;
-        if !value.is_null() {
-            options.insert(name.into(), value);
-        }
-    }
-    if !request.tools.is_empty() && !capabilities.tools {
-        return Err(unsupported());
-    }
-    let mut tools: Vec<_> = request
-        .tools
-        .into_iter()
-        .map(|(name, declaration)| wire::Tool {
-            name,
-            description: declaration
-                .get("description")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            parameters: declaration
-                .get("parameters")
-                .cloned()
-                .unwrap_or(declaration),
+    let schemas: Vec<Value> = match dialect {
+        Dialect::OpenAi => goose_provider_types::formats::openai::format_tools(tools)
+            .map_err(|_| Fault::invalid("model tool schema is invalid"))?
+            .into_iter()
+            .filter_map(|tool| tool.get("function").cloned())
+            .collect(),
+        Dialect::Gemini => goose_provider_types::formats::google::format_tools(tools),
+        Dialect::Generic => Vec::new(),
+    };
+    let tools = tools
+        .iter()
+        .enumerate()
+        .map(|(index, tool)| {
+            let schema = schemas.get(index);
+            wire::Tool {
+                name: tool.name.to_string(),
+                description: tool.description.as_ref().map(ToString::to_string),
+                parameters: schema
+                    .and_then(|schema| {
+                        schema
+                            .get("parameters")
+                            .or_else(|| schema.get("parametersJsonSchema"))
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::to_value(&tool.input_schema).unwrap()),
+            }
         })
         .collect();
-    tools.sort_by(|left, right| left.name.cmp(&right.name));
-    let mut messages = Vec::new();
-    let mut system = Vec::new();
-    for content in request.contents {
-        if matches!(content.role.as_str(), "system" | "developer") {
-            for part in content.parts {
-                match part {
-                    Part::Text { text } => system.push(text),
-                    _ => return Err(unsupported()),
+    let mut output = Vec::new();
+    for message in messages {
+        let assistant = message.role == rmcp::model::Role::Assistant;
+        let mut parts = Vec::new();
+        for block in &message.content {
+            match block {
+                MessageContentBlock::Text(text) => parts.push(wire::Part::Text {
+                    text: text.text.clone(),
+                }),
+                MessageContentBlock::Thinking(thinking) => parts.push(wire::Part::Reasoning {
+                    text: Some(thinking.thinking.clone()),
+                    replay: (!thinking.signature.is_empty()).then(|| thinking.signature.clone()),
+                }),
+                MessageContentBlock::RedactedThinking(thinking) => {
+                    parts.push(wire::Part::Reasoning {
+                        text: None,
+                        replay: Some(thinking.data.clone()),
+                    })
                 }
+                MessageContentBlock::Image(image) => parts.push(wire::Part::Image {
+                    media_type: image.mime_type.clone(),
+                    data: if image.data.starts_with("https://") || image.data.starts_with("http://")
+                    {
+                        wire::Image::Url {
+                            url: image.data.clone(),
+                        }
+                    } else {
+                        wire::Image::Inline {
+                            data_base64: image.data.clone(),
+                        }
+                    },
+                }),
+                MessageContentBlock::Document(document) => parts.push(wire::Part::File {
+                    media_type: document.mime_type.clone(),
+                    name: document.name.clone(),
+                    data_base64: document.data.clone(),
+                }),
+                MessageContentBlock::ToolRequest(request) => {
+                    if let Ok(call) = &request.tool_call {
+                        parts.push(wire::Part::ToolCall {
+                            id: request.id.clone(),
+                            name: call.name.to_string(),
+                            arguments: serde_json::to_value(&call.arguments).unwrap_or(Value::Null),
+                        });
+                    }
+                }
+                MessageContentBlock::ToolResponse(response) => {
+                    flush(&mut output, &mut parts, assistant);
+                    let (value, is_error) = match &response.tool_result {
+                        Ok(result) => (
+                            serde_json::to_value(result).unwrap(),
+                            result.is_error.unwrap_or(false),
+                        ),
+                        Err(error) => (serde_json::to_value(error).unwrap(), true),
+                    };
+                    let name = messages
+                        .iter()
+                        .flat_map(|message| &message.content)
+                        .find_map(|block| {
+                            let MessageContentBlock::ToolRequest(request) = block else {
+                                return None;
+                            };
+                            (request.id == response.id)
+                                .then(|| {
+                                    request
+                                        .tool_call
+                                        .as_ref()
+                                        .ok()
+                                        .map(|call| call.name.to_string())
+                                })
+                                .flatten()
+                        })
+                        .unwrap_or_default();
+                    output.push(wire::Message::Tool {
+                        call_id: response.id.clone(),
+                        name,
+                        parts: vec![wire::Part::Json { value }],
+                        is_error,
+                    });
+                }
+                _ => {}
             }
-            continue;
         }
-        let mut pending = Vec::new();
-        let assistant = matches!(content.role.as_str(), "model" | "assistant");
-        if !assistant && !matches!(content.role.as_str(), "user" | "function" | "tool") {
-            return Err(unsupported());
-        }
-        for part in content.parts {
-            if let Part::FunctionResponse {
-                function_response,
-                id,
-                ..
-            } = part
-            {
-                flush(&mut messages, &mut pending, assistant);
-                let mut parts = vec![wire::Part::Json {
-                    value: function_response.response,
-                }];
-                for part in function_response.inline_data {
-                    parts.push(binary(part.mime_type, part.data, capabilities)?);
-                }
-                for part in function_response.file_data {
-                    parts.push(reference(part.mime_type, part.file_uri, capabilities)?);
-                }
-                messages.push(wire::Message::Tool {
-                    call_id: id.filter(|id| !id.is_empty()).ok_or_else(unsupported)?,
-                    name: function_response.name,
-                    parts,
-                    is_error: false,
-                });
-            } else {
-                pending.push(convert_part(part, capabilities)?);
-            }
-        }
-        flush(&mut messages, &mut pending, assistant);
+        flush(&mut output, &mut parts, assistant);
     }
-    let max_output_tokens = config
-        .max_output_tokens
-        .map(|value| u64::try_from(value).map_err(|_| invalid()))
-        .transpose()?;
+    let params = config.request_params.clone().unwrap_or_default();
     Ok(wire::Request {
         version: "v1".into(),
-        model: request.model,
-        messages,
-        system: (!system.is_empty()).then(|| system.join("\n\n")),
+        model: config.model_name.clone(),
+        messages: output,
+        system: (!system.is_empty()).then(|| system.into()),
         tools,
-        tool_choice: if super::super::call::is_summary() {
-            wire::Choice::None
-        } else {
-            wire::Choice::Auto
-        },
+        // The v1 package input retains this field; Sailry never selects a tool.
+        tool_choice: wire::Choice::Auto,
         reasoning: wire::Reasoning {
             effort,
             replay: capabilities.reasoning,
         },
         features,
-        max_output_tokens,
+        max_output_tokens: config
+            .max_tokens
+            .and_then(|value| u64::try_from(value).ok()),
         temperature: config.temperature.map(f64::from),
-        top_p: config.top_p.map(f64::from),
-        stop: config.stop_sequences,
-        stream,
+        top_p: params.get("top_p").and_then(Value::as_f64),
+        stop: params
+            .get("stop")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default(),
+        stream: true,
         session: session.into(),
         endpoint: endpoint.into(),
-        options,
+        options: params.into_iter().collect(),
     })
 }
 
@@ -163,99 +175,4 @@ fn flush(messages: &mut Vec<wire::Message>, parts: &mut Vec<wire::Part>, assista
     } else {
         wire::Message::User { parts }
     });
-}
-
-fn convert_part(value: Part, capabilities: &Capabilities) -> Result<wire::Part, Fault> {
-    Ok(match value {
-        Part::Text { text } => wire::Part::Text { text },
-        Part::Thinking {
-            thinking,
-            signature,
-        } if capabilities.reasoning => wire::Part::Reasoning {
-            text: Some(thinking),
-            replay: signature,
-        },
-        Part::FunctionCall {
-            name,
-            args,
-            id,
-            thought_signature,
-        } if capabilities.tools => {
-            // A signed call cannot be represented as an unsigned call. Native
-            // providers continue to own their provider-specific signed history.
-            if thought_signature.is_some() {
-                return Err(unsupported());
-            }
-            wire::Part::ToolCall {
-                name,
-                arguments: args,
-                id: id.filter(|id| !id.is_empty()).ok_or_else(unsupported)?,
-            }
-        }
-        Part::InlineData {
-            mime_type, data, ..
-        } => binary(mime_type, data, capabilities)?,
-        Part::FileData {
-            mime_type,
-            file_uri,
-            ..
-        } => reference(mime_type, file_uri, capabilities)?,
-        Part::EmbeddedResource {
-            resource: adk_core::EmbeddedResource::Text(value),
-        } => wire::Part::Text { text: value.text },
-        Part::EmbeddedResource {
-            resource: adk_core::EmbeddedResource::Blob(value),
-        } => binary(
-            value
-                .mime_type
-                .unwrap_or_else(|| "application/octet-stream".into()),
-            value.data,
-            capabilities,
-        )?,
-        _ => return Err(unsupported()),
-    })
-}
-
-fn binary(
-    media_type: String,
-    data: Vec<u8>,
-    capabilities: &Capabilities,
-) -> Result<wire::Part, Fault> {
-    let data_base64 = base64::engine::general_purpose::STANDARD.encode(data);
-    if media_type.starts_with("image/") && capabilities.vision {
-        Ok(wire::Part::Image {
-            media_type,
-            data: wire::Image::Inline { data_base64 },
-        })
-    } else if capabilities.files {
-        Ok(wire::Part::File {
-            media_type,
-            name: None,
-            data_base64,
-        })
-    } else {
-        Err(unsupported())
-    }
-}
-
-fn reference(
-    media_type: String,
-    url: String,
-    capabilities: &Capabilities,
-) -> Result<wire::Part, Fault> {
-    if media_type.starts_with("image/") && capabilities.vision {
-        Ok(wire::Part::Image {
-            media_type,
-            data: wire::Image::Url { url },
-        })
-    } else {
-        Err(unsupported())
-    }
-}
-
-fn invalid() -> Fault {
-    Fault::invalid("model input has an invalid generation value")
-}
-fn unsupported() -> Fault {
-    Fault::invalid("model translation does not support this input part")
 }

@@ -33,67 +33,22 @@ impl Failure {
         }
     }
 
-    pub(super) fn model(self) -> adk_core::AdkError {
+    pub(super) fn model(self) -> goose_provider_types::errors::ProviderError {
         match self {
             Self::Request(fault) => super::response::fault(fault),
-            Self::Network(error) => network_cause(&error),
+            Self::Network(_) => goose_provider_types::errors::ProviderError::NetworkError(
+                "model connection failed".into(),
+            ),
         }
     }
 }
 
-fn network_cause(error: &reqwest::Error) -> adk_core::AdkError {
-    let (category, code, message) = if error.is_timeout() {
-        (
-            adk_core::ErrorCategory::Timeout,
-            "model.plugin.timeout",
-            "model HTTP request timed out",
-        )
-    } else if error.is_body() {
-        (
-            adk_core::ErrorCategory::Unavailable,
-            "model.plugin.stream_read",
-            "model response stream could not be read",
-        )
-    } else {
-        (
-            adk_core::ErrorCategory::Unavailable,
-            "model.plugin.connection",
-            "model connection failed",
-        )
-    };
-    let kind = if error.is_timeout() {
-        "timeout"
-    } else if error.is_connect() {
-        "connection"
-    } else if error.is_builder() {
-        "build"
-    } else {
-        "network"
-    };
-    let mut failure =
-        adk_core::AdkError::new(adk_core::ErrorComponent::Model, category, code, message)
-            .with_source(Fault::new(ErrorCode::Unavailable, message));
-    failure
-        .details
-        .metadata
-        .insert("transport".into(), "http".into());
-    failure.details.metadata.insert(
-        "transport_phase".into(),
-        if error.is_body() { "stream" } else { "request" }.into(),
-    );
-    failure
-        .details
-        .metadata
-        .insert("transport_error_kind".into(), kind.into());
-    failure
-}
-
+#[derive(Clone)]
 pub(super) struct Credentials {
     pub(super) headers: HeaderMap,
     pub(super) access: Option<Secret>,
     pub(super) key: Option<Secret>,
     pub(super) secrets: Vec<Secret>,
-    pub(super) origin: Option<adk_core::ProviderOrigin>,
 }
 
 pub(super) fn public(value: &str, credentials: &Credentials) -> Result<(), Fault> {
@@ -116,7 +71,9 @@ pub(super) fn client() -> Result<Client, Fault> {
         .retry(reqwest::retry::never())
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(30))
-        .read_timeout(std::time::Duration::from_secs(300))
+        .read_timeout(std::time::Duration::from_secs(
+            goose_providers::api_client::DEFAULT_PROVIDER_TIMEOUT_SECS,
+        ))
         .build()
         .map_err(|_| Fault::new(ErrorCode::Unavailable, "model HTTP client is unavailable"))
 }
@@ -129,7 +86,7 @@ pub(super) async fn send(
     credentials: &Credentials,
     stop: &CancellationToken,
     budget: usize,
-) -> Result<(Response, adk_core::model_observation::AttemptGuard), Failure> {
+) -> Result<Response, Failure> {
     let budget = budget.min(REQUEST_BYTES);
     let endpoint = address(endpoint)?;
     let url = address(&prepared.url)?;
@@ -230,43 +187,34 @@ pub(super) async fn send(
         request = request.body(body);
     }
     let request = request.build().map_err(Failure::Network)?;
-    let observed = adk_core::model_observation::Attempt::start(
-        adk_core::model_observation::Transport::Http,
-        None,
-    );
-    let guard = observed.guard();
-    observed.prepared(request.body().and_then(reqwest::Body::as_bytes));
-    let result = tokio::select! {
+    tokio::select! {
         biased;
-        _ = stop.cancelled() => {
-            observed.finish(adk_core::model_observation::Outcome::Cancelled);
-            return Err(cancelled().into());
-        },
-        response = client.execute(request) => response,
-    };
-    match &result {
-        Ok(response) => {
-            observed.headers(response.status().as_u16(), None);
-            if !response.status().is_success() {
-                observed.fail(&super::response::classified(
-                    super::response::http_class(response.status().as_u16()),
-                    "model endpoint returned an unsuccessful HTTP status",
-                    None,
-                    Some(response.status().as_u16()),
-                    &[],
-                ));
-            }
-        }
-        Err(error) => observed.fail(&network_cause(error)),
+        _ = stop.cancelled() => Err(cancelled().into()),
+        response = client.execute(request) => response.map_err(Failure::Network),
     }
-    result
-        .map(|response| (response, guard))
-        .map_err(Failure::Network)
 }
 
-pub(super) fn deadline(headers: &HeaderMap) -> Option<tokio::time::Instant> {
-    let delay = adk_model::retry::parse_retry_after(headers.get("retry-after")?.to_str().ok()?)?;
-    tokio::time::Instant::now().checked_add(delay)
+// Adapted from adk-model 675c02b6, Apache-2.0 (third_party_licenses/adk-LICENSE).
+// Only the RFC Retry-After parser is retained; retry policy belongs to GDK.
+pub(super) fn retry_after(headers: &HeaderMap) -> Option<std::time::Duration> {
+    let value = headers
+        .get("retry-after")?
+        .to_str()
+        .ok()?
+        .trim_matches([' ', '\t']);
+    if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) {
+        let delay = std::time::Duration::from_secs(value.parse().ok()?);
+        u64::try_from(delay.as_millis()).ok()?;
+        return Some(delay);
+    }
+    let date = httpdate::parse_http_date(value).ok()?;
+    let delay = date
+        .duration_since(std::time::SystemTime::now())
+        .unwrap_or_default();
+    let millis = delay.as_nanos().div_ceil(1_000_000);
+    u64::try_from(millis)
+        .ok()
+        .map(std::time::Duration::from_millis)
 }
 
 pub(super) fn headers(
