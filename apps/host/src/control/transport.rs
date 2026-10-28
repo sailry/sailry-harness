@@ -1,21 +1,11 @@
 //! Profile-private forwarding preserves the Node's authenticated command and subscription boundary.
-use sailry_link::{Admission, CancellationToken, Pending, Subscription, Transport};
+use sailry_link::{CancellationToken, Transport};
 use sailry_protocol::{
     ErrorCode, Fault, MAX_FRAME_BYTES, NodeId, Output, Receipt, Request, Topic, Update,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-use tokio::{
-    io::{
-        AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
-        BufReader,
-    },
-    net::UnixStream,
-    sync::oneshot,
-};
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 #[cfg(test)]
 mod tests;
 
@@ -52,144 +42,6 @@ enum Reply {
     Failed(Fault),
     Subscribed,
     Update(Box<Update>),
-}
-
-pub(crate) struct Socket {
-    path: PathBuf,
-    node: NodeId,
-}
-
-impl Socket {
-    pub(crate) async fn connect(profile: &Path) -> std::result::Result<Self, Fault> {
-        let path = profile.join("control.sock");
-        let mut stream = connect(&path).await?;
-        send(&mut stream, &Frame::Hello { version: 1 }).await?;
-        let response: Response = receive(&mut BufReader::new(stream)).await?;
-        if response.version != 1 || !matches!(response.body, Reply::Hello) {
-            return Err(Fault::invalid("invalid Host connection response"));
-        }
-        Ok(Self {
-            path,
-            node: response.node,
-        })
-    }
-
-    async fn open_frame(
-        &self,
-        frame: &Frame,
-        command: bool,
-    ) -> std::result::Result<BufReader<UnixStream>, Fault> {
-        let bytes = encode(frame)?;
-        let mut stream = connect(&self.path).await?;
-        stream.write_all(&bytes).await.map_err(|_| {
-            Fault::new(
-                if command {
-                    ErrorCode::OutcomeUnknown
-                } else {
-                    ErrorCode::Unavailable
-                },
-                "Host request transmission is unconfirmed",
-            )
-        })?;
-        Ok(BufReader::new(stream))
-    }
-}
-
-impl Transport for Socket {
-    fn target(&self) -> NodeId {
-        self.node
-    }
-
-    fn dispatch(&self, request: Request) -> Pending<'_, std::result::Result<Admission, Fault>> {
-        Box::pin(async move {
-            let id = request.id;
-            let durable = request.command.durable();
-            let mut reader = self
-                .open_frame(
-                    &Frame::Request {
-                        version: 1,
-                        request: Box::new(request),
-                    },
-                    true,
-                )
-                .await?;
-            let response: Response = receive(&mut reader).await.map_err(unconfirmed)?;
-            check(&response, self.node).map_err(unconfirmed)?;
-            let receipt = match response.body {
-                Reply::Admitted(receipt) if receipt.id == id && receipt.durable == durable => {
-                    receipt
-                }
-                Reply::Failed(error) => return Err(error),
-                _ => {
-                    return Err(unconfirmed(Fault::invalid(
-                        "Host admission response is mismatched",
-                    )));
-                }
-            };
-            let (sender, completion) = oneshot::channel();
-            let node = self.node;
-            tokio::spawn(async move {
-                let result = async {
-                    let response: Response = receive(&mut reader).await.map_err(unconfirmed)?;
-                    check(&response, node).map_err(unconfirmed)?;
-                    match response.body {
-                        Reply::Completed(result) => *result,
-                        _ => Err(unconfirmed(Fault::invalid(
-                            "Host completion response is mismatched",
-                        ))),
-                    }
-                }
-                .await;
-                let _ = sender.send(result);
-            });
-            Ok(Admission {
-                receipt,
-                completion,
-            })
-        })
-    }
-
-    fn subscribe(
-        &self,
-        topic: Topic,
-    ) -> Pending<'_, std::result::Result<Box<dyn Subscription>, Fault>> {
-        Box::pin(async move {
-            let mut reader = self
-                .open_frame(&Frame::Subscribe { version: 1, topic }, false)
-                .await?;
-            let response: Response = receive(&mut reader).await?;
-            check(&response, self.node)?;
-            match response.body {
-                Reply::Subscribed => Ok(Box::new(Updates {
-                    reader,
-                    node: self.node,
-                    payload: Vec::new(),
-                }) as Box<dyn Subscription>),
-                Reply::Failed(error) => Err(error),
-                _ => Err(Fault::invalid("invalid Host subscription response")),
-            }
-        })
-    }
-}
-
-struct Updates {
-    reader: BufReader<UnixStream>,
-    node: NodeId,
-    payload: Vec<u8>,
-}
-
-impl Subscription for Updates {
-    fn next(&mut self) -> Pending<'_, std::result::Result<Update, Fault>> {
-        Box::pin(async move {
-            let response: Response = receive_buffered(&mut self.reader, &mut self.payload).await?;
-            check(&response, self.node)?;
-            match response.body {
-                Reply::Update(update) => Ok(*update),
-                Reply::Failed(error) => Err(error),
-                _ => Err(Fault::invalid("invalid Host subscription frame")),
-            }
-        })
-    }
 }
 
 pub(super) async fn serve<R, W>(
@@ -262,15 +114,6 @@ where
     }
 }
 
-async fn connect(path: &Path) -> std::result::Result<UnixStream, Fault> {
-    UnixStream::connect(path).await.map_err(|_| {
-        Fault::new(
-            ErrorCode::Unavailable,
-            "Host is not running; use sailry start",
-        )
-    })
-}
-
 fn encode(value: &impl Serialize) -> std::result::Result<Vec<u8>, Fault> {
     let mut bytes =
         serde_json::to_vec(value).map_err(|_| Fault::invalid("invalid Host transport frame"))?;
@@ -289,60 +132,6 @@ async fn send(
         .write_all(&encode(value)?)
         .await
         .map_err(|_| Fault::new(ErrorCode::Unavailable, "Host transport disconnected"))
-}
-
-async fn receive<T: serde::de::DeserializeOwned>(
-    reader: &mut (impl AsyncBufRead + Unpin),
-) -> std::result::Result<T, Fault> {
-    receive_buffered(reader, &mut Vec::new()).await
-}
-
-async fn receive_buffered<T: serde::de::DeserializeOwned>(
-    reader: &mut (impl AsyncBufRead + Unpin),
-    payload: &mut Vec<u8>,
-) -> std::result::Result<T, Fault> {
-    loop {
-        let buffer = reader
-            .fill_buf()
-            .await
-            .map_err(|_| Fault::new(ErrorCode::Unavailable, "Host transport disconnected"))?;
-        if buffer.is_empty() {
-            return Err(Fault::new(
-                ErrorCode::Unavailable,
-                "Host transport disconnected",
-            ));
-        }
-        let newline = buffer.iter().position(|byte| *byte == b'\n');
-        let count = newline.map_or(buffer.len(), |position| position + 1);
-        if payload.len() + count > MAX_FRAME_BYTES {
-            return Err(Fault::invalid("Host transport frame exceeds its limit"));
-        }
-        payload.extend_from_slice(&buffer[..count]);
-        reader.consume(count);
-        if newline.is_some() {
-            let response = serde_json::from_slice(payload)
-                .map_err(|_| Fault::invalid("invalid Host transport frame"));
-            payload.clear();
-            return response;
-        }
-    }
-}
-
-fn check(response: &Response, node: NodeId) -> std::result::Result<(), Fault> {
-    if response.version != 1 || response.node != node {
-        return Err(Fault::new(
-            ErrorCode::WrongTarget,
-            "Host response identity is mismatched",
-        ));
-    }
-    Ok(())
-}
-
-fn unconfirmed(error: Fault) -> Fault {
-    Fault::new(
-        ErrorCode::OutcomeUnknown,
-        format!("Host outcome is unconfirmed: {}", error.message),
-    )
 }
 
 async fn respond(
